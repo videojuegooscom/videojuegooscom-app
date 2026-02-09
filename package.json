@@ -11,7 +11,11 @@
     "web": "expo start --web",
     "web:clear": "expo start --web -c",
     "lint": "expo lint",
-    "reset-project": "node ./scripts/reset-project.js"
+    "reset-project": "node ./scripts/reset-project.js",
+
+    "build": "expo export -p web",
+    "build:vercel": "expo export -p web",
+    "vercel-build": "npm run build:vercel"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
