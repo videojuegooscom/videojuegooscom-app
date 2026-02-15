@@ -42,3 +42,8 @@ app-example
 /ios
 /android
 .vercel
+
+# env (NO subir)
+.env
+.env.*
+!.env.example
