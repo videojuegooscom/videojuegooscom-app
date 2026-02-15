@@ -10,10 +10,19 @@ export default function RootLayout() {
         animation: "fade",
       }}
     >
-      {/* ✅ Rutas reales (carpeta app/admin existe) */}
+      {/* Public */}
+      <Stack.Screen name="index" />
+      <Stack.Screen name="catalogo" />
+      <Stack.Screen name="carrito" />
+      <Stack.Screen name="checkout" />
+
+      {/* Producto (ruta /producto/[id]) */}
+      <Stack.Screen name="producto/[id]" />
+
+      {/* Admin (carpeta app/admin) */}
       <Stack.Screen name="admin" />
 
-      {/* ✅ Modal global */}
+      {/* Modal global */}
       <Stack.Screen
         name="modal"
         options={{

@@ -12,7 +12,6 @@
     "web:clear": "expo start --web -c",
     "lint": "expo lint",
     "reset-project": "node ./scripts/reset-project.js",
-
     "build": "expo export -p web",
     "build:vercel": "expo export -p web",
     "vercel-build": "npm run build:vercel"
@@ -51,7 +50,8 @@
     "babel-plugin-module-resolver": "^5.0.2",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vercel": "^50.15.1"
   },
   "engines": {
     "node": ">=20"

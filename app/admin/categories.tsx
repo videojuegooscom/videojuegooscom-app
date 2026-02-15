@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+// app/admin/categories.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
+  StatusBar,
   Switch,
   Text,
   TextInput,
@@ -20,8 +22,9 @@ const COLORS = {
   text: "#FFFFFF",
   muted: "rgba(255,255,255,0.75)",
   accent: "#00AAE4",
+  accent2: "rgba(0,170,228,0.16)",
+  accentBorder: "rgba(0,170,228,0.45)",
   danger: "#FF3B30",
-  ok: "#22C55E",
 };
 
 type CategoryRow = {
@@ -36,7 +39,7 @@ type CategoryRow = {
 };
 
 function slugify(input: string) {
-  return input
+  return (input ?? "")
     .trim()
     .toLowerCase()
     .normalize("NFD")
@@ -46,41 +49,121 @@ function slugify(input: string) {
     .slice(0, 60);
 }
 
+function toIntSafe(v: string, fallback = 0) {
+  const n = Number(String(v ?? "").replace(",", "."));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.trunc(n);
+}
+
+/**
+ * Back inteligente:
+ * - Si hay stack: back()
+ * - Si entraste por URL directa/refresh: vuelve al admin home
+ */
+function smartBackAdminHome() {
+  try {
+    if (typeof router.canGoBack === "function" && router.canGoBack()) {
+      router.back();
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  router.replace("/admin");
+}
+
+function ChipButton({
+  label,
+  onPress,
+  variant,
+}: {
+  label: string;
+  onPress: () => void;
+  variant?: "primary" | "danger" | "ghost";
+}) {
+  const isPrimary = variant === "primary";
+  const isDanger = variant === "danger";
+
+  const borderColor = isPrimary
+    ? COLORS.accentBorder
+    : isDanger
+      ? "rgba(255,59,48,0.40)"
+      : COLORS.border;
+
+  const backgroundColor = isPrimary
+    ? COLORS.accent2
+    : isDanger
+      ? "rgba(255,59,48,0.14)"
+      : "rgba(255,255,255,0.06)";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderWidth: 1,
+        borderColor,
+        backgroundColor,
+        opacity: pressed ? 0.88 : 1,
+      })}
+    >
+      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function AdminCategories() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [items, setItems] = useState<CategoryRow[]>([]);
+  const [screenErr, setScreenErr] = useState<string | null>(null);
 
+  const [items, setItems] = useState<CategoryRow[]>([]);
+  const itemsRef = useRef<CategoryRow[]>([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  // Modal state
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [modalErr, setModalErr] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<CategoryRow | null>(null);
+
   const [editing, setEditing] = useState<CategoryRow | null>(null);
+  const isEdit = !!editing;
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [sortOrder, setSortOrder] = useState("0");
   const [isActive, setIsActive] = useState(true);
 
-  const isEdit = !!editing;
-
-  const title = useMemo(() => (isEdit ? "Editar categoría" : "Nueva categoría"), [isEdit]);
+  const modalTitle = useMemo(
+    () => (isEdit ? "Editar categoría" : "Nueva categoría"),
+    [isEdit]
+  );
 
   async function load() {
     setLoading(true);
-    setErr(null);
+    setScreenErr(null);
 
-    const { data, error } = await supabase
-      .from("categories")
-      .select("id,name,slug,sort_order,is_active,image_url,created_at,updated_at")
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id,name,slug,sort_order,is_active,image_url,created_at,updated_at")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
 
-    if (error) {
-      setErr(error.message);
+      if (error) throw error;
+
+      const rows = (data ?? []) as CategoryRow[];
+      setItems(rows);
+    } catch (e: any) {
+      setScreenErr(e?.message ?? "Error cargando categorías.");
       setItems([]);
-    } else {
-      setItems((data ?? []) as CategoryRow[]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -93,7 +176,7 @@ export default function AdminCategories() {
     setSlug("");
     setSortOrder("0");
     setIsActive(true);
-    setErr(null);
+    setModalErr(null);
   }
 
   function openCreate() {
@@ -107,84 +190,107 @@ export default function AdminCategories() {
     setSlug(c.slug ?? "");
     setSortOrder(String(c.sort_order ?? 0));
     setIsActive(!!c.is_active);
-    setErr(null);
+    setModalErr(null);
     setOpen(true);
   }
 
   async function save() {
+    if (saving) return;
+
     setSaving(true);
-    setErr(null);
+    setModalErr(null);
 
     const cleanName = name.trim();
     const cleanSlug = slugify(slug || cleanName);
-    const so = Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0;
+    const so = toIntSafe(sortOrder, 0);
 
     if (!cleanName) {
-      setErr("Pon un nombre de categoría.");
+      setModalErr("Pon un nombre de categoría.");
       setSaving(false);
       return;
     }
     if (!cleanSlug) {
-      setErr("Slug inválido.");
+      setModalErr("Slug inválido.");
       setSaving(false);
       return;
     }
 
-    if (editing) {
-      const { error } = await supabase
-        .from("categories")
-        .update({
+    try {
+      if (editing) {
+        const { error } = await supabase
+          .from("categories")
+          .update({
+            name: cleanName,
+            slug: cleanSlug,
+            sort_order: so,
+            is_active: isActive,
+          })
+          .eq("id", editing.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("categories").insert({
           name: cleanName,
           slug: cleanSlug,
           sort_order: so,
           is_active: isActive,
-        })
-        .eq("id", editing.id);
+        });
 
-      if (error) {
-        setErr(error.message);
-        setSaving(false);
-        return;
+        if (error) throw error;
       }
-    } else {
-      const { error } = await supabase.from("categories").insert({
-        name: cleanName,
-        slug: cleanSlug,
-        sort_order: so,
-        is_active: isActive,
-      });
 
-      if (error) {
-        setErr(error.message);
-        setSaving(false);
-        return;
-      }
+      setOpen(false);
+      resetForm();
+      await load();
+    } catch (e: any) {
+      setModalErr(e?.message ?? "Error guardando categoría.");
+    } finally {
+      setSaving(false);
     }
-
-    setOpen(false);
-    resetForm();
-    await load();
-    setSaving(false);
   }
 
   async function toggleActive(c: CategoryRow) {
+    // Optimista: actualizamos UI y si falla, rollback.
+    const prev = itemsRef.current;
+    const next = prev.map((x) => (x.id === c.id ? { ...x, is_active: !x.is_active } : x));
+    setItems(next);
+
     const { error } = await supabase
       .from("categories")
       .update({ is_active: !c.is_active })
       .eq("id", c.id);
 
-    if (!error) load();
+    if (error) {
+      setItems(prev);
+      setScreenErr(error.message);
+    }
   }
 
-  async function removeCategory(c: CategoryRow) {
-    // Ojo: si tienes productos con FK, al borrar hará SET NULL en products.category_id (por tu SQL).
-    const { error } = await supabase.from("categories").delete().eq("id", c.id);
-    if (error) setErr(error.message);
-    else load();
+  function askRemove(c: CategoryRow) {
+    setConfirmDelete(c);
+  }
+
+  async function removeCategoryConfirmed() {
+    const c = confirmDelete;
+    if (!c) return;
+
+    setConfirmDelete(null);
+    setScreenErr(null);
+
+    try {
+      // Ojo: si tienes productos con FK, por tu SQL debería hacer SET NULL en products.category_id
+      const { error } = await supabase.from("categories").delete().eq("id", c.id);
+      if (error) throw error;
+      await load();
+    } catch (e: any) {
+      setScreenErr(e?.message ?? "Error borrando categoría.");
+    }
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      <StatusBar barStyle="light-content" />
+
       {/* Header */}
       <View
         style={{
@@ -197,42 +303,44 @@ export default function AdminCategories() {
           gap: 10,
         }}
       >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View style={{ flex: 1, paddingRight: 10 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <View style={{ flex: 1 }}>
             <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900" }}>Categorías</Text>
             <Text style={{ color: COLORS.muted, marginTop: 4 }}>
-              Crear, ordenar y activar/desactivar.
+              Crea, ordena y activa/desactiva. (El orden manda en el catálogo.)
             </Text>
           </View>
 
           <Pressable
-            onPress={() => router.back()}
-            style={{
+            onPress={smartBackAdminHome}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.88 : 1,
               paddingVertical: 10,
               paddingHorizontal: 14,
               borderRadius: 999,
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: "rgba(255,255,255,0.05)",
-            }}
+            })}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
+            <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
           </Pressable>
         </View>
 
         <Pressable
           onPress={openCreate}
-          style={{
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.9 : 1,
             borderRadius: 14,
             paddingVertical: 12,
             alignItems: "center",
             backgroundColor: COLORS.accent,
-          }}
+          })}
         >
           <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>+ Nueva categoría</Text>
         </Pressable>
 
-        {err ? <Text style={{ color: "#FCA5A5" }}>{err}</Text> : null}
+        {!!screenErr && <Text style={{ color: "#FCA5A5" }}>{screenErr}</Text>}
       </View>
 
       {/* Body */}
@@ -254,7 +362,9 @@ export default function AdminCategories() {
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>No hay categorías todavía.</Text>
-              <Text style={{ color: COLORS.muted }}>Crea la primera y empieza a meter productos.</Text>
+              <Text style={{ color: COLORS.muted }}>
+                Crea la primera. Luego ya metemos productos y a vender.
+              </Text>
             </View>
           ) : (
             items.map((c) => (
@@ -271,15 +381,18 @@ export default function AdminCategories() {
               >
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{c.name}</Text>
-                    <Text style={{ color: COLORS.muted, marginTop: 6 }}>
-                      slug: <Text style={{ color: COLORS.text, fontWeight: "800" }}>{c.slug}</Text>{" "}
-                      · orden:{" "}
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                      {c.name}
+                    </Text>
+
+                    <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 18 }}>
+                      slug: <Text style={{ color: COLORS.text, fontWeight: "800" }}>{c.slug}</Text>
+                      {"  "}· orden:{" "}
                       <Text style={{ color: COLORS.text, fontWeight: "800" }}>{c.sort_order}</Text>
                     </Text>
                   </View>
 
-                  <View style={{ alignItems: "flex-end", gap: 8 }}>
+                  <View style={{ alignItems: "flex-end", gap: 10 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                       <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
                         {c.is_active ? "Activa" : "Oculta"}
@@ -288,33 +401,8 @@ export default function AdminCategories() {
                     </View>
 
                     <View style={{ flexDirection: "row", gap: 10 }}>
-                      <Pressable
-                        onPress={() => openEdit(c)}
-                        style={{
-                          borderRadius: 999,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderWidth: 1,
-                          borderColor: "rgba(0,170,228,0.35)",
-                          backgroundColor: "rgba(0,170,228,0.14)",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>Editar</Text>
-                      </Pressable>
-
-                      <Pressable
-                        onPress={() => removeCategory(c)}
-                        style={{
-                          borderRadius: 999,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderWidth: 1,
-                          borderColor: "rgba(255,59,48,0.40)",
-                          backgroundColor: "rgba(255,59,48,0.14)",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>Borrar</Text>
-                      </Pressable>
+                      <ChipButton label="Editar" variant="primary" onPress={() => openEdit(c)} />
+                      <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(c)} />
                     </View>
                   </View>
                 </View>
@@ -344,13 +432,17 @@ export default function AdminCategories() {
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>{title}</Text>
+            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
+              {modalTitle}
+            </Text>
 
             <TextInput
               value={name}
               onChangeText={(v) => {
                 setName(v);
+                // Solo autogeneramos slug en "crear".
                 if (!isEdit) setSlug(slugify(v));
+                setModalErr(null);
               }}
               placeholder="Nombre (ej: PlayStation 5)"
               placeholderTextColor="rgba(255,255,255,0.45)"
@@ -366,8 +458,11 @@ export default function AdminCategories() {
 
             <TextInput
               value={slug}
-              onChangeText={setSlug}
-              placeholder="Slug (auto) (ej: playstation-5)"
+              onChangeText={(v) => {
+                setSlug(v);
+                setModalErr(null);
+              }}
+              placeholder="Slug (ej: playstation-5)"
               placeholderTextColor="rgba(255,255,255,0.45)"
               autoCapitalize="none"
               style={{
@@ -382,7 +477,10 @@ export default function AdminCategories() {
 
             <TextInput
               value={sortOrder}
-              onChangeText={setSortOrder}
+              onChangeText={(v) => {
+                setSortOrder(v);
+                setModalErr(null);
+              }}
               placeholder="Orden (0, 10, 20...)"
               placeholderTextColor="rgba(255,255,255,0.45)"
               keyboardType="numeric"
@@ -401,7 +499,7 @@ export default function AdminCategories() {
               <Switch value={isActive} onValueChange={setIsActive} />
             </View>
 
-            {err ? <Text style={{ color: "#FCA5A5" }}>{err}</Text> : null}
+            {!!modalErr && <Text style={{ color: "#FCA5A5" }}>{modalErr}</Text>}
 
             <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
               <Pressable
@@ -409,14 +507,15 @@ export default function AdminCategories() {
                   setOpen(false);
                   resetForm();
                 }}
-                style={{
+                style={({ pressed }) => ({
+                  opacity: pressed ? 0.88 : 1,
                   borderRadius: 999,
                   paddingVertical: 12,
                   paddingHorizontal: 14,
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   backgroundColor: "rgba(255,255,255,0.06)",
-                }}
+                })}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>Cancelar</Text>
               </Pressable>
@@ -424,18 +523,63 @@ export default function AdminCategories() {
               <Pressable
                 onPress={save}
                 disabled={saving}
-                style={{
+                style={({ pressed }) => ({
+                  opacity: saving ? 0.6 : pressed ? 0.9 : 1,
                   borderRadius: 999,
                   paddingVertical: 12,
                   paddingHorizontal: 14,
                   backgroundColor: COLORS.accent,
-                  opacity: saving ? 0.6 : 1,
-                }}
+                })}
               >
                 <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
                   {saving ? "Guardando..." : "Guardar"}
                 </Text>
               </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm delete */}
+      <Modal
+        visible={!!confirmDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmDelete(null)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            padding: 16,
+            justifyContent: "center",
+          }}
+        >
+          <View
+            style={{
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: "rgba(255,59,48,0.35)",
+              backgroundColor: COLORS.bg2,
+              padding: 16,
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
+              Borrar categoría
+            </Text>
+            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+              Vas a borrar{" "}
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                {confirmDelete?.name ?? ""}
+              </Text>
+              .{"\n\n"}
+              Si hay productos con esa categoría, por tu configuración deberían quedar sin categoría (category_id = null).
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+              <ChipButton label="Cancelar" variant="ghost" onPress={() => setConfirmDelete(null)} />
+              <ChipButton label="Sí, borrar" variant="danger" onPress={removeCategoryConfirmed} />
             </View>
           </View>
         </View>

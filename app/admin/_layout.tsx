@@ -1,7 +1,7 @@
-// app/app/(admin)/_layout.tsx
+// app/admin/_layout.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { Slot, router, usePathname } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 export default function AdminLayout() {
@@ -10,68 +10,70 @@ export default function AdminLayout() {
 
   // Evita doble navegación / loops cuando onAuthStateChange dispara varias veces
   const navLockRef = useRef(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     async function checkAdmin() {
       try {
         const { data: sess, error: sessErr } = await supabase.auth.getSession();
         if (sessErr) throw sessErr;
 
-        const session = sess.session;
-        const userId = session?.user?.id;
+        const userId = sess.session?.user?.id;
 
-        // Si NO hay sesión -> mandar a login admin
+        // Sin sesión -> a login
         if (!userId) {
           if (!navLockRef.current && pathname !== "/admin/login") {
             navLockRef.current = true;
             router.replace("/admin/login");
             setTimeout(() => (navLockRef.current = false), 350);
           }
-          if (mounted) setReady(true);
+          if (mountedRef.current) setReady(true);
           return;
         }
 
-        // Si hay sesión -> comprobar role
+        // Con sesión -> role admin
         const { data: profile, error: profErr } = await supabase
           .from("profiles")
           .select("role")
           .eq("id", userId)
           .maybeSingle<{ role: string | null }>();
 
-        if (profErr || profile?.role !== "admin") {
-          // No admin -> fuera al público
+        const isAdmin = !profErr && (profile?.role ?? "") === "admin";
+
+        if (!isAdmin) {
           if (!navLockRef.current) {
             navLockRef.current = true;
             router.replace("/");
             setTimeout(() => (navLockRef.current = false), 350);
           }
-          if (mounted) setReady(true);
+          if (mountedRef.current) setReady(true);
           return;
         }
 
-        // Admin OK
-        if (mounted) setReady(true);
+        // OK
+        if (mountedRef.current) setReady(true);
       } catch {
-        // Si algo falla, por seguridad lo mandamos a login admin
+        // fallo -> login admin (seguridad)
         if (!navLockRef.current && pathname !== "/admin/login") {
           navLockRef.current = true;
           router.replace("/admin/login");
           setTimeout(() => (navLockRef.current = false), 350);
         }
-        if (mounted) setReady(true);
+        if (mountedRef.current) setReady(true);
       }
     }
 
     checkAdmin();
 
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      // Re-chequea en login/logout
       checkAdmin();
     });
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       sub?.subscription?.unsubscribe?.();
     };
   }, [pathname]);
@@ -84,5 +86,14 @@ export default function AdminLayout() {
     );
   }
 
-  return <Slot />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      {/* Importante: deja que Expo Router resuelva los screens dentro de /admin */}
+      <Stack.Screen name="login" />
+      <Stack.Screen name="index" />
+      <Stack.Screen name="products" />
+      <Stack.Screen name="categories" />
+      <Stack.Screen name="inventario" />
+    </Stack>
+  );
 }
