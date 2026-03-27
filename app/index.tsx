@@ -1,8 +1,8 @@
-// app/index.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  LayoutChangeEvent,
   Linking,
   Platform,
   Pressable,
@@ -36,7 +36,7 @@ const BRAND = {
   name: "Videojuegoos",
   whatsappPhoneE164: "+34627748741",
   whatsappPrefill:
-    "Hola, vengo desde Videojuegoos.com. Quiero vender o tasar mi consola/electrónica. ¿Te paso fotos y modelo?",
+    "Hola, vengo desde videojuegoszaragoza.com. Quiero vender o tasar mi consola/electrónica. ¿Te paso fotos y modelo?",
 };
 
 type FeaturedProduct = {
@@ -53,13 +53,26 @@ const HOME_CATEGORIES: Array<{
   emoji: string;
   cat: string;
   span?: 1 | 2;
+  cta?: string;
 }> = [
-  { title: "PlayStation 5", emoji: "🎮", cat: "playstation-5" },
-  { title: "PlayStation 4", emoji: "🕹️", cat: "playstation-4" },
-  { title: "Nintendo Switch", emoji: "🟥", cat: "nintendo-switch" },
-  { title: "Xbox", emoji: "🟩", cat: "xbox" },
-  { title: "Reparación / Limpieza", emoji: "🛠️", cat: "reparaciones", span: 2 },
-  { title: "Otros (electrónica)", emoji: "📦", cat: "electronica", span: 2 },
+  { title: "PlayStation 5", emoji: "🎮", cat: "playstation-5", cta: "Ver categoría →" },
+  { title: "PlayStation 4", emoji: "🕹️", cat: "playstation-4", cta: "Ver categoría →" },
+  { title: "Nintendo Switch", emoji: "🟥", cat: "nintendo-switch", cta: "Ver categoría →" },
+  { title: "Xbox", emoji: "🟩", cat: "xbox", cta: "Ver categoría →" },
+  {
+    title: "Reparación / Limpieza",
+    emoji: "🛠️",
+    cat: "reparaciones",
+    span: 2,
+    cta: "Pedir información →",
+  },
+  {
+    title: "Otros (electrónica)",
+    emoji: "📦",
+    cat: "electronica",
+    span: 2,
+    cta: "Ver categoría →",
+  },
 ];
 
 function clampText(s: string, max = 400) {
@@ -262,11 +275,13 @@ function CategoryCard({
   emoji,
   onPress,
   span = 1,
+  cta,
 }: {
   title: string;
   emoji: string;
   onPress: () => void;
   span?: 1 | 2;
+  cta?: string;
 }) {
   return (
     <Pressable
@@ -294,7 +309,7 @@ function CategoryCard({
         {title}
       </Text>
       <Text style={{ color: COLORS.muted, marginTop: 2, fontSize: 12 }}>
-        Ver productos →
+        {cta ?? "Ver categoría →"}
       </Text>
     </Pressable>
   );
@@ -362,17 +377,17 @@ function FeaturedOfferCard({
         </Text>
 
         <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-          Mientras tanto, puedes ver todo el catálogo disponible o escribirnos por
-          WhatsApp para preguntar qué producto te recomendamos ahora mismo.
+          Mientras tanto, puedes explorar las categorías disponibles o escribirnos
+          por WhatsApp para preguntarnos qué producto te recomendamos ahora mismo.
         </Text>
 
         <View style={{ flexDirection: isWide ? "row" : "column", gap: 12 }}>
           <View style={{ flex: 1 }}>
             <PrimaryButton
-              title="Ver catálogo"
-              subtitle="Explora los productos disponibles"
+              title="Ver categorías"
+              subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
               rightHint="Ir →"
-              onPress={() => router.push("/catalogo")}
+              onPress={() => router.push("/")}
             />
           </View>
 
@@ -388,7 +403,7 @@ function FeaturedOfferCard({
     );
   }
 
-  const waText = `Hola, vengo desde Videojuegoos.com.
+  const waText = `Hola, vengo desde videojuegoszaragoza.com.
 
 Me interesa esta oferta de la semana:
 ${item.title}
@@ -544,6 +559,9 @@ export default function HomeScreen() {
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
 
+  const scrollRef = useRef<ScrollView | null>(null);
+  const [categoriesY, setCategoriesY] = useState(0);
+
   const containerStyle = useMemo(
     () => ({
       width: "100%" as const,
@@ -552,6 +570,16 @@ export default function HomeScreen() {
     }),
     []
   );
+
+  const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
+    setCategoriesY(e.nativeEvent.layout.y);
+  }, []);
+
+  const scrollToCategories = useCallback(() => {
+    if (!scrollRef.current) return;
+    const target = Math.max(categoriesY - 12, 0);
+    scrollRef.current.scrollTo({ y: target, animated: true });
+  }, [categoriesY]);
 
   useEffect(() => {
     let alive = true;
@@ -565,7 +593,18 @@ export default function HomeScreen() {
         const selectBase =
           "id,title,description,price_eur,status,is_active,updated_at,created_at,category:categories(name),image_url";
 
-        const buildQuery = (selectStr: string) =>
+        const buildFeaturedQuery = (selectStr: string) =>
+          supabase
+            .from("products")
+            .select(selectStr)
+            .eq("is_active", true)
+            .eq("status", "PUBLISHED")
+            .eq("is_featured_home", true)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const buildFallbackQuery = (selectStr: string) =>
           supabase
             .from("products")
             .select(selectStr)
@@ -577,22 +616,48 @@ export default function HomeScreen() {
 
         let data: any = null;
 
-        const res1 = await buildQuery(selectWithImages);
+        const trySmartQuery = async () => {
+          const featuredRes1 = await buildFeaturedQuery(selectWithImages);
 
-        if (res1.error) {
-          const msg = String(res1.error.message ?? "");
+          if (!featuredRes1.error) {
+            return featuredRes1.data;
+          }
+
+          const msg = String(featuredRes1.error.message ?? "");
           const looksLikeMissingColumn =
             msg.includes("column") ||
             msg.includes("does not exist") ||
             msg.includes("schema cache");
 
-          if (!looksLikeMissingColumn) throw res1.error;
+          if (!looksLikeMissingColumn) throw featuredRes1.error;
 
-          const res2 = await buildQuery(selectBase);
-          if (res2.error) throw res2.error;
-          data = res2.data;
-        } else {
-          data = res1.data;
+          const featuredRes2 = await buildFeaturedQuery(selectBase);
+          if (featuredRes2.error) throw featuredRes2.error;
+          if (featuredRes2.data) return featuredRes2.data;
+
+          return null;
+        };
+
+        data = await trySmartQuery();
+
+        if (!data) {
+          const fallbackRes1 = await buildFallbackQuery(selectWithImages);
+
+          if (!fallbackRes1.error) {
+            data = fallbackRes1.data;
+          } else {
+            const msg = String(fallbackRes1.error.message ?? "");
+            const looksLikeMissingColumn =
+              msg.includes("column") ||
+              msg.includes("does not exist") ||
+              msg.includes("schema cache");
+
+            if (!looksLikeMissingColumn) throw fallbackRes1.error;
+
+            const fallbackRes2 = await buildFallbackQuery(selectBase);
+            if (fallbackRes2.error) throw fallbackRes2.error;
+            data = fallbackRes2.data;
+          }
         }
 
         if (!alive) return;
@@ -631,7 +696,6 @@ export default function HomeScreen() {
       <StatusBar barStyle="light-content" />
 
       <SafeAreaView style={{ backgroundColor: COLORS.bg2 }}>
-        {/* Announcement Bar */}
         <View
           style={{
             backgroundColor: "rgba(255, 215, 0, 0.20)",
@@ -673,7 +737,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Header */}
         <View
           style={{
             backgroundColor: COLORS.bg2,
@@ -739,6 +802,9 @@ export default function HomeScreen() {
       </SafeAreaView>
 
       <ScrollView
+        ref={(ref) => {
+          scrollRef.current = ref;
+        }}
         contentContainerStyle={{
           paddingHorizontal: 16,
           paddingVertical: 16,
@@ -746,7 +812,6 @@ export default function HomeScreen() {
         }}
       >
         <View style={{ ...containerStyle, gap: 14 }}>
-          {/* HERO */}
           <View
             style={{
               borderRadius: 22,
@@ -770,18 +835,17 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              Productos revisados, precios claros y soporte real. Si quieres
-              vender tu consola o dispositivo, te atendemos por WhatsApp de forma
-              rápida y directa.
+              Productos revisados, precios claros y soporte real. Explora primero
+              las categorías disponibles y entra solo en lo que realmente te interesa.
             </Text>
 
             <View style={{ flexDirection: isWide ? "row" : "column", gap: 12 }}>
               <View style={{ flex: 1 }}>
                 <PrimaryButton
-                  title="Ver catálogo"
-                  subtitle="Productos publicados y listos para comprar"
+                  title="Ver categorías"
+                  subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
                   rightHint="Ir →"
-                  onPress={() => router.push("/catalogo")}
+                  onPress={scrollToCategories}
                 />
               </View>
 
@@ -810,7 +874,6 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* OFERTA DE LA SEMANA */}
           {featuredLoading ? (
             <View
               style={{
@@ -832,8 +895,8 @@ export default function HomeScreen() {
             <FeaturedOfferCard item={featured} isWide={isWide} />
           )}
 
-          {/* CATEGORÍAS */}
           <View
+            onLayout={handleCategoriesLayout}
             style={{
               borderRadius: 22,
               borderWidth: 1,
@@ -853,7 +916,10 @@ export default function HomeScreen() {
                 const span = c.span ?? 1;
                 const onPress =
                   c.cat === "reparaciones"
-                    ? openWhatsApp
+                    ? () =>
+                        openWhatsAppWithText(
+                          "Hola, vengo desde videojuegoszaragoza.com. Me interesa vuestro servicio de reparación o limpieza. ¿Qué necesitáis para darme información?"
+                        )
                     : () =>
                         router.push({
                           pathname: "/catalogo",
@@ -866,6 +932,7 @@ export default function HomeScreen() {
                     title={c.title}
                     emoji={c.emoji}
                     span={span}
+                    cta={c.cta}
                     onPress={onPress}
                   />
                 );
@@ -873,7 +940,6 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* CONFIANZA */}
           <View
             style={{
               borderRadius: 22,
@@ -897,7 +963,6 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* FOOTER */}
           <View
             style={{
               marginTop: 8,
@@ -951,6 +1016,10 @@ export default function HomeScreen() {
                   Navegación
                 </Text>
                 <FooterLink label="Inicio" onPress={() => router.push("/")} />
+                <FooterLink
+                  label="Categorías"
+                  onPress={scrollToCategories}
+                />
                 <FooterLink
                   label="Catálogo"
                   onPress={() => router.push("/catalogo")}
