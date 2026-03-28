@@ -2,7 +2,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -18,14 +20,24 @@ const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
   card: "rgba(255,255,255,0.06)",
+  cardSoft: "rgba(255,255,255,0.04)",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
   muted: "rgba(255,255,255,0.75)",
+  muted2: "rgba(255,255,255,0.55)",
   accent: "#00AAE4",
   accent2: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.45)",
   gold: "#D8B04A",
-  danger: "#FF3B30",
+  success: "#86EFAC",
+  successBg: "rgba(34,197,94,0.14)",
+  successBorder: "rgba(34,197,94,0.34)",
+  warning: "#FDE68A",
+  warningBg: "rgba(250,204,21,0.14)",
+  warningBorder: "rgba(250,204,21,0.34)",
+  danger: "#FCA5A5",
+  dangerBg: "rgba(255,59,48,0.12)",
+  dangerBorder: "rgba(255,59,48,0.35)",
 };
 
 type CategoryRow = {
@@ -50,35 +62,54 @@ type ProductRow = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-
-  // Opcional: si existe en tu DB lo usamos; si no, no rompe.
   image_url?: string | null;
+  is_featured_home?: boolean;
 };
+
+type StatusFilter = "ALL" | ProductStatus;
+type VisibilityFilter = "ALL" | "VISIBLE" | "HIDDEN";
+
+function softShadow() {
+  return Platform.select<any>({
+    ios: {
+      shadowColor: "#000",
+      shadowOpacity: 0.24,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+    },
+    android: { elevation: 3 },
+    default: {},
+  });
+}
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
   return `${Math.round(safe)}€`;
 }
 
+function clampText(s: string, max = 180) {
+  const t = String(s ?? "").trim();
+  if (!t) return "";
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1).trimEnd()}…`;
+}
+
 function toIntSafe(v: string, fallback = 0) {
   const s = String(v ?? "").trim();
   if (!s) return fallback;
 
-  // tolera "1.200", "1,200", "1200"
   const cleaned = s.replace(/[^\d.,-]/g, "");
   const hasComma = cleaned.includes(",");
   const hasDot = cleaned.includes(".");
 
   let normalized = cleaned;
   if (hasComma && hasDot) {
-    // decimal = último separador
     const lastComma = cleaned.lastIndexOf(",");
     const lastDot = cleaned.lastIndexOf(".");
     const dec = lastComma > lastDot ? "," : ".";
     const thou = dec === "," ? "." : ",";
     normalized = cleaned.split(thou).join("").replace(dec, ".");
   } else if (hasComma && !hasDot) {
-    // si hay una coma, asumimos decimal si hay 1-2 dígitos al final
     const parts = cleaned.split(",");
     if (parts.length === 2 && parts[1].length <= 2) normalized = parts[0] + "." + parts[1];
     else normalized = cleaned.split(",").join("");
@@ -91,6 +122,12 @@ function toIntSafe(v: string, fallback = 0) {
   const n = Number(normalized);
   if (!Number.isFinite(n)) return fallback;
   return Math.trunc(n);
+}
+
+function isValidHttpUrl(value: string) {
+  const url = String(value ?? "").trim();
+  if (!url) return false;
+  return /^https?:\/\/\S+$/i.test(url);
 }
 
 function labelStatus(s: ProductStatus) {
@@ -107,11 +144,6 @@ function labelCond(c: ProductCondition) {
   return "Para piezas";
 }
 
-/**
- * Back inteligente:
- * - Si hay stack: back()
- * - Si entraste por URL directa/refresh: vuelve al admin home
- */
 function smartBackAdminHome() {
   try {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {
@@ -122,6 +154,77 @@ function smartBackAdminHome() {
     // ignore
   }
   router.replace("/admin");
+}
+
+function statusVisual(status: ProductStatus) {
+  if (status === "PUBLISHED") {
+    return {
+      text: "Publicado",
+      borderColor: COLORS.successBorder,
+      backgroundColor: COLORS.successBg,
+    };
+  }
+  if (status === "REVIEW") {
+    return {
+      text: "Por revisar",
+      borderColor: COLORS.warningBorder,
+      backgroundColor: COLORS.warningBg,
+    };
+  }
+  return {
+    text: "Borrador",
+    borderColor: COLORS.border,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  };
+}
+
+function SectionTitle({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>{title}</Text>
+      {!!subtitle && (
+        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>{subtitle}</Text>
+      )}
+    </View>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon?: string;
+}) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        minWidth: 140,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.cardSoft,
+        padding: 14,
+      }}
+    >
+      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+        {icon ? `${icon} ` : ""}
+        {label}
+      </Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 20, marginTop: 6 }}>
+        {value}
+      </Text>
+    </View>
+  );
 }
 
 function ChipButton({
@@ -142,17 +245,17 @@ function ChipButton({
   const borderColor = isPrimary
     ? COLORS.accentBorder
     : isSuccess
-      ? "rgba(34,197,94,0.40)"
+      ? COLORS.successBorder
       : isDanger
-        ? "rgba(255,59,48,0.40)"
+        ? COLORS.dangerBorder
         : COLORS.border;
 
   const backgroundColor = isPrimary
     ? COLORS.accent2
     : isSuccess
-      ? "rgba(34,197,94,0.14)"
+      ? COLORS.successBg
       : isDanger
-        ? "rgba(255,59,48,0.14)"
+        ? COLORS.dangerBg
         : "rgba(255,255,255,0.06)";
 
   return (
@@ -174,6 +277,33 @@ function ChipButton({
   );
 }
 
+function FilterPill({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderWidth: 1,
+        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+        backgroundColor: active ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+        opacity: pressed ? 0.88 : 1,
+      })}
+    >
+      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function AdminProducts() {
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -181,12 +311,18 @@ export default function AdminProducts() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [items, setItems] = useState<ProductRow[]>([]);
 
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("ALL");
+
+  const [supportsImageUrl, setSupportsImageUrl] = useState(true);
+  const [supportsFeaturedHome, setSupportsFeaturedHome] = useState(true);
+
   const itemsRef = useRef<ProductRow[]>([]);
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
-  // Modal state
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
@@ -196,15 +332,15 @@ export default function AdminProducts() {
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const isEdit = !!editing;
 
-  // Form
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
-  const [price, setPrice] = useState("0");
+  const [price, setPrice] = useState("");
   const [status, setStatus] = useState<ProductStatus>("DRAFT");
   const [condition, setCondition] = useState<ProductCondition>("GOOD");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
-  const [imageUrl, setImageUrl] = useState(""); // opcional
+  const [imageUrl, setImageUrl] = useState("");
+  const [isFeaturedHome, setIsFeaturedHome] = useState(false);
 
   const categoryName = useMemo(() => {
     if (!categoryId) return "Sin categoría";
@@ -215,6 +351,35 @@ export default function AdminProducts() {
     () => categories.filter((c) => !!c.is_active),
     [categories]
   );
+
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    return items.filter((p) => {
+      const matchesSearch =
+        !q ||
+        String(p.title ?? "").toLowerCase().includes(q) ||
+        String(p.description ?? "").toLowerCase().includes(q);
+
+      const matchesStatus = statusFilter === "ALL" || p.status === statusFilter;
+
+      const matchesVisibility =
+        visibilityFilter === "ALL" ||
+        (visibilityFilter === "VISIBLE" && !!p.is_active) ||
+        (visibilityFilter === "HIDDEN" && !p.is_active);
+
+      return matchesSearch && matchesStatus && matchesVisibility;
+    });
+  }, [items, search, statusFilter, visibilityFilter]);
+
+  const stats = useMemo(() => {
+    const total = items.length;
+    const published = items.filter((x) => x.status === "PUBLISHED").length;
+    const visible = items.filter((x) => !!x.is_active).length;
+    const featured = items.filter((x) => !!x.is_featured_home).length;
+
+    return { total, published, visible, featured };
+  }, [items]);
 
   async function load() {
     setLoading(true);
@@ -227,17 +392,53 @@ export default function AdminProducts() {
           .select("id,name,slug,sort_order,is_active")
           .order("sort_order", { ascending: true })
           .order("name", { ascending: true }),
-        // pedimos image_url opcional: si no existe como columna, te lo dirá Supabase con error;
-        // en ese caso, quita ",image_url" de este select.
         supabase
           .from("products")
-          .select("id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at,image_url")
+          .select(
+            "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at,image_url,is_featured_home"
+          )
           .order("updated_at", { ascending: false }),
       ]);
 
       if (catsRes.error) throw catsRes.error;
-      if (prodRes.error) throw prodRes.error;
 
+      if (prodRes.error) {
+        const msg = String(prodRes.error.message ?? "");
+
+        const imageColumnMissing =
+          msg.includes("image_url") && (msg.includes("column") || msg.includes("does not exist"));
+        const featuredColumnMissing =
+          msg.includes("is_featured_home") &&
+          (msg.includes("column") || msg.includes("does not exist"));
+
+        if (imageColumnMissing || featuredColumnMissing) {
+          const fallbackRes = await supabase
+            .from("products")
+            .select(
+              "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at"
+            )
+            .order("updated_at", { ascending: false });
+
+          if (fallbackRes.error) throw fallbackRes.error;
+
+          setSupportsImageUrl(!imageColumnMissing);
+          setSupportsFeaturedHome(!featuredColumnMissing);
+          setCategories((catsRes.data ?? []) as CategoryRow[]);
+          setItems(
+            ((fallbackRes.data ?? []) as ProductRow[]).map((item) => ({
+              ...item,
+              image_url: null,
+              is_featured_home: false,
+            }))
+          );
+          return;
+        }
+
+        throw prodRes.error;
+      }
+
+      setSupportsImageUrl(true);
+      setSupportsFeaturedHome(true);
       setCategories((catsRes.data ?? []) as CategoryRow[]);
       setItems((prodRes.data ?? []) as ProductRow[]);
     } catch (e: any) {
@@ -257,12 +458,13 @@ export default function AdminProducts() {
     setEditing(null);
     setTitle("");
     setDesc("");
-    setPrice("0");
+    setPrice("");
     setStatus("DRAFT");
     setCondition("GOOD");
     setCategoryId(null);
     setIsActive(true);
     setImageUrl("");
+    setIsFeaturedHome(false);
     setModalErr(null);
   }
 
@@ -280,7 +482,8 @@ export default function AdminProducts() {
     setCondition(p.condition ?? "GOOD");
     setCategoryId(p.category_id ?? null);
     setIsActive(!!p.is_active);
-    setImageUrl((p as any).image_url ?? "");
+    setImageUrl(p.image_url ?? "");
+    setIsFeaturedHome(!!p.is_featured_home);
     setModalErr(null);
     setOpen(true);
   }
@@ -294,21 +497,35 @@ export default function AdminProducts() {
     const cleanTitle = title.trim();
     const cleanDesc = desc.trim();
     const priceEur = toIntSafe(price, 0);
+    const cleanImg = String(imageUrl ?? "").trim();
 
     if (!cleanTitle) {
       setModalErr("Pon un título.");
       setSaving(false);
       return;
     }
+
+    if (cleanTitle.length < 3) {
+      setModalErr("El título es demasiado corto.");
+      setSaving(false);
+      return;
+    }
+
     if (priceEur < 0) {
       setModalErr("Precio inválido.");
       setSaving(false);
       return;
     }
 
+    if (cleanImg && !isValidHttpUrl(cleanImg)) {
+      setModalErr("La URL de imagen debe empezar por http:// o https://");
+      setSaving(false);
+      return;
+    }
+
     const payload: any = {
       title: cleanTitle,
-      description: cleanDesc,
+      description: cleanDesc || null,
       price_eur: priceEur,
       status,
       condition,
@@ -316,9 +533,13 @@ export default function AdminProducts() {
       is_active: isActive,
     };
 
-    // Solo enviamos image_url si hay algo (para no pisar con null si tu DB no lo usa).
-    const cleanImg = String(imageUrl ?? "").trim();
-    if (cleanImg) payload.image_url = cleanImg;
+    if (supportsImageUrl) {
+      payload.image_url = cleanImg || null;
+    }
+
+    if (supportsFeaturedHome) {
+      payload.is_featured_home = !!isFeaturedHome;
+    }
 
     try {
       if (editing) {
@@ -360,9 +581,10 @@ export default function AdminProducts() {
   }
 
   async function quickPublish(p: ProductRow) {
-    // optimista + rollback
     const prev = itemsRef.current;
-    const next = prev.map((x) => (x.id === p.id ? { ...x, status: "PUBLISHED" as ProductStatus } : x));
+    const next = prev.map((x) =>
+      x.id === p.id ? { ...x, status: "PUBLISHED" as ProductStatus } : x
+    );
     setItems(next);
 
     const { error } = await supabase.from("products").update({ status: "PUBLISHED" }).eq("id", p.id);
@@ -373,7 +595,6 @@ export default function AdminProducts() {
   }
 
   async function toggleActive(p: ProductRow) {
-    // optimista + rollback
     const prev = itemsRef.current;
     const next = prev.map((x) => (x.id === p.id ? { ...x, is_active: !x.is_active } : x));
     setItems(next);
@@ -385,11 +606,57 @@ export default function AdminProducts() {
     }
   }
 
+  async function toggleFeaturedHome(p: ProductRow) {
+    if (!supportsFeaturedHome) {
+      setScreenErr(
+        "Tu tabla products todavía no tiene la columna is_featured_home. Si quieres usar destacado en home, hay que crearla."
+      );
+      return;
+    }
+
+    const nextValue = !p.is_featured_home;
+
+    let prev = itemsRef.current;
+    let next = prev.map((x) => {
+      if (nextValue) {
+        return { ...x, is_featured_home: x.id === p.id };
+      }
+      if (x.id === p.id) {
+        return { ...x, is_featured_home: false };
+      }
+      return x;
+    });
+
+    setItems(next);
+
+    try {
+      if (nextValue) {
+        const currentFeatured = prev.find((x) => x.is_featured_home && x.id !== p.id);
+
+        if (currentFeatured) {
+          await supabase
+            .from("products")
+            .update({ is_featured_home: false })
+            .eq("id", currentFeatured.id);
+        }
+      }
+
+      const { error } = await supabase
+        .from("products")
+        .update({ is_featured_home: nextValue })
+        .eq("id", p.id);
+
+      if (error) throw error;
+    } catch (e: any) {
+      setItems(prev);
+      setScreenErr(e?.message ?? "Error cambiando producto destacado.");
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="light-content" />
 
-      {/* Header */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
@@ -398,13 +665,24 @@ export default function AdminProducts() {
           paddingHorizontal: 16,
           paddingTop: 14,
           paddingBottom: 12,
-          gap: 10,
+          gap: 12,
         }}
       >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
           <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900" }}>Productos</Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4 }}>Crear, editar, publicar y controlar visibilidad.</Text>
+            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+              Productos
+            </Text>
+            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
+              Crear, editar, publicar y controlar la visibilidad real del catálogo.
+            </Text>
           </View>
 
           <Pressable
@@ -423,30 +701,162 @@ export default function AdminProducts() {
           </Pressable>
         </View>
 
-        <Pressable
-          onPress={openCreate}
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.9 : 1,
-            borderRadius: 14,
-            paddingVertical: 12,
-            alignItems: "center",
-            backgroundColor: COLORS.accent,
-          })}
-        >
-          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>+ Nuevo producto</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <StatCard label="Total" value={String(stats.total)} icon="📦" />
+          <StatCard label="Publicados" value={String(stats.published)} icon="✅" />
+          <StatCard label="Visibles" value={String(stats.visible)} icon="👁️" />
+          <StatCard label="Destacados home" value={String(stats.featured)} icon="🔥" />
+        </View>
 
-        {!!screenErr && <Text style={{ color: "#FCA5A5" }}>{screenErr}</Text>}
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: COLORS.card,
+            padding: 12,
+            gap: 10,
+          }}
+        >
+          <TextInput
+            value={search}
+            onChangeText={(v) => setSearch(v)}
+            placeholder="Buscar por título o descripción"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 14,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+              color: COLORS.text,
+              backgroundColor: "rgba(255,255,255,0.03)",
+            }}
+          />
+
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <FilterPill
+                label="Todos"
+                active={statusFilter === "ALL"}
+                onPress={() => setStatusFilter("ALL")}
+              />
+              <FilterPill
+                label="Borrador"
+                active={statusFilter === "DRAFT"}
+                onPress={() => setStatusFilter("DRAFT")}
+              />
+              <FilterPill
+                label="Por revisar"
+                active={statusFilter === "REVIEW"}
+                onPress={() => setStatusFilter("REVIEW")}
+              />
+              <FilterPill
+                label="Publicado"
+                active={statusFilter === "PUBLISHED"}
+                onPress={() => setStatusFilter("PUBLISHED")}
+              />
+            </View>
+          </View>
+
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Visibilidad</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <FilterPill
+                label="Todos"
+                active={visibilityFilter === "ALL"}
+                onPress={() => setVisibilityFilter("ALL")}
+              />
+              <FilterPill
+                label="Visibles"
+                active={visibilityFilter === "VISIBLE"}
+                onPress={() => setVisibilityFilter("VISIBLE")}
+              />
+              <FilterPill
+                label="Ocultos"
+                active={visibilityFilter === "HIDDEN"}
+                onPress={() => setVisibilityFilter("HIDDEN")}
+              />
+            </View>
+          </View>
+
+          <Pressable
+            onPress={openCreate}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.9 : 1,
+              borderRadius: 14,
+              paddingVertical: 13,
+              alignItems: "center",
+              backgroundColor: COLORS.accent,
+              ...softShadow(),
+            })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
+              + Nuevo producto
+            </Text>
+          </Pressable>
+        </View>
+
+        {!!screenErr && (
+          <View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: COLORS.dangerBorder,
+              backgroundColor: COLORS.dangerBg,
+              padding: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.danger, fontWeight: "800" }}>{screenErr}</Text>
+          </View>
+        )}
+
+        {!supportsImageUrl && (
+          <View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: COLORS.warningBorder,
+              backgroundColor: COLORS.warningBg,
+              padding: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
+              La columna <Text style={{ fontWeight: "900" }}>image_url</Text> no existe en tu
+              tabla <Text style={{ fontWeight: "900" }}>products</Text>. El panel sigue
+              funcionando, pero la imagen por URL queda desactivada.
+            </Text>
+          </View>
+        )}
+
+        {!supportsFeaturedHome && (
+          <View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: COLORS.warningBorder,
+              backgroundColor: COLORS.warningBg,
+              padding: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
+              La columna <Text style={{ fontWeight: "900" }}>is_featured_home</Text> no existe
+              en tu tabla <Text style={{ fontWeight: "900" }}>products</Text>. El destacado de
+              home queda desactivado hasta crearla.
+            </Text>
+          </View>
+        )}
       </View>
 
-      {/* Body */}
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <ActivityIndicator color={COLORS.text} />
+          <Text style={{ color: COLORS.muted }}>Cargando productos…</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30, gap: 12 }}>
-          {items.length === 0 ? (
+          {filteredItems.length === 0 ? (
             <View
               style={{
                 borderRadius: 18,
@@ -457,65 +867,206 @@ export default function AdminProducts() {
                 gap: 8,
               }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>No hay productos todavía.</Text>
-              <Text style={{ color: COLORS.muted }}>Crea el primero y publícalo cuando esté listo.</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                No hay productos para este filtro.
+              </Text>
+              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                Cambia la búsqueda o crea el primero. Un catálogo vacío no vende ni aunque rece.
+              </Text>
             </View>
           ) : (
-            items.map((p) => {
+            filteredItems.map((p) => {
               const catName = p.category_id
                 ? categories.find((c) => c.id === p.category_id)?.name ?? "Categoría"
                 : "Sin categoría";
+
+              const statusUi = statusVisual(p.status);
 
               return (
                 <View
                   key={p.id}
                   style={{
-                    borderRadius: 18,
+                    borderRadius: 20,
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: COLORS.card,
                     padding: 14,
-                    gap: 10,
+                    gap: 12,
+                    ...softShadow(),
                   }}
                 >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                        {p.title}
-                      </Text>
-
-                      <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 18 }}>
-                        {labelStatus(p.status)} · {labelCond(p.condition)} · {catName}
-                      </Text>
-
-                      <Text style={{ color: "rgba(255,255,255,0.55)", marginTop: 8, fontSize: 12 }}>
-                        Activo: {p.is_active ? "Sí" : "No"} · Actualizado:{" "}
-                        {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
-                      </Text>
+                  <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start" }}>
+                    <View
+                      style={{
+                        width: 92,
+                        height: 92,
+                        borderRadius: 16,
+                        overflow: "hidden",
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        backgroundColor: "rgba(255,255,255,0.04)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {p.image_url ? (
+                        <Image
+                          source={{ uri: p.image_url }}
+                          resizeMode="cover"
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      ) : (
+                        <Text style={{ fontSize: 28 }}>🎮</Text>
+                      )}
                     </View>
 
-                    <View style={{ alignItems: "flex-end", gap: 10 }}>
-                      <Text style={{ color: COLORS.gold, fontWeight: "900", fontSize: 16 }}>
-                        {fmtEUR(Number(p.price_eur ?? 0))}
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              color: COLORS.text,
+                              fontWeight: "900",
+                              fontSize: 17,
+                              lineHeight: 22,
+                            }}
+                          >
+                            {p.title}
+                          </Text>
+
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              flexWrap: "wrap",
+                              gap: 8,
+                              marginTop: 8,
+                            }}
+                          >
+                            <View
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 10,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: statusUi.borderColor,
+                                backgroundColor: statusUi.backgroundColor,
+                              }}
+                            >
+                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                                {statusUi.text}
+                              </Text>
+                            </View>
+
+                            <View
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 10,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: COLORS.border,
+                                backgroundColor: "rgba(255,255,255,0.06)",
+                              }}
+                            >
+                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                                {labelCond(p.condition)}
+                              </Text>
+                            </View>
+
+                            <View
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 10,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: COLORS.border,
+                                backgroundColor: "rgba(255,255,255,0.06)",
+                              }}
+                            >
+                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                                {catName}
+                              </Text>
+                            </View>
+
+                            {!!p.is_featured_home && (
+                              <View
+                                style={{
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 999,
+                                  borderWidth: 1,
+                                  borderColor: COLORS.warningBorder,
+                                  backgroundColor: COLORS.warningBg,
+                                }}
+                              >
+                                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                                  🔥 Home
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+
+                        <View style={{ alignItems: "flex-end", gap: 10 }}>
+                          <Text style={{ color: COLORS.gold, fontWeight: "900", fontSize: 18 }}>
+                            {fmtEUR(Number(p.price_eur ?? 0))}
+                          </Text>
+
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+                              {p.is_active ? "Visible" : "Oculto"}
+                            </Text>
+                            <Switch value={p.is_active} onValueChange={() => toggleActive(p)} />
+                          </View>
+                        </View>
+                      </View>
+
+                      {!!p.description && (
+                        <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                          {clampText(p.description, 200)}
+                        </Text>
+                      )}
+
+                      <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                        Creado: {p.created_at ? new Date(p.created_at).toLocaleString() : "-"} ·
+                        Actualizado: {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
                       </Text>
 
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
-                          {p.is_active ? "Visible" : "Oculto"}
-                        </Text>
-                        <Switch value={p.is_active} onValueChange={() => toggleActive(p)} />
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                        <ChipButton
+                          label="Editar"
+                          variant="primary"
+                          onPress={() => openEditProduct(p)}
+                        />
+
+                        {p.status !== "PUBLISHED" ? (
+                          <ChipButton
+                            label="Publicar"
+                            variant="success"
+                            onPress={() => quickPublish(p)}
+                          />
+                        ) : null}
+
+                        {supportsFeaturedHome ? (
+                          <ChipButton
+                            label={p.is_featured_home ? "Quitar destacado" : "Destacar en home"}
+                            onPress={() => toggleFeaturedHome(p)}
+                          />
+                        ) : null}
+
+                        <ChipButton
+                          label="Borrar"
+                          variant="danger"
+                          onPress={() => askRemove(p)}
+                        />
                       </View>
                     </View>
-                  </View>
-
-                  <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                    <ChipButton label="Editar" variant="primary" onPress={() => openEditProduct(p)} />
-
-                    {p.status !== "PUBLISHED" ? (
-                      <ChipButton label="Publicar" variant="success" onPress={() => quickPublish(p)} />
-                    ) : null}
-
-                    <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(p)} />
                   </View>
                 </View>
               );
@@ -524,252 +1075,366 @@ export default function AdminProducts() {
         </ScrollView>
       )}
 
-      {/* Modal Crear/Editar */}
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", padding: 16, justifyContent: "center" }}>
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: COLORS.bg2,
-              padding: 16,
-              gap: 10,
-            }}
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.60)",
+            padding: 16,
+            justifyContent: "center",
+          }}
+        >
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            keyboardShouldPersistTaps="handled"
           >
-            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
-              {isEdit ? "Editar producto" : "Nuevo producto"}
-            </Text>
-
-            <TextInput
-              value={title}
-              onChangeText={(v) => {
-                setTitle(v);
-                setModalErr(null);
-              }}
-              placeholder="Título (ej: PS5 Slim 1TB)"
-              placeholderTextColor="rgba(255,255,255,0.45)"
+            <View
               style={{
+                borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
+                backgroundColor: COLORS.bg2,
+                padding: 16,
+                gap: 12,
+                ...softShadow(),
               }}
-            />
+            >
+              <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                {isEdit ? "Editar producto" : "Nuevo producto"}
+              </Text>
 
-            <TextInput
-              value={desc}
-              onChangeText={(v) => {
-                setDesc(v);
-                setModalErr(null);
-              }}
-              placeholder="Descripción (opcional)"
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              multiline
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-                minHeight: 90,
-                textAlignVertical: "top",
-              }}
-            />
+              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                Rellena lo importante. Mejor pocos productos bien montados que un cementerio de fichas mediocres.
+              </Text>
 
-            <TextInput
-              value={price}
-              onChangeText={(v) => {
-                setPrice(v);
-                setModalErr(null);
-              }}
-              placeholder="Precio € (ej: 239)"
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              keyboardType="numeric"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-              }}
-            />
-
-            {/* image_url opcional */}
-            <TextInput
-              value={imageUrl}
-              onChangeText={(v) => {
-                setImageUrl(v);
-                setModalErr(null);
-              }}
-              placeholder="Imagen URL (opcional) (ej: https://...)"
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              autoCapitalize="none"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-              }}
-            />
-
-            {/* Estado */}
-            <Text style={{ color: COLORS.muted, fontWeight: "800", marginTop: 4 }}>Estado</Text>
-            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              {(["DRAFT", "REVIEW", "PUBLISHED"] as ProductStatus[]).map((s) => (
-                <Pressable
-                  key={s}
-                  onPress={() => setStatus(s)}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderWidth: 1,
-                    borderColor: status === s ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                    backgroundColor: status === s ? COLORS.accent2 : "rgba(255,255,255,0.06)",
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>{labelStatus(s)}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Condición */}
-            <Text style={{ color: COLORS.muted, fontWeight: "800", marginTop: 4 }}>Condición</Text>
-            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              {(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as ProductCondition[]).map((c) => (
-                <Pressable
-                  key={c}
-                  onPress={() => setCondition(c)}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderWidth: 1,
-                    borderColor: condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                    backgroundColor: condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>{labelCond(c)}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Categoría inline */}
-            <Text style={{ color: COLORS.muted, fontWeight: "800", marginTop: 4 }}>
-              Categoría (actual:{" "}
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>)
-            </Text>
-
-            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              <Pressable
-                onPress={() => setCategoryId(null)}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderWidth: 1,
-                  borderColor: !categoryId ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                  backgroundColor: !categoryId ? COLORS.accent2 : "rgba(255,255,255,0.06)",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin categoría</Text>
-              </Pressable>
-
-              {activeCategories.map((c) => (
-                <Pressable
-                  key={c.id}
-                  onPress={() => setCategoryId(c.id)}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderWidth: 1,
-                    borderColor: categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                    backgroundColor: categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.name}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Activo */}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Activo</Text>
-              <Switch value={isActive} onValueChange={setIsActive} />
-            </View>
-
-            {!!modalErr && <Text style={{ color: "#FCA5A5" }}>{modalErr}</Text>}
-
-            <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-              <Pressable
-                onPress={() => {
-                  setOpen(false);
-                  resetForm();
+              <TextInput
+                value={title}
+                onChangeText={(v) => {
+                  setTitle(v);
+                  setModalErr(null);
                 }}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 12,
-                  paddingHorizontal: 14,
+                placeholder="Título (ej: PS5 Slim 1TB)"
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                style={{
                   borderWidth: 1,
                   borderColor: COLORS.border,
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Cancelar</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={save}
-                disabled={saving}
-                style={({ pressed }) => ({
-                  opacity: saving ? 0.6 : pressed ? 0.9 : 1,
-                  borderRadius: 999,
+                  borderRadius: 14,
+                  paddingHorizontal: 12,
                   paddingVertical: 12,
-                  paddingHorizontal: 14,
-                  backgroundColor: COLORS.accent,
-                })}
+                  color: COLORS.text,
+                  backgroundColor: "rgba(255,255,255,0.03)",
+                }}
+              />
+
+              <TextInput
+                value={desc}
+                onChangeText={(v) => {
+                  setDesc(v);
+                  setModalErr(null);
+                }}
+                placeholder="Descripción"
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                multiline
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 14,
+                  paddingHorizontal: 12,
+                  paddingVertical: 12,
+                  color: COLORS.text,
+                  minHeight: 96,
+                  textAlignVertical: "top",
+                  backgroundColor: "rgba(255,255,255,0.03)",
+                }}
+              />
+
+              <TextInput
+                value={price}
+                onChangeText={(v) => {
+                  setPrice(v);
+                  setModalErr(null);
+                }}
+                placeholder="Precio € (ej: 239)"
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                keyboardType="numeric"
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 14,
+                  paddingHorizontal: 12,
+                  paddingVertical: 12,
+                  color: COLORS.text,
+                  backgroundColor: "rgba(255,255,255,0.03)",
+                }}
+              />
+
+              {supportsImageUrl ? (
+                <>
+                  <TextInput
+                    value={imageUrl}
+                    onChangeText={(v) => {
+                      setImageUrl(v);
+                      setModalErr(null);
+                    }}
+                    placeholder="Imagen URL (https://...)"
+                    placeholderTextColor="rgba(255,255,255,0.45)"
+                    autoCapitalize="none"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      borderRadius: 14,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                      color: COLORS.text,
+                      backgroundColor: "rgba(255,255,255,0.03)",
+                    }}
+                  />
+
+                  {isValidHttpUrl(imageUrl) ? (
+                    <View
+                      style={{
+                        width: "100%",
+                        height: 170,
+                        borderRadius: 16,
+                        overflow: "hidden",
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        backgroundColor: "rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      <Image
+                        source={{ uri: imageUrl.trim() }}
+                        resizeMode="cover"
+                        style={{ width: "100%", height: "100%" }}
+                      />
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                {(["DRAFT", "REVIEW", "PUBLISHED"] as ProductStatus[]).map((s) => (
+                  <Pressable
+                    key={s}
+                    onPress={() => setStatus(s)}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.88 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor: status === s ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor: status === s ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                    })}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>{labelStatus(s)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Condición</Text>
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                {(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as ProductCondition[]).map((c) => (
+                  <Pressable
+                    key={c}
+                    onPress={() => setCondition(c)}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.88 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor:
+                        condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor:
+                        condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                    })}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>{labelCond(c)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+                Categoría actual:{" "}
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
+              </Text>
+
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                <Pressable
+                  onPress={() => setCategoryId(null)}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.88 : 1,
+                    borderRadius: 999,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                    borderColor: !categoryId ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                    backgroundColor: !categoryId ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                  })}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin categoría</Text>
+                </Pressable>
+
+                {activeCategories.map((c) => (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => setCategoryId(c.id)}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.88 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor:
+                        categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor:
+                        categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                    })}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.cardSoft,
+                  padding: 12,
+                  gap: 12,
+                }}
               >
-                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
-                  {saving ? "Guardando..." : "Guardar"}
-                </Text>
-              </Pressable>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Producto activo</Text>
+                    <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
+                      Si está activo, puede mostrarse en tienda según estado y filtros públicos.
+                    </Text>
+                  </View>
+                  <Switch value={isActive} onValueChange={setIsActive} />
+                </View>
+
+                {supportsFeaturedHome ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                        Destacar en home
+                      </Text>
+                      <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
+                        Marca este producto como oferta destacada principal de la home.
+                      </Text>
+                    </View>
+                    <Switch value={isFeaturedHome} onValueChange={setIsFeaturedHome} />
+                  </View>
+                ) : null}
+              </View>
+
+              {!!modalErr && (
+                <View
+                  style={{
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: COLORS.dangerBorder,
+                    backgroundColor: COLORS.dangerBg,
+                    padding: 10,
+                  }}
+                >
+                  <Text style={{ color: COLORS.danger, fontWeight: "800" }}>{modalErr}</Text>
+                </View>
+              )}
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 10,
+                  justifyContent: "flex-end",
+                  marginTop: 4,
+                  flexWrap: "wrap",
+                }}
+              >
+                <Pressable
+                  onPress={() => {
+                    setOpen(false);
+                    resetForm();
+                  }}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.88 : 1,
+                    borderRadius: 999,
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: "rgba(255,255,255,0.06)",
+                  })}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Cancelar</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={save}
+                  disabled={saving}
+                  style={({ pressed }) => ({
+                    opacity: saving ? 0.6 : pressed ? 0.9 : 1,
+                    borderRadius: 999,
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    backgroundColor: COLORS.accent,
+                  })}
+                >
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
+                    {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
 
-      {/* Confirm delete */}
       <Modal
         visible={!!confirmDelete}
         transparent
         animationType="fade"
         onRequestClose={() => setConfirmDelete(null)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", padding: 16, justifyContent: "center" }}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            padding: 16,
+            justifyContent: "center",
+          }}
+        >
           <View
             style={{
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: "rgba(255,59,48,0.35)",
+              borderColor: COLORS.dangerBorder,
               backgroundColor: COLORS.bg2,
               padding: 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>Borrar producto</Text>
+            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
+              Borrar producto
+            </Text>
+
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
               Vas a borrar{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>

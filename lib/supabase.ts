@@ -3,25 +3,34 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+// ⚠️ IMPORTANTE: acceso directo (NO dinámico)
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  // Si esto falla, es porque .env.local no está bien cargado
-  // (o hay espacios/lineas extra como te pasó antes)
-  console.warn("⚠️ Falta EXPO_PUBLIC_SUPABASE_URL o EXPO_PUBLIC_SUPABASE_ANON_KEY");
+  console.error("❌ ERROR CRÍTICO: variables de entorno de Supabase no configuradas");
+  console.error("Revisa tu .env.local:");
+
+  console.error("EXPO_PUBLIC_SUPABASE_URL =", supabaseUrl);
+  console.error("EXPO_PUBLIC_SUPABASE_ANON_KEY =", supabaseAnonKey);
+
+  throw new Error("Faltan variables de entorno de Supabase");
 }
 
-const storage =
-  Platform.OS === "web"
-    ? undefined // en web supabase usa localStorage
-    : AsyncStorage;
+const storage = Platform.OS === "web" ? undefined : AsyncStorage;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
+    storage,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: Platform.OS === "web",
-    storage,
+    flowType: "pkce",
+    storageKey: "videojuegoos.supabase.auth",
+  },
+  global: {
+    headers: {
+      "X-Client-Info": "videojuegoos-expo-app",
+    },
   },
 });

@@ -48,6 +48,13 @@ type FeaturedProduct = {
   categoryName: string | null;
 };
 
+type AdminAccessState = {
+  loading: boolean;
+  hasSession: boolean;
+  isAdmin: boolean;
+  email: string | null;
+};
+
 const HOME_CATEGORIES: Array<{
   title: string;
   emoji: string;
@@ -340,9 +347,11 @@ function FooterLink({
 function FeaturedOfferCard({
   item,
   isWide,
+  onPressCategories,
 }: {
   item: FeaturedProduct | null;
   isWide: boolean;
+  onPressCategories: () => void;
 }) {
   if (!item) {
     return (
@@ -387,7 +396,7 @@ function FeaturedOfferCard({
               title="Ver categorías"
               subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
               rightHint="Ir →"
-              onPress={() => router.push("/")}
+              onPress={onPressCategories}
             />
           </View>
 
@@ -559,6 +568,13 @@ export default function HomeScreen() {
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
 
+  const [adminAccess, setAdminAccess] = useState<AdminAccessState>({
+    loading: true,
+    hasSession: false,
+    isAdmin: false,
+    email: null,
+  });
+
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
 
@@ -580,6 +596,86 @@ export default function HomeScreen() {
     const target = Math.max(categoriesY - 12, 0);
     scrollRef.current.scrollTo({ y: target, animated: true });
   }, [categoriesY]);
+
+  const resolveAdminAccess = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        setAdminAccess({
+          loading: false,
+          hasSession: false,
+          isAdmin: false,
+          email: null,
+        });
+        return;
+      }
+
+      const userId = session.user.id;
+      const email = session.user.email ?? null;
+
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) {
+        setAdminAccess({
+          loading: false,
+          hasSession: true,
+          isAdmin: false,
+          email,
+        });
+        return;
+      }
+
+      const role = String(profile?.role ?? "").trim().toLowerCase();
+      const isAdmin = role === "admin";
+
+      setAdminAccess({
+        loading: false,
+        hasSession: true,
+        isAdmin,
+        email,
+      });
+    } catch {
+      setAdminAccess({
+        loading: false,
+        hasSession: false,
+        isAdmin: false,
+        email: null,
+      });
+    }
+  }, []);
+
+  const handleAccountPress = useCallback(() => {
+    if (adminAccess.loading) return;
+
+    if (adminAccess.hasSession && adminAccess.isAdmin) {
+      router.push("/admin");
+      return;
+    }
+
+    router.push("/admin/login");
+  }, [adminAccess]);
+
+  const accountLabel = useMemo(() => {
+    if (adminAccess.loading) return "Cuenta";
+    if (adminAccess.hasSession && adminAccess.isAdmin) return "Mi panel";
+    return "Cuenta";
+  }, [adminAccess]);
+
+  const accountSubtleState = useMemo(() => {
+    if (adminAccess.loading) return "Comprobando acceso…";
+    if (adminAccess.hasSession && adminAccess.isAdmin) {
+      return adminAccess.email ? `Admin · ${adminAccess.email}` : "Acceso admin activo";
+    }
+    if (adminAccess.hasSession && !adminAccess.isAdmin) return "Sesión sin permisos admin";
+    return "Acceso profesional";
+  }, [adminAccess]);
 
   useEffect(() => {
     let alive = true;
@@ -691,6 +787,18 @@ export default function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    resolveAdminAccess();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
+      resolveAdminAccess();
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [resolveAdminAccess]);
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="light-content" />
@@ -762,7 +870,15 @@ export default function HomeScreen() {
               </Text>
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 10,
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
+                alignItems: "center",
+              }}
+            >
               <Pressable
                 onPress={() => router.push("/catalogo")}
                 style={({ pressed }) => ({
@@ -796,7 +912,46 @@ export default function HomeScreen() {
                   🛒 Carrito
                 </Text>
               </Pressable>
+
+              <Pressable
+                onPress={handleAccountPress}
+                disabled={adminAccess.loading}
+                style={({ pressed }) => ({
+                  opacity: adminAccess.loading ? 0.72 : pressed ? 0.85 : 1,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor:
+                    adminAccess.hasSession && adminAccess.isAdmin
+                      ? COLORS.accentBorder
+                      : "rgba(255,255,255,0.14)",
+                  backgroundColor:
+                    adminAccess.hasSession && adminAccess.isAdmin
+                      ? COLORS.accent2
+                      : "rgba(255,255,255,0.06)",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                })}
+              >
+                {adminAccess.loading ? (
+                  <ActivityIndicator size="small" color={COLORS.text} />
+                ) : (
+                  <Text style={{ color: COLORS.text, fontSize: 14 }}>👤</Text>
+                )}
+
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                  {accountLabel}
+                </Text>
+              </Pressable>
             </View>
+          </View>
+
+          <View style={{ ...containerStyle, marginTop: 10 }}>
+            <Text style={{ color: "rgba(255,255,255,0.58)", fontSize: 12 }}>
+              {accountSubtleState}
+            </Text>
           </View>
         </View>
       </SafeAreaView>
@@ -892,7 +1047,11 @@ export default function HomeScreen() {
               <Text style={{ color: COLORS.muted }}>Cargando oferta destacada…</Text>
             </View>
           ) : (
-            <FeaturedOfferCard item={featured} isWide={isWide} />
+            <FeaturedOfferCard
+              item={featured}
+              isWide={isWide}
+              onPressCategories={scrollToCategories}
+            />
           )}
 
           <View
@@ -1016,10 +1175,7 @@ export default function HomeScreen() {
                   Navegación
                 </Text>
                 <FooterLink label="Inicio" onPress={() => router.push("/")} />
-                <FooterLink
-                  label="Categorías"
-                  onPress={scrollToCategories}
-                />
+                <FooterLink label="Categorías" onPress={scrollToCategories} />
                 <FooterLink
                   label="Catálogo"
                   onPress={() => router.push("/catalogo")}
@@ -1031,6 +1187,10 @@ export default function HomeScreen() {
                 <FooterLink
                   label="Checkout"
                   onPress={() => router.push("/checkout")}
+                />
+                <FooterLink
+                  label="Cuenta / Admin"
+                  onPress={handleAccountPress}
                 />
               </View>
 
