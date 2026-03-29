@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
-import Resenas from "../app/components/Resenas";
+import Resenas from "../components/Resenas";
 
 const COLORS = {
   bg: "#071E33",
