@@ -187,8 +187,11 @@ function productHintByCategory(name?: string | null) {
 
 export default function ProductoScreen() {
   const { width } = useWindowDimensions();
-  const isWide = width >= 1080;
-  const isTablet = width >= 760;
+  const widthSafe = width && width > 0 ? width : 1024;
+  const isMobile = widthSafe < 700;
+  const isTablet = widthSafe >= 700 && widthSafe < 1080;
+  const isWide = widthSafe >= 1080;
+  const pagePadding = isMobile ? 12 : 16;
 
   const params = useLocalSearchParams<{ id?: string }>();
   const productId = typeof params.id === "string" ? params.id : "";
@@ -282,7 +285,9 @@ ${price}
 
         const missingImageUrl =
           msg1.includes("image_url") &&
-          (msg1.includes("does not exist") || msg1.includes("schema cache") || msg1.includes("column"));
+          (msg1.includes("does not exist") ||
+            msg1.includes("schema cache") ||
+            msg1.includes("column"));
 
         if (!missingImageUrl) {
           throw res1.error;
@@ -295,7 +300,9 @@ ${price}
 
           const missingImages =
             msg2.includes("images") &&
-            (msg2.includes("does not exist") || msg2.includes("schema cache") || msg2.includes("column"));
+            (msg2.includes("does not exist") ||
+              msg2.includes("schema cache") ||
+              msg2.includes("column"));
 
           if (!missingImages) {
             throw res2.error;
@@ -355,24 +362,29 @@ ${price}
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
           borderBottomColor: "rgba(255,255,255,0.06)",
-          paddingHorizontal: 16,
-          paddingTop: 14,
-          paddingBottom: 14,
+          paddingHorizontal: pagePadding,
+          paddingTop: isMobile ? 12 : 14,
+          paddingBottom: isMobile ? 12 : 14,
           gap: 12,
         }}
       >
         <View
           style={{
-            flexDirection: "row",
+            flexDirection: isMobile ? "column" : "row",
             justifyContent: "space-between",
-            alignItems: "flex-start",
+            alignItems: isMobile ? "stretch" : "flex-start",
             gap: 10,
           }}
         >
           <View style={{ flex: 1 }}>
             <Text
-              style={{ color: COLORS.text, fontSize: 28, fontWeight: "900", lineHeight: 32 }}
-              numberOfLines={2}
+              style={{
+                color: COLORS.text,
+                fontSize: isMobile ? 24 : 28,
+                fontWeight: "900",
+                lineHeight: isMobile ? 30 : 32,
+              }}
+              numberOfLines={isMobile ? 3 : 2}
             >
               {p?.title ?? "Producto"}
             </Text>
@@ -382,7 +394,14 @@ ${price}
             </Text>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 10 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 10,
+              flexWrap: "wrap",
+              justifyContent: isMobile ? "flex-start" : "flex-end",
+            }}
+          >
             <Pressable
               onPress={() => router.push("/carrito")}
               style={({ pressed }) => ({
@@ -395,7 +414,9 @@ ${price}
                 backgroundColor: COLORS.accent2,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>🛒 Carrito</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>
+                🛒 Carrito
+              </Text>
             </Pressable>
 
             <Pressable
@@ -427,7 +448,9 @@ ${price}
             onPress={() => router.replace("/")}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
-            <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800" }}>Inicio</Text>
+            <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 13 }}>
+              Inicio
+            </Text>
           </Pressable>
 
           <Text style={{ color: "rgba(255,255,255,0.42)" }}>›</Text>
@@ -436,12 +459,17 @@ ${price}
             onPress={() => router.replace("/catalogo")}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
-            <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800" }}>Catálogo</Text>
+            <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 13 }}>
+              Catálogo
+            </Text>
           </Pressable>
 
           <Text style={{ color: "rgba(255,255,255,0.42)" }}>›</Text>
 
-          <Text style={{ color: COLORS.text, fontWeight: "900" }} numberOfLines={1}>
+          <Text
+            style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}
+            numberOfLines={1}
+          >
             {p?.title ?? "Producto"}
           </Text>
         </View>
@@ -453,7 +481,7 @@ ${price}
           <Text style={{ color: COLORS.muted }}>Cargando producto…</Text>
         </View>
       ) : err ? (
-        <View style={{ padding: 16, gap: 12 }}>
+        <View style={{ padding: pagePadding, gap: 12 }}>
           <View
             style={{
               borderRadius: 18,
@@ -468,7 +496,12 @@ ${price}
             <Text style={{ color: "#FEE2E2", lineHeight: 20 }}>{err}</Text>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+          <View
+            style={{
+              flexDirection: isMobile ? "column" : "row",
+              gap: 10,
+            }}
+          >
             <Pressable
               onPress={loadProduct}
               style={({ pressed }) => ({
@@ -479,9 +512,12 @@ ${price}
                 backgroundColor: COLORS.accent2,
                 paddingVertical: 14,
                 paddingHorizontal: 16,
+                width: isMobile ? "100%" : undefined,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Reintentar</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                Reintentar
+              </Text>
             </Pressable>
 
             <Pressable
@@ -494,14 +530,17 @@ ${price}
                 backgroundColor: "rgba(255,255,255,0.06)",
                 paddingVertical: 14,
                 paddingHorizontal: 16,
+                width: isMobile ? "100%" : undefined,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Volver al catálogo</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                Volver al catálogo
+              </Text>
             </Pressable>
           </View>
         </View>
       ) : !p ? (
-        <View style={{ padding: 16, gap: 10 }}>
+        <View style={{ padding: pagePadding, gap: 10 }}>
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
             Producto no disponible
           </Text>
@@ -516,15 +555,23 @@ ${price}
               backgroundColor: "rgba(255,255,255,0.06)",
               paddingVertical: 14,
               paddingHorizontal: 16,
-              alignSelf: "flex-start",
+              alignSelf: isMobile ? "stretch" : "flex-start",
             })}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>Volver al catálogo</Text>
+            <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+              Volver al catálogo
+            </Text>
           </Pressable>
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 132, gap: 14 }}>
+          <ScrollView
+            contentContainerStyle={{
+              padding: pagePadding,
+              paddingBottom: isMobile ? 200 : 132,
+              gap: 14,
+            }}
+          >
             <View
               style={{
                 flexDirection: isWide ? "row" : "column",
@@ -532,7 +579,6 @@ ${price}
                 alignItems: "stretch",
               }}
             >
-              {/* BLOQUE IMAGEN */}
               <View
                 style={{
                   flex: isWide ? 1.08 : undefined,
@@ -554,7 +600,7 @@ ${price}
                       source={{ uri: p.imageUrl }}
                       style={{
                         width: "100%",
-                        height: isWide ? 520 : 280,
+                        height: isWide ? 520 : isTablet ? 360 : 260,
                         backgroundColor: "rgba(255,255,255,0.04)",
                       }}
                       resizeMode="cover"
@@ -562,7 +608,7 @@ ${price}
                   ) : (
                     <View
                       style={{
-                        height: isWide ? 520 : 280,
+                        height: isWide ? 520 : isTablet ? 360 : 260,
                         alignItems: "center",
                         justifyContent: "center",
                         padding: 22,
@@ -573,7 +619,7 @@ ${price}
                         style={{
                           color: "rgba(255,255,255,0.20)",
                           fontWeight: "900",
-                          fontSize: 56,
+                          fontSize: isMobile ? 46 : 56,
                         }}
                       >
                         VG
@@ -583,7 +629,7 @@ ${price}
                           color: COLORS.text,
                           fontWeight: "900",
                           marginTop: 10,
-                          fontSize: 18,
+                          fontSize: isMobile ? 17 : 18,
                         }}
                       >
                         Imagen no disponible
@@ -605,7 +651,6 @@ ${price}
                 </View>
               </View>
 
-              {/* BLOQUE INFO */}
               <View
                 style={{
                   flex: isWide ? 0.92 : undefined,
@@ -619,7 +664,7 @@ ${price}
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: COLORS.cardStrong,
-                    padding: 18,
+                    padding: isMobile ? 14 : 18,
                     gap: 12,
                   }}
                 >
@@ -682,9 +727,9 @@ ${price}
                   <Text
                     style={{
                       color: COLORS.text,
-                      fontSize: 30,
+                      fontSize: isMobile ? 24 : 30,
                       fontWeight: "900",
-                      lineHeight: 34,
+                      lineHeight: isMobile ? 29 : 34,
                     }}
                   >
                     {p.title}
@@ -693,9 +738,9 @@ ${price}
                   <Text
                     style={{
                       color: COLORS.accent,
-                      fontSize: 34,
+                      fontSize: isMobile ? 28 : 34,
                       fontWeight: "900",
-                      lineHeight: 38,
+                      lineHeight: isMobile ? 32 : 38,
                     }}
                   >
                     {fmtEUR(p.priceEUR)}
@@ -743,12 +788,13 @@ ${price}
                     </Text>
 
                     <View style={{ gap: 8 }}>
-                      <InfoRow label="Estado" value={badgeLabel} />
-                      <InfoRow label="Categoría" value={p.category?.name ?? "General"} />
-                      <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} />
+                      <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
+                      <InfoRow label="Categoría" value={p.category?.name ?? "General"} isMobile={isMobile} />
+                      <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} isMobile={isMobile} />
                       <InfoRow
                         label="Compra"
                         value={canBuy ? "Disponible para añadir al carrito" : "No disponible"}
+                        isMobile={isMobile}
                       />
                     </View>
                   </View>
@@ -760,11 +806,11 @@ ${price}
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: COLORS.card,
-                    padding: 18,
+                    padding: isMobile ? 14 : 18,
                     gap: 12,
                   }}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}>
                     Compra con tranquilidad
                   </Text>
 
@@ -773,10 +819,10 @@ ${price}
                   </Text>
 
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                    <Pill text="Producto revisado" />
-                    <Pill text="Envíos en España" />
-                    <Pill text="Recibo o factura" />
-                    <Pill text="Atención directa" />
+                    <Pill text="Producto revisado" isMobile={isMobile} />
+                    <Pill text="Envíos en España" isMobile={isMobile} />
+                    <Pill text="Recibo o factura" isMobile={isMobile} />
+                    <Pill text="Atención directa" isMobile={isMobile} />
                   </View>
 
                   <View
@@ -809,10 +855,10 @@ ${price}
                         backgroundColor: COLORS.accent2,
                         paddingVertical: 12,
                         paddingHorizontal: 14,
-                        alignSelf: "flex-start",
+                        alignSelf: isMobile ? "stretch" : "flex-start",
                       })}
                     >
-                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
                         📲 Preguntar por WhatsApp
                       </Text>
                     </Pressable>
@@ -845,7 +891,7 @@ ${price}
               left: 0,
               right: 0,
               bottom: 0,
-              padding: 14,
+              padding: isMobile ? 12 : 14,
               backgroundColor: "rgba(6,26,44,0.94)",
               borderTopWidth: 1,
               borderTopColor: "rgba(255,255,255,0.10)",
@@ -911,25 +957,35 @@ ${price}
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({
+  label,
+  value,
+  isMobile,
+}: {
+  label: string;
+  value: string;
+  isMobile?: boolean;
+}) {
   return (
     <View
       style={{
-        flexDirection: "row",
+        flexDirection: isMobile ? "column" : "row",
         justifyContent: "space-between",
-        gap: 12,
-        alignItems: "center",
+        gap: 6,
+        alignItems: isMobile ? "flex-start" : "center",
       }}
     >
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", flex: 1 }}>{label}</Text>
+      <Text style={{ color: COLORS.muted2, fontWeight: "700", flex: isMobile ? undefined : 1 }}>
+        {label}
+      </Text>
       <Text
         style={{
           color: COLORS.text,
           fontWeight: "800",
-          flex: 1,
-          textAlign: "right",
+          flex: isMobile ? undefined : 1,
+          textAlign: isMobile ? "left" : "right",
         }}
-        numberOfLines={2}
+        numberOfLines={isMobile ? 3 : 2}
       >
         {value}
       </Text>
@@ -937,7 +993,13 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Pill({ text }: { text: string }) {
+function Pill({
+  text,
+  isMobile,
+}: {
+  text: string;
+  isMobile?: boolean;
+}) {
   return (
     <View
       style={{
@@ -947,9 +1009,12 @@ function Pill({ text }: { text: string }) {
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.10)",
         backgroundColor: "rgba(255,255,255,0.06)",
+        width: isMobile ? "auto" : undefined,
       }}
     >
-      <Text style={{ color: "rgba(255,255,255,0.88)", fontWeight: "800" }}>{text}</Text>
+      <Text style={{ color: "rgba(255,255,255,0.88)", fontWeight: "800", fontSize: 13 }}>
+        {text}
+      </Text>
     </View>
   );
 }

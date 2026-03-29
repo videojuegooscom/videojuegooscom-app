@@ -216,9 +216,12 @@ async function detectAdmin(): Promise<boolean> {
 
 export default function CatalogoScreen() {
   const { width } = useWindowDimensions();
-  const cols = calcColumns(width);
-  const isWide = width >= 980;
-  const isTablet = width >= 720;
+  const widthSafe = width && width > 0 ? width : 1024;
+  const cols = calcColumns(widthSafe);
+  const isMobile = widthSafe < 700;
+  const isTablet = widthSafe >= 700 && widthSafe < 1024;
+  const isWide = widthSafe >= 980;
+  const pagePadding = isMobile ? 12 : 16;
 
   const params = useLocalSearchParams<{ cat?: string; query?: string }>();
   const rawCat = typeof params.cat === "string" ? params.cat : undefined;
@@ -296,10 +299,10 @@ export default function CatalogoScreen() {
       "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
 
     const buildQuery = (selectStr: string) => {
-      let q = supabase.from("products").select(selectStr).order("updated_at", { ascending: false });
+      let query = supabase.from("products").select(selectStr).order("updated_at", { ascending: false });
 
       if (!adminFlag) {
-        q = q.eq("is_active", true).eq("status", "PUBLISHED");
+        query = query.eq("is_active", true).eq("status", "PUBLISHED");
       } else if (effectiveFilter !== "ALL") {
         const dbStatus: DbStatus =
           effectiveFilter === "PUBLICADA"
@@ -307,19 +310,19 @@ export default function CatalogoScreen() {
             : effectiveFilter === "LISTA"
               ? "DRAFT"
               : "REVIEW";
-        q = q.eq("status", dbStatus);
+        query = query.eq("status", dbStatus);
       }
 
       if (resolvedCat?.id) {
-        q = q.eq("category_id", resolvedCat.id);
+        query = query.eq("category_id", resolvedCat.id);
       }
 
       if (queryText) {
         const pattern = `%${queryText}%`;
-        q = q.or(`title.ilike.${pattern},description.ilike.${pattern}`);
+        query = query.or(`title.ilike.${pattern},description.ilike.${pattern}`);
       }
 
-      return q;
+      return query;
     };
 
     const res1 = await buildQuery(selectWithImagesAndUrl);
@@ -382,8 +385,8 @@ export default function CatalogoScreen() {
 
     setCategories(cats);
 
-    const resolvedCat = resolveCategory(rawCat, cats);
-    const rows = await fetchProductsSafe(adminFlag, queryText, resolvedCat);
+    const resolvedCatLocal = resolveCategory(rawCat, cats);
+    const rows = await fetchProductsSafe(adminFlag, queryText, resolvedCatLocal);
     if (seq !== reqSeqRef.current) return;
 
     const mapped: Product[] = rows.map((p) => ({
@@ -452,17 +455,17 @@ export default function CatalogoScreen() {
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
             borderBottomColor: "rgba(255,255,255,0.06)",
-            paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 18,
+            paddingHorizontal: pagePadding,
+            paddingTop: isMobile ? 12 : 14,
+            paddingBottom: isMobile ? 14 : 18,
             gap: 14,
           }}
         >
           <View
             style={{
-              flexDirection: "row",
+              flexDirection: isMobile ? "column" : "row",
               justifyContent: "space-between",
-              alignItems: "flex-start",
+              alignItems: isMobile ? "stretch" : "flex-start",
               gap: 12,
             }}
           >
@@ -470,9 +473,10 @@ export default function CatalogoScreen() {
               <Text
                 style={{
                   color: COLORS.text,
-                  fontSize: 28,
+                  fontSize: isMobile ? 24 : 28,
                   fontWeight: "900",
                   letterSpacing: -0.5,
+                  lineHeight: isMobile ? 30 : 34,
                 }}
               >
                 {pageTitle}
@@ -482,7 +486,7 @@ export default function CatalogoScreen() {
                 style={{
                   color: COLORS.muted,
                   marginTop: 6,
-                  fontSize: 14,
+                  fontSize: isMobile ? 13 : 14,
                   lineHeight: 20,
                   maxWidth: 760,
                 }}
@@ -491,7 +495,14 @@ export default function CatalogoScreen() {
               </Text>
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 10,
+                flexWrap: "wrap",
+                justifyContent: isMobile ? "flex-start" : "flex-end",
+              }}
+            >
               <Pressable
                 onPress={() => router.push("/carrito")}
                 style={({ pressed }) => ({
@@ -504,7 +515,9 @@ export default function CatalogoScreen() {
                   backgroundColor: COLORS.accent2,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>🛒 Carrito</Text>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>
+                  🛒 Carrito
+                </Text>
               </Pressable>
 
               <Pressable
@@ -531,7 +544,7 @@ export default function CatalogoScreen() {
                 borderWidth: 1,
                 borderColor: COLORS.borderSoft,
                 backgroundColor: "rgba(255,255,255,0.04)",
-                padding: 16,
+                padding: isMobile ? 14 : 16,
                 gap: 14,
               }}
             >
@@ -547,9 +560,9 @@ export default function CatalogoScreen() {
                   <Text
                     style={{
                       color: COLORS.text,
-                      fontSize: 20,
+                      fontSize: isMobile ? 18 : 20,
                       fontWeight: "900",
-                      lineHeight: 26,
+                      lineHeight: isMobile ? 24 : 26,
                     }}
                   >
                     Encuentra consolas, videojuegos y accesorios con aspecto de tienda seria.
@@ -570,34 +583,43 @@ export default function CatalogoScreen() {
                     flexDirection: isTablet ? "row" : "column",
                     gap: 10,
                     flexWrap: "wrap",
+                    width: isMobile ? "100%" : "auto",
                   }}
                 >
-                  <TrustPill label="Productos revisados" />
-                  <TrustPill label="Envíos en España" />
-                  <TrustPill label="Atención por WhatsApp" />
+                  <TrustPill label="Productos revisados" isMobile={isMobile} />
+                  <TrustPill label="Envíos en España" isMobile={isMobile} />
+                  <TrustPill label="Atención por WhatsApp" isMobile={isMobile} />
                 </View>
               </View>
 
               <View
                 style={{
-                  flexDirection: isWide ? "row" : "column",
+                  flexDirection: "row",
+                  flexWrap: "wrap",
                   gap: 10,
+                  justifyContent: "space-between",
                 }}
               >
                 <MetricCard
                   title="Productos visibles"
                   value={`${heroStats.total}`}
                   subtitle="Inventario mostrado"
+                  isMobile={isMobile}
+                  compact
                 />
                 <MetricCard
                   title="Categorías"
                   value={`${heroStats.categoryCount}`}
                   subtitle="Acceso rápido"
+                  isMobile={isMobile}
+                  compact
                 />
                 <MetricCard
                   title="Con precio"
                   value={`${heroStats.withPrice}`}
                   subtitle="Listos para decidir"
+                  isMobile={isMobile}
+                  compact
                 />
               </View>
             </View>
@@ -630,84 +652,117 @@ export default function CatalogoScreen() {
               backgroundColor: COLORS.card,
               paddingHorizontal: 12,
               paddingVertical: 10,
-              flexDirection: "row",
-              alignItems: "center",
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 16 }}>🔎</Text>
-
-            <TextInput
-              value={q}
-              onChangeText={setQ}
-              placeholder="Buscar consola, videojuego, accesorio..."
-              placeholderTextColor="rgba(255,255,255,0.42)"
+            <View
               style={{
-                flex: 1,
-                color: COLORS.text,
-                fontWeight: "700",
-                paddingVertical: 0,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
               }}
-              returnKeyType="search"
-              onSubmitEditing={() => refresh()}
-            />
+            >
+              <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 16 }}>🔎</Text>
 
-            {q ? (
-              <Pressable
-                onPress={() => {
-                  setQ("");
-                  refresh({ queryOverride: "" });
+              <TextInput
+                value={q}
+                onChangeText={setQ}
+                placeholder="Buscar consola, videojuego, accesorio..."
+                placeholderTextColor="rgba(255,255,255,0.42)"
+                style={{
+                  flex: 1,
+                  color: COLORS.text,
+                  fontWeight: "700",
+                  paddingVertical: 0,
+                  fontSize: isMobile ? 14 : 15,
                 }}
+                returnKeyType="search"
+                onSubmitEditing={() => refresh()}
+              />
+            </View>
+
+            <View
+              style={{
+                flexDirection: isMobile ? "column" : "row",
+                gap: 10,
+              }}
+            >
+              {q ? (
+                <Pressable
+                  onPress={() => {
+                    setQ("");
+                    refresh({ queryOverride: "" });
+                  }}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.85 : 1,
+                    paddingVertical: 10,
+                    paddingHorizontal: 11,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.14)",
+                    backgroundColor: "rgba(255,255,255,0.06)",
+                    width: isMobile ? "100%" : undefined,
+                  })}
+                >
+                  <Text
+                    style={{
+                      color: COLORS.text,
+                      fontWeight: "900",
+                      textAlign: "center",
+                    }}
+                  >
+                    Limpiar
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                onPress={() => refresh()}
+                disabled={refreshing}
                 style={({ pressed }) => ({
-                  opacity: pressed ? 0.85 : 1,
-                  paddingVertical: 7,
+                  opacity: refreshing ? 0.55 : pressed ? 0.85 : 1,
+                  paddingVertical: 10,
                   paddingHorizontal: 11,
                   borderRadius: 999,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderColor: COLORS.accentBorder,
+                  backgroundColor: COLORS.accent2,
+                  width: isMobile ? "100%" : undefined,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Limpiar</Text>
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontWeight: "900",
+                    textAlign: "center",
+                  }}
+                >
+                  {refreshing ? "..." : "Buscar"}
+                </Text>
               </Pressable>
-            ) : null}
-
-            <Pressable
-              onPress={() => refresh()}
-              disabled={refreshing}
-              style={({ pressed }) => ({
-                opacity: refreshing ? 0.55 : pressed ? 0.85 : 1,
-                paddingVertical: 7,
-                paddingHorizontal: 11,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                backgroundColor: COLORS.accent2,
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                {refreshing ? "..." : "Buscar"}
-              </Text>
-            </Pressable>
+            </View>
           </View>
 
           {isAdmin ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <Chip active={filter === "ALL"} label="Todos" onPress={() => setFilter("ALL")} />
+              <Chip active={filter === "ALL"} label="Todos" onPress={() => setFilter("ALL")} isMobile={isMobile} />
               <Chip
                 active={filter === "PUBLICADA"}
                 label="Publicadas"
                 onPress={() => setFilter("PUBLICADA")}
+                isMobile={isMobile}
               />
               <Chip
                 active={filter === "LISTA"}
                 label="Listas"
                 onPress={() => setFilter("LISTA")}
+                isMobile={isMobile}
               />
               <Chip
                 active={filter === "REVISAR"}
                 label="Por revisar"
                 onPress={() => setFilter("REVISAR")}
+                isMobile={isMobile}
               />
             </View>
           ) : null}
@@ -731,6 +786,7 @@ export default function CatalogoScreen() {
                     key={c.id}
                     active={active}
                     label={c.name}
+                    isMobile={isMobile}
                     onPress={() => {
                       if (c.id === "ALL") {
                         router.replace({ pathname: "/catalogo" });
@@ -767,21 +823,21 @@ export default function CatalogoScreen() {
               alignItems: "center",
               justifyContent: "center",
               gap: 10,
-              paddingHorizontal: 16,
+              paddingHorizontal: pagePadding,
             }}
           >
             <ActivityIndicator />
             <Text style={{ color: COLORS.muted }}>Cargando catálogo…</Text>
           </View>
         ) : (
-          <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 14 }}>
+          <View style={{ paddingHorizontal: pagePadding, paddingTop: 16, gap: 14 }}>
             <View
               style={{
                 borderRadius: 18,
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.cardStrong,
-                padding: 14,
+                padding: isMobile ? 14 : 14,
                 gap: 12,
               }}
             >
@@ -819,7 +875,13 @@ export default function CatalogoScreen() {
                   </Text>
                 </View>
 
-                <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                <View
+                  style={{
+                    flexDirection: isMobile ? "column" : "row",
+                    gap: 10,
+                    width: isMobile ? "100%" : "auto",
+                  }}
+                >
                   <Pressable
                     onPress={() => router.push("/carrito")}
                     style={({ pressed }) => ({
@@ -830,9 +892,12 @@ export default function CatalogoScreen() {
                       borderWidth: 1,
                       borderColor: COLORS.border,
                       backgroundColor: "rgba(255,255,255,0.06)",
+                      width: isMobile ? "100%" : undefined,
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Ir al carrito</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      Ir al carrito
+                    </Text>
                   </Pressable>
 
                   <Pressable
@@ -845,9 +910,12 @@ export default function CatalogoScreen() {
                       borderWidth: 1,
                       borderColor: COLORS.accentBorder,
                       backgroundColor: COLORS.accent2,
+                      width: isMobile ? "100%" : undefined,
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Finalizar compra</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      Finalizar compra
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -860,11 +928,11 @@ export default function CatalogoScreen() {
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
-                  padding: 18,
+                  padding: isMobile ? 16 : 18,
                   gap: 12,
                 }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 20 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20 }}>
                   Ahora mismo no hay productos para esta vista.
                 </Text>
 
@@ -874,7 +942,13 @@ export default function CatalogoScreen() {
                   faltan productos publicados y activos.
                 </Text>
 
-                <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                <View
+                  style={{
+                    flexDirection: isMobile ? "column" : "row",
+                    gap: 10,
+                    marginTop: 4,
+                  }}
+                >
                   <Pressable
                     onPress={() => {
                       setQ("");
@@ -889,9 +963,12 @@ export default function CatalogoScreen() {
                       borderWidth: 1,
                       borderColor: COLORS.accentBorder,
                       backgroundColor: COLORS.accent2,
+                      width: isMobile ? "100%" : undefined,
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Ver todo</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      Ver todo
+                    </Text>
                   </Pressable>
 
                   <Pressable
@@ -904,9 +981,12 @@ export default function CatalogoScreen() {
                       borderWidth: 1,
                       borderColor: COLORS.border,
                       backgroundColor: "rgba(255,255,255,0.06)",
+                      width: isMobile ? "100%" : undefined,
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Volver</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      Volver
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -917,6 +997,8 @@ export default function CatalogoScreen() {
                     key={p.id}
                     p={p}
                     isAdmin={isAdmin}
+                    isMobile={isMobile}
+                    isTablet={isTablet}
                     onPress={() => router.push(`/producto/${p.id}`)}
                   />
                 ))}
@@ -930,11 +1012,11 @@ export default function CatalogoScreen() {
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
-                  padding: 16,
+                  padding: isMobile ? 14 : 16,
                   gap: 10,
                 }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}>
                   ¿No encuentras exactamente lo que buscas?
                 </Text>
                 <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
@@ -946,7 +1028,7 @@ export default function CatalogoScreen() {
                   onPress={() => router.push("/checkout")}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.88 : 1,
-                    alignSelf: "flex-start",
+                    alignSelf: isMobile ? "stretch" : "flex-start",
                     borderRadius: 999,
                     paddingVertical: 11,
                     paddingHorizontal: 14,
@@ -955,7 +1037,7 @@ export default function CatalogoScreen() {
                     backgroundColor: COLORS.accent2,
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
                     Seguir con la compra
                   </Text>
                 </Pressable>
@@ -985,7 +1067,13 @@ export default function CatalogoScreen() {
   );
 }
 
-function TrustPill({ label }: { label: string }) {
+function TrustPill({
+  label,
+  isMobile,
+}: {
+  label: string;
+  isMobile?: boolean;
+}) {
   return (
     <View
       style={{
@@ -995,9 +1083,12 @@ function TrustPill({ label }: { label: string }) {
         borderWidth: 1,
         borderColor: COLORS.accentBorder,
         backgroundColor: COLORS.accent2,
+        width: isMobile ? "100%" : undefined,
       }}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12 }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -1006,26 +1097,31 @@ function MetricCard({
   title,
   value,
   subtitle,
+  isMobile,
+  compact,
 }: {
   title: string;
   value: string;
   subtitle: string;
+  isMobile?: boolean;
+  compact?: boolean;
 }) {
   return (
     <View
       style={{
-        flex: 1,
-        minWidth: 160,
+        width: compact ? (isMobile ? "100%" : "31.9%") : "100%",
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.borderSoft,
         backgroundColor: "rgba(255,255,255,0.05)",
-        padding: 14,
+        padding: isMobile ? 12 : 14,
         gap: 4,
       }}
     >
       <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>{title}</Text>
-      <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900" }}>{value}</Text>
+      <Text style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900" }}>
+        {value}
+      </Text>
       <Text style={{ color: COLORS.muted, fontSize: 12 }}>{subtitle}</Text>
     </View>
   );
@@ -1035,10 +1131,12 @@ function Chip({
   label,
   active,
   onPress,
+  isMobile,
 }: {
   label: string;
   active?: boolean;
   onPress: () => void;
+  isMobile?: boolean;
 }) {
   return (
     <Pressable
@@ -1053,7 +1151,9 @@ function Chip({
         backgroundColor: active ? COLORS.accent2 : "rgba(255,255,255,0.06)",
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "800" }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: isMobile ? 13 : 14 }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -1076,7 +1176,13 @@ function Grid({
   return (
     <View style={{ gap }}>
       {rows.map((row, idx) => (
-        <View key={idx} style={{ flexDirection: "row", gap }}>
+        <View
+          key={idx}
+          style={{
+            flexDirection: columns === 1 ? "column" : "row",
+            gap,
+          }}
+        >
           {row.map((child, j) => (
             <View key={j} style={{ flex: 1 }}>
               {child}
@@ -1097,10 +1203,13 @@ function ProductCard({
   p,
   onPress,
   isAdmin,
+  isMobile,
 }: {
   p: Product;
   onPress: () => void;
   isAdmin: boolean;
+  isMobile?: boolean;
+  isTablet?: boolean;
 }) {
   const badgeLabel = isAdmin ? adminStatusLabel(p.status) : publicStatusLabel(p.status);
 
@@ -1118,7 +1227,7 @@ function ProductCard({
     >
       <View
         style={{
-          height: 180,
+          height: isMobile ? 200 : 180,
           backgroundColor: COLORS.bg3,
           borderBottomWidth: 1,
           borderBottomColor: COLORS.borderSoft,
@@ -1182,7 +1291,7 @@ function ProductCard({
         </View>
       </View>
 
-      <View style={{ padding: 14, gap: 10 }}>
+      <View style={{ padding: isMobile ? 12 : 14, gap: 10 }}>
         <View style={{ gap: 6 }}>
           {p.category?.name ? (
             <Text
@@ -1202,10 +1311,10 @@ function ProductCard({
           <Text
             style={{
               color: COLORS.text,
-              fontSize: 17,
-              lineHeight: 22,
+              fontSize: isMobile ? 16 : 17,
+              lineHeight: isMobile ? 21 : 22,
               fontWeight: "900",
-              minHeight: 44,
+              minHeight: isMobile ? 42 : 44,
             }}
             numberOfLines={2}
           >
@@ -1249,7 +1358,7 @@ function ProductCard({
               <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>
                 Precio
               </Text>
-              <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+              <Text style={{ color: COLORS.text, fontSize: isMobile ? 22 : 24, fontWeight: "900" }}>
                 {fmtEUR(p.priceEUR)}
               </Text>
             </View>

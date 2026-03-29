@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
@@ -181,15 +182,28 @@ function statusVisual(status: ProductStatus) {
 function SectionTitle({
   title,
   subtitle,
+  isMobile,
 }: {
   title: string;
   subtitle?: string;
+  isMobile?: boolean;
 }) {
   return (
     <View style={{ marginBottom: 10 }}>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>{title}</Text>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 17 : 18,
+          lineHeight: isMobile ? 22 : 24,
+        }}
+      >
+        {title}
+      </Text>
       {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>{subtitle}</Text>
+        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+          {subtitle}
+        </Text>
       )}
     </View>
   );
@@ -199,28 +213,38 @@ function StatCard({
   label,
   value,
   icon,
+  isMobile,
+  compact,
 }: {
   label: string;
   value: string;
   icon?: string;
+  isMobile?: boolean;
+  compact?: boolean;
 }) {
   return (
     <View
       style={{
-        flex: 1,
-        minWidth: 140,
+        width: compact ? (isMobile ? "100%" : "48.6%") : "100%",
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
-        padding: 14,
+        padding: isMobile ? 12 : 14,
       }}
     >
       <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
         {icon ? `${icon} ` : ""}
         {label}
       </Text>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 20, marginTop: 6 }}>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 18 : 20,
+          marginTop: 6,
+        }}
+      >
         {value}
       </Text>
     </View>
@@ -232,11 +256,15 @@ function ChipButton({
   onPress,
   variant,
   disabled,
+  isMobile,
+  fullWidth,
 }: {
   label: string;
   onPress: () => void;
   variant?: "primary" | "success" | "danger" | "ghost";
   disabled?: boolean;
+  isMobile?: boolean;
+  fullWidth?: boolean;
 }) {
   const isPrimary = variant === "primary";
   const isSuccess = variant === "success";
@@ -264,15 +292,25 @@ function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: 10,
-        paddingHorizontal: 12,
+        paddingVertical: isMobile ? 10 : 10,
+        paddingHorizontal: isMobile ? 12 : 12,
         borderWidth: 1,
         borderColor,
         backgroundColor,
         opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
+        width: fullWidth ? "100%" : undefined,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          textAlign: "center",
+          fontSize: isMobile ? 13 : 14,
+        }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -281,10 +319,12 @@ function FilterPill({
   label,
   active,
   onPress,
+  isMobile,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
+  isMobile?: boolean;
 }) {
   return (
     <Pressable
@@ -299,12 +339,21 @@ function FilterPill({
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
 export default function AdminProducts() {
+  const { width } = useWindowDimensions();
+  const widthSafe = width && width > 0 ? width : 1024;
+  const isMobile = widthSafe < 700;
+  const isTablet = widthSafe >= 700 && widthSafe < 1024;
+  const isDesktopish = widthSafe >= 1024;
+  const pagePadding = isMobile ? 12 : 16;
+
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
 
@@ -616,8 +665,8 @@ export default function AdminProducts() {
 
     const nextValue = !p.is_featured_home;
 
-    let prev = itemsRef.current;
-    let next = prev.map((x) => {
+    const prev = itemsRef.current;
+    const next = prev.map((x) => {
       if (nextValue) {
         return { ...x, is_featured_home: x.id === p.id };
       }
@@ -662,22 +711,29 @@ export default function AdminProducts() {
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
           borderBottomColor: "rgba(255,255,255,0.06)",
-          paddingHorizontal: 16,
-          paddingTop: 14,
-          paddingBottom: 12,
+          paddingHorizontal: pagePadding,
+          paddingTop: isMobile ? 12 : 14,
+          paddingBottom: isMobile ? 12 : 12,
           gap: 12,
         }}
       >
         <View
           style={{
-            flexDirection: "row",
+            flexDirection: isMobile ? "column" : "row",
             justifyContent: "space-between",
-            alignItems: "center",
+            alignItems: isMobile ? "stretch" : "center",
             gap: 10,
           }}
         >
-          <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+          <View style={{ flex: isMobile ? undefined : 1, paddingRight: isMobile ? 0 : 10 }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: isMobile ? 22 : 24,
+                fontWeight: "900",
+                lineHeight: isMobile ? 28 : 30,
+              }}
+            >
               Productos
             </Text>
             <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
@@ -695,17 +751,25 @@ export default function AdminProducts() {
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: "rgba(255,255,255,0.05)",
+              alignSelf: isMobile ? "flex-start" : "auto",
             })}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
           </Pressable>
         </View>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <StatCard label="Total" value={String(stats.total)} icon="📦" />
-          <StatCard label="Publicados" value={String(stats.published)} icon="✅" />
-          <StatCard label="Visibles" value={String(stats.visible)} icon="👁️" />
-          <StatCard label="Destacados home" value={String(stats.featured)} icon="🔥" />
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 10,
+            justifyContent: "space-between",
+          }}
+        >
+          <StatCard label="Total" value={String(stats.total)} icon="📦" isMobile={isMobile} compact />
+          <StatCard label="Publicados" value={String(stats.published)} icon="✅" isMobile={isMobile} compact />
+          <StatCard label="Visibles" value={String(stats.visible)} icon="👁️" isMobile={isMobile} compact />
+          <StatCard label="Destacados home" value={String(stats.featured)} icon="🔥" isMobile={isMobile} compact />
         </View>
 
         <View
@@ -714,7 +778,7 @@ export default function AdminProducts() {
             borderWidth: 1,
             borderColor: COLORS.border,
             backgroundColor: COLORS.card,
-            padding: 12,
+            padding: isMobile ? 12 : 12,
             gap: 10,
           }}
         >
@@ -731,6 +795,7 @@ export default function AdminProducts() {
               paddingVertical: 12,
               color: COLORS.text,
               backgroundColor: "rgba(255,255,255,0.03)",
+              fontSize: isMobile ? 14 : 15,
             }}
           />
 
@@ -741,21 +806,25 @@ export default function AdminProducts() {
                 label="Todos"
                 active={statusFilter === "ALL"}
                 onPress={() => setStatusFilter("ALL")}
+                isMobile={isMobile}
               />
               <FilterPill
                 label="Borrador"
                 active={statusFilter === "DRAFT"}
                 onPress={() => setStatusFilter("DRAFT")}
+                isMobile={isMobile}
               />
               <FilterPill
                 label="Por revisar"
                 active={statusFilter === "REVIEW"}
                 onPress={() => setStatusFilter("REVIEW")}
+                isMobile={isMobile}
               />
               <FilterPill
                 label="Publicado"
                 active={statusFilter === "PUBLISHED"}
                 onPress={() => setStatusFilter("PUBLISHED")}
+                isMobile={isMobile}
               />
             </View>
           </View>
@@ -767,16 +836,19 @@ export default function AdminProducts() {
                 label="Todos"
                 active={visibilityFilter === "ALL"}
                 onPress={() => setVisibilityFilter("ALL")}
+                isMobile={isMobile}
               />
               <FilterPill
                 label="Visibles"
                 active={visibilityFilter === "VISIBLE"}
                 onPress={() => setVisibilityFilter("VISIBLE")}
+                isMobile={isMobile}
               />
               <FilterPill
                 label="Ocultos"
                 active={visibilityFilter === "HIDDEN"}
                 onPress={() => setVisibilityFilter("HIDDEN")}
+                isMobile={isMobile}
               />
             </View>
           </View>
@@ -808,7 +880,9 @@ export default function AdminProducts() {
               padding: 10,
             }}
           >
-            <Text style={{ color: COLORS.danger, fontWeight: "800" }}>{screenErr}</Text>
+            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+              {screenErr}
+            </Text>
           </View>
         )}
 
@@ -855,7 +929,13 @@ export default function AdminProducts() {
           <Text style={{ color: COLORS.muted }}>Cargando productos…</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30, gap: 12 }}>
+        <ScrollView
+          contentContainerStyle={{
+            padding: pagePadding,
+            paddingBottom: 30,
+            gap: 12,
+          }}
+        >
           {filteredItems.length === 0 ? (
             <View
               style={{
@@ -863,7 +943,7 @@ export default function AdminProducts() {
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
-                padding: 16,
+                padding: isMobile ? 14 : 16,
                 gap: 8,
               }}
             >
@@ -890,16 +970,22 @@ export default function AdminProducts() {
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: COLORS.card,
-                    padding: 14,
+                    padding: isMobile ? 12 : 14,
                     gap: 12,
                     ...softShadow(),
                   }}
                 >
-                  <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start" }}>
+                  <View
+                    style={{
+                      flexDirection: isDesktopish ? "row" : "column",
+                      gap: 14,
+                      alignItems: isDesktopish ? "flex-start" : "stretch",
+                    }}
+                  >
                     <View
                       style={{
-                        width: 92,
-                        height: 92,
+                        width: isDesktopish ? 92 : "100%",
+                        height: isDesktopish ? 92 : isMobile ? 190 : 220,
                         borderRadius: 16,
                         overflow: "hidden",
                         borderWidth: 1,
@@ -920,12 +1006,12 @@ export default function AdminProducts() {
                       )}
                     </View>
 
-                    <View style={{ flex: 1, gap: 8 }}>
+                    <View style={{ flex: 1, gap: 10 }}>
                       <View
                         style={{
-                          flexDirection: "row",
+                          flexDirection: isMobile ? "column" : "row",
                           justifyContent: "space-between",
-                          alignItems: "flex-start",
+                          alignItems: isMobile ? "stretch" : "flex-start",
                           gap: 12,
                         }}
                       >
@@ -934,8 +1020,8 @@ export default function AdminProducts() {
                             style={{
                               color: COLORS.text,
                               fontWeight: "900",
-                              fontSize: 17,
-                              lineHeight: 22,
+                              fontSize: isMobile ? 16 : 17,
+                              lineHeight: isMobile ? 22 : 22,
                             }}
                           >
                             {p.title}
@@ -1013,12 +1099,29 @@ export default function AdminProducts() {
                           </View>
                         </View>
 
-                        <View style={{ alignItems: "flex-end", gap: 10 }}>
-                          <Text style={{ color: COLORS.gold, fontWeight: "900", fontSize: 18 }}>
+                        <View
+                          style={{
+                            alignItems: isMobile ? "flex-start" : "flex-end",
+                            gap: 10,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: COLORS.gold,
+                              fontWeight: "900",
+                              fontSize: isMobile ? 17 : 18,
+                            }}
+                          >
                             {fmtEUR(Number(p.price_eur ?? 0))}
                           </Text>
 
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 10,
+                            }}
+                          >
                             <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
                               {p.is_active ? "Visible" : "Oculto"}
                             </Text>
@@ -1029,11 +1132,11 @@ export default function AdminProducts() {
 
                       {!!p.description && (
                         <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                          {clampText(p.description, 200)}
+                          {clampText(p.description, isMobile ? 140 : 200)}
                         </Text>
                       )}
 
-                      <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                      <Text style={{ color: COLORS.muted2, fontSize: 12, lineHeight: 17 }}>
                         Creado: {p.created_at ? new Date(p.created_at).toLocaleString() : "-"} ·
                         Actualizado: {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
                       </Text>
@@ -1043,6 +1146,7 @@ export default function AdminProducts() {
                           label="Editar"
                           variant="primary"
                           onPress={() => openEditProduct(p)}
+                          isMobile={isMobile}
                         />
 
                         {p.status !== "PUBLISHED" ? (
@@ -1050,6 +1154,7 @@ export default function AdminProducts() {
                             label="Publicar"
                             variant="success"
                             onPress={() => quickPublish(p)}
+                            isMobile={isMobile}
                           />
                         ) : null}
 
@@ -1057,6 +1162,7 @@ export default function AdminProducts() {
                           <ChipButton
                             label={p.is_featured_home ? "Quitar destacado" : "Destacar en home"}
                             onPress={() => toggleFeaturedHome(p)}
+                            isMobile={isMobile}
                           />
                         ) : null}
 
@@ -1064,6 +1170,7 @@ export default function AdminProducts() {
                           label="Borrar"
                           variant="danger"
                           onPress={() => askRemove(p)}
+                          isMobile={isMobile}
                         />
                       </View>
                     </View>
@@ -1080,7 +1187,7 @@ export default function AdminProducts() {
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.60)",
-            padding: 16,
+            padding: isMobile ? 10 : 16,
             justifyContent: "center",
           }}
         >
@@ -1094,12 +1201,18 @@ export default function AdminProducts() {
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.bg2,
-                padding: 16,
+                padding: isMobile ? 14 : 16,
                 gap: 12,
                 ...softShadow(),
               }}
             >
-              <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: isMobile ? 19 : 20,
+                  fontWeight: "900",
+                }}
+              >
                 {isEdit ? "Editar producto" : "Nuevo producto"}
               </Text>
 
@@ -1123,6 +1236,7 @@ export default function AdminProducts() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "rgba(255,255,255,0.03)",
+                  fontSize: 14,
                 }}
               />
 
@@ -1142,9 +1256,10 @@ export default function AdminProducts() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  minHeight: 96,
+                  minHeight: isMobile ? 88 : 96,
                   textAlignVertical: "top",
                   backgroundColor: "rgba(255,255,255,0.03)",
+                  fontSize: 14,
                 }}
               />
 
@@ -1165,6 +1280,7 @@ export default function AdminProducts() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "rgba(255,255,255,0.03)",
+                  fontSize: 14,
                 }}
               />
 
@@ -1187,6 +1303,7 @@ export default function AdminProducts() {
                       paddingVertical: 12,
                       color: COLORS.text,
                       backgroundColor: "rgba(255,255,255,0.03)",
+                      fontSize: 14,
                     }}
                   />
 
@@ -1194,7 +1311,7 @@ export default function AdminProducts() {
                     <View
                       style={{
                         width: "100%",
-                        height: 170,
+                        height: isMobile ? 150 : 170,
                         borderRadius: 16,
                         overflow: "hidden",
                         borderWidth: 1,
@@ -1228,7 +1345,9 @@ export default function AdminProducts() {
                       backgroundColor: status === s ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>{labelStatus(s)}</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
+                      {labelStatus(s)}
+                    </Text>
                   </Pressable>
                 ))}
               </View>
@@ -1251,12 +1370,14 @@ export default function AdminProducts() {
                         condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>{labelCond(c)}</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
+                      {labelCond(c)}
+                    </Text>
                   </Pressable>
                 ))}
               </View>
 
-              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", lineHeight: 20 }}>
                 Categoría actual:{" "}
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
               </Text>
@@ -1274,7 +1395,9 @@ export default function AdminProducts() {
                     backgroundColor: !categoryId ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin categoría</Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
+                    Sin categoría
+                  </Text>
                 </Pressable>
 
                 {activeCategories.map((c) => (
@@ -1293,7 +1416,9 @@ export default function AdminProducts() {
                         categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.name}</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
+                      {c.name}
+                    </Text>
                   </Pressable>
                 ))}
               </View>
@@ -1310,12 +1435,13 @@ export default function AdminProducts() {
               >
                 <View
                   style={{
-                    flexDirection: "row",
+                    flexDirection: isMobile ? "column" : "row",
                     justifyContent: "space-between",
-                    alignItems: "center",
+                    alignItems: isMobile ? "stretch" : "center",
+                    gap: 10,
                   }}
                 >
-                  <View style={{ flex: 1, paddingRight: 12 }}>
+                  <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900" }}>Producto activo</Text>
                     <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
                       Si está activo, puede mostrarse en tienda según estado y filtros públicos.
@@ -1327,12 +1453,13 @@ export default function AdminProducts() {
                 {supportsFeaturedHome ? (
                   <View
                     style={{
-                      flexDirection: "row",
+                      flexDirection: isMobile ? "column" : "row",
                       justifyContent: "space-between",
-                      alignItems: "center",
+                      alignItems: isMobile ? "stretch" : "center",
+                      gap: 10,
                     }}
                   >
-                    <View style={{ flex: 1, paddingRight: 12 }}>
+                    <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
                       <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                         Destacar en home
                       </Text>
@@ -1355,17 +1482,18 @@ export default function AdminProducts() {
                     padding: 10,
                   }}
                 >
-                  <Text style={{ color: COLORS.danger, fontWeight: "800" }}>{modalErr}</Text>
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+                    {modalErr}
+                  </Text>
                 </View>
               )}
 
               <View
                 style={{
-                  flexDirection: "row",
+                  flexDirection: isMobile ? "column" : "row",
                   gap: 10,
                   justifyContent: "flex-end",
                   marginTop: 4,
-                  flexWrap: "wrap",
                 }}
               >
                 <Pressable
@@ -1381,9 +1509,12 @@ export default function AdminProducts() {
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: "rgba(255,255,255,0.06)",
+                    width: isMobile ? "100%" : undefined,
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Cancelar</Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    Cancelar
+                  </Text>
                 </Pressable>
 
                 <Pressable
@@ -1395,9 +1526,10 @@ export default function AdminProducts() {
                     paddingVertical: 12,
                     paddingHorizontal: 14,
                     backgroundColor: COLORS.accent,
+                    width: isMobile ? "100%" : undefined,
                   })}
                 >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
                     {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
                   </Text>
                 </Pressable>
@@ -1417,7 +1549,7 @@ export default function AdminProducts() {
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.55)",
-            padding: 16,
+            padding: isMobile ? 10 : 16,
             justifyContent: "center",
           }}
         >
@@ -1427,11 +1559,11 @@ export default function AdminProducts() {
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,
               backgroundColor: COLORS.bg2,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
               Borrar producto
             </Text>
 
@@ -1443,9 +1575,28 @@ export default function AdminProducts() {
               . Esta acción no se puede deshacer.
             </Text>
 
-            <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-              <ChipButton label="Cancelar" variant="ghost" onPress={() => setConfirmDelete(null)} />
-              <ChipButton label="Sí, borrar" variant="danger" onPress={removeProductConfirmed} />
+            <View
+              style={{
+                flexDirection: isMobile ? "column" : "row",
+                gap: 10,
+                justifyContent: "flex-end",
+                marginTop: 6,
+              }}
+            >
+              <ChipButton
+                label="Cancelar"
+                variant="ghost"
+                onPress={() => setConfirmDelete(null)}
+                isMobile={isMobile}
+                fullWidth={isMobile}
+              />
+              <ChipButton
+                label="Sí, borrar"
+                variant="danger"
+                onPress={removeProductConfirmed}
+                isMobile={isMobile}
+                fullWidth={isMobile}
+              />
             </View>
           </View>
         </View>

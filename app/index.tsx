@@ -23,6 +23,7 @@ const COLORS = {
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
   muted: "rgba(255,255,255,0.75)",
+  muted2: "rgba(255,255,255,0.58)",
   accent: "#00AAE4",
   accent2: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.45)",
@@ -144,17 +145,26 @@ function firstImageFromAnyRow(row: any): string | null {
 function SectionTitle({
   title,
   subtitle,
+  isMobile,
 }: {
   title: string;
   subtitle?: string;
+  isMobile?: boolean;
 }) {
   return (
     <View style={{ marginBottom: 10 }}>
-      <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontSize: isMobile ? 17 : 18,
+          fontWeight: "900",
+          lineHeight: isMobile ? 22 : 24,
+        }}
+      >
         {title}
       </Text>
       {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
+        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
           {subtitle}
         </Text>
       )}
@@ -162,12 +172,20 @@ function SectionTitle({
   );
 }
 
-function Pill({ text, icon }: { text: string; icon?: string }) {
+function Pill({
+  text,
+  icon,
+  isMobile,
+}: {
+  text: string;
+  icon?: string;
+  isMobile?: boolean;
+}) {
   return (
     <View
       style={{
-        paddingVertical: 8,
-        paddingHorizontal: 10,
+        paddingVertical: isMobile ? 7 : 8,
+        paddingHorizontal: isMobile ? 9 : 10,
         borderRadius: 999,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.10)",
@@ -178,7 +196,13 @@ function Pill({ text, icon }: { text: string; icon?: string }) {
       }}
     >
       {!!icon && <Text style={{ color: COLORS.text }}>{icon}</Text>}
-      <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "800" }}>
+      <Text
+        style={{
+          color: "rgba(255,255,255,0.85)",
+          fontWeight: "800",
+          fontSize: isMobile ? 12 : 13,
+        }}
+      >
         {text}
       </Text>
     </View>
@@ -190,11 +214,13 @@ function PrimaryButton({
   subtitle,
   onPress,
   rightHint,
+  isMobile,
 }: {
   title: string;
   subtitle?: string;
   onPress: () => void;
   rightHint?: string;
+  isMobile?: boolean;
 }) {
   return (
     <Pressable
@@ -204,19 +230,39 @@ function PrimaryButton({
         borderWidth: 1,
         borderColor: COLORS.accentBorder,
         backgroundColor: COLORS.accent2,
-        paddingVertical: 14,
-        paddingHorizontal: 16,
+        paddingVertical: isMobile ? 13 : 14,
+        paddingHorizontal: isMobile ? 14 : 16,
         opacity: pressed ? 0.88 : 1,
         ...softShadow(),
       })}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+              fontSize: isMobile ? 15 : 16,
+              lineHeight: isMobile ? 20 : 22,
+            }}
+          >
             {title}
           </Text>
           {!!subtitle && (
-            <Text style={{ color: "rgba(255,255,255,0.80)", marginTop: 4 }}>
+            <Text
+              style={{
+                color: "rgba(255,255,255,0.80)",
+                marginTop: 4,
+                lineHeight: 18,
+                fontSize: isMobile ? 13 : 14,
+              }}
+            >
               {subtitle}
             </Text>
           )}
@@ -231,9 +277,16 @@ function PrimaryButton({
               borderWidth: 1,
               borderColor: "rgba(255,255,255,0.14)",
               backgroundColor: "rgba(255,255,255,0.06)",
+              alignSelf: "flex-start",
             }}
           >
-            <Text style={{ color: "rgba(255,255,255,0.90)", fontWeight: "900" }}>
+            <Text
+              style={{
+                color: "rgba(255,255,255,0.90)",
+                fontWeight: "900",
+                fontSize: 12,
+              }}
+            >
               {rightHint}
             </Text>
           </View>
@@ -247,10 +300,12 @@ function SecondaryButton({
   title,
   subtitle,
   onPress,
+  isMobile,
 }: {
   title: string;
   subtitle?: string;
   onPress: () => void;
+  isMobile?: boolean;
 }) {
   return (
     <Pressable
@@ -260,16 +315,29 @@ function SecondaryButton({
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.card,
-        paddingVertical: 14,
-        paddingHorizontal: 16,
+        paddingVertical: isMobile ? 13 : 14,
+        paddingHorizontal: isMobile ? 14 : 16,
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 15 : 16,
+        }}
+      >
         {title}
       </Text>
       {!!subtitle && (
-        <Text style={{ color: "rgba(255,255,255,0.70)", marginTop: 4 }}>
+        <Text
+          style={{
+            color: "rgba(255,255,255,0.70)",
+            marginTop: 4,
+            lineHeight: 18,
+            fontSize: isMobile ? 13 : 14,
+          }}
+        >
           {subtitle}
         </Text>
       )}
@@ -281,41 +349,51 @@ function CategoryCard({
   title,
   emoji,
   onPress,
-  span = 1,
   cta,
+  forceFullWidth,
+  isMobile,
 }: {
   title: string;
   emoji: string;
   onPress: () => void;
-  span?: 1 | 2;
   cta?: string;
+  forceFullWidth?: boolean;
+  isMobile?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        flex: span === 2 ? 2 : 1,
-        minHeight: 86,
+        width: forceFullWidth ? "100%" : isMobile ? "100%" : "48.8%",
+        minHeight: isMobile ? 92 : 100,
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.card,
-        padding: 12,
+        padding: isMobile ? 12 : 14,
         opacity: pressed ? 0.9 : 1,
       })}
     >
-      <Text style={{ fontSize: 22 }}>{emoji}</Text>
+      <Text style={{ fontSize: isMobile ? 21 : 22 }}>{emoji}</Text>
       <Text
         style={{
           color: COLORS.text,
           fontWeight: "900",
           marginTop: 6,
-          lineHeight: 18,
+          lineHeight: 20,
+          fontSize: isMobile ? 14 : 15,
         }}
       >
         {title}
       </Text>
-      <Text style={{ color: COLORS.muted, marginTop: 2, fontSize: 12 }}>
+      <Text
+        style={{
+          color: COLORS.muted,
+          marginTop: 4,
+          fontSize: 12,
+          lineHeight: 16,
+        }}
+      >
         {cta ?? "Ver categoría →"}
       </Text>
     </Pressable>
@@ -346,11 +424,13 @@ function FooterLink({
 
 function FeaturedOfferCard({
   item,
-  isWide,
+  isDesktopish,
+  isMobile,
   onPressCategories,
 }: {
   item: FeaturedProduct | null;
-  isWide: boolean;
+  isDesktopish: boolean;
+  isMobile: boolean;
   onPressCategories: () => void;
 }) {
   if (!item) {
@@ -361,7 +441,7 @@ function FeaturedOfferCard({
           borderWidth: 1,
           borderColor: COLORS.border,
           backgroundColor: COLORS.card,
-          padding: 16,
+          padding: isMobile ? 14 : 16,
           gap: 12,
         }}
       >
@@ -376,12 +456,19 @@ function FeaturedOfferCard({
             backgroundColor: COLORS.warningBg,
           }}
         >
-          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
             Oferta de la semana
           </Text>
         </View>
 
-        <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+        <Text
+          style={{
+            color: COLORS.text,
+            fontSize: isMobile ? 19 : 20,
+            fontWeight: "900",
+            lineHeight: isMobile ? 25 : 28,
+          }}
+        >
           Estamos preparando la próxima oferta destacada.
         </Text>
 
@@ -390,13 +477,14 @@ function FeaturedOfferCard({
           por WhatsApp para preguntarnos qué producto te recomendamos ahora mismo.
         </Text>
 
-        <View style={{ flexDirection: isWide ? "row" : "column", gap: 12 }}>
+        <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
           <View style={{ flex: 1 }}>
             <PrimaryButton
               title="Ver categorías"
               subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
               rightHint="Ir →"
               onPress={onPressCategories}
+              isMobile={isMobile}
             />
           </View>
 
@@ -405,6 +493,7 @@ function FeaturedOfferCard({
               title="Preguntar por WhatsApp"
               subtitle="Te orientamos según lo que buscas"
               onPress={openWhatsApp}
+              isMobile={isMobile}
             />
           </View>
         </View>
@@ -433,13 +522,13 @@ Precio: ${fmtEUR(item.priceEUR)}
     >
       <View
         style={{
-          flexDirection: isWide ? "row" : "column",
+          flexDirection: isDesktopish ? "row" : "column",
         }}
       >
         <View
           style={{
-            flex: isWide ? 1.05 : undefined,
-            minHeight: isWide ? 280 : 220,
+            flex: isDesktopish ? 1.05 : undefined,
+            minHeight: isDesktopish ? 280 : isMobile ? 210 : 240,
             backgroundColor: "rgba(255,255,255,0.04)",
           }}
         >
@@ -447,12 +536,16 @@ Precio: ${fmtEUR(item.priceEUR)}
             <Image
               source={{ uri: item.imageUrl }}
               resizeMode="cover"
-              style={{ width: "100%", height: "100%" as any, minHeight: isWide ? 280 : 220 }}
+              style={{
+                width: "100%",
+                height: "100%" as any,
+                minHeight: isDesktopish ? 280 : isMobile ? 210 : 240,
+              }}
             />
           ) : (
             <View
               style={{
-                minHeight: isWide ? 280 : 220,
+                minHeight: isDesktopish ? 280 : isMobile ? 210 : 240,
                 alignItems: "center",
                 justifyContent: "center",
                 padding: 20,
@@ -479,7 +572,7 @@ Precio: ${fmtEUR(item.priceEUR)}
         <View
           style={{
             flex: 1,
-            padding: 16,
+            padding: isMobile ? 14 : 16,
             gap: 12,
             justifyContent: "center",
           }}
@@ -495,7 +588,7 @@ Precio: ${fmtEUR(item.priceEUR)}
               backgroundColor: COLORS.successBg,
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
               Oferta de la semana
             </Text>
           </View>
@@ -504,9 +597,9 @@ Precio: ${fmtEUR(item.priceEUR)}
             <Text
               style={{
                 color: COLORS.text,
-                fontSize: 22,
+                fontSize: isMobile ? 20 : 22,
                 fontWeight: "900",
-                lineHeight: 28,
+                lineHeight: isMobile ? 26 : 28,
               }}
             >
               {item.title}
@@ -515,7 +608,7 @@ Precio: ${fmtEUR(item.priceEUR)}
             <Text
               style={{
                 color: COLORS.accent,
-                fontSize: 24,
+                fontSize: isMobile ? 22 : 24,
                 fontWeight: "900",
                 marginTop: 8,
               }}
@@ -531,18 +624,19 @@ Precio: ${fmtEUR(item.priceEUR)}
           </Text>
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <Pill icon="🔥" text="Destacado" />
-            <Pill icon="✅" text="Revisado" />
-            {item.categoryName ? <Pill icon="📦" text={item.categoryName} /> : null}
+            <Pill icon="🔥" text="Destacado" isMobile={isMobile} />
+            <Pill icon="✅" text="Revisado" isMobile={isMobile} />
+            {item.categoryName ? <Pill icon="📦" text={item.categoryName} isMobile={isMobile} /> : null}
           </View>
 
-          <View style={{ flexDirection: isWide ? "row" : "column", gap: 12 }}>
+          <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
             <View style={{ flex: 1 }}>
               <PrimaryButton
                 title="Ver producto"
                 subtitle="Abrir ficha completa"
                 rightHint="Ir →"
                 onPress={() => router.push(`/producto/${item.id}`)}
+                isMobile={isMobile}
               />
             </View>
 
@@ -551,6 +645,7 @@ Precio: ${fmtEUR(item.priceEUR)}
                 title="Consultar por WhatsApp"
                 subtitle="Confirmar disponibilidad"
                 onPress={() => openWhatsAppWithText(waText)}
+                isMobile={isMobile}
               />
             </View>
           </View>
@@ -563,7 +658,10 @@ Precio: ${fmtEUR(item.priceEUR)}
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
-  const isWide = widthSafe >= 760;
+
+  const isMobile = widthSafe < 700;
+  const isTablet = widthSafe >= 700 && widthSafe < 1024;
+  const isDesktopish = widthSafe >= 900;
 
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
@@ -586,6 +684,8 @@ export default function HomeScreen() {
     }),
     []
   );
+
+  const sidePadding = isMobile ? 12 : 16;
 
   const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
     setCategoriesY(e.nativeEvent.layout.y);
@@ -664,9 +764,9 @@ export default function HomeScreen() {
 
   const accountLabel = useMemo(() => {
     if (adminAccess.loading) return "Cuenta";
-    if (adminAccess.hasSession && adminAccess.isAdmin) return "Mi panel";
+    if (adminAccess.hasSession && adminAccess.isAdmin) return isMobile ? "Panel" : "Mi panel";
     return "Cuenta";
-  }, [adminAccess]);
+  }, [adminAccess, isMobile]);
 
   const accountSubtleState = useMemo(() => {
     if (adminAccess.loading) return "Comprobando acceso…";
@@ -810,19 +910,26 @@ export default function HomeScreen() {
             borderBottomWidth: 1,
             borderBottomColor: "rgba(255, 215, 0, 0.35)",
             paddingVertical: 10,
-            paddingHorizontal: 12,
+            paddingHorizontal: sidePadding,
           }}
         >
           <View
             style={{
               ...containerStyle,
-              flexDirection: "row",
-              alignItems: "center",
+              flexDirection: isMobile ? "column" : "row",
+              alignItems: isMobile ? "stretch" : "center",
               justifyContent: "space-between",
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: isMobile ? 14 : 15,
+                lineHeight: 20,
+              }}
+            >
               ⚡ Te compramos tu consola en menos de 24h
             </Text>
 
@@ -830,12 +937,13 @@ export default function HomeScreen() {
               onPress={openWhatsApp}
               style={({ pressed }) => ({
                 opacity: pressed ? 0.85 : 1,
-                paddingVertical: 6,
-                paddingHorizontal: 10,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: COLORS.warningBorder,
                 backgroundColor: COLORS.warningBg,
+                alignSelf: isMobile ? "flex-start" : "auto",
               })}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
@@ -850,106 +958,123 @@ export default function HomeScreen() {
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
             borderBottomColor: "rgba(255,255,255,0.06)",
-            paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 14,
+            paddingHorizontal: sidePadding,
+            paddingTop: isMobile ? 12 : 14,
+            paddingBottom: isMobile ? 12 : 14,
           }}
         >
           <View
             style={{
               ...containerStyle,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
               gap: 12,
             }}
           >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: "900" }}>
-                {BRAND.name}
-              </Text>
-            </View>
-
             <View
               style={{
-                flexDirection: "row",
-                gap: 10,
-                flexWrap: "wrap",
-                justifyContent: "flex-end",
-                alignItems: "center",
+                flexDirection: isMobile ? "column" : "row",
+                alignItems: isMobile ? "stretch" : "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
             >
-              <Pressable
-                onPress={() => router.push("/catalogo")}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.85 : 1,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  🔎 Buscar
+              <View style={{ flex: isMobile ? undefined : 1, minWidth: 0 }}>
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: isMobile ? 24 : 26,
+                    fontWeight: "900",
+                    lineHeight: isMobile ? 30 : 32,
+                  }}
+                >
+                  {BRAND.name}
                 </Text>
-              </Pressable>
+              </View>
 
-              <Pressable
-                onPress={() => router.push("/carrito")}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.85 : 1,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  🛒 Carrito
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={handleAccountPress}
-                disabled={adminAccess.loading}
-                style={({ pressed }) => ({
-                  opacity: adminAccess.loading ? 0.72 : pressed ? 0.85 : 1,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor:
-                    adminAccess.hasSession && adminAccess.isAdmin
-                      ? COLORS.accentBorder
-                      : "rgba(255,255,255,0.14)",
-                  backgroundColor:
-                    adminAccess.hasSession && adminAccess.isAdmin
-                      ? COLORS.accent2
-                      : "rgba(255,255,255,0.06)",
+              <View
+                style={{
                   flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  justifyContent: isMobile ? "flex-start" : "flex-end",
                   alignItems: "center",
-                  gap: 8,
-                })}
+                }}
               >
-                {adminAccess.loading ? (
-                  <ActivityIndicator size="small" color={COLORS.text} />
-                ) : (
-                  <Text style={{ color: COLORS.text, fontSize: 14 }}>👤</Text>
-                )}
+                <Pressable
+                  onPress={() => router.push("/catalogo")}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.85 : 1,
+                    paddingVertical: 9,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.14)",
+                    backgroundColor: "rgba(255,255,255,0.06)",
+                  })}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                    {isMobile ? "🔎 Buscar" : "🔎 Buscar"}
+                  </Text>
+                </Pressable>
 
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  {accountLabel}
-                </Text>
-              </Pressable>
+                <Pressable
+                  onPress={() => router.push("/carrito")}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.85 : 1,
+                    paddingVertical: 9,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.14)",
+                    backgroundColor: "rgba(255,255,255,0.06)",
+                  })}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                    🛒 Carrito
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleAccountPress}
+                  disabled={adminAccess.loading}
+                  style={({ pressed }) => ({
+                    opacity: adminAccess.loading ? 0.72 : pressed ? 0.85 : 1,
+                    paddingVertical: 9,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor:
+                      adminAccess.hasSession && adminAccess.isAdmin
+                        ? COLORS.accentBorder
+                        : "rgba(255,255,255,0.14)",
+                    backgroundColor:
+                      adminAccess.hasSession && adminAccess.isAdmin
+                        ? COLORS.accent2
+                        : "rgba(255,255,255,0.06)",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  })}
+                >
+                  {adminAccess.loading ? (
+                    <ActivityIndicator size="small" color={COLORS.text} />
+                  ) : (
+                    <Text style={{ color: COLORS.text, fontSize: 14 }}>👤</Text>
+                  )}
+
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                    {accountLabel}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
 
-          <View style={{ ...containerStyle, marginTop: 10 }}>
-            <Text style={{ color: "rgba(255,255,255,0.58)", fontSize: 12 }}>
+            <Text
+              style={{
+                color: COLORS.muted2,
+                fontSize: 12,
+                lineHeight: 17,
+              }}
+            >
               {accountSubtleState}
             </Text>
           </View>
@@ -961,8 +1086,8 @@ export default function HomeScreen() {
           scrollRef.current = ref;
         }}
         contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingVertical: 16,
+          paddingHorizontal: sidePadding,
+          paddingVertical: isMobile ? 12 : 16,
           gap: 14,
         }}
       >
@@ -973,7 +1098,7 @@ export default function HomeScreen() {
               borderWidth: 1,
               borderColor: "rgba(255,255,255,0.10)",
               backgroundColor: "rgba(255,255,255,0.04)",
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 12,
               ...softShadow(),
             }}
@@ -981,9 +1106,9 @@ export default function HomeScreen() {
             <Text
               style={{
                 color: COLORS.text,
-                fontSize: 22,
+                fontSize: isMobile ? 21 : 22,
                 fontWeight: "900",
-                lineHeight: 28,
+                lineHeight: isMobile ? 28 : 28,
               }}
             >
               Compra y vende consolas y electrónica con confianza.
@@ -994,13 +1119,14 @@ export default function HomeScreen() {
               las categorías disponibles y entra solo en lo que realmente te interesa.
             </Text>
 
-            <View style={{ flexDirection: isWide ? "row" : "column", gap: 12 }}>
+            <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
               <View style={{ flex: 1 }}>
                 <PrimaryButton
                   title="Ver categorías"
                   subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
                   rightHint="Ir →"
                   onPress={scrollToCategories}
+                  isMobile={isMobile}
                 />
               </View>
 
@@ -1010,6 +1136,7 @@ export default function HomeScreen() {
                   subtitle="Te compramos tu consola o electrónica"
                   rightHint="WA"
                   onPress={openWhatsApp}
+                  isMobile={isMobile}
                 />
               </View>
             </View>
@@ -1022,10 +1149,10 @@ export default function HomeScreen() {
                 marginTop: 2,
               }}
             >
-              <Pill icon="✅" text="Garantía" />
-              <Pill icon="🚚" text="Envíos en España" />
-              <Pill icon="⚙️" text="Productos revisados" />
-              <Pill icon="⚡" text="Pago rápido" />
+              <Pill icon="✅" text="Garantía" isMobile={isMobile} />
+              <Pill icon="🚚" text="Envíos en España" isMobile={isMobile} />
+              <Pill icon="⚙️" text="Productos revisados" isMobile={isMobile} />
+              <Pill icon="⚡" text="Pago rápido" isMobile={isMobile} />
             </View>
           </View>
 
@@ -1036,9 +1163,9 @@ export default function HomeScreen() {
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
-                padding: 16,
+                padding: isMobile ? 14 : 16,
                 gap: 10,
-                minHeight: 180,
+                minHeight: isMobile ? 150 : 180,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -1049,7 +1176,8 @@ export default function HomeScreen() {
           ) : (
             <FeaturedOfferCard
               item={featured}
-              isWide={isWide}
+              isDesktopish={isDesktopish}
+              isMobile={isMobile}
               onPressCategories={scrollToCategories}
             />
           )}
@@ -1061,18 +1189,25 @@ export default function HomeScreen() {
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: COLORS.card,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
             <SectionTitle
               title="Categorías"
               subtitle="Explora las principales secciones de la tienda."
+              isMobile={isMobile}
             />
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 10,
+                justifyContent: "space-between",
+              }}
+            >
               {HOME_CATEGORIES.map((c) => {
-                const span = c.span ?? 1;
                 const onPress =
                   c.cat === "reparaciones"
                     ? () =>
@@ -1085,14 +1220,17 @@ export default function HomeScreen() {
                           params: { cat: c.cat },
                         });
 
+                const forceFullWidth = isMobile || c.span === 2;
+
                 return (
                   <CategoryCard
                     key={c.cat}
                     title={c.title}
                     emoji={c.emoji}
-                    span={span}
                     cta={c.cta}
                     onPress={onPress}
+                    forceFullWidth={forceFullWidth}
+                    isMobile={isMobile}
                   />
                 );
               })}
@@ -1105,20 +1243,21 @@ export default function HomeScreen() {
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: COLORS.card,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
             <SectionTitle
               title="Compra con tranquilidad"
               subtitle="Atención directa, información clara y una experiencia pensada para dar confianza."
+              isMobile={isMobile}
             />
 
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <Pill icon="⭐" text="Reseñas reales" />
-              <Pill icon="🔁" text="Devolución clara" />
-              <Pill icon="🧾" text="Factura o recibo" />
-              <Pill icon="🧑‍🔧" text="Soporte" />
+              <Pill icon="⭐" text="Reseñas reales" isMobile={isMobile} />
+              <Pill icon="🔁" text="Devolución clara" isMobile={isMobile} />
+              <Pill icon="🧾" text="Factura o recibo" isMobile={isMobile} />
+              <Pill icon="🧑‍🔧" text="Soporte" isMobile={isMobile} />
             </View>
           </View>
 
@@ -1129,7 +1268,7 @@ export default function HomeScreen() {
               paddingBottom: 30,
               borderTopWidth: 1,
               borderTopColor: "rgba(255,255,255,0.08)",
-              gap: 10,
+              gap: 12,
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
@@ -1138,8 +1277,8 @@ export default function HomeScreen() {
 
             <View
               style={{
-                flexDirection: widthSafe >= 720 ? "row" : "column",
-                gap: 16,
+                flexDirection: isDesktopish ? "row" : "column",
+                gap: 18,
               }}
             >
               <View style={{ flex: 1 }}>
@@ -1206,7 +1345,14 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <Text style={{ color: "rgba(255,255,255,0.55)", marginTop: 6 }}>
+            <Text
+              style={{
+                color: "rgba(255,255,255,0.55)",
+                marginTop: 6,
+                lineHeight: 18,
+                fontSize: 12,
+              }}
+            >
               © {new Date().getFullYear()} {BRAND.name}. Todos los derechos reservados.
             </Text>
           </View>

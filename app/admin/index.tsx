@@ -9,6 +9,7 @@ import {
   Text,
   View,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
@@ -58,12 +59,14 @@ function CardButton({
   onPress,
   icon,
   badge,
+  isMobile,
 }: {
   title: string;
   subtitle: string;
   onPress: () => void;
   icon?: string;
   badge?: string;
+  isMobile?: boolean;
 }) {
   return (
     <Pressable
@@ -73,26 +76,40 @@ function CardButton({
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.card,
-        padding: 16,
+        padding: isMobile ? 14 : 16,
         opacity: pressed ? 0.9 : 1,
         ...softShadow(),
       })}
     >
       <View
         style={{
-          flexDirection: "row",
-          alignItems: "flex-start",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "flex-start" : "flex-start",
           justifyContent: "space-between",
           gap: 10,
         }}
       >
         <View style={{ flex: 1 }}>
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+              fontSize: isMobile ? 15 : 16,
+              lineHeight: 22,
+            }}
+          >
             {icon ? `${icon} ` : ""}
             {title}
           </Text>
 
-          <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
+          <Text
+            style={{
+              color: COLORS.muted,
+              marginTop: 6,
+              lineHeight: 20,
+              fontSize: isMobile ? 13 : 14,
+            }}
+          >
             {subtitle}
           </Text>
         </View>
@@ -106,6 +123,7 @@ function CardButton({
               borderWidth: 1,
               borderColor: COLORS.accentBorder,
               backgroundColor: COLORS.accent2,
+              alignSelf: isMobile ? "flex-start" : "flex-start",
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
@@ -122,28 +140,38 @@ function SmallStat({
   label,
   value,
   icon,
+  isMobile,
+  compact,
 }: {
   label: string;
   value: string;
   icon?: string;
+  isMobile?: boolean;
+  compact?: boolean;
 }) {
   return (
     <View
       style={{
-        flex: 1,
-        minWidth: 140,
+        width: compact ? (isMobile ? "100%" : "31.9%") : "100%",
         borderRadius: 16,
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
-        padding: 14,
+        padding: isMobile ? 12 : 14,
       }}
     >
       <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
         {icon ? `${icon} ` : ""}
         {label}
       </Text>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, marginTop: 6 }}>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 17 : 18,
+          marginTop: 6,
+        }}
+      >
         {value}
       </Text>
     </View>
@@ -153,21 +181,39 @@ function SmallStat({
 function SectionTitle({
   title,
   subtitle,
+  isMobile,
 }: {
   title: string;
   subtitle?: string;
+  isMobile?: boolean;
 }) {
   return (
     <View style={{ marginBottom: 10 }}>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>{title}</Text>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 17 : 18,
+          lineHeight: isMobile ? 22 : 24,
+        }}
+      >
+        {title}
+      </Text>
       {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>{subtitle}</Text>
+        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+          {subtitle}
+        </Text>
       )}
     </View>
   );
 }
 
 export default function AdminHome() {
+  const { width } = useWindowDimensions();
+  const widthSafe = width && width > 0 ? width : 1024;
+  const isMobile = widthSafe < 700;
+  const pagePadding = isMobile ? 12 : 16;
+
   const [userState, setUserState] = useState<AdminUserState>({
     checking: true,
     email: null,
@@ -370,13 +416,20 @@ export default function AdminHome() {
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
             borderBottomColor: "rgba(255,255,255,0.06)",
-            paddingHorizontal: 16,
-            paddingTop: 14,
+            paddingHorizontal: pagePadding,
+            paddingTop: isMobile ? 12 : 14,
             paddingBottom: 14,
             gap: 10,
           }}
         >
-          <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontSize: isMobile ? 22 : 24,
+              fontWeight: "900",
+              lineHeight: isMobile ? 28 : 30,
+            }}
+          >
             Panel Admin
           </Text>
 
@@ -396,14 +449,14 @@ export default function AdminHome() {
               backgroundColor: COLORS.successBg,
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
               Admin activo{userState.email ? ` · ${userState.email}` : ""}
             </Text>
           </View>
 
           <View
             style={{
-              flexDirection: "row",
+              flexDirection: isMobile ? "column" : "row",
               flexWrap: "wrap",
               gap: 10,
               marginTop: 2,
@@ -419,9 +472,12 @@ export default function AdminHome() {
                 borderWidth: 1,
                 borderColor: "rgba(255,255,255,0.14)",
                 backgroundColor: "rgba(255,255,255,0.06)",
+                width: isMobile ? "100%" : undefined,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Tienda</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                ← Tienda
+              </Text>
             </Pressable>
 
             <Pressable
@@ -435,28 +491,44 @@ export default function AdminHome() {
                 borderWidth: 1,
                 borderColor: COLORS.accentBorder,
                 backgroundColor: COLORS.accent2,
+                width: isMobile ? "100%" : undefined,
               })}
             >
               {loggingOut ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
                   <ActivityIndicator color={COLORS.text} />
                   <Text style={{ color: COLORS.text, fontWeight: "900" }}>Saliendo…</Text>
                 </View>
               ) : (
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Cerrar sesión</Text>
+                <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                  Cerrar sesión
+                </Text>
               )}
             </Pressable>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28, gap: 14 }}>
+        <ScrollView
+          contentContainerStyle={{
+            padding: pagePadding,
+            paddingBottom: 28,
+            gap: 14,
+          }}
+        >
           <View
             style={{
               borderRadius: 22,
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: COLORS.card,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 12,
               ...softShadow(),
             }}
@@ -464,12 +536,20 @@ export default function AdminHome() {
             <SectionTitle
               title="Vista general"
               subtitle="Este panel debe servir para operar rápido, publicar bien y no convertir la tienda en un mercadillo desordenado."
+              isMobile={isMobile}
             />
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <SmallStat label="Acceso" value="Protegido" icon="🔐" />
-              <SmallStat label="Rol" value="Admin" icon="👤" />
-              <SmallStat label="Objetivo" value="Publicar bien" icon="🚀" />
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 10,
+                justifyContent: "space-between",
+              }}
+            >
+              <SmallStat label="Acceso" value="Protegido" icon="🔐" isMobile={isMobile} compact />
+              <SmallStat label="Rol" value="Admin" icon="👤" isMobile={isMobile} compact />
+              <SmallStat label="Objetivo" value="Publicar bien" icon="🚀" isMobile={isMobile} compact />
             </View>
           </View>
 
@@ -477,6 +557,7 @@ export default function AdminHome() {
             <SectionTitle
               title="Gestión principal"
               subtitle="Las tres piezas clave del sistema. Aquí está el núcleo operativo."
+              isMobile={isMobile}
             />
 
             <View style={{ gap: 12 }}>
@@ -488,6 +569,7 @@ export default function AdminHome() {
                   icon={a.icon}
                   badge={a.badge}
                   onPress={a.onPress}
+                  isMobile={isMobile}
                 />
               ))}
             </View>
@@ -499,16 +581,23 @@ export default function AdminHome() {
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: COLORS.cardSoft,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
             <SectionTitle
               title="Operativa rápida"
               subtitle="Atajos directos para no perder tiempo navegando por el panel."
+              isMobile={isMobile}
             />
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View
+              style={{
+                flexDirection: isMobile ? "column" : "row",
+                flexWrap: "wrap",
+                gap: 10,
+              }}
+            >
               {quickActions.map((item) => (
                 <Pressable
                   key={item.key}
@@ -521,9 +610,12 @@ export default function AdminHome() {
                     borderWidth: 1,
                     borderColor: COLORS.accentBorder,
                     backgroundColor: COLORS.accent2,
+                    width: isMobile ? "100%" : undefined,
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.label}</Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    {item.label}
+                  </Text>
                 </Pressable>
               ))}
             </View>
@@ -535,13 +627,14 @@ export default function AdminHome() {
               borderWidth: 1,
               borderColor: COLORS.warningBorder,
               backgroundColor: COLORS.warningBg,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
             <SectionTitle
               title="Checklist de publicación"
               subtitle="Esto es lo mínimo para que la tienda pública deje de parecer vacía o rota."
+              isMobile={isMobile}
             />
 
             <Text style={{ color: COLORS.text, lineHeight: 21 }}>
@@ -562,7 +655,7 @@ export default function AdminHome() {
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,
               backgroundColor: COLORS.dangerBg,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 8,
             }}
           >

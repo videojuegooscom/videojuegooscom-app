@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
@@ -100,49 +101,42 @@ function smartBackAdminHome() {
   router.replace("/admin");
 }
 
-function SectionTitle({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle?: string;
-}) {
-  return (
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>{title}</Text>
-      {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>{subtitle}</Text>
-      )}
-    </View>
-  );
-}
-
 function StatCard({
   label,
   value,
   icon,
+  isMobile,
+  compact,
 }: {
   label: string;
   value: string;
   icon?: string;
+  isMobile?: boolean;
+  compact?: boolean;
 }) {
   return (
     <View
       style={{
-        flex: 1,
-        minWidth: 140,
+        width: compact ? (isMobile ? "100%" : "31.9%") : "100%",
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
-        padding: 14,
+        padding: isMobile ? 12 : 14,
       }}
     >
       <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
         {icon ? `${icon} ` : ""}
         {label}
       </Text>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 20, marginTop: 6 }}>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 18 : 20,
+          marginTop: 6,
+        }}
+      >
         {value}
       </Text>
     </View>
@@ -154,11 +148,15 @@ function ChipButton({
   onPress,
   variant,
   disabled,
+  isMobile,
+  fullWidth,
 }: {
   label: string;
   onPress: () => void;
   variant?: "primary" | "danger" | "ghost";
   disabled?: boolean;
+  isMobile?: boolean;
+  fullWidth?: boolean;
 }) {
   const isPrimary = variant === "primary";
   const isDanger = variant === "danger";
@@ -187,14 +185,31 @@ function ChipButton({
         borderColor,
         backgroundColor,
         opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
+        width: fullWidth ? "100%" : undefined,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          textAlign: "center",
+          fontSize: isMobile ? 13 : 14,
+        }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
 export default function AdminCategories() {
+  const { width } = useWindowDimensions();
+  const widthSafe = width && width > 0 ? width : 1024;
+  const isMobile = widthSafe < 700;
+  const isTablet = widthSafe >= 700 && widthSafe < 1024;
+  const isDesktopish = widthSafe >= 1024;
+  const pagePadding = isMobile ? 12 : 16;
+
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
 
@@ -445,22 +460,29 @@ export default function AdminCategories() {
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
           borderBottomColor: "rgba(255,255,255,0.06)",
-          paddingHorizontal: 16,
-          paddingTop: 14,
-          paddingBottom: 12,
+          paddingHorizontal: pagePadding,
+          paddingTop: isMobile ? 12 : 14,
+          paddingBottom: isMobile ? 12 : 12,
           gap: 12,
         }}
       >
         <View
           style={{
-            flexDirection: "row",
+            flexDirection: isMobile ? "column" : "row",
             justifyContent: "space-between",
-            alignItems: "center",
+            alignItems: isMobile ? "stretch" : "center",
             gap: 10,
           }}
         >
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+          <View style={{ flex: isMobile ? undefined : 1 }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: isMobile ? 22 : 24,
+                fontWeight: "900",
+                lineHeight: isMobile ? 28 : 30,
+              }}
+            >
               Categorías
             </Text>
             <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
@@ -478,16 +500,24 @@ export default function AdminCategories() {
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: "rgba(255,255,255,0.05)",
+              alignSelf: isMobile ? "flex-start" : "auto",
             })}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
           </Pressable>
         </View>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <StatCard label="Total" value={String(stats.total)} icon="🗂️" />
-          <StatCard label="Activas" value={String(stats.active)} icon="✅" />
-          <StatCard label="Ocultas" value={String(stats.hidden)} icon="🙈" />
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 10,
+            justifyContent: "space-between",
+          }}
+        >
+          <StatCard label="Total" value={String(stats.total)} icon="🗂️" isMobile={isMobile} compact />
+          <StatCard label="Activas" value={String(stats.active)} icon="✅" isMobile={isMobile} compact />
+          <StatCard label="Ocultas" value={String(stats.hidden)} icon="🙈" isMobile={isMobile} compact />
         </View>
 
         <View
@@ -513,6 +543,7 @@ export default function AdminCategories() {
               paddingVertical: 12,
               color: COLORS.text,
               backgroundColor: "rgba(255,255,255,0.03)",
+              fontSize: isMobile ? 14 : 15,
             }}
           />
 
@@ -543,7 +574,9 @@ export default function AdminCategories() {
               padding: 10,
             }}
           >
-            <Text style={{ color: COLORS.danger, fontWeight: "800" }}>{screenErr}</Text>
+            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+              {screenErr}
+            </Text>
           </View>
         )}
 
@@ -572,7 +605,13 @@ export default function AdminCategories() {
           <Text style={{ color: COLORS.muted }}>Cargando categorías…</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30, gap: 12 }}>
+        <ScrollView
+          contentContainerStyle={{
+            padding: pagePadding,
+            paddingBottom: 30,
+            gap: 12,
+          }}
+        >
           {filteredItems.length === 0 ? (
             <View
               style={{
@@ -580,7 +619,7 @@ export default function AdminCategories() {
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
-                padding: 16,
+                padding: isMobile ? 14 : 16,
                 gap: 8,
               }}
             >
@@ -600,16 +639,22 @@ export default function AdminCategories() {
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
-                  padding: 14,
+                  padding: isMobile ? 12 : 14,
                   gap: 12,
                   ...softShadow(),
                 }}
               >
-                <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start" }}>
+                <View
+                  style={{
+                    flexDirection: isDesktopish ? "row" : "column",
+                    gap: 14,
+                    alignItems: isDesktopish ? "flex-start" : "stretch",
+                  }}
+                >
                   <View
                     style={{
-                      width: 92,
-                      height: 92,
+                      width: isDesktopish ? 92 : "100%",
+                      height: isDesktopish ? 92 : isMobile ? 180 : 210,
                       borderRadius: 16,
                       overflow: "hidden",
                       borderWidth: 1,
@@ -633,9 +678,9 @@ export default function AdminCategories() {
                   <View style={{ flex: 1, gap: 8 }}>
                     <View
                       style={{
-                        flexDirection: "row",
+                        flexDirection: isMobile ? "column" : "row",
                         justifyContent: "space-between",
-                        alignItems: "flex-start",
+                        alignItems: isMobile ? "stretch" : "flex-start",
                         gap: 12,
                       }}
                     >
@@ -644,7 +689,7 @@ export default function AdminCategories() {
                           style={{
                             color: COLORS.text,
                             fontWeight: "900",
-                            fontSize: 17,
+                            fontSize: isMobile ? 16 : 17,
                             lineHeight: 22,
                           }}
                         >
@@ -706,7 +751,12 @@ export default function AdminCategories() {
                         </View>
                       </View>
 
-                      <View style={{ alignItems: "flex-end", gap: 10 }}>
+                      <View
+                        style={{
+                          alignItems: isMobile ? "flex-start" : "flex-end",
+                          gap: 10,
+                        }}
+                      >
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                           <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
                             {c.is_active ? "Visible" : "Oculta"}
@@ -716,14 +766,24 @@ export default function AdminCategories() {
                       </View>
                     </View>
 
-                    <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                    <Text style={{ color: COLORS.muted2, fontSize: 12, lineHeight: 17 }}>
                       Creada: {c.created_at ? new Date(c.created_at).toLocaleString() : "-"} ·
                       Actualizada: {c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}
                     </Text>
 
                     <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                      <ChipButton label="Editar" variant="primary" onPress={() => openEdit(c)} />
-                      <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(c)} />
+                      <ChipButton
+                        label="Editar"
+                        variant="primary"
+                        onPress={() => openEdit(c)}
+                        isMobile={isMobile}
+                      />
+                      <ChipButton
+                        label="Borrar"
+                        variant="danger"
+                        onPress={() => askRemove(c)}
+                        isMobile={isMobile}
+                      />
                     </View>
                   </View>
                 </View>
@@ -738,7 +798,7 @@ export default function AdminCategories() {
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.60)",
-            padding: 16,
+            padding: isMobile ? 10 : 16,
             justifyContent: "center",
           }}
         >
@@ -752,12 +812,18 @@ export default function AdminCategories() {
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.bg2,
-                padding: 16,
+                padding: isMobile ? 14 : 16,
                 gap: 12,
                 ...softShadow(),
               }}
             >
-              <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: isMobile ? 19 : 20,
+                  fontWeight: "900",
+                }}
+              >
                 {modalTitle}
               </Text>
 
@@ -782,6 +848,7 @@ export default function AdminCategories() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "rgba(255,255,255,0.03)",
+                  fontSize: 14,
                 }}
               />
 
@@ -802,6 +869,7 @@ export default function AdminCategories() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "rgba(255,255,255,0.03)",
+                  fontSize: 14,
                 }}
               />
 
@@ -822,6 +890,7 @@ export default function AdminCategories() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "rgba(255,255,255,0.03)",
+                  fontSize: 14,
                 }}
               />
 
@@ -844,6 +913,7 @@ export default function AdminCategories() {
                       paddingVertical: 12,
                       color: COLORS.text,
                       backgroundColor: "rgba(255,255,255,0.03)",
+                      fontSize: 14,
                     }}
                   />
 
@@ -851,7 +921,7 @@ export default function AdminCategories() {
                     <View
                       style={{
                         width: "100%",
-                        height: 160,
+                        height: isMobile ? 150 : 160,
                         borderRadius: 16,
                         overflow: "hidden",
                         borderWidth: 1,
@@ -881,12 +951,13 @@ export default function AdminCategories() {
               >
                 <View
                   style={{
-                    flexDirection: "row",
+                    flexDirection: isMobile ? "column" : "row",
                     justifyContent: "space-between",
-                    alignItems: "center",
+                    alignItems: isMobile ? "stretch" : "center",
+                    gap: 10,
                   }}
                 >
-                  <View style={{ flex: 1, paddingRight: 12 }}>
+                  <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900" }}>Categoría activa</Text>
                     <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
                       Si está activa, puede mostrarse como parte visible de la navegación pública.
@@ -906,17 +977,18 @@ export default function AdminCategories() {
                     padding: 10,
                   }}
                 >
-                  <Text style={{ color: COLORS.danger, fontWeight: "800" }}>{modalErr}</Text>
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+                    {modalErr}
+                  </Text>
                 </View>
               )}
 
               <View
                 style={{
-                  flexDirection: "row",
+                  flexDirection: isMobile ? "column" : "row",
                   gap: 10,
                   justifyContent: "flex-end",
                   marginTop: 4,
-                  flexWrap: "wrap",
                 }}
               >
                 <Pressable
@@ -932,9 +1004,12 @@ export default function AdminCategories() {
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: "rgba(255,255,255,0.06)",
+                    width: isMobile ? "100%" : undefined,
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Cancelar</Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    Cancelar
+                  </Text>
                 </Pressable>
 
                 <Pressable
@@ -946,9 +1021,10 @@ export default function AdminCategories() {
                     paddingVertical: 12,
                     paddingHorizontal: 14,
                     backgroundColor: COLORS.accent,
+                    width: isMobile ? "100%" : undefined,
                   })}
                 >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
                     {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear categoría"}
                   </Text>
                 </Pressable>
@@ -968,7 +1044,7 @@ export default function AdminCategories() {
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.55)",
-            padding: 16,
+            padding: isMobile ? 10 : 16,
             justifyContent: "center",
           }}
         >
@@ -978,11 +1054,11 @@ export default function AdminCategories() {
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,
               backgroundColor: COLORS.bg2,
-              padding: 16,
+              padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
               Borrar categoría
             </Text>
 
@@ -999,14 +1075,26 @@ export default function AdminCategories() {
 
             <View
               style={{
-                flexDirection: "row",
+                flexDirection: isMobile ? "column" : "row",
                 gap: 10,
                 justifyContent: "flex-end",
                 marginTop: 6,
               }}
             >
-              <ChipButton label="Cancelar" variant="ghost" onPress={() => setConfirmDelete(null)} />
-              <ChipButton label="Sí, borrar" variant="danger" onPress={removeCategoryConfirmed} />
+              <ChipButton
+                label="Cancelar"
+                variant="ghost"
+                onPress={() => setConfirmDelete(null)}
+                isMobile={isMobile}
+                fullWidth={isMobile}
+              />
+              <ChipButton
+                label="Sí, borrar"
+                variant="danger"
+                onPress={removeCategoryConfirmed}
+                isMobile={isMobile}
+                fullWidth={isMobile}
+              />
             </View>
           </View>
         </View>
