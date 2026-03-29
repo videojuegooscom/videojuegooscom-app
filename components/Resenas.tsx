@@ -283,7 +283,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
           lineHeight: 18,
         }}
       >
-        Luego, cuando quieras, esto lo conectamos con reseñas reales, Google Business o testimonios verificados.
+      .
       </Text>
     </View>
   );
