@@ -916,22 +916,25 @@ export default function HomeScreen() {
           <View
             style={{
               ...containerStyle,
-              flexDirection: isMobile ? "column" : "row",
-              alignItems: isMobile ? "stretch" : "center",
+              flexDirection: isMobile ? "row" : "row",
+              alignItems: "center",
               justifyContent: "space-between",
               gap: 10,
             }}
           >
-            <Text
-              style={{
-                color: COLORS.text,
-                fontWeight: "900",
-                fontSize: isMobile ? 14 : 15,
-                lineHeight: 20,
-              }}
-            >
-              ⚡ Te compramos tu consola en menos de 24h
-            </Text>
+            <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+              <Text
+                numberOfLines={2}
+                style={{
+                  color: COLORS.text,
+                  fontWeight: "900",
+                  fontSize: isMobile ? 14 : 15,
+                  lineHeight: 20,
+                }}
+              >
+                ⚡ Te compramos tu consola en menos de 24h
+              </Text>
+            </View>
 
             <Pressable
               onPress={openWhatsApp}
@@ -943,7 +946,7 @@ export default function HomeScreen() {
                 borderWidth: 1,
                 borderColor: COLORS.warningBorder,
                 backgroundColor: COLORS.warningBg,
-                alignSelf: isMobile ? "flex-start" : "auto",
+                flexShrink: 0,
               })}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
@@ -971,19 +974,27 @@ export default function HomeScreen() {
           >
             <View
               style={{
-                flexDirection: isMobile ? "column" : "row",
-                alignItems: isMobile ? "stretch" : "center",
-                justifyContent: "space-between",
+                flexDirection: "column",
+                alignItems: "stretch",
+                justifyContent: "flex-start",
                 gap: 12,
               }}
             >
-              <View style={{ flex: isMobile ? undefined : 1, minWidth: 0 }}>
+              <View
+                style={{
+                  width: "100%",
+                  minWidth: 0,
+                }}
+              >
                 <Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
                   style={{
                     color: COLORS.text,
-                    fontSize: isMobile ? 24 : 26,
+                    fontSize: isMobile ? 34 : 26,
                     fontWeight: "900",
-                    lineHeight: isMobile ? 30 : 32,
+                    lineHeight: isMobile ? 40 : 32,
+                    flexShrink: 1,
                   }}
                 >
                   {BRAND.name}
@@ -992,10 +1003,11 @@ export default function HomeScreen() {
 
               <View
                 style={{
+                  width: "100%",
                   flexDirection: "row",
                   flexWrap: "wrap",
                   gap: 10,
-                  justifyContent: isMobile ? "flex-start" : "flex-end",
+                  justifyContent: "flex-start",
                   alignItems: "center",
                 }}
               >
@@ -1012,7 +1024,7 @@ export default function HomeScreen() {
                   })}
                 >
                   <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    {isMobile ? "🔎 Buscar" : "🔎 Buscar"}
+                    🔎 Buscar
                   </Text>
                 </Pressable>
 
