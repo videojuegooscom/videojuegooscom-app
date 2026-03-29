@@ -415,10 +415,67 @@ function FooterLink({
         paddingVertical: 6,
       })}
     >
-      <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "700" }}>
+      <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "700", lineHeight: 20 }}>
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function FooterAccordionSection({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.card,
+        overflow: "hidden",
+      }}
+    >
+      <Pressable
+        onPress={onToggle}
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.9 : 1,
+          paddingVertical: 14,
+          paddingHorizontal: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+        })}
+      >
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
+          {title}
+        </Text>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+          {open ? "↑" : "↓"}
+        </Text>
+      </Pressable>
+
+      {open ? (
+        <View
+          style={{
+            paddingHorizontal: 14,
+            paddingBottom: 14,
+            borderTopWidth: 1,
+            borderTopColor: "rgba(255,255,255,0.08)",
+          }}
+        >
+          <View style={{ paddingTop: 8, gap: 2 }}>{children}</View>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -673,6 +730,10 @@ export default function HomeScreen() {
     email: null,
   });
 
+  const [footerNavOpen, setFooterNavOpen] = useState(false);
+  const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
+  const [footerBlogOpen, setFooterBlogOpen] = useState(false);
+
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
 
@@ -916,7 +977,7 @@ export default function HomeScreen() {
           <View
             style={{
               ...containerStyle,
-              flexDirection: isMobile ? "row" : "row",
+              flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
               gap: 10,
@@ -1283,78 +1344,44 @@ export default function HomeScreen() {
               gap: 12,
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-              {BRAND.name} — Zaragoza · Envíos a España
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+              Videojuegoszaragoza.com
             </Text>
 
-            <View
-              style={{
-                flexDirection: isDesktopish ? "row" : "column",
-                gap: 18,
-              }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  Compra y venta de consolas, juegos y electrónica. Reparación,
-                  limpieza y atención directa por WhatsApp.
-                </Text>
-
-                <Pressable
-                  onPress={openWhatsApp}
-                  style={({ pressed }) => ({
-                    marginTop: 10,
-                    alignSelf: "flex-start",
-                    opacity: pressed ? 0.85 : 1,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.accentBorder,
-                    backgroundColor: COLORS.accent2,
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    📲 Hablar por WhatsApp
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{ color: COLORS.text, fontWeight: "900", marginBottom: 6 }}
-                >
-                  Navegación
-                </Text>
+            <View style={{ gap: 12 }}>
+              <FooterAccordionSection
+                title="Navegación"
+                open={footerNavOpen}
+                onToggle={() => setFooterNavOpen((v) => !v)}
+              >
                 <FooterLink label="Inicio" onPress={() => router.push("/")} />
                 <FooterLink label="Categorías" onPress={scrollToCategories} />
-                <FooterLink
-                  label="Catálogo"
-                  onPress={() => router.push("/catalogo")}
-                />
-                <FooterLink
-                  label="Carrito"
-                  onPress={() => router.push("/carrito")}
-                />
-                <FooterLink
-                  label="Checkout"
-                  onPress={() => router.push("/checkout")}
-                />
-                <FooterLink
-                  label="Cuenta / Admin"
-                  onPress={handleAccountPress}
-                />
-              </View>
+                <FooterLink label="Catálogo" onPress={() => router.push("/catalogo")} />
+                <FooterLink label="Carrito" onPress={() => router.push("/carrito")} />
+                <FooterLink label="Checkout" onPress={() => router.push("/checkout")} />
+                <FooterLink label="Cuenta / Admin" onPress={handleAccountPress} />
+              </FooterAccordionSection>
 
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{ color: COLORS.text, fontWeight: "900", marginBottom: 6 }}
-                >
-                  Ayuda
-                </Text>
-                <FooterLink label="Vender tu consola" onPress={openWhatsApp} />
-                <FooterLink label="Reparación y limpieza" onPress={openWhatsApp} />
-                <FooterLink label="Contacto por WhatsApp" onPress={openWhatsApp} />
-              </View>
+              <FooterAccordionSection
+                title="Políticas"
+                open={footerPoliciesOpen}
+                onToggle={() => setFooterPoliciesOpen((v) => !v)}
+              >
+                <FooterLink label="Política de envíos" onPress={() => {}} />
+                <FooterLink label="Política de devoluciones" onPress={() => {}} />
+                <FooterLink label="Privacidad" onPress={() => {}} />
+                <FooterLink label="Términos y condiciones" onPress={() => {}} />
+              </FooterAccordionSection>
+
+              <FooterAccordionSection
+                title="Blog"
+                open={footerBlogOpen}
+                onToggle={() => setFooterBlogOpen((v) => !v)}
+              >
+                <FooterLink label="Últimos artículos" onPress={() => {}} />
+                <FooterLink label="Guías de compra" onPress={() => {}} />
+                <FooterLink label="Consejos y mantenimiento" onPress={() => {}} />
+              </FooterAccordionSection>
             </View>
 
             <Text
