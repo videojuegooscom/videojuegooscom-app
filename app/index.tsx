@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
+import Resenas from "../app/components/Resenas";
 
 const COLORS = {
   bg: "#071E33",
@@ -717,7 +718,6 @@ export default function HomeScreen() {
   const widthSafe = width && width > 0 ? width : 1024;
 
   const isMobile = widthSafe < 700;
-  const isTablet = widthSafe >= 700 && widthSafe < 1024;
   const isDesktopish = widthSafe >= 900;
 
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
@@ -1310,29 +1310,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View
-            style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: COLORS.card,
-              padding: isMobile ? 14 : 16,
-              gap: 10,
-            }}
-          >
-            <SectionTitle
-              title="Compra con tranquilidad"
-              subtitle="Atención directa, información clara y una experiencia pensada para dar confianza."
-              isMobile={isMobile}
-            />
-
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <Pill icon="⭐" text="Reseñas reales" isMobile={isMobile} />
-              <Pill icon="🔁" text="Devolución clara" isMobile={isMobile} />
-              <Pill icon="🧾" text="Factura o recibo" isMobile={isMobile} />
-              <Pill icon="🧑‍🔧" text="Soporte" isMobile={isMobile} />
-            </View>
-          </View>
+          <Resenas isMobile={isMobile} />
 
           <View
             style={{
