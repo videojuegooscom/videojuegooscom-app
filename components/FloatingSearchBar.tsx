@@ -16,12 +16,60 @@ type SearchSnapPosition = "top" | "bottom";
 
 type FloatingSearchBarProps = {
   isMobile: boolean;
+
+  /**
+   * TOCA ESTO SI QUIERES MOVER MANUALMENTE LA POSICIÓN DE SNAP DE ARRIBA.
+   *
+   * Menor número = más pegado arriba
+   * Mayor número = más separado de arriba
+   *
+   * Ejemplos:
+   * 70  = muy arriba
+   * 90  = arriba equilibrado
+   * 110 = más abajo
+   */
   topSnapY?: number;
+
+  /**
+   * TOCA ESTO SI QUIERES MOVER MANUALMENTE LA POSICIÓN DE SNAP DE ABAJO EN MÓVIL.
+   *
+   * Menor número = más pegado abajo
+   * Mayor número = más separado del borde inferior
+   *
+   * Ejemplos:
+   * 88  = muy pegado abajo
+   * 100 = equilibrado
+   * 130 = más arriba
+   */
   bottomOffsetMobile?: number;
+
+  /**
+   * TOCA ESTO SI QUIERES MOVER MANUALMENTE LA POSICIÓN DE SNAP DE ABAJO EN DESKTOP.
+   *
+   * Menor número = más pegado abajo
+   * Mayor número = más separado del borde inferior
+   */
   bottomOffsetDesktop?: number;
+
+  /**
+   * TOCA ESTO SI QUIERES CAMBIAR EL ANCHO EN MÓVIL.
+   * 0.90 = más ancho
+   * 0.80 = más estrecho
+   */
   widthMobilePercent?: number;
+
+  /**
+   * TOCA ESTO SI QUIERES CAMBIAR EL ANCHO EN DESKTOP.
+   * 0.78 = más ancho
+   * 0.68 = más estrecho
+   */
   widthDesktopPercent?: number;
+
+  /**
+   * TOCA ESTO SI QUIERES LIMITAR EL ANCHO MÁXIMO.
+   */
   maxWidth?: number;
+
   onSnapChange?: (position: SearchSnapPosition) => void;
 };
 
@@ -127,9 +175,15 @@ function SearchHeader({ isMobile }: { isMobile: boolean }) {
 
 export default function FloatingSearchBar({
   isMobile,
+
+  /**
+   * VALORES NUEVOS MÁS PEGADOS:
+   * - arriba más cerca del borde
+   * - abajo más cerca del borde
+   */
   topSnapY,
-  bottomOffsetMobile = 166,
-  bottomOffsetDesktop = 184,
+  bottomOffsetMobile = 96,
+  bottomOffsetDesktop = 108,
   widthMobilePercent = 0.86,
   widthDesktopPercent = 0.74,
   maxWidth = 760,
@@ -140,8 +194,20 @@ export default function FloatingSearchBar({
   const widthSafe = width > 0 ? width : 1024;
   const heightSafe = height > 0 ? height : 900;
 
-  const resolvedTopSnapY = topSnapY ?? (isMobile ? 118 : 132);
+  /**
+   * TOCA ESTO SI QUIERES QUE ARRIBA SE PEGUE MÁS O MENOS.
+   *
+   * Menor número = más pegado arriba
+   * Mayor número = más abajo
+   */
+  const resolvedTopSnapY = topSnapY ?? (isMobile ? 84 : 92);
 
+  /**
+   * TOCA ESTO SI QUIERES QUE ABAJO SE PEGUE MÁS O MENOS.
+   *
+   * Menor offset = más abajo
+   * Mayor offset = más arriba
+   */
   const resolvedBottomSnapY = Math.max(
     resolvedTopSnapY + 80,
     heightSafe - (isMobile ? bottomOffsetMobile : bottomOffsetDesktop)
