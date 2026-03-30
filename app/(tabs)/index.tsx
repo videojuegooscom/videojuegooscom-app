@@ -529,7 +529,7 @@ function SearchHeader({
         borderWidth: 1,
         borderColor: "rgba(11,23,38,0.16)",
         backgroundColor: COLORS.searchBg,
-        minHeight: isMobile ? 60 : 66,
+        minHeight: isMobile ? 58 : 64,
         paddingLeft: isMobile ? 16 : 18,
         paddingRight: 8,
         flexDirection: "row",
@@ -539,9 +539,9 @@ function SearchHeader({
         ...Platform.select({
           ios: {
             shadowColor: "#000",
-            shadowOpacity: 0.12,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 5 },
+            shadowOpacity: 0.10,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
           },
           android: { elevation: 2 },
           default: {},
@@ -559,7 +559,7 @@ function SearchHeader({
       >
         <Ionicons
           name="search-outline"
-          size={isMobile ? 26 : 28}
+          size={isMobile ? 24 : 27}
           color={COLORS.textDark}
         />
 
@@ -567,8 +567,8 @@ function SearchHeader({
           numberOfLines={1}
           style={{
             color: COLORS.mutedDark,
-            fontSize: isMobile ? 16 : 17,
-            lineHeight: isMobile ? 21 : 23,
+            fontSize: isMobile ? 15 : 16,
+            lineHeight: isMobile ? 20 : 22,
             flex: 1,
           }}
         >
@@ -581,8 +581,8 @@ function SearchHeader({
         hitSlop={8}
         style={({ pressed }) => ({
           opacity: pressed ? 0.82 : 1,
-          width: isMobile ? 46 : 50,
-          height: isMobile ? 46 : 50,
+          width: isMobile ? 44 : 48,
+          height: isMobile ? 44 : 48,
           borderRadius: 999,
           borderWidth: 1,
           borderColor: "rgba(11,23,38,0.12)",
@@ -594,7 +594,7 @@ function SearchHeader({
       >
         <Ionicons
           name="sparkles-outline"
-          size={isMobile ? 21 : 23}
+          size={isMobile ? 20 : 22}
           color={COLORS.textDark}
         />
       </Pressable>
@@ -861,7 +861,8 @@ export default function HomeScreen() {
   );
 
   const sidePadding = isMobile ? 12 : 16;
-  const floatingSearchBottom = isMobile ? 82 : 92;
+  const floatingSearchBottom = isMobile ? 66 : 76;
+  const floatingSearchWidth = isMobile ? "86%" : "74%";
 
   const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
     setCategoriesY(e.nativeEvent.layout.y);
@@ -1055,7 +1056,7 @@ export default function HomeScreen() {
         contentContainerStyle={{
           paddingHorizontal: sidePadding,
           paddingTop: isMobile ? 12 : 16,
-          paddingBottom: isMobile ? 158 : 172,
+          paddingBottom: isMobile ? 128 : 144,
           gap: 14,
         }}
       >
@@ -1279,10 +1280,15 @@ export default function HomeScreen() {
           left: 0,
           right: 0,
           bottom: floatingSearchBottom,
-          paddingHorizontal: sidePadding,
+          alignItems: "center",
         }}
       >
-        <View style={containerStyle}>
+        <View
+          style={{
+            width: floatingSearchWidth,
+            maxWidth: 760,
+          }}
+        >
           <SearchHeader isMobile={isMobile} />
         </View>
       </View>
