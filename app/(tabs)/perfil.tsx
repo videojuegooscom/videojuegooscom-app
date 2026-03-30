@@ -18,9 +18,11 @@ const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
   card: "rgba(255,255,255,0.06)",
+  cardSoft: "rgba(255,255,255,0.04)",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
   muted: "rgba(255,255,255,0.75)",
+  mutedSoft: "rgba(255,255,255,0.58)",
   accent: "#00AAE4",
   accentSoft: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.45)",
@@ -58,8 +60,157 @@ function softShadow() {
 }
 
 type AccessState = "checking" | "idle" | "submitting" | "signingOut";
-
 type SessionRole = "admin" | "user" | "guest";
+
+function SectionCard({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.card,
+        padding: 18,
+        gap: 12,
+        ...softShadow(),
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function Badge({
+  text,
+  tone = "default",
+}: {
+  text: string;
+  tone?: "default" | "accent" | "success" | "warning";
+}) {
+  const toneStyles =
+    tone === "accent"
+      ? {
+          bg: COLORS.accentSoft,
+          border: COLORS.accentBorder,
+          color: COLORS.text,
+        }
+      : tone === "success"
+      ? {
+          bg: COLORS.successBg,
+          border: COLORS.successBorder,
+          color: COLORS.success,
+        }
+      : tone === "warning"
+      ? {
+          bg: COLORS.warningBg,
+          border: COLORS.warningBorder,
+          color: COLORS.warning,
+        }
+      : {
+          bg: "rgba(255,255,255,0.05)",
+          border: "rgba(255,255,255,0.10)",
+          color: COLORS.text,
+        };
+
+  return (
+    <View
+      style={{
+        alignSelf: "flex-start",
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: toneStyles.border,
+        backgroundColor: toneStyles.bg,
+      }}
+    >
+      <Text style={{ color: toneStyles.color, fontWeight: "900" }}>{text}</Text>
+    </View>
+  );
+}
+
+function ActionButton({
+  title,
+  onPress,
+  disabled,
+  variant = "primary",
+  loading = false,
+  loadingText = "Cargando...",
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+  variant?: "primary" | "secondary";
+  loading?: boolean;
+  loadingText?: string;
+}) {
+  const isPrimary = variant === "primary";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => ({
+        borderRadius: 14,
+        paddingVertical: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: isPrimary ? 0 : 1,
+        borderColor: isPrimary ? "transparent" : COLORS.border,
+        backgroundColor: isPrimary ? COLORS.accent : COLORS.cardSoft,
+        opacity: disabled || loading ? 0.5 : pressed ? 0.9 : 1,
+      })}
+    >
+      {loading ? (
+        <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+          <ActivityIndicator color="#FFFFFF" />
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{loadingText}</Text>
+        </View>
+      ) : (
+        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{title}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+function InfoMessage({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "error" | "success";
+}) {
+  const styles =
+    tone === "error"
+      ? {
+          borderColor: COLORS.dangerBorder,
+          backgroundColor: COLORS.dangerBg,
+          color: COLORS.danger,
+        }
+      : {
+          borderColor: COLORS.successBorder,
+          backgroundColor: COLORS.successBg,
+          color: COLORS.success,
+        };
+
+  return (
+    <View
+      style={{
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: styles.borderColor,
+        backgroundColor: styles.backgroundColor,
+        padding: 10,
+      }}
+    >
+      <Text style={{ color: styles.color, fontWeight: "800", lineHeight: 20 }}>{text}</Text>
+    </View>
+  );
+}
 
 export default function PerfilScreen() {
   const [email, setEmail] = useState("");
@@ -69,11 +220,12 @@ export default function PerfilScreen() {
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const [state, setState] = useState<AccessState>("checking");
-
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<SessionRole>("guest");
 
-  const loading = state === "checking" || state === "submitting" || state === "signingOut";
+  const isChecking = state === "checking";
+  const isSubmitting = state === "submitting";
+  const isSigningOut = state === "signingOut";
 
   const canSubmit = useMemo(() => {
     return isValidEmail(email) && pass.trim().length >= 6 && state === "idle";
@@ -115,7 +267,6 @@ export default function PerfilScreen() {
       if (profErr) {
         setSessionRole("user");
         setState("idle");
-        setMsg("La sesión existe, pero no se pudo validar el perfil completo.");
         return;
       }
 
@@ -134,14 +285,14 @@ export default function PerfilScreen() {
     hydrateSessionState();
   }, [hydrateSessionState]);
 
-  const signInAdmin = useCallback(async () => {
+  const signIn = useCallback(async () => {
     const e = normalizeEmail(email);
     const p = pass.trim();
 
     clearMessages();
 
     if (!e || !p) {
-      setMsg("Pon email y contraseña.");
+      setMsg("Introduce tu email y tu contraseña.");
       return;
     }
 
@@ -178,63 +329,29 @@ export default function PerfilScreen() {
 
       if (!userId) {
         setMsg("No se pudo iniciar sesión correctamente.");
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
         setState("idle");
         return;
       }
 
-      const { data: profile, error: profErr } = await supabase
+      const { data: profile } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", userId)
         .maybeSingle<{ role: string | null }>();
 
-      if (profErr) {
-        setMsg("No se pudo validar el perfil de administrador.");
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-        setSessionEmail(null);
-        setSessionRole("guest");
-        setState("idle");
-        return;
-      }
-
       const role = String(profile?.role ?? "").trim().toLowerCase();
 
-      if (role !== "admin") {
-        setMsg("Esta cuenta no tiene permisos de administrador.");
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-        setSessionEmail(null);
-        setSessionRole("guest");
-        setState("idle");
-        return;
-      }
-
       setSessionEmail(currentEmail);
-      setSessionRole("admin");
-      setOkMsg("Acceso correcto. Ya puedes entrar al panel de administración.");
+      setSessionRole(role === "admin" ? "admin" : "user");
       setPass("");
+      setOkMsg(
+        role === "admin"
+          ? "Sesión iniciada correctamente. Esta cuenta tiene acceso interno."
+          : "Sesión iniciada correctamente."
+      );
       setState("idle");
     } catch (error: any) {
       setMsg(error?.message ?? "Error inesperado al iniciar sesión.");
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        // ignore
-      }
-      setSessionEmail(null);
-      setSessionRole("guest");
       setState("idle");
     }
   }, [clearMessages, email, pass]);
@@ -261,31 +378,30 @@ export default function PerfilScreen() {
     router.push("/admin");
   }, []);
 
-  const roleBadge = useMemo(() => {
+  const accountBadge = useMemo(() => {
     if (sessionRole === "admin") {
-      return {
-        text: "Administrador",
-        bg: COLORS.successBg,
-        border: COLORS.successBorder,
-        color: COLORS.success,
-      };
+      return { text: "Cuenta verificada", tone: "success" as const };
     }
-
     if (sessionRole === "user") {
-      return {
-        text: "Sesión iniciada",
-        bg: COLORS.warningBg,
-        border: COLORS.warningBorder,
-        color: COLORS.warning,
-      };
+      return { text: "Sesión iniciada", tone: "warning" as const };
     }
+    return { text: "Mi cuenta", tone: "default" as const };
+  }, [sessionRole]);
 
-    return {
-      text: "Invitado",
-      bg: "rgba(255,255,255,0.05)",
-      border: "rgba(255,255,255,0.10)",
-      color: COLORS.text,
-    };
+  const accountTitle = useMemo(() => {
+    if (sessionRole === "admin") return "Tu cuenta";
+    if (sessionRole === "user") return "Tu cuenta";
+    return "Accede a tu cuenta";
+  }, [sessionRole]);
+
+  const accountDescription = useMemo(() => {
+    if (sessionRole === "admin") {
+      return "Has iniciado sesión correctamente. Desde aquí puedes gestionar tu cuenta y, si corresponde, acceder a herramientas internas.";
+    }
+    if (sessionRole === "user") {
+      return "Has iniciado sesión correctamente. Desde aquí podrás consultar tu cuenta, pedidos y datos cuando esas secciones estén activas.";
+    }
+    return "Inicia sesión con tu email y contraseña para acceder a tu cuenta. Si esa cuenta además tiene permisos internos, el acceso administrativo aparecerá automáticamente.";
   }, [sessionRole]);
 
   return (
@@ -304,10 +420,10 @@ export default function PerfilScreen() {
           }}
         >
           <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
-            Perfil
+            Mi cuenta
           </Text>
           <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
-            Área de cuenta, sesión actual y acceso administrativo si corresponde.
+            Accede a tu cuenta para gestionar tu sesión y consultar tu área personal.
           </Text>
         </View>
 
@@ -332,40 +448,15 @@ export default function PerfilScreen() {
                 gap: 14,
               }}
             >
-              <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.card,
-                  padding: 18,
-                  gap: 12,
-                  ...softShadow(),
-                }}
-              >
-                <View
-                  style={{
-                    alignSelf: "flex-start",
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: roleBadge.border,
-                    backgroundColor: roleBadge.bg,
-                  }}
-                >
-                  <Text style={{ color: roleBadge.color, fontWeight: "900" }}>
-                    {roleBadge.text}
-                  </Text>
-                </View>
+              <SectionCard>
+                <Badge text={accountBadge.text} tone={accountBadge.tone} />
 
                 <View>
                   <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                    Estado de la cuenta
+                    {accountTitle}
                   </Text>
                   <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
-                    Desde aquí puedes ver si hay sesión iniciada y entrar al panel admin si
-                    la cuenta tiene permisos.
+                    {accountDescription}
                   </Text>
                 </View>
 
@@ -380,60 +471,32 @@ export default function PerfilScreen() {
                   }}
                 >
                   <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800" }}>
-                    EMAIL ACTUAL
+                    SESIÓN ACTUAL
                   </Text>
+
                   <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900" }}>
                     {sessionEmail || "No hay sesión iniciada"}
                   </Text>
 
                   <Text
                     style={{
-                      color: "rgba(255,255,255,0.62)",
+                      color: COLORS.mutedSoft,
                       lineHeight: 19,
                       marginTop: 2,
                     }}
                   >
                     {sessionRole === "admin"
-                      ? "Esta cuenta tiene permisos de administrador."
+                      ? "Cuenta iniciada correctamente con permisos internos disponibles."
                       : sessionRole === "user"
-                      ? "Hay sesión iniciada, pero esta cuenta no es admin."
-                      : "Ahora mismo estás navegando como invitado."}
+                      ? "Cuenta iniciada correctamente."
+                      : "Puedes iniciar sesión con tu email y contraseña cuando quieras."}
                   </Text>
                 </View>
 
-                {msg ? (
-                  <View
-                    style={{
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.dangerBorder,
-                      backgroundColor: COLORS.dangerBg,
-                      padding: 10,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                      {msg}
-                    </Text>
-                  </View>
-                ) : null}
+                {msg ? <InfoMessage text={msg} tone="error" /> : null}
+                {okMsg ? <InfoMessage text={okMsg} tone="success" /> : null}
 
-                {okMsg ? (
-                  <View
-                    style={{
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.successBorder,
-                      backgroundColor: COLORS.successBg,
-                      padding: 10,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.success, fontWeight: "800", lineHeight: 20 }}>
-                      {okMsg}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {loading && state === "checking" ? (
+                {isChecking ? (
                   <View
                     style={{
                       flexDirection: "row",
@@ -449,207 +512,88 @@ export default function PerfilScreen() {
                   </View>
                 ) : null}
 
-                <View style={{ gap: 10, marginTop: 2 }}>
-                  {sessionRole === "admin" ? (
-                    <>
-                      <Pressable
-                        onPress={openAdminPanel}
-                        style={({ pressed }) => ({
-                          borderRadius: 14,
-                          paddingVertical: 14,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          backgroundColor: COLORS.accent,
-                          opacity: pressed ? 0.9 : 1,
-                        })}
-                      >
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                          Entrar al panel admin
-                        </Text>
-                      </Pressable>
-
-                      <Pressable
-                        onPress={signOut}
-                        disabled={state === "signingOut"}
-                        style={({ pressed }) => ({
-                          borderRadius: 14,
-                          paddingVertical: 14,
-                          alignItems: "center",
-                          justifyContent: "center",
+                {sessionRole === "guest" ? (
+                  <>
+                    <View style={{ gap: 8, marginTop: 4 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800" }}>Email</Text>
+                      <TextInput
+                        value={email}
+                        onChangeText={(text) => {
+                          setEmail(text);
+                          clearMessages();
+                        }}
+                        placeholder="tu@email.com"
+                        placeholderTextColor="rgba(255,255,255,0.45)"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="email-address"
+                        textContentType="username"
+                        autoComplete="email"
+                        returnKeyType="next"
+                        editable={!isChecking && !isSigningOut}
+                        style={{
                           borderWidth: 1,
                           borderColor: COLORS.border,
-                          backgroundColor: COLORS.card,
-                          opacity: state === "signingOut" ? 0.6 : pressed ? 0.9 : 1,
-                        })}
-                      >
-                        {state === "signingOut" ? (
-                          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-                            <ActivityIndicator color="#FFFFFF" />
-                            <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
-                              Cerrando sesión...
-                            </Text>
-                          </View>
-                        ) : (
-                          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                            Cerrar sesión
-                          </Text>
-                        )}
-                      </Pressable>
-                    </>
-                  ) : sessionRole === "user" ? (
-                    <Pressable
-                      onPress={signOut}
-                      disabled={state === "signingOut"}
-                      style={({ pressed }) => ({
-                        borderRadius: 14,
-                        paddingVertical: 14,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: COLORS.card,
-                        opacity: state === "signingOut" ? 0.6 : pressed ? 0.9 : 1,
-                      })}
-                    >
-                      {state === "signingOut" ? (
-                        <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-                          <ActivityIndicator color="#FFFFFF" />
-                          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
-                            Cerrando sesión...
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                          Cerrar sesión
-                        </Text>
-                      )}
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-
-              <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.card,
-                  padding: 18,
-                  gap: 12,
-                  ...softShadow(),
-                }}
-              >
-                <View
-                  style={{
-                    alignSelf: "flex-start",
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.accentBorder,
-                    backgroundColor: COLORS.accentSoft,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    Acceso administrativo
-                  </Text>
-                </View>
-
-                <View>
-                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                    Iniciar sesión como admin
-                  </Text>
-                  <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
-                    Solo las cuentas con rol admin pueden entrar al panel. Aquí no hay
-                    barra libre.
-                  </Text>
-                </View>
-
-                <View style={{ gap: 8, marginTop: 4 }}>
-                  <Text style={{ color: COLORS.text, fontWeight: "800" }}>Email</Text>
-                  <TextInput
-                    value={email}
-                    onChangeText={(text) => {
-                      setEmail(text);
-                      clearMessages();
-                    }}
-                    placeholder="tu@email.com"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="email-address"
-                    textContentType="username"
-                    autoComplete="email"
-                    returnKeyType="next"
-                    editable={state !== "checking" && state !== "signingOut"}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      borderRadius: 14,
-                      paddingHorizontal: 12,
-                      paddingVertical: 13,
-                      color: COLORS.text,
-                      backgroundColor: "rgba(255,255,255,0.03)",
-                    }}
-                  />
-                </View>
-
-                <View style={{ gap: 8 }}>
-                  <Text style={{ color: COLORS.text, fontWeight: "800" }}>Contraseña</Text>
-                  <TextInput
-                    value={pass}
-                    onChangeText={(text) => {
-                      setPass(text);
-                      clearMessages();
-                    }}
-                    placeholder="Tu contraseña"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType="password"
-                    autoComplete="password"
-                    returnKeyType="go"
-                    editable={state !== "checking" && state !== "signingOut"}
-                    onSubmitEditing={() => {
-                      if (canSubmit) signInAdmin();
-                    }}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      borderRadius: 14,
-                      paddingHorizontal: 12,
-                      paddingVertical: 13,
-                      color: COLORS.text,
-                      backgroundColor: "rgba(255,255,255,0.03)",
-                    }}
-                  />
-                </View>
-
-                <Pressable
-                  onPress={signInAdmin}
-                  disabled={!canSubmit}
-                  style={({ pressed }) => ({
-                    marginTop: 8,
-                    borderRadius: 14,
-                    paddingVertical: 14,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: COLORS.accent,
-                    opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1,
-                  })}
-                >
-                  {state === "submitting" ? (
-                    <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-                      <ActivityIndicator color="#FFFFFF" />
-                      <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Entrando...</Text>
+                          borderRadius: 14,
+                          paddingHorizontal: 12,
+                          paddingVertical: 13,
+                          color: COLORS.text,
+                          backgroundColor: "rgba(255,255,255,0.03)",
+                        }}
+                      />
                     </View>
-                  ) : (
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                      Validar acceso admin
-                    </Text>
-                  )}
-                </Pressable>
+
+                    <View style={{ gap: 8 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800" }}>Contraseña</Text>
+                      <TextInput
+                        value={pass}
+                        onChangeText={(text) => {
+                          setPass(text);
+                          clearMessages();
+                        }}
+                        placeholder="Tu contraseña"
+                        placeholderTextColor="rgba(255,255,255,0.45)"
+                        secureTextEntry
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        textContentType="password"
+                        autoComplete="password"
+                        returnKeyType="go"
+                        editable={!isChecking && !isSigningOut}
+                        onSubmitEditing={() => {
+                          if (canSubmit) signIn();
+                        }}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          borderRadius: 14,
+                          paddingHorizontal: 12,
+                          paddingVertical: 13,
+                          color: COLORS.text,
+                          backgroundColor: "rgba(255,255,255,0.03)",
+                        }}
+                      />
+                    </View>
+
+                    <ActionButton
+                      title="Iniciar sesión"
+                      onPress={signIn}
+                      disabled={!canSubmit}
+                      loading={isSubmitting}
+                      loadingText="Entrando..."
+                    />
+                  </>
+                ) : (
+                  <View style={{ gap: 10, marginTop: 2 }}>
+                    <ActionButton
+                      title="Cerrar sesión"
+                      onPress={signOut}
+                      variant="secondary"
+                      loading={isSigningOut}
+                      loadingText="Cerrando sesión..."
+                    />
+                  </View>
+                )}
 
                 <View
                   style={{
@@ -660,34 +604,6 @@ export default function PerfilScreen() {
                     gap: 10,
                   }}
                 >
-                  {sessionRole === "admin" ? (
-                    <Pressable
-                      onPress={openAdminPanel}
-                      style={({ pressed }) => ({
-                        alignItems: "center",
-                        opacity: pressed ? 0.85 : 1,
-                        paddingVertical: 4,
-                      })}
-                    >
-                      <Text style={{ color: "rgba(255,255,255,0.88)", fontWeight: "800" }}>
-                        → Ir al panel de administración
-                      </Text>
-                    </Pressable>
-                  ) : (
-                    <Pressable
-                      onPress={() => router.replace("/")}
-                      style={({ pressed }) => ({
-                        alignItems: "center",
-                        opacity: pressed ? 0.85 : 1,
-                        paddingVertical: 4,
-                      })}
-                    >
-                      <Text style={{ color: "rgba(255,255,255,0.88)", fontWeight: "800" }}>
-                        ← Volver a la tienda
-                      </Text>
-                    </Pressable>
-                  )}
-
                   <Text
                     style={{
                       color: "rgba(255,255,255,0.52)",
@@ -696,11 +612,95 @@ export default function PerfilScreen() {
                       fontSize: 12,
                     }}
                   >
-                    Acceso restringido. Las cuentas sin rol admin no pueden entrar al
-                    panel interno.
+                    Esta área está preparada para crecer con pedidos, direcciones, datos de cuenta y más secciones de cliente.
                   </Text>
                 </View>
-              </View>
+              </SectionCard>
+
+              {sessionRole === "admin" ? (
+                <SectionCard>
+                  <Badge text="Herramientas internas" tone="accent" />
+
+                  <View>
+                    <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                      Acceso interno disponible
+                    </Text>
+                    <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
+                      Esta cuenta tiene permisos autorizados. El acceso al panel solo se muestra cuando el usuario autenticado es realmente administrador.
+                    </Text>
+                  </View>
+
+                  <ActionButton
+                    title="Entrar al panel de administración"
+                    onPress={openAdminPanel}
+                  />
+
+                  <View
+                    style={{
+                      marginTop: 4,
+                      paddingTop: 12,
+                      borderTopWidth: 1,
+                      borderTopColor: "rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "rgba(255,255,255,0.52)",
+                        textAlign: "center",
+                        lineHeight: 18,
+                        fontSize: 12,
+                      }}
+                    >
+                      Este bloque no aparece para clientes normales ni para cuentas sin permisos.
+                    </Text>
+                  </View>
+                </SectionCard>
+              ) : null}
+
+              <SectionCard>
+                <Badge text="Próximamente" tone="default" />
+
+                <View>
+                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                    Tu área personal
+                  </Text>
+                  <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
+                    Esta pantalla está preparada para incorporar pedidos, favoritos, direcciones, soporte y más opciones de cuenta sin rehacer la base.
+                  </Text>
+                </View>
+
+                <View style={{ gap: 10 }}>
+                  <View
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.08)",
+                      backgroundColor: "rgba(255,255,255,0.03)",
+                      padding: 14,
+                    }}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Pedidos</Text>
+                    <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+                      Consulta futura de pedidos y seguimiento.
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.08)",
+                      backgroundColor: "rgba(255,255,255,0.03)",
+                      padding: 14,
+                    }}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Datos de cuenta</Text>
+                    <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+                      Gestión futura de nombre, direcciones y preferencias.
+                    </Text>
+                  </View>
+                </View>
+              </SectionCard>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
