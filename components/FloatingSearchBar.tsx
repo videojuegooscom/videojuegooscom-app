@@ -10,6 +10,7 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type LayoutChangeEvent,
 } from "react-native";
 
 type SearchSnapPosition = "top" | "bottom";
@@ -26,13 +27,13 @@ type FloatingSearchBarProps = {
   topSnapY?: number;
 
   /**
-   * ALTURA DE LA TAB BAR INFERIOR DE TU APP EN MÓVIL.
-   * Si algún día cambias el diseño del menú inferior, toca esto.
+   * ALTURA VISUAL DE LA TAB BAR INFERIOR DE TU APP EN MÓVIL.
+   * Si cambias el menú inferior, toca esto.
    */
   mobileTabBarHeight?: number;
 
   /**
-   * ALTURA DE LA TAB BAR INFERIOR DE TU APP EN DESKTOP/TABLET.
+   * ALTURA VISUAL DE LA TAB BAR INFERIOR EN DESKTOP/TABLET.
    */
   desktopTabBarHeight?: number;
 
@@ -167,31 +168,19 @@ function SearchHeader({ isMobile }: { isMobile: boolean }) {
 
 export default function FloatingSearchBar({
   isMobile,
-
-  /**
-   * ARRIBA
-   * TOCA ESTO SI QUIERES AJUSTAR LA POSICIÓN FINAL SUPERIOR.
-   *
-   * Ahora mismo está pensado para que quede estable como tu captura buena.
-   */
   topSnapY,
 
   /**
-   * ABAJO
-   * TOCA ESTO SI CAMBIAS LA ALTURA DE TU TAB BAR INFERIOR.
-   *
-   * Estos valores están pensados para que la search bar quede alineada
-   * justo encima del menú inferior, de forma consistente.
+   * TOCA ESTO SI CAMBIAS LA ALTURA DEL MENÚ INFERIOR.
+   * Si ves que la barra queda muy arriba o muy abajo al pegarse abajo,
+   * este es uno de los parámetros principales.
    */
   mobileTabBarHeight = 92,
   desktopTabBarHeight = 96,
 
   /**
-   * TOCA ESTO SI QUIERES MÁS O MENOS SEPARACIÓN ENTRE
-   * LA SEARCH BAR Y LA TAB BAR INFERIOR.
-   *
-   * Menor número = más pegada abajo
-   * Mayor número = más arriba
+   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE SOBRE EL MENÚ INFERIOR.
+   * Menor número = más pegada abajo.
    */
   bottomGapMobile = 12,
   bottomGapDesktop = 14,
@@ -204,37 +193,83 @@ export default function FloatingSearchBar({
   const { width, height } = useWindowDimensions();
 
   const widthSafe = width > 0 ? width : 1024;
-  const heightSafe = height > 0 ? height : 900;
 
   /**
-   * ALTURA REAL DE LA SEARCH BAR
-   * Se usa para calcular bien la posición inferior.
-   */
-  const searchBarHeight = isMobile ? 58 : 64;
-
-  /**
-   * POSICIÓN SUPERIOR FINAL
+   * ALTURA VISIBLE REAL
    *
-   * TOCA ESTO SI QUIERES MOVERLA MANUALMENTE:
-   * - 84 / 92 = ajuste actual estable
-   * - menor = más arriba
-   * - mayor = más abajo
+   * En móvil web, especialmente Safari, useWindowDimensions().height puede no coincidir
+   * con la zona visible real por la UI del navegador.
+   *
+   * Por eso usamos visualViewport.height cuando exista.
+   */
+  const [viewportHeight, setViewportHeight] = useState<number>(height > 0 ? height : 900);
+
+  useEffect(() => {
+    const fallback = height > 0 ? height : 900;
+
+    if (Platform.OS !== "web" || typeof window === "undefined") {
+      setViewportHeight(fallback);
+      return;
+    }
+
+    const readViewportHeight = () => {
+      const vv = window.visualViewport;
+      const nextHeight =
+        typeof vv?.height === "number" && vv.height > 0
+          ? vv.height
+          : window.innerHeight > 0
+          ? window.innerHeight
+          : fallback;
+
+      setViewportHeight(nextHeight);
+    };
+
+    readViewportHeight();
+
+    const vv = window.visualViewport;
+    window.addEventListener("resize", readViewportHeight);
+    vv?.addEventListener?.("resize", readViewportHeight);
+    vv?.addEventListener?.("scroll", readViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", readViewportHeight);
+      vv?.removeEventListener?.("resize", readViewportHeight);
+      vv?.removeEventListener?.("scroll", readViewportHeight);
+    };
+  }, [height]);
+
+  /**
+   * ALTURA REAL MEDIDA DE LA SEARCH BAR.
+   * Mucho mejor que asumir 58/64 a ciegas.
+   */
+  const estimatedSearchBarHeight = isMobile ? 58 : 64;
+  const [measuredSearchBarHeight, setMeasuredSearchBarHeight] =
+    useState<number>(estimatedSearchBarHeight);
+
+  const handleSearchLayout = (e: LayoutChangeEvent) => {
+    const nextHeight = Math.round(e.nativeEvent.layout.height || estimatedSearchBarHeight);
+    if (nextHeight > 0 && nextHeight !== measuredSearchBarHeight) {
+      setMeasuredSearchBarHeight(nextHeight);
+    }
+  };
+
+  /**
+   * TOCA ESTO SI QUIERES MOVER LA POSICIÓN SUPERIOR.
+   *
+   * Menor número = más arriba
+   * Mayor número = más abajo
    */
   const resolvedTopSnapY = topSnapY ?? (isMobile ? 84 : 92);
 
   /**
-   * POSICIÓN INFERIOR FINAL CORRECTA
+   * POSICIÓN FINAL INFERIOR
    *
-   * En vez de usar "height - offset genérico",
-   * usamos:
-   *
-   * altura pantalla
+   * altura visible real
    * - altura tab bar
-   * - separación respecto a tab bar
-   * - altura de la propia search bar
+   * - separación respecto a la tab bar
+   * - altura real del buscador
    *
-   * Así queda siempre alineada arriba del menú inferior
-   * de forma mucho más consistente entre móviles.
+   * Esto deja la barra alineada encima del menú inferior de forma mucho más estable.
    *
    * TOCA MANUALMENTE:
    * - mobileTabBarHeight / desktopTabBarHeight
@@ -242,10 +277,10 @@ export default function FloatingSearchBar({
    */
   const resolvedBottomSnapY = Math.max(
     resolvedTopSnapY + 80,
-    heightSafe -
+    viewportHeight -
       (isMobile ? mobileTabBarHeight : desktopTabBarHeight) -
       (isMobile ? bottomGapMobile : bottomGapDesktop) -
-      searchBarHeight
+      measuredSearchBarHeight
   );
 
   const searchBarWidth = useMemo(() => {
@@ -257,40 +292,51 @@ export default function FloatingSearchBar({
   const [searchSnapPosition, setSearchSnapPosition] =
     useState<SearchSnapPosition>("bottom");
 
-  const searchY = useRef(new Animated.Value(0)).current;
-  const dragStartY = useRef(0);
-  const liveY = useRef(0);
+  /**
+   * Animamos "top" directamente.
+   * Aquí no usamos translateY para evitar desajustes visuales raros en web móvil.
+   */
+  const animatedTop = useRef(new Animated.Value(resolvedBottomSnapY)).current;
+  const dragStartTop = useRef(resolvedBottomSnapY);
+  const liveTop = useRef(resolvedBottomSnapY);
   const didInitRef = useRef(false);
 
   useEffect(() => {
-    const id = searchY.addListener(({ value }) => {
-      liveY.current = value;
+    const id = animatedTop.addListener(({ value }) => {
+      liveTop.current = value;
     });
 
     return () => {
-      searchY.removeListener(id);
+      animatedTop.removeListener(id);
     };
-  }, [searchY]);
+  }, [animatedTop]);
 
   useEffect(() => {
-    const initialY =
+    const nextTarget =
       searchSnapPosition === "top" ? resolvedTopSnapY : resolvedBottomSnapY;
 
     if (!didInitRef.current) {
       didInitRef.current = true;
-      liveY.current = initialY;
-      dragStartY.current = initialY;
-      searchY.setValue(initialY);
+      liveTop.current = nextTarget;
+      dragStartTop.current = nextTarget;
+      animatedTop.setValue(nextTarget);
       return;
     }
 
-    const nextTarget =
-      searchSnapPosition === "top" ? resolvedTopSnapY : resolvedBottomSnapY;
+    liveTop.current = nextTarget;
+    dragStartTop.current = nextTarget;
 
-    liveY.current = nextTarget;
-    dragStartY.current = nextTarget;
-    searchY.setValue(nextTarget);
-  }, [resolvedBottomSnapY, resolvedTopSnapY, searchSnapPosition, searchY]);
+    Animated.spring(animatedTop, {
+      toValue: nextTarget,
+      useNativeDriver: false,
+      damping: 20,
+      stiffness: 180,
+      mass: 0.9,
+      overshootClamping: false,
+      restDisplacementThreshold: 0.5,
+      restSpeedThreshold: 0.5,
+    }).start();
+  }, [animatedTop, resolvedBottomSnapY, resolvedTopSnapY, searchSnapPosition]);
 
   useEffect(() => {
     onSnapChange?.(searchSnapPosition);
@@ -300,12 +346,12 @@ export default function FloatingSearchBar({
     const toValue = target === "top" ? resolvedTopSnapY : resolvedBottomSnapY;
 
     setSearchSnapPosition(target);
-    liveY.current = toValue;
-    dragStartY.current = toValue;
+    liveTop.current = toValue;
+    dragStartTop.current = toValue;
 
-    Animated.spring(searchY, {
+    Animated.spring(animatedTop, {
       toValue,
-      useNativeDriver: true,
+      useNativeDriver: false,
       damping: 20,
       stiffness: 180,
       mass: 0.9,
@@ -333,40 +379,40 @@ export default function FloatingSearchBar({
           );
         },
         onPanResponderGrant: () => {
-          dragStartY.current = liveY.current;
+          dragStartTop.current = liveTop.current;
         },
         onPanResponderMove: (_, gestureState) => {
-          const nextY = clampNumber(
-            dragStartY.current + gestureState.dy,
+          const nextTop = clampNumber(
+            dragStartTop.current + gestureState.dy,
             resolvedTopSnapY,
             resolvedBottomSnapY
           );
 
-          liveY.current = nextY;
-          searchY.setValue(nextY);
+          liveTop.current = nextTop;
+          animatedTop.setValue(nextTop);
         },
         onPanResponderRelease: (_, gestureState) => {
-          const currentY = clampNumber(
-            dragStartY.current + gestureState.dy,
+          const currentTop = clampNumber(
+            dragStartTop.current + gestureState.dy,
             resolvedTopSnapY,
             resolvedBottomSnapY
           );
           const middle = (resolvedTopSnapY + resolvedBottomSnapY) / 2;
-          snapSearchBar(currentY <= middle ? "top" : "bottom");
+          snapSearchBar(currentTop <= middle ? "top" : "bottom");
         },
         onPanResponderTerminate: (_, gestureState) => {
-          const currentY = clampNumber(
-            dragStartY.current + gestureState.dy,
+          const currentTop = clampNumber(
+            dragStartTop.current + gestureState.dy,
             resolvedTopSnapY,
             resolvedBottomSnapY
           );
           const middle = (resolvedTopSnapY + resolvedBottomSnapY) / 2;
-          snapSearchBar(currentY <= middle ? "top" : "bottom");
+          snapSearchBar(currentTop <= middle ? "top" : "bottom");
         },
         onPanResponderTerminationRequest: () => true,
         onShouldBlockNativeResponder: () => false,
       }),
-    [resolvedBottomSnapY, resolvedTopSnapY, searchY]
+    [animatedTop, resolvedBottomSnapY, resolvedTopSnapY]
   );
 
   return (
@@ -375,16 +421,16 @@ export default function FloatingSearchBar({
       {...panResponder.panHandlers}
       style={{
         position: "absolute",
-        top: 0,
+        top: animatedTop,
         left: 0,
         right: 0,
         alignItems: "center",
         zIndex: 999,
         elevation: 999,
-        transform: [{ translateY: searchY }],
       }}
     >
       <View
+        onLayout={handleSearchLayout}
         style={{
           width: searchBarWidth,
           maxWidth,
