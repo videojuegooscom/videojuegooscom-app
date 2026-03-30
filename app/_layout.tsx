@@ -1,4 +1,4 @@
-// app/_layout.tsx
+// app/app/_layout.tsx
 import React from "react";
 import { Stack } from "expo-router";
 
@@ -10,16 +10,17 @@ export default function RootLayout() {
         animation: "fade",
       }}
     >
-      {/* Public */}
-      <Stack.Screen name="index" />
+      {/* Navegación principal inferior */}
+      <Stack.Screen name="(tabs)" />
+
+      {/* Rutas públicas / complementarias fuera de tabs */}
       <Stack.Screen name="catalogo" />
-      <Stack.Screen name="carrito" />
       <Stack.Screen name="checkout" />
 
-      {/* Producto (ruta /producto/[id]) */}
+      {/* Producto dinámico */}
       <Stack.Screen name="producto/[id]" />
 
-      {/* Admin (carpeta app/admin) */}
+      {/* Admin */}
       <Stack.Screen name="admin" />
 
       {/* Modal global */}

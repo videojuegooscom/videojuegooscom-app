@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Href } from "expo-router";
+import { router } from "expo-router";
 import {
   ActivityIndicator,
   Image,
-  LayoutChangeEvent,
   Linking,
   Platform,
   Pressable,
@@ -12,10 +13,10 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type LayoutChangeEvent,
 } from "react-native";
-import { router } from "expo-router";
-import { supabase } from "../lib/supabase";
-import Resenas from "../components/Resenas";
+import { supabase } from "../../lib/supabase";
+import Resenas from "../../components/Resenas";
 
 const COLORS = {
   bg: "#071E33",
@@ -57,13 +58,27 @@ type AdminAccessState = {
   email: string | null;
 };
 
-const HOME_CATEGORIES: Array<{
+type HomeCategory = {
   title: string;
   emoji: string;
   cat: string;
   span?: 1 | 2;
   cta?: string;
-}> = [
+};
+
+type ProductRow = {
+  id: string;
+  title: string;
+  description?: string | null;
+  price_eur?: number | string | null;
+  images?: string[] | null;
+  image_url?: string | null;
+  category?: {
+    name?: string | null;
+  } | null;
+};
+
+const HOME_CATEGORIES: HomeCategory[] = [
   { title: "PlayStation 5", emoji: "🎮", cat: "playstation-5", cta: "Ver categoría →" },
   { title: "PlayStation 4", emoji: "🕹️", cat: "playstation-4", cta: "Ver categoría →" },
   { title: "Nintendo Switch", emoji: "🟥", cat: "nintendo-switch", cta: "Ver categoría →" },
@@ -84,15 +99,15 @@ const HOME_CATEGORIES: Array<{
   },
 ];
 
-function clampText(s: string, max = 400) {
-  const t = (s ?? "").trim();
-  if (!t) return "";
-  if (t.length <= max) return t;
-  return t.slice(0, max - 1).trimEnd() + "…";
+function clampText(value: string, max = 400) {
+  const text = (value ?? "").trim();
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-function fmtEUR(n: number) {
-  const safe = Number.isFinite(n) ? n : 0;
+function fmtEUR(value: number) {
+  const safe = Number.isFinite(value) ? value : 0;
   return `${Math.round(safe)}€`;
 }
 
@@ -104,6 +119,7 @@ function buildWhatsAppUrl(prefill: string) {
 
 function openWhatsApp() {
   const url = buildWhatsAppUrl(BRAND.whatsappPrefill);
+
   Linking.openURL(url).catch(() => {
     const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "").replace("+", "");
     const text = encodeURIComponent(clampText(BRAND.whatsappPrefill, 400));
@@ -113,6 +129,7 @@ function openWhatsApp() {
 
 function openWhatsAppWithText(prefill: string) {
   const url = buildWhatsAppUrl(prefill);
+
   Linking.openURL(url).catch(() => {
     const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "").replace("+", "");
     const text = encodeURIComponent(clampText(prefill, 400));
@@ -121,7 +138,7 @@ function openWhatsAppWithText(prefill: string) {
 }
 
 function softShadow() {
-  return Platform.select<any>({
+  return Platform.select({
     ios: {
       shadowColor: "#000",
       shadowOpacity: 0.25,
@@ -133,14 +150,22 @@ function softShadow() {
   });
 }
 
-function firstImageFromAnyRow(row: any): string | null {
-  const imgs = row?.images;
-  if (Array.isArray(imgs) && imgs.length > 0 && typeof imgs[0] === "string") {
-    return imgs[0];
+function firstImageFromAnyRow(row: ProductRow | null | undefined): string | null {
+  const images = row?.images;
+  if (Array.isArray(images) && images.length > 0 && typeof images[0] === "string") {
+    return images[0];
   }
+
   const url = row?.image_url;
-  if (typeof url === "string" && url.trim()) return url.trim();
+  if (typeof url === "string" && url.trim()) {
+    return url.trim();
+  }
+
   return null;
+}
+
+function pushRoute(route: Href) {
+  router.push(route);
 }
 
 function SectionTitle({
@@ -164,6 +189,7 @@ function SectionTitle({
       >
         {title}
       </Text>
+
       {!!subtitle && (
         <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
           {subtitle}
@@ -197,6 +223,7 @@ function Pill({
       }}
     >
       {!!icon && <Text style={{ color: COLORS.text }}>{icon}</Text>}
+
       <Text
         style={{
           color: "rgba(255,255,255,0.85)",
@@ -255,6 +282,7 @@ function PrimaryButton({
           >
             {title}
           </Text>
+
           {!!subtitle && (
             <Text
               style={{
@@ -330,6 +358,7 @@ function SecondaryButton({
       >
         {title}
       </Text>
+
       {!!subtitle && (
         <Text
           style={{
@@ -376,6 +405,7 @@ function CategoryCard({
       })}
     >
       <Text style={{ fontSize: isMobile ? 21 : 22 }}>{emoji}</Text>
+
       <Text
         style={{
           color: COLORS.text,
@@ -387,6 +417,7 @@ function CategoryCard({
       >
         {title}
       </Text>
+
       <Text
         style={{
           color: COLORS.muted,
@@ -416,7 +447,13 @@ function FooterLink({
         paddingVertical: 6,
       })}
     >
-      <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "700", lineHeight: 20 }}>
+      <Text
+        style={{
+          color: "rgba(255,255,255,0.78)",
+          fontWeight: "700",
+          lineHeight: 20,
+        }}
+      >
         {label}
       </Text>
     </Pressable>
@@ -459,6 +496,7 @@ function FooterAccordionSection({
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
           {title}
         </Text>
+
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
           {open ? "↑" : "↓"}
         </Text>
@@ -491,6 +529,8 @@ function FeaturedOfferCard({
   isMobile: boolean;
   onPressCategories: () => void;
 }) {
+  const mediaHeight = isDesktopish ? 280 : isMobile ? 210 : 240;
+
   if (!item) {
     return (
       <View
@@ -578,15 +618,11 @@ Precio: ${fmtEUR(item.priceEUR)}
         ...softShadow(),
       }}
     >
-      <View
-        style={{
-          flexDirection: isDesktopish ? "row" : "column",
-        }}
-      >
+      <View style={{ flexDirection: isDesktopish ? "row" : "column" }}>
         <View
           style={{
             flex: isDesktopish ? 1.05 : undefined,
-            minHeight: isDesktopish ? 280 : isMobile ? 210 : 240,
+            height: mediaHeight,
             backgroundColor: "rgba(255,255,255,0.04)",
           }}
         >
@@ -596,14 +632,13 @@ Precio: ${fmtEUR(item.priceEUR)}
               resizeMode="cover"
               style={{
                 width: "100%",
-                height: "100%" as any,
-                minHeight: isDesktopish ? 280 : isMobile ? 210 : 240,
+                height: mediaHeight,
               }}
             />
           ) : (
             <View
               style={{
-                minHeight: isDesktopish ? 280 : isMobile ? 210 : 240,
+                height: mediaHeight,
                 alignItems: "center",
                 justifyContent: "center",
                 padding: 20,
@@ -684,7 +719,9 @@ Precio: ${fmtEUR(item.priceEUR)}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <Pill icon="🔥" text="Destacado" isMobile={isMobile} />
             <Pill icon="✅" text="Revisado" isMobile={isMobile} />
-            {item.categoryName ? <Pill icon="📦" text={item.categoryName} isMobile={isMobile} /> : null}
+            {item.categoryName ? (
+              <Pill icon="📦" text={item.categoryName} isMobile={isMobile} />
+            ) : null}
           </View>
 
           <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -693,7 +730,7 @@ Precio: ${fmtEUR(item.priceEUR)}
                 title="Ver producto"
                 subtitle="Abrir ficha completa"
                 rightHint="Ir →"
-                onPress={() => router.push(`/producto/${item.id}`)}
+                onPress={() => pushRoute(`/producto/${item.id}` as Href)}
                 isMobile={isMobile}
               />
             </View>
@@ -715,7 +752,7 @@ Precio: ${fmtEUR(item.priceEUR)}
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
-  const widthSafe = width && width > 0 ? width : 1024;
+  const widthSafe = width > 0 ? width : 1024;
 
   const isMobile = widthSafe < 700;
   const isDesktopish = widthSafe >= 900;
@@ -813,20 +850,13 @@ export default function HomeScreen() {
   }, []);
 
   const handleAccountPress = useCallback(() => {
-    if (adminAccess.loading) return;
-
-    if (adminAccess.hasSession && adminAccess.isAdmin) {
-      router.push("/admin");
-      return;
-    }
-
-    router.push("/admin/login");
-  }, [adminAccess]);
+    pushRoute("/perfil");
+  }, []);
 
   const accountLabel = useMemo(() => {
-    if (adminAccess.loading) return "Cuenta";
+    if (adminAccess.loading) return "Perfil";
     if (adminAccess.hasSession && adminAccess.isAdmin) return isMobile ? "Panel" : "Mi panel";
-    return "Cuenta";
+    return "Perfil";
   }, [adminAccess, isMobile]);
 
   const accountSubtleState = useMemo(() => {
@@ -834,7 +864,7 @@ export default function HomeScreen() {
     if (adminAccess.hasSession && adminAccess.isAdmin) {
       return adminAccess.email ? `Admin · ${adminAccess.email}` : "Acceso admin activo";
     }
-    if (adminAccess.hasSession && !adminAccess.isAdmin) return "Sesión sin permisos admin";
+    if (adminAccess.hasSession && !adminAccess.isAdmin) return "Sesión iniciada";
     return "Acceso profesional";
   }, [adminAccess]);
 
@@ -871,13 +901,13 @@ export default function HomeScreen() {
             .limit(1)
             .maybeSingle();
 
-        let data: any = null;
+        let data: ProductRow | null = null;
 
         const trySmartQuery = async () => {
           const featuredRes1 = await buildFeaturedQuery(selectWithImages);
 
           if (!featuredRes1.error) {
-            return featuredRes1.data;
+            return featuredRes1.data as ProductRow | null;
           }
 
           const msg = String(featuredRes1.error.message ?? "");
@@ -886,13 +916,13 @@ export default function HomeScreen() {
             msg.includes("does not exist") ||
             msg.includes("schema cache");
 
-          if (!looksLikeMissingColumn) throw featuredRes1.error;
+          if (!looksLikeMissingColumn) {
+            throw featuredRes1.error;
+          }
 
           const featuredRes2 = await buildFeaturedQuery(selectBase);
           if (featuredRes2.error) throw featuredRes2.error;
-          if (featuredRes2.data) return featuredRes2.data;
-
-          return null;
+          return featuredRes2.data as ProductRow | null;
         };
 
         data = await trySmartQuery();
@@ -901,7 +931,7 @@ export default function HomeScreen() {
           const fallbackRes1 = await buildFallbackQuery(selectWithImages);
 
           if (!fallbackRes1.error) {
-            data = fallbackRes1.data;
+            data = fallbackRes1.data as ProductRow | null;
           } else {
             const msg = String(fallbackRes1.error.message ?? "");
             const looksLikeMissingColumn =
@@ -909,11 +939,13 @@ export default function HomeScreen() {
               msg.includes("does not exist") ||
               msg.includes("schema cache");
 
-            if (!looksLikeMissingColumn) throw fallbackRes1.error;
+            if (!looksLikeMissingColumn) {
+              throw fallbackRes1.error;
+            }
 
             const fallbackRes2 = await buildFallbackQuery(selectBase);
             if (fallbackRes2.error) throw fallbackRes2.error;
-            data = fallbackRes2.data;
+            data = fallbackRes2.data as ProductRow | null;
           }
         }
 
@@ -1010,9 +1042,7 @@ export default function HomeScreen() {
                 flexShrink: 0,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                WhatsApp
-              </Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>WhatsApp</Text>
             </Pressable>
           </View>
         </View>
@@ -1073,7 +1103,7 @@ export default function HomeScreen() {
                 }}
               >
                 <Pressable
-                  onPress={() => router.push("/catalogo")}
+                  onPress={() => pushRoute("/catalogo")}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.85 : 1,
                     paddingVertical: 9,
@@ -1084,13 +1114,11 @@ export default function HomeScreen() {
                     backgroundColor: "rgba(255,255,255,0.06)",
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    🔎 Buscar
-                  </Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>🔎 Buscar</Text>
                 </Pressable>
 
                 <Pressable
-                  onPress={() => router.push("/carrito")}
+                  onPress={() => pushRoute("/cesta")}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.85 : 1,
                     paddingVertical: 9,
@@ -1101,9 +1129,7 @@ export default function HomeScreen() {
                     backgroundColor: "rgba(255,255,255,0.06)",
                   })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    🛒 Carrito
-                  </Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>🛒 Cesta</Text>
                 </Pressable>
 
                 <Pressable
@@ -1134,9 +1160,7 @@ export default function HomeScreen() {
                     <Text style={{ color: COLORS.text, fontSize: 14 }}>👤</Text>
                   )}
 
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    {accountLabel}
-                  </Text>
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>{accountLabel}</Text>
                 </Pressable>
               </View>
             </View>
@@ -1155,9 +1179,7 @@ export default function HomeScreen() {
       </SafeAreaView>
 
       <ScrollView
-        ref={(ref) => {
-          scrollRef.current = ref;
-        }}
+        ref={scrollRef}
         contentContainerStyle={{
           paddingHorizontal: sidePadding,
           paddingVertical: isMobile ? 12 : 16,
@@ -1181,15 +1203,15 @@ export default function HomeScreen() {
                 color: COLORS.text,
                 fontSize: isMobile ? 21 : 22,
                 fontWeight: "900",
-                lineHeight: isMobile ? 28 : 28,
+                lineHeight: 28,
               }}
             >
               Compra y vende consolas y electrónica con confianza.
             </Text>
 
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              Productos revisados, precios claros y soporte real. Explora primero
-              las categorías disponibles y entra solo en lo que realmente te interesa.
+              Productos revisados, precios claros y soporte real. Explora primero las
+              categorías disponibles y entra solo en lo que realmente te interesa.
             </Text>
 
             <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -1280,27 +1302,26 @@ export default function HomeScreen() {
                 justifyContent: "space-between",
               }}
             >
-              {HOME_CATEGORIES.map((c) => {
+              {HOME_CATEGORIES.map((category) => {
                 const onPress =
-                  c.cat === "reparaciones"
+                  category.cat === "reparaciones"
                     ? () =>
                         openWhatsAppWithText(
                           "Hola, vengo desde videojuegoszaragoza.com. Me interesa vuestro servicio de reparación o limpieza. ¿Qué necesitáis para darme información?"
                         )
                     : () =>
-                        router.push({
-                          pathname: "/catalogo",
-                          params: { cat: c.cat },
-                        });
+                        pushRoute(
+                          `/catalogo?cat=${encodeURIComponent(category.cat)}` as Href
+                        );
 
-                const forceFullWidth = isMobile || c.span === 2;
+                const forceFullWidth = isMobile || category.span === 2;
 
                 return (
                   <CategoryCard
-                    key={c.cat}
-                    title={c.title}
-                    emoji={c.emoji}
-                    cta={c.cta}
+                    key={category.cat}
+                    title={category.title}
+                    emoji={category.emoji}
+                    cta={category.cta}
                     onPress={onPress}
                     forceFullWidth={forceFullWidth}
                     isMobile={isMobile}
@@ -1330,20 +1351,22 @@ export default function HomeScreen() {
               <FooterAccordionSection
                 title="Navegación"
                 open={footerNavOpen}
-                onToggle={() => setFooterNavOpen((v) => !v)}
+                onToggle={() => setFooterNavOpen((value) => !value)}
               >
-                <FooterLink label="Inicio" onPress={() => router.push("/")} />
+                <FooterLink label="Inicio" onPress={() => pushRoute("/")} />
                 <FooterLink label="Categorías" onPress={scrollToCategories} />
-                <FooterLink label="Catálogo" onPress={() => router.push("/catalogo")} />
-                <FooterLink label="Carrito" onPress={() => router.push("/carrito")} />
-                <FooterLink label="Checkout" onPress={() => router.push("/checkout")} />
-                <FooterLink label="Cuenta / Admin" onPress={handleAccountPress} />
+                <FooterLink label="Catálogo" onPress={() => pushRoute("/catalogo")} />
+                <FooterLink label="Cesta" onPress={() => pushRoute("/cesta")} />
+                <FooterLink label="Checkout" onPress={() => pushRoute("/checkout")} />
+                <FooterLink label="Perfil" onPress={() => pushRoute("/perfil")} />
+                <FooterLink label="Chat Global" onPress={() => pushRoute("/chat-global")} />
+                <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia")} />
               </FooterAccordionSection>
 
               <FooterAccordionSection
                 title="Políticas"
                 open={footerPoliciesOpen}
-                onToggle={() => setFooterPoliciesOpen((v) => !v)}
+                onToggle={() => setFooterPoliciesOpen((value) => !value)}
               >
                 <FooterLink label="Política de envíos" onPress={() => {}} />
                 <FooterLink label="Política de devoluciones" onPress={() => {}} />
@@ -1354,7 +1377,7 @@ export default function HomeScreen() {
               <FooterAccordionSection
                 title="Blog"
                 open={footerBlogOpen}
-                onToggle={() => setFooterBlogOpen((v) => !v)}
+                onToggle={() => setFooterBlogOpen((value) => !value)}
               >
                 <FooterLink label="Últimos artículos" onPress={() => {}} />
                 <FooterLink label="Guías de compra" onPress={() => {}} />
