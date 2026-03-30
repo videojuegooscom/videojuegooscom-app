@@ -98,23 +98,22 @@ const HOME_CATEGORIES: HomeCategory[] = [
  * ============================================================
  * SEARCH LAYOUT MASTER CONFIG
  * ============================================================
- * TOCA ESTO LA PRÓXIMA VEZ SI QUIERES MOVER LA BARRA:
  *
- * 1) ARRIBA:
+ * TOCA ESTO SI QUIERES AJUSTAR LA BARRA:
+ *
+ * 1) POSICIÓN DE SNAP:
  *    topSnapMobile / topSnapDesktop
  *
- * 2) ABAJO:
- *    mobileTabBarHeight / desktopTabBarHeight
- *    bottomGapMobile / bottomGapDesktop
+ * 2) ALTURA VISUAL APROX DE LA SEARCH BAR:
+ *    searchBarHeightMobile / searchBarHeightDesktop
  *
- * 3) HUECO DEL CONTENIDO:
- *    topExtraGapMobile / topExtraGapDesktop
- *    bottomExtraScrollSpaceMobile / bottomExtraScrollSpaceDesktop
+ * 3) HUECO REAL DEL CONTENIDO:
+ *    topContentGapMobile / topContentGapDesktop
+ *    bottomContentGapMobile / bottomContentGapDesktop
  *
  * IMPORTANTE:
- * Aquí está la gracia. Estos valores mandan tanto en la barra
- * como en el espacio que reserva el ScrollView.
- * Así ya no se descuadran.
+ * Ya NO sumamos aquí toda la altura de la tab bar al ScrollView.
+ * Ese era el fallo que generaba los huecos enormes.
  */
 const SEARCH_LAYOUT = {
   topSnapMobile: 84,
@@ -134,18 +133,21 @@ const SEARCH_LAYOUT = {
   maxWidth: 760,
 
   /**
-   * Espacio extra visual cuando la barra está arriba.
-   * Súbelo si quieres más aire entre barra y contenido.
+   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE ENTRE
+   * LA SEARCH BAR SUPERIOR Y EL CONTENIDO.
    */
-  topExtraGapMobile: 14,
-  topExtraGapDesktop: 16,
+  topContentGapMobile: 12,
+  topContentGapDesktop: 14,
 
   /**
-   * Espacio extra al final del scroll cuando la barra está abajo.
-   * Súbelo si quieres más aire por debajo del último bloque.
+   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE AL FINAL
+   * CUANDO LA SEARCH BAR ESTÁ ABAJO.
+   *
+   * Menor = menos hueco abajo
+   * Mayor = más hueco abajo
    */
-  bottomExtraScrollSpaceMobile: 18,
-  bottomExtraScrollSpaceDesktop: 20,
+  bottomContentGapMobile: 18,
+  bottomContentGapDesktop: 20,
 };
 
 function clampText(value: string, max = 400) {
@@ -953,40 +955,49 @@ export default function HomeScreen() {
 
   /**
    * ============================================================
-   * OVERLAY SPACES SINCRONIZADOS CON FloatingSearchBar.tsx
+   * OVERLAY SPACES CORRECTOS Y MÍNIMOS
    * ============================================================
    *
-   * Esto es lo que faltaba.
+   * EL ERROR ANTERIOR:
+   * Estábamos reservando demasiado hueco en el ScrollView, como si
+   * hubiera que sumar la posición absoluta completa de la barra.
    *
-   * El contenido ahora reserva exactamente el hueco correcto
-   * cuando la barra está arriba o abajo, usando la MISMA lógica.
+   * NO.
+   *
+   * El ScrollView solo necesita reservar:
+   * - arriba: altura real de la barra + pequeño gap
+   * - abajo: altura real de la barra + pequeño gap de seguridad
+   *
+   * Nada más.
    */
-
-  const resolvedTopSnapY = isMobile
-    ? SEARCH_LAYOUT.topSnapMobile
-    : SEARCH_LAYOUT.topSnapDesktop;
 
   const searchBarHeight = isMobile
     ? SEARCH_LAYOUT.searchBarHeightMobile
     : SEARCH_LAYOUT.searchBarHeightDesktop;
 
+  /**
+   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE ARRIBA CUANDO LA BARRA HACE SNAP TOP.
+   */
   const topOverlaySpace =
     searchSnapPosition === "top"
-      ? resolvedTopSnapY +
-        searchBarHeight +
+      ? searchBarHeight +
         (isMobile
-          ? SEARCH_LAYOUT.topExtraGapMobile
-          : SEARCH_LAYOUT.topExtraGapDesktop)
+          ? SEARCH_LAYOUT.topContentGapMobile
+          : SEARCH_LAYOUT.topContentGapDesktop)
       : 0;
 
+  /**
+   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE ABAJO CUANDO LA BARRA HACE SNAP BOTTOM.
+   *
+   * Menor = menos hueco abajo
+   * Mayor = más hueco abajo
+   */
   const bottomOverlaySpace =
     searchSnapPosition === "bottom"
       ? searchBarHeight +
-        (isMobile ? SEARCH_LAYOUT.mobileTabBarHeight : SEARCH_LAYOUT.desktopTabBarHeight) +
-        (isMobile ? SEARCH_LAYOUT.bottomGapMobile : SEARCH_LAYOUT.bottomGapDesktop) +
         (isMobile
-          ? SEARCH_LAYOUT.bottomExtraScrollSpaceMobile
-          : SEARCH_LAYOUT.bottomExtraScrollSpaceDesktop)
+          ? SEARCH_LAYOUT.bottomContentGapMobile
+          : SEARCH_LAYOUT.bottomContentGapDesktop)
       : 40;
 
   return (
