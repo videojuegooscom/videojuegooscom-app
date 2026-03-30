@@ -23,7 +23,6 @@ const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
   card: "rgba(255,255,255,0.06)",
-  cardStrong: "#F4F7FB",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
   textDark: "#0B1726",
@@ -33,7 +32,6 @@ const COLORS = {
   accent: "#00AAE4",
   accent2: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.45)",
-  searchBorder: "rgba(255,255,255,0.18)",
   searchBg: "rgba(255,255,255,0.96)",
   warningBg: "rgba(255, 215, 0, 0.18)",
   warningBorder: "rgba(255, 215, 0, 0.40)",
@@ -531,9 +529,9 @@ function SearchHeader({
         borderWidth: 1,
         borderColor: "rgba(11,23,38,0.16)",
         backgroundColor: COLORS.searchBg,
-        minHeight: isMobile ? 64 : 68,
-        paddingLeft: isMobile ? 18 : 20,
-        paddingRight: 10,
+        minHeight: isMobile ? 60 : 66,
+        paddingLeft: isMobile ? 16 : 18,
+        paddingRight: 8,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
@@ -561,7 +559,7 @@ function SearchHeader({
       >
         <Ionicons
           name="search-outline"
-          size={isMobile ? 28 : 30}
+          size={isMobile ? 26 : 28}
           color={COLORS.textDark}
         />
 
@@ -569,8 +567,8 @@ function SearchHeader({
           numberOfLines={1}
           style={{
             color: COLORS.mutedDark,
-            fontSize: isMobile ? 17 : 18,
-            lineHeight: isMobile ? 22 : 24,
+            fontSize: isMobile ? 16 : 17,
+            lineHeight: isMobile ? 21 : 23,
             flex: 1,
           }}
         >
@@ -583,8 +581,8 @@ function SearchHeader({
         hitSlop={8}
         style={({ pressed }) => ({
           opacity: pressed ? 0.82 : 1,
-          width: isMobile ? 48 : 52,
-          height: isMobile ? 48 : 52,
+          width: isMobile ? 46 : 50,
+          height: isMobile ? 46 : 50,
           borderRadius: 999,
           borderWidth: 1,
           borderColor: "rgba(11,23,38,0.12)",
@@ -596,7 +594,7 @@ function SearchHeader({
       >
         <Ionicons
           name="sparkles-outline"
-          size={isMobile ? 22 : 24}
+          size={isMobile ? 21 : 23}
           color={COLORS.textDark}
         />
       </Pressable>
@@ -863,6 +861,7 @@ export default function HomeScreen() {
   );
 
   const sidePadding = isMobile ? 12 : 16;
+  const floatingSearchBottom = isMobile ? 82 : 92;
 
   const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
     setCategoriesY(e.nativeEvent.layout.y);
@@ -1046,22 +1045,17 @@ export default function HomeScreen() {
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
             borderBottomColor: "rgba(255,255,255,0.06)",
-            paddingHorizontal: sidePadding,
-            paddingTop: isMobile ? 12 : 14,
-            paddingBottom: isMobile ? 14 : 16,
+            height: 10,
           }}
-        >
-          <View style={{ ...containerStyle }}>
-            <SearchHeader isMobile={isMobile} />
-          </View>
-        </View>
+        />
       </SafeAreaView>
 
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={{
           paddingHorizontal: sidePadding,
-          paddingVertical: isMobile ? 12 : 16,
+          paddingTop: isMobile ? 12 : 16,
+          paddingBottom: isMobile ? 158 : 172,
           gap: 14,
         }}
       >
@@ -1277,6 +1271,21 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: floatingSearchBottom,
+          paddingHorizontal: sidePadding,
+        }}
+      >
+        <View style={containerStyle}>
+          <SearchHeader isMobile={isMobile} />
+        </View>
+      </View>
     </View>
   );
 }
