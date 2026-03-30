@@ -182,7 +182,7 @@ export default function FloatingSearchBar({
    * - abajo más cerca del borde
    */
   topSnapY,
-  bottomOffsetMobile = 96,
+  bottomOffsetMobile = 88,
   bottomOffsetDesktop = 108,
   widthMobilePercent = 0.86,
   widthDesktopPercent = 0.74,
@@ -200,7 +200,7 @@ export default function FloatingSearchBar({
    * Menor número = más pegado arriba
    * Mayor número = más abajo
    */
-  const resolvedTopSnapY = topSnapY ?? (isMobile ? 84 : 92);
+  const resolvedTopSnapY = topSnapY ?? (isMobile ? 81 : 92);
 
   /**
    * TOCA ESTO SI QUIERES QUE ABAJO SE PEGUE MÁS O MENOS.
