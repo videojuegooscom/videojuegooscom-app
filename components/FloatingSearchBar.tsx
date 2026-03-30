@@ -18,55 +18,47 @@ type FloatingSearchBarProps = {
   isMobile: boolean;
 
   /**
-   * TOCA ESTO SI QUIERES MOVER MANUALMENTE LA POSICIÓN DE SNAP DE ARRIBA.
+   * TOCA ESTO SI QUIERES MOVER LA POSICIÓN FINAL DE ARRIBA.
    *
-   * Menor número = más pegado arriba
-   * Mayor número = más separado de arriba
-   *
-   * Ejemplos:
-   * 70  = muy arriba
-   * 90  = arriba equilibrado
-   * 110 = más abajo
+   * Menor número = más arriba
+   * Mayor número = más abajo
    */
   topSnapY?: number;
 
   /**
-   * TOCA ESTO SI QUIERES MOVER MANUALMENTE LA POSICIÓN DE SNAP DE ABAJO EN MÓVIL.
-   *
-   * Menor número = más pegado abajo
-   * Mayor número = más separado del borde inferior
-   *
-   * Ejemplos:
-   * 88  = muy pegado abajo
-   * 100 = equilibrado
-   * 130 = más arriba
+   * ALTURA DE LA TAB BAR INFERIOR DE TU APP EN MÓVIL.
+   * Si algún día cambias el diseño del menú inferior, toca esto.
    */
-  bottomOffsetMobile?: number;
+  mobileTabBarHeight?: number;
 
   /**
-   * TOCA ESTO SI QUIERES MOVER MANUALMENTE LA POSICIÓN DE SNAP DE ABAJO EN DESKTOP.
-   *
-   * Menor número = más pegado abajo
-   * Mayor número = más separado del borde inferior
+   * ALTURA DE LA TAB BAR INFERIOR DE TU APP EN DESKTOP/TABLET.
    */
-  bottomOffsetDesktop?: number;
+  desktopTabBarHeight?: number;
 
   /**
-   * TOCA ESTO SI QUIERES CAMBIAR EL ANCHO EN MÓVIL.
+   * SEPARACIÓN ENTRE LA SEARCH BAR Y LA TAB BAR INFERIOR.
+   *
+   * Menor número = más pegada abajo
+   * Mayor número = más arriba
+   */
+  bottomGapMobile?: number;
+  bottomGapDesktop?: number;
+
+  /**
+   * ANCHO DE LA SEARCH BAR EN MÓVIL.
    * 0.90 = más ancho
    * 0.80 = más estrecho
    */
   widthMobilePercent?: number;
 
   /**
-   * TOCA ESTO SI QUIERES CAMBIAR EL ANCHO EN DESKTOP.
-   * 0.78 = más ancho
-   * 0.68 = más estrecho
+   * ANCHO DE LA SEARCH BAR EN DESKTOP.
    */
   widthDesktopPercent?: number;
 
   /**
-   * TOCA ESTO SI QUIERES LIMITAR EL ANCHO MÁXIMO.
+   * LÍMITE MÁXIMO DE ANCHO.
    */
   maxWidth?: number;
 
@@ -177,13 +169,33 @@ export default function FloatingSearchBar({
   isMobile,
 
   /**
-   * VALORES NUEVOS MÁS PEGADOS:
-   * - arriba más cerca del borde
-   * - abajo más cerca del borde
+   * ARRIBA
+   * TOCA ESTO SI QUIERES AJUSTAR LA POSICIÓN FINAL SUPERIOR.
+   *
+   * Ahora mismo está pensado para que quede estable como tu captura buena.
    */
   topSnapY,
-  bottomOffsetMobile = 88,
-  bottomOffsetDesktop = 108,
+
+  /**
+   * ABAJO
+   * TOCA ESTO SI CAMBIAS LA ALTURA DE TU TAB BAR INFERIOR.
+   *
+   * Estos valores están pensados para que la search bar quede alineada
+   * justo encima del menú inferior, de forma consistente.
+   */
+  mobileTabBarHeight = 92,
+  desktopTabBarHeight = 96,
+
+  /**
+   * TOCA ESTO SI QUIERES MÁS O MENOS SEPARACIÓN ENTRE
+   * LA SEARCH BAR Y LA TAB BAR INFERIOR.
+   *
+   * Menor número = más pegada abajo
+   * Mayor número = más arriba
+   */
+  bottomGapMobile = 12,
+  bottomGapDesktop = 14,
+
   widthMobilePercent = 0.86,
   widthDesktopPercent = 0.74,
   maxWidth = 760,
@@ -195,22 +207,45 @@ export default function FloatingSearchBar({
   const heightSafe = height > 0 ? height : 900;
 
   /**
-   * TOCA ESTO SI QUIERES QUE ARRIBA SE PEGUE MÁS O MENOS.
-   *
-   * Menor número = más pegado arriba
-   * Mayor número = más abajo
+   * ALTURA REAL DE LA SEARCH BAR
+   * Se usa para calcular bien la posición inferior.
    */
-  const resolvedTopSnapY = topSnapY ?? (isMobile ? 81 : 92);
+  const searchBarHeight = isMobile ? 58 : 64;
 
   /**
-   * TOCA ESTO SI QUIERES QUE ABAJO SE PEGUE MÁS O MENOS.
+   * POSICIÓN SUPERIOR FINAL
    *
-   * Menor offset = más abajo
-   * Mayor offset = más arriba
+   * TOCA ESTO SI QUIERES MOVERLA MANUALMENTE:
+   * - 84 / 92 = ajuste actual estable
+   * - menor = más arriba
+   * - mayor = más abajo
+   */
+  const resolvedTopSnapY = topSnapY ?? (isMobile ? 84 : 92);
+
+  /**
+   * POSICIÓN INFERIOR FINAL CORRECTA
+   *
+   * En vez de usar "height - offset genérico",
+   * usamos:
+   *
+   * altura pantalla
+   * - altura tab bar
+   * - separación respecto a tab bar
+   * - altura de la propia search bar
+   *
+   * Así queda siempre alineada arriba del menú inferior
+   * de forma mucho más consistente entre móviles.
+   *
+   * TOCA MANUALMENTE:
+   * - mobileTabBarHeight / desktopTabBarHeight
+   * - bottomGapMobile / bottomGapDesktop
    */
   const resolvedBottomSnapY = Math.max(
     resolvedTopSnapY + 80,
-    heightSafe - (isMobile ? bottomOffsetMobile : bottomOffsetDesktop)
+    heightSafe -
+      (isMobile ? mobileTabBarHeight : desktopTabBarHeight) -
+      (isMobile ? bottomGapMobile : bottomGapDesktop) -
+      searchBarHeight
   );
 
   const searchBarWidth = useMemo(() => {
