@@ -4,8 +4,10 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Linking,
+  PanResponder,
   Platform,
   Pressable,
   SafeAreaView,
@@ -75,6 +77,8 @@ type ProductRow = {
   } | null;
 };
 
+type SearchSnapPosition = "top" | "bottom";
+
 const HOME_CATEGORIES: HomeCategory[] = [
   { title: "PlayStation 5", emoji: "🎮", cat: "playstation-5", cta: "Ver categoría →" },
   { title: "PlayStation 4", emoji: "🕹️", cat: "playstation-4", cta: "Ver categoría →" },
@@ -106,6 +110,10 @@ function clampText(value: string, max = 400) {
 function fmtEUR(value: number) {
   const safe = Number.isFinite(value) ? value : 0;
   return `${Math.round(safe)}€`;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, max));
 }
 
 function buildWhatsAppUrl(prefill: string) {
@@ -835,8 +843,9 @@ Precio: ${fmtEUR(item.priceEUR)}
 }
 
 export default function HomeScreen() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
+  const heightSafe = height > 0 ? height : 900;
 
   const isMobile = widthSafe < 700;
   const isDesktopish = widthSafe >= 900;
@@ -847,6 +856,8 @@ export default function HomeScreen() {
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
+
+  const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
@@ -861,8 +872,93 @@ export default function HomeScreen() {
   );
 
   const sidePadding = isMobile ? 12 : 16;
-  const floatingSearchBottom = isMobile ? 66 : 76;
-  const floatingSearchWidth = isMobile ? "86%" : "74%";
+  const searchBarWidth = useMemo(
+    () => (isMobile ? widthSafe * 0.86 : Math.min(widthSafe * 0.74, 760)),
+    [isMobile, widthSafe]
+  );
+  const searchBarHeight = isMobile ? 58 : 64;
+
+  const topSnapY = isMobile ? 118 : 132;
+  const bottomSnapY = Math.max(topSnapY + 80, heightSafe - (isMobile ? 166 : 184));
+
+  const searchY = useRef(new Animated.Value(bottomSnapY)).current;
+  const dragStartY = useRef(bottomSnapY);
+  const liveY = useRef(bottomSnapY);
+
+  useEffect(() => {
+    const id = searchY.addListener(({ value }) => {
+      liveY.current = value;
+    });
+
+    return () => {
+      searchY.removeListener(id);
+    };
+  }, [searchY]);
+
+  useEffect(() => {
+    const nextTarget = searchSnapPosition === "top" ? topSnapY : bottomSnapY;
+    liveY.current = nextTarget;
+    searchY.setValue(nextTarget);
+  }, [bottomSnapY, topSnapY, searchSnapPosition, searchY]);
+
+  const snapSearchBar = useCallback(
+    (target: SearchSnapPosition) => {
+      const toValue = target === "top" ? topSnapY : bottomSnapY;
+      setSearchSnapPosition(target);
+
+      Animated.spring(searchY, {
+        toValue,
+        useNativeDriver: true,
+        damping: 20,
+        stiffness: 180,
+        mass: 0.9,
+      }).start();
+    },
+    [bottomSnapY, topSnapY, searchY]
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return (
+            Math.abs(gestureState.dy) > 6 &&
+            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+          );
+        },
+        onPanResponderGrant: () => {
+          dragStartY.current = liveY.current;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          const nextY = clampNumber(
+            dragStartY.current + gestureState.dy,
+            topSnapY,
+            bottomSnapY
+          );
+          searchY.setValue(nextY);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const currentY = clampNumber(
+            dragStartY.current + gestureState.dy,
+            topSnapY,
+            bottomSnapY
+          );
+          const middle = (topSnapY + bottomSnapY) / 2;
+          snapSearchBar(currentY <= middle ? "top" : "bottom");
+        },
+        onPanResponderTerminate: (_, gestureState) => {
+          const currentY = clampNumber(
+            dragStartY.current + gestureState.dy,
+            topSnapY,
+            bottomSnapY
+          );
+          const middle = (topSnapY + bottomSnapY) / 2;
+          snapSearchBar(currentY <= middle ? "top" : "bottom");
+        },
+      }),
+    [bottomSnapY, topSnapY, searchY, snapSearchBar]
+  );
 
   const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
     setCategoriesY(e.nativeEvent.layout.y);
@@ -986,6 +1082,9 @@ export default function HomeScreen() {
     };
   }, []);
 
+  const topOverlaySpace = searchSnapPosition === "top" ? (isMobile ? 86 : 98) : 0;
+  const bottomOverlaySpace = searchSnapPosition === "bottom" ? (isMobile ? 118 : 132) : 40;
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="light-content" />
@@ -1055,8 +1154,8 @@ export default function HomeScreen() {
         ref={scrollRef}
         contentContainerStyle={{
           paddingHorizontal: sidePadding,
-          paddingTop: isMobile ? 12 : 16,
-          paddingBottom: isMobile ? 128 : 144,
+          paddingTop: (isMobile ? 12 : 16) + topOverlaySpace,
+          paddingBottom: (isMobile ? 30 : 36) + bottomOverlaySpace,
           gap: 14,
         }}
       >
@@ -1273,25 +1372,26 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <View
+      <Animated.View
         pointerEvents="box-none"
+        {...panResponder.panHandlers}
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: floatingSearchBottom,
           alignItems: "center",
+          transform: [{ translateY: searchY }],
         }}
       >
         <View
           style={{
-            width: floatingSearchWidth,
+            width: searchBarWidth,
             maxWidth: 760,
           }}
         >
           <SearchHeader isMobile={isMobile} />
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
