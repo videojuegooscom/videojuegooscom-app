@@ -9,7 +9,7 @@ export default function CestaScreen() {
           Cesta
         </Text>
         <Text style={{ color: "rgba(255,255,255,0.72)", marginTop: 10, lineHeight: 22 }}>
-          Aquí irá la cesta principal de la tienda con productos, resumen,
+          Cesta principal de la tienda con productos, resumen,
           cantidades y acceso limpio a checkout.
         </Text>
       </View>

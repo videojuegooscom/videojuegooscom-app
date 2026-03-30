@@ -9,7 +9,7 @@ export default function ChatGlobalScreen() {
           Chat Global
         </Text>
         <Text style={{ color: "rgba(255,255,255,0.72)", marginTop: 10, lineHeight: 22 }}>
-          Aquí construiremos el chat de comunidad, soporte público o conversaciones
+          Chat de comunidad, soporte público o conversaciones
           globales según el enfoque final que quieras darle.
         </Text>
       </View>

@@ -9,7 +9,7 @@ export default function PerfilScreen() {
           Perfil
         </Text>
         <Text style={{ color: "rgba(255,255,255,0.72)", marginTop: 10, lineHeight: 22 }}>
-          Aquí construiremos el área de cuenta, acceso, pedidos, datos del usuario
+          Area de cuenta, acceso, pedidos, datos del usuario
           y acceso admin si corresponde.
         </Text>
       </View>

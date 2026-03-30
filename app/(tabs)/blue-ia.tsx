@@ -9,7 +9,7 @@ export default function BlueIAScreen() {
           Blue IA
         </Text>
         <Text style={{ color: "rgba(255,255,255,0.72)", marginTop: 10, lineHeight: 22 }}>
-          Aquí irá tu IA de tienda: preguntas frecuentes, productos, soporte,
+          IA tienda: preguntas frecuentes, productos, soporte,
           orientación de compra y ayuda directa al cliente.
         </Text>
       </View>
