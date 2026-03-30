@@ -1,25 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
-  Animated,
   Image,
   Linking,
-  PanResponder,
   Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StatusBar,
   Text,
-  useWindowDimensions,
   View,
   type LayoutChangeEvent,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import Resenas from "../../components/Resenas";
+import FloatingSearchBar from "../../components/FloatingSearchBar";
 
 const COLORS = {
   bg: "#071E33",
@@ -27,14 +24,10 @@ const COLORS = {
   card: "rgba(255,255,255,0.06)",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
-  textDark: "#0B1726",
   muted: "rgba(255,255,255,0.75)",
-  muted2: "rgba(255,255,255,0.58)",
-  mutedDark: "rgba(11,23,38,0.70)",
   accent: "#00AAE4",
   accent2: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.45)",
-  searchBg: "rgba(255,255,255,0.96)",
   warningBg: "rgba(255, 215, 0, 0.18)",
   warningBorder: "rgba(255, 215, 0, 0.40)",
   successBg: "rgba(34,197,94,0.16)",
@@ -110,10 +103,6 @@ function clampText(value: string, max = 400) {
 function fmtEUR(value: number) {
   const safe = Number.isFinite(value) ? value : 0;
   return `${Math.round(safe)}€`;
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(value, max));
 }
 
 function buildWhatsAppUrl(prefill: string) {
@@ -523,93 +512,6 @@ function FooterAccordionSection({
   );
 }
 
-function SearchHeader({
-  isMobile,
-}: {
-  isMobile: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={() => pushRoute("/catalogo")}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.96 : 1,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: "rgba(11,23,38,0.16)",
-        backgroundColor: COLORS.searchBg,
-        minHeight: isMobile ? 58 : 64,
-        paddingLeft: isMobile ? 16 : 18,
-        paddingRight: 8,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        ...Platform.select({
-          ios: {
-            shadowColor: "#000",
-            shadowOpacity: 0.10,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-          },
-          android: { elevation: 2 },
-          default: {},
-        }),
-      })}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 14,
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        <Ionicons
-          name="search-outline"
-          size={isMobile ? 24 : 27}
-          color={COLORS.textDark}
-        />
-
-        <Text
-          numberOfLines={1}
-          style={{
-            color: COLORS.mutedDark,
-            fontSize: isMobile ? 15 : 16,
-            lineHeight: isMobile ? 20 : 22,
-            flex: 1,
-          }}
-        >
-          Buscar producto o hacer una pregunta
-        </Text>
-      </View>
-
-      <Pressable
-        onPress={() => pushRoute("/blue-ia")}
-        hitSlop={8}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.82 : 1,
-          width: isMobile ? 44 : 48,
-          height: isMobile ? 44 : 48,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: "rgba(11,23,38,0.12)",
-          backgroundColor: "#FFFFFF",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        })}
-      >
-        <Ionicons
-          name="sparkles-outline"
-          size={isMobile ? 20 : 22}
-          color={COLORS.textDark}
-        />
-      </Pressable>
-    </Pressable>
-  );
-}
-
 function FeaturedOfferCard({
   item,
   isDesktopish,
@@ -843,24 +745,23 @@ Precio: ${fmtEUR(item.priceEUR)}
 }
 
 export default function HomeScreen() {
-  const { width, height } = useWindowDimensions();
-  const widthSafe = width > 0 ? width : 1024;
-  const heightSafe = height > 0 ? height : 900;
-
-  const isMobile = widthSafe < 700;
-  const isDesktopish = widthSafe >= 900;
-
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
 
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
-
-  const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
+  const [searchSnapPosition, setSearchSnapPosition] =
+    useState<SearchSnapPosition>("bottom");
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
+
+  const { width } = useWindowDimensions();
+  const widthSafe = width > 0 ? width : 1024;
+
+  const isMobile = widthSafe < 700;
+  const isDesktopish = widthSafe >= 900;
 
   const containerStyle = useMemo(
     () => ({
@@ -872,93 +773,6 @@ export default function HomeScreen() {
   );
 
   const sidePadding = isMobile ? 12 : 16;
-  const searchBarWidth = useMemo(
-    () => (isMobile ? widthSafe * 0.86 : Math.min(widthSafe * 0.74, 760)),
-    [isMobile, widthSafe]
-  );
-  const searchBarHeight = isMobile ? 58 : 64;
-
-  const topSnapY = isMobile ? 118 : 132;
-  const bottomSnapY = Math.max(topSnapY + 80, heightSafe - (isMobile ? 166 : 184));
-
-  const searchY = useRef(new Animated.Value(bottomSnapY)).current;
-  const dragStartY = useRef(bottomSnapY);
-  const liveY = useRef(bottomSnapY);
-
-  useEffect(() => {
-    const id = searchY.addListener(({ value }) => {
-      liveY.current = value;
-    });
-
-    return () => {
-      searchY.removeListener(id);
-    };
-  }, [searchY]);
-
-  useEffect(() => {
-    const nextTarget = searchSnapPosition === "top" ? topSnapY : bottomSnapY;
-    liveY.current = nextTarget;
-    searchY.setValue(nextTarget);
-  }, [bottomSnapY, topSnapY, searchSnapPosition, searchY]);
-
-  const snapSearchBar = useCallback(
-    (target: SearchSnapPosition) => {
-      const toValue = target === "top" ? topSnapY : bottomSnapY;
-      setSearchSnapPosition(target);
-
-      Animated.spring(searchY, {
-        toValue,
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 180,
-        mass: 0.9,
-      }).start();
-    },
-    [bottomSnapY, topSnapY, searchY]
-  );
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          return (
-            Math.abs(gestureState.dy) > 6 &&
-            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
-          );
-        },
-        onPanResponderGrant: () => {
-          dragStartY.current = liveY.current;
-        },
-        onPanResponderMove: (_, gestureState) => {
-          const nextY = clampNumber(
-            dragStartY.current + gestureState.dy,
-            topSnapY,
-            bottomSnapY
-          );
-          searchY.setValue(nextY);
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          const currentY = clampNumber(
-            dragStartY.current + gestureState.dy,
-            topSnapY,
-            bottomSnapY
-          );
-          const middle = (topSnapY + bottomSnapY) / 2;
-          snapSearchBar(currentY <= middle ? "top" : "bottom");
-        },
-        onPanResponderTerminate: (_, gestureState) => {
-          const currentY = clampNumber(
-            dragStartY.current + gestureState.dy,
-            topSnapY,
-            bottomSnapY
-          );
-          const middle = (topSnapY + bottomSnapY) / 2;
-          snapSearchBar(currentY <= middle ? "top" : "bottom");
-        },
-      }),
-    [bottomSnapY, topSnapY, searchY, snapSearchBar]
-  );
 
   const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
     setCategoriesY(e.nativeEvent.layout.y);
@@ -1372,26 +1186,10 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <Animated.View
-        pointerEvents="box-none"
-        {...panResponder.panHandlers}
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          alignItems: "center",
-          transform: [{ translateY: searchY }],
-        }}
-      >
-        <View
-          style={{
-            width: searchBarWidth,
-            maxWidth: 760,
-          }}
-        >
-          <SearchHeader isMobile={isMobile} />
-        </View>
-      </Animated.View>
+      <FloatingSearchBar
+        isMobile={isMobile}
+        onSnapChange={setSearchSnapPosition}
+      />
     </View>
   );
 }
