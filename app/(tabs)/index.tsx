@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Image,
@@ -22,13 +23,18 @@ const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
   card: "rgba(255,255,255,0.06)",
+  cardStrong: "#F4F7FB",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
+  textDark: "#0B1726",
   muted: "rgba(255,255,255,0.75)",
   muted2: "rgba(255,255,255,0.58)",
+  mutedDark: "rgba(11,23,38,0.70)",
   accent: "#00AAE4",
   accent2: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.45)",
+  searchBorder: "rgba(255,255,255,0.18)",
+  searchBg: "rgba(255,255,255,0.96)",
   warningBg: "rgba(255, 215, 0, 0.18)",
   warningBorder: "rgba(255, 215, 0, 0.40)",
   successBg: "rgba(34,197,94,0.16)",
@@ -49,13 +55,6 @@ type FeaturedProduct = {
   priceEUR: number;
   imageUrl: string | null;
   categoryName: string | null;
-};
-
-type AdminAccessState = {
-  loading: boolean;
-  hasSession: boolean;
-  isAdmin: boolean;
-  email: string | null;
 };
 
 type HomeCategory = {
@@ -518,6 +517,93 @@ function FooterAccordionSection({
   );
 }
 
+function SearchHeader({
+  isMobile,
+}: {
+  isMobile: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={() => pushRoute("/catalogo")}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.96 : 1,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: "rgba(11,23,38,0.16)",
+        backgroundColor: COLORS.searchBg,
+        minHeight: isMobile ? 64 : 68,
+        paddingLeft: isMobile ? 18 : 20,
+        paddingRight: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        ...Platform.select({
+          ios: {
+            shadowColor: "#000",
+            shadowOpacity: 0.12,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 5 },
+          },
+          android: { elevation: 2 },
+          default: {},
+        }),
+      })}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 14,
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        <Ionicons
+          name="search-outline"
+          size={isMobile ? 28 : 30}
+          color={COLORS.textDark}
+        />
+
+        <Text
+          numberOfLines={1}
+          style={{
+            color: COLORS.mutedDark,
+            fontSize: isMobile ? 17 : 18,
+            lineHeight: isMobile ? 22 : 24,
+            flex: 1,
+          }}
+        >
+          Buscar producto o hacer una pregunta
+        </Text>
+      </View>
+
+      <Pressable
+        onPress={() => pushRoute("/blue-ia")}
+        hitSlop={8}
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.82 : 1,
+          width: isMobile ? 48 : 52,
+          height: isMobile ? 48 : 52,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: "rgba(11,23,38,0.12)",
+          backgroundColor: "#FFFFFF",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        })}
+      >
+        <Ionicons
+          name="sparkles-outline"
+          size={isMobile ? 22 : 24}
+          color={COLORS.textDark}
+        />
+      </Pressable>
+    </Pressable>
+  );
+}
+
 function FeaturedOfferCard({
   item,
   isDesktopish,
@@ -760,13 +846,6 @@ export default function HomeScreen() {
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
 
-  const [adminAccess, setAdminAccess] = useState<AdminAccessState>({
-    loading: true,
-    hasSession: false,
-    isAdmin: false,
-    email: null,
-  });
-
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
@@ -794,79 +873,6 @@ export default function HomeScreen() {
     const target = Math.max(categoriesY - 12, 0);
     scrollRef.current.scrollTo({ y: target, animated: true });
   }, [categoriesY]);
-
-  const resolveAdminAccess = useCallback(async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user) {
-        setAdminAccess({
-          loading: false,
-          hasSession: false,
-          isAdmin: false,
-          email: null,
-        });
-        return;
-      }
-
-      const userId = session.user.id;
-      const email = session.user.email ?? null;
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (error) {
-        setAdminAccess({
-          loading: false,
-          hasSession: true,
-          isAdmin: false,
-          email,
-        });
-        return;
-      }
-
-      const role = String(profile?.role ?? "").trim().toLowerCase();
-      const isAdmin = role === "admin";
-
-      setAdminAccess({
-        loading: false,
-        hasSession: true,
-        isAdmin,
-        email,
-      });
-    } catch {
-      setAdminAccess({
-        loading: false,
-        hasSession: false,
-        isAdmin: false,
-        email: null,
-      });
-    }
-  }, []);
-
-  const handleAccountPress = useCallback(() => {
-    pushRoute("/perfil");
-  }, []);
-
-  const accountLabel = useMemo(() => {
-    if (adminAccess.loading) return "Perfil";
-    if (adminAccess.hasSession && adminAccess.isAdmin) return isMobile ? "Panel" : "Mi panel";
-    return "Perfil";
-  }, [adminAccess, isMobile]);
-
-  const accountSubtleState = useMemo(() => {
-    if (adminAccess.loading) return "Comprobando acceso…";
-    if (adminAccess.hasSession && adminAccess.isAdmin) {
-      return adminAccess.email ? `Admin · ${adminAccess.email}` : "Acceso admin activo";
-    }
-    if (adminAccess.hasSession && !adminAccess.isAdmin) return "Sesión iniciada";
-    return "Acceso profesional";
-  }, [adminAccess]);
 
   useEffect(() => {
     let alive = true;
@@ -980,18 +986,6 @@ export default function HomeScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    resolveAdminAccess();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-      resolveAdminAccess();
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, [resolveAdminAccess]);
-
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="light-content" />
@@ -1054,126 +1048,11 @@ export default function HomeScreen() {
             borderBottomColor: "rgba(255,255,255,0.06)",
             paddingHorizontal: sidePadding,
             paddingTop: isMobile ? 12 : 14,
-            paddingBottom: isMobile ? 12 : 14,
+            paddingBottom: isMobile ? 14 : 16,
           }}
         >
-          <View
-            style={{
-              ...containerStyle,
-              gap: 12,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "column",
-                alignItems: "stretch",
-                justifyContent: "flex-start",
-                gap: 12,
-              }}
-            >
-              <View
-                style={{
-                  width: "100%",
-                  minWidth: 0,
-                }}
-              >
-                <Text
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  style={{
-                    color: COLORS.text,
-                    fontSize: isMobile ? 34 : 26,
-                    fontWeight: "900",
-                    lineHeight: isMobile ? 40 : 32,
-                    flexShrink: 1,
-                  }}
-                >
-                  {BRAND.name}
-                </Text>
-              </View>
-
-              <View
-                style={{
-                  width: "100%",
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: 10,
-                  justifyContent: "flex-start",
-                  alignItems: "center",
-                }}
-              >
-                <Pressable
-                  onPress={() => pushRoute("/catalogo")}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.85 : 1,
-                    paddingVertical: 9,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.14)",
-                    backgroundColor: "rgba(255,255,255,0.06)",
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>🔎 Buscar</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => pushRoute("/cesta")}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.85 : 1,
-                    paddingVertical: 9,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.14)",
-                    backgroundColor: "rgba(255,255,255,0.06)",
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>🛒 Cesta</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={handleAccountPress}
-                  disabled={adminAccess.loading}
-                  style={({ pressed }) => ({
-                    opacity: adminAccess.loading ? 0.72 : pressed ? 0.85 : 1,
-                    paddingVertical: 9,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor:
-                      adminAccess.hasSession && adminAccess.isAdmin
-                        ? COLORS.accentBorder
-                        : "rgba(255,255,255,0.14)",
-                    backgroundColor:
-                      adminAccess.hasSession && adminAccess.isAdmin
-                        ? COLORS.accent2
-                        : "rgba(255,255,255,0.06)",
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                  })}
-                >
-                  {adminAccess.loading ? (
-                    <ActivityIndicator size="small" color={COLORS.text} />
-                  ) : (
-                    <Text style={{ color: COLORS.text, fontSize: 14 }}>👤</Text>
-                  )}
-
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>{accountLabel}</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            <Text
-              style={{
-                color: COLORS.muted2,
-                fontSize: 12,
-                lineHeight: 17,
-              }}
-            >
-              {accountSubtleState}
-            </Text>
+          <View style={{ ...containerStyle }}>
+            <SearchHeader isMobile={isMobile} />
           </View>
         </View>
       </SafeAreaView>
