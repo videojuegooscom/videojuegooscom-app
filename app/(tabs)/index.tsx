@@ -94,6 +94,60 @@ const HOME_CATEGORIES: HomeCategory[] = [
   },
 ];
 
+/**
+ * ============================================================
+ * SEARCH LAYOUT MASTER CONFIG
+ * ============================================================
+ * TOCA ESTO LA PRÓXIMA VEZ SI QUIERES MOVER LA BARRA:
+ *
+ * 1) ARRIBA:
+ *    topSnapMobile / topSnapDesktop
+ *
+ * 2) ABAJO:
+ *    mobileTabBarHeight / desktopTabBarHeight
+ *    bottomGapMobile / bottomGapDesktop
+ *
+ * 3) HUECO DEL CONTENIDO:
+ *    topExtraGapMobile / topExtraGapDesktop
+ *    bottomExtraScrollSpaceMobile / bottomExtraScrollSpaceDesktop
+ *
+ * IMPORTANTE:
+ * Aquí está la gracia. Estos valores mandan tanto en la barra
+ * como en el espacio que reserva el ScrollView.
+ * Así ya no se descuadran.
+ */
+const SEARCH_LAYOUT = {
+  topSnapMobile: 84,
+  topSnapDesktop: 92,
+
+  searchBarHeightMobile: 58,
+  searchBarHeightDesktop: 64,
+
+  mobileTabBarHeight: 92,
+  desktopTabBarHeight: 96,
+
+  bottomGapMobile: 12,
+  bottomGapDesktop: 14,
+
+  widthMobilePercent: 0.86,
+  widthDesktopPercent: 0.74,
+  maxWidth: 760,
+
+  /**
+   * Espacio extra visual cuando la barra está arriba.
+   * Súbelo si quieres más aire entre barra y contenido.
+   */
+  topExtraGapMobile: 14,
+  topExtraGapDesktop: 16,
+
+  /**
+   * Espacio extra al final del scroll cuando la barra está abajo.
+   * Súbelo si quieres más aire por debajo del último bloque.
+   */
+  bottomExtraScrollSpaceMobile: 18,
+  bottomExtraScrollSpaceDesktop: 20,
+};
+
 function clampText(value: string, max = 400) {
   const text = (value ?? "").trim();
   if (!text) return "";
@@ -897,9 +951,43 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const topOverlaySpace = searchSnapPosition === "top" ? (isMobile ? 86 : 98) : 0;
+  /**
+   * ============================================================
+   * OVERLAY SPACES SINCRONIZADOS CON FloatingSearchBar.tsx
+   * ============================================================
+   *
+   * Esto es lo que faltaba.
+   *
+   * El contenido ahora reserva exactamente el hueco correcto
+   * cuando la barra está arriba o abajo, usando la MISMA lógica.
+   */
+
+  const resolvedTopSnapY = isMobile
+    ? SEARCH_LAYOUT.topSnapMobile
+    : SEARCH_LAYOUT.topSnapDesktop;
+
+  const searchBarHeight = isMobile
+    ? SEARCH_LAYOUT.searchBarHeightMobile
+    : SEARCH_LAYOUT.searchBarHeightDesktop;
+
+  const topOverlaySpace =
+    searchSnapPosition === "top"
+      ? resolvedTopSnapY +
+        searchBarHeight +
+        (isMobile
+          ? SEARCH_LAYOUT.topExtraGapMobile
+          : SEARCH_LAYOUT.topExtraGapDesktop)
+      : 0;
+
   const bottomOverlaySpace =
-    searchSnapPosition === "bottom" ? (isMobile ? 118 : 132) : 40;
+    searchSnapPosition === "bottom"
+      ? searchBarHeight +
+        (isMobile ? SEARCH_LAYOUT.mobileTabBarHeight : SEARCH_LAYOUT.desktopTabBarHeight) +
+        (isMobile ? SEARCH_LAYOUT.bottomGapMobile : SEARCH_LAYOUT.bottomGapDesktop) +
+        (isMobile
+          ? SEARCH_LAYOUT.bottomExtraScrollSpaceMobile
+          : SEARCH_LAYOUT.bottomExtraScrollSpaceDesktop)
+      : 40;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -1194,6 +1282,14 @@ export default function HomeScreen() {
 
       <FloatingSearchBar
         isMobile={isMobile}
+        topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
+        mobileTabBarHeight={SEARCH_LAYOUT.mobileTabBarHeight}
+        desktopTabBarHeight={SEARCH_LAYOUT.desktopTabBarHeight}
+        bottomGapMobile={SEARCH_LAYOUT.bottomGapMobile}
+        bottomGapDesktop={SEARCH_LAYOUT.bottomGapDesktop}
+        widthMobilePercent={SEARCH_LAYOUT.widthMobilePercent}
+        widthDesktopPercent={SEARCH_LAYOUT.widthDesktopPercent}
+        maxWidth={SEARCH_LAYOUT.maxWidth}
         onSnapChange={setSearchSnapPosition}
       />
     </View>
