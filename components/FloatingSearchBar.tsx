@@ -42,7 +42,7 @@ function pushRoute(route: Href) {
 function SearchHeader({ isMobile }: { isMobile: boolean }) {
   return (
     <Pressable
-      onPress={() => pushRoute("/catalogo")}
+      onPress={() => pushRoute("/catalogo" as Href)}
       style={({ pressed }) => ({
         opacity: pressed ? 0.96 : 1,
         borderRadius: 999,
@@ -59,7 +59,7 @@ function SearchHeader({ isMobile }: { isMobile: boolean }) {
         ...Platform.select({
           ios: {
             shadowColor: "#000",
-            shadowOpacity: 0.10,
+            shadowOpacity: 0.1,
             shadowRadius: 10,
             shadowOffset: { width: 0, height: 4 },
           },
@@ -97,7 +97,10 @@ function SearchHeader({ isMobile }: { isMobile: boolean }) {
       </View>
 
       <Pressable
-        onPress={() => pushRoute("/blue-ia")}
+        onPress={(event) => {
+          event.stopPropagation?.();
+          pushRoute("/blue-ia" as Href);
+        }}
         hitSlop={8}
         style={({ pressed }) => ({
           opacity: pressed ? 0.82 : 1,
@@ -133,10 +136,12 @@ export default function FloatingSearchBar({
   onSnapChange,
 }: FloatingSearchBarProps) {
   const { width, height } = useWindowDimensions();
+
   const widthSafe = width > 0 ? width : 1024;
   const heightSafe = height > 0 ? height : 900;
 
   const resolvedTopSnapY = topSnapY ?? (isMobile ? 118 : 132);
+
   const resolvedBottomSnapY = Math.max(
     resolvedTopSnapY + 80,
     heightSafe - (isMobile ? bottomOffsetMobile : bottomOffsetDesktop)
@@ -151,9 +156,10 @@ export default function FloatingSearchBar({
   const [searchSnapPosition, setSearchSnapPosition] =
     useState<SearchSnapPosition>("bottom");
 
-  const searchY = useRef(new Animated.Value(resolvedBottomSnapY)).current;
-  const dragStartY = useRef(resolvedBottomSnapY);
-  const liveY = useRef(resolvedBottomSnapY);
+  const searchY = useRef(new Animated.Value(0)).current;
+  const dragStartY = useRef(0);
+  const liveY = useRef(0);
+  const didInitRef = useRef(false);
 
   useEffect(() => {
     const id = searchY.addListener(({ value }) => {
@@ -166,9 +172,22 @@ export default function FloatingSearchBar({
   }, [searchY]);
 
   useEffect(() => {
+    const initialY =
+      searchSnapPosition === "top" ? resolvedTopSnapY : resolvedBottomSnapY;
+
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      liveY.current = initialY;
+      dragStartY.current = initialY;
+      searchY.setValue(initialY);
+      return;
+    }
+
     const nextTarget =
       searchSnapPosition === "top" ? resolvedTopSnapY : resolvedBottomSnapY;
+
     liveY.current = nextTarget;
+    dragStartY.current = nextTarget;
     searchY.setValue(nextTarget);
   }, [resolvedBottomSnapY, resolvedTopSnapY, searchSnapPosition, searchY]);
 
@@ -178,7 +197,10 @@ export default function FloatingSearchBar({
 
   const snapSearchBar = (target: SearchSnapPosition) => {
     const toValue = target === "top" ? resolvedTopSnapY : resolvedBottomSnapY;
+
     setSearchSnapPosition(target);
+    liveY.current = toValue;
+    dragStartY.current = toValue;
 
     Animated.spring(searchY, {
       toValue,
@@ -186,6 +208,9 @@ export default function FloatingSearchBar({
       damping: 20,
       stiffness: 180,
       mass: 0.9,
+      overshootClamping: false,
+      restDisplacementThreshold: 0.5,
+      restSpeedThreshold: 0.5,
     }).start();
   };
 
@@ -193,7 +218,14 @@ export default function FloatingSearchBar({
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_, gestureState) => {
+          return (
+            Math.abs(gestureState.dy) > 6 &&
+            Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+          );
+        },
+        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
           return (
             Math.abs(gestureState.dy) > 6 &&
             Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
@@ -208,6 +240,8 @@ export default function FloatingSearchBar({
             resolvedTopSnapY,
             resolvedBottomSnapY
           );
+
+          liveY.current = nextY;
           searchY.setValue(nextY);
         },
         onPanResponderRelease: (_, gestureState) => {
@@ -228,8 +262,10 @@ export default function FloatingSearchBar({
           const middle = (resolvedTopSnapY + resolvedBottomSnapY) / 2;
           snapSearchBar(currentY <= middle ? "top" : "bottom");
         },
+        onPanResponderTerminationRequest: () => true,
+        onShouldBlockNativeResponder: () => false,
       }),
-    [resolvedBottomSnapY, resolvedTopSnapY]
+    [resolvedBottomSnapY, resolvedTopSnapY, searchY]
   );
 
   return (
@@ -238,9 +274,12 @@ export default function FloatingSearchBar({
       {...panResponder.panHandlers}
       style={{
         position: "absolute",
+        top: 0,
         left: 0,
         right: 0,
         alignItems: "center",
+        zIndex: 999,
+        elevation: 999,
         transform: [{ translateY: searchY }],
       }}
     >

@@ -12,6 +12,7 @@ import {
   StatusBar,
   Text,
   View,
+  useWindowDimensions,
   type LayoutChangeEvent,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
@@ -897,7 +898,8 @@ export default function HomeScreen() {
   }, []);
 
   const topOverlaySpace = searchSnapPosition === "top" ? (isMobile ? 86 : 98) : 0;
-  const bottomOverlaySpace = searchSnapPosition === "bottom" ? (isMobile ? 118 : 132) : 40;
+  const bottomOverlaySpace =
+    searchSnapPosition === "bottom" ? (isMobile ? 118 : 132) : 40;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -972,6 +974,7 @@ export default function HomeScreen() {
           paddingBottom: (isMobile ? 30 : 36) + bottomOverlaySpace,
           gap: 14,
         }}
+        showsVerticalScrollIndicator={false}
       >
         <View style={{ ...containerStyle, gap: 14 }}>
           <View
@@ -1140,14 +1143,17 @@ export default function HomeScreen() {
                 open={footerNavOpen}
                 onToggle={() => setFooterNavOpen((value) => !value)}
               >
-                <FooterLink label="Inicio" onPress={() => pushRoute("/")} />
+                <FooterLink label="Inicio" onPress={() => pushRoute("/" as Href)} />
                 <FooterLink label="Categorías" onPress={scrollToCategories} />
-                <FooterLink label="Catálogo" onPress={() => pushRoute("/catalogo")} />
-                <FooterLink label="Cesta" onPress={() => pushRoute("/cesta")} />
-                <FooterLink label="Checkout" onPress={() => pushRoute("/checkout")} />
-                <FooterLink label="Perfil" onPress={() => pushRoute("/perfil")} />
-                <FooterLink label="Chat Global" onPress={() => pushRoute("/chat-global")} />
-                <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia")} />
+                <FooterLink label="Catálogo" onPress={() => pushRoute("/catalogo" as Href)} />
+                <FooterLink label="Cesta" onPress={() => pushRoute("/cesta" as Href)} />
+                <FooterLink label="Checkout" onPress={() => pushRoute("/checkout" as Href)} />
+                <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
+                <FooterLink
+                  label="Chat Global"
+                  onPress={() => pushRoute("/chat-global" as Href)}
+                />
+                <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
               </FooterAccordionSection>
 
               <FooterAccordionSection
