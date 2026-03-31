@@ -364,10 +364,7 @@ export default function ChatGlobalScreen() {
             </View>
 
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <GlowPill
-                text={`${totalViewers} conectados`}
-                tone="success"
-              />
+              <GlowPill text={`${totalViewers} conectados`} tone="success" />
 
               <Pressable
                 onPress={toggleViewers}
@@ -553,81 +550,6 @@ export default function ChatGlobalScreen() {
                 />
               </View>
             </ScrollView>
-          </View>
-
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.borderSoft,
-              backgroundColor: COLORS.card,
-              padding: 14,
-              gap: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900" }}>
-              Tu estado en el hub
-            </Text>
-
-            {!isLoggedIn ? (
-              <>
-                <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                  Estás entrando como visitante. Puedes mirar el contenido y la sala.
-                  Cuando quieras escribir o enviar un mensaje, te pediremos iniciar
-                  sesión o registrarte.
-                </Text>
-
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <Tag text="Modo visitante" tone="neutral" />
-                  <Tag text="Lectura abierta" tone="success" />
-                  <Tag text="Login al enviar" tone="warn" />
-                </View>
-
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <ActionButton
-                    label="Crear cuenta"
-                    onPress={() => router.push("/perfil")}
-                    primary
-                  />
-                  <ActionButton
-                    label="Iniciar sesión"
-                    onPress={() => router.push("/perfil")}
-                  />
-                </View>
-              </>
-            ) : !hasCompletedCommunityProfile ? (
-              <>
-                <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                  Ya has iniciado sesión. Para desbloquear toda la capa social del
-                  chat conviene completar tu perfil comunitario.
-                </Text>
-
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <Tag text="Cuenta iniciada" tone="success" />
-                  <Tag text="Perfil incompleto" tone="warn" />
-                  <Tag text="Multimedia limitada" tone="danger" />
-                </View>
-
-                <ActionButton
-                  label="Completar perfil del chat"
-                  onPress={() => router.push("/perfil")}
-                  primary
-                />
-              </>
-            ) : (
-              <>
-                <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                  Perfil validado. Ya puedes comentar, enviar mensajes y entrar de
-                  verdad en la comunidad.
-                </Text>
-
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <Tag text="Cuenta validada" tone="success" />
-                  <Tag text="Puede comentar" tone="success" />
-                  <Tag text="Multimedia habilitada" tone="success" />
-                </View>
-              </>
-            )}
           </View>
 
           {renderActiveTabContent()}
@@ -1259,12 +1181,7 @@ function AuthRequiredModal({
   onRegister: () => void;
 }) {
   return (
-    <Modal
-      transparent
-      visible={visible}
-      animationType="fade"
-      onRequestClose={onClose}
-    >
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <View
         style={{
           flex: 1,
