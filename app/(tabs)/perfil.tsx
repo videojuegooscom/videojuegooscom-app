@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  LayoutAnimation,
+  ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   SafeAreaView,
@@ -8,770 +9,273 @@ import {
   StatusBar,
   Text,
   TextInput,
-  UIManager,
   View,
 } from "react-native";
 import { router } from "expo-router";
-
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
   card: "rgba(255,255,255,0.06)",
-  cardStrong: "rgba(255,255,255,0.08)",
+  cardSoft: "rgba(255,255,255,0.04)",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.74)",
-  soft: "rgba(255,255,255,0.52)",
+  muted: "rgba(255,255,255,0.75)",
+  mutedSoft: "rgba(255,255,255,0.58)",
   accent: "#00AAE4",
   accentSoft: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.34)",
-  success: "#22C55E",
-  warn: "#F59E0B",
-  danger: "#FF3B30",
-  bubbleMine: "rgba(0,170,228,0.18)",
-  bubbleOther: "rgba(255,255,255,0.06)",
-  bubbleSystem: "rgba(216,176,74,0.14)",
-  gold: "#D8B04A",
+  accentBorder: "rgba(0,170,228,0.45)",
+  danger: "#FCA5A5",
+  dangerBg: "rgba(255,59,48,0.12)",
+  dangerBorder: "rgba(255,59,48,0.35)",
+  success: "#86EFAC",
+  successBg: "rgba(34,197,94,0.14)",
+  successBorder: "rgba(34,197,94,0.30)",
+  warning: "#FDE68A",
+  warningBg: "rgba(245,158,11,0.12)",
+  warningBorder: "rgba(245,158,11,0.30)",
+  gamingGlow: "rgba(0,170,228,0.22)",
 };
 
-type Viewer = {
-  id: string;
-  username: string;
-  mode: "viewer" | "member" | "vip";
-  city: string;
-  country: string;
-  game: string;
-};
+type AccessState = "checking" | "idle" | "submitting" | "signingOut";
+type SessionRole = "admin" | "user" | "guest";
+type AuthMode = "signin" | "signup";
 
-type MessageItem = {
-  id: string;
-  type: "message" | "gif" | "system";
-  username: string;
-  displayName: string;
-  role?: "viewer" | "member" | "vip" | "admin";
-  time: string;
-  text: string;
-  mine?: boolean;
-};
+function normalizeEmail(value: string) {
+  return (value ?? "").trim().toLowerCase();
+}
 
-type HubTab = "chat" | "news" | "novedades" | "torneos";
+function isValidEmail(value: string) {
+  const email = normalizeEmail(value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
-export default function ChatGlobalScreen() {
-  const [isLoggedIn] = useState(false);
-  const [hasCompletedCommunityProfile] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [showViewers, setShowViewers] = useState(false);
-  const [activeTab, setActiveTab] = useState<HubTab>("chat");
+function softShadow() {
+  return Platform.select<any>({
+    ios: {
+      shadowColor: "#000",
+      shadowOpacity: 0.24,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+    },
+    android: { elevation: 3 },
+    default: {},
+  });
+}
 
-  const viewers = useMemo<Viewer[]>(
-    () => [
-      {
-        id: "1",
-        username: "alexzgz",
-        mode: "member",
-        city: "Zaragoza",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "2",
-        username: "mariaps5",
-        mode: "viewer",
-        city: "Madrid",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "3",
-        username: "otakuzone",
-        mode: "vip",
-        city: "Valencia",
-        country: "España",
-        game: "Warzone",
-      },
-      {
-        id: "4",
-        username: "retro_dani",
-        mode: "member",
-        city: "Sevilla",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "5",
-        username: "switchlover",
-        mode: "viewer",
-        city: "Bogotá",
-        country: "Colombia",
-        game: "Fortnite",
-      },
-      {
-        id: "6",
-        username: "capibara_tech",
-        mode: "member",
-        city: "Barcelona",
-        country: "España",
-        game: "EA FC",
-      },
-      {
-        id: "7",
-        username: "nutriafix",
-        mode: "vip",
-        city: "Bilbao",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "8",
-        username: "adri_xbox",
-        mode: "viewer",
-        city: "Lisboa",
-        country: "Portugal",
-        game: "Fortnite",
-      },
-    ],
-    []
-  );
-
-  const messages = useMemo<MessageItem[]>(
-    () => [
-      {
-        id: "m1",
-        type: "system",
-        username: "system",
-        displayName: "Sistema",
-        time: "12:06",
-        text: "Bienvenido al Chat Global. Esta sala está pensada para conectar gamers, encontrar gente para jugar y seguir noticias, novedades y torneos.",
-      },
-      {
-        id: "m2",
-        type: "message",
-        username: "mariaps5",
-        displayName: "María",
-        role: "member",
-        time: "12:08",
-        text: "¿Hay alguien de Madrid para jugar Fortnite esta tarde? 🎮",
-      },
-      {
-        id: "m3",
-        type: "message",
-        username: "videojuegoos",
-        displayName: "Videojuegoos",
-        role: "admin",
-        time: "12:09",
-        text: "La idea es esa: que podáis encontrar gente por ciudad, país y juego, además de enteraros de novedades y torneos.",
-      },
-      {
-        id: "m4",
-        type: "gif",
-        username: "retro_dani",
-        displayName: "Dani Retro",
-        role: "member",
-        time: "12:10",
-        text: "GIF: victoria épica en Fortnite",
-      },
-      {
-        id: "m5",
-        type: "message",
-        username: "otakuzone",
-        displayName: "Otaku Zone",
-        role: "vip",
-        time: "12:11",
-        text: "Esto puede funcionar muy bien si luego permitís filtrar por país, plataforma y juego principal.",
-      },
-      {
-        id: "m6",
-        type: "message",
-        username: "capibara_tech",
-        displayName: "Capibara Tech",
-        role: "member",
-        time: "12:12",
-        text: "También molaría destacar torneos y nuevas entradas de consolas dentro del mismo hub.",
-      },
-    ],
-    []
-  );
-
-  const canWrite = isLoggedIn && hasCompletedCommunityProfile;
-  const profileMissing = isLoggedIn && !hasCompletedCommunityProfile;
-
-  const totalViewers = viewers.length + 21;
-
-  const toggleViewers = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setShowViewers((prev) => !prev);
-  };
-
-  const renderActiveTabContent = () => {
-    if (activeTab === "news") {
-      return (
-        <InfoPanel
-          title="Noticias Gaming"
-          subtitle="Noticias rápidas de gaming y comunidad para mantener el hub vivo."
-          items={[
-            "Fortnite prepara nuevas rotaciones y eventos semanales.",
-            "La escena competitiva sigue empujando el juego cruzado y el contenido en directo.",
-            "El objetivo aquí sería mostrar noticias breves, claras y muy visuales.",
-          ]}
-        />
-      );
-    }
-
-    if (activeTab === "novedades") {
-      return (
-        <InfoPanel
-          title="Nuestras Novedades"
-          subtitle="Entradas nuevas de tienda, packs, reacondicionados y avisos importantes."
-          items={[
-            "Nuevos packs de consola disponibles.",
-            "Entradas recientes de mandos, accesorios y reacondicionados.",
-            "Próximas mejoras del chat, perfiles gamer y búsqueda por ciudad.",
-          ]}
-        />
-      );
-    }
-
-    if (activeTab === "torneos") {
-      return (
-        <InfoPanel
-          title="Torneos"
-          subtitle="Torneos, retos, clasificatorias y eventos comunitarios."
-          items={[
-            "Torneo Fortnite dúos — próximamente.",
-            "Retos semanales para activar comunidad.",
-            "Ranking local por ciudad o por sala más adelante.",
-          ]}
-        />
-      );
-    }
-
-    return (
-      <>
-        <View
-          style={{
-            borderRadius: 22,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            overflow: "hidden",
-          }}
-        >
-          <View
-            style={{
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 14,
-              borderBottomWidth: 1,
-              borderBottomColor: "rgba(255,255,255,0.08)",
-              gap: 12,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <View style={{ flex: 1, minWidth: 220 }}>
-                <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                  Sala · Chat Global
-                </Text>
-                <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21 }}>
-                  Sala principal para conectar gamers, encontrar gente para jugar a Fortnite
-                  y hablar con personas de tu misma ciudad o país.
-                </Text>
-              </View>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    backgroundColor: "rgba(34,197,94,0.12)",
-                    borderWidth: 1,
-                    borderColor: "rgba(34,197,94,0.30)",
-                  }}
-                >
-                  <Text style={{ color: "#BBF7D0", fontWeight: "900" }}>
-                    {totalViewers} conectados
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={toggleViewers}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.9 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    backgroundColor: COLORS.accentSoft,
-                    borderWidth: 1,
-                    borderColor: COLORS.accentBorder,
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    Viendo ahora · {totalViewers} {showViewers ? "▲" : "▼"}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {showViewers ? (
-              <View
-                style={{
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.08)",
-                  backgroundColor: "rgba(255,255,255,0.035)",
-                  padding: 12,
-                  gap: 12,
-                }}
-              >
-                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                  Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
-                  debería poder filtrarse por ciudad, país, juego y plataforma.
-                </Text>
-
-                <View style={{ gap: 10 }}>
-                  {viewers.map((viewer) => (
-                    <ViewerRow key={viewer.id} viewer={viewer} />
-                  ))}
-                </View>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={{ padding: 14, gap: 12 }}>
-            {messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                item={message}
-                canViewMedia={canWrite}
-              />
-            ))}
-          </View>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.cardStrong,
-            padding: 14,
-            gap: 12,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
-            Escribir en la sala
-          </Text>
-
-          {!canWrite ? (
-            <View
-              style={{
-                borderRadius: 16,
-                borderWidth: 1,
-                borderColor: "rgba(245,158,11,0.30)",
-                backgroundColor: "rgba(245,158,11,0.10)",
-                padding: 14,
-                gap: 10,
-              }}
-            >
-              <Text style={{ color: "#FDE68A", fontWeight: "900" }}>
-                Chat bloqueado para este perfil
-              </Text>
-
-              <Text style={{ color: COLORS.text, lineHeight: 22 }}>
-                Para comentar necesitas:
-              </Text>
-
-              <View style={{ gap: 8 }}>
-                <Requirement text="Cuenta registrada en la tienda online" ok={isLoggedIn} />
-                <Requirement text="Nombre y apellidos" ok={false} />
-                <Requirement text="Fecha de nacimiento" ok={false} />
-                <Requirement text="País" ok={false} />
-                <Requirement text="Nombre de usuario público" ok={false} />
-                <Requirement text="2 fotos de perfil" ok={false} />
-                <Requirement text="1 imagen de portada" ok={false} />
-              </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: 10,
-                  marginTop: 4,
-                }}
-              >
-                <ActionButton
-                  label={!isLoggedIn ? "Registrarme ahora" : "Completar mi perfil"}
-                  onPress={() => router.push("/perfil")}
-                  primary
-                />
-                <ActionButton
-                  label="Ver mis datos"
-                  onPress={() => router.push("/perfil")}
-                />
-              </View>
-            </View>
-          ) : (
-            <>
-              <TextInput
-                value={draft}
-                onChangeText={setDraft}
-                placeholder="Escribe tu mensaje…"
-                placeholderTextColor="rgba(255,255,255,0.42)"
-                multiline
-                style={{
-                  minHeight: 110,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.12)",
-                  backgroundColor: "rgba(0,0,0,0.12)",
-                  padding: 14,
-                  color: COLORS.text,
-                  textAlignVertical: "top",
-                }}
-              />
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 10,
-                  flexWrap: "wrap",
-                }}
-              >
-                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                  <MiniPill text="😀 Emoji" />
-                  <MiniPill text="GIF" />
-                  <MiniPill text="Foto" />
-                  <MiniPill text="Vídeo" />
-                </View>
-
-                <ActionButton label="Enviar mensaje" onPress={() => {}} primary />
-              </View>
-            </>
-          )}
-        </View>
-      </>
-    );
-  };
-
+function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingTop: 18,
-          paddingBottom: 30,
-          gap: 16,
-        }}
-      >
-        <View
-          style={{
-            borderRadius: 24,
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
-            backgroundColor: COLORS.bg2,
-            paddingHorizontal: 18,
-            paddingVertical: 18,
-            gap: 10,
-          }}
-        >
-          <View
-            style={{
-              alignSelf: "flex-start",
-              borderRadius: 999,
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              backgroundColor: "rgba(34,197,94,0.16)",
-              borderWidth: 1,
-              borderColor: "rgba(34,197,94,0.30)",
-            }}
-          >
-            <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
-              EN DIRECTO
-            </Text>
-          </View>
-
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: 30,
-              lineHeight: 34,
-              fontWeight: "900",
-            }}
-          >
-            Chat Global
-          </Text>
-
-          <Text
-            style={{
-              color: COLORS.muted,
-              fontSize: 15,
-              lineHeight: 23,
-              maxWidth: 980,
-            }}
-          >
-            Hub social para conectar gamers, encontrar gente para jugar a Fortnite,
-            descubrir personas de tu misma ciudad o país y seguir noticias gaming,
-            novedades de la tienda y torneos.
-          </Text>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            paddingHorizontal: 10,
-            paddingVertical: 10,
-            gap: 10,
-          }}
-        >
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 6 }}>
-              <HubTabButton
-                active={activeTab === "chat"}
-                label="Chat Global"
-                onPress={() => setActiveTab("chat")}
-              />
-              <HubTabButton
-                active={activeTab === "news"}
-                label="Noticias Gaming"
-                onPress={() => setActiveTab("news")}
-              />
-              <HubTabButton
-                active={activeTab === "novedades"}
-                label="Nuestras Novedades"
-                onPress={() => setActiveTab("novedades")}
-              />
-              <HubTabButton
-                active={activeTab === "torneos"}
-                label="Torneos"
-                onPress={() => setActiveTab("torneos")}
-              />
-            </View>
-          </ScrollView>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            padding: 14,
-            gap: 10,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900" }}>
-            Tu estado en el hub
-          </Text>
-
-          {!isLoggedIn ? (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Estás entrando como visitante. Puedes mirar el contenido y la sala, pero no
-                puedes comentar ni abrir imágenes, GIFs o vídeos.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Modo visitante" tone="neutral" />
-                <Tag text="Solo lectura" tone="warn" />
-                <Tag text="Multimedia bloqueada" tone="danger" />
-              </View>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <ActionButton
-                  label="Crear cuenta"
-                  onPress={() => router.push("/perfil")}
-                  primary
-                />
-                <ActionButton
-                  label="Iniciar sesión"
-                  onPress={() => router.push("/perfil")}
-                />
-              </View>
-            </>
-          ) : profileMissing ? (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Ya has iniciado sesión, pero para comentar y conectar con otros jugadores
-                necesitas completar tu perfil comunitario.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Cuenta iniciada" tone="success" />
-                <Tag text="Perfil incompleto" tone="warn" />
-                <Tag text="Chat bloqueado" tone="danger" />
-              </View>
-
-              <ActionButton
-                label="Completar perfil del chat"
-                onPress={() => router.push("/perfil")}
-                primary
-              />
-            </>
-          ) : (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Perfil validado. Ya puedes comentar, conectar con otros jugadores y entrar
-                de verdad en la comunidad.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Cuenta validada" tone="success" />
-                <Tag text="Puede comentar" tone="success" />
-                <Tag text="Multimedia habilitada" tone="success" />
-              </View>
-            </>
-          )}
-        </View>
-
-        {renderActiveTabContent()}
-      </ScrollView>
-    </SafeAreaView>
+    <View
+      style={{
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.card,
+        padding: 18,
+        gap: 14,
+        ...softShadow(),
+      }}
+    >
+      {children}
+    </View>
   );
 }
 
-function Tag({
+function Badge({
   text,
-  tone = "neutral",
+  tone = "default",
 }: {
   text: string;
-  tone?: "neutral" | "success" | "warn" | "danger";
+  tone?: "default" | "accent" | "success" | "warning";
 }) {
-  const palette = {
-    neutral: {
-      bg: "rgba(255,255,255,0.07)",
-      border: "rgba(255,255,255,0.12)",
-      text: "#FFFFFF",
-    },
-    success: {
-      bg: "rgba(34,197,94,0.14)",
-      border: "rgba(34,197,94,0.30)",
-      text: "#BBF7D0",
-    },
-    warn: {
-      bg: "rgba(245,158,11,0.14)",
-      border: "rgba(245,158,11,0.30)",
-      text: "#FDE68A",
-    },
-    danger: {
-      bg: "rgba(255,59,48,0.12)",
-      border: "rgba(255,59,48,0.30)",
-      text: "#FCA5A5",
-    },
-  }[tone];
+  const toneStyles =
+    tone === "accent"
+      ? {
+          bg: COLORS.accentSoft,
+          border: COLORS.accentBorder,
+          color: COLORS.text,
+        }
+      : tone === "success"
+      ? {
+          bg: COLORS.successBg,
+          border: COLORS.successBorder,
+          color: COLORS.success,
+        }
+      : tone === "warning"
+      ? {
+          bg: COLORS.warningBg,
+          border: COLORS.warningBorder,
+          color: COLORS.warning,
+        }
+      : {
+          bg: "rgba(255,255,255,0.05)",
+          border: "rgba(255,255,255,0.10)",
+          color: COLORS.text,
+        };
 
   return (
     <View
       style={{
-        borderRadius: 999,
-        paddingVertical: 8,
+        alignSelf: "flex-start",
+        paddingVertical: 6,
         paddingHorizontal: 10,
-        backgroundColor: palette.bg,
+        borderRadius: 999,
         borderWidth: 1,
-        borderColor: palette.border,
+        borderColor: toneStyles.border,
+        backgroundColor: toneStyles.bg,
       }}
     >
-      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 12 }}>
-        {text}
-      </Text>
+      <Text style={{ color: toneStyles.color, fontWeight: "900" }}>{text}</Text>
     </View>
   );
 }
 
 function ActionButton({
-  label,
+  title,
   onPress,
-  primary,
+  disabled,
+  variant = "primary",
+  loading = false,
+  loadingText = "Cargando...",
 }: {
-  label: string;
+  title: string;
   onPress: () => void;
-  primary?: boolean;
+  disabled?: boolean;
+  variant?: "primary" | "secondary";
+  loading?: boolean;
+  loadingText?: string;
 }) {
+  const isPrimary = variant === "primary";
+
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled || loading}
       style={({ pressed }) => ({
-        opacity: pressed ? 0.9 : 1,
-        borderRadius: 14,
-        paddingVertical: 12,
+        borderRadius: 16,
+        paddingVertical: 14,
         paddingHorizontal: 14,
-        backgroundColor: primary ? COLORS.accent : "rgba(255,255,255,0.05)",
-        borderWidth: 1,
-        borderColor: primary ? COLORS.accent : "rgba(255,255,255,0.12)",
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: isPrimary ? 0 : 1,
+        borderColor: isPrimary ? "transparent" : COLORS.border,
+        backgroundColor: isPrimary ? COLORS.accent : COLORS.cardSoft,
+        opacity: disabled || loading ? 0.5 : pressed ? 0.9 : 1,
       })}
     >
-      <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{label}</Text>
+      {loading ? (
+        <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+          <ActivityIndicator color="#FFFFFF" />
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{loadingText}</Text>
+        </View>
+      ) : (
+        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{title}</Text>
+      )}
     </Pressable>
   );
 }
 
-function Requirement({ text, ok }: { text: string; ok: boolean }) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-      <View
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: 999,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: ok ? "rgba(34,197,94,0.18)" : "rgba(255,255,255,0.08)",
-          borderWidth: 1,
-          borderColor: ok ? "rgba(34,197,94,0.30)" : "rgba(255,255,255,0.12)",
-        }}
-      >
-        <Text style={{ color: ok ? "#BBF7D0" : "rgba(255,255,255,0.62)", fontWeight: "900" }}>
-          {ok ? "✓" : "•"}
-        </Text>
-      </View>
+function InfoMessage({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "error" | "success";
+}) {
+  const styles =
+    tone === "error"
+      ? {
+          borderColor: COLORS.dangerBorder,
+          backgroundColor: COLORS.dangerBg,
+          color: COLORS.danger,
+        }
+      : {
+          borderColor: COLORS.successBorder,
+          backgroundColor: COLORS.successBg,
+          color: COLORS.success,
+        };
 
-      <Text style={{ color: COLORS.text, flex: 1, lineHeight: 21 }}>{text}</Text>
-    </View>
-  );
-}
-
-function MiniPill({ text }: { text: string }) {
   return (
     <View
       style={{
-        borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        backgroundColor: "rgba(255,255,255,0.06)",
+        borderRadius: 14,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
+        borderColor: styles.borderColor,
+        backgroundColor: styles.backgroundColor,
+        padding: 12,
       }}
     >
-      <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: "800" }}>{text}</Text>
+      <Text style={{ color: styles.color, fontWeight: "800", lineHeight: 20 }}>{text}</Text>
     </View>
   );
 }
 
-function HubTabButton({
-  label,
+function Label({ children }: { children: React.ReactNode }) {
+  return <Text style={{ color: COLORS.text, fontWeight: "800" }}>{children}</Text>;
+}
+
+function Input({
+  value,
+  onChangeText,
+  placeholder,
+  secureTextEntry,
+  keyboardType,
+  returnKeyType,
+  editable,
+  autoCapitalize = "none",
+  autoCorrect = false,
+  textContentType,
+  autoComplete,
+  onSubmitEditing,
+}: {
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder: string;
+  secureTextEntry?: boolean;
+  keyboardType?: any;
+  returnKeyType?: any;
+  editable?: boolean;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  autoCorrect?: boolean;
+  textContentType?: any;
+  autoComplete?: any;
+  onSubmitEditing?: () => void;
+}) {
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor="rgba(255,255,255,0.45)"
+      secureTextEntry={secureTextEntry}
+      keyboardType={keyboardType}
+      returnKeyType={returnKeyType}
+      editable={editable}
+      autoCapitalize={autoCapitalize}
+      autoCorrect={autoCorrect}
+      textContentType={textContentType}
+      autoComplete={autoComplete}
+      onSubmitEditing={onSubmitEditing}
+      style={{
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 13,
+        color: COLORS.text,
+        backgroundColor: "rgba(255,255,255,0.03)",
+      }}
+    />
+  );
+}
+
+function TabButton({
+  title,
   active,
   onPress,
 }: {
-  label: string;
+  title: string;
   active: boolean;
   onPress: () => void;
 }) {
@@ -779,346 +283,687 @@ function HubTabButton({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        opacity: pressed ? 0.9 : 1,
-        borderRadius: 999,
-        paddingVertical: 10,
+        flex: 1,
+        borderRadius: 14,
+        paddingVertical: 12,
         paddingHorizontal: 14,
-        backgroundColor: active ? COLORS.accentSoft : "rgba(255,255,255,0.05)",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: active ? COLORS.accentSoft : "rgba(255,255,255,0.03)",
         borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.10)",
+        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.08)",
+        opacity: pressed ? 0.92 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{title}</Text>
     </Pressable>
   );
 }
 
-function ViewerRow({ viewer }: { viewer: Viewer }) {
-  const modeMap = {
-    viewer: {
-      label: "Mirando",
-      bg: "rgba(255,255,255,0.06)",
-      border: "rgba(255,255,255,0.12)",
-      text: "#FFFFFF",
-    },
-    member: {
-      label: "Miembro",
-      bg: "rgba(0,170,228,0.16)",
-      border: "rgba(0,170,228,0.30)",
-      text: "#BAE6FD",
-    },
-    vip: {
-      label: "VIP",
-      bg: "rgba(216,176,74,0.16)",
-      border: "rgba(216,176,74,0.30)",
-      text: "#FDE68A",
-    },
-  }[viewer.mode];
-
-  return (
-    <View
-      style={{
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        backgroundColor: "rgba(255,255,255,0.04)",
-        padding: 12,
-        gap: 8,
-      }}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-          <View
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 999,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(255,255,255,0.10)",
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.08)",
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-              {viewer.username.slice(0, 1).toUpperCase()}
-            </Text>
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-              @{viewer.username}
-            </Text>
-            <Text style={{ color: COLORS.soft, fontSize: 12, marginTop: 2 }}>
-              {viewer.city}, {viewer.country}
-            </Text>
-          </View>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 999,
-            paddingVertical: 7,
-            paddingHorizontal: 10,
-            backgroundColor: modeMap.bg,
-            borderWidth: 1,
-            borderColor: modeMap.border,
-          }}
-        >
-          <Text style={{ color: modeMap.text, fontWeight: "900", fontSize: 12 }}>
-            {modeMap.label}
-          </Text>
-        </View>
-      </View>
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        <MiniInlineData label="Juego" value={viewer.game} />
-        <MiniInlineData label="Zona" value={viewer.city} />
-      </View>
-    </View>
-  );
-}
-
-function MiniInlineData({
-  label,
-  value,
+function FeatureItem({
+  title,
+  text,
 }: {
-  label: string;
-  value: string;
+  title: string;
+  text: string;
 }) {
   return (
     <View
       style={{
-        borderRadius: 999,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        backgroundColor: "rgba(255,255,255,0.05)",
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.08)",
-      }}
-    >
-      <Text style={{ color: COLORS.soft, fontSize: 11, fontWeight: "700" }}>
-        {label}: <Text style={{ color: COLORS.text, fontWeight: "900" }}>{value}</Text>
-      </Text>
-    </View>
-  );
-}
-
-function MessageBubble({
-  item,
-  canViewMedia,
-}: {
-  item: MessageItem;
-  canViewMedia: boolean;
-}) {
-  if (item.type === "system") {
-    return (
-      <View
-        style={{
-          alignSelf: "stretch",
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: "rgba(216,176,74,0.25)",
-          backgroundColor: COLORS.bubbleSystem,
-          padding: 12,
-          gap: 6,
-        }}
-      >
-        <Text style={{ color: COLORS.gold, fontWeight: "900" }}>
-          Aviso del sistema · {item.time}
-        </Text>
-        <Text style={{ color: COLORS.text, lineHeight: 21 }}>{item.text}</Text>
-      </View>
-    );
-  }
-
-  const roleTone =
-    item.role === "admin"
-      ? {
-          bg: "rgba(0,170,228,0.18)",
-          text: "#BAE6FD",
-          border: "rgba(0,170,228,0.30)",
-          label: "ADMIN",
-        }
-      : item.role === "vip"
-      ? {
-          bg: "rgba(216,176,74,0.16)",
-          text: "#FDE68A",
-          border: "rgba(216,176,74,0.30)",
-          label: "VIP",
-        }
-      : {
-          bg: "rgba(255,255,255,0.06)",
-          text: "#FFFFFF",
-          border: "rgba(255,255,255,0.12)",
-          label: "MIEMBRO",
-        };
-
-  const bubbleBg = item.mine ? COLORS.bubbleMine : COLORS.bubbleOther;
-
-  return (
-    <View
-      style={{
-        alignSelf: item.mine ? "flex-end" : "stretch",
-        maxWidth: "100%",
+        backgroundColor: "rgba(255,255,255,0.03)",
+        padding: 14,
         gap: 6,
       }}
     >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-        }}
-      >
-        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.displayName}</Text>
-        <Text style={{ color: COLORS.soft, fontSize: 12 }}>@{item.username}</Text>
-
-        <View
-          style={{
-            borderRadius: 999,
-            paddingVertical: 4,
-            paddingHorizontal: 8,
-            backgroundColor: roleTone.bg,
-            borderWidth: 1,
-            borderColor: roleTone.border,
-          }}
-        >
-          <Text style={{ color: roleTone.text, fontSize: 11, fontWeight: "900" }}>
-            {roleTone.label}
-          </Text>
-        </View>
-
-        <Text style={{ color: COLORS.soft, fontSize: 12 }}>{item.time}</Text>
-      </View>
-
-      <View
-        style={{
-          borderRadius: 18,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.10)",
-          backgroundColor: bubbleBg,
-          padding: 14,
-          gap: 10,
-        }}
-      >
-        {item.type === "gif" ? (
-          <View
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.10)",
-              backgroundColor: "rgba(0,0,0,0.16)",
-              padding: 14,
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 120,
-            }}
-          >
-            {canViewMedia ? (
-              <>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    backgroundColor: "rgba(255,255,255,0.08)",
-                    borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.10)",
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>GIF</Text>
-                </View>
-                <Text style={{ color: COLORS.muted, marginTop: 10, textAlign: "center" }}>
-                  {item.text}
-                </Text>
-              </>
-            ) : (
-              <>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    backgroundColor: "rgba(255,59,48,0.12)",
-                    borderWidth: 1,
-                    borderColor: "rgba(255,59,48,0.30)",
-                  }}
-                >
-                  <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>
-                    GIF bloqueado
-                  </Text>
-                </View>
-                <Text
-                  style={{
-                    color: COLORS.muted,
-                    marginTop: 10,
-                    textAlign: "center",
-                    lineHeight: 21,
-                  }}
-                >
-                  Regístrate y completa tu perfil para abrir multimedia del chat.
-                </Text>
-              </>
-            )}
-          </View>
-        ) : (
-          <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item.text}</Text>
-        )}
-      </View>
+      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{title}</Text>
+      <Text style={{ color: COLORS.muted, lineHeight: 19 }}>{text}</Text>
     </View>
   );
 }
 
-function InfoPanel({
-  title,
-  subtitle,
-  items,
-}: {
-  title: string;
-  subtitle: string;
-  items: string[];
-}) {
-  return (
-    <View
-      style={{
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
-        padding: 16,
-        gap: 12,
-      }}
-    >
-      <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-        {title}
-      </Text>
-      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>{subtitle}</Text>
+export default function PerfilScreen() {
+  const [mode, setMode] = useState<AuthMode>("signin");
 
-      <View style={{ gap: 10 }}>
-        {items.map((item, index) => (
-          <View
-            key={`${title}-${index}`}
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.10)",
-              backgroundColor: "rgba(255,255,255,0.04)",
-              padding: 12,
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+
+  const [registerName, setRegisterName] = useState("");
+  const [registerUsername, setRegisterUsername] = useState("");
+  const [registerCountry, setRegisterCountry] = useState("");
+
+  const [msg, setMsg] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const [state, setState] = useState<AccessState>("checking");
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [sessionRole, setSessionRole] = useState<SessionRole>("guest");
+
+  const isChecking = state === "checking";
+  const isSubmitting = state === "submitting";
+  const isSigningOut = state === "signingOut";
+
+  const clearMessages = useCallback(() => {
+    if (msg) setMsg(null);
+    if (okMsg) setOkMsg(null);
+  }, [msg, okMsg]);
+
+  const hydrateSessionState = useCallback(async () => {
+    setState("checking");
+    setMsg(null);
+    setOkMsg(null);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        setSessionEmail(null);
+        setSessionRole("guest");
+        setState("idle");
+        return;
+      }
+
+      const currentEmail = normalizeEmail(session.user.email ?? "");
+      const userId = session.user.id;
+
+      setSessionEmail(currentEmail || null);
+
+      const { data: profile, error: profErr } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle<{ role: string | null }>();
+
+      if (profErr) {
+        setSessionRole("user");
+        setState("idle");
+        return;
+      }
+
+      const role = String(profile?.role ?? "").trim().toLowerCase();
+      setSessionRole(role === "admin" ? "admin" : "user");
+      setState("idle");
+    } catch (error: any) {
+      setSessionEmail(null);
+      setSessionRole("guest");
+      setState("idle");
+      setMsg(error?.message ?? "No se pudo comprobar la sesión actual.");
+    }
+  }, []);
+
+  useEffect(() => {
+    hydrateSessionState();
+  }, [hydrateSessionState]);
+
+  const canSubmitLogin = useMemo(() => {
+    return isValidEmail(email) && pass.trim().length >= 6 && state === "idle";
+  }, [email, pass, state]);
+
+  const canSubmitRegister = useMemo(() => {
+    return (
+      registerName.trim().length >= 2 &&
+      registerUsername.trim().length >= 3 &&
+      registerCountry.trim().length >= 2 &&
+      isValidEmail(email) &&
+      pass.trim().length >= 6 &&
+      state === "idle"
+    );
+  }, [registerCountry, registerName, registerUsername, email, pass, state]);
+
+  const signIn = useCallback(async () => {
+    const e = normalizeEmail(email);
+    const p = pass.trim();
+
+    clearMessages();
+
+    if (!e || !p) {
+      setMsg("Introduce tu email y tu contraseña.");
+      return;
+    }
+
+    if (!isValidEmail(e)) {
+      setMsg("Introduce un email válido.");
+      return;
+    }
+
+    if (p.length < 6) {
+      setMsg("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    setState("submitting");
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: e,
+        password: p,
+      });
+
+      if (error) {
+        setMsg(
+          error.message === "Invalid login credentials"
+            ? "Email o contraseña incorrectos."
+            : error.message
+        );
+        setState("idle");
+        return;
+      }
+
+      const userId = data.user?.id;
+      const currentEmail = normalizeEmail(data.user?.email ?? e);
+
+      if (!userId) {
+        setMsg("No se pudo iniciar sesión correctamente.");
+        setState("idle");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle<{ role: string | null }>();
+
+      const role = String(profile?.role ?? "").trim().toLowerCase();
+
+      setSessionEmail(currentEmail);
+      setSessionRole(role === "admin" ? "admin" : "user");
+      setPass("");
+      setOkMsg(
+        role === "admin"
+          ? "Sesión iniciada correctamente. Esta cuenta tiene acceso interno."
+          : "Sesión iniciada correctamente."
+      );
+      setState("idle");
+    } catch (error: any) {
+      setMsg(error?.message ?? "Error inesperado al iniciar sesión.");
+      setState("idle");
+    }
+  }, [clearMessages, email, pass]);
+
+  const signUp = useCallback(async () => {
+    const e = normalizeEmail(email);
+    const p = pass.trim();
+    const fullName = registerName.trim();
+    const username = registerUsername.trim();
+    const country = registerCountry.trim();
+
+    clearMessages();
+
+    if (!fullName || !username || !country || !e || !p) {
+      setMsg("Completa todos los campos del registro.");
+      return;
+    }
+
+    if (!isValidEmail(e)) {
+      setMsg("Introduce un email válido.");
+      return;
+    }
+
+    if (p.length < 6) {
+      setMsg("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    setState("submitting");
+
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: e,
+        password: p,
+        options: {
+          data: {
+            full_name: fullName,
+            username,
+            country,
+          },
+        },
+      });
+
+      if (error) {
+        setMsg(error.message);
+        setState("idle");
+        return;
+      }
+
+      setOkMsg(
+        "Cuenta creada correctamente. Si tienes activada la confirmación por email en Supabase, revisa tu bandeja de entrada antes de iniciar sesión."
+      );
+      setMode("signin");
+      setPass("");
+      setState("idle");
+    } catch (error: any) {
+      setMsg(error?.message ?? "No se pudo crear la cuenta.");
+      setState("idle");
+    }
+  }, [clearMessages, email, pass, registerCountry, registerName, registerUsername]);
+
+  const signOut = useCallback(async () => {
+    clearMessages();
+    setState("signingOut");
+
+    try {
+      await supabase.auth.signOut();
+      setSessionEmail(null);
+      setSessionRole("guest");
+      setEmail("");
+      setPass("");
+      setOkMsg("Sesión cerrada correctamente.");
+      setState("idle");
+    } catch (error: any) {
+      setMsg(error?.message ?? "No se pudo cerrar la sesión.");
+      setState("idle");
+    }
+  }, [clearMessages]);
+
+  const openAdminPanel = useCallback(() => {
+    router.push("/admin");
+  }, []);
+
+  const headerTitle = sessionRole === "guest" ? "Acceso y registro" : "Mi cuenta";
+  const headerDesc =
+    sessionRole === "guest"
+      ? "Accede a tu cuenta o únete a la comunidad gamer de Videojuegoos con una entrada seria, limpia y lista para crecer."
+      : "Gestiona tu sesión y tu acceso a la comunidad desde un único punto, sin duplicados ni rutas raras.";
+
+  return (
+    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      <StatusBar barStyle="light-content" />
+
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+        <View
+          style={{
+            backgroundColor: COLORS.bg2,
+            borderBottomWidth: 1,
+            borderBottomColor: "rgba(255,255,255,0.06)",
+            paddingHorizontal: 16,
+            paddingTop: 14,
+            paddingBottom: 14,
+          }}
+        >
+          <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+            {headerTitle}
+          </Text>
+          <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
+            {headerDesc}
+          </Text>
+        </View>
+
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingTop: 18,
+              paddingBottom: 32,
+              gap: 14,
             }}
           >
-            <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item}</Text>
-          </View>
-        ))}
-      </View>
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 920,
+                alignSelf: "center",
+                gap: 14,
+              }}
+            >
+              <SectionCard>
+                <View
+                  style={{
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor: "rgba(0,170,228,0.18)",
+                    backgroundColor: "rgba(255,255,255,0.02)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <View
+                    style={{
+                      padding: 18,
+                      gap: 12,
+                      backgroundColor: COLORS.bg2,
+                    }}
+                  >
+                    <Badge
+                      text={sessionRole === "guest" ? "Entrada a la comunidad" : "Sesión activa"}
+                      tone={sessionRole === "guest" ? "accent" : "success"}
+                    />
+
+                    <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: "900" }}>
+                      {sessionRole === "guest"
+                        ? "Tu perfil gamer empieza aquí"
+                        : "Tu cuenta está activa"}
+                    </Text>
+
+                    <Text style={{ color: COLORS.muted, lineHeight: 22, maxWidth: 720 }}>
+                      {sessionRole === "guest"
+                        ? "Regístrate o inicia sesión para comentar en el chat global, preparar tu perfil comunitario y entrar en una experiencia más seria, social y gaming."
+                        : sessionRole === "admin"
+                        ? "Has iniciado sesión correctamente. Esta cuenta tiene acceso interno además del acceso normal de usuario."
+                        : "Has iniciado sesión correctamente. Desde aquí podrás evolucionar tu cuenta, tu perfil comunitario y tu acceso al chat."}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      height: 4,
+                      backgroundColor: COLORS.gamingGlow,
+                    }}
+                  />
+                </View>
+
+                {msg ? <InfoMessage text={msg} tone="error" /> : null}
+                {okMsg ? <InfoMessage text={okMsg} tone="success" /> : null}
+
+                {isChecking ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <ActivityIndicator color="#FFFFFF" />
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                      Comprobando sesión...
+                    </Text>
+                  </View>
+                ) : null}
+
+                {sessionRole === "guest" ? (
+                  <>
+                    <View style={{ flexDirection: "row", gap: 10 }}>
+                      <TabButton
+                        title="Iniciar sesión"
+                        active={mode === "signin"}
+                        onPress={() => {
+                          clearMessages();
+                          setMode("signin");
+                        }}
+                      />
+                      <TabButton
+                        title="Crear cuenta"
+                        active={mode === "signup"}
+                        onPress={() => {
+                          clearMessages();
+                          setMode("signup");
+                        }}
+                      />
+                    </View>
+
+                    {mode === "signin" ? (
+                      <View style={{ gap: 12 }}>
+                        <View style={{ gap: 8 }}>
+                          <Label>Email</Label>
+                          <Input
+                            value={email}
+                            onChangeText={(text) => {
+                              setEmail(text);
+                              clearMessages();
+                            }}
+                            placeholder="tu@email.com"
+                            keyboardType="email-address"
+                            returnKeyType="next"
+                            editable={!isChecking && !isSigningOut}
+                            textContentType="username"
+                            autoComplete="email"
+                          />
+                        </View>
+
+                        <View style={{ gap: 8 }}>
+                          <Label>Contraseña</Label>
+                          <Input
+                            value={pass}
+                            onChangeText={(text) => {
+                              setPass(text);
+                              clearMessages();
+                            }}
+                            placeholder="Tu contraseña"
+                            secureTextEntry
+                            returnKeyType="go"
+                            editable={!isChecking && !isSigningOut}
+                            textContentType="password"
+                            autoComplete="password"
+                            onSubmitEditing={() => {
+                              if (canSubmitLogin) signIn();
+                            }}
+                          />
+                        </View>
+
+                        <ActionButton
+                          title="Iniciar sesión"
+                          onPress={signIn}
+                          disabled={!canSubmitLogin}
+                          loading={isSubmitting}
+                          loadingText="Entrando..."
+                        />
+
+                        <View
+                          style={{
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            borderColor: "rgba(255,255,255,0.08)",
+                            backgroundColor: "rgba(255,255,255,0.03)",
+                            padding: 14,
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                            Acceso normal, sin puertas raras
+                          </Text>
+                          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                            Todo el mundo entra por aquí. Si una cuenta además tiene permisos
+                            internos, el acceso administrativo aparecerá automáticamente.
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={{ gap: 12 }}>
+                        <View style={{ gap: 8 }}>
+                          <Label>Nombre visible</Label>
+                          <Input
+                            value={registerName}
+                            onChangeText={(text) => {
+                              setRegisterName(text);
+                              clearMessages();
+                            }}
+                            placeholder="Ejemplo: Dani Jefe"
+                            editable={!isChecking && !isSigningOut}
+                            autoCapitalize="words"
+                            textContentType="name"
+                            autoComplete="name"
+                          />
+                        </View>
+
+                        <View style={{ gap: 8 }}>
+                          <Label>Nombre de usuario</Label>
+                          <Input
+                            value={registerUsername}
+                            onChangeText={(text) => {
+                              setRegisterUsername(text);
+                              clearMessages();
+                            }}
+                            placeholder="Ejemplo: danijefe"
+                            editable={!isChecking && !isSigningOut}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                        </View>
+
+                        <View style={{ gap: 8 }}>
+                          <Label>País</Label>
+                          <Input
+                            value={registerCountry}
+                            onChangeText={(text) => {
+                              setRegisterCountry(text);
+                              clearMessages();
+                            }}
+                            placeholder="Ejemplo: España"
+                            editable={!isChecking && !isSigningOut}
+                            autoCapitalize="words"
+                          />
+                        </View>
+
+                        <View style={{ gap: 8 }}>
+                          <Label>Email</Label>
+                          <Input
+                            value={email}
+                            onChangeText={(text) => {
+                              setEmail(text);
+                              clearMessages();
+                            }}
+                            placeholder="tu@email.com"
+                            keyboardType="email-address"
+                            returnKeyType="next"
+                            editable={!isChecking && !isSigningOut}
+                            textContentType="emailAddress"
+                            autoComplete="email"
+                          />
+                        </View>
+
+                        <View style={{ gap: 8 }}>
+                          <Label>Contraseña</Label>
+                          <Input
+                            value={pass}
+                            onChangeText={(text) => {
+                              setPass(text);
+                              clearMessages();
+                            }}
+                            placeholder="Mínimo 6 caracteres"
+                            secureTextEntry
+                            returnKeyType="go"
+                            editable={!isChecking && !isSigningOut}
+                            textContentType="newPassword"
+                            autoComplete="password-new"
+                            onSubmitEditing={() => {
+                              if (canSubmitRegister) signUp();
+                            }}
+                          />
+                        </View>
+
+                        <ActionButton
+                          title="Crear cuenta"
+                          onPress={signUp}
+                          disabled={!canSubmitRegister}
+                          loading={isSubmitting}
+                          loadingText="Creando cuenta..."
+                        />
+
+                        <View
+                          style={{
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            borderColor: COLORS.accentBorder,
+                            backgroundColor: COLORS.accentSoft,
+                            padding: 14,
+                            gap: 8,
+                          }}
+                        >
+                          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                            Registro pensado para la comunidad
+                          </Text>
+                          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                            Esta es la base para que luego completes tu perfil gamer, comentes
+                            en el chat y conectes con personas de tu ciudad o país.
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    <View
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.08)",
+                        backgroundColor: "rgba(255,255,255,0.03)",
+                        padding: 14,
+                        gap: 8,
+                      }}
+                    >
+                      <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800" }}>
+                        SESIÓN ACTUAL
+                      </Text>
+                      <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900" }}>
+                        {sessionEmail || "No hay sesión iniciada"}
+                      </Text>
+                      <Text style={{ color: COLORS.mutedSoft, lineHeight: 19 }}>
+                        {sessionRole === "admin"
+                          ? "Cuenta iniciada correctamente con acceso interno disponible."
+                          : "Cuenta iniciada correctamente."}
+                      </Text>
+                    </View>
+
+                    <ActionButton
+                      title="Cerrar sesión"
+                      onPress={signOut}
+                      variant="secondary"
+                      loading={isSigningOut}
+                      loadingText="Cerrando sesión..."
+                    />
+                  </View>
+                )}
+              </SectionCard>
+
+              {sessionRole === "admin" ? (
+                <SectionCard>
+                  <Badge text="Herramientas internas" tone="accent" />
+
+                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                    Acceso interno disponible
+                  </Text>
+
+                  <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                    Esta cuenta tiene permisos autorizados. El acceso administrativo solo se
+                    muestra cuando el usuario autenticado es realmente administrador.
+                  </Text>
+
+                  <ActionButton
+                    title="Entrar al panel de administración"
+                    onPress={openAdminPanel}
+                  />
+                </SectionCard>
+              ) : null}
+
+              <SectionCard>
+                <Badge text="Comunidad + gaming" tone="warning" />
+
+                <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                  Lo que desbloquea esta base
+                </Text>
+
+                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                  Esta página ya queda orientada a evolucionar hacia un registro serio para el
+                  chat global, la comunidad gamer y el perfil social de Videojuegoos.
+                </Text>
+
+                <View style={{ gap: 10 }}>
+                  <FeatureItem
+                    title="Perfil comunitario"
+                    text="Nombre público, país, ciudad, juego principal, fotos y portada."
+                  />
+                  <FeatureItem
+                    title="Chat global"
+                    text="Participación real en la sala, viewers silenciosos, multimedia y filtros."
+                  />
+                  <FeatureItem
+                    title="Conectar con jugadores"
+                    text="Encontrar gente para jugar por ciudad, país, plataforma o juego."
+                  />
+                </View>
+              </SectionCard>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </View>
   );
 }
