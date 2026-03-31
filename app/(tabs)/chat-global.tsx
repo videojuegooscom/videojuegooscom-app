@@ -42,6 +42,9 @@ type Viewer = {
   id: string;
   username: string;
   mode: "viewer" | "member" | "vip";
+  city: string;
+  country: string;
+  game: string;
 };
 
 type MessageItem = {
@@ -55,22 +58,81 @@ type MessageItem = {
   mine?: boolean;
 };
 
+type HubTab = "chat" | "news" | "novedades" | "torneos";
+
 export default function ChatGlobalScreen() {
   const [isLoggedIn] = useState(false);
   const [hasCompletedCommunityProfile] = useState(false);
   const [draft, setDraft] = useState("");
   const [showViewers, setShowViewers] = useState(false);
+  const [activeTab, setActiveTab] = useState<HubTab>("chat");
 
   const viewers = useMemo<Viewer[]>(
     () => [
-      { id: "1", username: "alexzgz", mode: "member" },
-      { id: "2", username: "mariaps5", mode: "viewer" },
-      { id: "3", username: "otakuzone", mode: "vip" },
-      { id: "4", username: "retro_dani", mode: "member" },
-      { id: "5", username: "switchlover", mode: "viewer" },
-      { id: "6", username: "capibara_tech", mode: "member" },
-      { id: "7", username: "nutriafix", mode: "vip" },
-      { id: "8", username: "adri_xbox", mode: "viewer" },
+      {
+        id: "1",
+        username: "alexzgz",
+        mode: "member",
+        city: "Zaragoza",
+        country: "España",
+        game: "Fortnite",
+      },
+      {
+        id: "2",
+        username: "mariaps5",
+        mode: "viewer",
+        city: "Madrid",
+        country: "España",
+        game: "Fortnite",
+      },
+      {
+        id: "3",
+        username: "otakuzone",
+        mode: "vip",
+        city: "Valencia",
+        country: "España",
+        game: "Warzone",
+      },
+      {
+        id: "4",
+        username: "retro_dani",
+        mode: "member",
+        city: "Sevilla",
+        country: "España",
+        game: "Fortnite",
+      },
+      {
+        id: "5",
+        username: "switchlover",
+        mode: "viewer",
+        city: "Bogotá",
+        country: "Colombia",
+        game: "Fortnite",
+      },
+      {
+        id: "6",
+        username: "capibara_tech",
+        mode: "member",
+        city: "Barcelona",
+        country: "España",
+        game: "EA FC",
+      },
+      {
+        id: "7",
+        username: "nutriafix",
+        mode: "vip",
+        city: "Bilbao",
+        country: "España",
+        game: "Fortnite",
+      },
+      {
+        id: "8",
+        username: "adri_xbox",
+        mode: "viewer",
+        city: "Lisboa",
+        country: "Portugal",
+        game: "Fortnite",
+      },
     ],
     []
   );
@@ -83,7 +145,7 @@ export default function ChatGlobalScreen() {
         username: "system",
         displayName: "Sistema",
         time: "12:06",
-        text: "Bienvenido al Chat Global. Los visitantes pueden mirar. Para comentar necesitas cuenta y perfil completo.",
+        text: "Bienvenido al Chat Global. Esta sala está pensada para conectar gamers, encontrar gente para jugar y seguir noticias, novedades y torneos.",
       },
       {
         id: "m2",
@@ -92,7 +154,7 @@ export default function ChatGlobalScreen() {
         displayName: "María",
         role: "member",
         time: "12:08",
-        text: "¿Sabéis si entrarán más mandos de PS5 esta semana? 🔥",
+        text: "¿Hay alguien de Madrid para jugar Fortnite esta tarde? 🎮",
       },
       {
         id: "m3",
@@ -101,7 +163,7 @@ export default function ChatGlobalScreen() {
         displayName: "Videojuegoos",
         role: "admin",
         time: "12:09",
-        text: "Sí. En principio entran varias unidades revisadas. Cuando estén listas se publicarán en catálogo.",
+        text: "La idea es esa: que podáis encontrar gente por ciudad, país y juego, además de enteraros de novedades y torneos.",
       },
       {
         id: "m4",
@@ -110,7 +172,7 @@ export default function ChatGlobalScreen() {
         displayName: "Dani Retro",
         role: "member",
         time: "12:10",
-        text: "GIF: reacción gamer celebrando oferta",
+        text: "GIF: victoria épica en Fortnite",
       },
       {
         id: "m5",
@@ -119,7 +181,7 @@ export default function ChatGlobalScreen() {
         displayName: "Otaku Zone",
         role: "vip",
         time: "12:11",
-        text: "La verdad, esta sección tiene muchísimo potencial si hacéis directos + avisos de stock en tiempo real.",
+        text: "Esto puede funcionar muy bien si luego permitís filtrar por país, plataforma y juego principal.",
       },
       {
         id: "m6",
@@ -128,7 +190,7 @@ export default function ChatGlobalScreen() {
         displayName: "Capibara Tech",
         role: "member",
         time: "12:12",
-        text: "Un chat así puede empujar mucho la conversión si enlaza packs, reparaciones y ofertas del día.",
+        text: "También molaría destacar torneos y nuevas entradas de consolas dentro del mismo hub.",
       },
     ],
     []
@@ -140,169 +202,58 @@ export default function ChatGlobalScreen() {
   const totalViewers = viewers.length + 21;
   const totalMessages = messages.length;
   const registeredOnline = viewers.filter((v) => v.mode !== "viewer").length;
+  const fortnitePlayers = viewers.filter((v) => v.game === "Fortnite").length;
 
   const toggleViewers = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowViewers((prev) => !prev);
   };
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+  const renderActiveTabContent = () => {
+    if (activeTab === "news") {
+      return (
+        <InfoPanel
+          title="Noticias Gaming"
+          subtitle="Noticias rápidas de gaming y comunidad para mantener el hub vivo."
+          items={[
+            "Fortnite prepara nuevas rotaciones y eventos semanales.",
+            "La escena competitiva sigue empujando el juego cruzado y el contenido en directo.",
+            "El objetivo aquí sería mostrar noticias breves, claras y muy visuales.",
+          ]}
+        />
+      );
+    }
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingTop: 18,
-          paddingBottom: 30,
-          gap: 16,
-        }}
-      >
-        {/* HERO MÁS COMPACTO */}
-        <View
-          style={{
-            borderRadius: 24,
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
-            backgroundColor: COLORS.bg2,
-            padding: 18,
-            gap: 16,
-          }}
-        >
-          <View style={{ gap: 10 }}>
-            <View
-              style={{
-                alignSelf: "flex-start",
-                borderRadius: 999,
-                paddingVertical: 6,
-                paddingHorizontal: 10,
-                backgroundColor: "rgba(34,197,94,0.16)",
-                borderWidth: 1,
-                borderColor: "rgba(34,197,94,0.30)",
-              }}
-            >
-              <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
-                EN DIRECTO
-              </Text>
-            </View>
+    if (activeTab === "novedades") {
+      return (
+        <InfoPanel
+          title="Nuestras Novedades"
+          subtitle="Entradas nuevas de tienda, packs, reacondicionados y avisos importantes."
+          items={[
+            "Nuevos packs de consola disponibles.",
+            "Entradas recientes de mandos, accesorios y reacondicionados.",
+            "Próximas mejoras del chat, perfiles gamer y búsqueda por ciudad.",
+          ]}
+        />
+      );
+    }
 
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: 30,
-                lineHeight: 34,
-                fontWeight: "900",
-              }}
-            >
-              Chat Global
-            </Text>
+    if (activeTab === "torneos") {
+      return (
+        <InfoPanel
+          title="Torneos"
+          subtitle="Torneos, retos, clasificatorias y eventos comunitarios."
+          items={[
+            "Torneo Fortnite dúos — próximamente.",
+            "Retos semanales para activar comunidad.",
+            "Ranking local por ciudad o por sala más adelante.",
+          ]}
+        />
+      );
+    }
 
-            <Text
-              style={{
-                color: COLORS.muted,
-                fontSize: 15,
-                lineHeight: 23,
-                maxWidth: 920,
-              }}
-            >
-              Una única sala global para hablar de stock, ofertas, soporte público,
-              reparaciones y movimiento de la tienda. Mirar puede mirar cualquiera.
-              Participar, no.
-            </Text>
-          </View>
-
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 10,
-            }}
-          >
-            <StatPill label="Viendo ahora" value={String(totalViewers)} />
-            <StatPill label="Registrados online" value={String(registeredOnline)} />
-            <StatPill label="Mensajes" value={String(totalMessages)} />
-            <StatPill label="Modo actual" value={canWrite ? "Participando" : "Solo lectura"} />
-          </View>
-        </View>
-
-        {/* ESTADO DEL USUARIO */}
-        <View
-          style={{
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            padding: 16,
-            gap: 12,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
-            Tu estado en el chat
-          </Text>
-
-          {!isLoggedIn ? (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Estás entrando como visitante. Puedes ver la sala y quién está dentro,
-                pero no puedes comentar ni abrir imágenes, GIFs o vídeos.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Modo visitante" tone="neutral" />
-                <Tag text="Solo lectura" tone="warn" />
-                <Tag text="Multimedia bloqueada" tone="danger" />
-              </View>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <ActionButton
-                  label="Crear cuenta"
-                  onPress={() => router.push("/perfil")}
-                  primary
-                />
-                <ActionButton
-                  label="Iniciar sesión"
-                  onPress={() => router.push("/perfil")}
-                />
-              </View>
-            </>
-          ) : profileMissing ? (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Ya has iniciado sesión, pero para escribir en la sala tienes que completar
-                tu perfil comunitario con nombre, apellidos, fecha de nacimiento, país,
-                nombre de usuario, 2 fotos de perfil y 1 imagen de portada.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Cuenta iniciada" tone="success" />
-                <Tag text="Perfil incompleto" tone="warn" />
-                <Tag text="Chat bloqueado" tone="danger" />
-              </View>
-
-              <ActionButton
-                label="Completar perfil del chat"
-                onPress={() => router.push("/perfil")}
-                primary
-              />
-            </>
-          ) : (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Perfil validado. Puedes participar en el chat, usar emojis, abrir GIFs y
-                construir reputación dentro de la comunidad.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Cuenta validada" tone="success" />
-                <Tag text="Puede comentar" tone="success" />
-                <Tag text="Multimedia habilitada" tone="success" />
-              </View>
-            </>
-          )}
-        </View>
-
-        {/* SALA ÚNICA */}
+    return (
+      <>
         <View
           style={{
             borderRadius: 22,
@@ -312,7 +263,6 @@ export default function ChatGlobalScreen() {
             overflow: "hidden",
           }}
         >
-          {/* HEADER DE LA SALA */}
           <View
             style={{
               paddingHorizontal: 16,
@@ -337,8 +287,8 @@ export default function ChatGlobalScreen() {
                   Sala · Chat Global
                 </Text>
                 <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21 }}>
-                  Una única sala principal. Todo el mundo puede mirar. Solo los usuarios
-                  verificados pueden hablar.
+                  Sala principal para conectar gamers, encontrar gente para jugar a Fortnite
+                  y hablar con personas de tu misma ciudad o país.
                 </Text>
               </View>
 
@@ -389,8 +339,8 @@ export default function ChatGlobalScreen() {
                 }}
               >
                 <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                  Los usuarios del chat pueden ver tanto a quienes participan como a quienes
-                  están mirando en silencio.
+                  Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
+                  debería poder filtrarse por ciudad, país, juego y plataforma.
                 </Text>
 
                 <View style={{ gap: 10 }}>
@@ -402,7 +352,6 @@ export default function ChatGlobalScreen() {
             ) : null}
           </View>
 
-          {/* MENSAJES */}
           <View style={{ padding: 14, gap: 12 }}>
             {messages.map((message) => (
               <MessageBubble
@@ -414,7 +363,6 @@ export default function ChatGlobalScreen() {
           </View>
         </View>
 
-        {/* COMPOSER */}
         <View
           style={{
             borderRadius: 20,
@@ -518,6 +466,204 @@ export default function ChatGlobalScreen() {
             </>
           )}
         </View>
+      </>
+    );
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      <StatusBar barStyle="light-content" />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingTop: 18,
+          paddingBottom: 30,
+          gap: 16,
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 24,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.08)",
+            backgroundColor: COLORS.bg2,
+            padding: 18,
+            gap: 16,
+          }}
+        >
+          <View style={{ gap: 10 }}>
+            <View
+              style={{
+                alignSelf: "flex-start",
+                borderRadius: 999,
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                backgroundColor: "rgba(34,197,94,0.16)",
+                borderWidth: 1,
+                borderColor: "rgba(34,197,94,0.30)",
+              }}
+            >
+              <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
+                EN DIRECTO
+              </Text>
+            </View>
+
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: 30,
+                lineHeight: 34,
+                fontWeight: "900",
+              }}
+            >
+              Chat Global
+            </Text>
+
+            <Text
+              style={{
+                color: COLORS.muted,
+                fontSize: 15,
+                lineHeight: 23,
+                maxWidth: 980,
+              }}
+            >
+              Hub social para conectar gamers, encontrar gente para jugar a Fortnite,
+              descubrir personas de tu misma ciudad o país y seguir noticias gaming,
+              novedades de la tienda y torneos.
+            </Text>
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 10,
+            }}
+          >
+            <StatPill label="Viendo ahora" value={String(totalViewers)} />
+            <StatPill label="Registrados online" value={String(registeredOnline)} />
+            <StatPill label="Jugando / buscando Fortnite" value={String(fortnitePlayers)} />
+            <StatPill label="Modo actual" value={canWrite ? "Participando" : "Solo lectura"} />
+          </View>
+        </View>
+
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: COLORS.card,
+            padding: 10,
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900", paddingHorizontal: 6 }}>
+            Explorar
+          </Text>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 6 }}>
+              <HubTabButton
+                active={activeTab === "chat"}
+                label="Chat Global"
+                onPress={() => setActiveTab("chat")}
+              />
+              <HubTabButton
+                active={activeTab === "news"}
+                label="Noticias Gaming"
+                onPress={() => setActiveTab("news")}
+              />
+              <HubTabButton
+                active={activeTab === "novedades"}
+                label="Nuestras Novedades"
+                onPress={() => setActiveTab("novedades")}
+              />
+              <HubTabButton
+                active={activeTab === "torneos"}
+                label="Torneos"
+                onPress={() => setActiveTab("torneos")}
+              />
+            </View>
+          </ScrollView>
+        </View>
+
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: COLORS.card,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900" }}>
+            Tu estado en el hub
+          </Text>
+
+          {!isLoggedIn ? (
+            <>
+              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                Estás entrando como visitante. Puedes mirar el contenido y la sala, pero no
+                puedes comentar ni abrir imágenes, GIFs o vídeos.
+              </Text>
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <Tag text="Modo visitante" tone="neutral" />
+                <Tag text="Solo lectura" tone="warn" />
+                <Tag text="Multimedia bloqueada" tone="danger" />
+              </View>
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <ActionButton
+                  label="Crear cuenta"
+                  onPress={() => router.push("/perfil")}
+                  primary
+                />
+                <ActionButton
+                  label="Iniciar sesión"
+                  onPress={() => router.push("/perfil")}
+                />
+              </View>
+            </>
+          ) : profileMissing ? (
+            <>
+              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                Ya has iniciado sesión, pero para comentar y conectar con otros jugadores
+                necesitas completar tu perfil comunitario.
+              </Text>
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <Tag text="Cuenta iniciada" tone="success" />
+                <Tag text="Perfil incompleto" tone="warn" />
+                <Tag text="Chat bloqueado" tone="danger" />
+              </View>
+
+              <ActionButton
+                label="Completar perfil del chat"
+                onPress={() => router.push("/perfil")}
+                primary
+              />
+            </>
+          ) : (
+            <>
+              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                Perfil validado. Ya puedes comentar, conectar con otros jugadores y entrar
+                de verdad en la comunidad.
+              </Text>
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <Tag text="Cuenta validada" tone="success" />
+                <Tag text="Puede comentar" tone="success" />
+                <Tag text="Multimedia habilitada" tone="success" />
+              </View>
+            </>
+          )}
+        </View>
+
+        {renderActiveTabContent()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -662,6 +808,33 @@ function MiniPill({ text }: { text: string }) {
   );
 }
 
+function HubTabButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.9 : 1,
+        borderRadius: 999,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: active ? COLORS.accentSoft : "rgba(255,255,255,0.05)",
+        borderWidth: 1,
+        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.10)",
+      })}
+    >
+      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function ViewerRow({ viewer }: { viewer: Viewer }) {
   const modeMap = {
     viewer: {
@@ -692,54 +865,90 @@ function ViewerRow({ viewer }: { viewer: Viewer }) {
         borderColor: "rgba(255,255,255,0.10)",
         backgroundColor: "rgba(255,255,255,0.04)",
         padding: 12,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: 10,
+        gap: 8,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-        <View
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: 999,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(255,255,255,0.10)",
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-            {viewer.username.slice(0, 1).toUpperCase()}
-          </Text>
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-            @{viewer.username}
-          </Text>
-          <Text style={{ color: COLORS.soft, fontSize: 12, marginTop: 2 }}>
-            conectado ahora
-          </Text>
-        </View>
-      </View>
-
       <View
         style={{
-          borderRadius: 999,
-          paddingVertical: 7,
-          paddingHorizontal: 10,
-          backgroundColor: modeMap.bg,
-          borderWidth: 1,
-          borderColor: modeMap.border,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 10,
         }}
       >
-        <Text style={{ color: modeMap.text, fontWeight: "900", fontSize: 12 }}>
-          {modeMap.label}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+          <View
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(255,255,255,0.10)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.08)",
+            }}
+          >
+            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+              {viewer.username.slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+              @{viewer.username}
+            </Text>
+            <Text style={{ color: COLORS.soft, fontSize: 12, marginTop: 2 }}>
+              {viewer.city}, {viewer.country}
+            </Text>
+          </View>
+        </View>
+
+        <View
+          style={{
+            borderRadius: 999,
+            paddingVertical: 7,
+            paddingHorizontal: 10,
+            backgroundColor: modeMap.bg,
+            borderWidth: 1,
+            borderColor: modeMap.border,
+          }}
+        >
+          <Text style={{ color: modeMap.text, fontWeight: "900", fontSize: 12 }}>
+            {modeMap.label}
+          </Text>
+        </View>
       </View>
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <MiniInlineData label="Juego" value={viewer.game} />
+        <MiniInlineData label="Zona" value={viewer.city} />
+      </View>
+    </View>
+  );
+}
+
+function MiniInlineData({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        backgroundColor: "rgba(255,255,255,0.05)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.08)",
+      }}
+    >
+      <Text style={{ color: COLORS.soft, fontSize: 11, fontWeight: "700" }}>
+        {label}: <Text style={{ color: COLORS.text, fontWeight: "900" }}>{value}</Text>
+      </Text>
     </View>
   );
 }
@@ -906,6 +1115,53 @@ function MessageBubble({
         ) : (
           <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item.text}</Text>
         )}
+      </View>
+    </View>
+  );
+}
+
+function InfoPanel({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: string[];
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.card,
+        padding: 16,
+        gap: 12,
+      }}
+    >
+      <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+        {title}
+      </Text>
+      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+        {subtitle}
+      </Text>
+
+      <View style={{ gap: 10 }}>
+        {items.map((item, index) => (
+          <View
+            key={`${title}-${index}`}
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.10)",
+              backgroundColor: "rgba(255,255,255,0.04)",
+              padding: 12,
+            }}
+          >
+            <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item}</Text>
+          </View>
+        ))}
       </View>
     </View>
   );
