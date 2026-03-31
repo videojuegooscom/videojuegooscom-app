@@ -7,11 +7,9 @@ import {
   ScrollView,
   StatusBar,
   Text,
-  TextInput,
   UIManager,
   View,
 } from "react-native";
-import { router } from "expo-router";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -21,7 +19,6 @@ const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
   card: "rgba(255,255,255,0.06)",
-  cardStrong: "rgba(255,255,255,0.08)",
   border: "rgba(255,255,255,0.12)",
   text: "#FFFFFF",
   muted: "rgba(255,255,255,0.74)",
@@ -29,9 +26,6 @@ const COLORS = {
   accent: "#00AAE4",
   accentSoft: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.34)",
-  success: "#22C55E",
-  warn: "#F59E0B",
-  danger: "#FF3B30",
   bubbleMine: "rgba(0,170,228,0.18)",
   bubbleOther: "rgba(255,255,255,0.06)",
   bubbleSystem: "rgba(216,176,74,0.14)",
@@ -63,7 +57,6 @@ type HubTab = "chat" | "news" | "novedades" | "torneos";
 export default function ChatGlobalScreen() {
   const [isLoggedIn] = useState(false);
   const [hasCompletedCommunityProfile] = useState(false);
-  const [draft, setDraft] = useState("");
   const [showViewers, setShowViewers] = useState(false);
   const [activeTab, setActiveTab] = useState<HubTab>("chat");
 
@@ -196,9 +189,7 @@ export default function ChatGlobalScreen() {
     []
   );
 
-  const canWrite = isLoggedIn && hasCompletedCommunityProfile;
-  const profileMissing = isLoggedIn && !hasCompletedCommunityProfile;
-
+  const canViewMedia = isLoggedIn && hasCompletedCommunityProfile;
   const totalViewers = viewers.length + 21;
 
   const toggleViewers = () => {
@@ -250,220 +241,114 @@ export default function ChatGlobalScreen() {
     }
 
     return (
-      <>
+      <View
+        style={{
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          backgroundColor: COLORS.card,
+          overflow: "hidden",
+        }}
+      >
         <View
           style={{
-            borderRadius: 22,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            overflow: "hidden",
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 14,
+            borderBottomWidth: 1,
+            borderBottomColor: "rgba(255,255,255,0.08)",
+            gap: 12,
           }}
         >
           <View
             style={{
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 14,
-              borderBottomWidth: 1,
-              borderBottomColor: "rgba(255,255,255,0.08)",
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
               gap: 12,
+              flexWrap: "wrap",
             }}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <View style={{ flex: 1, minWidth: 220 }}>
-                <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                  Sala · Chat Global
-                </Text>
-                <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21 }}>
-                  Sala principal para conectar gamers, encontrar gente para jugar a Fortnite
-                  y hablar con personas de tu misma ciudad o país.
-                </Text>
-              </View>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    backgroundColor: "rgba(34,197,94,0.12)",
-                    borderWidth: 1,
-                    borderColor: "rgba(34,197,94,0.30)",
-                  }}
-                >
-                  <Text style={{ color: "#BBF7D0", fontWeight: "900" }}>
-                    {totalViewers} conectados
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={toggleViewers}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.9 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    backgroundColor: COLORS.accentSoft,
-                    borderWidth: 1,
-                    borderColor: COLORS.accentBorder,
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                    Viendo ahora · {totalViewers} {showViewers ? "▲" : "▼"}
-                  </Text>
-                </Pressable>
-              </View>
+            <View style={{ flex: 1, minWidth: 220 }}>
+              <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                Sala · Chat Global
+              </Text>
+              <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21 }}>
+                Sala principal para conectar gamers, encontrar gente para jugar a Fortnite
+                y hablar con personas de tu misma ciudad o país.
+              </Text>
             </View>
 
-            {showViewers ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               <View
                 style={{
-                  borderRadius: 16,
+                  borderRadius: 999,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  backgroundColor: "rgba(34,197,94,0.12)",
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.08)",
-                  backgroundColor: "rgba(255,255,255,0.035)",
-                  padding: 12,
-                  gap: 12,
+                  borderColor: "rgba(34,197,94,0.30)",
                 }}
               >
-                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                  Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
-                  debería poder filtrarse por ciudad, país, juego y plataforma.
+                <Text style={{ color: "#BBF7D0", fontWeight: "900" }}>
+                  {totalViewers} conectados
                 </Text>
-
-                <View style={{ gap: 10 }}>
-                  {viewers.map((viewer) => (
-                    <ViewerRow key={viewer.id} viewer={viewer} />
-                  ))}
-                </View>
               </View>
-            ) : null}
+
+              <Pressable
+                onPress={toggleViewers}
+                style={({ pressed }) => ({
+                  opacity: pressed ? 0.9 : 1,
+                  borderRadius: 999,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  backgroundColor: COLORS.accentSoft,
+                  borderWidth: 1,
+                  borderColor: COLORS.accentBorder,
+                })}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+                  Viendo ahora · {totalViewers} {showViewers ? "▲" : "▼"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
-          <View style={{ padding: 14, gap: 12 }}>
-            {messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                item={message}
-                canViewMedia={canWrite}
-              />
-            ))}
-          </View>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.cardStrong,
-            padding: 14,
-            gap: 12,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}>
-            Escribir en la sala
-          </Text>
-
-          {!canWrite ? (
+          {showViewers ? (
             <View
               style={{
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: "rgba(245,158,11,0.30)",
-                backgroundColor: "rgba(245,158,11,0.10)",
-                padding: 14,
-                gap: 10,
+                borderColor: "rgba(255,255,255,0.08)",
+                backgroundColor: "rgba(255,255,255,0.035)",
+                padding: 12,
+                gap: 12,
               }}
             >
-              <Text style={{ color: "#FDE68A", fontWeight: "900" }}>
-                Chat bloqueado para este perfil
+              <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
+                debería poder filtrarse por ciudad, país, juego y plataforma.
               </Text>
 
-              <Text style={{ color: COLORS.text, lineHeight: 22 }}>
-                Para comentar necesitas:
-              </Text>
-
-              <View style={{ gap: 8 }}>
-                <Requirement text="Cuenta registrada en la tienda online" ok={isLoggedIn} />
-                <Requirement text="Nombre y apellidos" ok={false} />
-                <Requirement text="Fecha de nacimiento" ok={false} />
-                <Requirement text="País" ok={false} />
-                <Requirement text="Nombre de usuario público" ok={false} />
-                <Requirement text="2 fotos de perfil" ok={false} />
-                <Requirement text="1 imagen de portada" ok={false} />
-              </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: 10,
-                  marginTop: 4,
-                }}
-              >
-                <ActionButton
-                  label={!isLoggedIn ? "Registrarme ahora" : "Completar mi perfil"}
-                  onPress={() => router.push("/perfil")}
-                  primary
-                />
-                <ActionButton
-                  label="Ver mis datos"
-                  onPress={() => router.push("/perfil")}
-                />
+              <View style={{ gap: 10 }}>
+                {viewers.map((viewer) => (
+                  <ViewerRow key={viewer.id} viewer={viewer} />
+                ))}
               </View>
             </View>
-          ) : (
-            <>
-              <TextInput
-                value={draft}
-                onChangeText={setDraft}
-                placeholder="Escribe tu mensaje…"
-                placeholderTextColor="rgba(255,255,255,0.42)"
-                multiline
-                style={{
-                  minHeight: 110,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.12)",
-                  backgroundColor: "rgba(0,0,0,0.12)",
-                  padding: 14,
-                  color: COLORS.text,
-                  textAlignVertical: "top",
-                }}
-              />
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 10,
-                  flexWrap: "wrap",
-                }}
-              >
-                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                  <MiniPill text="😀 Emoji" />
-                  <MiniPill text="GIF" />
-                  <MiniPill text="Foto" />
-                  <MiniPill text="Vídeo" />
-                </View>
-
-                <ActionButton label="Enviar mensaje" onPress={() => {}} primary />
-              </View>
-            </>
-          )}
+          ) : null}
         </View>
-      </>
+
+        <View style={{ padding: 14, gap: 12 }}>
+          {messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              item={message}
+              canViewMedia={canViewMedia}
+            />
+          ))}
+        </View>
+      </View>
     );
   };
 
@@ -721,48 +606,6 @@ function ActionButton({
     >
       <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{label}</Text>
     </Pressable>
-  );
-}
-
-function Requirement({ text, ok }: { text: string; ok: boolean }) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-      <View
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: 999,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: ok ? "rgba(34,197,94,0.18)" : "rgba(255,255,255,0.08)",
-          borderWidth: 1,
-          borderColor: ok ? "rgba(34,197,94,0.30)" : "rgba(255,255,255,0.12)",
-        }}
-      >
-        <Text style={{ color: ok ? "#BBF7D0" : "rgba(255,255,255,0.62)", fontWeight: "900" }}>
-          {ok ? "✓" : "•"}
-        </Text>
-      </View>
-
-      <Text style={{ color: COLORS.text, flex: 1, lineHeight: 21 }}>{text}</Text>
-    </View>
-  );
-}
-
-function MiniPill({ text }: { text: string }) {
-  return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-      }}
-    >
-      <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: "800" }}>{text}</Text>
-    </View>
   );
 }
 
