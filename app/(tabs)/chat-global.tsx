@@ -1,15 +1,19 @@
 import React, { useMemo, useState } from "react";
 import {
   LayoutAnimation,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StatusBar,
   Text,
+  TextInput,
   UIManager,
   View,
 } from "react-native";
+import { router } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -18,18 +22,30 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
+  bg3: "#0A2743",
   card: "rgba(255,255,255,0.06)",
+  cardSoft: "rgba(255,255,255,0.035)",
   border: "rgba(255,255,255,0.12)",
+  borderSoft: "rgba(255,255,255,0.08)",
   text: "#FFFFFF",
+  textDark: "#0B1726",
   muted: "rgba(255,255,255,0.74)",
   soft: "rgba(255,255,255,0.52)",
   accent: "#00AAE4",
   accentSoft: "rgba(0,170,228,0.16)",
   accentBorder: "rgba(0,170,228,0.34)",
-  bubbleMine: "rgba(0,170,228,0.18)",
-  bubbleOther: "rgba(255,255,255,0.06)",
+  accentGlow: "rgba(0,170,228,0.20)",
+  success: "#22C55E",
+  successSoft: "rgba(34,197,94,0.16)",
+  successBorder: "rgba(34,197,94,0.30)",
+  bubbleMine: "rgba(0,170,228,0.22)",
+  bubbleOther: "rgba(255,255,255,0.055)",
   bubbleSystem: "rgba(216,176,74,0.14)",
   gold: "#D8B04A",
+  danger: "#FF6B6B",
+  dangerSoft: "rgba(255,107,107,0.14)",
+  dangerBorder: "rgba(255,107,107,0.30)",
+  overlay: "rgba(3,10,18,0.76)",
 };
 
 type Viewer = {
@@ -54,11 +70,70 @@ type MessageItem = {
 
 type HubTab = "chat" | "news" | "novedades" | "torneos";
 
+const INITIAL_MESSAGES: MessageItem[] = [
+  {
+    id: "m1",
+    type: "system",
+    username: "system",
+    displayName: "Sistema",
+    time: "12:06",
+    text: "Bienvenido al Chat Global. Esta sala está pensada para conectar gamers, encontrar gente para jugar y seguir noticias, novedades y torneos.",
+  },
+  {
+    id: "m2",
+    type: "message",
+    username: "mariaps5",
+    displayName: "María",
+    role: "member",
+    time: "12:08",
+    text: "¿Hay alguien de Madrid para jugar Fortnite esta tarde? 🎮",
+  },
+  {
+    id: "m3",
+    type: "message",
+    username: "videojuegoos",
+    displayName: "Videojuegoos",
+    role: "admin",
+    time: "12:09",
+    text: "La idea es esa: que podáis encontrar gente por ciudad, país y juego, además de enteraros de novedades y torneos.",
+  },
+  {
+    id: "m4",
+    type: "gif",
+    username: "retro_dani",
+    displayName: "Dani Retro",
+    role: "member",
+    time: "12:10",
+    text: "GIF: victoria épica en Fortnite",
+  },
+  {
+    id: "m5",
+    type: "message",
+    username: "otakuzone",
+    displayName: "Otaku Zone",
+    role: "vip",
+    time: "12:11",
+    text: "Esto puede funcionar muy bien si luego permitís filtrar por país, plataforma y juego principal.",
+  },
+  {
+    id: "m6",
+    type: "message",
+    username: "capibara_tech",
+    displayName: "Capibara Tech",
+    role: "member",
+    time: "12:12",
+    text: "También molaría destacar torneos y nuevas entradas de consolas dentro del mismo hub.",
+  },
+];
+
 export default function ChatGlobalScreen() {
   const [isLoggedIn] = useState(false);
   const [hasCompletedCommunityProfile] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [activeTab, setActiveTab] = useState<HubTab>("chat");
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [messages, setMessages] = useState<MessageItem[]>(INITIAL_MESSAGES);
 
   const viewers = useMemo<Viewer[]>(
     () => [
@@ -130,71 +205,48 @@ export default function ChatGlobalScreen() {
     []
   );
 
-  const messages = useMemo<MessageItem[]>(
-    () => [
-      {
-        id: "m1",
-        type: "system",
-        username: "system",
-        displayName: "Sistema",
-        time: "12:06",
-        text: "Bienvenido al Chat Global. Esta sala está pensada para conectar gamers, encontrar gente para jugar y seguir noticias, novedades y torneos.",
-      },
-      {
-        id: "m2",
-        type: "message",
-        username: "mariaps5",
-        displayName: "María",
-        role: "member",
-        time: "12:08",
-        text: "¿Hay alguien de Madrid para jugar Fortnite esta tarde? 🎮",
-      },
-      {
-        id: "m3",
-        type: "message",
-        username: "videojuegoos",
-        displayName: "Videojuegoos",
-        role: "admin",
-        time: "12:09",
-        text: "La idea es esa: que podáis encontrar gente por ciudad, país y juego, además de enteraros de novedades y torneos.",
-      },
-      {
-        id: "m4",
-        type: "gif",
-        username: "retro_dani",
-        displayName: "Dani Retro",
-        role: "member",
-        time: "12:10",
-        text: "GIF: victoria épica en Fortnite",
-      },
-      {
-        id: "m5",
-        type: "message",
-        username: "otakuzone",
-        displayName: "Otaku Zone",
-        role: "vip",
-        time: "12:11",
-        text: "Esto puede funcionar muy bien si luego permitís filtrar por país, plataforma y juego principal.",
-      },
-      {
-        id: "m6",
-        type: "message",
-        username: "capibara_tech",
-        displayName: "Capibara Tech",
-        role: "member",
-        time: "12:12",
-        text: "También molaría destacar torneos y nuevas entradas de consolas dentro del mismo hub.",
-      },
-    ],
-    []
-  );
-
   const canViewMedia = isLoggedIn && hasCompletedCommunityProfile;
   const totalViewers = viewers.length + 21;
 
   const toggleViewers = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowViewers((prev) => !prev);
+  };
+
+  const handleComposerPress = () => {
+    if (!isLoggedIn) {
+      setShowAuthModal(true);
+      return;
+    }
+  };
+
+  const handleSend = () => {
+    if (!isLoggedIn) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    const clean = draft.trim();
+    if (!clean) return;
+
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(
+      now.getMinutes()
+    ).padStart(2, "0")}`;
+
+    const newMessage: MessageItem = {
+      id: `local-${Date.now()}`,
+      type: "message",
+      username: "tu_usuario",
+      displayName: "Tú",
+      role: "member",
+      time,
+      text: clean,
+      mine: true,
+    };
+
+    setMessages((prev) => [...prev, newMessage]);
+    setDraft("");
   };
 
   const renderActiveTabContent = () => {
@@ -243,17 +295,34 @@ export default function ChatGlobalScreen() {
     return (
       <View
         style={{
-          borderRadius: 22,
+          borderRadius: 26,
           borderWidth: 1,
-          borderColor: COLORS.border,
-          backgroundColor: COLORS.card,
+          borderColor: COLORS.borderSoft,
+          backgroundColor: "rgba(6,26,44,0.72)",
           overflow: "hidden",
         }}
       >
+        <LinearGradient
+          colors={[
+            "rgba(255,255,255,0.16)",
+            "rgba(0,170,228,0.10)",
+            "rgba(7,30,51,0.00)",
+          ]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 220,
+          }}
+        />
+
         <View
           style={{
-            paddingHorizontal: 16,
-            paddingTop: 16,
+            paddingHorizontal: 18,
+            paddingTop: 18,
             paddingBottom: 14,
             borderBottomWidth: 1,
             borderBottomColor: "rgba(255,255,255,0.08)",
@@ -264,52 +333,52 @@ export default function ChatGlobalScreen() {
             style={{
               flexDirection: "row",
               justifyContent: "space-between",
-              alignItems: "center",
+              alignItems: "flex-start",
               gap: 12,
               flexWrap: "wrap",
             }}
           >
             <View style={{ flex: 1, minWidth: 220 }}>
-              <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: 24,
+                  fontWeight: "900",
+                  letterSpacing: 0.2,
+                }}
+              >
                 Sala · Chat Global
               </Text>
-              <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21 }}>
-                Sala principal para conectar gamers, encontrar gente para jugar a Fortnite
-                y hablar con personas de tu misma ciudad o país.
+
+              <Text
+                style={{
+                  color: COLORS.muted,
+                  marginTop: 6,
+                  lineHeight: 22,
+                  maxWidth: 800,
+                }}
+              >
+                Sala principal para conectar gamers, encontrar gente para jugar a
+                Fortnite y hablar con personas de tu misma ciudad o país.
               </Text>
             </View>
 
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <View
-                style={{
-                  borderRadius: 999,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  backgroundColor: "rgba(34,197,94,0.12)",
-                  borderWidth: 1,
-                  borderColor: "rgba(34,197,94,0.30)",
-                }}
-              >
-                <Text style={{ color: "#BBF7D0", fontWeight: "900" }}>
-                  {totalViewers} conectados
-                </Text>
-              </View>
+              <GlowPill
+                text={`${totalViewers} conectados`}
+                tone="success"
+              />
 
               <Pressable
                 onPress={toggleViewers}
                 style={({ pressed }) => ({
-                  opacity: pressed ? 0.9 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  backgroundColor: COLORS.accentSoft,
-                  borderWidth: 1,
-                  borderColor: COLORS.accentBorder,
+                  opacity: pressed ? 0.92 : 1,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  Viendo ahora · {totalViewers} {showViewers ? "▲" : "▼"}
-                </Text>
+                <GlowPill
+                  text={`Viendo ahora · ${totalViewers} ${showViewers ? "▲" : "▼"}`}
+                  tone="accent"
+                />
               </Pressable>
             </View>
           </View>
@@ -317,7 +386,7 @@ export default function ChatGlobalScreen() {
           {showViewers ? (
             <View
               style={{
-                borderRadius: 16,
+                borderRadius: 18,
                 borderWidth: 1,
                 borderColor: "rgba(255,255,255,0.08)",
                 backgroundColor: "rgba(255,255,255,0.035)",
@@ -339,14 +408,24 @@ export default function ChatGlobalScreen() {
           ) : null}
         </View>
 
-        <View style={{ padding: 14, gap: 12 }}>
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              item={message}
-              canViewMedia={canViewMedia}
-            />
-          ))}
+        <View style={{ paddingHorizontal: 14, paddingTop: 14, paddingBottom: 20, gap: 10 }}>
+          {messages.map((message, index) => {
+            const prev = messages[index - 1];
+            const grouped =
+              prev &&
+              prev.type === "message" &&
+              message.type === "message" &&
+              prev.username === message.username;
+
+            return (
+              <MessageBubble
+                key={message.id}
+                item={message}
+                canViewMedia={canViewMedia}
+                grouped={!!grouped}
+              />
+            );
+          })}
         </View>
       </View>
     );
@@ -356,180 +435,227 @@ export default function ChatGlobalScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="light-content" />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingTop: 18,
-          paddingBottom: 30,
-          gap: 16,
-        }}
-      >
-        <View
+      <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+        <LinearGradient
+          colors={["rgba(255,255,255,0.20)", "rgba(0,170,228,0.08)", "rgba(7,30,51,0.00)"]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
           style={{
-            borderRadius: 24,
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
-            backgroundColor: COLORS.bg2,
-            paddingHorizontal: 18,
-            paddingVertical: 18,
-            gap: 10,
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 260,
+          }}
+        />
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 18,
+            paddingBottom: 130,
+            gap: 16,
           }}
         >
-          <View
+          <LinearGradient
+            colors={["rgba(255,255,255,0.13)", "rgba(0,170,228,0.08)", "rgba(6,26,44,0.94)"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
             style={{
-              alignSelf: "flex-start",
-              borderRadius: 999,
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              backgroundColor: "rgba(34,197,94,0.16)",
-              borderWidth: 1,
-              borderColor: "rgba(34,197,94,0.30)",
+              borderRadius: 28,
+              padding: 1,
             }}
           >
-            <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
-              EN DIRECTO
-            </Text>
-          </View>
-
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: 30,
-              lineHeight: 34,
-              fontWeight: "900",
-            }}
-          >
-            Chat Global
-          </Text>
-
-          <Text
-            style={{
-              color: COLORS.muted,
-              fontSize: 15,
-              lineHeight: 23,
-              maxWidth: 980,
-            }}
-          >
-            Hub social para conectar gamers, encontrar gente para jugar a Fortnite,
-            descubrir personas de tu misma ciudad o país y seguir noticias gaming,
-            novedades de la tienda y torneos.
-          </Text>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            paddingHorizontal: 10,
-            paddingVertical: 10,
-            gap: 10,
-          }}
-        >
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 6 }}>
-              <HubTabButton
-                active={activeTab === "chat"}
-                label="Chat Global"
-                onPress={() => setActiveTab("chat")}
-              />
-              <HubTabButton
-                active={activeTab === "news"}
-                label="Noticias Gaming"
-                onPress={() => setActiveTab("news")}
-              />
-              <HubTabButton
-                active={activeTab === "novedades"}
-                label="Nuestras Novedades"
-                onPress={() => setActiveTab("novedades")}
-              />
-              <HubTabButton
-                active={activeTab === "torneos"}
-                label="Torneos"
-                onPress={() => setActiveTab("torneos")}
-              />
-            </View>
-          </ScrollView>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            padding: 14,
-            gap: 10,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900" }}>
-            Tu estado en el hub
-          </Text>
-
-          {!isLoggedIn ? (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Estás entrando como visitante. Puedes mirar el contenido y la sala, pero no
-                puedes comentar ni abrir imágenes, GIFs o vídeos.
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Modo visitante" tone="neutral" />
-                <Tag text="Solo lectura" tone="warn" />
-                <Tag text="Multimedia bloqueada" tone="danger" />
+            <View
+              style={{
+                borderRadius: 27,
+                backgroundColor: "rgba(3,18,31,0.92)",
+                paddingHorizontal: 18,
+                paddingVertical: 18,
+                gap: 12,
+              }}
+            >
+              <View
+                style={{
+                  alignSelf: "flex-start",
+                  borderRadius: 999,
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  backgroundColor: "rgba(34,197,94,0.16)",
+                  borderWidth: 1,
+                  borderColor: "rgba(34,197,94,0.30)",
+                }}
+              >
+                <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
+                  EN DIRECTO
+                </Text>
               </View>
 
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: 34,
+                  lineHeight: 38,
+                  fontWeight: "900",
+                  letterSpacing: 0.2,
+                }}
+              >
+                Chat Global
+              </Text>
+
+              <Text
+                style={{
+                  color: COLORS.muted,
+                  fontSize: 15,
+                  lineHeight: 23,
+                  maxWidth: 980,
+                }}
+              >
+                Hub social para conectar gamers, encontrar gente para jugar a
+                Fortnite, descubrir personas de tu misma ciudad o país y seguir
+                noticias gaming, novedades de la tienda y torneos.
+              </Text>
+            </View>
+          </LinearGradient>
+
+          <View
+            style={{
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: COLORS.borderSoft,
+              backgroundColor: COLORS.card,
+              paddingHorizontal: 10,
+              paddingVertical: 10,
+            }}
+          >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 6 }}>
+                <HubTabButton
+                  active={activeTab === "chat"}
+                  label="Chat Global"
+                  onPress={() => setActiveTab("chat")}
+                />
+                <HubTabButton
+                  active={activeTab === "news"}
+                  label="Noticias Gaming"
+                  onPress={() => setActiveTab("news")}
+                />
+                <HubTabButton
+                  active={activeTab === "novedades"}
+                  label="Nuestras Novedades"
+                  onPress={() => setActiveTab("novedades")}
+                />
+                <HubTabButton
+                  active={activeTab === "torneos"}
+                  label="Torneos"
+                  onPress={() => setActiveTab("torneos")}
+                />
+              </View>
+            </ScrollView>
+          </View>
+
+          <View
+            style={{
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: COLORS.borderSoft,
+              backgroundColor: COLORS.card,
+              padding: 14,
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900" }}>
+              Tu estado en el hub
+            </Text>
+
+            {!isLoggedIn ? (
+              <>
+                <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                  Estás entrando como visitante. Puedes mirar el contenido y la sala.
+                  Cuando quieras escribir o enviar un mensaje, te pediremos iniciar
+                  sesión o registrarte.
+                </Text>
+
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <Tag text="Modo visitante" tone="neutral" />
+                  <Tag text="Lectura abierta" tone="success" />
+                  <Tag text="Login al enviar" tone="warn" />
+                </View>
+
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <ActionButton
+                    label="Crear cuenta"
+                    onPress={() => router.push("/perfil")}
+                    primary
+                  />
+                  <ActionButton
+                    label="Iniciar sesión"
+                    onPress={() => router.push("/perfil")}
+                  />
+                </View>
+              </>
+            ) : !hasCompletedCommunityProfile ? (
+              <>
+                <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                  Ya has iniciado sesión. Para desbloquear toda la capa social del
+                  chat conviene completar tu perfil comunitario.
+                </Text>
+
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <Tag text="Cuenta iniciada" tone="success" />
+                  <Tag text="Perfil incompleto" tone="warn" />
+                  <Tag text="Multimedia limitada" tone="danger" />
+                </View>
+
                 <ActionButton
-                  label="Crear cuenta"
+                  label="Completar perfil del chat"
                   onPress={() => router.push("/perfil")}
                   primary
                 />
-                <ActionButton
-                  label="Iniciar sesión"
-                  onPress={() => router.push("/perfil")}
-                />
-              </View>
-            </>
-          ) : profileMissing ? (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Ya has iniciado sesión, pero para comentar y conectar con otros jugadores
-                necesitas completar tu perfil comunitario.
-              </Text>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                  Perfil validado. Ya puedes comentar, enviar mensajes y entrar de
+                  verdad en la comunidad.
+                </Text>
 
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Cuenta iniciada" tone="success" />
-                <Tag text="Perfil incompleto" tone="warn" />
-                <Tag text="Chat bloqueado" tone="danger" />
-              </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <Tag text="Cuenta validada" tone="success" />
+                  <Tag text="Puede comentar" tone="success" />
+                  <Tag text="Multimedia habilitada" tone="success" />
+                </View>
+              </>
+            )}
+          </View>
 
-              <ActionButton
-                label="Completar perfil del chat"
-                onPress={() => router.push("/perfil")}
-                primary
-              />
-            </>
-          ) : (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Perfil validado. Ya puedes comentar, conectar con otros jugadores y entrar
-                de verdad en la comunidad.
-              </Text>
+          {renderActiveTabContent()}
+        </ScrollView>
 
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                <Tag text="Cuenta validada" tone="success" />
-                <Tag text="Puede comentar" tone="success" />
-                <Tag text="Multimedia habilitada" tone="success" />
-              </View>
-            </>
-          )}
-        </View>
+        {activeTab === "chat" ? (
+          <FloatingComposer
+            value={draft}
+            onChangeText={setDraft}
+            onPressInput={handleComposerPress}
+            onPressSend={handleSend}
+            isLoggedIn={isLoggedIn}
+          />
+        ) : null}
 
-        {renderActiveTabContent()}
-      </ScrollView>
+        <AuthRequiredModal
+          visible={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onLogin={() => {
+            setShowAuthModal(false);
+            router.push("/perfil");
+          }}
+          onRegister={() => {
+            setShowAuthModal(false);
+            router.push("/perfil");
+          }}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -558,9 +684,9 @@ function Tag({
       text: "#FDE68A",
     },
     danger: {
-      bg: "rgba(255,59,48,0.12)",
-      border: "rgba(255,59,48,0.30)",
-      text: "#FCA5A5",
+      bg: "rgba(255,107,107,0.12)",
+      border: "rgba(255,107,107,0.30)",
+      text: "#FFC0C0",
     },
   }[tone];
 
@@ -582,6 +708,47 @@ function Tag({
   );
 }
 
+function GlowPill({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "accent" | "success";
+}) {
+  const style =
+    tone === "success"
+      ? {
+          bg: COLORS.successSoft,
+          border: COLORS.successBorder,
+          text: "#BBF7D0",
+        }
+      : {
+          bg: COLORS.accentSoft,
+          border: COLORS.accentBorder,
+          text: COLORS.text,
+        };
+
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        backgroundColor: style.bg,
+        borderWidth: 1,
+        borderColor: style.border,
+        shadowColor: tone === "success" ? COLORS.success : COLORS.accent,
+        shadowOpacity: 0.16,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 2,
+      }}
+    >
+      <Text style={{ color: style.text, fontWeight: "900" }}>{text}</Text>
+    </View>
+  );
+}
+
 function ActionButton({
   label,
   onPress,
@@ -595,7 +762,7 @@ function ActionButton({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        opacity: pressed ? 0.9 : 1,
+        opacity: pressed ? 0.92 : 1,
         borderRadius: 14,
         paddingVertical: 12,
         paddingHorizontal: 14,
@@ -622,13 +789,17 @@ function HubTabButton({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        opacity: pressed ? 0.9 : 1,
+        opacity: pressed ? 0.92 : 1,
         borderRadius: 999,
         paddingVertical: 10,
         paddingHorizontal: 14,
         backgroundColor: active ? COLORS.accentSoft : "rgba(255,255,255,0.05)",
         borderWidth: 1,
         borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.10)",
+        shadowColor: active ? COLORS.accent : "transparent",
+        shadowOpacity: active ? 0.18 : 0,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 0 },
       })}
     >
       <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
@@ -661,7 +832,7 @@ function ViewerRow({ viewer }: { viewer: Viewer }) {
   return (
     <View
       style={{
-        borderRadius: 14,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.10)",
         backgroundColor: "rgba(255,255,255,0.04)",
@@ -678,23 +849,7 @@ function ViewerRow({ viewer }: { viewer: Viewer }) {
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-          <View
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 999,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(255,255,255,0.10)",
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.08)",
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-              {viewer.username.slice(0, 1).toUpperCase()}
-            </Text>
-          </View>
-
+          <AvatarCircle username={viewer.username} size={40} />
           <View style={{ flex: 1 }}>
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>
               @{viewer.username}
@@ -729,6 +884,42 @@ function ViewerRow({ viewer }: { viewer: Viewer }) {
   );
 }
 
+function AvatarCircle({
+  username,
+  size = 42,
+}: {
+  username: string;
+  size?: number;
+}) {
+  const palette = [
+    "rgba(0,170,228,0.20)",
+    "rgba(34,197,94,0.18)",
+    "rgba(216,176,74,0.18)",
+    "rgba(255,255,255,0.12)",
+  ];
+  const index = username.length % palette.length;
+  const bg = palette[index];
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: bg,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.10)",
+      }}
+    >
+      <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+        {username.slice(0, 1).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
 function MiniInlineData({
   label,
   value,
@@ -757,9 +948,11 @@ function MiniInlineData({
 function MessageBubble({
   item,
   canViewMedia,
+  grouped,
 }: {
   item: MessageItem;
   canViewMedia: boolean;
+  grouped?: boolean;
 }) {
   if (item.type === "system") {
     return (
@@ -789,6 +982,7 @@ function MessageBubble({
           text: "#BAE6FD",
           border: "rgba(0,170,228,0.30)",
           label: "ADMIN",
+          accent: COLORS.accent,
         }
       : item.role === "vip"
       ? {
@@ -796,12 +990,14 @@ function MessageBubble({
           text: "#FDE68A",
           border: "rgba(216,176,74,0.30)",
           label: "VIP",
+          accent: COLORS.gold,
         }
       : {
           bg: "rgba(255,255,255,0.06)",
           text: "#FFFFFF",
           border: "rgba(255,255,255,0.12)",
           label: "MIEMBRO",
+          accent: "rgba(255,255,255,0.18)",
         };
 
   const bubbleBg = item.mine ? COLORS.bubbleMine : COLORS.bubbleOther;
@@ -811,46 +1007,54 @@ function MessageBubble({
       style={{
         alignSelf: item.mine ? "flex-end" : "stretch",
         maxWidth: "100%",
-        gap: 6,
+        gap: grouped ? 4 : 8,
+        marginTop: grouped ? 2 : 6,
       }}
     >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-        }}
-      >
-        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.displayName}</Text>
-        <Text style={{ color: COLORS.soft, fontSize: 12 }}>@{item.username}</Text>
-
+      {!grouped ? (
         <View
           style={{
-            borderRadius: 999,
-            paddingVertical: 4,
-            paddingHorizontal: 8,
-            backgroundColor: roleTone.bg,
-            borderWidth: 1,
-            borderColor: roleTone.border,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
           }}
         >
-          <Text style={{ color: roleTone.text, fontSize: 11, fontWeight: "900" }}>
-            {roleTone.label}
-          </Text>
-        </View>
+          <AvatarCircle username={item.username} />
+          <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.displayName}</Text>
+          <Text style={{ color: COLORS.soft, fontSize: 12 }}>@{item.username}</Text>
 
-        <Text style={{ color: COLORS.soft, fontSize: 12 }}>{item.time}</Text>
-      </View>
+          <View
+            style={{
+              borderRadius: 999,
+              paddingVertical: 4,
+              paddingHorizontal: 8,
+              backgroundColor: roleTone.bg,
+              borderWidth: 1,
+              borderColor: roleTone.border,
+            }}
+          >
+            <Text style={{ color: roleTone.text, fontSize: 11, fontWeight: "900" }}>
+              {roleTone.label}
+            </Text>
+          </View>
+
+          <Text style={{ color: COLORS.soft, fontSize: 12 }}>{item.time}</Text>
+        </View>
+      ) : null}
 
       <View
         style={{
           borderRadius: 18,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.10)",
+          borderColor: item.mine ? "rgba(0,170,228,0.20)" : "rgba(255,255,255,0.08)",
           backgroundColor: bubbleBg,
           padding: 14,
           gap: 10,
+          shadowColor: item.mine ? COLORS.accent : roleTone.accent,
+          shadowOpacity: item.mine ? 0.12 : 0.06,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 2 },
         }}
       >
         {item.type === "gif" ? (
@@ -858,8 +1062,8 @@ function MessageBubble({
             style={{
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.10)",
-              backgroundColor: "rgba(0,0,0,0.16)",
+              borderColor: "rgba(255,255,255,0.08)",
+              backgroundColor: "rgba(255,255,255,0.03)",
               padding: 14,
               alignItems: "center",
               justifyContent: "center",
@@ -891,12 +1095,12 @@ function MessageBubble({
                     borderRadius: 999,
                     paddingVertical: 6,
                     paddingHorizontal: 10,
-                    backgroundColor: "rgba(255,59,48,0.12)",
+                    backgroundColor: COLORS.dangerSoft,
                     borderWidth: 1,
-                    borderColor: "rgba(255,59,48,0.30)",
+                    borderColor: COLORS.dangerBorder,
                   }}
                 >
-                  <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>
+                  <Text style={{ color: "#FFC0C0", fontWeight: "900" }}>
                     GIF bloqueado
                   </Text>
                 </View>
@@ -908,7 +1112,7 @@ function MessageBubble({
                     lineHeight: 21,
                   }}
                 >
-                  Regístrate y completa tu perfil para abrir multimedia del chat.
+                  Inicia sesión y completa tu perfil para abrir multimedia del chat.
                 </Text>
               </>
             )}
@@ -918,6 +1122,229 @@ function MessageBubble({
         )}
       </View>
     </View>
+  );
+}
+
+function FloatingComposer({
+  value,
+  onChangeText,
+  onPressInput,
+  onPressSend,
+  isLoggedIn,
+}: {
+  value: string;
+  onChangeText: (text: string) => void;
+  onPressInput: () => void;
+  onPressSend: () => void;
+  isLoggedIn: boolean;
+}) {
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: "absolute",
+        left: 12,
+        right: 12,
+        bottom: 12,
+      }}
+    >
+      <LinearGradient
+        colors={["rgba(255,255,255,0.16)", "rgba(0,170,228,0.08)", "rgba(255,255,255,0.02)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{
+          borderRadius: 24,
+          padding: 1,
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 23,
+            backgroundColor: "rgba(6,26,44,0.94)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.06)",
+            padding: 10,
+            shadowColor: COLORS.accent,
+            shadowOpacity: 0.14,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 4 },
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <Pressable
+              onPress={onPressInput}
+              style={{
+                flex: 1,
+              }}
+            >
+              {isLoggedIn ? (
+                <TextInput
+                  value={value}
+                  onChangeText={onChangeText}
+                  placeholder="Escribe un mensaje…"
+                  placeholderTextColor="rgba(255,255,255,0.42)"
+                  style={{
+                    minHeight: 48,
+                    maxHeight: 110,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.08)",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    color: COLORS.text,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                  }}
+                  multiline
+                />
+              ) : (
+                <View
+                  style={{
+                    minHeight: 48,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.08)",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ color: "rgba(255,255,255,0.42)" }}>
+                    Escribe un mensaje…
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={onPressSend}
+              style={({ pressed }) => ({
+                width: 50,
+                height: 50,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: COLORS.accent,
+                opacity: pressed ? 0.9 : 1,
+                shadowColor: COLORS.accent,
+                shadowOpacity: 0.24,
+                shadowRadius: 14,
+                shadowOffset: { width: 0, height: 2 },
+              })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 18 }}>➤</Text>
+            </Pressable>
+          </View>
+        </View>
+      </LinearGradient>
+    </View>
+  );
+}
+
+function AuthRequiredModal({
+  visible,
+  onClose,
+  onLogin,
+  onRegister,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onLogin: () => void;
+  onRegister: () => void;
+}) {
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <LinearGradient
+          colors={["rgba(255,255,255,0.18)", "rgba(0,170,228,0.10)", "rgba(255,255,255,0.02)"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            width: "100%",
+            maxWidth: 460,
+            borderRadius: 28,
+            padding: 1,
+          }}
+        >
+          <View
+            style={{
+              borderRadius: 27,
+              backgroundColor: "rgba(6,26,44,0.98)",
+              padding: 20,
+              gap: 14,
+            }}
+          >
+            <View
+              style={{
+                alignSelf: "flex-start",
+                borderRadius: 999,
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                backgroundColor: COLORS.accentSoft,
+                borderWidth: 1,
+                borderColor: COLORS.accentBorder,
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                ACCESO NECESARIO
+              </Text>
+            </View>
+
+            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+              Inicia sesión para enviar mensajes
+            </Text>
+
+            <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+              Puedes explorar la sala libremente, pero para escribir o enviar mensajes
+              necesitas iniciar sesión o crear tu cuenta.
+            </Text>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <Tag text="Chat visible" tone="success" />
+              <Tag text="Enviar = login" tone="warn" />
+              <Tag text="Comunidad protegida" tone="neutral" />
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+              <ActionButton label="Iniciar sesión" onPress={onLogin} primary />
+              <ActionButton label="Crear cuenta" onPress={onRegister} />
+            </View>
+
+            <Pressable
+              onPress={onClose}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.88 : 1,
+                alignSelf: "center",
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                marginTop: 2,
+              })}
+            >
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
+      </View>
+    </Modal>
   );
 }
 
@@ -935,7 +1362,7 @@ function InfoPanel({
       style={{
         borderRadius: 22,
         borderWidth: 1,
-        borderColor: COLORS.border,
+        borderColor: COLORS.borderSoft,
         backgroundColor: COLORS.card,
         padding: 16,
         gap: 12,
