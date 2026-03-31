@@ -362,18 +362,6 @@ export default function ChatGlobalScreen() {
                 Fortnite y hablar con personas de tu misma ciudad o país.
               </Text>
             </View>
-
-            <Pressable
-              onPress={toggleViewers}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.92 : 1,
-              })}
-            >
-              <Tag
-                text={showViewers ? "Ocultar conectados" : "Ver conectados"}
-                tone="neutral"
-              />
-            </Pressable>
           </View>
 
           {showViewers ? (
@@ -473,55 +461,40 @@ export default function ChatGlobalScreen() {
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "space-between",
                   flexWrap: "wrap",
-                  gap: 12,
+                  gap: 10,
                 }}
               >
                 <View
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: 12,
-                    flex: 1,
+                    alignSelf: "flex-start",
+                    borderRadius: 999,
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    backgroundColor: "rgba(34,197,94,0.16)",
+                    borderWidth: 1,
+                    borderColor: "rgba(34,197,94,0.30)",
                   }}
                 >
-                  <View
-                    style={{
-                      alignSelf: "flex-start",
-                      borderRadius: 999,
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      backgroundColor: "rgba(34,197,94,0.16)",
-                      borderWidth: 1,
-                      borderColor: "rgba(34,197,94,0.30)",
-                    }}
-                  >
-                    <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
-                      EN DIRECTO
-                    </Text>
-                  </View>
-
-                  <GlowPill
-                    text={`${totalViewers} conectados`}
-                    tone="success"
-                    large
-                  />
-
-                  <Pressable
-                    onPress={toggleViewers}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.92 : 1,
-                    })}
-                  >
-                    <GlowPill
-                      text={`Viendo ahora · ${totalViewers} ${showViewers ? "▲" : "▼"}`}
-                      tone="accent"
-                      large
-                    />
-                  </Pressable>
+                  <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
+                    EN DIRECTO
+                  </Text>
                 </View>
+
+                <GlowPill text={`${totalViewers} conectados`} tone="success" size="hero" />
+
+                <Pressable
+                  onPress={toggleViewers}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.92 : 1,
+                  })}
+                >
+                  <GlowPill
+                    text={`Viendo ahora · ${totalViewers} ${showViewers ? "▲" : "▼"}`}
+                    tone="accent"
+                    size="hero"
+                  />
+                </Pressable>
               </View>
 
               <Text
@@ -668,12 +641,14 @@ function Tag({
 function GlowPill({
   text,
   tone,
-  large = false,
+  size = "default",
 }: {
   text: string;
   tone: "accent" | "success";
-  large?: boolean;
+  size?: "default" | "hero";
 }) {
+  const isHero = size === "hero";
+
   const style =
     tone === "success"
       ? {
@@ -693,23 +668,30 @@ function GlowPill({
     <View
       style={{
         borderRadius: 999,
-        paddingVertical: large ? 14 : 8,
-        paddingHorizontal: large ? 24 : 12,
+        minHeight: isHero ? 46 : 34,
+        paddingVertical: isHero ? 11 : 8,
+        paddingHorizontal: isHero ? 16 : 12,
         backgroundColor: style.bg,
         borderWidth: 1.2,
         borderColor: style.border,
+        alignItems: "center",
+        justifyContent: "center",
         shadowColor: style.shadow,
-        shadowOpacity: large ? 0.22 : 0.16,
-        shadowRadius: large ? 18 : 12,
+        shadowOpacity: isHero ? 0.22 : 0.16,
+        shadowRadius: isHero ? 18 : 12,
         shadowOffset: { width: 0, height: 0 },
-        elevation: large ? 4 : 2,
+        elevation: isHero ? 4 : 2,
+        maxWidth: "100%",
       }}
     >
       <Text
         style={{
           color: style.text,
           fontWeight: "900",
-          fontSize: large ? 15 : 13,
+          fontSize: isHero ? 14 : 13,
+          lineHeight: isHero ? 18 : 16,
+          textAlign: "center",
+          flexShrink: 1,
         }}
       >
         {text}
