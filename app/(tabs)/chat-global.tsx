@@ -363,21 +363,17 @@ export default function ChatGlobalScreen() {
               </Text>
             </View>
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <GlowPill text={`${totalViewers} conectados`} tone="success" />
-
-              <Pressable
-                onPress={toggleViewers}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.92 : 1,
-                })}
-              >
-                <GlowPill
-                  text={`Viendo ahora · ${totalViewers} ${showViewers ? "▲" : "▼"}`}
-                  tone="accent"
-                />
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={toggleViewers}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.92 : 1,
+              })}
+            >
+              <Tag
+                text={showViewers ? "Ocultar conectados" : "Ver conectados"}
+                tone="neutral"
+              />
+            </Pressable>
           </View>
 
           {showViewers ? (
@@ -470,23 +466,62 @@ export default function ChatGlobalScreen() {
                 backgroundColor: "rgba(3,18,31,0.92)",
                 paddingHorizontal: 18,
                 paddingVertical: 18,
-                gap: 12,
+                gap: 14,
               }}
             >
               <View
                 style={{
-                  alignSelf: "flex-start",
-                  borderRadius: 999,
-                  paddingVertical: 6,
-                  paddingHorizontal: 10,
-                  backgroundColor: "rgba(34,197,94,0.16)",
-                  borderWidth: 1,
-                  borderColor: "rgba(34,197,94,0.30)",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
                 }}
               >
-                <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
-                  EN DIRECTO
-                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 12,
+                    flex: 1,
+                  }}
+                >
+                  <View
+                    style={{
+                      alignSelf: "flex-start",
+                      borderRadius: 999,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      backgroundColor: "rgba(34,197,94,0.16)",
+                      borderWidth: 1,
+                      borderColor: "rgba(34,197,94,0.30)",
+                    }}
+                  >
+                    <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
+                      EN DIRECTO
+                    </Text>
+                  </View>
+
+                  <GlowPill
+                    text={`${totalViewers} conectados`}
+                    tone="success"
+                    large
+                  />
+
+                  <Pressable
+                    onPress={toggleViewers}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.92 : 1,
+                    })}
+                  >
+                    <GlowPill
+                      text={`Viendo ahora · ${totalViewers} ${showViewers ? "▲" : "▼"}`}
+                      tone="accent"
+                      large
+                    />
+                  </Pressable>
+                </View>
               </View>
 
               <Text
@@ -633,9 +668,11 @@ function Tag({
 function GlowPill({
   text,
   tone,
+  large = false,
 }: {
   text: string;
   tone: "accent" | "success";
+  large?: boolean;
 }) {
   const style =
     tone === "success"
@@ -643,30 +680,40 @@ function GlowPill({
           bg: COLORS.successSoft,
           border: COLORS.successBorder,
           text: "#BBF7D0",
+          shadow: COLORS.success,
         }
       : {
           bg: COLORS.accentSoft,
           border: COLORS.accentBorder,
           text: COLORS.text,
+          shadow: COLORS.accent,
         };
 
   return (
     <View
       style={{
         borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        paddingVertical: large ? 14 : 8,
+        paddingHorizontal: large ? 24 : 12,
         backgroundColor: style.bg,
-        borderWidth: 1,
+        borderWidth: 1.2,
         borderColor: style.border,
-        shadowColor: tone === "success" ? COLORS.success : COLORS.accent,
-        shadowOpacity: 0.16,
-        shadowRadius: 12,
+        shadowColor: style.shadow,
+        shadowOpacity: large ? 0.22 : 0.16,
+        shadowRadius: large ? 18 : 12,
         shadowOffset: { width: 0, height: 0 },
-        elevation: 2,
+        elevation: large ? 4 : 2,
       }}
     >
-      <Text style={{ color: style.text, fontWeight: "900" }}>{text}</Text>
+      <Text
+        style={{
+          color: style.text,
+          fontWeight: "900",
+          fontSize: large ? 15 : 13,
+        }}
+      >
+        {text}
+      </Text>
     </View>
   );
 }
