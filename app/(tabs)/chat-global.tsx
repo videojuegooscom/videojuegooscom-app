@@ -200,9 +200,6 @@ export default function ChatGlobalScreen() {
   const profileMissing = isLoggedIn && !hasCompletedCommunityProfile;
 
   const totalViewers = viewers.length + 21;
-  const totalMessages = messages.length;
-  const registeredOnline = viewers.filter((v) => v.mode !== "viewer").length;
-  const fortnitePlayers = viewers.filter((v) => v.game === "Fortnite").length;
 
   const toggleViewers = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -489,64 +486,50 @@ export default function ChatGlobalScreen() {
             borderWidth: 1,
             borderColor: "rgba(255,255,255,0.08)",
             backgroundColor: COLORS.bg2,
-            padding: 18,
-            gap: 16,
+            paddingHorizontal: 18,
+            paddingVertical: 18,
+            gap: 10,
           }}
         >
-          <View style={{ gap: 10 }}>
-            <View
-              style={{
-                alignSelf: "flex-start",
-                borderRadius: 999,
-                paddingVertical: 6,
-                paddingHorizontal: 10,
-                backgroundColor: "rgba(34,197,94,0.16)",
-                borderWidth: 1,
-                borderColor: "rgba(34,197,94,0.30)",
-              }}
-            >
-              <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
-                EN DIRECTO
-              </Text>
-            </View>
-
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: 30,
-                lineHeight: 34,
-                fontWeight: "900",
-              }}
-            >
-              Chat Global
-            </Text>
-
-            <Text
-              style={{
-                color: COLORS.muted,
-                fontSize: 15,
-                lineHeight: 23,
-                maxWidth: 980,
-              }}
-            >
-              Hub social para conectar gamers, encontrar gente para jugar a Fortnite,
-              descubrir personas de tu misma ciudad o país y seguir noticias gaming,
-              novedades de la tienda y torneos.
-            </Text>
-          </View>
-
           <View
             style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 10,
+              alignSelf: "flex-start",
+              borderRadius: 999,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              backgroundColor: "rgba(34,197,94,0.16)",
+              borderWidth: 1,
+              borderColor: "rgba(34,197,94,0.30)",
             }}
           >
-            <StatPill label="Viendo ahora" value={String(totalViewers)} />
-            <StatPill label="Registrados online" value={String(registeredOnline)} />
-            <StatPill label="Jugando / buscando Fortnite" value={String(fortnitePlayers)} />
-            <StatPill label="Modo actual" value={canWrite ? "Participando" : "Solo lectura"} />
+            <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
+              EN DIRECTO
+            </Text>
           </View>
+
+          <Text
+            style={{
+              color: COLORS.text,
+              fontSize: 30,
+              lineHeight: 34,
+              fontWeight: "900",
+            }}
+          >
+            Chat Global
+          </Text>
+
+          <Text
+            style={{
+              color: COLORS.muted,
+              fontSize: 15,
+              lineHeight: 23,
+              maxWidth: 980,
+            }}
+          >
+            Hub social para conectar gamers, encontrar gente para jugar a Fortnite,
+            descubrir personas de tu misma ciudad o país y seguir noticias gaming,
+            novedades de la tienda y torneos.
+          </Text>
         </View>
 
         <View
@@ -555,14 +538,11 @@ export default function ChatGlobalScreen() {
             borderWidth: 1,
             borderColor: COLORS.border,
             backgroundColor: COLORS.card,
-            padding: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 10,
             gap: 10,
           }}
         >
-          <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900", paddingHorizontal: 6 }}>
-            Explorar
-          </Text>
-
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 6 }}>
               <HubTabButton
@@ -666,28 +646,6 @@ export default function ChatGlobalScreen() {
         {renderActiveTabContent()}
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function StatPill({ label, value }: { label: string; value: string }) {
-  return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        backgroundColor: "rgba(255,255,255,0.05)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-      }}
-    >
-      <Text style={{ color: "rgba(255,255,255,0.58)", fontSize: 11, fontWeight: "800" }}>
-        {label}
-      </Text>
-      <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: "900", marginTop: 2 }}>
-        {value}
-      </Text>
-    </View>
   );
 }
 
@@ -1143,9 +1101,7 @@ function InfoPanel({
       <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
         {title}
       </Text>
-      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-        {subtitle}
-      </Text>
+      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>{subtitle}</Text>
 
       <View style={{ gap: 10 }}>
         {items.map((item, index) => (
