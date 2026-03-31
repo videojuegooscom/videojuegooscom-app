@@ -208,6 +208,11 @@ export default function ChatGlobalScreen() {
   const canViewMedia = isLoggedIn && hasCompletedCommunityProfile;
   const totalViewers = viewers.length + 21;
 
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => message.type !== "system"),
+    [messages]
+  );
+
   const toggleViewers = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowViewers((prev) => !prev);
@@ -315,56 +320,18 @@ export default function ChatGlobalScreen() {
             top: 0,
             left: 0,
             right: 0,
-            height: 220,
+            height: 180,
           }}
         />
 
-        <View
-          style={{
-            paddingHorizontal: 18,
-            paddingTop: 18,
-            paddingBottom: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: "rgba(255,255,255,0.08)",
-            gap: 12,
-          }}
-        >
+        {showViewers ? (
           <View
             style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: 12,
-              flexWrap: "wrap",
+              paddingHorizontal: 16,
+              paddingTop: 16,
+              paddingBottom: 6,
             }}
           >
-            <View style={{ flex: 1, minWidth: 220 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 24,
-                  fontWeight: "900",
-                  letterSpacing: 0.2,
-                }}
-              >
-                Sala · Chat Global
-              </Text>
-
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 6,
-                  lineHeight: 22,
-                  maxWidth: 800,
-                }}
-              >
-                Sala principal para conectar gamers, encontrar gente para jugar a
-                Fortnite y hablar con personas de tu misma ciudad o país.
-              </Text>
-            </View>
-          </View>
-
-          {showViewers ? (
             <View
               style={{
                 borderRadius: 18,
@@ -386,12 +353,19 @@ export default function ChatGlobalScreen() {
                 ))}
               </View>
             </View>
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
-        <View style={{ paddingHorizontal: 14, paddingTop: 14, paddingBottom: 20, gap: 10 }}>
-          {messages.map((message, index) => {
-            const prev = messages[index - 1];
+        <View
+          style={{
+            paddingHorizontal: 14,
+            paddingTop: showViewers ? 6 : 14,
+            paddingBottom: 20,
+            gap: 10,
+          }}
+        >
+          {visibleMessages.map((message, index) => {
+            const prev = visibleMessages[index - 1];
             const grouped =
               prev &&
               prev.type === "message" &&
@@ -906,24 +880,7 @@ function MessageBubble({
   grouped?: boolean;
 }) {
   if (item.type === "system") {
-    return (
-      <View
-        style={{
-          alignSelf: "stretch",
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: "rgba(216,176,74,0.25)",
-          backgroundColor: COLORS.bubbleSystem,
-          padding: 12,
-          gap: 6,
-        }}
-      >
-        <Text style={{ color: COLORS.gold, fontWeight: "900" }}>
-          Aviso del sistema · {item.time}
-        </Text>
-        <Text style={{ color: COLORS.text, lineHeight: 21 }}>{item.text}</Text>
-      </View>
-    );
+    return null;
   }
 
   const roleTone =
@@ -936,20 +893,20 @@ function MessageBubble({
           accent: COLORS.accent,
         }
       : item.role === "vip"
-      ? {
-          bg: "rgba(216,176,74,0.16)",
-          text: "#FDE68A",
-          border: "rgba(216,176,74,0.30)",
-          label: "VIP",
-          accent: COLORS.gold,
-        }
-      : {
-          bg: "rgba(255,255,255,0.06)",
-          text: "#FFFFFF",
-          border: "rgba(255,255,255,0.12)",
-          label: "MIEMBRO",
-          accent: "rgba(255,255,255,0.18)",
-        };
+        ? {
+            bg: "rgba(216,176,74,0.16)",
+            text: "#FDE68A",
+            border: "rgba(216,176,74,0.30)",
+            label: "VIP",
+            accent: COLORS.gold,
+          }
+        : {
+            bg: "rgba(255,255,255,0.06)",
+            text: "#FFFFFF",
+            border: "rgba(255,255,255,0.12)",
+            label: "MIEMBRO",
+            accent: "rgba(255,255,255,0.18)",
+          };
 
   const bubbleBg = item.mine ? COLORS.bubbleMine : COLORS.bubbleOther;
 
