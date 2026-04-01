@@ -58,27 +58,27 @@ export default function BlueIAScreen() {
     () => [
       {
         id: "1",
-        icon: "🛒",
+        icon: "🎮",
         title: "Ayúdame a elegir",
-        desc: "Te orienta según presupuesto, consola, accesorio o uso real.",
+        desc: "Dime tu presupuesto y te recomiendo lo que mejor te encaja.",
       },
       {
         id: "2",
-        icon: "🔁",
-        title: "Quiero vender o cambiar",
-        desc: "Te guía para valoración, intercambio y siguientes pasos.",
+        icon: "💸",
+        title: "Quiero vender",
+        desc: "Te explico cómo vender tu consola, móvil o accesorio.",
       },
       {
         id: "3",
-        icon: "🧰",
-        title: "Reparación y limpieza",
-        desc: "Te orienta sobre averías, mantenimiento y servicio técnico.",
+        icon: "🔁",
+        title: "Quiero cambiar",
+        desc: "Te ayudo si quieres entregar algo como parte de pago.",
       },
       {
         id: "4",
-        icon: "📦",
-        title: "Envíos y garantía",
-        desc: "Resuelve dudas sobre envíos, devoluciones y cobertura.",
+        icon: "🧰",
+        title: "Reparación o limpieza",
+        desc: "Resuelvo dudas sobre averías, mantenimiento y servicios.",
       },
     ],
     []
@@ -86,11 +86,11 @@ export default function BlueIAScreen() {
 
   const suggestions = useMemo<Suggestion[]>(
     () => [
-      { id: "1", text: "¿Qué PS5 me recomiendas por mi presupuesto?" },
-      { id: "2", text: "Quiero vender una Nintendo Switch, ¿cómo lo hago?" },
-      { id: "3", text: "¿Cuánto cuesta una limpieza interna de consola?" },
-      { id: "4", text: "Busco mando barato y bueno para PS4" },
-      { id: "5", text: "¿Aceptáis Klarna o pago a plazos?" },
+      { id: "1", text: "Quiero una PS5 por unos 450€" },
+      { id: "2", text: "Tengo una Nintendo Switch para vender" },
+      { id: "3", text: "¿Cuánto cuesta limpiar una consola?" },
+      { id: "4", text: "Busco un mando bueno y barato para PS4" },
+      { id: "5", text: "¿Puedo pagar a plazos?" },
       { id: "6", text: "Quiero un pack completo para empezar a jugar" },
     ],
     []
@@ -100,20 +100,20 @@ export default function BlueIAScreen() {
     () => [
       {
         id: "1",
-        title: "Compra inteligente",
-        desc: "Blue IA puede ayudarte a decidir qué consola, pack o accesorio te conviene de verdad según tu presupuesto y tu tipo de uso.",
+        title: "Te ayuda a comprar mejor",
+        desc: "Si no sabes qué elegir, Blue IA te orienta según lo que buscas, el dinero que quieres gastar y el tipo de uso que le vas a dar.",
         tone: "accent",
       },
       {
         id: "2",
-        title: "Venta e intercambio",
-        desc: "También puede orientarte sobre cómo vender tus dispositivos o usarlos como parte de pago para reducir el coste de una compra nueva.",
+        title: "Te orienta si quieres vender o cambiar",
+        desc: "También puede ayudarte si quieres vender tu dispositivo o usarlo como parte de pago para abaratar otra compra.",
         tone: "success",
       },
       {
         id: "3",
-        title: "Soporte y postventa",
-        desc: "Úsala para resolver dudas sobre garantía, mantenimiento, limpieza, reparaciones, compatibilidades y recomendaciones de uso.",
+        title: "Resuelve dudas de soporte",
+        desc: "Puedes usarla para preguntar por garantía, compatibilidades, limpieza, reparaciones, mantenimiento o dudas generales de la tienda.",
         tone: "gold",
       },
     ],
@@ -185,7 +185,7 @@ export default function BlueIAScreen() {
                 }}
               >
                 <Text style={{ color: "#BAE6FD", fontWeight: "900", fontSize: 12 }}>
-                  ASISTENTE INTELIGENTE
+                  AYUDA RÁPIDA
                 </Text>
               </View>
 
@@ -209,9 +209,8 @@ export default function BlueIAScreen() {
                   maxWidth: 980,
                 }}
               >
-                Tu asistente de tienda para resolver dudas, orientarte en compras,
-                ayudarte a vender o intercambiar dispositivos y guiarte con soporte,
-                mantenimiento y servicios.
+                Tu asistente para resolver dudas sobre productos, compras, ventas,
+                cambios, reparaciones, limpieza, envíos y mucho más.
               </Text>
 
               <View
@@ -223,8 +222,8 @@ export default function BlueIAScreen() {
                 }}
               >
                 <MiniPill text="Productos" tone="accent" />
-                <MiniPill text="Soporte" tone="success" />
-                <MiniPill text="Intercambios" tone="gold" />
+                <MiniPill text="Ventas" tone="success" />
+                <MiniPill text="Cambios" tone="gold" />
                 <MiniPill text="Pago a plazos" tone="accent" />
               </View>
             </View>
@@ -260,7 +259,7 @@ export default function BlueIAScreen() {
                   fontWeight: "900",
                 }}
               >
-                Pregunta a Blue IA
+                Escribe tu duda
               </Text>
 
               <Text
@@ -269,8 +268,7 @@ export default function BlueIAScreen() {
                   lineHeight: 22,
                 }}
               >
-                Escríbele lo que necesitas y úsala como puerta rápida para comprar
-                mejor, vender con criterio o resolver dudas del cliente.
+                Pregunta lo que necesites y Blue IA te orientará de forma rápida y clara.
               </Text>
 
               <View
@@ -308,7 +306,7 @@ export default function BlueIAScreen() {
                   }}
                 >
                   <Text style={{ color: COLORS.soft, fontSize: 12 }}>
-                    Respuestas orientadas a producto, soporte y atención al cliente.
+                    Puedes preguntar por compras, ventas, cambios, limpieza o soporte.
                   </Text>
 
                   <Pressable
@@ -334,8 +332,8 @@ export default function BlueIAScreen() {
           </LinearGradient>
 
           <SectionHeader
-            title="Accesos rápidos"
-            subtitle="Atajos útiles para que esta sección sirva de verdad."
+            title="¿En qué te puede ayudar?"
+            subtitle="Toca una opción rápida si quieres ir al grano."
           />
 
           <View
@@ -351,8 +349,8 @@ export default function BlueIAScreen() {
           </View>
 
           <SectionHeader
-            title="Preguntas que puede resolver"
-            subtitle="Deja visibles casos reales para que el usuario entienda rápido para qué sirve."
+            title="Preguntas frecuentes"
+            subtitle="Pulsa una y se copiará arriba para ayudarte más rápido."
           />
 
           <View
@@ -372,8 +370,8 @@ export default function BlueIAScreen() {
           </View>
 
           <SectionHeader
-            title="Qué hace por el cliente"
-            subtitle="No es una sección decorativa: debe ayudar a convertir, filtrar y orientar."
+            title="Lo que puedes hacer aquí"
+            subtitle="Blue IA está pensada para ayudarte antes, durante y después de la compra."
           />
 
           <View style={{ gap: 12 }}>
@@ -406,14 +404,13 @@ export default function BlueIAScreen() {
               }}
             >
               <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                Enfoque recomendado
+                Respuestas rápidas y claras
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Esta pantalla debe acabar siendo una mezcla entre buscador inteligente,
-                centro de ayuda, recomendador de productos y filtro comercial. No solo
-                una IA que “habla”, sino una herramienta que empuja a comprar, vender,
-                reparar o contactar.
+                Esta sección está pensada para que encuentres ayuda sin perder tiempo.
+                Si tienes dudas sobre una compra, una venta, una reparación o un
+                envío, Blue IA te orienta de forma sencilla.
               </Text>
 
               <View
@@ -423,9 +420,9 @@ export default function BlueIAScreen() {
                   gap: 10,
                 }}
               >
-                <MiniPill text="Conversión" tone="accent" />
-                <MiniPill text="Soporte útil" tone="success" />
-                <MiniPill text="Experiencia premium" tone="gold" />
+                <MiniPill text="Compra mejor" tone="accent" />
+                <MiniPill text="Resuelve dudas" tone="success" />
+                <MiniPill text="Ayuda rápida" tone="gold" />
               </View>
             </View>
           </LinearGradient>
