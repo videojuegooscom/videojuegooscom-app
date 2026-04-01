@@ -298,69 +298,33 @@ export default function ChatGlobalScreen() {
     }
 
     return (
-      <View
-        style={{
-          borderRadius: 26,
-          borderWidth: 1,
-          borderColor: COLORS.borderSoft,
-          backgroundColor: "rgba(6,26,44,0.72)",
-          overflow: "hidden",
-        }}
-      >
-        <LinearGradient
-          colors={[
-            "rgba(255,255,255,0.16)",
-            "rgba(0,170,228,0.10)",
-            "rgba(7,30,51,0.00)",
-          ]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 180,
-          }}
-        />
-
+      <View style={{ gap: 8 }}>
         {showViewers ? (
           <View
             style={{
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 6,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.08)",
+              backgroundColor: "rgba(255,255,255,0.035)",
+              padding: 12,
+              gap: 12,
             }}
           >
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: "rgba(255,255,255,0.08)",
-                backgroundColor: "rgba(255,255,255,0.035)",
-                padding: 12,
-                gap: 12,
-              }}
-            >
-              <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
-                debería poder filtrarse por ciudad, país, juego y plataforma.
-              </Text>
+            <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+              Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
+              debería poder filtrarse por ciudad, país, juego y plataforma.
+            </Text>
 
-              <View style={{ gap: 10 }}>
-                {viewers.map((viewer) => (
-                  <ViewerRow key={viewer.id} viewer={viewer} />
-                ))}
-              </View>
+            <View style={{ gap: 10 }}>
+              {viewers.map((viewer) => (
+                <ViewerRow key={viewer.id} viewer={viewer} />
+              ))}
             </View>
           </View>
         ) : null}
 
         <View
           style={{
-            paddingHorizontal: 14,
-            paddingTop: showViewers ? 6 : 14,
-            paddingBottom: 20,
             gap: 10,
           }}
         >
