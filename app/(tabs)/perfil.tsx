@@ -570,6 +570,8 @@ export default function PerfilScreen() {
       ? "Accede a tu cuenta o únete a la comunidad gamer de Videojuegoos con una entrada seria, limpia y lista para crecer."
       : "Gestiona tu sesión y tu acceso a la comunidad desde un único punto, sin duplicados ni rutas raras.";
 
+  const showCommunityBaseSection = sessionRole !== "admin";
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="light-content" />
@@ -933,33 +935,35 @@ export default function PerfilScreen() {
                 </SectionCard>
               ) : null}
 
-              <SectionCard>
-                <Badge text="Comunidad + gaming" tone="warning" />
+              {showCommunityBaseSection ? (
+                <SectionCard>
+                  <Badge text="Comunidad + gaming" tone="warning" />
 
-                <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                  Lo que desbloquea esta base
-                </Text>
+                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+                    Lo que desbloquea esta base
+                  </Text>
 
-                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                  Esta página ya queda orientada a evolucionar hacia un registro serio para el
-                  chat global, la comunidad gamer y el perfil social de Videojuegoos.
-                </Text>
+                  <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                    Esta página ya queda orientada a evolucionar hacia un registro serio para el
+                    chat global, la comunidad gamer y el perfil social de Videojuegoos.
+                  </Text>
 
-                <View style={{ gap: 10 }}>
-                  <FeatureItem
-                    title="Perfil comunitario"
-                    text="Nombre público, país, ciudad, juego principal, fotos y portada."
-                  />
-                  <FeatureItem
-                    title="Chat global"
-                    text="Participación real en la sala, viewers silenciosos, multimedia y filtros."
-                  />
-                  <FeatureItem
-                    title="Conectar con jugadores"
-                    text="Encontrar gente para jugar por ciudad, país, plataforma o juego."
-                  />
-                </View>
-              </SectionCard>
+                  <View style={{ gap: 10 }}>
+                    <FeatureItem
+                      title="Perfil comunitario"
+                      text="Nombre público, país, ciudad, juego principal, fotos y portada."
+                    />
+                    <FeatureItem
+                      title="Chat global"
+                      text="Participación real en la sala, viewers silenciosos, multimedia y filtros."
+                    />
+                    <FeatureItem
+                      title="Conectar con jugadores"
+                      text="Encontrar gente para jugar por ciudad, país, plataforma o juego."
+                    />
+                  </View>
+                </SectionCard>
+              ) : null}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
