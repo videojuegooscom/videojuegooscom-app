@@ -1,4 +1,3 @@
-// app/admin/products.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,6 +15,10 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
+
+const MEDIA_BUCKET = "product-media";
+const MAX_IMAGES = 15;
+const MAX_VIDEO_SECONDS = 15;
 
 const COLORS = {
   bg: "#071E33",
@@ -51,6 +54,21 @@ type CategoryRow = {
 
 type ProductStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
 type ProductCondition = "NEW" | "LIKE_NEW" | "GOOD" | "FAIR" | "PARTS";
+type ProductMediaKind = "image" | "video";
+
+type ProductMediaRow = {
+  id: string;
+  product_id: string;
+  kind: ProductMediaKind;
+  storage_path: string;
+  public_url: string;
+  file_name: string | null;
+  mime_type: string | null;
+  sort_order: number;
+  is_cover: boolean;
+  duration_seconds: number | null;
+  created_at?: string;
+};
 
 type ProductRow = {
   id: string;
@@ -63,12 +81,23 @@ type ProductRow = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  image_url?: string | null;
   is_featured_home?: boolean;
+  media: ProductMediaRow[];
 };
 
 type StatusFilter = "ALL" | ProductStatus;
 type VisibilityFilter = "ALL" | "VISIBLE" | "HIDDEN";
+
+type LocalPickedMedia = {
+  id: string;
+  kind: ProductMediaKind;
+  file: File;
+  name: string;
+  mimeType: string;
+  size: number;
+  previewUrl: string;
+  durationSeconds: number | null;
+};
 
 function softShadow() {
   return Platform.select<any>({
@@ -125,12 +154,6 @@ function toIntSafe(v: string, fallback = 0) {
   return Math.trunc(n);
 }
 
-function isValidHttpUrl(value: string) {
-  const url = String(value ?? "").trim();
-  if (!url) return false;
-  return /^https?:\/\/\S+$/i.test(url);
-}
-
 function labelStatus(s: ProductStatus) {
   if (s === "PUBLISHED") return "Publicado";
   if (s === "REVIEW") return "Por revisar";
@@ -177,6 +200,114 @@ function statusVisual(status: ProductStatus) {
     borderColor: COLORS.border,
     backgroundColor: "rgba(255,255,255,0.06)",
   };
+}
+
+function getPrimaryMedia(media: ProductMediaRow[]) {
+  if (!media?.length) return null;
+  return (
+    media.find((m) => m.is_cover && m.kind === "image") ||
+    media.find((m) => m.kind === "image") ||
+    media.find((m) => m.kind === "video") ||
+    media[0]
+  );
+}
+
+function extFromName(fileName: string, fallback: string) {
+  const clean = String(fileName ?? "").trim();
+  const parts = clean.split(".");
+  if (parts.length < 2) return fallback;
+  return parts.pop()?.toLowerCase() || fallback;
+}
+
+function safeFileName(name: string) {
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function buildMediaPath(productId: string, item: LocalPickedMedia, index: number) {
+  const fallbackExt = item.kind === "video" ? "mp4" : "jpg";
+  const ext = extFromName(item.name, fallbackExt);
+  const stamp = Date.now();
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${productId}/${stamp}-${index + 1}-${rand}-${safeFileName(item.name || item.kind)}.${ext}`;
+}
+
+async function getVideoDurationSeconds(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === "undefined") {
+      reject(new Error("No se pudo leer la duración del vídeo."));
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+
+    video.onloadedmetadata = () => {
+      const seconds = Number(video.duration || 0);
+      URL.revokeObjectURL(url);
+      resolve(seconds);
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("No se pudo analizar el vídeo seleccionado."));
+    };
+
+    video.src = url;
+  });
+}
+
+async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
+  if (Platform.OS !== "web" || typeof document === "undefined") {
+    throw new Error("La subida de archivos desde este panel está preparada para web.");
+  }
+
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.accept = "image/*,video/mp4,video/webm,video/quicktime";
+
+    input.onchange = async () => {
+      const files = Array.from(input.files ?? []);
+      const out: LocalPickedMedia[] = [];
+
+      for (const file of files) {
+        const mimeType = String(file.type ?? "");
+        const isVideo = mimeType.startsWith("video/");
+        const kind: ProductMediaKind = isVideo ? "video" : "image";
+
+        let durationSeconds: number | null = null;
+        if (isVideo) {
+          try {
+            durationSeconds = await getVideoDurationSeconds(file);
+          } catch {
+            durationSeconds = null;
+          }
+        }
+
+        out.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          kind,
+          file,
+          name: file.name,
+          mimeType,
+          size: file.size,
+          previewUrl: URL.createObjectURL(file),
+          durationSeconds,
+        });
+      }
+
+      resolve(out);
+    };
+
+    input.click();
+  });
 }
 
 function SectionTitle({
@@ -346,11 +477,101 @@ function FilterPill({
   );
 }
 
+function MediaThumb({
+  media,
+  isMobile,
+  onRemove,
+}: {
+  media: ProductMediaRow | LocalPickedMedia;
+  isMobile?: boolean;
+  onRemove?: () => void;
+}) {
+  const isLocal = "file" in media;
+  const kind = media.kind;
+  const imageSource =
+    kind === "image"
+      ? {
+          uri: isLocal ? media.previewUrl : media.public_url,
+        }
+      : null;
+
+  return (
+    <View
+      style={{
+        width: isMobile ? 96 : 110,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: "rgba(255,255,255,0.04)",
+        overflow: "hidden",
+      }}
+    >
+      <View
+        style={{
+          width: "100%",
+          height: isMobile ? 82 : 92,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "rgba(255,255,255,0.03)",
+        }}
+      >
+        {kind === "image" && imageSource ? (
+          <Image source={imageSource} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+        ) : (
+          <View style={{ alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Text style={{ fontSize: 28 }}>🎬</Text>
+            {"durationSeconds" in media && media.durationSeconds ? (
+              <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: "800" }}>
+                {Math.round(media.durationSeconds)}s
+              </Text>
+            ) : "duration_seconds" in media && media.duration_seconds ? (
+              <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: "800" }}>
+                {Math.round(media.duration_seconds)}s
+              </Text>
+            ) : null}
+          </View>
+        )}
+      </View>
+
+      <View style={{ padding: 8, gap: 6 }}>
+        <Text
+          numberOfLines={2}
+          style={{ color: COLORS.text, fontSize: 11, fontWeight: "800", lineHeight: 14 }}
+        >
+          {"file_name" in media ? media.file_name || kind : media.name}
+        </Text>
+
+        <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>
+          {kind === "image" ? "Imagen" : "Vídeo"}
+        </Text>
+
+        {!!onRemove && (
+          <Pressable
+            onPress={onRemove}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.88 : 1,
+              borderRadius: 999,
+              paddingVertical: 6,
+              paddingHorizontal: 8,
+              borderWidth: 1,
+              borderColor: COLORS.dangerBorder,
+              backgroundColor: COLORS.dangerBg,
+            })}
+          >
+            <Text style={{ color: COLORS.danger, fontWeight: "900", fontSize: 11, textAlign: "center" }}>
+              Quitar
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function AdminProducts() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const isTablet = widthSafe >= 700 && widthSafe < 1024;
   const isDesktopish = widthSafe >= 1024;
   const pagePadding = isMobile ? 12 : 16;
 
@@ -364,8 +585,8 @@ export default function AdminProducts() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("ALL");
 
-  const [supportsImageUrl, setSupportsImageUrl] = useState(true);
   const [supportsFeaturedHome, setSupportsFeaturedHome] = useState(true);
+  const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
   const itemsRef = useRef<ProductRow[]>([]);
   useEffect(() => {
@@ -388,18 +609,30 @@ export default function AdminProducts() {
   const [condition, setCondition] = useState<ProductCondition>("GOOD");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
-  const [imageUrl, setImageUrl] = useState("");
   const [isFeaturedHome, setIsFeaturedHome] = useState(false);
+
+  const [existingMedia, setExistingMedia] = useState<ProductMediaRow[]>([]);
+  const [removedMedia, setRemovedMedia] = useState<ProductMediaRow[]>([]);
+  const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
+
+  useEffect(() => {
+    return () => {
+      newMedia.forEach((m) => {
+        try {
+          URL.revokeObjectURL(m.previewUrl);
+        } catch {
+          // ignore
+        }
+      });
+    };
+  }, [newMedia]);
 
   const categoryName = useMemo(() => {
     if (!categoryId) return "Sin categoría";
     return categories.find((c) => c.id === categoryId)?.name ?? "Sin categoría";
   }, [categoryId, categories]);
 
-  const activeCategories = useMemo(
-    () => categories.filter((c) => !!c.is_active),
-    [categories]
-  );
+  const activeCategories = useMemo(() => categories.filter((c) => !!c.is_active), [categories]);
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -430,6 +663,53 @@ export default function AdminProducts() {
     return { total, published, visible, featured };
   }, [items]);
 
+  const currentImageCount = useMemo(
+    () => existingMedia.filter((m) => m.kind === "image").length + newMedia.filter((m) => m.kind === "image").length,
+    [existingMedia, newMedia]
+  );
+
+  const currentVideoCount = useMemo(
+    () => existingMedia.filter((m) => m.kind === "video").length + newMedia.filter((m) => m.kind === "video").length,
+    [existingMedia, newMedia]
+  );
+
+  async function normalizeMediaForProduct(productId: string) {
+    const { data, error } = await supabase
+      .from("product_media")
+      .select(
+        "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at"
+      )
+      .eq("product_id", productId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    const rows = (data ?? []) as ProductMediaRow[];
+    const firstImage = rows.find((m) => m.kind === "image");
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const shouldCover = !!firstImage && row.id === firstImage.id;
+      const shouldOrder = i;
+
+      if (row.sort_order !== shouldOrder || row.is_cover !== shouldCover) {
+        await supabase
+          .from("product_media")
+          .update({
+            sort_order: shouldOrder,
+            is_cover: shouldCover,
+          })
+          .eq("id", row.id);
+
+        row.sort_order = shouldOrder;
+        row.is_cover = shouldCover;
+      }
+    }
+
+    return rows;
+  }
+
   async function load() {
     setLoading(true);
     setScreenErr(null);
@@ -444,52 +724,86 @@ export default function AdminProducts() {
         supabase
           .from("products")
           .select(
-            "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at,image_url,is_featured_home"
+            "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at,is_featured_home"
           )
           .order("updated_at", { ascending: false }),
       ]);
 
       if (catsRes.error) throw catsRes.error;
 
+      let supportsFeatured = true;
+      let productsData: ProductRow[] = [];
+
       if (prodRes.error) {
         const msg = String(prodRes.error.message ?? "");
-
-        const imageColumnMissing =
-          msg.includes("image_url") && (msg.includes("column") || msg.includes("does not exist"));
         const featuredColumnMissing =
-          msg.includes("is_featured_home") &&
-          (msg.includes("column") || msg.includes("does not exist"));
+          msg.includes("is_featured_home") && (msg.includes("column") || msg.includes("does not exist"));
 
-        if (imageColumnMissing || featuredColumnMissing) {
+        if (featuredColumnMissing) {
           const fallbackRes = await supabase
             .from("products")
-            .select(
-              "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at"
-            )
+            .select("id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at")
             .order("updated_at", { ascending: false });
 
           if (fallbackRes.error) throw fallbackRes.error;
 
-          setSupportsImageUrl(!imageColumnMissing);
-          setSupportsFeaturedHome(!featuredColumnMissing);
-          setCategories((catsRes.data ?? []) as CategoryRow[]);
-          setItems(
-            ((fallbackRes.data ?? []) as ProductRow[]).map((item) => ({
-              ...item,
-              image_url: null,
-              is_featured_home: false,
-            }))
-          );
-          return;
+          supportsFeatured = false;
+          productsData = ((fallbackRes.data ?? []) as any[]).map((row) => ({
+            ...row,
+            is_featured_home: false,
+            media: [],
+          }));
+        } else {
+          throw prodRes.error;
         }
-
-        throw prodRes.error;
+      } else {
+        productsData = ((prodRes.data ?? []) as any[]).map((row) => ({
+          ...row,
+          media: [],
+        }));
       }
 
-      setSupportsImageUrl(true);
-      setSupportsFeaturedHome(true);
+      let supportsMedia = true;
+      const mediaRes = await supabase
+        .from("product_media")
+        .select(
+          "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at"
+        )
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (mediaRes.error) {
+        const mediaMsg = String(mediaRes.error.message ?? "").toLowerCase();
+        if (
+          mediaMsg.includes("product_media") ||
+          mediaMsg.includes("relation") ||
+          mediaMsg.includes("does not exist") ||
+          mediaMsg.includes("schema cache")
+        ) {
+          supportsMedia = false;
+        } else {
+          throw mediaRes.error;
+        }
+      }
+
+      const mediaRows = supportsMedia ? ((mediaRes.data ?? []) as ProductMediaRow[]) : [];
+      const mediaByProduct = new Map<string, ProductMediaRow[]>();
+
+      for (const media of mediaRows) {
+        const list = mediaByProduct.get(media.product_id) ?? [];
+        list.push(media);
+        mediaByProduct.set(media.product_id, list);
+      }
+
+      const merged = productsData.map((item) => ({
+        ...item,
+        media: mediaByProduct.get(item.id) ?? [],
+      }));
+
+      setSupportsFeaturedHome(supportsFeatured);
+      setSupportsProductMedia(supportsMedia);
       setCategories((catsRes.data ?? []) as CategoryRow[]);
-      setItems((prodRes.data ?? []) as ProductRow[]);
+      setItems(merged);
     } catch (e: any) {
       setScreenErr(e?.message ?? "Error cargando productos.");
       setCategories([]);
@@ -512,8 +826,17 @@ export default function AdminProducts() {
     setCondition("GOOD");
     setCategoryId(null);
     setIsActive(true);
-    setImageUrl("");
     setIsFeaturedHome(false);
+    setExistingMedia([]);
+    setRemovedMedia([]);
+    newMedia.forEach((m) => {
+      try {
+        URL.revokeObjectURL(m.previewUrl);
+      } catch {
+        // ignore
+      }
+    });
+    setNewMedia([]);
     setModalErr(null);
   }
 
@@ -523,6 +846,7 @@ export default function AdminProducts() {
   }
 
   function openEditProduct(p: ProductRow) {
+    resetForm();
     setEditing(p);
     setTitle(p.title ?? "");
     setDesc(p.description ?? "");
@@ -531,10 +855,152 @@ export default function AdminProducts() {
     setCondition(p.condition ?? "GOOD");
     setCategoryId(p.category_id ?? null);
     setIsActive(!!p.is_active);
-    setImageUrl(p.image_url ?? "");
     setIsFeaturedHome(!!p.is_featured_home);
+    setExistingMedia([...(p.media ?? [])].sort((a, b) => a.sort_order - b.sort_order));
     setModalErr(null);
     setOpen(true);
+  }
+
+  async function addMediaFromPicker() {
+    setModalErr(null);
+
+    if (!supportsProductMedia) {
+      setModalErr("Primero ejecuta la migración SQL de product_media y el bucket product-media.");
+      return;
+    }
+
+    try {
+      const picked = await pickMediaFilesWeb();
+      if (!picked.length) return;
+
+      const pickedImages = picked.filter((m) => m.kind === "image");
+      const pickedVideos = picked.filter((m) => m.kind === "video");
+
+      if (pickedVideos.length > 1) {
+        setModalErr("Solo se permite 1 vídeo por producto.");
+        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
+        return;
+      }
+
+      if (currentImageCount + pickedImages.length > MAX_IMAGES) {
+        setModalErr(`Máximo ${MAX_IMAGES} imágenes por producto.`);
+        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
+        return;
+      }
+
+      if (currentVideoCount + pickedVideos.length > 1) {
+        setModalErr("Solo se permite 1 vídeo por producto.");
+        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
+        return;
+      }
+
+      const invalidDuration = pickedVideos.find(
+        (v) => !v.durationSeconds || Number(v.durationSeconds) > MAX_VIDEO_SECONDS
+      );
+
+      if (invalidDuration) {
+        setModalErr(`El vídeo no puede superar ${MAX_VIDEO_SECONDS} segundos.`);
+        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
+        return;
+      }
+
+      const invalidType = picked.find((m) => m.kind === "video" && !m.mimeType.startsWith("video/"));
+      if (invalidType) {
+        setModalErr("El vídeo seleccionado no es válido.");
+        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
+        return;
+      }
+
+      setNewMedia((prev) => [...prev, ...picked]);
+    } catch (e: any) {
+      setModalErr(e?.message ?? "No se pudieron seleccionar archivos.");
+    }
+  }
+
+  function removeNewMedia(id: string) {
+    setNewMedia((prev) => {
+      const found = prev.find((m) => m.id === id);
+      if (found) {
+        try {
+          URL.revokeObjectURL(found.previewUrl);
+        } catch {
+          // ignore
+        }
+      }
+      return prev.filter((m) => m.id !== id);
+    });
+  }
+
+  function removeExistingMedia(id: string) {
+    setExistingMedia((prev) => {
+      const found = prev.find((m) => m.id === id);
+      if (found) {
+        setRemovedMedia((curr) => [...curr, found]);
+      }
+      return prev.filter((m) => m.id !== id);
+    });
+  }
+
+  async function uploadNewMedia(productId: string) {
+    if (!newMedia.length) return [];
+
+    const startIndex = existingMedia.length;
+    const uploadedRows: ProductMediaRow[] = [];
+
+    for (let i = 0; i < newMedia.length; i++) {
+      const item = newMedia[i];
+      const storagePath = buildMediaPath(productId, item, startIndex + i);
+
+      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: item.mimeType || undefined,
+      });
+
+      if (uploadRes.error) throw uploadRes.error;
+
+      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+
+      const rowPayload = {
+        product_id: productId,
+        kind: item.kind,
+        storage_path: storagePath,
+        public_url: publicData.publicUrl,
+        file_name: item.name,
+        mime_type: item.mimeType || null,
+        sort_order: startIndex + i,
+        is_cover: false,
+        duration_seconds: item.kind === "video" ? item.durationSeconds ?? null : null,
+      };
+
+      const insertRes = await supabase
+        .from("product_media")
+        .insert(rowPayload)
+        .select(
+          "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at"
+        )
+        .single();
+
+      if (insertRes.error) throw insertRes.error;
+      uploadedRows.push(insertRes.data as ProductMediaRow);
+    }
+
+    return uploadedRows;
+  }
+
+  async function deleteRemovedMedia() {
+    if (!removedMedia.length) return;
+
+    const paths = removedMedia.map((m) => m.storage_path).filter(Boolean);
+    const ids = removedMedia.map((m) => m.id);
+
+    if (paths.length) {
+      const storageDelete = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
+      if (storageDelete.error) throw storageDelete.error;
+    }
+
+    const dbDelete = await supabase.from("product_media").delete().in("id", ids);
+    if (dbDelete.error) throw dbDelete.error;
   }
 
   async function save() {
@@ -546,7 +1012,6 @@ export default function AdminProducts() {
     const cleanTitle = title.trim();
     const cleanDesc = desc.trim();
     const priceEur = toIntSafe(price, 0);
-    const cleanImg = String(imageUrl ?? "").trim();
 
     if (!cleanTitle) {
       setModalErr("Pon un título.");
@@ -566,8 +1031,28 @@ export default function AdminProducts() {
       return;
     }
 
-    if (cleanImg && !isValidHttpUrl(cleanImg)) {
-      setModalErr("La URL de imagen debe empezar por http:// o https://");
+    const totalImages =
+      existingMedia.filter((m) => m.kind === "image").length + newMedia.filter((m) => m.kind === "image").length;
+    const totalVideos =
+      existingMedia.filter((m) => m.kind === "video").length + newMedia.filter((m) => m.kind === "video").length;
+
+    if (totalImages > MAX_IMAGES) {
+      setModalErr(`Máximo ${MAX_IMAGES} imágenes por producto.`);
+      setSaving(false);
+      return;
+    }
+
+    if (totalVideos > 1) {
+      setModalErr("Solo se permite 1 vídeo por producto.");
+      setSaving(false);
+      return;
+    }
+
+    const invalidVideo = newMedia.find(
+      (m) => m.kind === "video" && (!m.durationSeconds || m.durationSeconds > MAX_VIDEO_SECONDS)
+    );
+    if (invalidVideo) {
+      setModalErr(`El vídeo no puede superar ${MAX_VIDEO_SECONDS} segundos.`);
       setSaving(false);
       return;
     }
@@ -582,21 +1067,30 @@ export default function AdminProducts() {
       is_active: isActive,
     };
 
-    if (supportsImageUrl) {
-      payload.image_url = cleanImg || null;
-    }
-
     if (supportsFeaturedHome) {
       payload.is_featured_home = !!isFeaturedHome;
     }
 
     try {
+      let productId = editing?.id ?? null;
+
       if (editing) {
         const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("products").insert(payload);
+        const { data, error } = await supabase.from("products").insert(payload).select("id").single();
         if (error) throw error;
+        productId = data?.id ?? null;
+      }
+
+      if (!productId) {
+        throw new Error("No se pudo resolver el producto para subir archivos.");
+      }
+
+      if (supportsProductMedia) {
+        await deleteRemovedMedia();
+        await uploadNewMedia(productId);
+        await normalizeMediaForProduct(productId);
       }
 
       setOpen(false);
@@ -621,6 +1115,14 @@ export default function AdminProducts() {
     setScreenErr(null);
 
     try {
+      if (supportsProductMedia && p.media?.length) {
+        const paths = p.media.map((m) => m.storage_path).filter(Boolean);
+        if (paths.length) {
+          const storageRes = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
+          if (storageRes.error) throw storageRes.error;
+        }
+      }
+
       const { error } = await supabase.from("products").delete().eq("id", p.id);
       if (error) throw error;
       await load();
@@ -664,8 +1166,8 @@ export default function AdminProducts() {
     }
 
     const nextValue = !p.is_featured_home;
-
     const prev = itemsRef.current;
+
     const next = prev.map((x) => {
       if (nextValue) {
         return { ...x, is_featured_home: x.id === p.id };
@@ -683,10 +1185,7 @@ export default function AdminProducts() {
         const currentFeatured = prev.find((x) => x.is_featured_home && x.id !== p.id);
 
         if (currentFeatured) {
-          await supabase
-            .from("products")
-            .update({ is_featured_home: false })
-            .eq("id", currentFeatured.id);
+          await supabase.from("products").update({ is_featured_home: false }).eq("id", currentFeatured.id);
         }
       }
 
@@ -802,54 +1301,19 @@ export default function AdminProducts() {
           <View style={{ gap: 8 }}>
             <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <FilterPill
-                label="Todos"
-                active={statusFilter === "ALL"}
-                onPress={() => setStatusFilter("ALL")}
-                isMobile={isMobile}
-              />
-              <FilterPill
-                label="Borrador"
-                active={statusFilter === "DRAFT"}
-                onPress={() => setStatusFilter("DRAFT")}
-                isMobile={isMobile}
-              />
-              <FilterPill
-                label="Por revisar"
-                active={statusFilter === "REVIEW"}
-                onPress={() => setStatusFilter("REVIEW")}
-                isMobile={isMobile}
-              />
-              <FilterPill
-                label="Publicado"
-                active={statusFilter === "PUBLISHED"}
-                onPress={() => setStatusFilter("PUBLISHED")}
-                isMobile={isMobile}
-              />
+              <FilterPill label="Todos" active={statusFilter === "ALL"} onPress={() => setStatusFilter("ALL")} isMobile={isMobile} />
+              <FilterPill label="Borrador" active={statusFilter === "DRAFT"} onPress={() => setStatusFilter("DRAFT")} isMobile={isMobile} />
+              <FilterPill label="Por revisar" active={statusFilter === "REVIEW"} onPress={() => setStatusFilter("REVIEW")} isMobile={isMobile} />
+              <FilterPill label="Publicado" active={statusFilter === "PUBLISHED"} onPress={() => setStatusFilter("PUBLISHED")} isMobile={isMobile} />
             </View>
           </View>
 
           <View style={{ gap: 8 }}>
             <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Visibilidad</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <FilterPill
-                label="Todos"
-                active={visibilityFilter === "ALL"}
-                onPress={() => setVisibilityFilter("ALL")}
-                isMobile={isMobile}
-              />
-              <FilterPill
-                label="Visibles"
-                active={visibilityFilter === "VISIBLE"}
-                onPress={() => setVisibilityFilter("VISIBLE")}
-                isMobile={isMobile}
-              />
-              <FilterPill
-                label="Ocultos"
-                active={visibilityFilter === "HIDDEN"}
-                onPress={() => setVisibilityFilter("HIDDEN")}
-                isMobile={isMobile}
-              />
+              <FilterPill label="Todos" active={visibilityFilter === "ALL"} onPress={() => setVisibilityFilter("ALL")} isMobile={isMobile} />
+              <FilterPill label="Visibles" active={visibilityFilter === "VISIBLE"} onPress={() => setVisibilityFilter("VISIBLE")} isMobile={isMobile} />
+              <FilterPill label="Ocultos" active={visibilityFilter === "HIDDEN"} onPress={() => setVisibilityFilter("HIDDEN")} isMobile={isMobile} />
             </View>
           </View>
 
@@ -864,9 +1328,7 @@ export default function AdminProducts() {
               ...softShadow(),
             })}
           >
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-              + Nuevo producto
-            </Text>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>+ Nuevo producto</Text>
           </Pressable>
         </View>
 
@@ -880,13 +1342,11 @@ export default function AdminProducts() {
               padding: 10,
             }}
           >
-            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-              {screenErr}
-            </Text>
+            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{screenErr}</Text>
           </View>
         )}
 
-        {!supportsImageUrl && (
+        {!supportsProductMedia && (
           <View
             style={{
               borderRadius: 14,
@@ -897,9 +1357,9 @@ export default function AdminProducts() {
             }}
           >
             <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              La columna <Text style={{ fontWeight: "900" }}>image_url</Text> no existe en tu
-              tabla <Text style={{ fontWeight: "900" }}>products</Text>. El panel sigue
-              funcionando, pero la imagen por URL queda desactivada.
+              Falta la estructura de media. Ejecuta la migración SQL de{" "}
+              <Text style={{ fontWeight: "900" }}>product_media</Text> y el bucket{" "}
+              <Text style={{ fontWeight: "900" }}>product-media</Text> para subir imágenes y vídeos.
             </Text>
           </View>
         )}
@@ -915,9 +1375,8 @@ export default function AdminProducts() {
             }}
           >
             <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              La columna <Text style={{ fontWeight: "900" }}>is_featured_home</Text> no existe
-              en tu tabla <Text style={{ fontWeight: "900" }}>products</Text>. El destacado de
-              home queda desactivado hasta crearla.
+              La columna <Text style={{ fontWeight: "900" }}>is_featured_home</Text> no existe en tu tabla{" "}
+              <Text style={{ fontWeight: "900" }}>products</Text>. El destacado de home queda desactivado hasta crearla.
             </Text>
           </View>
         )}
@@ -961,6 +1420,9 @@ export default function AdminProducts() {
                 : "Sin categoría";
 
               const statusUi = statusVisual(p.status);
+              const primaryMedia = getPrimaryMedia(p.media);
+              const imageCount = p.media.filter((m) => m.kind === "image").length;
+              const hasVideo = p.media.some((m) => m.kind === "video");
 
               return (
                 <View
@@ -984,8 +1446,8 @@ export default function AdminProducts() {
                   >
                     <View
                       style={{
-                        width: isDesktopish ? 92 : "100%",
-                        height: isDesktopish ? 92 : isMobile ? 190 : 220,
+                        width: isDesktopish ? 110 : "100%",
+                        height: isDesktopish ? 110 : isMobile ? 190 : 220,
                         borderRadius: 16,
                         overflow: "hidden",
                         borderWidth: 1,
@@ -995,12 +1457,19 @@ export default function AdminProducts() {
                         justifyContent: "center",
                       }}
                     >
-                      {p.image_url ? (
+                      {primaryMedia?.kind === "image" ? (
                         <Image
-                          source={{ uri: p.image_url }}
+                          source={{ uri: primaryMedia.public_url }}
                           resizeMode="cover"
                           style={{ width: "100%", height: "100%" }}
                         />
+                      ) : primaryMedia?.kind === "video" ? (
+                        <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
+                          <Text style={{ fontSize: 30 }}>🎬</Text>
+                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                            Vídeo
+                          </Text>
+                        </View>
                       ) : (
                         <Text style={{ fontSize: 28 }}>🎮</Text>
                       )}
@@ -1080,6 +1549,22 @@ export default function AdminProducts() {
                               </Text>
                             </View>
 
+                            <View
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 10,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: COLORS.border,
+                                backgroundColor: "rgba(255,255,255,0.06)",
+                              }}
+                            >
+                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                                {imageCount} foto{imageCount === 1 ? "" : "s"}
+                                {hasVideo ? " + vídeo" : ""}
+                              </Text>
+                            </View>
+
                             {!!p.is_featured_home && (
                               <View
                                 style={{
@@ -1142,20 +1627,10 @@ export default function AdminProducts() {
                       </Text>
 
                       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                        <ChipButton
-                          label="Editar"
-                          variant="primary"
-                          onPress={() => openEditProduct(p)}
-                          isMobile={isMobile}
-                        />
+                        <ChipButton label="Editar" variant="primary" onPress={() => openEditProduct(p)} isMobile={isMobile} />
 
                         {p.status !== "PUBLISHED" ? (
-                          <ChipButton
-                            label="Publicar"
-                            variant="success"
-                            onPress={() => quickPublish(p)}
-                            isMobile={isMobile}
-                          />
+                          <ChipButton label="Publicar" variant="success" onPress={() => quickPublish(p)} isMobile={isMobile} />
                         ) : null}
 
                         {supportsFeaturedHome ? (
@@ -1166,12 +1641,7 @@ export default function AdminProducts() {
                           />
                         ) : null}
 
-                        <ChipButton
-                          label="Borrar"
-                          variant="danger"
-                          onPress={() => askRemove(p)}
-                          isMobile={isMobile}
-                        />
+                        <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(p)} isMobile={isMobile} />
                       </View>
                     </View>
                   </View>
@@ -1217,7 +1687,7 @@ export default function AdminProducts() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Rellena lo importante. Mejor pocos productos bien montados que un cementerio de fichas mediocres.
+                Hasta {MAX_IMAGES} imágenes y 1 vídeo de máximo {MAX_VIDEO_SECONDS} segundos.
               </Text>
 
               <TextInput
@@ -1284,50 +1754,71 @@ export default function AdminProducts() {
                 }}
               />
 
-              {supportsImageUrl ? (
-                <>
-                  <TextInput
-                    value={imageUrl}
-                    onChangeText={(v) => {
-                      setImageUrl(v);
-                      setModalErr(null);
-                    }}
-                    placeholder="Imagen URL (https://...)"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
-                    autoCapitalize="none"
-                    style={{
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      borderRadius: 14,
-                      paddingHorizontal: 12,
-                      paddingVertical: 12,
-                      color: COLORS.text,
-                      backgroundColor: "rgba(255,255,255,0.03)",
-                      fontSize: 14,
-                    }}
-                  />
+              <SectionTitle
+                title="Media del producto"
+                subtitle="Sube fotos reales y, si quieres, un vídeo corto enseñando el artículo."
+                isMobile={isMobile}
+              />
 
-                  {isValidHttpUrl(imageUrl) ? (
-                    <View
-                      style={{
-                        width: "100%",
-                        height: isMobile ? 150 : 170,
-                        borderRadius: 16,
-                        overflow: "hidden",
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "rgba(255,255,255,0.04)",
-                      }}
-                    >
-                      <Image
-                        source={{ uri: imageUrl.trim() }}
-                        resizeMode="cover"
-                        style={{ width: "100%", height: "100%" }}
-                      />
-                    </View>
-                  ) : null}
-                </>
-              ) : null}
+              <View
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.cardSoft,
+                  padding: 12,
+                  gap: 12,
+                }}
+              >
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <ChipButton
+                    label="Añadir imágenes / vídeo"
+                    variant="primary"
+                    onPress={addMediaFromPicker}
+                    isMobile={isMobile}
+                  />
+                </View>
+
+                <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
+                  Ahora mismo: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
+                </Text>
+
+                {!!existingMedia.length && (
+                  <View style={{ gap: 8 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Media actual</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        {existingMedia.map((m) => (
+                          <MediaThumb
+                            key={m.id}
+                            media={m}
+                            isMobile={isMobile}
+                            onRemove={() => removeExistingMedia(m.id)}
+                          />
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                )}
+
+                {!!newMedia.length && (
+                  <View style={{ gap: 8 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Media nueva pendiente</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        {newMedia.map((m) => (
+                          <MediaThumb
+                            key={m.id}
+                            media={m}
+                            isMobile={isMobile}
+                            onRemove={() => removeNewMedia(m.id)}
+                          />
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
 
               <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
               <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
@@ -1364,10 +1855,8 @@ export default function AdminProducts() {
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor:
-                        condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                      backgroundColor:
-                        condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                      borderColor: condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor: condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1378,8 +1867,7 @@ export default function AdminProducts() {
               </View>
 
               <Text style={{ color: COLORS.muted, fontWeight: "800", lineHeight: 20 }}>
-                Categoría actual:{" "}
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
+                Categoría actual: <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
               </Text>
 
               <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
@@ -1410,10 +1898,8 @@ export default function AdminProducts() {
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor:
-                        categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                      backgroundColor:
-                        categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                      borderColor: categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor: categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1460,9 +1946,7 @@ export default function AdminProducts() {
                     }}
                   >
                     <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                        Destacar en home
-                      </Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>Destacar en home</Text>
                       <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
                         Marca este producto como oferta destacada principal de la home.
                       </Text>
