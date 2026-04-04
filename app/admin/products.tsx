@@ -12,9 +12,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { COLORS, MAX_IMAGES, MAX_VIDEO_SECONDS, MEDIA_BUCKET } from "../../app/admin/products/products.constants";
+import { COLORS, MAX_IMAGES, MAX_VIDEO_SECONDS, MEDIA_BUCKET } from "./products/products.constants";
 import type {
   CategoryRow,
   LocalPickedMedia,
@@ -24,7 +23,7 @@ import type {
   ProductStatus,
   StatusFilter,
   VisibilityFilter,
-} from "../../app/admin/products/products.types";
+} from "./products/products.types";
 import {
   buildMediaPath,
   clampText,
@@ -37,14 +36,14 @@ import {
   softShadow,
   statusVisual,
   toIntSafe,
-} from "../../app/admin/products/products.utils";
+} from "./products/products.utils";
 import {
   ChipButton,
   FilterPill,
   MediaThumb,
   SectionTitle,
   StatCard,
-} from "../../app/admin/products/products.components";
+} from "./products/products.components";
 
 export default function AdminProducts() {
   const { width } = useWindowDimensions();
@@ -55,6 +54,7 @@ export default function AdminProducts() {
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
+  const [mediaDebugErr, setMediaDebugErr] = useState<string | null>(null);
 
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [items, setItems] = useState<ProductRow[]>([]);
@@ -176,13 +176,15 @@ export default function AdminProducts() {
       const shouldOrder = i;
 
       if (row.sort_order !== shouldOrder || row.is_cover !== shouldCover) {
-        await supabase
+        const { error: updateError } = await supabase
           .from("product_media")
           .update({
             sort_order: shouldOrder,
             is_cover: shouldCover,
           })
           .eq("id", row.id);
+
+        if (updateError) throw updateError;
 
         row.sort_order = shouldOrder;
         row.is_cover = shouldCover;
@@ -195,6 +197,7 @@ export default function AdminProducts() {
   async function load() {
     setLoading(true);
     setScreenErr(null);
+    setMediaDebugErr(null);
 
     try {
       const [catsRes, prodRes] = await Promise.all([
@@ -258,17 +261,19 @@ export default function AdminProducts() {
         .limit(5000);
 
       if (mediaRes.error) {
-        const msg = String(mediaRes.error.message ?? "").toLowerCase();
+        const rawMsg = String(mediaRes.error.message ?? "");
+        const msg = rawMsg.toLowerCase();
 
         const definitelyMissing =
           msg.includes('relation "product_media" does not exist') ||
           msg.includes("could not find the table") ||
-          msg.includes("schema cache") ||
           msg.includes("does not exist");
 
         if (definitelyMissing) {
           supportsMedia = false;
+          setMediaDebugErr(rawMsg || "La tabla product_media no existe o no está accesible.");
         } else {
+          setMediaDebugErr(rawMsg || "Error desconocido al leer product_media.");
           throw mediaRes.error;
         }
       }
@@ -292,7 +297,12 @@ export default function AdminProducts() {
       setCategories((catsRes.data ?? []) as CategoryRow[]);
       setItems(merged);
     } catch (e: any) {
-      setScreenErr(e?.message ?? "Error cargando productos.");
+      const exactMessage =
+        e?.message ||
+        e?.error_description ||
+        e?.details ||
+        "Error cargando productos.";
+      setScreenErr(exactMessage);
       setCategories([]);
       setItems([]);
     } finally {
@@ -352,7 +362,7 @@ export default function AdminProducts() {
     setModalErr(null);
 
     if (!supportsProductMedia) {
-      setModalErr("La tabla product_media no está disponible todavía para este panel.");
+      setModalErr(mediaDebugErr || "La tabla product_media no está disponible todavía para este panel.");
       return;
     }
 
@@ -563,7 +573,12 @@ export default function AdminProducts() {
       resetForm();
       await load();
     } catch (e: any) {
-      setModalErr(e?.message ?? "Error guardando producto.");
+      const exactMessage =
+        e?.message ||
+        e?.error_description ||
+        e?.details ||
+        "Error guardando producto.";
+      setModalErr(exactMessage);
     } finally {
       setSaving(false);
     }
@@ -594,7 +609,12 @@ export default function AdminProducts() {
 
       await load();
     } catch (e: any) {
-      setScreenErr(e?.message ?? "Error borrando producto.");
+      const exactMessage =
+        e?.message ||
+        e?.error_description ||
+        e?.details ||
+        "Error borrando producto.";
+      setScreenErr(exactMessage);
     }
   }
 
@@ -737,6 +757,38 @@ export default function AdminProducts() {
           <StatCard label="Destacados home" value={String(stats.featured)} icon="🔥" isMobile={isMobile} compact />
         </View>
 
+        {!!screenErr && (
+          <View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: COLORS.dangerBorder,
+              backgroundColor: COLORS.dangerBg,
+              padding: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+              {screenErr}
+            </Text>
+          </View>
+        )}
+
+        {!supportsProductMedia && (
+          <View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: COLORS.warningBorder,
+              backgroundColor: COLORS.warningBg,
+              padding: 10,
+            }}
+          >
+            <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
+              {mediaDebugErr || "El panel no ha podido leer product_media."}
+            </Text>
+          </View>
+        )}
+
         <View
           style={{
             borderRadius: 18,
@@ -799,38 +851,6 @@ export default function AdminProducts() {
             </Text>
           </Pressable>
         </View>
-
-        {!!screenErr && (
-          <View
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.dangerBg,
-              padding: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-              {screenErr}
-            </Text>
-          </View>
-        )}
-
-        {!supportsProductMedia && (
-          <View
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: COLORS.warningBorder,
-              backgroundColor: COLORS.warningBg,
-              padding: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              El panel no ha podido leer product_media. Si la tabla ya existe, recarga la web y vuelve a probar.
-            </Text>
-          </View>
-        )}
       </View>
 
       {loading ? (
