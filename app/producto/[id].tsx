@@ -40,6 +40,18 @@ type Category = {
   slug: string;
 };
 
+type ProductMediaKind = "image" | "video";
+
+type ProductMedia = {
+  id: string;
+  kind: ProductMediaKind;
+  publicUrl: string;
+  fileName: string | null;
+  sortOrder: number;
+  isCover: boolean;
+  durationSeconds: number | null;
+};
+
 type Product = {
   id: string;
   title: string;
@@ -49,6 +61,7 @@ type Product = {
   isActive: boolean;
   imageUrl: string | null;
   category?: Category | null;
+  media: ProductMedia[];
 };
 
 const BRAND = {
@@ -185,6 +198,66 @@ function productHintByCategory(name?: string | null) {
   return "Producto revisado";
 }
 
+function normalizeMediaKind(value: any): ProductMediaKind | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "image") return "image";
+  if (v === "video") return "video";
+  return null;
+}
+
+function normalizeDuration(value: any): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function normalizeProductMediaRows(rows: any[]): ProductMedia[] {
+  return (rows ?? [])
+    .map((row) => {
+      const kind = normalizeMediaKind(row.kind ?? row.media_type);
+      const publicUrl = String(row.public_url ?? "").trim();
+
+      if (!kind || !publicUrl) return null;
+
+      return {
+        id: String(row.id),
+        kind,
+        publicUrl,
+        fileName: row.file_name ?? null,
+        sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0,
+        isCover: Boolean(row.is_cover),
+        durationSeconds: normalizeDuration(row.duration_seconds ?? row.duration_sec),
+      } satisfies ProductMedia;
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a!.isCover && !b!.isCover) return -1;
+      if (!a!.isCover && b!.isCover) return 1;
+      return a!.sortOrder - b!.sortOrder;
+    }) as ProductMedia[];
+}
+
+function pickInitialHeroImage(productRow: any, media: ProductMedia[]): string | null {
+  const coverImage =
+    media.find((m) => m.isCover && m.kind === "image") ||
+    media.find((m) => m.kind === "image");
+
+  if (coverImage?.publicUrl) return coverImage.publicUrl;
+
+  return firstImageFromAnyRow(productRow);
+}
+
+function mediaCountLabel(media: ProductMedia[]) {
+  const images = media.filter((m) => m.kind === "image").length;
+  const videos = media.filter((m) => m.kind === "video").length;
+
+  if (!images && !videos) return "Sin multimedia";
+  if (images && videos) {
+    return `${images} foto${images === 1 ? "" : "s"} + ${videos} vídeo${videos === 1 ? "" : "s"}`;
+  }
+  if (images) return `${images} foto${images === 1 ? "" : "s"}`;
+  return `${videos} vídeo${videos === 1 ? "" : "s"}`;
+}
+
 export default function ProductoScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -200,6 +273,7 @@ export default function ProductoScreen() {
   const [err, setErr] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [p, setP] = useState<Product | null>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
   const reqSeqRef = useRef(0);
 
@@ -225,6 +299,10 @@ export default function ProductoScreen() {
       parts.push("Disponible para compra");
     }
 
+    if (p.media.length > 0) {
+      parts.push(mediaCountLabel(p.media));
+    }
+
     if (isAdmin) parts.push("Vista admin");
 
     return parts.join(" · ");
@@ -247,6 +325,7 @@ ${price}
     if (!productId) {
       setErr("Falta el id del producto.");
       setP(null);
+      setSelectedImageUrl(null);
       setLoading(false);
       return;
     }
@@ -276,7 +355,7 @@ ${price}
         return q.maybeSingle();
       };
 
-      let data: any = null;
+      let productRow: any = null;
 
       const res1 = await runQuery(selectWithImagesAndUrl);
 
@@ -310,38 +389,62 @@ ${price}
 
           const res3 = await runQuery(selectBase);
           if (res3.error) throw res3.error;
-          data = res3.data;
+          productRow = res3.data;
         } else {
-          data = res2.data;
+          productRow = res2.data;
         }
       } else {
-        data = res1.data;
+        productRow = res1.data;
       }
 
       if (seq !== reqSeqRef.current) return;
 
-      if (!data) {
+      if (!productRow) {
         setP(null);
+        setSelectedImageUrl(null);
         setErr("Producto no encontrado o no disponible.");
         return;
       }
 
+      let mediaRows: any[] = [];
+
+      const mediaSelectPrimary =
+        "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec";
+
+      const mediaRes1 = await supabase
+        .from("product_media")
+        .select(mediaSelectPrimary)
+        .eq("product_id", productRow.id)
+        .limit(50);
+
+      if (mediaRes1.error) {
+        throw mediaRes1.error;
+      }
+
+      mediaRows = mediaRes1.data ?? [];
+
+      const normalizedMedia = normalizeProductMediaRows(mediaRows);
+      const heroImage = pickInitialHeroImage(productRow, normalizedMedia);
+
       const mapped: Product = {
-        id: data.id,
-        title: data.title,
-        description: data.description ?? null,
-        priceEUR: Number(data.price_eur ?? 0),
-        status: mapDbStatusToUi(data.status as DbStatus),
-        isActive: Boolean(data.is_active),
-        imageUrl: firstImageFromAnyRow(data),
-        category: data.category ?? null,
+        id: productRow.id,
+        title: productRow.title,
+        description: productRow.description ?? null,
+        priceEUR: Number(productRow.price_eur ?? 0),
+        status: mapDbStatusToUi(productRow.status as DbStatus),
+        isActive: Boolean(productRow.is_active),
+        imageUrl: heroImage,
+        category: productRow.category ?? null,
+        media: normalizedMedia,
       };
 
       setP(mapped);
+      setSelectedImageUrl(heroImage);
     } catch (e: any) {
       if (seq !== reqSeqRef.current) return;
       setErr(e?.message ?? "Error cargando el producto.");
       setP(null);
+      setSelectedImageUrl(null);
     } finally {
       if (seq !== reqSeqRef.current) return;
       setLoading(false);
@@ -352,6 +455,29 @@ ${price}
     loadProduct();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
+
+  useEffect(() => {
+    if (!p) {
+      setSelectedImageUrl(null);
+      return;
+    }
+
+    const validUrls = p.media.filter((m) => m.kind === "image").map((m) => m.publicUrl);
+
+    if (!validUrls.length) {
+      setSelectedImageUrl(p.imageUrl ?? null);
+      return;
+    }
+
+    if (!selectedImageUrl || !validUrls.includes(selectedImageUrl)) {
+      setSelectedImageUrl(validUrls[0]);
+    }
+  }, [p, selectedImageUrl]);
+
+  const imageGallery = useMemo(() => {
+    if (!p) return [];
+    return p.media.filter((m) => m.kind === "image");
+  }, [p]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -595,9 +721,9 @@ ${price}
                     ...softShadow(),
                   }}
                 >
-                  {p.imageUrl ? (
+                  {selectedImageUrl ? (
                     <Image
-                      source={{ uri: p.imageUrl }}
+                      source={{ uri: selectedImageUrl }}
                       style={{
                         width: "100%",
                         height: isWide ? 520 : isTablet ? 360 : 260,
@@ -649,6 +775,44 @@ ${price}
                     </View>
                   )}
                 </View>
+
+                {imageGallery.length > 1 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{
+                      gap: 10,
+                      paddingTop: 10,
+                    }}
+                  >
+                    {imageGallery.map((media) => {
+                      const active = selectedImageUrl === media.publicUrl;
+
+                      return (
+                        <Pressable
+                          key={media.id}
+                          onPress={() => setSelectedImageUrl(media.publicUrl)}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.88 : 1,
+                            width: isMobile ? 74 : 88,
+                            height: isMobile ? 74 : 88,
+                            borderRadius: 16,
+                            overflow: "hidden",
+                            borderWidth: 2,
+                            borderColor: active ? COLORS.accent : "rgba(255,255,255,0.10)",
+                            backgroundColor: "rgba(255,255,255,0.05)",
+                          })}
+                        >
+                          <Image
+                            source={{ uri: media.publicUrl }}
+                            resizeMode="cover"
+                            style={{ width: "100%", height: "100%" }}
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : null}
               </View>
 
               <View
@@ -722,6 +886,23 @@ ${price}
                         </Text>
                       </View>
                     ) : null}
+
+                    {p.media.length > 0 ? (
+                      <View
+                        style={{
+                          paddingVertical: 7,
+                          paddingHorizontal: 12,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: COLORS.borderSoft,
+                          backgroundColor: "rgba(255,255,255,0.05)",
+                        }}
+                      >
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
+                          {mediaCountLabel(p.media)}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
 
                   <Text
@@ -791,6 +972,11 @@ ${price}
                       <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
                       <InfoRow label="Categoría" value={p.category?.name ?? "General"} isMobile={isMobile} />
                       <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} isMobile={isMobile} />
+                      <InfoRow
+                        label="Multimedia"
+                        value={mediaCountLabel(p.media)}
+                        isMobile={isMobile}
+                      />
                       <InfoRow
                         label="Compra"
                         value={canBuy ? "Disponible para añadir al carrito" : "No disponible"}

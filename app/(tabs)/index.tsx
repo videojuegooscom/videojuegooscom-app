@@ -49,6 +49,8 @@ type FeaturedProduct = {
   priceEUR: number;
   imageUrl: string | null;
   categoryName: string | null;
+  mediaCount: number;
+  hasVideo: boolean;
 };
 
 type HomeCategory = {
@@ -69,6 +71,21 @@ type ProductRow = {
   category?: {
     name?: string | null;
   } | null;
+};
+
+type ProductMediaKind = "image" | "video";
+
+type ProductMediaRow = {
+  id: string;
+  product_id: string;
+  kind?: ProductMediaKind | null;
+  media_type?: ProductMediaKind | null;
+  public_url: string;
+  file_name?: string | null;
+  sort_order?: number | null;
+  is_cover?: boolean | null;
+  duration_seconds?: number | null;
+  duration_sec?: number | null;
 };
 
 type SearchSnapPosition = "top" | "bottom";
@@ -94,27 +111,6 @@ const HOME_CATEGORIES: HomeCategory[] = [
   },
 ];
 
-/**
- * ============================================================
- * SEARCH LAYOUT MASTER CONFIG
- * ============================================================
- *
- * TOCA ESTO SI QUIERES AJUSTAR LA BARRA:
- *
- * 1) POSICIÓN DE SNAP:
- *    topSnapMobile / topSnapDesktop
- *
- * 2) ALTURA VISUAL APROX DE LA SEARCH BAR:
- *    searchBarHeightMobile / searchBarHeightDesktop
- *
- * 3) HUECO REAL DEL CONTENIDO:
- *    topContentGapMobile / topContentGapDesktop
- *    bottomContentGapMobile / bottomContentGapDesktop
- *
- * IMPORTANTE:
- * Ya NO sumamos aquí toda la altura de la tab bar al ScrollView.
- * Ese era el fallo que generaba los huecos enormes.
- */
 const SEARCH_LAYOUT = {
   topSnapMobile: 84,
   topSnapDesktop: 92,
@@ -132,20 +128,9 @@ const SEARCH_LAYOUT = {
   widthDesktopPercent: 0.74,
   maxWidth: 760,
 
-  /**
-   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE ENTRE
-   * LA SEARCH BAR SUPERIOR Y EL CONTENIDO.
-   */
   topContentGapMobile: 12,
   topContentGapDesktop: 14,
 
-  /**
-   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE AL FINAL
-   * CUANDO LA SEARCH BAR ESTÁ ABAJO.
-   *
-   * Menor = menos hueco abajo
-   * Mayor = más hueco abajo
-   */
   bottomContentGapMobile: 18,
   bottomContentGapDesktop: 20,
 };
@@ -203,8 +188,9 @@ function softShadow() {
 
 function firstImageFromAnyRow(row: ProductRow | null | undefined): string | null {
   const images = row?.images;
-  if (Array.isArray(images) && images.length > 0 && typeof images[0] === "string") {
-    return images[0];
+  if (Array.isArray(images) && images.length > 0) {
+    const first = images.find((v) => typeof v === "string" && v.trim());
+    if (typeof first === "string" && first.trim()) return first.trim();
   }
 
   const url = row?.image_url;
@@ -213,6 +199,37 @@ function firstImageFromAnyRow(row: ProductRow | null | undefined): string | null
   }
 
   return null;
+}
+
+function normalizeMediaKind(value: any): ProductMediaKind | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "image") return "image";
+  if (v === "video") return "video";
+  return null;
+}
+
+function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
+  const aCover = Boolean(a.is_cover);
+  const bCover = Boolean(b.is_cover);
+
+  if (aCover && !bCover) return -1;
+  if (!aCover && bCover) return 1;
+
+  const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 99999;
+  const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 99999;
+
+  return aOrder - bOrder;
+}
+
+function pickHeroImage(productRow: ProductRow | null | undefined, mediaRows: ProductMediaRow[]) {
+  const sorted = [...mediaRows].sort(sortMediaRows);
+
+  const coverImage =
+    sorted.find((m) => normalizeMediaKind(m.kind ?? m.media_type) === "image") ?? null;
+
+  if (coverImage?.public_url) return coverImage.public_url;
+
+  return firstImageFromAnyRow(productRow);
 }
 
 function pushRoute(route: Href) {
@@ -675,6 +692,7 @@ Precio: ${fmtEUR(item.priceEUR)}
             flex: isDesktopish ? 1.05 : undefined,
             height: mediaHeight,
             backgroundColor: "rgba(255,255,255,0.04)",
+            position: "relative",
           }}
         >
           {item.imageUrl ? (
@@ -711,6 +729,27 @@ Precio: ${fmtEUR(item.priceEUR)}
               </Text>
             </View>
           )}
+
+          {item.mediaCount > 0 ? (
+            <View
+              style={{
+                position: "absolute",
+                right: 12,
+                bottom: 12,
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                borderRadius: 999,
+                backgroundColor: "rgba(7,30,51,0.86)",
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.16)",
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                {item.mediaCount} foto{item.mediaCount === 1 ? "" : "s"}
+                {item.hasVideo ? " + vídeo" : ""}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View
@@ -929,13 +968,41 @@ export default function HomeScreen() {
           return;
         }
 
+        const mediaRes = await supabase
+          .from("product_media")
+          .select(
+            "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec"
+          )
+          .eq("product_id", data.id)
+          .limit(100);
+
+        let mediaRows: ProductMediaRow[] = [];
+
+        if (!mediaRes.error) {
+          mediaRows = ((mediaRes.data ?? []) as ProductMediaRow[]).sort(sortMediaRows);
+        } else {
+          const msg = String(mediaRes.error.message ?? "").toLowerCase();
+          const missingTable =
+            msg.includes('relation "product_media" does not exist') ||
+            msg.includes("could not find the table") ||
+            msg.includes("does not exist");
+
+          if (!missingTable) {
+            throw mediaRes.error;
+          }
+        }
+
+        if (!alive) return;
+
         setFeatured({
           id: data.id,
           title: data.title,
           description: data.description ?? null,
           priceEUR: Number(data.price_eur ?? 0),
-          imageUrl: firstImageFromAnyRow(data),
+          imageUrl: pickHeroImage(data, mediaRows),
           categoryName: data.category?.name ?? null,
+          mediaCount: mediaRows.length,
+          hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video"),
         });
       } catch {
         if (!alive) return;
@@ -953,31 +1020,10 @@ export default function HomeScreen() {
     };
   }, []);
 
-  /**
-   * ============================================================
-   * OVERLAY SPACES CORRECTOS Y MÍNIMOS
-   * ============================================================
-   *
-   * EL ERROR ANTERIOR:
-   * Estábamos reservando demasiado hueco en el ScrollView, como si
-   * hubiera que sumar la posición absoluta completa de la barra.
-   *
-   * NO.
-   *
-   * El ScrollView solo necesita reservar:
-   * - arriba: altura real de la barra + pequeño gap
-   * - abajo: altura real de la barra + pequeño gap de seguridad
-   *
-   * Nada más.
-   */
-
   const searchBarHeight = isMobile
     ? SEARCH_LAYOUT.searchBarHeightMobile
     : SEARCH_LAYOUT.searchBarHeightDesktop;
 
-  /**
-   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE ARRIBA CUANDO LA BARRA HACE SNAP TOP.
-   */
   const topOverlaySpace =
     searchSnapPosition === "top"
       ? searchBarHeight +
@@ -986,12 +1032,6 @@ export default function HomeScreen() {
           : SEARCH_LAYOUT.topContentGapDesktop)
       : 0;
 
-  /**
-   * TOCA ESTO SI QUIERES MÁS O MENOS AIRE ABAJO CUANDO LA BARRA HACE SNAP BOTTOM.
-   *
-   * Menor = menos hueco abajo
-   * Mayor = más hueco abajo
-   */
   const bottomOverlaySpace =
     searchSnapPosition === "bottom"
       ? searchBarHeight +

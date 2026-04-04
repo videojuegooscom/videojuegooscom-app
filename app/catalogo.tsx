@@ -62,6 +62,21 @@ type ProductDbRow = ProductBaseRow & {
   category: { id: string; name: string; slug: string } | null;
 };
 
+type ProductMediaKind = "image" | "video";
+
+type ProductMediaRow = {
+  id: string;
+  product_id: string;
+  kind?: ProductMediaKind | null;
+  media_type?: ProductMediaKind | null;
+  public_url: string;
+  file_name?: string | null;
+  sort_order?: number | null;
+  is_cover?: boolean | null;
+  duration_seconds?: number | null;
+  duration_sec?: number | null;
+};
+
 type Product = {
   id: string;
   title: string;
@@ -69,6 +84,8 @@ type Product = {
   status: UiStatus;
   priceEUR: number;
   imageUrl: string | null;
+  mediaCount: number;
+  hasVideo: boolean;
   category?: { id: string; name: string; slug: string } | null;
 };
 
@@ -191,6 +208,37 @@ function firstImageFromAnyRow(row: any): string | null {
   if (typeof url === "string" && url.trim()) return url.trim();
 
   return null;
+}
+
+function normalizeMediaKind(value: any): ProductMediaKind | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "image") return "image";
+  if (v === "video") return "video";
+  return null;
+}
+
+function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
+  const aCover = Boolean(a.is_cover);
+  const bCover = Boolean(b.is_cover);
+
+  if (aCover && !bCover) return -1;
+  if (!aCover && bCover) return 1;
+
+  const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 99999;
+  const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 99999;
+
+  return aOrder - bOrder;
+}
+
+function pickHeroImage(productRow: ProductDbRow, mediaRows: ProductMediaRow[]) {
+  const sorted = [...mediaRows].sort(sortMediaRows);
+
+  const coverImage =
+    sorted.find((m) => normalizeMediaKind(m.kind ?? m.media_type) === "image") ?? null;
+
+  if (coverImage?.public_url) return coverImage.public_url;
+
+  return firstImageFromAnyRow(productRow);
 }
 
 async function detectAdmin(): Promise<boolean> {
@@ -359,6 +407,50 @@ export default function CatalogoScreen() {
     return (Array.isArray(res3.data) ? res3.data : []) as unknown as ProductDbRow[];
   }
 
+  async function fetchProductMediaMap(productIds: string[]) {
+    const empty = new Map<string, ProductMediaRow[]>();
+    if (!productIds.length) return empty;
+
+    const selectPrimary =
+      "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec";
+
+    const res = await supabase
+      .from("product_media")
+      .select(selectPrimary)
+      .in("product_id", productIds)
+      .limit(5000);
+
+    if (res.error) {
+      const msg = String(res.error.message ?? "").toLowerCase();
+
+      const missingTable =
+        msg.includes('relation "product_media" does not exist') ||
+        msg.includes("could not find the table") ||
+        msg.includes("does not exist");
+
+      if (missingTable) {
+        return empty;
+      }
+
+      throw res.error;
+    }
+
+    const rows = (res.data ?? []) as ProductMediaRow[];
+    const map = new Map<string, ProductMediaRow[]>();
+
+    for (const row of rows) {
+      const list = map.get(row.product_id) ?? [];
+      list.push(row);
+      map.set(row.product_id, list);
+    }
+
+    for (const [key, list] of map.entries()) {
+      map.set(key, [...list].sort(sortMediaRows));
+    }
+
+    return map;
+  }
+
   async function loadAll(opts?: { queryOverride?: string }) {
     const seq = ++reqSeqRef.current;
     const queryText = (opts?.queryOverride ?? q ?? "").trim();
@@ -389,15 +481,26 @@ export default function CatalogoScreen() {
     const rows = await fetchProductsSafe(adminFlag, queryText, resolvedCatLocal);
     if (seq !== reqSeqRef.current) return;
 
-    const mapped: Product[] = rows.map((p) => ({
-      id: p.id,
-      title: p.title,
-      description: p.description ?? null,
-      status: mapDbStatusToUi(p.status),
-      priceEUR: Number(p.price_eur ?? 0),
-      imageUrl: firstImageFromAnyRow(p),
-      category: p.category ?? null,
-    }));
+    const productIds = rows.map((row) => row.id);
+    const mediaMap = await fetchProductMediaMap(productIds);
+    if (seq !== reqSeqRef.current) return;
+
+    const mapped: Product[] = rows.map((row) => {
+      const mediaRows = mediaMap.get(row.id) ?? [];
+      const imageUrl = pickHeroImage(row, mediaRows);
+
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description ?? null,
+        status: mapDbStatusToUi(row.status),
+        priceEUR: Number(row.price_eur ?? 0),
+        imageUrl,
+        mediaCount: mediaRows.length,
+        hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video"),
+        category: row.category ?? null,
+      };
+    });
 
     setItems(mapped);
   }
@@ -1289,6 +1392,26 @@ function ProductCard({
         >
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>{badgeLabel}</Text>
         </View>
+
+        {p.mediaCount > 0 ? (
+          <View
+            style={{
+              position: "absolute",
+              right: 12,
+              bottom: 12,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: "rgba(7,30,51,0.86)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.16)",
+            }}
+          >
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+              {p.mediaCount} foto{p.mediaCount === 1 ? "" : "s"}{p.hasVideo ? " + vídeo" : ""}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={{ padding: isMobile ? 12 : 14, gap: 10 }}>
