@@ -13,7 +13,13 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
-import { COLORS, MAX_IMAGES, MAX_VIDEO_SECONDS, MEDIA_BUCKET } from "./products/products.constants";
+import {
+  COLORS,
+  MAX_FILE_SIZE_MB,
+  MAX_IMAGES,
+  MAX_VIDEO_SECONDS,
+  MEDIA_BUCKET,
+} from "./products/products.constants";
 import type {
   CategoryRow,
   LocalPickedMedia,
@@ -44,6 +50,16 @@ import {
   SectionTitle,
   StatCard,
 } from "./products/products.components";
+
+function revokeLocalMedia(items: LocalPickedMedia[]) {
+  items.forEach((m) => {
+    try {
+      URL.revokeObjectURL(m.previewUrl);
+    } catch {
+      // ignore
+    }
+  });
+}
 
 export default function AdminProducts() {
   const { width } = useWindowDimensions();
@@ -95,13 +111,7 @@ export default function AdminProducts() {
 
   useEffect(() => {
     return () => {
-      newMedia.forEach((m) => {
-        try {
-          URL.revokeObjectURL(m.previewUrl);
-        } catch {
-          // ignore
-        }
-      });
+      revokeLocalMedia(newMedia);
     };
   }, [newMedia]);
 
@@ -110,7 +120,10 @@ export default function AdminProducts() {
     return categories.find((c) => c.id === categoryId)?.name ?? "Sin categoría";
   }, [categoryId, categories]);
 
-  const activeCategories = useMemo(() => categories.filter((c) => !!c.is_active), [categories]);
+  const activeCategories = useMemo(
+    () => categories.filter((c) => !!c.is_active),
+    [categories]
+  );
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -278,7 +291,10 @@ export default function AdminProducts() {
         }
       }
 
-      const mediaRows = supportsMedia ? (((mediaRes.data ?? []) as ProductMediaRow[]) || []) : [];
+      const mediaRows = supportsMedia
+        ? (((mediaRes.data ?? []) as ProductMediaRow[]) || [])
+        : [];
+
       const mediaByProduct = new Map<string, ProductMediaRow[]>();
 
       for (const media of mediaRows) {
@@ -289,7 +305,9 @@ export default function AdminProducts() {
 
       const merged = productsData.map((item) => ({
         ...item,
-        media: (mediaByProduct.get(item.id) ?? []).sort((a, b) => a.sort_order - b.sort_order),
+        media: (mediaByProduct.get(item.id) ?? []).sort(
+          (a, b) => a.sort_order - b.sort_order
+        ),
       }));
 
       setSupportsFeaturedHome(supportsFeatured);
@@ -326,13 +344,7 @@ export default function AdminProducts() {
     setIsFeaturedHome(false);
     setExistingMedia([]);
     setRemovedMedia([]);
-    newMedia.forEach((m) => {
-      try {
-        URL.revokeObjectURL(m.previewUrl);
-      } catch {
-        // ignore
-      }
-    });
+    revokeLocalMedia(newMedia);
     setNewMedia([]);
     setModalErr(null);
   }
@@ -362,7 +374,9 @@ export default function AdminProducts() {
     setModalErr(null);
 
     if (!supportsProductMedia) {
-      setModalErr(mediaDebugErr || "La tabla product_media no está disponible todavía para este panel.");
+      setModalErr(
+        mediaDebugErr || "La tabla product_media no está disponible todavía para este panel."
+      );
       return;
     }
 
@@ -370,24 +384,33 @@ export default function AdminProducts() {
       const picked = await pickMediaFilesWeb();
       if (!picked.length) return;
 
+      const oversize = picked.find((m) => m.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+      if (oversize) {
+        revokeLocalMedia(picked);
+        setModalErr(
+          `Uno de los archivos supera el máximo de ${MAX_FILE_SIZE_MB}MB permitido por archivo.`
+        );
+        return;
+      }
+
       const pickedImages = picked.filter((m) => m.kind === "image");
       const pickedVideos = picked.filter((m) => m.kind === "video");
 
       if (pickedVideos.length > 1) {
+        revokeLocalMedia(picked);
         setModalErr("Solo se permite 1 vídeo por producto.");
-        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
         return;
       }
 
       if (currentImageCount + pickedImages.length > MAX_IMAGES) {
+        revokeLocalMedia(picked);
         setModalErr(`Máximo ${MAX_IMAGES} imágenes por producto.`);
-        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
         return;
       }
 
       if (currentVideoCount + pickedVideos.length > 1) {
+        revokeLocalMedia(picked);
         setModalErr("Solo se permite 1 vídeo por producto.");
-        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
         return;
       }
 
@@ -396,8 +419,8 @@ export default function AdminProducts() {
       );
 
       if (invalidDuration) {
+        revokeLocalMedia(picked);
         setModalErr(`El vídeo no puede superar ${MAX_VIDEO_SECONDS} segundos.`);
-        picked.forEach((m) => URL.revokeObjectURL(m.previewUrl));
         return;
       }
 
@@ -411,11 +434,7 @@ export default function AdminProducts() {
     setNewMedia((prev) => {
       const found = prev.find((m) => m.id === id);
       if (found) {
-        try {
-          URL.revokeObjectURL(found.previewUrl);
-        } catch {
-          // ignore
-        }
+        revokeLocalMedia([found]);
       }
       return prev.filter((m) => m.id !== id);
     });
@@ -440,15 +459,21 @@ export default function AdminProducts() {
       const item = newMedia[i];
       const storagePath = buildMediaPath(productId, item, startIndex + i);
 
-      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: item.mimeType || undefined,
-      });
+      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(
+        storagePath,
+        item.file,
+        {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: item.mimeType || undefined,
+        }
+      );
 
       if (uploadRes.error) throw uploadRes.error;
 
-      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+      const { data: publicData } = supabase.storage
+        .from(MEDIA_BUCKET)
+        .getPublicUrl(storagePath);
 
       const rowPayload = {
         product_id: productId,
@@ -530,6 +555,15 @@ export default function AdminProducts() {
       return;
     }
 
+    const oversize = newMedia.find((m) => m.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+    if (oversize) {
+      setModalErr(
+        `Uno de los archivos supera el máximo de ${MAX_FILE_SIZE_MB}MB permitido por archivo.`
+      );
+      setSaving(false);
+      return;
+    }
+
     const payload: any = {
       title: cleanTitle,
       description: cleanDesc || null,
@@ -548,7 +582,11 @@ export default function AdminProducts() {
       let productId = editing?.id ?? null;
 
       if (editing) {
-        const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
+        const { error } = await supabase
+          .from("products")
+          .update(payload)
+          .eq("id", editing.id);
+
         if (error) throw error;
       } else {
         const { data, error } = await supabase
@@ -750,7 +788,14 @@ export default function AdminProducts() {
           </Pressable>
         </View>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 10,
+            justifyContent: "space-between",
+          }}
+        >
           <StatCard label="Total" value={String(stats.total)} icon="📦" isMobile={isMobile} compact />
           <StatCard label="Publicados" value={String(stats.published)} icon="✅" isMobile={isMobile} compact />
           <StatCard label="Visibles" value={String(stats.visible)} icon="👁️" isMobile={isMobile} compact />
@@ -1083,7 +1128,10 @@ export default function AdminProducts() {
             justifyContent: "center",
           }}
         >
-          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            keyboardShouldPersistTaps="handled"
+          >
             <View
               style={{
                 borderRadius: 20,
@@ -1101,6 +1149,10 @@ export default function AdminProducts() {
 
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
                 Hasta {MAX_IMAGES} imágenes y 1 vídeo de máximo {MAX_VIDEO_SECONDS} segundos.
+              </Text>
+
+              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                Peso máximo recomendado por archivo: {MAX_FILE_SIZE_MB}MB.
               </Text>
 
               <TextInput
@@ -1184,7 +1236,12 @@ export default function AdminProducts() {
                 }}
               >
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <ChipButton label="Añadir imágenes / vídeo" variant="primary" onPress={addMediaFromPicker} isMobile={isMobile} />
+                  <ChipButton
+                    label="Añadir imágenes / vídeo"
+                    variant="primary"
+                    onPress={addMediaFromPicker}
+                    isMobile={isMobile}
+                  />
                 </View>
 
                 <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
@@ -1197,7 +1254,12 @@ export default function AdminProducts() {
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: "row", gap: 10 }}>
                         {existingMedia.map((m) => (
-                          <MediaThumb key={m.id} media={m} isMobile={isMobile} onRemove={() => removeExistingMedia(m.id)} />
+                          <MediaThumb
+                            key={m.id}
+                            media={m}
+                            isMobile={isMobile}
+                            onRemove={() => removeExistingMedia(m.id)}
+                          />
                         ))}
                       </View>
                     </ScrollView>
@@ -1210,7 +1272,12 @@ export default function AdminProducts() {
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: "row", gap: 10 }}>
                         {newMedia.map((m) => (
-                          <MediaThumb key={m.id} media={m} isMobile={isMobile} onRemove={() => removeNewMedia(m.id)} />
+                          <MediaThumb
+                            key={m.id}
+                            media={m}
+                            isMobile={isMobile}
+                            onRemove={() => removeNewMedia(m.id)}
+                          />
                         ))}
                       </View>
                     </ScrollView>
@@ -1253,8 +1320,10 @@ export default function AdminProducts() {
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor: condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                      backgroundColor: condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                      borderColor:
+                        condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor:
+                        condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1296,8 +1365,10 @@ export default function AdminProducts() {
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor: categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                      backgroundColor: categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                      borderColor:
+                        categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                      backgroundColor:
+                        categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1370,7 +1441,14 @@ export default function AdminProducts() {
                 </View>
               )}
 
-              <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <View
+                style={{
+                  flexDirection: isMobile ? "column" : "row",
+                  gap: 10,
+                  justifyContent: "flex-end",
+                  marginTop: 4,
+                }}
+              >
                 <Pressable
                   onPress={() => {
                     setOpen(false);
@@ -1414,7 +1492,12 @@ export default function AdminProducts() {
         </View>
       </Modal>
 
-      <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}>
+      <Modal
+        visible={!!confirmDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmDelete(null)}
+      >
         <View
           style={{
             flex: 1,
@@ -1445,9 +1528,28 @@ export default function AdminProducts() {
               . Esta acción no se puede deshacer.
             </Text>
 
-            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-              <ChipButton label="Cancelar" variant="ghost" onPress={() => setConfirmDelete(null)} isMobile={isMobile} fullWidth={isMobile} />
-              <ChipButton label="Sí, borrar" variant="danger" onPress={removeProductConfirmed} isMobile={isMobile} fullWidth={isMobile} />
+            <View
+              style={{
+                flexDirection: isMobile ? "column" : "row",
+                gap: 10,
+                justifyContent: "flex-end",
+                marginTop: 6,
+              }}
+            >
+              <ChipButton
+                label="Cancelar"
+                variant="ghost"
+                onPress={() => setConfirmDelete(null)}
+                isMobile={isMobile}
+                fullWidth={isMobile}
+              />
+              <ChipButton
+                label="Sí, borrar"
+                variant="danger"
+                onPress={removeProductConfirmed}
+                isMobile={isMobile}
+                fullWidth={isMobile}
+              />
             </View>
           </View>
         </View>

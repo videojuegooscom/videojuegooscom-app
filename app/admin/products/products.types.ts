@@ -51,4 +51,34 @@ export type LocalPickedMedia = {
   size: number;
   previewUrl: string;
   durationSeconds: number | null;
+
+  // útil para saber si el archivo fue convertido en cliente
+  originalName?: string | null;
+  originalMimeType?: string | null;
+
+  // por si luego quieres marcar portada antes de guardar
+  isCoverCandidate?: boolean;
+};
+
+export type ProductFormState = {
+  title: string;
+  desc: string;
+  price: string;
+  status: ProductStatus;
+  condition: ProductCondition;
+  categoryId: string | null;
+  isActive: boolean;
+  isFeaturedHome: boolean;
+};
+
+export type ProductStats = {
+  total: number;
+  published: number;
+  visible: number;
+  featured: number;
+};
+
+export type ProductMediaCounts = {
+  images: number;
+  videos: number;
 };

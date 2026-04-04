@@ -170,6 +170,135 @@ export async function getVideoDurationSeconds(file: File): Promise<number> {
   });
 }
 
+function inferMimeTypeFromName(fileName: string) {
+  const ext = extFromName(fileName, "").toLowerCase();
+
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "avif") return "image/avif";
+  if (ext === "heic") return "image/heic";
+  if (ext === "heif") return "image/heif";
+  if (ext === "mp4") return "video/mp4";
+  if (ext === "webm") return "video/webm";
+  if (ext === "mov" || ext === "qt") return "video/quicktime";
+
+  return "";
+}
+
+function isHeicLike(file: File) {
+  const mime = String(file.type ?? "").toLowerCase();
+  const ext = extFromName(file.name, "").toLowerCase();
+
+  return (
+    mime === "image/heic" ||
+    mime === "image/heif" ||
+    mime === "image/heic-sequence" ||
+    mime === "image/heif-sequence" ||
+    ext === "heic" ||
+    ext === "heif"
+  );
+}
+
+function replaceExtension(fileName: string, nextExt: string) {
+  const clean = String(fileName ?? "").trim();
+  if (!clean) return `archivo.${nextExt}`;
+  const idx = clean.lastIndexOf(".");
+  if (idx <= 0) return `${clean}.${nextExt}`;
+  return `${clean.slice(0, idx)}.${nextExt}`;
+}
+
+function blobToFile(blob: Blob, fileName: string, mimeType: string) {
+  return new File([blob], fileName, {
+    type: mimeType,
+    lastModified: Date.now(),
+  });
+}
+
+async function dynamicImportHeic2Any(): Promise<any> {
+  try {
+    const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
+    return await importer("heic2any");
+  } catch {
+    throw new Error(
+      'Falta instalar la librería HEIC. Ejecuta: npm install heic2any'
+    );
+  }
+}
+
+async function convertHeicToJpeg(file: File): Promise<File> {
+  const mod = await dynamicImportHeic2Any();
+  const heic2any = mod?.default ?? mod;
+
+  if (typeof heic2any !== "function") {
+    throw new Error("No se pudo cargar el conversor HEIC.");
+  }
+
+  const converted = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+    quality: 0.92,
+  });
+
+  const outputBlob = Array.isArray(converted) ? converted[0] : converted;
+
+  if (!(outputBlob instanceof Blob)) {
+    throw new Error("La conversión HEIC no devolvió una imagen válida.");
+  }
+
+  const nextName = replaceExtension(file.name, "jpg");
+  return blobToFile(outputBlob, nextName, "image/jpeg");
+}
+
+function ensureSupportedImageMime(file: File) {
+  const mime = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
+
+  const supported = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/avif",
+  ]);
+
+  if (!supported.has(mime)) {
+    throw new Error(`No se soporta MIME Type ${mime || "(vacío)"}`);
+  }
+}
+
+function ensureSupportedVideoMime(file: File) {
+  const mime = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
+
+  const supported = new Set([
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+  ]);
+
+  if (!supported.has(mime)) {
+    throw new Error(`No se soporta MIME Type ${mime || "(vacío)"}`);
+  }
+}
+
+async function normalizePickedFile(file: File): Promise<File> {
+  if (isHeicLike(file)) {
+    return await convertHeicToJpeg(file);
+  }
+
+  const mime = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
+
+  if (mime.startsWith("image/")) {
+    ensureSupportedImageMime(file);
+    return file;
+  }
+
+  if (mime.startsWith("video/")) {
+    ensureSupportedVideoMime(file);
+    return file;
+  }
+
+  throw new Error(`No se soporta MIME Type ${mime || "(vacío)"}`);
+}
+
 export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
   if (Platform.OS !== "web" || typeof document === "undefined") {
     throw new Error("La subida de archivos desde este panel está preparada para web.");
@@ -179,39 +308,55 @@ export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
-    input.accept = "image/*,video/mp4,video/webm,video/quicktime";
+    input.accept =
+      "image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif,video/mp4,video/webm,video/quicktime,.mov";
 
     input.onchange = async () => {
-      const files = Array.from(input.files ?? []);
+      const originalFiles = Array.from(input.files ?? []);
       const out: LocalPickedMedia[] = [];
 
-      for (const file of files) {
-        const mimeType = String(file.type ?? "");
-        const isVideo = mimeType.startsWith("video/");
-        const kind = isVideo ? "video" : "image";
+      try {
+        for (const originalFile of originalFiles) {
+          const file = await normalizePickedFile(originalFile);
+          const mimeType =
+            String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
 
-        let durationSeconds: number | null = null;
-        if (isVideo) {
-          try {
-            durationSeconds = await getVideoDurationSeconds(file);
-          } catch {
-            durationSeconds = null;
+          const isVideo = mimeType.startsWith("video/");
+          const kind = isVideo ? "video" : "image";
+
+          let durationSeconds: number | null = null;
+          if (isVideo) {
+            try {
+              durationSeconds = await getVideoDurationSeconds(file);
+            } catch {
+              durationSeconds = null;
+            }
           }
+
+          out.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            kind,
+            file,
+            name: file.name,
+            mimeType,
+            size: file.size,
+            previewUrl: URL.createObjectURL(file),
+            durationSeconds,
+          });
         }
 
-        out.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          kind,
-          file,
-          name: file.name,
-          mimeType,
-          size: file.size,
-          previewUrl: URL.createObjectURL(file),
-          durationSeconds,
+        resolve(out);
+      } catch (error: any) {
+        out.forEach((item) => {
+          try {
+            URL.revokeObjectURL(item.previewUrl);
+          } catch {
+            // ignore
+          }
         });
-      }
 
-      resolve(out);
+        throw error;
+      }
     };
 
     input.click();

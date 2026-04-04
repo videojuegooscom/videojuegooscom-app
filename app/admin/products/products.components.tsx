@@ -1,12 +1,29 @@
 import React from "react";
-import {
-  Image,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 import { COLORS } from "./products.constants";
 import type { LocalPickedMedia, ProductMediaRow } from "./products.types";
+
+type MediaLike = ProductMediaRow | LocalPickedMedia;
+
+function getMediaName(media: MediaLike) {
+  if ("file_name" in media) return media.file_name || (media.kind === "image" ? "Imagen" : "Vídeo");
+  return media.name || (media.kind === "image" ? "Imagen" : "Vídeo");
+}
+
+function getMediaDuration(media: MediaLike) {
+  if ("durationSeconds" in media) return media.durationSeconds ?? null;
+  if ("duration_seconds" in media) return media.duration_seconds ?? null;
+  return null;
+}
+
+function formatDuration(seconds: number | null) {
+  if (!seconds || !Number.isFinite(seconds)) return null;
+  const total = Math.max(0, Math.round(seconds));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  if (mins <= 0) return `${secs}s`;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
 
 export function SectionTitle({
   title,
@@ -29,8 +46,15 @@ export function SectionTitle({
       >
         {title}
       </Text>
+
       {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+        <Text
+          style={{
+            color: COLORS.muted,
+            marginTop: 4,
+            lineHeight: 19,
+          }}
+        >
           {subtitle}
         </Text>
       )}
@@ -66,6 +90,7 @@ export function StatCard({
         {icon ? `${icon} ` : ""}
         {label}
       </Text>
+
       <Text
         style={{
           color: COLORS.text,
@@ -121,8 +146,8 @@ export function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: isMobile ? 10 : 10,
-        paddingHorizontal: isMobile ? 12 : 12,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
         borderWidth: 1,
         borderColor,
         backgroundColor,
@@ -168,7 +193,13 @@ export function FilterPill({
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 13 : 14,
+        }}
+      >
         {label}
       </Text>
     </Pressable>
@@ -186,6 +217,9 @@ export function MediaThumb({
 }) {
   const isLocal = "file" in media;
   const kind = media.kind;
+  const mediaName = getMediaName(media);
+  const duration = formatDuration(getMediaDuration(media));
+
   const imageSource =
     kind === "image"
       ? {
@@ -193,11 +227,14 @@ export function MediaThumb({
         }
       : null;
 
+  const cardWidth = isMobile ? 112 : 128;
+  const thumbHeight = isMobile ? 90 : 104;
+
   return (
     <View
       style={{
-        width: isMobile ? 96 : 110,
-        borderRadius: 14,
+        width: cardWidth,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: "rgba(255,255,255,0.04)",
@@ -207,40 +244,120 @@ export function MediaThumb({
       <View
         style={{
           width: "100%",
-          height: isMobile ? 82 : 92,
+          height: thumbHeight,
+          backgroundColor: "rgba(255,255,255,0.03)",
+          position: "relative",
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: "rgba(255,255,255,0.03)",
         }}
       >
         {kind === "image" && imageSource ? (
-          <Image source={imageSource} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+          <Image
+            source={imageSource}
+            resizeMode="cover"
+            style={{ width: "100%", height: "100%" }}
+          />
         ) : (
-          <View style={{ alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <View
+            style={{
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
             <Text style={{ fontSize: 28 }}>🎬</Text>
-            {"durationSeconds" in media && media.durationSeconds ? (
-              <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: "800" }}>
-                {Math.round(media.durationSeconds)}s
-              </Text>
-            ) : "duration_seconds" in media && media.duration_seconds ? (
-              <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: "800" }}>
-                {Math.round(media.duration_seconds)}s
-              </Text>
-            ) : null}
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: 11,
+              }}
+            >
+              Vídeo
+            </Text>
+          </View>
+        )}
+
+        <View
+          style={{
+            position: "absolute",
+            left: 8,
+            top: 8,
+            borderRadius: 999,
+            paddingVertical: 4,
+            paddingHorizontal: 8,
+            backgroundColor:
+              kind === "image" ? "rgba(0,170,228,0.16)" : "rgba(216,176,74,0.18)",
+            borderWidth: 1,
+            borderColor:
+              kind === "image" ? COLORS.accentBorder : "rgba(216,176,74,0.36)",
+          }}
+        >
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+              fontSize: 10,
+            }}
+          >
+            {kind === "image" ? "IMAGEN" : "VÍDEO"}
+          </Text>
+        </View>
+
+        {!!duration && kind === "video" && (
+          <View
+            style={{
+              position: "absolute",
+              right: 8,
+              bottom: 8,
+              borderRadius: 999,
+              paddingVertical: 4,
+              paddingHorizontal: 8,
+              backgroundColor: "rgba(0,0,0,0.58)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.12)",
+            }}
+          >
+            <Text
+              style={{
+                color: "#FFFFFF",
+                fontWeight: "900",
+                fontSize: 10,
+              }}
+            >
+              {duration}
+            </Text>
           </View>
         )}
       </View>
 
-      <View style={{ padding: 8, gap: 6 }}>
+      <View
+        style={{
+          padding: 8,
+          gap: 6,
+        }}
+      >
         <Text
           numberOfLines={2}
-          style={{ color: COLORS.text, fontSize: 11, fontWeight: "800", lineHeight: 14 }}
+          style={{
+            color: COLORS.text,
+            fontSize: 11,
+            fontWeight: "900",
+            lineHeight: 14,
+            minHeight: 28,
+          }}
         >
-          {"file_name" in media ? media.file_name || kind : media.name}
+          {mediaName}
         </Text>
 
-        <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>
-          {kind === "image" ? "Imagen" : "Vídeo"}
+        <Text
+          style={{
+            color: COLORS.muted2,
+            fontSize: 10,
+            fontWeight: "700",
+          }}
+        >
+          {kind === "image" ? "Foto del producto" : "Vídeo del producto"}
         </Text>
 
         {!!onRemove && (
@@ -249,14 +366,22 @@ export function MediaThumb({
             style={({ pressed }) => ({
               opacity: pressed ? 0.88 : 1,
               borderRadius: 999,
-              paddingVertical: 6,
+              paddingVertical: 7,
               paddingHorizontal: 8,
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,
               backgroundColor: COLORS.dangerBg,
+              marginTop: 2,
             })}
           >
-            <Text style={{ color: COLORS.danger, fontWeight: "900", fontSize: 11, textAlign: "center" }}>
+            <Text
+              style={{
+                color: COLORS.danger,
+                fontWeight: "900",
+                fontSize: 11,
+                textAlign: "center",
+              }}
+            >
               Quitar
             </Text>
           </Pressable>
