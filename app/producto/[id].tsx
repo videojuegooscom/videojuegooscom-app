@@ -198,14 +198,14 @@ function productHintByCategory(name?: string | null) {
   return "Producto revisado";
 }
 
-function normalizeMediaKind(value: any): ProductMediaKind | null {
+function normalizeMediaKind(value: unknown): ProductMediaKind | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
   if (v === "video") return "video";
   return null;
 }
 
-function normalizeDuration(value: any): number | null {
+function normalizeDuration(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -213,7 +213,7 @@ function normalizeDuration(value: any): number | null {
 function normalizeProductMediaRows(rows: any[]): ProductMedia[] {
   return (rows ?? [])
     .map((row) => {
-      const kind = normalizeMediaKind(row.kind ?? row.media_type);
+      const kind = normalizeMediaKind(row.kind);
       const publicUrl = String(row.public_url ?? "").trim();
 
       if (!kind || !publicUrl) return null;
@@ -256,6 +256,68 @@ function mediaCountLabel(media: ProductMedia[]) {
   }
   if (images) return `${images} foto${images === 1 ? "" : "s"}`;
   return `${videos} vídeo${videos === 1 ? "" : "s"}`;
+}
+
+async function loadProductMediaRows(productId: string): Promise<any[]> {
+  const selectWithDurationSeconds =
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds";
+  const selectWithDurationSec =
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_sec";
+  const selectBase =
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover";
+
+  const res1 = await supabase
+    .from("product_media")
+    .select(selectWithDurationSeconds)
+    .eq("product_id", productId)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (!res1.error) {
+    return res1.data ?? [];
+  }
+
+  const msg1 = String(res1.error.message ?? "").toLowerCase();
+  const missingDurationSeconds =
+    msg1.includes("duration_seconds") &&
+    (msg1.includes("does not exist") || msg1.includes("schema cache") || msg1.includes("column"));
+
+  if (!missingDurationSeconds) {
+    throw res1.error;
+  }
+
+  const res2 = await supabase
+    .from("product_media")
+    .select(selectWithDurationSec)
+    .eq("product_id", productId)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (!res2.error) {
+    return res2.data ?? [];
+  }
+
+  const msg2 = String(res2.error.message ?? "").toLowerCase();
+  const missingDurationSec =
+    msg2.includes("duration_sec") &&
+    (msg2.includes("does not exist") || msg2.includes("schema cache") || msg2.includes("column"));
+
+  if (!missingDurationSec) {
+    throw res2.error;
+  }
+
+  const res3 = await supabase
+    .from("product_media")
+    .select(selectBase)
+    .eq("product_id", productId)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (res3.error) throw res3.error;
+  return res3.data ?? [];
 }
 
 export default function ProductoScreen() {
@@ -406,22 +468,8 @@ ${price}
         return;
       }
 
-      let mediaRows: any[] = [];
-
-      const mediaSelectPrimary =
-        "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec";
-
-      const mediaRes1 = await supabase
-        .from("product_media")
-        .select(mediaSelectPrimary)
-        .eq("product_id", productRow.id)
-        .limit(50);
-
-      if (mediaRes1.error) {
-        throw mediaRes1.error;
-      }
-
-      mediaRows = mediaRes1.data ?? [];
+      const mediaRows = await loadProductMediaRows(productRow.id);
+      if (seq !== reqSeqRef.current) return;
 
       const normalizedMedia = normalizeProductMediaRows(mediaRows);
       const heroImage = pickInitialHeroImage(productRow, normalizedMedia);

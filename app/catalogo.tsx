@@ -84,7 +84,8 @@ type Product = {
   status: UiStatus;
   priceEUR: number;
   imageUrl: string | null;
-  mediaCount: number;
+  imageCount: number;
+  videoCount: number;
   hasVideo: boolean;
   category?: { id: string; name: string; slug: string } | null;
 };
@@ -241,6 +242,14 @@ function pickHeroImage(productRow: ProductDbRow, mediaRows: ProductMediaRow[]) {
   return firstImageFromAnyRow(productRow);
 }
 
+function countImages(mediaRows: ProductMediaRow[]) {
+  return mediaRows.filter((m) => normalizeMediaKind(m.kind ?? m.media_type) === "image").length;
+}
+
+function countVideos(mediaRows: ProductMediaRow[]) {
+  return mediaRows.filter((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video").length;
+}
+
 async function detectAdmin(): Promise<boolean> {
   try {
     const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
@@ -347,7 +356,10 @@ export default function CatalogoScreen() {
       "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
 
     const buildQuery = (selectStr: string) => {
-      let query = supabase.from("products").select(selectStr).order("updated_at", { ascending: false });
+      let query = supabase
+        .from("products")
+        .select(selectStr)
+        .order("updated_at", { ascending: false });
 
       if (!adminFlag) {
         query = query.eq("is_active", true).eq("status", "PUBLISHED");
@@ -381,7 +393,9 @@ export default function CatalogoScreen() {
     const msg1 = String(res1.error.message ?? "").toLowerCase();
     const missingImageUrl =
       msg1.includes("image_url") &&
-      (msg1.includes("does not exist") || msg1.includes("schema cache") || msg1.includes("column"));
+      (msg1.includes("does not exist") ||
+        msg1.includes("schema cache") ||
+        msg1.includes("column"));
 
     if (!missingImageUrl) {
       throw res1.error;
@@ -395,7 +409,9 @@ export default function CatalogoScreen() {
     const msg2 = String(res2.error.message ?? "").toLowerCase();
     const missingImages =
       msg2.includes("images") &&
-      (msg2.includes("does not exist") || msg2.includes("schema cache") || msg2.includes("column"));
+      (msg2.includes("does not exist") ||
+        msg2.includes("schema cache") ||
+        msg2.includes("column"));
 
     if (!missingImages) {
       throw res2.error;
@@ -411,44 +427,67 @@ export default function CatalogoScreen() {
     const empty = new Map<string, ProductMediaRow[]>();
     if (!productIds.length) return empty;
 
-    const selectPrimary =
-      "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec";
+    const queries = [
+      "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec",
+      "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds",
+      "id,product_id,media_type,public_url,file_name,sort_order,is_cover,duration_sec",
+      "id,product_id,public_url,file_name,sort_order,is_cover",
+    ];
 
-    const res = await supabase
-      .from("product_media")
-      .select(selectPrimary)
-      .in("product_id", productIds)
-      .limit(5000);
+    let lastError: any = null;
 
-    if (res.error) {
-      const msg = String(res.error.message ?? "").toLowerCase();
+    for (const selectStr of queries) {
+      const res = await supabase
+        .from("product_media")
+        .select(selectStr)
+        .in("product_id", productIds)
+        .limit(5000);
 
-      const missingTable =
-        msg.includes('relation "product_media" does not exist') ||
-        msg.includes("could not find the table") ||
-        msg.includes("does not exist");
+      if (res.error) {
+        const msg = String(res.error.message ?? "").toLowerCase();
 
-      if (missingTable) {
-        return empty;
+        const missingTable =
+          msg.includes('relation "product_media" does not exist') ||
+          msg.includes("could not find the table") ||
+          msg.includes("does not exist");
+
+        const missingColumn =
+          msg.includes("column") ||
+          msg.includes("schema cache");
+
+        if (missingTable) {
+          return empty;
+        }
+
+        if (missingColumn) {
+          lastError = res.error;
+          continue;
+        }
+
+        throw res.error;
       }
 
-      throw res.error;
+      const rows = (res.data ?? []) as ProductMediaRow[];
+      const map = new Map<string, ProductMediaRow[]>();
+
+      for (const row of rows) {
+        const list = map.get(row.product_id) ?? [];
+        list.push(row);
+        map.set(row.product_id, list);
+      }
+
+      for (const [key, list] of map.entries()) {
+        map.set(key, [...list].sort(sortMediaRows));
+      }
+
+      return map;
     }
 
-    const rows = (res.data ?? []) as ProductMediaRow[];
-    const map = new Map<string, ProductMediaRow[]>();
-
-    for (const row of rows) {
-      const list = map.get(row.product_id) ?? [];
-      list.push(row);
-      map.set(row.product_id, list);
+    if (lastError) {
+      throw lastError;
     }
 
-    for (const [key, list] of map.entries()) {
-      map.set(key, [...list].sort(sortMediaRows));
-    }
-
-    return map;
+    return empty;
   }
 
   async function loadAll(opts?: { queryOverride?: string }) {
@@ -488,6 +527,8 @@ export default function CatalogoScreen() {
     const mapped: Product[] = rows.map((row) => {
       const mediaRows = mediaMap.get(row.id) ?? [];
       const imageUrl = pickHeroImage(row, mediaRows);
+      const imageCount = countImages(mediaRows);
+      const videoCount = countVideos(mediaRows);
 
       return {
         id: row.id,
@@ -496,8 +537,10 @@ export default function CatalogoScreen() {
         status: mapDbStatusToUi(row.status),
         priceEUR: Number(row.price_eur ?? 0),
         imageUrl,
+        imageCount,
+        videoCount,
         mediaCount: mediaRows.length,
-        hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video"),
+        hasVideo: videoCount > 0,
         category: row.category ?? null,
       };
     });
@@ -1408,7 +1451,8 @@ function ProductCard({
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-              {p.mediaCount} foto{p.mediaCount === 1 ? "" : "s"}{p.hasVideo ? " + vídeo" : ""}
+              {p.imageCount} foto{p.imageCount === 1 ? "" : "s"}
+              {p.hasVideo ? ` + ${p.videoCount} vídeo${p.videoCount === 1 ? "" : "s"}` : ""}
             </Text>
           </View>
         ) : null}
