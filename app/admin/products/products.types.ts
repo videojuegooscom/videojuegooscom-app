@@ -13,15 +13,24 @@ export type ProductMediaKind = "image" | "video";
 export type ProductMediaRow = {
   id: string;
   product_id: string;
-  kind: ProductMediaKind;
-  storage_path: string;
-  public_url: string;
-  file_name: string | null;
-  mime_type: string | null;
-  sort_order: number;
-  is_cover: boolean;
-  duration_seconds: number | null;
-  created_at?: string;
+
+  // esquema híbrido actual
+  kind?: ProductMediaKind | null;
+  media_type?: ProductMediaKind | null;
+
+  storage_path?: string | null;
+  public_url?: string | null;
+  file_name?: string | null;
+  mime_type?: string | null;
+
+  sort_order?: number | null;
+  is_cover?: boolean | null;
+
+  // esquema híbrido actual
+  duration_seconds?: number | null;
+  duration_sec?: number | null;
+
+  created_at?: string | null;
 };
 
 export type ProductRow = {
@@ -35,7 +44,7 @@ export type ProductRow = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  is_featured_home?: boolean;
+  is_featured_home?: boolean | null;
   media: ProductMediaRow[];
 };
 

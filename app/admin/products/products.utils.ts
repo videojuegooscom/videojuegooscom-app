@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import type {
   LocalPickedMedia,
   ProductCondition,
+  ProductMediaKind,
   ProductMediaRow,
   ProductStatus,
 } from "./products.types";
@@ -110,12 +111,37 @@ export function statusVisual(status: ProductStatus, palette: any) {
   };
 }
 
+export function normalizeMediaKind(value: unknown): ProductMediaKind | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "image") return "image";
+  if (v === "video") return "video";
+  return null;
+}
+
+export function getMediaKind(media: Pick<ProductMediaRow, "kind" | "media_type">) {
+  return normalizeMediaKind(media.kind ?? media.media_type);
+}
+
+export function getMediaDuration(
+  media: Pick<ProductMediaRow, "duration_seconds" | "duration_sec">
+) {
+  const raw = media.duration_seconds ?? media.duration_sec;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function getMediaPublicUrl(media: Pick<ProductMediaRow, "public_url">) {
+  const url = String(media.public_url ?? "").trim();
+  return url || null;
+}
+
 export function getPrimaryMedia(media: ProductMediaRow[]) {
   if (!media?.length) return null;
+
   return (
-    media.find((m) => m.is_cover && m.kind === "image") ||
-    media.find((m) => m.kind === "image") ||
-    media.find((m) => m.kind === "video") ||
+    media.find((m) => Boolean(m.is_cover) && getMediaKind(m) === "image") ||
+    media.find((m) => getMediaKind(m) === "image") ||
+    media.find((m) => getMediaKind(m) === "video") ||
     media[0]
   );
 }
@@ -220,9 +246,7 @@ async function dynamicImportHeic2Any(): Promise<any> {
     const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
     return await importer("heic2any");
   } catch {
-    throw new Error(
-      'Falta instalar la librería HEIC. Ejecuta: npm install heic2any'
-    );
+    throw new Error('Falta instalar la librería HEIC. Ejecuta: npm install heic2any');
   }
 }
 
@@ -251,7 +275,8 @@ async function convertHeicToJpeg(file: File): Promise<File> {
 }
 
 function ensureSupportedImageMime(file: File) {
-  const mime = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
+  const mime =
+    String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
 
   const supported = new Set([
     "image/jpeg",
@@ -266,7 +291,8 @@ function ensureSupportedImageMime(file: File) {
 }
 
 function ensureSupportedVideoMime(file: File) {
-  const mime = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
+  const mime =
+    String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
 
   const supported = new Set([
     "video/mp4",
@@ -281,10 +307,15 @@ function ensureSupportedVideoMime(file: File) {
 
 async function normalizePickedFile(file: File): Promise<File> {
   if (isHeicLike(file)) {
-    return await convertHeicToJpeg(file);
+    const converted = await convertHeicToJpeg(file);
+    return new File([converted], converted.name, {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
   }
 
-  const mime = String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
+  const mime =
+    String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
 
   if (mime.startsWith("image/")) {
     ensureSupportedImageMime(file);
@@ -304,7 +335,7 @@ export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
     throw new Error("La subida de archivos desde este panel está preparada para web.");
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
@@ -322,7 +353,7 @@ export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
             String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
 
           const isVideo = mimeType.startsWith("video/");
-          const kind = isVideo ? "video" : "image";
+          const kind: ProductMediaKind = isVideo ? "video" : "image";
 
           let durationSeconds: number | null = null;
           if (isVideo) {
@@ -342,11 +373,13 @@ export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
             size: file.size,
             previewUrl: URL.createObjectURL(file),
             durationSeconds,
+            originalName: originalFile.name,
+            originalMimeType: originalFile.type || null,
           });
         }
 
         resolve(out);
-      } catch (error: any) {
+      } catch (error) {
         out.forEach((item) => {
           try {
             URL.revokeObjectURL(item.previewUrl);
@@ -354,8 +387,7 @@ export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
             // ignore
           }
         });
-
-        throw error;
+        reject(error);
       }
     };
 

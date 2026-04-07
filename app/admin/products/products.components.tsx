@@ -1,19 +1,44 @@
 import React from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { COLORS } from "./products.constants";
-import type { LocalPickedMedia, ProductMediaRow } from "./products.types";
+import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
 
 type MediaLike = ProductMediaRow | LocalPickedMedia;
 
+function normalizeMediaKind(value: unknown): ProductMediaKind | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "image") return "image";
+  if (v === "video") return "video";
+  return null;
+}
+
+function getMediaKind(media: MediaLike): ProductMediaKind | null {
+  if ("file" in media) return media.kind;
+  return normalizeMediaKind(media.kind ?? media.media_type);
+}
+
 function getMediaName(media: MediaLike) {
-  if ("file_name" in media) return media.file_name || (media.kind === "image" ? "Imagen" : "Vídeo");
-  return media.name || (media.kind === "image" ? "Imagen" : "Vídeo");
+  const kind = getMediaKind(media);
+
+  if ("file" in media) {
+    return media.name || (kind === "video" ? "Vídeo" : "Imagen");
+  }
+
+  return media.file_name || (kind === "video" ? "Vídeo" : "Imagen");
 }
 
 function getMediaDuration(media: MediaLike) {
-  if ("durationSeconds" in media) return media.durationSeconds ?? null;
-  if ("duration_seconds" in media) return media.duration_seconds ?? null;
-  return null;
+  if ("file" in media) return media.durationSeconds ?? null;
+
+  const raw = media.duration_seconds ?? media.duration_sec ?? null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function getMediaUrl(media: MediaLike) {
+  if ("file" in media) return media.previewUrl;
+  const url = String(media.public_url ?? "").trim();
+  return url || null;
 }
 
 function formatDuration(seconds: number | null) {
@@ -215,15 +240,15 @@ export function MediaThumb({
   isMobile?: boolean;
   onRemove?: () => void;
 }) {
-  const isLocal = "file" in media;
-  const kind = media.kind;
+  const kind = getMediaKind(media);
   const mediaName = getMediaName(media);
   const duration = formatDuration(getMediaDuration(media));
+  const mediaUrl = getMediaUrl(media);
 
   const imageSource =
-    kind === "image"
+    kind === "image" && mediaUrl
       ? {
-          uri: isLocal ? media.previewUrl : media.public_url,
+          uri: mediaUrl,
         }
       : null;
 
@@ -265,7 +290,7 @@ export function MediaThumb({
               gap: 6,
             }}
           >
-            <Text style={{ fontSize: 28 }}>🎬</Text>
+            <Text style={{ fontSize: 28 }}>{kind === "video" ? "🎬" : "🖼️"}</Text>
             <Text
               style={{
                 color: COLORS.text,
@@ -273,7 +298,7 @@ export function MediaThumb({
                 fontSize: 11,
               }}
             >
-              Vídeo
+              {kind === "video" ? "Vídeo" : "Sin vista previa"}
             </Text>
           </View>
         )}
@@ -300,7 +325,7 @@ export function MediaThumb({
               fontSize: 10,
             }}
           >
-            {kind === "image" ? "IMAGEN" : "VÍDEO"}
+            {kind === "image" ? "IMAGEN" : kind === "video" ? "VÍDEO" : "MEDIA"}
           </Text>
         </View>
 
@@ -357,7 +382,11 @@ export function MediaThumb({
             fontWeight: "700",
           }}
         >
-          {kind === "image" ? "Foto del producto" : "Vídeo del producto"}
+          {kind === "image"
+            ? "Foto del producto"
+            : kind === "video"
+              ? "Vídeo del producto"
+              : "Media del producto"}
         </Text>
 
         {!!onRemove && (

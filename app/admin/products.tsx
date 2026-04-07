@@ -61,6 +61,126 @@ function revokeLocalMedia(items: LocalPickedMedia[]) {
   });
 }
 
+function normalizeMediaKind(value: unknown): "image" | "video" | null {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "image") return "image";
+  if (v === "video") return "video";
+  return null;
+}
+
+function getRowKind(row: Partial<ProductMediaRow>) {
+  return normalizeMediaKind(row.kind ?? row.media_type);
+}
+
+function getRowDuration(row: Partial<ProductMediaRow>) {
+  const raw = row.duration_seconds ?? row.duration_sec ?? null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function getRowSortOrder(row: Partial<ProductMediaRow>) {
+  const n = Number(row.sort_order);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getRowPublicUrl(row: Partial<ProductMediaRow>) {
+  const url = String(row.public_url ?? "").trim();
+  return url || null;
+}
+
+function isMissingColumnError(error: any, columnName: string) {
+  const msg = String(error?.message ?? "").toLowerCase();
+  const col = columnName.toLowerCase();
+  return (
+    msg.includes(col) &&
+    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
+  );
+}
+
+function isMissingRelationError(error: any, relationName: string) {
+  const msg = String(error?.message ?? "").toLowerCase();
+  const rel = relationName.toLowerCase();
+  return (
+    msg.includes(rel) &&
+    (msg.includes("does not exist") ||
+      msg.includes("relation") ||
+      msg.includes("could not find the table"))
+  );
+}
+
+function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
+  const aCover = Boolean(a.is_cover);
+  const bCover = Boolean(b.is_cover);
+
+  if (aCover && !bCover) return -1;
+  if (!aCover && bCover) return 1;
+
+  return getRowSortOrder(a) - getRowSortOrder(b);
+}
+
+function sanitizeMediaRow(row: any): ProductMediaRow {
+  return {
+    id: String(row.id),
+    product_id: String(row.product_id),
+    kind: normalizeMediaKind(row.kind),
+    media_type: normalizeMediaKind(row.media_type),
+    storage_path: row.storage_path ?? null,
+    public_url: row.public_url ?? null,
+    file_name: row.file_name ?? null,
+    mime_type: row.mime_type ?? null,
+    sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0,
+    is_cover: Boolean(row.is_cover),
+    duration_seconds: getRowDuration(row),
+    duration_sec: getRowDuration(row),
+    created_at: row.created_at ?? null,
+  };
+}
+
+async function fetchProductMediaRowsSafe(productId?: string): Promise<ProductMediaRow[]> {
+  const selects = [
+    "id,product_id,kind,media_type,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,duration_sec,created_at",
+    "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at",
+    "id,product_id,media_type,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_sec,created_at",
+    "id,product_id,storage_path,public_url,file_name,mime_type,sort_order,is_cover,created_at",
+  ];
+
+  let lastError: any = null;
+
+  for (const selectStr of selects) {
+    let query = supabase.from("product_media").select(selectStr).limit(5000);
+
+    if (productId) {
+      query = query
+        .eq("product_id", productId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(200);
+    }
+
+    const res = await query;
+
+    if (res.error) {
+      const missingTable = isMissingRelationError(res.error, "product_media");
+      const missingColumn =
+        String(res.error.message ?? "").toLowerCase().includes("column") ||
+        String(res.error.message ?? "").toLowerCase().includes("schema cache");
+
+      if (missingTable) return [];
+      if (missingColumn) {
+        lastError = res.error;
+        continue;
+      }
+
+      throw res.error;
+    }
+
+    return (Array.isArray(res.data) ? res.data : []).map(sanitizeMediaRow).sort(sortMediaRows);
+  }
+
+  if (lastError) throw lastError;
+  return [];
+}
+
 export default function AdminProducts() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -156,45 +276,39 @@ export default function AdminProducts() {
 
   const currentImageCount = useMemo(
     () =>
-      existingMedia.filter((m) => m.kind === "image").length +
+      existingMedia.filter((m) => getRowKind(m) === "image").length +
       newMedia.filter((m) => m.kind === "image").length,
     [existingMedia, newMedia]
   );
 
   const currentVideoCount = useMemo(
     () =>
-      existingMedia.filter((m) => m.kind === "video").length +
+      existingMedia.filter((m) => getRowKind(m) === "video").length +
       newMedia.filter((m) => m.kind === "video").length,
     [existingMedia, newMedia]
   );
 
   async function normalizeMediaForProduct(productId: string) {
-    const { data, error } = await supabase
-      .from("product_media")
-      .select(
-        "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at"
-      )
-      .eq("product_id", productId)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+    const rows = await fetchProductMediaRowsSafe(productId);
 
-    if (error) throw error;
+    if (!rows.length) return rows;
 
-    const rows = (data ?? []) as ProductMediaRow[];
-    const firstImage = rows.find((m) => m.kind === "image");
+    const firstImage = rows.find((m) => getRowKind(m) === "image");
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const shouldCover = !!firstImage && row.id === firstImage.id;
       const shouldOrder = i;
 
-      if (row.sort_order !== shouldOrder || row.is_cover !== shouldCover) {
+      if (getRowSortOrder(row) !== shouldOrder || Boolean(row.is_cover) !== shouldCover) {
+        const payload: Record<string, any> = {
+          sort_order: shouldOrder,
+          is_cover: shouldCover,
+        };
+
         const { error: updateError } = await supabase
           .from("product_media")
-          .update({
-            sort_order: shouldOrder,
-            is_cover: shouldCover,
-          })
+          .update(payload)
           .eq("id", row.id);
 
         if (updateError) throw updateError;
@@ -260,21 +374,18 @@ export default function AdminProducts() {
       } else {
         productsData = ((prodRes.data ?? []) as any[]).map((row) => ({
           ...row,
+          is_featured_home: row.is_featured_home ?? false,
           media: [],
         }));
       }
 
       let supportsMedia = true;
+      let mediaRows: ProductMediaRow[] = [];
 
-      const mediaRes = await supabase
-        .from("product_media")
-        .select(
-          "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at"
-        )
-        .limit(5000);
-
-      if (mediaRes.error) {
-        const rawMsg = String(mediaRes.error.message ?? "");
+      try {
+        mediaRows = await fetchProductMediaRowsSafe();
+      } catch (e: any) {
+        const rawMsg = String(e?.message ?? "");
         const msg = rawMsg.toLowerCase();
 
         const definitelyMissing =
@@ -287,13 +398,9 @@ export default function AdminProducts() {
           setMediaDebugErr(rawMsg || "La tabla product_media no existe o no está accesible.");
         } else {
           setMediaDebugErr(rawMsg || "Error desconocido al leer product_media.");
-          throw mediaRes.error;
+          throw e;
         }
       }
-
-      const mediaRows = supportsMedia
-        ? (((mediaRes.data ?? []) as ProductMediaRow[]) || [])
-        : [];
 
       const mediaByProduct = new Map<string, ProductMediaRow[]>();
 
@@ -305,9 +412,7 @@ export default function AdminProducts() {
 
       const merged = productsData.map((item) => ({
         ...item,
-        media: (mediaByProduct.get(item.id) ?? []).sort(
-          (a, b) => a.sort_order - b.sort_order
-        ),
+        media: (mediaByProduct.get(item.id) ?? []).sort(sortMediaRows),
       }));
 
       setSupportsFeaturedHome(supportsFeatured);
@@ -365,7 +470,7 @@ export default function AdminProducts() {
     setCategoryId(p.category_id ?? null);
     setIsActive(!!p.is_active);
     setIsFeaturedHome(!!p.is_featured_home);
-    setExistingMedia([...(p.media ?? [])].sort((a, b) => a.sort_order - b.sort_order));
+    setExistingMedia([...(p.media ?? [])].sort(sortMediaRows));
     setModalErr(null);
     setOpen(true);
   }
@@ -475,27 +580,62 @@ export default function AdminProducts() {
         .from(MEDIA_BUCKET)
         .getPublicUrl(storagePath);
 
-      const rowPayload = {
+      const publicUrl = publicData?.publicUrl ?? null;
+
+      const rowPayload: Record<string, any> = {
         product_id: productId,
         kind: item.kind,
+        media_type: item.kind,
         storage_path: storagePath,
-        public_url: publicData.publicUrl,
+        public_url: publicUrl,
         file_name: item.name,
         mime_type: item.mimeType || null,
         sort_order: startIndex + i,
         is_cover: false,
         duration_seconds: item.kind === "video" ? item.durationSeconds ?? null : null,
+        duration_sec: item.kind === "video" ? item.durationSeconds ?? null : null,
       };
 
       const insertRes = await supabase.from("product_media").insert(rowPayload);
-      if (insertRes.error) throw insertRes.error;
+
+      if (insertRes.error) {
+        const maybeLegacyPayload: Record<string, any> = {
+          product_id: productId,
+          storage_path: storagePath,
+          public_url: publicUrl,
+          file_name: item.name,
+          mime_type: item.mimeType || null,
+          sort_order: startIndex + i,
+          is_cover: false,
+        };
+
+        if (!isMissingColumnError(insertRes.error, "kind")) {
+          maybeLegacyPayload.kind = item.kind;
+        }
+
+        if (!isMissingColumnError(insertRes.error, "media_type")) {
+          maybeLegacyPayload.media_type = item.kind;
+        }
+
+        if (item.kind === "video") {
+          if (!isMissingColumnError(insertRes.error, "duration_seconds")) {
+            maybeLegacyPayload.duration_seconds = item.durationSeconds ?? null;
+          }
+          if (!isMissingColumnError(insertRes.error, "duration_sec")) {
+            maybeLegacyPayload.duration_sec = item.durationSeconds ?? null;
+          }
+        }
+
+        const retryRes = await supabase.from("product_media").insert(maybeLegacyPayload);
+        if (retryRes.error) throw retryRes.error;
+      }
     }
   }
 
   async function deleteRemovedMedia() {
     if (!removedMedia.length) return;
 
-    const paths = removedMedia.map((m) => m.storage_path).filter(Boolean);
+    const paths = removedMedia.map((m) => m.storage_path).filter(Boolean) as string[];
     const ids = removedMedia.map((m) => m.id);
 
     if (paths.length) {
@@ -536,11 +676,11 @@ export default function AdminProducts() {
     }
 
     const totalImages =
-      existingMedia.filter((m) => m.kind === "image").length +
+      existingMedia.filter((m) => getRowKind(m) === "image").length +
       newMedia.filter((m) => m.kind === "image").length;
 
     const totalVideos =
-      existingMedia.filter((m) => m.kind === "video").length +
+      existingMedia.filter((m) => getRowKind(m) === "video").length +
       newMedia.filter((m) => m.kind === "video").length;
 
     if (totalImages > MAX_IMAGES) {
@@ -635,7 +775,7 @@ export default function AdminProducts() {
 
     try {
       if (supportsProductMedia && p.media?.length) {
-        const paths = p.media.map((m) => m.storage_path).filter(Boolean);
+        const paths = p.media.map((m) => m.storage_path).filter(Boolean) as string[];
         if (paths.length) {
           const storageRes = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
           if (storageRes.error) throw storageRes.error;
@@ -931,8 +1071,10 @@ export default function AdminProducts() {
 
               const statusUi = statusVisual(p.status, COLORS);
               const primaryMedia = getPrimaryMedia(p.media);
-              const imageCount = p.media.filter((m) => m.kind === "image").length;
-              const hasVideo = p.media.some((m) => m.kind === "video");
+              const primaryKind = primaryMedia ? getRowKind(primaryMedia) : null;
+              const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
+              const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
+              const hasVideo = p.media.some((m) => getRowKind(m) === "video");
 
               return (
                 <View
@@ -967,13 +1109,13 @@ export default function AdminProducts() {
                         justifyContent: "center",
                       }}
                     >
-                      {primaryMedia?.kind === "image" ? (
+                      {primaryKind === "image" && primaryUrl ? (
                         <Image
-                          source={{ uri: primaryMedia.public_url }}
+                          source={{ uri: primaryUrl }}
                           resizeMode="cover"
                           style={{ width: "100%", height: "100%" }}
                         />
-                      ) : primaryMedia?.kind === "video" ? (
+                      ) : primaryKind === "video" ? (
                         <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
                           <Text style={{ fontSize: 30 }}>🎬</Text>
                           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>

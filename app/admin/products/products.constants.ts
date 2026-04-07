@@ -4,11 +4,11 @@ export const MEDIA_BUCKET = "product-media";
 export const MAX_IMAGES = 15;
 export const MAX_VIDEO_SECONDS = 15;
 
-// 🔴 Límite de peso por archivo (importante para evitar errores 400 en Supabase)
+// Límite de peso por archivo
 export const MAX_FILE_SIZE_MB = 20;
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-// ✅ MIME soportados (alineados con Supabase + tu conversión HEIC)
+// MIME soportados finales
 export const SUPPORTED_IMAGE_MIME = [
   "image/jpeg",
   "image/png",
@@ -22,7 +22,7 @@ export const SUPPORTED_VIDEO_MIME = [
   "video/quicktime",
 ] as const;
 
-// ⚠️ MIME problemáticos que deben convertirse (ya lo haces en utils)
+// MIME convertibles en cliente
 export const CONVERTIBLE_IMAGE_MIME = [
   "image/heic",
   "image/heif",
@@ -30,7 +30,6 @@ export const CONVERTIBLE_IMAGE_MIME = [
   "image/heif-sequence",
 ] as const;
 
-// 🎯 Mensajes centralizados (evita hardcodear strings por todo el proyecto)
 export const ERRORS = {
   FILE_TOO_LARGE: `El archivo supera el máximo de ${MAX_FILE_SIZE_MB}MB.`,
   INVALID_IMAGE_TYPE: "Formato de imagen no soportado.",
@@ -41,7 +40,6 @@ export const ERRORS = {
   GENERIC_UPLOAD: "Error subiendo archivos.",
 } as const;
 
-// 🎨 UI (sin cambios, pero estructurado)
 export const COLORS = {
   bg: "#071E33",
   bg2: "#061A2C",
