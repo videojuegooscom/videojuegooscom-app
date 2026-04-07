@@ -42,6 +42,19 @@ type Category = {
 
 type ProductMediaKind = "image" | "video";
 
+type ProductMediaRow = {
+  id: string;
+  product_id?: string;
+  kind?: ProductMediaKind | null;
+  media_type?: ProductMediaKind | null;
+  public_url?: string | null;
+  file_name?: string | null;
+  sort_order?: number | null;
+  is_cover?: boolean | null;
+  duration_seconds?: number | null;
+  duration_sec?: number | null;
+};
+
 type ProductMedia = {
   id: string;
   kind: ProductMediaKind;
@@ -50,6 +63,21 @@ type ProductMedia = {
   sortOrder: number;
   isCover: boolean;
   durationSeconds: number | null;
+};
+
+type ProductDbRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  price_eur: number | null;
+  status: DbStatus;
+  is_active: boolean;
+  category_id: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  images?: string[] | null;
+  image_url?: string | null;
+  category?: Category | null;
 };
 
 type Product = {
@@ -67,6 +95,10 @@ type Product = {
 const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
@@ -140,6 +172,26 @@ function openWhatsApp(prefill: string) {
   });
 }
 
+function isMissingColumnError(error: any, columnName: string) {
+  const msg = String(error?.message ?? "").toLowerCase();
+  const col = columnName.toLowerCase();
+  return (
+    msg.includes(col) &&
+    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
+  );
+}
+
+function isMissingRelationError(error: any, relationName: string) {
+  const msg = String(error?.message ?? "").toLowerCase();
+  const rel = relationName.toLowerCase();
+  return (
+    msg.includes(rel) &&
+    (msg.includes("does not exist") ||
+      msg.includes("relation") ||
+      msg.includes("could not find the table"))
+  );
+}
+
 async function detectAdmin(): Promise<boolean> {
   try {
     const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
@@ -159,6 +211,31 @@ async function detectAdmin(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function fetchCategoryMapByIds(categoryIds: string[]) {
+  const map = new Map<string, Category>();
+  const uniqueIds = [...new Set(categoryIds.filter(Boolean))];
+
+  if (!uniqueIds.length) return map;
+
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id,name,slug")
+    .in("id", uniqueIds);
+
+  if (error) {
+    if (isMissingRelationError(error, "categories")) {
+      return map;
+    }
+    throw error;
+  }
+
+  for (const row of asArray<Category>(data)) {
+    map.set(row.id, row);
+  }
+
+  return map;
 }
 
 function firstImageFromAnyRow(row: any): string | null {
@@ -210,10 +287,10 @@ function normalizeDuration(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function normalizeProductMediaRows(rows: any[]): ProductMedia[] {
-  return (rows ?? [])
+function normalizeProductMediaRows(rows: ProductMediaRow[]): ProductMedia[] {
+  return rows
     .map((row) => {
-      const kind = normalizeMediaKind(row.kind);
+      const kind = normalizeMediaKind(row.kind ?? row.media_type);
       const publicUrl = String(row.public_url ?? "").trim();
 
       if (!kind || !publicUrl) return null;
@@ -228,15 +305,15 @@ function normalizeProductMediaRows(rows: any[]): ProductMedia[] {
         durationSeconds: normalizeDuration(row.duration_seconds ?? row.duration_sec),
       } satisfies ProductMedia;
     })
-    .filter(Boolean)
+    .filter((value): value is ProductMedia => Boolean(value))
     .sort((a, b) => {
-      if (a!.isCover && !b!.isCover) return -1;
-      if (!a!.isCover && b!.isCover) return 1;
-      return a!.sortOrder - b!.sortOrder;
-    }) as ProductMedia[];
+      if (a.isCover && !b.isCover) return -1;
+      if (!a.isCover && b.isCover) return 1;
+      return a.sortOrder - b.sortOrder;
+    });
 }
 
-function pickInitialHeroImage(productRow: any, media: ProductMedia[]): string | null {
+function pickInitialHeroImage(productRow: ProductDbRow, media: ProductMedia[]): string | null {
   const coverImage =
     media.find((m) => m.isCover && m.kind === "image") ||
     media.find((m) => m.kind === "image");
@@ -258,66 +335,111 @@ function mediaCountLabel(media: ProductMedia[]) {
   return `${videos} vídeo${videos === 1 ? "" : "s"}`;
 }
 
-async function loadProductMediaRows(productId: string): Promise<any[]> {
-  const selectWithDurationSeconds =
-    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds";
-  const selectWithDurationSec =
-    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_sec";
-  const selectBase =
-    "id,product_id,kind,public_url,file_name,sort_order,is_cover";
+async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[]> {
+  const queries = [
+    "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec",
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds",
+    "id,product_id,media_type,public_url,file_name,sort_order,is_cover,duration_sec",
+    "id,product_id,public_url,file_name,sort_order,is_cover",
+  ];
 
-  const res1 = await supabase
-    .from("product_media")
-    .select(selectWithDurationSeconds)
-    .eq("product_id", productId)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(50);
+  let lastError: any = null;
 
-  if (!res1.error) {
-    return res1.data ?? [];
+  for (const selectStr of queries) {
+    const res = await supabase
+      .from("product_media")
+      .select(selectStr)
+      .eq("product_id", productId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(50);
+
+    if (res.error) {
+      const missingTable = isMissingRelationError(res.error, "product_media");
+      const missingColumn =
+        String(res.error.message ?? "").toLowerCase().includes("column") ||
+        String(res.error.message ?? "").toLowerCase().includes("schema cache");
+
+      if (missingTable) {
+        return [];
+      }
+
+      if (missingColumn) {
+        lastError = res.error;
+        continue;
+      }
+
+      throw res.error;
+    }
+
+    return asArray<ProductMediaRow>(res.data);
   }
 
-  const msg1 = String(res1.error.message ?? "").toLowerCase();
-  const missingDurationSeconds =
-    msg1.includes("duration_seconds") &&
-    (msg1.includes("does not exist") || msg1.includes("schema cache") || msg1.includes("column"));
-
-  if (!missingDurationSeconds) {
-    throw res1.error;
+  if (lastError) {
+    throw lastError;
   }
 
-  const res2 = await supabase
-    .from("product_media")
-    .select(selectWithDurationSec)
-    .eq("product_id", productId)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(50);
+  return [];
+}
 
-  if (!res2.error) {
-    return res2.data ?? [];
+async function fetchProductSafe(productId: string, adminFlag: boolean): Promise<ProductDbRow | null> {
+  const selectWithJoinAndLegacy =
+    "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
+  const selectWithJoinAndImages =
+    "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
+  const selectWithJoinBase =
+    "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
+  const selectLegacyNoJoin =
+    "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at";
+  const selectImagesNoJoin =
+    "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at";
+  const selectBaseNoJoin =
+    "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at";
+
+  const buildQuery = (selectStr: string) => {
+    let q = supabase.from("products").select(selectStr).eq("id", productId);
+
+    if (!adminFlag) {
+      q = q.eq("is_active", true).eq("status", "PUBLISHED");
+    }
+
+    return q.maybeSingle();
+  };
+
+  const attempts = [
+    selectWithJoinAndLegacy,
+    selectWithJoinAndImages,
+    selectWithJoinBase,
+    selectLegacyNoJoin,
+    selectImagesNoJoin,
+    selectBaseNoJoin,
+  ];
+
+  let lastError: any = null;
+
+  for (const selectStr of attempts) {
+    const res = await buildQuery(selectStr);
+
+    if (!res.error) {
+      return (res.data as ProductDbRow | null) ?? null;
+    }
+
+    lastError = res.error;
+
+    const canFallback =
+      isMissingColumnError(res.error, "image_url") ||
+      isMissingColumnError(res.error, "images") ||
+      isMissingRelationError(res.error, "categories") ||
+      isMissingColumnError(res.error, "slug") ||
+      isMissingColumnError(res.error, "name");
+
+    if (!canFallback) {
+      throw res.error;
+    }
   }
 
-  const msg2 = String(res2.error.message ?? "").toLowerCase();
-  const missingDurationSec =
-    msg2.includes("duration_sec") &&
-    (msg2.includes("does not exist") || msg2.includes("schema cache") || msg2.includes("column"));
-
-  if (!missingDurationSec) {
-    throw res2.error;
-  }
-
-  const res3 = await supabase
-    .from("product_media")
-    .select(selectBase)
-    .eq("product_id", productId)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(50);
-
-  if (res3.error) throw res3.error;
-  return res3.data ?? [];
+  if (lastError) throw lastError;
+  return null;
 }
 
 export default function ProductoScreen() {
@@ -400,64 +522,7 @@ ${price}
       if (seq !== reqSeqRef.current) return;
       setIsAdmin(adminFlag);
 
-      const selectWithImagesAndUrl =
-        "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
-      const selectWithImagesOnly =
-        "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
-      const selectBase =
-        "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
-
-      const runQuery = async (selectStr: string) => {
-        let q = supabase.from("products").select(selectStr).eq("id", productId);
-
-        if (!adminFlag) {
-          q = q.eq("is_active", true).eq("status", "PUBLISHED");
-        }
-
-        return q.maybeSingle();
-      };
-
-      let productRow: any = null;
-
-      const res1 = await runQuery(selectWithImagesAndUrl);
-
-      if (res1.error) {
-        const msg1 = String(res1.error.message ?? "").toLowerCase();
-
-        const missingImageUrl =
-          msg1.includes("image_url") &&
-          (msg1.includes("does not exist") ||
-            msg1.includes("schema cache") ||
-            msg1.includes("column"));
-
-        if (!missingImageUrl) {
-          throw res1.error;
-        }
-
-        const res2 = await runQuery(selectWithImagesOnly);
-
-        if (res2.error) {
-          const msg2 = String(res2.error.message ?? "").toLowerCase();
-
-          const missingImages =
-            msg2.includes("images") &&
-            (msg2.includes("does not exist") ||
-              msg2.includes("schema cache") ||
-              msg2.includes("column"));
-
-          if (!missingImages) {
-            throw res2.error;
-          }
-
-          const res3 = await runQuery(selectBase);
-          if (res3.error) throw res3.error;
-          productRow = res3.data;
-        } else {
-          productRow = res2.data;
-        }
-      } else {
-        productRow = res1.data;
-      }
+      const productRow = await fetchProductSafe(productId, adminFlag);
 
       if (seq !== reqSeqRef.current) return;
 
@@ -468,21 +533,33 @@ ${price}
         return;
       }
 
+      const categoryMap = await fetchCategoryMapByIds(
+        productRow.category_id ? [productRow.category_id] : []
+      );
+      if (seq !== reqSeqRef.current) return;
+
       const mediaRows = await loadProductMediaRows(productRow.id);
       if (seq !== reqSeqRef.current) return;
 
       const normalizedMedia = normalizeProductMediaRows(mediaRows);
       const heroImage = pickInitialHeroImage(productRow, normalizedMedia);
 
+      const category =
+        productRow.category && typeof productRow.category === "object"
+          ? productRow.category
+          : productRow.category_id
+            ? categoryMap.get(productRow.category_id) ?? null
+            : null;
+
       const mapped: Product = {
         id: productRow.id,
-        title: productRow.title,
+        title: String(productRow.title ?? ""),
         description: productRow.description ?? null,
         priceEUR: Number(productRow.price_eur ?? 0),
-        status: mapDbStatusToUi(productRow.status as DbStatus),
+        status: mapDbStatusToUi((productRow.status ?? "DRAFT") as DbStatus),
         isActive: Boolean(productRow.is_active),
         imageUrl: heroImage,
-        category: productRow.category ?? null,
+        category,
         media: normalizedMedia,
       };
 
@@ -588,7 +665,9 @@ ${price}
                 backgroundColor: COLORS.accent2,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>
+              <Text
+                style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}
+              >
                 🛒 Carrito
               </Text>
             </Pressable>
@@ -1018,7 +1097,11 @@ ${price}
 
                     <View style={{ gap: 8 }}>
                       <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
-                      <InfoRow label="Categoría" value={p.category?.name ?? "General"} isMobile={isMobile} />
+                      <InfoRow
+                        label="Categoría"
+                        value={p.category?.name ?? "General"}
+                        isMobile={isMobile}
+                      />
                       <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} isMobile={isMobile} />
                       <InfoRow
                         label="Multimedia"
@@ -1044,7 +1127,9 @@ ${price}
                     gap: 12,
                   }}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}>
+                  <Text
+                    style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}
+                  >
                     Compra con tranquilidad
                   </Text>
 

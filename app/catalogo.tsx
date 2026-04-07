@@ -27,7 +27,6 @@ const COLORS = {
   muted2: "rgba(255,255,255,0.58)",
   accent: "#00AAE4",
   accent2: "rgba(0,170,228,0.16)",
-  accent3: "rgba(0,170,228,0.22)",
   accentBorder: "rgba(0,170,228,0.45)",
 };
 
@@ -51,15 +50,14 @@ type ProductBaseRow = {
   status: DbStatus;
   is_active: boolean;
   category_id: string | null;
-  updated_at: string;
-  created_at: string;
-  category?: { id: string; name: string; slug: string } | null;
+  updated_at: string | null;
+  created_at: string | null;
 };
 
 type ProductDbRow = ProductBaseRow & {
   images?: string[] | null;
   image_url?: string | null;
-  category: { id: string; name: string; slug: string } | null;
+  category?: { id: string; name: string; slug: string } | null;
 };
 
 type ProductMediaKind = "image" | "video";
@@ -69,7 +67,7 @@ type ProductMediaRow = {
   product_id: string;
   kind?: ProductMediaKind | null;
   media_type?: ProductMediaKind | null;
-  public_url: string;
+  public_url?: string | null;
   file_name?: string | null;
   sort_order?: number | null;
   is_cover?: boolean | null;
@@ -86,9 +84,14 @@ type Product = {
   imageUrl: string | null;
   imageCount: number;
   videoCount: number;
+  mediaCount: number;
   hasVideo: boolean;
   category?: { id: string; name: string; slug: string } | null;
 };
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
@@ -211,7 +214,7 @@ function firstImageFromAnyRow(row: any): string | null {
   return null;
 }
 
-function normalizeMediaKind(value: any): ProductMediaKind | null {
+function normalizeMediaKind(value: unknown): ProductMediaKind | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
   if (v === "video") return "video";
@@ -235,7 +238,20 @@ function pickHeroImage(productRow: ProductDbRow, mediaRows: ProductMediaRow[]) {
   const sorted = [...mediaRows].sort(sortMediaRows);
 
   const coverImage =
-    sorted.find((m) => normalizeMediaKind(m.kind ?? m.media_type) === "image") ?? null;
+    sorted.find(
+      (m) =>
+        Boolean(m.is_cover) &&
+        normalizeMediaKind(m.kind ?? m.media_type) === "image" &&
+        typeof m.public_url === "string" &&
+        m.public_url.trim()
+    ) ??
+    sorted.find(
+      (m) =>
+        normalizeMediaKind(m.kind ?? m.media_type) === "image" &&
+        typeof m.public_url === "string" &&
+        m.public_url.trim()
+    ) ??
+    null;
 
   if (coverImage?.public_url) return coverImage.public_url;
 
@@ -248,6 +264,26 @@ function countImages(mediaRows: ProductMediaRow[]) {
 
 function countVideos(mediaRows: ProductMediaRow[]) {
   return mediaRows.filter((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video").length;
+}
+
+function isMissingColumnError(error: any, columnName: string) {
+  const msg = String(error?.message ?? "").toLowerCase();
+  const col = columnName.toLowerCase();
+  return (
+    msg.includes(col) &&
+    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
+  );
+}
+
+function isMissingRelationError(error: any, relationName: string) {
+  const msg = String(error?.message ?? "").toLowerCase();
+  const rel = relationName.toLowerCase();
+  return (
+    msg.includes(rel) &&
+    (msg.includes("does not exist") ||
+      msg.includes("relation") ||
+      msg.includes("could not find the table"))
+  );
 }
 
 async function detectAdmin(): Promise<boolean> {
@@ -269,6 +305,44 @@ async function detectAdmin(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id,name,slug,is_active,sort_order")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) throw error;
+
+  const rows = asArray<CategoryRow>(data);
+  return rows.filter((c) => (adminFlag ? true : !!c.is_active));
+}
+
+async function fetchCategoryMapByIds(categoryIds: string[]) {
+  const map = new Map<string, CategoryRow>();
+  const uniqueIds = [...new Set(categoryIds.filter(Boolean))];
+
+  if (!uniqueIds.length) return map;
+
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id,name,slug,is_active,sort_order")
+    .in("id", uniqueIds);
+
+  if (error) {
+    if (isMissingRelationError(error, "categories")) {
+      return map;
+    }
+    throw error;
+  }
+
+  for (const row of asArray<CategoryRow>(data)) {
+    map.set(row.id, row);
+  }
+
+  return map;
 }
 
 export default function CatalogoScreen() {
@@ -348,18 +422,25 @@ export default function CatalogoScreen() {
     queryText: string,
     resolvedCat?: CategoryRow
   ): Promise<ProductDbRow[]> {
-    const baseSelect =
-      "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
-    const selectWithImages =
-      "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
-    const selectWithImagesAndUrl =
+    const selectWithJoinAndLegacy =
       "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
+    const selectWithJoinAndImages =
+      "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
+    const selectWithJoinBase =
+      "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
+    const selectLegacyNoJoin =
+      "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at";
+    const selectImagesNoJoin =
+      "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at";
+    const selectBaseNoJoin =
+      "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at";
 
     const buildQuery = (selectStr: string) => {
       let query = supabase
         .from("products")
         .select(selectStr)
-        .order("updated_at", { ascending: false });
+        .order("updated_at", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (!adminFlag) {
         query = query.eq("is_active", true).eq("status", "PUBLISHED");
@@ -378,49 +459,48 @@ export default function CatalogoScreen() {
       }
 
       if (queryText) {
-        const pattern = `%${queryText}%`;
+        const safeQuery = queryText.replace(/[%(),]/g, " ").trim();
+        const pattern = `%${safeQuery}%`;
         query = query.or(`title.ilike.${pattern},description.ilike.${pattern}`);
       }
 
       return query;
     };
 
-    const res1 = await buildQuery(selectWithImagesAndUrl);
-    if (!res1.error) {
-      return (Array.isArray(res1.data) ? res1.data : []) as unknown as ProductDbRow[];
+    const attempts = [
+      selectWithJoinAndLegacy,
+      selectWithJoinAndImages,
+      selectWithJoinBase,
+      selectLegacyNoJoin,
+      selectImagesNoJoin,
+      selectBaseNoJoin,
+    ];
+
+    let lastError: any = null;
+
+    for (const selectStr of attempts) {
+      const res = await buildQuery(selectStr);
+
+      if (!res.error) {
+        return asArray<ProductDbRow>(res.data);
+      }
+
+      lastError = res.error;
+
+      const canFallback =
+        isMissingColumnError(res.error, "image_url") ||
+        isMissingColumnError(res.error, "images") ||
+        isMissingRelationError(res.error, "categories") ||
+        isMissingColumnError(res.error, "slug") ||
+        isMissingColumnError(res.error, "name");
+
+      if (!canFallback) {
+        throw res.error;
+      }
     }
 
-    const msg1 = String(res1.error.message ?? "").toLowerCase();
-    const missingImageUrl =
-      msg1.includes("image_url") &&
-      (msg1.includes("does not exist") ||
-        msg1.includes("schema cache") ||
-        msg1.includes("column"));
-
-    if (!missingImageUrl) {
-      throw res1.error;
-    }
-
-    const res2 = await buildQuery(selectWithImages);
-    if (!res2.error) {
-      return (Array.isArray(res2.data) ? res2.data : []) as unknown as ProductDbRow[];
-    }
-
-    const msg2 = String(res2.error.message ?? "").toLowerCase();
-    const missingImages =
-      msg2.includes("images") &&
-      (msg2.includes("does not exist") ||
-        msg2.includes("schema cache") ||
-        msg2.includes("column"));
-
-    if (!missingImages) {
-      throw res2.error;
-    }
-
-    const res3 = await buildQuery(baseSelect);
-    if (res3.error) throw res3.error;
-
-    return (Array.isArray(res3.data) ? res3.data : []) as unknown as ProductDbRow[];
+    if (lastError) throw lastError;
+    return [];
   }
 
   async function fetchProductMediaMap(productIds: string[]) {
@@ -444,16 +524,10 @@ export default function CatalogoScreen() {
         .limit(5000);
 
       if (res.error) {
-        const msg = String(res.error.message ?? "").toLowerCase();
-
-        const missingTable =
-          msg.includes('relation "product_media" does not exist') ||
-          msg.includes("could not find the table") ||
-          msg.includes("does not exist");
-
+        const missingTable = isMissingRelationError(res.error, "product_media");
         const missingColumn =
-          msg.includes("column") ||
-          msg.includes("schema cache");
+          String(res.error.message ?? "").toLowerCase().includes("column") ||
+          String(res.error.message ?? "").toLowerCase().includes("schema cache");
 
         if (missingTable) {
           return empty;
@@ -467,10 +541,12 @@ export default function CatalogoScreen() {
         throw res.error;
       }
 
-      const rows = (res.data ?? []) as ProductMediaRow[];
+      const rows = asArray<ProductMediaRow>(res.data);
       const map = new Map<string, ProductMediaRow[]>();
 
       for (const row of rows) {
+        if (!row?.product_id) continue;
+
         const list = map.get(row.product_id) ?? [];
         list.push(row);
         map.set(row.product_id, list);
@@ -500,24 +576,17 @@ export default function CatalogoScreen() {
     if (seq !== reqSeqRef.current) return;
     setIsAdmin(adminFlag);
 
-    const catsQuery = supabase
-      .from("categories")
-      .select("id,name,slug,is_active,sort_order")
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true });
-
-    const { data: catsData, error: catsErr } = await catsQuery;
-    if (catsErr) throw catsErr;
+    const cats = await fetchCategoriesSafe(adminFlag);
     if (seq !== reqSeqRef.current) return;
-
-    const cats = ((catsData ?? []) as unknown as CategoryRow[]).filter((c) =>
-      adminFlag ? true : !!c.is_active
-    );
-
     setCategories(cats);
 
     const resolvedCatLocal = resolveCategory(rawCat, cats);
     const rows = await fetchProductsSafe(adminFlag, queryText, resolvedCatLocal);
+    if (seq !== reqSeqRef.current) return;
+
+    const categoryMap = await fetchCategoryMapByIds(
+      rows.map((row) => row.category_id).filter((v): v is string => !!v)
+    );
     if (seq !== reqSeqRef.current) return;
 
     const productIds = rows.map((row) => row.id);
@@ -530,18 +599,25 @@ export default function CatalogoScreen() {
       const imageCount = countImages(mediaRows);
       const videoCount = countVideos(mediaRows);
 
+      const category =
+        row?.category && typeof row.category === "object"
+          ? row.category
+          : row?.category_id
+            ? categoryMap.get(row.category_id) ?? null
+            : null;
+
       return {
         id: row.id,
-        title: row.title,
+        title: String(row.title ?? ""),
         description: row.description ?? null,
-        status: mapDbStatusToUi(row.status),
+        status: mapDbStatusToUi((row.status ?? "DRAFT") as DbStatus),
         priceEUR: Number(row.price_eur ?? 0),
         imageUrl,
         imageCount,
         videoCount,
         mediaCount: mediaRows.length,
         hasVideo: videoCount > 0,
-        category: row.category ?? null,
+        category,
       };
     });
 
@@ -661,7 +737,9 @@ export default function CatalogoScreen() {
                   backgroundColor: COLORS.accent2,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}>
+                <Text
+                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}
+                >
                   🛒 Carrito
                 </Text>
               </Pressable>
@@ -891,7 +969,12 @@ export default function CatalogoScreen() {
 
           {isAdmin ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <Chip active={filter === "ALL"} label="Todos" onPress={() => setFilter("ALL")} isMobile={isMobile} />
+              <Chip
+                active={filter === "ALL"}
+                label="Todos"
+                onPress={() => setFilter("ALL")}
+                isMobile={isMobile}
+              />
               <Chip
                 active={filter === "PUBLICADA"}
                 label="Publicadas"
@@ -983,7 +1066,7 @@ export default function CatalogoScreen() {
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.cardStrong,
-                padding: isMobile ? 14 : 14,
+                padding: 14,
                 gap: 12,
               }}
             >
