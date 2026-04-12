@@ -1,4 +1,3 @@
-// app/producto/[id].tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -33,6 +32,7 @@ const COLORS = {
 
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
 type UiStatus = "PUBLICADA" | "LISTA" | "REVISAR";
+type ProductMediaKind = "image" | "video";
 
 type Category = {
   id: string;
@@ -40,19 +40,15 @@ type Category = {
   slug: string;
 };
 
-type ProductMediaKind = "image" | "video";
-
 type ProductMediaRow = {
   id: string;
-  product_id?: string;
-  kind?: ProductMediaKind | null;
-  media_type?: ProductMediaKind | null;
-  public_url?: string | null;
-  file_name?: string | null;
-  sort_order?: number | null;
-  is_cover?: boolean | null;
-  duration_seconds?: number | null;
-  duration_sec?: number | null;
+  product_id: string;
+  kind: ProductMediaKind | null;
+  public_url: string | null;
+  file_name: string | null;
+  sort_order: number | null;
+  is_cover: boolean | null;
+  duration_seconds: number | null;
 };
 
 type ProductMedia = {
@@ -73,11 +69,10 @@ type ProductDbRow = {
   status: DbStatus;
   is_active: boolean;
   category_id: string | null;
-  updated_at?: string | null;
-  created_at?: string | null;
-  images?: string[] | null;
-  image_url?: string | null;
-  category?: Category | null;
+  updated_at: string | null;
+  created_at: string | null;
+  images: string[] | null;
+  category: Category | null;
 };
 
 type Product = {
@@ -88,7 +83,7 @@ type Product = {
   status: UiStatus;
   isActive: boolean;
   imageUrl: string | null;
-  category?: Category | null;
+  category: Category | null;
   media: ProductMedia[];
 };
 
@@ -155,14 +150,14 @@ function smartBack() {
       return;
     }
   } catch {
-    // no-op
+    // ignore
   }
   router.replace("/catalogo");
 }
 
 function openWhatsApp(prefill: string) {
   const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
-  const text = encodeURIComponent((prefill ?? "").trim().slice(0, 500));
+  const text = encodeURIComponent(String(prefill ?? "").trim().slice(0, 500));
   const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
 
   Linking.openURL(url).catch(() => {
@@ -172,24 +167,97 @@ function openWhatsApp(prefill: string) {
   });
 }
 
-function isMissingColumnError(error: any, columnName: string) {
-  const msg = String(error?.message ?? "").toLowerCase();
+function isMissingColumnError(error: unknown, columnName: string) {
+  const msg = String((error as any)?.message ?? "").toLowerCase();
   const col = columnName.toLowerCase();
+
   return (
     msg.includes(col) &&
     (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
   );
 }
 
-function isMissingRelationError(error: any, relationName: string) {
-  const msg = String(error?.message ?? "").toLowerCase();
+function isMissingRelationError(error: unknown, relationName: string) {
+  const msg = String((error as any)?.message ?? "").toLowerCase();
   const rel = relationName.toLowerCase();
+
   return (
     msg.includes(rel) &&
     (msg.includes("does not exist") ||
       msg.includes("relation") ||
       msg.includes("could not find the table"))
   );
+}
+
+function asCategory(value: unknown): Category | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const name = String(row.name ?? "").trim();
+  const slug = String(row.slug ?? "").trim();
+
+  if (!id || !name || !slug) return null;
+
+  return { id, name, slug };
+}
+
+function asProductDbRow(value: unknown): ProductDbRow | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const title = String(row.title ?? "").trim();
+  const statusRaw = String(row.status ?? "").trim().toUpperCase();
+
+  if (!id || !title) return null;
+  if (statusRaw !== "DRAFT" && statusRaw !== "PUBLISHED" && statusRaw !== "REVIEW") return null;
+
+  return {
+    id,
+    title,
+    description: typeof row.description === "string" ? row.description : null,
+    price_eur: typeof row.price_eur === "number" ? row.price_eur : Number(row.price_eur ?? 0),
+    status: statusRaw as DbStatus,
+    is_active: Boolean(row.is_active),
+    category_id: typeof row.category_id === "string" ? row.category_id : null,
+    updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
+    images: Array.isArray(row.images)
+      ? row.images.filter((v): v is string => typeof v === "string" && !!v.trim())
+      : null,
+    category: asCategory(row.category),
+  };
+}
+
+function asProductMediaRow(value: unknown): ProductMediaRow | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const productId = String(row.product_id ?? "").trim();
+  const kindRaw = String(row.kind ?? "").trim().toLowerCase();
+  const publicUrl = String(row.public_url ?? "").trim();
+
+  if (!id || !productId) return null;
+
+  let kind: ProductMediaKind | null = null;
+  if (kindRaw === "image") kind = "image";
+  if (kindRaw === "video") kind = "video";
+
+  return {
+    id,
+    product_id: productId,
+    kind,
+    public_url: publicUrl || null,
+    file_name: typeof row.file_name === "string" ? row.file_name : null,
+    sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0,
+    is_cover: Boolean(row.is_cover),
+    duration_seconds:
+      Number.isFinite(Number(row.duration_seconds)) && Number(row.duration_seconds) > 0
+        ? Number(row.duration_seconds)
+        : null,
+  };
 }
 
 async function detectAdmin(): Promise<boolean> {
@@ -225,29 +293,25 @@ async function fetchCategoryMapByIds(categoryIds: string[]) {
     .in("id", uniqueIds);
 
   if (error) {
-    if (isMissingRelationError(error, "categories")) {
-      return map;
-    }
+    if (isMissingRelationError(error, "categories")) return map;
     throw error;
   }
 
-  for (const row of asArray<Category>(data)) {
-    map.set(row.id, row);
+  for (const row of asArray<unknown>(data)) {
+    const normalized = asCategory(row);
+    if (normalized) map.set(normalized.id, normalized);
   }
 
   return map;
 }
 
-function firstImageFromAnyRow(row: any): string | null {
+function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | null {
   const imgs = row?.images;
 
   if (Array.isArray(imgs) && imgs.length > 0) {
-    const first = imgs.find((v: unknown) => typeof v === "string" && v.trim());
+    const first = imgs.find((v) => typeof v === "string" && !!v.trim());
     if (typeof first === "string" && first.trim()) return first.trim();
   }
-
-  const url = row?.image_url;
-  if (typeof url === "string" && url.trim()) return url.trim();
 
   return null;
 }
@@ -261,6 +325,7 @@ function productTrustCopy(hasDescription: boolean) {
 
 function productHintByCategory(name?: string | null) {
   if (!name) return "Segunda mano revisada";
+
   const n = name.toLowerCase();
 
   if (n.includes("playstation 5") || n.includes("ps5")) return "Consola o accesorio PS5";
@@ -275,13 +340,6 @@ function productHintByCategory(name?: string | null) {
   return "Producto revisado";
 }
 
-function normalizeMediaKind(value: unknown): ProductMediaKind | null {
-  const v = String(value ?? "").trim().toLowerCase();
-  if (v === "image") return "image";
-  if (v === "video") return "video";
-  return null;
-}
-
 function normalizeDuration(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -290,19 +348,16 @@ function normalizeDuration(value: unknown): number | null {
 function normalizeProductMediaRows(rows: ProductMediaRow[]): ProductMedia[] {
   return rows
     .map((row) => {
-      const kind = normalizeMediaKind(row.kind ?? row.media_type);
-      const publicUrl = String(row.public_url ?? "").trim();
-
-      if (!kind || !publicUrl) return null;
+      if (!row.kind || !row.public_url) return null;
 
       return {
-        id: String(row.id),
-        kind,
-        publicUrl,
+        id: row.id,
+        kind: row.kind,
+        publicUrl: row.public_url,
         fileName: row.file_name ?? null,
         sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0,
         isCover: Boolean(row.is_cover),
-        durationSeconds: normalizeDuration(row.duration_seconds ?? row.duration_sec),
+        durationSeconds: normalizeDuration(row.duration_seconds),
       } satisfies ProductMedia;
     })
     .filter((value): value is ProductMedia => Boolean(value))
@@ -336,98 +391,58 @@ function mediaCountLabel(media: ProductMedia[]) {
 }
 
 async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[]> {
-  const queries = [
-    "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec",
-    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds",
-    "id,product_id,media_type,public_url,file_name,sort_order,is_cover,duration_sec",
-    "id,product_id,public_url,file_name,sort_order,is_cover",
-  ];
+  const selectStr =
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds";
 
-  let lastError: any = null;
+  const res = await supabase
+    .from("product_media")
+    .select(selectStr)
+    .eq("product_id", productId)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(50);
 
-  for (const selectStr of queries) {
-    const res = await supabase
-      .from("product_media")
-      .select(selectStr)
-      .eq("product_id", productId)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true })
-      .limit(50);
-
-    if (res.error) {
-      const missingTable = isMissingRelationError(res.error, "product_media");
-      const missingColumn =
-        String(res.error.message ?? "").toLowerCase().includes("column") ||
-        String(res.error.message ?? "").toLowerCase().includes("schema cache");
-
-      if (missingTable) {
-        return [];
-      }
-
-      if (missingColumn) {
-        lastError = res.error;
-        continue;
-      }
-
-      throw res.error;
-    }
-
-    return asArray<ProductMediaRow>(res.data);
+  if (res.error) {
+    if (isMissingRelationError(res.error, "product_media")) return [];
+    throw res.error;
   }
 
-  if (lastError) {
-    throw lastError;
-  }
-
-  return [];
+  return asArray<unknown>(res.data)
+    .map(asProductMediaRow)
+    .filter((row): row is ProductMediaRow => Boolean(row));
 }
 
 async function fetchProductSafe(productId: string, adminFlag: boolean): Promise<ProductDbRow | null> {
-  const selectWithJoinAndLegacy =
-    "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
   const selectWithJoinAndImages =
     "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
   const selectWithJoinBase =
     "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
-  const selectLegacyNoJoin =
-    "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at";
   const selectImagesNoJoin =
     "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at";
   const selectBaseNoJoin =
     "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at";
 
-  const buildQuery = (selectStr: string) => {
-    let q = supabase.from("products").select(selectStr).eq("id", productId);
-
-    if (!adminFlag) {
-      q = q.eq("is_active", true).eq("status", "PUBLISHED");
-    }
-
-    return q.maybeSingle();
-  };
-
   const attempts = [
-    selectWithJoinAndLegacy,
     selectWithJoinAndImages,
     selectWithJoinBase,
-    selectLegacyNoJoin,
     selectImagesNoJoin,
     selectBaseNoJoin,
   ];
 
-  let lastError: any = null;
-
   for (const selectStr of attempts) {
-    const res = await buildQuery(selectStr);
+    let query = supabase.from("products").select(selectStr).eq("id", productId);
 
-    if (!res.error) {
-      return (res.data as ProductDbRow | null) ?? null;
+    if (!adminFlag) {
+      query = query.eq("is_active", true).eq("status", "PUBLISHED");
     }
 
-    lastError = res.error;
+    const res = await query.maybeSingle();
+
+    if (!res.error) {
+      return asProductDbRow(res.data);
+    }
 
     const canFallback =
-      isMissingColumnError(res.error, "image_url") ||
       isMissingColumnError(res.error, "images") ||
       isMissingRelationError(res.error, "categories") ||
       isMissingColumnError(res.error, "slug") ||
@@ -438,7 +453,6 @@ async function fetchProductSafe(productId: string, adminFlag: boolean): Promise<
     }
   }
 
-  if (lastError) throw lastError;
   return null;
 }
 
@@ -474,6 +488,7 @@ export default function ProductoScreen() {
 
   const heroSubcopy = useMemo(() => {
     if (!p) return "Ficha de producto";
+
     const parts: string[] = [];
 
     if (p.category?.name) parts.push(productHintByCategory(p.category.name));
@@ -495,6 +510,7 @@ export default function ProductoScreen() {
   const whatsappText = useMemo(() => {
     const title = p?.title ? `Producto: ${p.title}` : `Producto ID: ${productId}`;
     const price = p?.priceEUR ? `Precio: ${fmtEUR(p.priceEUR)}` : "";
+
     return `Hola, vengo desde Videojuegoos.com.
 
 ${title}
@@ -523,7 +539,6 @@ ${price}
       setIsAdmin(adminFlag);
 
       const productRow = await fetchProductSafe(productId, adminFlag);
-
       if (seq !== reqSeqRef.current) return;
 
       if (!productRow) {
@@ -545,18 +560,15 @@ ${price}
       const heroImage = pickInitialHeroImage(productRow, normalizedMedia);
 
       const category =
-        productRow.category && typeof productRow.category === "object"
-          ? productRow.category
-          : productRow.category_id
-            ? categoryMap.get(productRow.category_id) ?? null
-            : null;
+        productRow.category ||
+        (productRow.category_id ? categoryMap.get(productRow.category_id) ?? null : null);
 
       const mapped: Product = {
         id: productRow.id,
-        title: String(productRow.title ?? ""),
+        title: productRow.title,
         description: productRow.description ?? null,
         priceEUR: Number(productRow.price_eur ?? 0),
-        status: mapDbStatusToUi((productRow.status ?? "DRAFT") as DbStatus),
+        status: mapDbStatusToUi(productRow.status),
         isActive: Boolean(productRow.is_active),
         imageUrl: heroImage,
         category,

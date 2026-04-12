@@ -69,12 +69,11 @@ function normalizeMediaKind(value: unknown): "image" | "video" | null {
 }
 
 function getRowKind(row: Partial<ProductMediaRow>) {
-  return normalizeMediaKind(row.kind ?? row.media_type);
+  return normalizeMediaKind(row.kind);
 }
 
 function getRowDuration(row: Partial<ProductMediaRow>) {
-  const raw = row.duration_seconds ?? row.duration_sec ?? null;
-  const n = Number(raw);
+  const n = Number(row.duration_seconds ?? null);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
@@ -88,8 +87,8 @@ function getRowPublicUrl(row: Partial<ProductMediaRow>) {
   return url || null;
 }
 
-function isMissingColumnError(error: any, columnName: string) {
-  const msg = String(error?.message ?? "").toLowerCase();
+function isMissingColumnError(error: unknown, columnName: string) {
+  const msg = String((error as any)?.message ?? "").toLowerCase();
   const col = columnName.toLowerCase();
   return (
     msg.includes(col) &&
@@ -97,8 +96,8 @@ function isMissingColumnError(error: any, columnName: string) {
   );
 }
 
-function isMissingRelationError(error: any, relationName: string) {
-  const msg = String(error?.message ?? "").toLowerCase();
+function isMissingRelationError(error: unknown, relationName: string) {
+  const msg = String((error as any)?.message ?? "").toLowerCase();
   const rel = relationName.toLowerCase();
   return (
     msg.includes(rel) &&
@@ -122,32 +121,29 @@ function sanitizeMediaRow(row: any): ProductMediaRow {
   return {
     id: String(row.id),
     product_id: String(row.product_id),
-    kind: normalizeMediaKind(row.kind),
-    media_type: normalizeMediaKind(row.media_type),
-    storage_path: row.storage_path ?? null,
-    public_url: row.public_url ?? null,
-    file_name: row.file_name ?? null,
-    mime_type: row.mime_type ?? null,
+    kind: normalizeMediaKind(row.kind) ?? "image",
+    storage_path: String(row.storage_path ?? ""),
+    public_url: String(row.public_url ?? ""),
+    file_name: row.file_name ? String(row.file_name) : null,
+    mime_type: row.mime_type ? String(row.mime_type) : null,
     sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0,
     is_cover: Boolean(row.is_cover),
     duration_seconds: getRowDuration(row),
-    duration_sec: getRowDuration(row),
-    created_at: row.created_at ?? null,
+    created_at: typeof row.created_at === "string" ? row.created_at : undefined,
   };
 }
 
 async function fetchProductMediaRowsSafe(productId?: string): Promise<ProductMediaRow[]> {
   const selects = [
-    "id,product_id,kind,media_type,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,duration_sec,created_at",
     "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at",
-    "id,product_id,media_type,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_sec,created_at",
+    "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,created_at",
     "id,product_id,storage_path,public_url,file_name,mime_type,sort_order,is_cover,created_at",
   ];
 
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   for (const selectStr of selects) {
-    let query = supabase.from("product_media").select(selectStr).limit(5000);
+    let query = supabase.from("product_media").select(selectStr);
 
     if (productId) {
       query = query
@@ -155,6 +151,8 @@ async function fetchProductMediaRowsSafe(productId?: string): Promise<ProductMed
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true })
         .limit(200);
+    } else {
+      query = query.limit(5000);
     }
 
     const res = await query;
@@ -179,6 +177,23 @@ async function fetchProductMediaRowsSafe(productId?: string): Promise<ProductMed
 
   if (lastError) throw lastError;
   return [];
+}
+
+function sanitizeProductRow(row: any): ProductRow {
+  return {
+    id: String(row.id),
+    title: String(row.title ?? ""),
+    description: typeof row.description === "string" ? row.description : null,
+    price_eur: Number.isFinite(Number(row.price_eur)) ? Number(row.price_eur) : null,
+    status: (row.status ?? "DRAFT") as ProductStatus,
+    condition: (row.condition ?? "GOOD") as ProductCondition,
+    category_id: row.category_id ? String(row.category_id) : null,
+    is_active: Boolean(row.is_active),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+    is_featured_home: Boolean(row.is_featured_home),
+    media: [],
+  };
 }
 
 export default function AdminProducts() {
@@ -240,10 +255,7 @@ export default function AdminProducts() {
     return categories.find((c) => c.id === categoryId)?.name ?? "Sin categoría";
   }, [categoryId, categories]);
 
-  const activeCategories = useMemo(
-    () => categories.filter((c) => !!c.is_active),
-    [categories]
-  );
+  const activeCategories = useMemo(() => categories.filter((c) => !!c.is_active), [categories]);
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -301,7 +313,7 @@ export default function AdminProducts() {
       const shouldOrder = i;
 
       if (getRowSortOrder(row) !== shouldOrder || Boolean(row.is_cover) !== shouldCover) {
-        const payload: Record<string, any> = {
+        const payload = {
           sort_order: shouldOrder,
           is_cover: shouldCover,
         };
@@ -363,8 +375,8 @@ export default function AdminProducts() {
           if (fallbackRes.error) throw fallbackRes.error;
 
           supportsFeatured = false;
-          productsData = ((fallbackRes.data ?? []) as any[]).map((row) => ({
-            ...row,
+          productsData = (Array.isArray(fallbackRes.data) ? fallbackRes.data : []).map((row) => ({
+            ...sanitizeProductRow(row),
             is_featured_home: false,
             media: [],
           }));
@@ -372,11 +384,9 @@ export default function AdminProducts() {
           throw prodRes.error;
         }
       } else {
-        productsData = ((prodRes.data ?? []) as any[]).map((row) => ({
-          ...row,
-          is_featured_home: row.is_featured_home ?? false,
-          media: [],
-        }));
+        productsData = (Array.isArray(prodRes.data) ? prodRes.data : []).map((row) =>
+          sanitizeProductRow(row)
+        );
       }
 
       let supportsMedia = true;
@@ -417,14 +427,11 @@ export default function AdminProducts() {
 
       setSupportsFeaturedHome(supportsFeatured);
       setSupportsProductMedia(supportsMedia);
-      setCategories((catsRes.data ?? []) as CategoryRow[]);
+      setCategories((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]);
       setItems(merged);
     } catch (e: any) {
       const exactMessage =
-        e?.message ||
-        e?.error_description ||
-        e?.details ||
-        "Error cargando productos.";
+        e?.message || e?.error_description || e?.details || "Error cargando productos.";
       setScreenErr(exactMessage);
       setCategories([]);
       setItems([]);
@@ -538,9 +545,7 @@ export default function AdminProducts() {
   function removeNewMedia(id: string) {
     setNewMedia((prev) => {
       const found = prev.find((m) => m.id === id);
-      if (found) {
-        revokeLocalMedia([found]);
-      }
+      if (found) revokeLocalMedia([found]);
       return prev.filter((m) => m.id !== id);
     });
   }
@@ -564,42 +569,38 @@ export default function AdminProducts() {
       const item = newMedia[i];
       const storagePath = buildMediaPath(productId, item, startIndex + i);
 
-      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(
-        storagePath,
-        item.file,
-        {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: item.mimeType || undefined,
-        }
-      );
+      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: item.mimeType || undefined,
+      });
 
       if (uploadRes.error) throw uploadRes.error;
 
-      const { data: publicData } = supabase.storage
-        .from(MEDIA_BUCKET)
-        .getPublicUrl(storagePath);
+      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+      const publicUrl = publicData?.publicUrl ?? "";
 
-      const publicUrl = publicData?.publicUrl ?? null;
-
-      const rowPayload: Record<string, any> = {
+      const basePayload: Record<string, any> = {
         product_id: productId,
-        kind: item.kind,
-        media_type: item.kind,
         storage_path: storagePath,
         public_url: publicUrl,
         file_name: item.name,
         mime_type: item.mimeType || null,
         sort_order: startIndex + i,
         is_cover: false,
-        duration_seconds: item.kind === "video" ? item.durationSeconds ?? null : null,
-        duration_sec: item.kind === "video" ? item.durationSeconds ?? null : null,
       };
 
-      const insertRes = await supabase.from("product_media").insert(rowPayload);
+      if (item.kind === "image" || item.kind === "video") {
+        basePayload.kind = item.kind;
+      }
 
+      if (item.kind === "video") {
+        basePayload.duration_seconds = item.durationSeconds ?? null;
+      }
+
+      const insertRes = await supabase.from("product_media").insert(basePayload);
       if (insertRes.error) {
-        const maybeLegacyPayload: Record<string, any> = {
+        const fallbackPayload = {
           product_id: productId,
           storage_path: storagePath,
           public_url: publicUrl,
@@ -609,24 +610,7 @@ export default function AdminProducts() {
           is_cover: false,
         };
 
-        if (!isMissingColumnError(insertRes.error, "kind")) {
-          maybeLegacyPayload.kind = item.kind;
-        }
-
-        if (!isMissingColumnError(insertRes.error, "media_type")) {
-          maybeLegacyPayload.media_type = item.kind;
-        }
-
-        if (item.kind === "video") {
-          if (!isMissingColumnError(insertRes.error, "duration_seconds")) {
-            maybeLegacyPayload.duration_seconds = item.durationSeconds ?? null;
-          }
-          if (!isMissingColumnError(insertRes.error, "duration_sec")) {
-            maybeLegacyPayload.duration_sec = item.durationSeconds ?? null;
-          }
-        }
-
-        const retryRes = await supabase.from("product_media").insert(maybeLegacyPayload);
+        const retryRes = await supabase.from("product_media").insert(fallbackPayload);
         if (retryRes.error) throw retryRes.error;
       }
     }
@@ -704,7 +688,7 @@ export default function AdminProducts() {
       return;
     }
 
-    const payload: any = {
+    const payload: Record<string, any> = {
       title: cleanTitle,
       description: cleanDesc || null,
       price_eur: priceEur,
@@ -722,11 +706,7 @@ export default function AdminProducts() {
       let productId = editing?.id ?? null;
 
       if (editing) {
-        const { error } = await supabase
-          .from("products")
-          .update(payload)
-          .eq("id", editing.id);
-
+        const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
         const { data, error } = await supabase
@@ -752,10 +732,7 @@ export default function AdminProducts() {
       await load();
     } catch (e: any) {
       const exactMessage =
-        e?.message ||
-        e?.error_description ||
-        e?.details ||
-        "Error guardando producto.";
+        e?.message || e?.error_description || e?.details || "Error guardando producto.";
       setModalErr(exactMessage);
     } finally {
       setSaving(false);
@@ -788,10 +765,7 @@ export default function AdminProducts() {
       await load();
     } catch (e: any) {
       const exactMessage =
-        e?.message ||
-        e?.error_description ||
-        e?.details ||
-        "Error borrando producto.";
+        e?.message || e?.error_description || e?.details || "Error borrando producto.";
       setScreenErr(exactMessage);
     }
   }
@@ -1476,7 +1450,8 @@ export default function AdminProducts() {
               </View>
 
               <Text style={{ color: COLORS.muted, fontWeight: "800", lineHeight: 20 }}>
-                Categoría actual: <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
+                Categoría actual:{" "}
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
               </Text>
 
               <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>

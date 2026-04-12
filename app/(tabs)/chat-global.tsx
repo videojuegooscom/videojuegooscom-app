@@ -12,7 +12,7 @@ import {
   UIManager,
   View,
 } from "react-native";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -252,6 +252,10 @@ export default function ChatGlobalScreen() {
 
     setMessages((prev) => [...prev, newMessage]);
     setDraft("");
+  };
+
+  const handleGoPerfil = () => {
+    router.push("/perfil" as Href);
   };
 
   const renderActiveTabContent = () => {
@@ -516,11 +520,11 @@ export default function ChatGlobalScreen() {
           onClose={() => setShowAuthModal(false)}
           onLogin={() => {
             setShowAuthModal(false);
-            router.push("/perfil");
+            handleGoPerfil();
           }}
           onRegister={() => {
             setShowAuthModal(false);
-            router.push("/perfil");
+            handleGoPerfil();
           }}
         />
       </View>

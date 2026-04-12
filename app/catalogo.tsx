@@ -1,4 +1,3 @@
-// app/catalogo.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -56,7 +55,6 @@ type ProductBaseRow = {
 
 type ProductDbRow = ProductBaseRow & {
   images?: string[] | null;
-  image_url?: string | null;
   category?: { id: string; name: string; slug: string } | null;
 };
 
@@ -66,13 +64,11 @@ type ProductMediaRow = {
   id: string;
   product_id: string;
   kind?: ProductMediaKind | null;
-  media_type?: ProductMediaKind | null;
   public_url?: string | null;
   file_name?: string | null;
   sort_order?: number | null;
   is_cover?: boolean | null;
   duration_seconds?: number | null;
-  duration_sec?: number | null;
 };
 
 type Product = {
@@ -200,16 +196,13 @@ function getCategoryHint(name?: string) {
   return "Producto revisado";
 }
 
-function firstImageFromAnyRow(row: any): string | null {
+function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | null {
   const imgs = row?.images;
 
   if (Array.isArray(imgs) && imgs.length > 0) {
     const first = imgs.find((v: unknown) => typeof v === "string" && v.trim());
     if (typeof first === "string" && first.trim()) return first.trim();
   }
-
-  const url = row?.image_url;
-  if (typeof url === "string" && url.trim()) return url.trim();
 
   return null;
 }
@@ -241,13 +234,13 @@ function pickHeroImage(productRow: ProductDbRow, mediaRows: ProductMediaRow[]) {
     sorted.find(
       (m) =>
         Boolean(m.is_cover) &&
-        normalizeMediaKind(m.kind ?? m.media_type) === "image" &&
+        normalizeMediaKind(m.kind) === "image" &&
         typeof m.public_url === "string" &&
         m.public_url.trim()
     ) ??
     sorted.find(
       (m) =>
-        normalizeMediaKind(m.kind ?? m.media_type) === "image" &&
+        normalizeMediaKind(m.kind) === "image" &&
         typeof m.public_url === "string" &&
         m.public_url.trim()
     ) ??
@@ -259,11 +252,11 @@ function pickHeroImage(productRow: ProductDbRow, mediaRows: ProductMediaRow[]) {
 }
 
 function countImages(mediaRows: ProductMediaRow[]) {
-  return mediaRows.filter((m) => normalizeMediaKind(m.kind ?? m.media_type) === "image").length;
+  return mediaRows.filter((m) => normalizeMediaKind(m.kind) === "image").length;
 }
 
 function countVideos(mediaRows: ProductMediaRow[]) {
-  return mediaRows.filter((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video").length;
+  return mediaRows.filter((m) => normalizeMediaKind(m.kind) === "video").length;
 }
 
 function isMissingColumnError(error: any, columnName: string) {
@@ -422,14 +415,10 @@ export default function CatalogoScreen() {
     queryText: string,
     resolvedCat?: CategoryRow
   ): Promise<ProductDbRow[]> {
-    const selectWithJoinAndLegacy =
-      "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at,category:categories(id,name,slug)";
     const selectWithJoinAndImages =
       "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
     const selectWithJoinBase =
       "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
-    const selectLegacyNoJoin =
-      "id,title,description,price_eur,status,is_active,category_id,images,image_url,updated_at,created_at";
     const selectImagesNoJoin =
       "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at";
     const selectBaseNoJoin =
@@ -468,10 +457,8 @@ export default function CatalogoScreen() {
     };
 
     const attempts = [
-      selectWithJoinAndLegacy,
       selectWithJoinAndImages,
       selectWithJoinBase,
-      selectLegacyNoJoin,
       selectImagesNoJoin,
       selectBaseNoJoin,
     ];
@@ -488,7 +475,6 @@ export default function CatalogoScreen() {
       lastError = res.error;
 
       const canFallback =
-        isMissingColumnError(res.error, "image_url") ||
         isMissingColumnError(res.error, "images") ||
         isMissingRelationError(res.error, "categories") ||
         isMissingColumnError(res.error, "slug") ||
@@ -507,63 +493,37 @@ export default function CatalogoScreen() {
     const empty = new Map<string, ProductMediaRow[]>();
     if (!productIds.length) return empty;
 
-    const queries = [
-      "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec",
-      "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds",
-      "id,product_id,media_type,public_url,file_name,sort_order,is_cover,duration_sec",
-      "id,product_id,public_url,file_name,sort_order,is_cover",
-    ];
+    const selectStr =
+      "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds";
 
-    let lastError: any = null;
+    const res = await supabase
+      .from("product_media")
+      .select(selectStr)
+      .in("product_id", productIds)
+      .limit(5000);
 
-    for (const selectStr of queries) {
-      const res = await supabase
-        .from("product_media")
-        .select(selectStr)
-        .in("product_id", productIds)
-        .limit(5000);
-
-      if (res.error) {
-        const missingTable = isMissingRelationError(res.error, "product_media");
-        const missingColumn =
-          String(res.error.message ?? "").toLowerCase().includes("column") ||
-          String(res.error.message ?? "").toLowerCase().includes("schema cache");
-
-        if (missingTable) {
-          return empty;
-        }
-
-        if (missingColumn) {
-          lastError = res.error;
-          continue;
-        }
-
-        throw res.error;
+    if (res.error) {
+      if (isMissingRelationError(res.error, "product_media")) {
+        return empty;
       }
-
-      const rows = asArray<ProductMediaRow>(res.data);
-      const map = new Map<string, ProductMediaRow[]>();
-
-      for (const row of rows) {
-        if (!row?.product_id) continue;
-
-        const list = map.get(row.product_id) ?? [];
-        list.push(row);
-        map.set(row.product_id, list);
-      }
-
-      for (const [key, list] of map.entries()) {
-        map.set(key, [...list].sort(sortMediaRows));
-      }
-
-      return map;
+      throw res.error;
     }
 
-    if (lastError) {
-      throw lastError;
+    const rows = asArray<ProductMediaRow>(res.data);
+    const map = new Map<string, ProductMediaRow[]>();
+
+    for (const row of rows) {
+      if (!row?.product_id) continue;
+      const list = map.get(row.product_id) ?? [];
+      list.push(row);
+      map.set(row.product_id, list);
     }
 
-    return empty;
+    for (const [key, list] of map.entries()) {
+      map.set(key, [...list].sort(sortMediaRows));
+    }
+
+    return map;
   }
 
   async function loadAll(opts?: { queryOverride?: string }) {
@@ -1161,7 +1121,9 @@ export default function CatalogoScreen() {
                   gap: 12,
                 }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20 }}>
+                <Text
+                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20 }}
+                >
                   Ahora mismo no hay productos para esta vista.
                 </Text>
 
@@ -1245,7 +1207,9 @@ export default function CatalogoScreen() {
                   gap: 10,
                 }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}>
+                <Text
+                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}
+                >
                   ¿No encuentras exactamente lo que buscas?
                 </Text>
                 <Text style={{ color: COLORS.muted, lineHeight: 20 }}>

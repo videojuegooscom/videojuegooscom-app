@@ -61,16 +61,19 @@ type HomeCategory = {
   cta?: string;
 };
 
+type ProductCategoryLite = {
+  name?: string | null;
+};
+
 type ProductRow = {
   id: string;
   title: string;
   description?: string | null;
   price_eur?: number | string | null;
   images?: string[] | null;
-  image_url?: string | null;
-  category?: {
-    name?: string | null;
-  } | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  category?: ProductCategoryLite | null;
 };
 
 type ProductMediaKind = "image" | "video";
@@ -79,13 +82,11 @@ type ProductMediaRow = {
   id: string;
   product_id: string;
   kind?: ProductMediaKind | null;
-  media_type?: ProductMediaKind | null;
-  public_url: string;
+  public_url?: string | null;
   file_name?: string | null;
   sort_order?: number | null;
   is_cover?: boolean | null;
   duration_seconds?: number | null;
-  duration_sec?: number | null;
 };
 
 type SearchSnapPosition = "top" | "bottom";
@@ -114,26 +115,61 @@ const HOME_CATEGORIES: HomeCategory[] = [
 const SEARCH_LAYOUT = {
   topSnapMobile: 84,
   topSnapDesktop: 92,
-
   searchBarHeightMobile: 58,
   searchBarHeightDesktop: 64,
-
   mobileTabBarHeight: 92,
   desktopTabBarHeight: 96,
-
   bottomGapMobile: 12,
   bottomGapDesktop: 14,
-
   widthMobilePercent: 0.86,
   widthDesktopPercent: 0.74,
   maxWidth: 760,
-
   topContentGapMobile: 12,
   topContentGapDesktop: 14,
-
   bottomContentGapMobile: 18,
   bottomContentGapDesktop: 20,
 };
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function asProductRow(value: unknown): ProductRow | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const title = String(row.title ?? "").trim();
+
+  if (!id || !title) return null;
+
+  const rawCategory = row.category;
+  const category =
+    rawCategory && typeof rawCategory === "object"
+      ? {
+          name:
+            typeof (rawCategory as Record<string, unknown>).name === "string"
+              ? ((rawCategory as Record<string, unknown>).name as string)
+              : null,
+        }
+      : null;
+
+  return {
+    id,
+    title,
+    description: typeof row.description === "string" ? row.description : null,
+    price_eur:
+      typeof row.price_eur === "number" || typeof row.price_eur === "string"
+        ? row.price_eur
+        : null,
+    images: Array.isArray(row.images)
+      ? row.images.filter((v): v is string => typeof v === "string" && !!v.trim())
+      : null,
+    updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
+    category,
+  };
+}
 
 function clampText(value: string, max = 400) {
   const text = (value ?? "").trim();
@@ -186,22 +222,36 @@ function softShadow() {
   });
 }
 
+function isMissingColumnError(error: unknown, columnName: string) {
+  const msg = String((error as any)?.message ?? "").toLowerCase();
+  const col = columnName.toLowerCase();
+  return (
+    msg.includes(col) &&
+    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
+  );
+}
+
+function isMissingRelationError(error: unknown, relationName: string) {
+  const msg = String((error as any)?.message ?? "").toLowerCase();
+  const rel = relationName.toLowerCase();
+  return (
+    msg.includes(rel) &&
+    (msg.includes("does not exist") ||
+      msg.includes("relation") ||
+      msg.includes("could not find the table"))
+  );
+}
+
 function firstImageFromAnyRow(row: ProductRow | null | undefined): string | null {
   const images = row?.images;
   if (Array.isArray(images) && images.length > 0) {
     const first = images.find((v) => typeof v === "string" && v.trim());
     if (typeof first === "string" && first.trim()) return first.trim();
   }
-
-  const url = row?.image_url;
-  if (typeof url === "string" && url.trim()) {
-    return url.trim();
-  }
-
   return null;
 }
 
-function normalizeMediaKind(value: any): ProductMediaKind | null {
+function normalizeMediaKind(value: unknown): ProductMediaKind | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
   if (v === "video") return "video";
@@ -225,7 +275,20 @@ function pickHeroImage(productRow: ProductRow | null | undefined, mediaRows: Pro
   const sorted = [...mediaRows].sort(sortMediaRows);
 
   const coverImage =
-    sorted.find((m) => normalizeMediaKind(m.kind ?? m.media_type) === "image") ?? null;
+    sorted.find(
+      (m) =>
+        Boolean(m.is_cover) &&
+        normalizeMediaKind(m.kind) === "image" &&
+        typeof m.public_url === "string" &&
+        m.public_url.trim()
+    ) ??
+    sorted.find(
+      (m) =>
+        normalizeMediaKind(m.kind) === "image" &&
+        typeof m.public_url === "string" &&
+        m.public_url.trim()
+    ) ??
+    null;
 
   if (coverImage?.public_url) return coverImage.public_url;
 
@@ -234,6 +297,133 @@ function pickHeroImage(productRow: ProductRow | null | undefined, mediaRows: Pro
 
 function pushRoute(route: Href) {
   router.push(route);
+}
+
+async function fetchFeaturedProductSafe(): Promise<ProductRow | null> {
+  const selectWithJoinAndImages =
+    "id,title,description,price_eur,status,is_active,updated_at,created_at,images,category:categories(name)";
+  const selectWithJoinBase =
+    "id,title,description,price_eur,status,is_active,updated_at,created_at,category:categories(name)";
+  const selectImagesNoJoin =
+    "id,title,description,price_eur,status,is_active,updated_at,created_at,images";
+  const selectBaseNoJoin =
+    "id,title,description,price_eur,status,is_active,updated_at,created_at";
+
+  const attempts = [
+    selectWithJoinAndImages,
+    selectWithJoinBase,
+    selectImagesNoJoin,
+    selectBaseNoJoin,
+  ];
+
+  const buildFeaturedQuery = (selectStr: string) =>
+    supabase
+      .from("products")
+      .select(selectStr)
+      .eq("is_active", true)
+      .eq("status", "PUBLISHED")
+      .eq("is_featured_home", true)
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+  const buildFallbackQuery = (selectStr: string) =>
+    supabase
+      .from("products")
+      .select(selectStr)
+      .eq("is_active", true)
+      .eq("status", "PUBLISHED")
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+  let lastFeaturedError: unknown = null;
+
+  for (const selectStr of attempts) {
+    const featuredRes = await buildFeaturedQuery(selectStr);
+
+    if (!featuredRes.error) {
+      const normalized = asProductRow(featuredRes.data);
+      if (normalized) return normalized;
+      break;
+    }
+
+    lastFeaturedError = featuredRes.error;
+
+    const canFallback =
+      isMissingColumnError(featuredRes.error, "images") ||
+      isMissingRelationError(featuredRes.error, "categories") ||
+      isMissingColumnError(featuredRes.error, "name") ||
+      isMissingColumnError(featuredRes.error, "is_featured_home");
+
+    if (!canFallback) throw featuredRes.error;
+  }
+
+  let lastFallbackError: unknown = null;
+
+  for (const selectStr of attempts) {
+    const fallbackRes = await buildFallbackQuery(selectStr);
+
+    if (!fallbackRes.error) {
+      const normalized = asProductRow(fallbackRes.data);
+      return normalized ?? null;
+    }
+
+    lastFallbackError = fallbackRes.error;
+
+    const canFallback =
+      isMissingColumnError(fallbackRes.error, "images") ||
+      isMissingRelationError(fallbackRes.error, "categories") ||
+      isMissingColumnError(fallbackRes.error, "name");
+
+    if (!canFallback) throw fallbackRes.error;
+  }
+
+  if (lastFallbackError) throw lastFallbackError;
+  if (lastFeaturedError && !isMissingColumnError(lastFeaturedError, "is_featured_home")) {
+    throw lastFeaturedError;
+  }
+
+  return null;
+}
+
+async function fetchProductMediaRowsSafe(productId: string): Promise<ProductMediaRow[]> {
+  const selects = [
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds",
+    "id,product_id,kind,public_url,file_name,sort_order,is_cover",
+  ];
+
+  let lastError: unknown = null;
+
+  for (const selectStr of selects) {
+    const res = await supabase
+      .from("product_media")
+      .select(selectStr)
+      .eq("product_id", productId)
+      .limit(100);
+
+    if (res.error) {
+      const missingTable = isMissingRelationError(res.error, "product_media");
+      const missingColumn =
+        String(res.error.message ?? "").toLowerCase().includes("column") ||
+        String(res.error.message ?? "").toLowerCase().includes("schema cache");
+
+      if (missingTable) return [];
+      if (missingColumn) {
+        lastError = res.error;
+        continue;
+      }
+
+      throw res.error;
+    }
+
+    return asArray<ProductMediaRow>(res.data).sort(sortMediaRows);
+  }
+
+  if (lastError) throw lastError;
+  return [];
 }
 
 function SectionTitle({
@@ -291,7 +481,6 @@ function Pill({
       }}
     >
       {!!icon && <Text style={{ color: COLORS.text }}>{icon}</Text>}
-
       <Text
         style={{
           color: "rgba(255,255,255,0.85)",
@@ -332,13 +521,7 @@ function PrimaryButton({
         ...softShadow(),
       })}
     >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text
             style={{
@@ -639,8 +822,8 @@ function FeaturedOfferCard({
         </Text>
 
         <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-          Mientras tanto, puedes explorar las categorías disponibles o escribirnos
-          por WhatsApp para preguntarnos qué producto te recomendamos ahora mismo.
+          Mientras tanto, puedes explorar las categorías disponibles o escribirnos por WhatsApp para
+          preguntarnos qué producto te recomendamos ahora mismo.
         </Text>
 
         <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -809,9 +992,7 @@ Precio: ${fmtEUR(item.priceEUR)}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <Pill icon="🔥" text="Destacado" isMobile={isMobile} />
             <Pill icon="✅" text="Revisado" isMobile={isMobile} />
-            {item.categoryName ? (
-              <Pill icon="📦" text={item.categoryName} isMobile={isMobile} />
-            ) : null}
+            {item.categoryName ? <Pill icon="📦" text={item.categoryName} isMobile={isMobile} /> : null}
           </View>
 
           <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -847,8 +1028,7 @@ export default function HomeScreen() {
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
-  const [searchSnapPosition, setSearchSnapPosition] =
-    useState<SearchSnapPosition>("bottom");
+  const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
@@ -887,80 +1067,7 @@ export default function HomeScreen() {
       setFeaturedLoading(true);
 
       try {
-        const selectWithImages =
-          "id,title,description,price_eur,status,is_active,updated_at,created_at,images,category:categories(name),image_url";
-        const selectBase =
-          "id,title,description,price_eur,status,is_active,updated_at,created_at,category:categories(name),image_url";
-
-        const buildFeaturedQuery = (selectStr: string) =>
-          supabase
-            .from("products")
-            .select(selectStr)
-            .eq("is_active", true)
-            .eq("status", "PUBLISHED")
-            .eq("is_featured_home", true)
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-        const buildFallbackQuery = (selectStr: string) =>
-          supabase
-            .from("products")
-            .select(selectStr)
-            .eq("is_active", true)
-            .eq("status", "PUBLISHED")
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-        let data: ProductRow | null = null;
-
-        const trySmartQuery = async () => {
-          const featuredRes1 = await buildFeaturedQuery(selectWithImages);
-
-          if (!featuredRes1.error) {
-            return featuredRes1.data as ProductRow | null;
-          }
-
-          const msg = String(featuredRes1.error.message ?? "");
-          const looksLikeMissingColumn =
-            msg.includes("column") ||
-            msg.includes("does not exist") ||
-            msg.includes("schema cache");
-
-          if (!looksLikeMissingColumn) {
-            throw featuredRes1.error;
-          }
-
-          const featuredRes2 = await buildFeaturedQuery(selectBase);
-          if (featuredRes2.error) throw featuredRes2.error;
-          return featuredRes2.data as ProductRow | null;
-        };
-
-        data = await trySmartQuery();
-
-        if (!data) {
-          const fallbackRes1 = await buildFallbackQuery(selectWithImages);
-
-          if (!fallbackRes1.error) {
-            data = fallbackRes1.data as ProductRow | null;
-          } else {
-            const msg = String(fallbackRes1.error.message ?? "");
-            const looksLikeMissingColumn =
-              msg.includes("column") ||
-              msg.includes("does not exist") ||
-              msg.includes("schema cache");
-
-            if (!looksLikeMissingColumn) {
-              throw fallbackRes1.error;
-            }
-
-            const fallbackRes2 = await buildFallbackQuery(selectBase);
-            if (fallbackRes2.error) throw fallbackRes2.error;
-            data = fallbackRes2.data as ProductRow | null;
-          }
-        }
-
+        const data = await fetchFeaturedProductSafe();
         if (!alive) return;
 
         if (!data) {
@@ -968,30 +1075,7 @@ export default function HomeScreen() {
           return;
         }
 
-        const mediaRes = await supabase
-          .from("product_media")
-          .select(
-            "id,product_id,kind,media_type,public_url,file_name,sort_order,is_cover,duration_seconds,duration_sec"
-          )
-          .eq("product_id", data.id)
-          .limit(100);
-
-        let mediaRows: ProductMediaRow[] = [];
-
-        if (!mediaRes.error) {
-          mediaRows = ((mediaRes.data ?? []) as ProductMediaRow[]).sort(sortMediaRows);
-        } else {
-          const msg = String(mediaRes.error.message ?? "").toLowerCase();
-          const missingTable =
-            msg.includes('relation "product_media" does not exist') ||
-            msg.includes("could not find the table") ||
-            msg.includes("does not exist");
-
-          if (!missingTable) {
-            throw mediaRes.error;
-          }
-        }
-
+        const mediaRows = await fetchProductMediaRowsSafe(data.id);
         if (!alive) return;
 
         setFeatured({
@@ -1001,8 +1085,13 @@ export default function HomeScreen() {
           priceEUR: Number(data.price_eur ?? 0),
           imageUrl: pickHeroImage(data, mediaRows),
           categoryName: data.category?.name ?? null,
-          mediaCount: mediaRows.length,
-          hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind ?? m.media_type) === "video"),
+          mediaCount: mediaRows.filter(
+            (m) =>
+              normalizeMediaKind(m.kind) === "image" &&
+              typeof m.public_url === "string" &&
+              m.public_url.trim()
+          ).length,
+          hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind) === "video"),
         });
       } catch {
         if (!alive) return;
@@ -1027,17 +1116,13 @@ export default function HomeScreen() {
   const topOverlaySpace =
     searchSnapPosition === "top"
       ? searchBarHeight +
-        (isMobile
-          ? SEARCH_LAYOUT.topContentGapMobile
-          : SEARCH_LAYOUT.topContentGapDesktop)
+        (isMobile ? SEARCH_LAYOUT.topContentGapMobile : SEARCH_LAYOUT.topContentGapDesktop)
       : 0;
 
   const bottomOverlaySpace =
     searchSnapPosition === "bottom"
       ? searchBarHeight +
-        (isMobile
-          ? SEARCH_LAYOUT.bottomContentGapMobile
-          : SEARCH_LAYOUT.bottomContentGapDesktop)
+        (isMobile ? SEARCH_LAYOUT.bottomContentGapMobile : SEARCH_LAYOUT.bottomContentGapDesktop)
       : 40;
 
   return (
@@ -1139,8 +1224,8 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              Productos revisados, precios claros y soporte real. Explora primero las
-              categorías disponibles y entra solo en lo que realmente te interesa.
+              Productos revisados, precios claros y soporte real. Explora primero las categorías
+              disponibles y entra solo en lo que realmente te interesa.
             </Text>
 
             <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -1165,14 +1250,7 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: 10,
-                marginTop: 2,
-              }}
-            >
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 2 }}>
               <Pill icon="✅" text="Garantía" isMobile={isMobile} />
               <Pill icon="🚚" text="Envíos en España" isMobile={isMobile} />
               <Pill icon="⚙️" text="Productos revisados" isMobile={isMobile} />
@@ -1238,10 +1316,7 @@ export default function HomeScreen() {
                         openWhatsAppWithText(
                           "Hola, vengo desde videojuegoszaragoza.com. Me interesa vuestro servicio de reparación o limpieza. ¿Qué necesitáis para darme información?"
                         )
-                    : () =>
-                        pushRoute(
-                          `/catalogo?cat=${encodeURIComponent(category.cat)}` as Href
-                        );
+                    : () => pushRoute(`/catalogo?cat=${encodeURIComponent(category.cat)}` as Href);
 
                 const forceFullWidth = isMobile || category.span === 2;
 
@@ -1288,10 +1363,7 @@ export default function HomeScreen() {
                 <FooterLink label="Cesta" onPress={() => pushRoute("/cesta" as Href)} />
                 <FooterLink label="Checkout" onPress={() => pushRoute("/checkout" as Href)} />
                 <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
-                <FooterLink
-                  label="Chat Global"
-                  onPress={() => pushRoute("/chat-global" as Href)}
-                />
+                <FooterLink label="Chat Global" onPress={() => pushRoute("/chat-global" as Href)} />
                 <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
               </FooterAccordionSection>
 
