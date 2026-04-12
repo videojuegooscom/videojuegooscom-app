@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { Href } from "expo-router";
 import {
   ActivityIndicator,
   Image,
@@ -91,6 +92,14 @@ const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
 
+function pushRoute(route: Href) {
+  router.push(route);
+}
+
+function replaceRoute(route: Href) {
+  router.replace(route);
+}
+
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -152,7 +161,7 @@ function smartBack() {
   } catch {
     // ignore
   }
-  router.replace("/catalogo");
+  replaceRoute("/catalogo" as Href);
 }
 
 function openWhatsApp(prefill: string) {
@@ -324,20 +333,20 @@ function productTrustCopy(hasDescription: boolean) {
 }
 
 function productHintByCategory(name?: string | null) {
-  if (!name) return "Segunda mano revisada";
+  if (!name) return "Producto de segunda mano revisado";
 
   const n = name.toLowerCase();
 
-  if (n.includes("playstation 5") || n.includes("ps5")) return "Consola o accesorio PS5";
-  if (n.includes("playstation 4") || n.includes("ps4")) return "Consola o accesorio PS4";
-  if (n.includes("xbox")) return "Xbox y accesorios";
-  if (n.includes("switch") || n.includes("nintendo")) return "Nintendo y accesorios";
+  if (n.includes("playstation 5") || n.includes("ps5")) return "Producto de segunda mano revisado";
+  if (n.includes("playstation 4") || n.includes("ps4")) return "Producto de segunda mano revisado";
+  if (n.includes("xbox")) return "Producto de segunda mano revisado";
+  if (n.includes("switch") || n.includes("nintendo")) return "Producto de segunda mano revisado";
   if (n.includes("videojuego")) return "Videojuego listo para enviar";
   if (n.includes("mando") || n.includes("accesorio")) return "Accesorio listo para usar";
   if (n.includes("electr")) return "Electrónica seleccionada";
   if (n.includes("repar")) return "Servicio especializado";
 
-  return "Producto revisado";
+  return "Producto de segunda mano revisado";
 }
 
 function normalizeDuration(value: unknown): number | null {
@@ -456,6 +465,65 @@ async function fetchProductSafe(productId: string, adminFlag: boolean): Promise<
   return null;
 }
 
+function TopActionButton({
+  label,
+  onPress,
+  isMobile,
+  disabled,
+  icon,
+  compact,
+}: {
+  label: string;
+  onPress: () => void;
+  isMobile?: boolean;
+  disabled?: boolean;
+  icon?: string;
+  compact?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => ({
+        opacity: disabled ? 0.45 : pressed ? 0.88 : 1,
+        minHeight: isMobile ? 52 : 48,
+        paddingVertical: isMobile ? 12 : 10,
+        paddingHorizontal: compact ? 16 : isMobile ? 16 : 14,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: COLORS.accentBorder,
+        backgroundColor: COLORS.accent2,
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "row",
+        gap: 8,
+      })}
+    >
+      {!!icon && (
+        <Text
+          style={{
+            color: COLORS.text,
+            fontWeight: "900",
+            fontSize: isMobile ? 15 : 14,
+          }}
+        >
+          {icon}
+        </Text>
+      )}
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: isMobile ? 14 : 14,
+          textAlign: "center",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function ProductoScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -491,8 +559,7 @@ export default function ProductoScreen() {
 
     const parts: string[] = [];
 
-    if (p.category?.name) parts.push(productHintByCategory(p.category.name));
-    else parts.push("Producto de segunda mano revisado");
+    parts.push(productHintByCategory(p.category?.name));
 
     if (!isAdmin && p.status === "PUBLICADA" && p.isActive) {
       parts.push("Disponible para compra");
@@ -656,49 +723,66 @@ ${price}
               {heroSubcopy}
             </Text>
           </View>
+        </View>
 
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 10,
-              flexWrap: "wrap",
-              justifyContent: isMobile ? "flex-start" : "flex-end",
-            }}
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <TopActionButton
+            label="Cesta"
+            icon="🛒"
+            onPress={() => pushRoute("/cesta" as Href)}
+            isMobile={isMobile}
+          />
+
+          <TopActionButton
+            label="Añadir a la cesta"
+            onPress={() => pushRoute({ pathname: "/cesta", params: { add: p?.id ?? "" } })}
+            isMobile={isMobile}
+            disabled={!canBuy || !p?.id}
+          />
+
+          <TopActionButton
+            label="Finalizar compra"
+            onPress={() => pushRoute("/checkout" as Href)}
+            isMobile={isMobile}
+          />
+
+          <TopActionButton
+            label="WhatsApp"
+            onPress={() => openWhatsApp(whatsappText)}
+            isMobile={isMobile}
+          />
+
+          <Pressable
+            onPress={smartBack}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.88 : 1,
+              width: isMobile ? 52 : 48,
+              height: isMobile ? 52 : 48,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              backgroundColor: "rgba(255,255,255,0.05)",
+              alignItems: "center",
+              justifyContent: "center",
+            })}
           >
-            <Pressable
-              onPress={() => router.push("/carrito")}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                backgroundColor: COLORS.accent2,
-              })}
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: isMobile ? 20 : 18,
+              }}
             >
-              <Text
-                style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}
-              >
-                🛒 Carrito
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={smartBack}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "rgba(255,255,255,0.05)",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
-            </Pressable>
-          </View>
+              ←
+            </Text>
+          </Pressable>
         </View>
 
         <View
@@ -710,7 +794,7 @@ ${price}
           }}
         >
           <Pressable
-            onPress={() => router.replace("/")}
+            onPress={() => replaceRoute("/" as Href)}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
             <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 13 }}>
@@ -721,7 +805,7 @@ ${price}
           <Text style={{ color: "rgba(255,255,255,0.42)" }}>›</Text>
 
           <Pressable
-            onPress={() => router.replace("/catalogo")}
+            onPress={() => replaceRoute("/catalogo" as Href)}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
             <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 13 }}>
@@ -786,7 +870,7 @@ ${price}
             </Pressable>
 
             <Pressable
-              onPress={() => router.replace("/catalogo")}
+              onPress={() => replaceRoute("/catalogo" as Href)}
               style={({ pressed }) => ({
                 opacity: pressed ? 0.88 : 1,
                 borderRadius: 18,
@@ -811,7 +895,7 @@ ${price}
           </Text>
 
           <Pressable
-            onPress={() => router.replace("/catalogo")}
+            onPress={() => replaceRoute("/catalogo" as Href)}
             style={({ pressed }) => ({
               opacity: pressed ? 0.88 : 1,
               borderRadius: 18,
@@ -829,171 +913,186 @@ ${price}
           </Pressable>
         </View>
       ) : (
-        <>
-          <ScrollView
-            contentContainerStyle={{
-              padding: pagePadding,
-              paddingBottom: isMobile ? 200 : 132,
+        <ScrollView
+          contentContainerStyle={{
+            padding: pagePadding,
+            paddingBottom: isMobile ? 28 : 36,
+            gap: 14,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: isWide ? "row" : "column",
               gap: 14,
+              alignItems: "stretch",
             }}
           >
             <View
               style={{
-                flexDirection: isWide ? "row" : "column",
-                gap: 14,
-                alignItems: "stretch",
+                flex: isWide ? 1.08 : undefined,
+                minWidth: 0,
               }}
             >
               <View
                 style={{
-                  flex: isWide ? 1.08 : undefined,
-                  minWidth: 0,
+                  borderRadius: 24,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.10)",
+                  backgroundColor: COLORS.card,
+                  overflow: "hidden",
+                  ...softShadow(),
                 }}
               >
-                <View
-                  style={{
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.10)",
-                    backgroundColor: COLORS.card,
-                    overflow: "hidden",
-                    ...softShadow(),
-                  }}
-                >
-                  {selectedImageUrl ? (
-                    <Image
-                      source={{ uri: selectedImageUrl }}
-                      style={{
-                        width: "100%",
-                        height: isWide ? 520 : isTablet ? 360 : 260,
-                        backgroundColor: "rgba(255,255,255,0.04)",
-                      }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View
-                      style={{
-                        height: isWide ? 520 : isTablet ? 360 : 260,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 22,
-                        backgroundColor: COLORS.bg3,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: "rgba(255,255,255,0.20)",
-                          fontWeight: "900",
-                          fontSize: isMobile ? 46 : 56,
-                        }}
-                      >
-                        VG
-                      </Text>
-                      <Text
-                        style={{
-                          color: COLORS.text,
-                          fontWeight: "900",
-                          marginTop: 10,
-                          fontSize: isMobile ? 17 : 18,
-                        }}
-                      >
-                        Imagen no disponible
-                      </Text>
-                      <Text
-                        style={{
-                          color: COLORS.muted,
-                          marginTop: 6,
-                          textAlign: "center",
-                          lineHeight: 20,
-                          maxWidth: 380,
-                        }}
-                      >
-                        Este producto todavía no tiene imagen publicada. La ficha sigue accesible
-                        para no romper la venta por una tontería.
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {imageGallery.length > 1 ? (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{
-                      gap: 10,
-                      paddingTop: 10,
+                {selectedImageUrl ? (
+                  <Image
+                    source={{ uri: selectedImageUrl }}
+                    style={{
+                      width: "100%",
+                      height: isWide ? 520 : isTablet ? 360 : 260,
+                      backgroundColor: "rgba(255,255,255,0.04)",
+                    }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={{
+                      height: isWide ? 520 : isTablet ? 360 : 260,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 22,
+                      backgroundColor: COLORS.bg3,
                     }}
                   >
-                    {imageGallery.map((media) => {
-                      const active = selectedImageUrl === media.publicUrl;
-
-                      return (
-                        <Pressable
-                          key={media.id}
-                          onPress={() => setSelectedImageUrl(media.publicUrl)}
-                          style={({ pressed }) => ({
-                            opacity: pressed ? 0.88 : 1,
-                            width: isMobile ? 74 : 88,
-                            height: isMobile ? 74 : 88,
-                            borderRadius: 16,
-                            overflow: "hidden",
-                            borderWidth: 2,
-                            borderColor: active ? COLORS.accent : "rgba(255,255,255,0.10)",
-                            backgroundColor: "rgba(255,255,255,0.05)",
-                          })}
-                        >
-                          <Image
-                            source={{ uri: media.publicUrl }}
-                            resizeMode="cover"
-                            style={{ width: "100%", height: "100%" }}
-                          />
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                ) : null}
+                    <Text
+                      style={{
+                        color: "rgba(255,255,255,0.20)",
+                        fontWeight: "900",
+                        fontSize: isMobile ? 46 : 56,
+                      }}
+                    >
+                      VG
+                    </Text>
+                    <Text
+                      style={{
+                        color: COLORS.text,
+                        fontWeight: "900",
+                        marginTop: 10,
+                        fontSize: isMobile ? 17 : 18,
+                      }}
+                    >
+                      Imagen no disponible
+                    </Text>
+                    <Text
+                      style={{
+                        color: COLORS.muted,
+                        marginTop: 6,
+                        textAlign: "center",
+                        lineHeight: 20,
+                        maxWidth: 380,
+                      }}
+                    >
+                      Este producto todavía no tiene imagen publicada. La ficha sigue accesible
+                      para no romper la venta por una tontería.
+                    </Text>
+                  </View>
+                )}
               </View>
 
+              {imageGallery.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{
+                    gap: 10,
+                    paddingTop: 10,
+                  }}
+                >
+                  {imageGallery.map((media) => {
+                    const active = selectedImageUrl === media.publicUrl;
+
+                    return (
+                      <Pressable
+                        key={media.id}
+                        onPress={() => setSelectedImageUrl(media.publicUrl)}
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.88 : 1,
+                          width: isMobile ? 74 : 88,
+                          height: isMobile ? 74 : 88,
+                          borderRadius: 16,
+                          overflow: "hidden",
+                          borderWidth: 2,
+                          borderColor: active ? COLORS.accent : "rgba(255,255,255,0.10)",
+                          backgroundColor: "rgba(255,255,255,0.05)",
+                        })}
+                      >
+                        <Image
+                          source={{ uri: media.publicUrl }}
+                          resizeMode="cover"
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+            </View>
+
+            <View
+              style={{
+                flex: isWide ? 0.92 : undefined,
+                minWidth: 0,
+                gap: 14,
+              }}
+            >
               <View
                 style={{
-                  flex: isWide ? 0.92 : undefined,
-                  minWidth: 0,
-                  gap: 14,
+                  borderRadius: 24,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.cardStrong,
+                  padding: isMobile ? 14 : 18,
+                  gap: 12,
                 }}
               >
                 <View
                   style={{
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.cardStrong,
-                    padding: isMobile ? 14 : 18,
-                    gap: 12,
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: 10,
                   }}
                 >
                   <View
                     style={{
-                      flexDirection: "row",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      gap: 10,
+                      paddingVertical: 7,
+                      paddingHorizontal: 12,
+                      borderRadius: 999,
+                      backgroundColor: statusBg(p.status),
+                      borderWidth: 1,
+                      borderColor: statusBorder(p.status),
                     }}
                   >
-                    <View
-                      style={{
-                        paddingVertical: 7,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        backgroundColor: statusBg(p.status),
-                        borderWidth: 1,
-                        borderColor: statusBorder(p.status),
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                        {badgeLabel}
-                      </Text>
-                    </View>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                      {badgeLabel}
+                    </Text>
+                  </View>
 
+                  <View
+                    style={{
+                      paddingVertical: 7,
+                      paddingHorizontal: 12,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: COLORS.borderSoft,
+                      backgroundColor: "rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
+                      Segunda mano
+                    </Text>
+                  </View>
+
+                  {p.category?.name ? (
                     <View
                       style={{
                         paddingVertical: 7,
@@ -1005,284 +1104,200 @@ ${price}
                       }}
                     >
                       <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
-                        Segunda mano
+                        {p.category.name}
                       </Text>
                     </View>
+                  ) : null}
 
-                    {p.category?.name ? (
-                      <View
-                        style={{
-                          paddingVertical: 7,
-                          paddingHorizontal: 12,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.borderSoft,
-                          backgroundColor: "rgba(255,255,255,0.05)",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
-                          {p.category.name}
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {p.media.length > 0 ? (
-                      <View
-                        style={{
-                          paddingVertical: 7,
-                          paddingHorizontal: 12,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.borderSoft,
-                          backgroundColor: "rgba(255,255,255,0.05)",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
-                          {mediaCountLabel(p.media)}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  <Text
-                    style={{
-                      color: COLORS.text,
-                      fontSize: isMobile ? 24 : 30,
-                      fontWeight: "900",
-                      lineHeight: isMobile ? 29 : 34,
-                    }}
-                  >
-                    {p.title}
-                  </Text>
-
-                  <Text
-                    style={{
-                      color: COLORS.accent,
-                      fontSize: isMobile ? 28 : 34,
-                      fontWeight: "900",
-                      lineHeight: isMobile ? 32 : 38,
-                    }}
-                  >
-                    {fmtEUR(p.priceEUR)}
-                  </Text>
-
-                  <View
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "rgba(255,255,255,0.04)",
-                      padding: 14,
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                      Descripción
-                    </Text>
-
-                    {p.description?.trim() ? (
-                      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                        {p.description.trim()}
+                  {p.media.length > 0 ? (
+                    <View
+                      style={{
+                        paddingVertical: 7,
+                        paddingHorizontal: 12,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: COLORS.borderSoft,
+                        backgroundColor: "rgba(255,255,255,0.05)",
+                      }}
+                    >
+                      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
+                        {mediaCountLabel(p.media)}
                       </Text>
-                    ) : (
-                      <Text style={{ color: COLORS.muted2, lineHeight: 22 }}>
-                        Este producto todavía no tiene una descripción publicada. Aun así, puedes
-                        preguntarnos por estado, contenido, compatibilidad o disponibilidad por
-                        WhatsApp.
-                      </Text>
-                    )}
-                  </View>
-
-                  <View
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "rgba(255,255,255,0.04)",
-                      padding: 14,
-                      gap: 10,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                      Lo importante
-                    </Text>
-
-                    <View style={{ gap: 8 }}>
-                      <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
-                      <InfoRow
-                        label="Categoría"
-                        value={p.category?.name ?? "General"}
-                        isMobile={isMobile}
-                      />
-                      <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} isMobile={isMobile} />
-                      <InfoRow
-                        label="Multimedia"
-                        value={mediaCountLabel(p.media)}
-                        isMobile={isMobile}
-                      />
-                      <InfoRow
-                        label="Compra"
-                        value={canBuy ? "Disponible para añadir al carrito" : "No disponible"}
-                        isMobile={isMobile}
-                      />
                     </View>
-                  </View>
+                  ) : null}
+                </View>
+
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: isMobile ? 24 : 30,
+                    fontWeight: "900",
+                    lineHeight: isMobile ? 29 : 34,
+                  }}
+                >
+                  {p.title}
+                </Text>
+
+                <Text
+                  style={{
+                    color: COLORS.accent,
+                    fontSize: isMobile ? 28 : 34,
+                    fontWeight: "900",
+                    lineHeight: isMobile ? 32 : 38,
+                  }}
+                >
+                  {fmtEUR(p.priceEUR)}
+                </Text>
+
+                <View
+                  style={{
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: COLORS.borderSoft,
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    padding: 14,
+                    gap: 8,
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                    Descripción
+                  </Text>
+
+                  {p.description?.trim() ? (
+                    <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                      {p.description.trim()}
+                    </Text>
+                  ) : (
+                    <Text style={{ color: COLORS.muted2, lineHeight: 22 }}>
+                      Este producto todavía no tiene una descripción publicada. Aun así, puedes
+                      preguntarnos por estado, contenido, compatibilidad o disponibilidad por
+                      WhatsApp.
+                    </Text>
+                  )}
                 </View>
 
                 <View
                   style={{
-                    borderRadius: 24,
+                    borderRadius: 18,
                     borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 14 : 18,
-                    gap: 12,
+                    borderColor: COLORS.borderSoft,
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    padding: 14,
+                    gap: 10,
                   }}
                 >
-                  <Text
-                    style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}
-                  >
-                    Compra con tranquilidad
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                    Lo importante
                   </Text>
 
-                  <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                    {productTrustCopy(Boolean(p.description?.trim()))}
-                  </Text>
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                    <Pill text="Producto revisado" isMobile={isMobile} />
-                    <Pill text="Envíos en España" isMobile={isMobile} />
-                    <Pill text="Recibo o factura" isMobile={isMobile} />
-                    <Pill text="Atención directa" isMobile={isMobile} />
-                  </View>
-
-                  <View
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "rgba(0,0,0,0.18)",
-                      padding: 14,
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                      ¿Tienes dudas antes de comprar?
-                    </Text>
-
-                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                      Escríbenos y te confirmamos disponibilidad, estado, accesorios incluidos o
-                      cualquier detalle. Sin rodeos.
-                    </Text>
-
-                    <Pressable
-                      onPress={() => openWhatsApp(whatsappText)}
-                      style={({ pressed }) => ({
-                        opacity: pressed ? 0.88 : 1,
-                        marginTop: 2,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: COLORS.accentBorder,
-                        backgroundColor: COLORS.accent2,
-                        paddingVertical: 12,
-                        paddingHorizontal: 14,
-                        alignSelf: isMobile ? "stretch" : "flex-start",
-                      })}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                        📲 Preguntar por WhatsApp
-                      </Text>
-                    </Pressable>
+                  <View style={{ gap: 8 }}>
+                    <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
+                    <InfoRow
+                      label="Categoría"
+                      value={p.category?.name ?? "General"}
+                      isMobile={isMobile}
+                    />
+                    <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} isMobile={isMobile} />
+                    <InfoRow
+                      label="Multimedia"
+                      value={mediaCountLabel(p.media)}
+                      isMobile={isMobile}
+                    />
+                    <InfoRow
+                      label="Compra"
+                      value={canBuy ? "Disponible para añadir a la cesta" : "No disponible"}
+                      isMobile={isMobile}
+                    />
                   </View>
                 </View>
               </View>
-            </View>
 
-            <View style={{ alignItems: "center", paddingTop: 4 }}>
-              <Pressable
-                onPress={() => router.replace("/catalogo")}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
+              <View
+                style={{
+                  borderRadius: 24,
                   borderWidth: 1,
                   borderColor: COLORS.border,
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                })}
+                  backgroundColor: COLORS.card,
+                  padding: isMobile ? 14 : 18,
+                  gap: 12,
+                }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al catálogo</Text>
-              </Pressable>
-            </View>
-          </ScrollView>
+                <Text
+                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}
+                >
+                  Compra con tranquilidad
+                </Text>
 
-          <View
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: isMobile ? 12 : 14,
-              backgroundColor: "rgba(6,26,44,0.94)",
-              borderTopWidth: 1,
-              borderTopColor: "rgba(255,255,255,0.10)",
-            }}
-          >
-            <View style={{ flexDirection: isTablet ? "row" : "column", gap: 10 }}>
-              <Pressable
-                disabled={!canBuy}
-                onPress={() => router.push({ pathname: "/carrito", params: { add: p.id } })}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  opacity: !canBuy ? 0.45 : pressed ? 0.88 : 1,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.accentBorder,
-                  backgroundColor: COLORS.accent2,
-                  paddingVertical: 15,
-                  alignItems: "center",
-                  justifyContent: "center",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Añadir al carrito</Text>
-              </Pressable>
+                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                  {productTrustCopy(Boolean(p.description?.trim()))}
+                </Text>
 
-              <Pressable
-                onPress={() => router.push("/checkout")}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                  paddingVertical: 15,
-                  alignItems: "center",
-                  justifyContent: "center",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Finalizar compra</Text>
-              </Pressable>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <Pill text="Producto revisado" isMobile={isMobile} />
+                  <Pill text="Envíos en España" isMobile={isMobile} />
+                  <Pill text="Recibo o factura" isMobile={isMobile} />
+                  <Pill text="Atención directa" isMobile={isMobile} />
+                </View>
 
-              <Pressable
-                onPress={() => openWhatsApp(whatsappText)}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                  paddingVertical: 15,
-                  alignItems: "center",
-                  justifyContent: "center",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>WhatsApp</Text>
-              </Pressable>
+                <View
+                  style={{
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: COLORS.borderSoft,
+                    backgroundColor: "rgba(0,0,0,0.18)",
+                    padding: 14,
+                    gap: 8,
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                    ¿Tienes dudas antes de comprar?
+                  </Text>
+
+                  <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                    Escríbenos y te confirmamos disponibilidad, estado, accesorios incluidos o
+                    cualquier detalle. Sin rodeos.
+                  </Text>
+
+                  <Pressable
+                    onPress={() => openWhatsApp(whatsappText)}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.88 : 1,
+                      marginTop: 2,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: COLORS.accentBorder,
+                      backgroundColor: COLORS.accent2,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      alignSelf: isMobile ? "stretch" : "flex-start",
+                    })}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      📲 Preguntar por WhatsApp
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
           </View>
-        </>
+
+          <View style={{ alignItems: "center", paddingTop: 4 }}>
+            <Pressable
+              onPress={() => replaceRoute("/catalogo" as Href)}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.88 : 1,
+                borderRadius: 999,
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "rgba(255,255,255,0.06)",
+              })}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al catálogo</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       )}
     </View>
   );
