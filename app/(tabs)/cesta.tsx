@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Href } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   ActivityIndicator,
   Pressable,
@@ -8,7 +10,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
@@ -36,6 +37,12 @@ type CartItem = {
 
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
 
+type ProductCategoryLite = {
+  id?: string | null;
+  name?: string | null;
+  slug?: string | null;
+};
+
 type ProductRow = {
   id: string;
   title: string;
@@ -43,10 +50,18 @@ type ProductRow = {
   price_eur: number | null;
   status: DbStatus;
   is_active: boolean;
-  category?: { id: string; name: string; slug: string } | null;
+  category?: ProductCategoryLite | null;
 };
 
 const CART_KEY = "videojuegoos_cart_v1";
+
+function pushRoute(route: Href) {
+  router.push(route);
+}
+
+function replaceRoute(route: Href) {
+  router.replace(route);
+}
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
@@ -57,6 +72,86 @@ function safeInt(n: unknown, fallback = 1) {
   const x = Number(n);
   if (!Number.isFinite(x)) return fallback;
   return Math.max(0, Math.floor(x));
+}
+
+function asCartItem(value: unknown): CartItem | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const title = String(row.title ?? "").trim();
+  const qty = safeInt(row.qty, 1);
+
+  if (!id || !title || qty <= 0) return null;
+
+  return {
+    id,
+    title,
+    subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+    priceEUR: Number(row.priceEUR ?? 0),
+    qty,
+  };
+}
+
+function asProductRow(value: unknown): ProductRow | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const title = String(row.title ?? "").trim();
+
+  if (!id || !title) return null;
+
+  return {
+    id,
+    title,
+    description: typeof row.description === "string" ? row.description : null,
+    price_eur:
+      typeof row.price_eur === "number" || typeof row.price_eur === "string"
+        ? Number(row.price_eur)
+        : null,
+    status:
+      row.status === "DRAFT" || row.status === "PUBLISHED" || row.status === "REVIEW"
+        ? row.status
+        : "DRAFT",
+    is_active: Boolean(row.is_active),
+    category:
+      row.category && typeof row.category === "object"
+        ? {
+            id: typeof (row.category as Record<string, unknown>).id === "string"
+              ? ((row.category as Record<string, unknown>).id as string)
+              : null,
+            name: typeof (row.category as Record<string, unknown>).name === "string"
+              ? ((row.category as Record<string, unknown>).name as string)
+              : null,
+            slug: typeof (row.category as Record<string, unknown>).slug === "string"
+              ? ((row.category as Record<string, unknown>).slug as string)
+              : null,
+          }
+        : null,
+  };
+}
+
+function isMissingColumnError(error: unknown, columnName: string) {
+  const msg = String((error as { message?: string } | null)?.message ?? "").toLowerCase();
+  const col = columnName.toLowerCase();
+
+  return (
+    msg.includes(col) &&
+    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
+  );
+}
+
+function isMissingRelationError(error: unknown, relationName: string) {
+  const msg = String((error as { message?: string } | null)?.message ?? "").toLowerCase();
+  const rel = relationName.toLowerCase();
+
+  return (
+    msg.includes(rel) &&
+    (msg.includes("does not exist") ||
+      msg.includes("relation") ||
+      msg.includes("could not find the table"))
+  );
 }
 
 /**
@@ -73,25 +168,21 @@ function smartBackToHome() {
   } catch {
     // no-op
   }
-  router.replace("/");
+
+  replaceRoute("/" as Href);
 }
 
 async function loadCart(): Promise<CartItem[]> {
   try {
     const raw = await AsyncStorage.getItem(CART_KEY);
     if (!raw) return [];
+
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
     return parsed
-      .map((it: any) => ({
-        id: String(it?.id ?? ""),
-        title: String(it?.title ?? ""),
-        subtitle: it?.subtitle ?? null,
-        priceEUR: Number(it?.priceEUR ?? 0),
-        qty: safeInt(it?.qty, 1),
-      }))
-      .filter((it: CartItem) => it.id && it.title && it.qty > 0);
+      .map(asCartItem)
+      .filter((item): item is CartItem => Boolean(item));
   } catch {
     return [];
   }
@@ -106,37 +197,62 @@ async function saveCart(items: CartItem[]) {
 }
 
 async function fetchProductForCart(productId: string): Promise<CartItem | null> {
-  const { data, error } = await supabase
-    .from("products")
-    .select("id,title,description,price_eur,status,is_active,category:categories(id,name,slug)")
-    .eq("id", productId)
-    .eq("is_active", true)
-    .eq("status", "PUBLISHED")
-    .maybeSingle<ProductRow>();
+  const selectWithJoin =
+    "id,title,description,price_eur,status,is_active,category:categories(id,name,slug)";
+  const selectBase = "id,title,description,price_eur,status,is_active";
 
-  if (error) throw error;
-  if (!data) return null;
+  const buildQuery = (selectStr: string) =>
+    supabase
+      .from("products")
+      .select(selectStr)
+      .eq("id", productId)
+      .eq("is_active", true)
+      .eq("status", "PUBLISHED")
+      .maybeSingle();
 
-  const title = data.title;
-  const price = Number(data.price_eur ?? 0);
+  let product: ProductRow | null = null;
+
+  const withJoinRes = await buildQuery(selectWithJoin);
+
+  if (!withJoinRes.error) {
+    product = asProductRow(withJoinRes.data);
+  } else {
+    const canFallback =
+      isMissingRelationError(withJoinRes.error, "categories") ||
+      isMissingColumnError(withJoinRes.error, "name") ||
+      isMissingColumnError(withJoinRes.error, "slug");
+
+    if (!canFallback) {
+      throw withJoinRes.error;
+    }
+
+    const baseRes = await buildQuery(selectBase);
+    if (baseRes.error) throw baseRes.error;
+    product = asProductRow(baseRes.data);
+  }
+
+  if (!product) return null;
 
   const subtitleParts: string[] = [];
-  if (data.category?.name) subtitleParts.push(data.category.name);
+  if (product.category?.name) subtitleParts.push(product.category.name);
   subtitleParts.push("Revisado");
-  if (subtitleParts.length === 0 && data.description) subtitleParts.push(data.description);
+
+  if (!subtitleParts.length && product.description) {
+    subtitleParts.push(product.description);
+  }
 
   return {
-    id: data.id,
-    title,
+    id: product.id,
+    title: product.title,
     subtitle: subtitleParts.join(" · "),
-    priceEUR: price,
+    priceEUR: Number(product.price_eur ?? 0),
     qty: 1,
   };
 }
 
 export default function CestaScreen() {
   const params = useLocalSearchParams<{ add?: string }>();
-  const addId = typeof params.add === "string" ? params.add : "";
+  const addId = typeof params.add === "string" ? params.add.trim() : "";
 
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -161,9 +277,7 @@ export default function CestaScreen() {
 
   const inc = useCallback(
     async (id: string) => {
-      const next = items.map((it) =>
-        it.id === id ? { ...it, qty: it.qty + 1 } : it
-      );
+      const next = items.map((it) => (it.id === id ? { ...it, qty: it.qty + 1 } : it));
       await persist(next);
     },
     [items, persist]
@@ -226,6 +340,7 @@ export default function CestaScreen() {
         }
 
         const fetched = await fetchProductForCart(productId);
+
         if (!fetched) {
           setErr("Ese producto no está disponible o no está publicado.");
           return;
@@ -301,7 +416,7 @@ export default function CestaScreen() {
           </Pressable>
         </View>
 
-        {err ? (
+        {!!err && (
           <View
             style={{
               borderRadius: 14,
@@ -314,7 +429,7 @@ export default function CestaScreen() {
             <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Atención</Text>
             <Text style={{ color: "#FEE2E2", marginTop: 4 }}>{err}</Text>
           </View>
-        ) : null}
+        )}
 
         {adding ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -366,7 +481,7 @@ export default function CestaScreen() {
               </Text>
 
               <Pressable
-                onPress={() => router.push("/catalogo")}
+                onPress={() => pushRoute("/catalogo" as Href)}
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.9 : 1,
                   marginTop: 6,
@@ -469,9 +584,7 @@ export default function CestaScreen() {
                           backgroundColor: "rgba(0,0,0,0.12)",
                         }}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                          {it.qty}
-                        </Text>
+                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{it.qty}</Text>
                       </View>
 
                       <Pressable
@@ -502,9 +615,7 @@ export default function CestaScreen() {
                         paddingHorizontal: 12,
                       })}
                     >
-                      <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>
-                        🗑️ Quitar
-                      </Text>
+                      <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>🗑️ Quitar</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -523,9 +634,7 @@ export default function CestaScreen() {
                   paddingHorizontal: 14,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  Vaciar cesta
-                </Text>
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Vaciar cesta</Text>
               </Pressable>
             </View>
           )}
@@ -547,7 +656,7 @@ export default function CestaScreen() {
 
             <Pressable
               disabled={items.length === 0}
-              onPress={() => router.push("/checkout")}
+              onPress={() => pushRoute("/checkout" as Href)}
               style={({ pressed }) => ({
                 marginTop: 8,
                 borderRadius: 14,
@@ -561,7 +670,7 @@ export default function CestaScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => router.replace("/")}
+              onPress={() => replaceRoute("/" as Href)}
               style={{ alignItems: "center", paddingVertical: 10 }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "800" }}>
@@ -600,9 +709,7 @@ function Row({
       >
         {label}
       </Text>
-      <Text style={{ color: "#FFFFFF", fontWeight: strong ? "900" : "800" }}>
-        {value}
-      </Text>
+      <Text style={{ color: "#FFFFFF", fontWeight: strong ? "900" : "800" }}>{value}</Text>
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { Href } from "expo-router";
 import {
   ActivityIndicator,
   Image,
@@ -85,6 +86,14 @@ type Product = {
   category?: { id: string; name: string; slug: string } | null;
 };
 
+function pushRoute(route: Href) {
+  router.push(route);
+}
+
+function replaceRoute(route: Href) {
+  router.replace(route);
+}
+
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -133,7 +142,7 @@ function smartBack() {
   } catch {
     // no-op
   }
-  router.replace("/");
+  replaceRoute("/" as Href);
 }
 
 const LEGACY_CAT_TO_SLUG: Record<string, string> = {};
@@ -686,7 +695,7 @@ export default function CatalogoScreen() {
               }}
             >
               <Pressable
-                onPress={() => router.push("/carrito")}
+                onPress={() => pushRoute("/cesta" as Href)}
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.88 : 1,
                   paddingVertical: 10,
@@ -700,7 +709,7 @@ export default function CatalogoScreen() {
                 <Text
                   style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}
                 >
-                  🛒 Carrito
+                  🛒 Cesta
                 </Text>
               </Pressable>
 
@@ -978,7 +987,7 @@ export default function CatalogoScreen() {
                     isMobile={isMobile}
                     onPress={() => {
                       if (c.id === "ALL") {
-                        router.replace({ pathname: "/catalogo" });
+                        replaceRoute("/catalogo" as Href);
                       } else {
                         router.replace({ pathname: "/catalogo", params: { cat: c.slug } });
                       }
@@ -1072,7 +1081,7 @@ export default function CatalogoScreen() {
                   }}
                 >
                   <Pressable
-                    onPress={() => router.push("/carrito")}
+                    onPress={() => pushRoute("/cesta" as Href)}
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.88 : 1,
                       borderRadius: 999,
@@ -1085,12 +1094,12 @@ export default function CatalogoScreen() {
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                      Ir al carrito
+                      Ir a la cesta
                     </Text>
                   </Pressable>
 
                   <Pressable
-                    onPress={() => router.push("/checkout")}
+                    onPress={() => pushRoute("/checkout" as Href)}
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.88 : 1,
                       borderRadius: 999,
@@ -1143,7 +1152,7 @@ export default function CatalogoScreen() {
                   <Pressable
                     onPress={() => {
                       setQ("");
-                      router.replace({ pathname: "/catalogo" });
+                      replaceRoute("/catalogo" as Href);
                       refresh({ queryOverride: "" });
                     }}
                     style={({ pressed }) => ({
@@ -1190,7 +1199,7 @@ export default function CatalogoScreen() {
                     isAdmin={isAdmin}
                     isMobile={isMobile}
                     isTablet={isTablet}
-                    onPress={() => router.push(`/producto/${p.id}`)}
+                    onPress={() => pushRoute(`/producto/${p.id}` as Href)}
                   />
                 ))}
               </Grid>
@@ -1218,7 +1227,7 @@ export default function CatalogoScreen() {
                 </Text>
 
                 <Pressable
-                  onPress={() => router.push("/checkout")}
+                  onPress={() => pushRoute("/checkout" as Href)}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.88 : 1,
                     alignSelf: isMobile ? "stretch" : "flex-start",
