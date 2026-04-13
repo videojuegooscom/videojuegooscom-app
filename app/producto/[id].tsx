@@ -92,8 +92,8 @@ const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
 
-function pushRoute(route: Href) {
-  router.push(route);
+function pushRoute(route: Href | { pathname: string; params?: Record<string, string> }) {
+  router.push(route as never);
 }
 
 function replaceRoute(route: Href) {
@@ -337,10 +337,6 @@ function productHintByCategory(name?: string | null) {
 
   const n = name.toLowerCase();
 
-  if (n.includes("playstation 5") || n.includes("ps5")) return "Producto de segunda mano revisado";
-  if (n.includes("playstation 4") || n.includes("ps4")) return "Producto de segunda mano revisado";
-  if (n.includes("xbox")) return "Producto de segunda mano revisado";
-  if (n.includes("switch") || n.includes("nintendo")) return "Producto de segunda mano revisado";
   if (n.includes("videojuego")) return "Videojuego listo para enviar";
   if (n.includes("mando") || n.includes("accesorio")) return "Accesorio listo para usar";
   if (n.includes("electr")) return "Electrónica seleccionada";
@@ -465,57 +461,51 @@ async function fetchProductSafe(productId: string, adminFlag: boolean): Promise<
   return null;
 }
 
-function TopActionButton({
+function ActionChip({
   label,
   onPress,
-  isMobile,
   disabled,
+  tone = "accent",
   icon,
-  compact,
+  isMobile,
 }: {
   label: string;
   onPress: () => void;
-  isMobile?: boolean;
   disabled?: boolean;
+  tone?: "accent" | "ghost";
   icon?: string;
-  compact?: boolean;
+  isMobile?: boolean;
 }) {
+  const accentTone = tone === "accent";
+
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       style={({ pressed }) => ({
         opacity: disabled ? 0.45 : pressed ? 0.88 : 1,
-        minHeight: isMobile ? 52 : 48,
-        paddingVertical: isMobile ? 12 : 10,
-        paddingHorizontal: compact ? 16 : isMobile ? 16 : 14,
+        paddingVertical: isMobile ? 10 : 9,
+        paddingHorizontal: isMobile ? 14 : 12,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: COLORS.accentBorder,
-        backgroundColor: COLORS.accent2,
-        alignItems: "center",
-        justifyContent: "center",
+        borderColor: accentTone ? COLORS.accentBorder : COLORS.borderSoft,
+        backgroundColor: accentTone ? COLORS.accent2 : "rgba(255,255,255,0.05)",
         flexDirection: "row",
-        gap: 8,
+        alignItems: "center",
+        gap: 6,
       })}
     >
-      {!!icon && (
-        <Text
-          style={{
-            color: COLORS.text,
-            fontWeight: "900",
-            fontSize: isMobile ? 15 : 14,
-          }}
-        >
+      {icon ? (
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
           {icon}
         </Text>
-      )}
+      ) : null}
+
       <Text
         style={{
           color: COLORS.text,
           fontWeight: "900",
-          fontSize: isMobile ? 14 : 14,
-          textAlign: "center",
+          fontSize: isMobile ? 12 : 12,
         }}
       >
         {label}
@@ -558,7 +548,6 @@ export default function ProductoScreen() {
     if (!p) return "Ficha de producto";
 
     const parts: string[] = [];
-
     parts.push(productHintByCategory(p.category?.name));
 
     if (!isAdmin && p.status === "PUBLICADA" && p.isActive) {
@@ -723,66 +712,30 @@ ${price}
               {heroSubcopy}
             </Text>
           </View>
-        </View>
 
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 10,
-            alignItems: "center",
-          }}
-        >
-          <TopActionButton
-            label="Cesta"
-            icon="🛒"
-            onPress={() => pushRoute("/cesta" as Href)}
-            isMobile={isMobile}
-          />
-
-          <TopActionButton
-            label="Añadir a la cesta"
-            onPress={() => pushRoute({ pathname: "/cesta", params: { add: p?.id ?? "" } })}
-            isMobile={isMobile}
-            disabled={!canBuy || !p?.id}
-          />
-
-          <TopActionButton
-            label="Finalizar compra"
-            onPress={() => pushRoute("/checkout" as Href)}
-            isMobile={isMobile}
-          />
-
-          <TopActionButton
-            label="WhatsApp"
-            onPress={() => openWhatsApp(whatsappText)}
-            isMobile={isMobile}
-          />
-
-          <Pressable
-            onPress={smartBack}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              width: isMobile ? 52 : 48,
-              height: isMobile ? 52 : 48,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.05)",
-              alignItems: "center",
-              justifyContent: "center",
-            })}
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 10,
+              flexWrap: "wrap",
+              justifyContent: isMobile ? "flex-start" : "flex-end",
+            }}
           >
-            <Text
-              style={{
-                color: COLORS.text,
-                fontWeight: "900",
-                fontSize: isMobile ? 20 : 18,
-              }}
+            <Pressable
+              onPress={smartBack}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.88 : 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "rgba(255,255,255,0.05)",
+              })}
             >
-              ←
-            </Text>
-          </Pressable>
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View
@@ -1091,40 +1044,42 @@ ${price}
                       Segunda mano
                     </Text>
                   </View>
+                </View>
 
-                  {p.category?.name ? (
-                    <View
-                      style={{
-                        paddingVertical: 7,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.borderSoft,
-                        backgroundColor: "rgba(255,255,255,0.05)",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
-                        {p.category.name}
-                      </Text>
-                    </View>
-                  ) : null}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 10,
+                  }}
+                >
+                  <ActionChip
+                    label="Cesta"
+                    icon="🛒"
+                    onPress={() => pushRoute("/cesta" as Href)}
+                    isMobile={isMobile}
+                  />
 
-                  {p.media.length > 0 ? (
-                    <View
-                      style={{
-                        paddingVertical: 7,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.borderSoft,
-                        backgroundColor: "rgba(255,255,255,0.05)",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
-                        {mediaCountLabel(p.media)}
-                      </Text>
-                    </View>
-                  ) : null}
+                  <ActionChip
+                    label="Añadir a la cesta"
+                    onPress={() =>
+                      pushRoute({ pathname: "/cesta", params: { add: p.id } })
+                    }
+                    disabled={!canBuy}
+                    isMobile={isMobile}
+                  />
+
+                  <ActionChip
+                    label="Finalizar compra"
+                    onPress={() => pushRoute("/checkout" as Href)}
+                    isMobile={isMobile}
+                  />
+
+                  <ActionChip
+                    label="WhatsApp"
+                    onPress={() => openWhatsApp(whatsappText)}
+                    isMobile={isMobile}
+                  />
                 </View>
 
                 <Text
