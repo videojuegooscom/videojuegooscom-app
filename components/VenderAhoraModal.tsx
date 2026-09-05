@@ -38,6 +38,17 @@
  *   animación "pop" tipo Apple al pulsarlos: se encogen levemente
  *   (Animated.spring) al tocar y vuelven a su tamaño al soltar, usando el
  *   componente AnimatedPressable definido más abajo.
+ * - Cada campo (de texto o de elegir una opción) baja de intensidad de
+ *   color y muestra una marca de verificación en verde (Ionicons
+ *   checkmark-circle, no un emoji) en cuanto tiene un valor válido y no se
+ *   está editando en ese momento. Al volver a tocarlo para corregirlo
+ *   recupera su color normal; al salir de él (tocar otro campo, o elegir
+ *   una opción y cerrarse el desplegable) vuelve a atenuarse si sigue
+ *   siendo válido. Los campos que aún están vacíos se quedan como estaban.
+ * - Nombre, apellido y el dato de contacto (teléfono/email/usuario, según
+ *   el método elegido) piden un mínimo de caracteres para evitar datos
+ *   claramente incompletos o erróneos; el resto de campos solo exige que
+ *   no estén vacíos, como hasta ahora.
  * - "¿Todo funciona perfectamente?" (Sí/No). Si es Sí, pide el motivo de la
  *   venta; si es No, pide una breve descripción del problema.
  * - "Método de contacto" (WhatsApp/Gmail/Instagram/Facebook/TikTok) cambia
@@ -220,28 +231,60 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FieldInput(props: React.ComponentProps<typeof TextInput>) {
+// Campo de texto con "estado de completado": cuando tiene un valor válido
+// (filled=true) y no se está escribiendo en él ahora mismo, baja de
+// intensidad (borde/fondo/texto más suaves) y muestra un check verde a la
+// derecha; al tocarlo para corregirlo (onFocus) recupera su aspecto normal
+// de inmediato, y al salir (onBlur) se vuelve a atenuar si sigue siendo
+// válido. containerStyle es para el diseño del contenedor exterior (p.ej.
+// flex:1 dentro de una fila); style sigue afectando solo al TextInput.
+function FieldInput({
+  filled,
+  containerStyle,
+  style,
+  onFocus,
+  onBlur,
+  ...rest
+}: React.ComponentProps<typeof TextInput> & { filled?: boolean; containerStyle?: any }) {
   const isMobile = useIsMobile();
-  const { style, ...rest } = props;
+  const [focused, setFocused] = useState(false);
+  const completed = !!filled && !focused;
+
   return (
-    <TextInput
-      placeholderTextColor="rgba(11,33,56,0.40)"
-      style={[
-        {
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          borderRadius: 14,
-          paddingHorizontal: isMobile ? 11 : 12,
-          paddingVertical: isMobile ? 10 : 12,
-          color: COLORS.text,
-          backgroundColor: COLORS.cardSoft,
-          fontSize: INPUT_FONT_SIZE,
-          textAlign: "left",
-        },
-        style,
-      ]}
-      {...rest}
-    />
+    <View style={[{ justifyContent: "center" }, containerStyle]}>
+      <TextInput
+        placeholderTextColor="rgba(11,33,56,0.40)"
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
+        style={[
+          {
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            borderRadius: 14,
+            paddingHorizontal: isMobile ? 11 : 12,
+            paddingRight: completed ? (isMobile ? 34 : 38) : isMobile ? 11 : 12,
+            paddingVertical: isMobile ? 10 : 12,
+            color: completed ? COLORS.muted : COLORS.text,
+            backgroundColor: completed ? COLORS.card : COLORS.cardSoft,
+            fontSize: INPUT_FONT_SIZE,
+            textAlign: "left",
+          },
+          style,
+        ]}
+        {...rest}
+      />
+      {completed && (
+        <View style={{ position: "absolute", right: isMobile ? 10 : 12, top: isMobile ? 10 : 12 }}>
+          <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -254,12 +297,14 @@ function PrefixedInput({
   onChangeText,
   placeholder,
   keyboardType,
+  filled,
 }: {
   prefix: string;
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
   keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
+  filled?: boolean;
 }) {
   const isMobile = useIsMobile();
   return (
@@ -281,7 +326,8 @@ function PrefixedInput({
       </View>
 
       <FieldInput
-        style={{ flex: 1 }}
+        containerStyle={{ flex: 1 }}
+        filled={filled}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -313,6 +359,11 @@ function SelectField<T extends string>({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
+  // "Completado": ya hay un valor elegido y el desplegable está cerrado. En
+  // ese caso el botón baja de intensidad y muestra un check en vez de la
+  // flecha; al volver a tocarlo (se abre) recupera el aspecto normal para
+  // poder corregir la elección.
+  const completed = !!value && !open;
 
   return (
     <View style={{ gap: 8, alignItems: compact ? "center" : "stretch" }}>
@@ -331,8 +382,8 @@ function SelectField<T extends string>({
           gap: 10,
           borderRadius: 14,
           borderWidth: 1,
-          borderColor: value ? COLORS.accentBorder : COLORS.border,
-          backgroundColor: value ? COLORS.accent2 : COLORS.cardSoft,
+          borderColor: completed ? COLORS.border : value ? COLORS.accentBorder : COLORS.border,
+          backgroundColor: completed ? COLORS.card : value ? COLORS.accent2 : COLORS.cardSoft,
           paddingVertical: isMobile ? 10 : 12,
           paddingHorizontal: isMobile ? 12 : 14,
           opacity: pressed ? 0.9 : 1,
@@ -341,7 +392,7 @@ function SelectField<T extends string>({
         <Text
           numberOfLines={1}
           style={{
-            color: COLORS.text,
+            color: completed ? COLORS.muted : COLORS.text,
             fontWeight: "900",
             fontSize: INPUT_FONT_SIZE,
             flexShrink: 1,
@@ -350,11 +401,15 @@ function SelectField<T extends string>({
         >
           {selected ? selected.label : "Elegir"}
         </Text>
-        <Ionicons
-          name={open ? "chevron-up-outline" : "chevron-down-outline"}
-          size={18}
-          color={COLORS.text}
-        />
+        {completed ? (
+          <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+        ) : (
+          <Ionicons
+            name={open ? "chevron-up-outline" : "chevron-down-outline"}
+            size={18}
+            color={COLORS.text}
+          />
+        )}
       </AnimatedPressable>
 
       {open && (
@@ -492,6 +547,28 @@ const GENERO_OPTIONS: { label: string; value: Genero }[] = [
   { label: "Femenino", value: "femenino" },
 ];
 
+// Valida el dato de contacto según el método elegido, con un mínimo de
+// caracteres para evitar datos claramente incompletos: un número de
+// WhatsApp necesita al menos 9 dígitos (como un móvil español sin el
+// prefijo "+34"), un email de Gmail necesita al menos 3 caracteres antes
+// de la "@", y un usuario de red social al menos 2 caracteres sin contar
+// el "@" inicial.
+function contactoEsValido(metodo: MetodoContacto | null, valor: string): boolean {
+  const raw = valor.trim();
+  if (!metodo || !raw) return false;
+
+  if (metodo === "whatsapp") {
+    return raw.replace(/[^\d]/g, "").length >= 9;
+  }
+
+  if (metodo === "gmail") {
+    return raw.split("@")[0].trim().length >= 3;
+  }
+
+  // instagram / facebook / tiktok
+  return raw.replace(/^@+/, "").trim().length >= 2;
+}
+
 type SellRequestPayload = {
   nombre: string;
   apellido: string;
@@ -551,6 +628,14 @@ export default function VenderAhoraModal({
   const [formErr, setFormErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
+  // Validez "reforzada" (con mínimo de caracteres) para nombre, apellido y
+  // dato de contacto — se usan tanto para el check verde/atenuado de cada
+  // campo como para el progreso y la validación al enviar. El resto de
+  // campos solo exige que no estén vacíos, como hasta ahora.
+  const nombreValido = nombre.trim().length >= 2;
+  const apellidoValido = apellido.trim().length >= 2;
+  const contactoValido = contactoEsValido(metodoContacto, contactoValor);
+
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -607,8 +692,8 @@ export default function VenderAhoraModal({
   // enviar solo se activa al llegar exactamente al 100%.
   const progress = useMemo(() => {
     const steps: boolean[] = [
-      !!nombre.trim(),
-      !!apellido.trim(),
+      nombreValido,
+      apellidoValido,
       !!genero,
       !!articulo.trim(),
       funcionaBien !== null,
@@ -620,7 +705,7 @@ export default function VenderAhoraModal({
       !!ciudad.trim(),
       !!precioEstimado.trim(),
       !!metodoContacto,
-      !!contactoValor.trim(),
+      contactoValido,
       !!opcionVenta,
       opcionVenta === "domicilio"
         ? !!direccion.trim()
@@ -636,8 +721,8 @@ export default function VenderAhoraModal({
 
     return { percent, canSubmit: completed === total };
   }, [
-    nombre,
-    apellido,
+    nombreValido,
+    apellidoValido,
     genero,
     articulo,
     funcionaBien,
@@ -646,7 +731,7 @@ export default function VenderAhoraModal({
     ciudad,
     precioEstimado,
     metodoContacto,
-    contactoValor,
+    contactoValido,
     opcionVenta,
     direccion,
     disponibilidad,
@@ -735,8 +820,18 @@ export default function VenderAhoraModal({
       return;
     }
 
+    if (!nombreValido) {
+      setFormErr("Tu nombre es demasiado corto.");
+      return;
+    }
+
     if (!cleanApellido) {
       setFormErr("Indica tu apellido.");
+      return;
+    }
+
+    if (!apellidoValido) {
+      setFormErr("Tu apellido es demasiado corto.");
       return;
     }
 
@@ -782,6 +877,11 @@ export default function VenderAhoraModal({
 
     if (!contactoValor.trim()) {
       setFormErr("Completa tu dato de contacto.");
+      return;
+    }
+
+    if (!contactoValido) {
+      setFormErr("Revisa tu dato de contacto: parece incompleto.");
       return;
     }
 
@@ -985,6 +1085,7 @@ export default function VenderAhoraModal({
                             setFormErr(null);
                           }}
                           placeholder="Tu nombre"
+                          filled={nombreValido}
                         />
                       </View>
                       <View style={{ flex: 1, gap: 6 }}>
@@ -996,6 +1097,7 @@ export default function VenderAhoraModal({
                             setFormErr(null);
                           }}
                           placeholder="Tu apellido"
+                          filled={apellidoValido}
                         />
                       </View>
                     </View>
@@ -1024,6 +1126,7 @@ export default function VenderAhoraModal({
                         }}
                         placeholder="Ej: PlayStation 5 con dos mandos"
                         multiline
+                        filled={!!articulo.trim()}
                       />
                     </View>
 
@@ -1050,6 +1153,7 @@ export default function VenderAhoraModal({
                           }}
                           placeholder="Ej: ya no lo uso, cambio de consola..."
                           multiline
+                          filled={!!motivoVenta.trim()}
                         />
                       </View>
                     )}
@@ -1067,6 +1171,7 @@ export default function VenderAhoraModal({
                           }}
                           placeholder="Ej: no lee discos, la batería no carga..."
                           multiline
+                          filled={!!descripcionProblema.trim()}
                         />
                       </View>
                     )}
@@ -1082,6 +1187,7 @@ export default function VenderAhoraModal({
                             setFormErr(null);
                           }}
                           placeholder="Ej: Zaragoza"
+                          filled={!!ciudad.trim()}
                         />
                       </View>
                       <View style={{ flex: 1, gap: 6 }}>
@@ -1093,6 +1199,7 @@ export default function VenderAhoraModal({
                             setFormErr(null);
                           }}
                           placeholder="Ej: 150€"
+                          filled={!!precioEstimado.trim()}
                         />
                       </View>
                     </View>
@@ -1137,6 +1244,7 @@ export default function VenderAhoraModal({
                             }}
                             placeholder="612 345 678"
                             keyboardType="phone-pad"
+                            filled={contactoValido}
                           />
                         </View>
                       )}
@@ -1154,6 +1262,7 @@ export default function VenderAhoraModal({
                             keyboardType="email-address"
                             autoCapitalize="none"
                             autoCorrect={false}
+                            filled={contactoValido}
                           />
                           {showGmailHint && (
                             <AnimatedPressable
@@ -1194,6 +1303,7 @@ export default function VenderAhoraModal({
                               setFormErr(null);
                             }}
                             placeholder="tu.usuario"
+                            filled={contactoValido}
                           />
                         </View>
                       )}
@@ -1237,6 +1347,7 @@ export default function VenderAhoraModal({
                             }}
                             placeholder="Calle, número, puerta y letra"
                             multiline
+                            filled={!!direccion.trim()}
                           />
                         </View>
                       )}
