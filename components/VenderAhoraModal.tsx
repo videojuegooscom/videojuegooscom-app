@@ -45,6 +45,8 @@
  *   recupera su color normal; al salir de él (tocar otro campo, o elegir
  *   una opción y cerrarse el desplegable) vuelve a atenuarse si sigue
  *   siendo válido. Los campos que aún están vacíos se quedan como estaban.
+ *   La pregunta (FieldLabel) de cada campo también se atenúa a la vez que
+ *   su campo, vía la prop "dim".
  * - Nombre, apellido y el dato de contacto (teléfono/email/usuario, según
  *   el método elegido) piden un mínimo de caracteres para evitar datos
  *   claramente incompletos o erróneos; el resto de campos solo exige que
@@ -214,12 +216,15 @@ function softShadow() {
   });
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+// dim=true atenúa también la pregunta (no solo el campo/desplegable de
+// debajo) cuando ese campo ya está completo, siguiendo el mismo lenguaje
+// visual de "completado" que FieldInput/SelectField.
+function FieldLabel({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
   const isMobile = useIsMobile();
   return (
     <Text
       style={{
-        color: COLORS.text,
+        color: dim ? COLORS.muted : COLORS.text,
         fontWeight: "900",
         fontSize: isMobile ? 13 : 14,
         lineHeight: isMobile ? 18 : 19,
@@ -1077,7 +1082,7 @@ export default function VenderAhoraModal({
                     {/* Nombre + Apellido */}
                     <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>Nombre</FieldLabel>
+                        <FieldLabel dim={nombreValido}>Nombre</FieldLabel>
                         <FieldInput
                           value={nombre}
                           onChangeText={(v) => {
@@ -1089,7 +1094,7 @@ export default function VenderAhoraModal({
                         />
                       </View>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>Apellido</FieldLabel>
+                        <FieldLabel dim={apellidoValido}>Apellido</FieldLabel>
                         <FieldInput
                           value={apellido}
                           onChangeText={(v) => {
@@ -1104,7 +1109,7 @@ export default function VenderAhoraModal({
 
                     {/* Género, justo debajo de Nombre y Apellido */}
                     <View style={{ gap: 6 }}>
-                      <FieldLabel>Género</FieldLabel>
+                      <FieldLabel dim={!!genero}>Género</FieldLabel>
                       <SelectField
                         options={GENERO_OPTIONS}
                         value={genero}
@@ -1117,7 +1122,7 @@ export default function VenderAhoraModal({
                     </View>
 
                     <View style={{ gap: 6 }}>
-                      <FieldLabel>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
+                      <FieldLabel dim={!!articulo.trim()}>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
                       <FieldInput
                         value={articulo}
                         onChangeText={(v) => {
@@ -1131,7 +1136,7 @@ export default function VenderAhoraModal({
                     </View>
 
                     <View style={{ gap: 6 }}>
-                      <FieldLabel>¿Todo funciona perfectamente?</FieldLabel>
+                      <FieldLabel dim={funcionaBien !== null}>¿Todo funciona perfectamente?</FieldLabel>
                       <YesNoSelect
                         value={funcionaBien}
                         onChange={(v) => {
@@ -1144,7 +1149,7 @@ export default function VenderAhoraModal({
 
                     {funcionaBien === true && (
                       <View style={{ gap: 6 }}>
-                        <FieldLabel>¿Cuál es el motivo de la venta?</FieldLabel>
+                        <FieldLabel dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</FieldLabel>
                         <FieldInput
                           value={motivoVenta}
                           onChangeText={(v) => {
@@ -1160,7 +1165,7 @@ export default function VenderAhoraModal({
 
                     {funcionaBien === false && (
                       <View style={{ gap: 6 }}>
-                        <FieldLabel>
+                        <FieldLabel dim={!!descripcionProblema.trim()}>
                           ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
                         </FieldLabel>
                         <FieldInput
@@ -1179,7 +1184,7 @@ export default function VenderAhoraModal({
                     {/* Ciudad + Precio estimado */}
                     <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>¿En qué ciudad te encuentras?</FieldLabel>
+                        <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
                         <FieldInput
                           value={ciudad}
                           onChangeText={(v) => {
@@ -1191,7 +1196,7 @@ export default function VenderAhoraModal({
                         />
                       </View>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
+                        <FieldLabel dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
                         <FieldInput
                           value={precioEstimado}
                           onChangeText={(v) => {
@@ -1219,7 +1224,7 @@ export default function VenderAhoraModal({
                           gap: 6,
                         }}
                       >
-                        <FieldLabel>¿Cómo prefieres que te contactemos?</FieldLabel>
+                        <FieldLabel dim={!!metodoContacto}>¿Cómo prefieres que te contactemos?</FieldLabel>
                         <SelectField
                           options={METODO_OPTIONS}
                           value={metodoContacto}
@@ -1234,7 +1239,7 @@ export default function VenderAhoraModal({
 
                       {metodoContacto === "whatsapp" && (
                         <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel>Tu número de WhatsApp</FieldLabel>
+                          <FieldLabel dim={contactoValido}>Tu número de WhatsApp</FieldLabel>
                           <PrefixedInput
                             prefix="+34"
                             value={contactoValor}
@@ -1251,7 +1256,7 @@ export default function VenderAhoraModal({
 
                       {metodoContacto === "gmail" && (
                         <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel>Tu email de Gmail</FieldLabel>
+                          <FieldLabel dim={contactoValido}>Tu email de Gmail</FieldLabel>
                           <FieldInput
                             value={contactoValor}
                             onChangeText={(v) => {
@@ -1292,7 +1297,7 @@ export default function VenderAhoraModal({
                         metodoContacto === "facebook" ||
                         metodoContacto === "tiktok") && (
                         <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel>
+                          <FieldLabel dim={contactoValido}>
                             Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
                           </FieldLabel>
                           <PrefixedInput
@@ -1324,7 +1329,7 @@ export default function VenderAhoraModal({
                           gap: 6,
                         }}
                       >
-                        <FieldLabel>Opción de venta</FieldLabel>
+                        <FieldLabel dim={!!opcionVenta}>Opción de venta</FieldLabel>
                         <SelectField
                           options={OPCION_VENTA_OPTIONS}
                           value={opcionVenta}
@@ -1338,7 +1343,7 @@ export default function VenderAhoraModal({
 
                       {opcionVenta === "domicilio" && (
                         <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel>Dirección completa</FieldLabel>
+                          <FieldLabel dim={!!direccion.trim()}>Dirección completa</FieldLabel>
                           <FieldInput
                             value={direccion}
                             onChangeText={(v) => {
@@ -1354,7 +1359,7 @@ export default function VenderAhoraModal({
 
                       {opcionVenta === "entrega" && (
                         <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel>Disponibilidad diaria</FieldLabel>
+                          <FieldLabel dim={!!disponibilidad}>Disponibilidad diaria</FieldLabel>
                           <SelectField
                             options={DISPONIBILIDAD_OPTIONS}
                             value={disponibilidad}

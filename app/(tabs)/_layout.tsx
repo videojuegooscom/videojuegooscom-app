@@ -6,6 +6,12 @@
  * Cómo funciona: usa expo-router Tabs con headerShown:false (cada pantalla
  * pinta su propia cabecera). COLORS aquí ya sigue el tema claro global
  * (fondo blanco, azul claro de acento, texto azul marino oscuro).
+ * - La tab bar es deliberadamente compacta (altura y paddings reducidos,
+ *   iconos a tamaño fijo TAB_ICON_SIZE y etiqueta más pequeña) para dejar
+ *   más hueco visible al contenido con scroll de cada pantalla. Si se
+ *   cambia aquí, conviene revisar SEARCH_LAYOUT.mobileTabBarHeight /
+ *   desktopTabBarHeight en app/(tabs)/index.tsx, que asumen esta altura
+ *   para colocar la barra de búsqueda flotante en su posición "abajo".
  *
  * Conectado con:
  * - app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, chat-global.tsx,
@@ -16,6 +22,8 @@ import React from "react";
 import { Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+
+const TAB_ICON_SIZE = 22;
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -42,19 +50,19 @@ export default function TabsLayout() {
           backgroundColor: COLORS.card,
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 84 : 72,
-          paddingTop: 8,
-          paddingBottom: Platform.OS === "ios" ? 22 : 10,
+          height: Platform.OS === "ios" ? 68 : 58,
+          paddingTop: 6,
+          paddingBottom: Platform.OS === "ios" ? 16 : 8,
           ...Platform.select({
             web: { boxShadow: "0 -6px 20px rgba(11,33,56,0.06)" },
             default: {},
           }),
         },
         tabBarItemStyle: {
-          paddingVertical: 2,
+          paddingVertical: 1,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: "800",
         },
       }}
@@ -63,10 +71,10 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Inicio",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "home" : "home-outline"}
-              size={size}
+              size={TAB_ICON_SIZE}
               color={color}
             />
           ),
@@ -77,10 +85,10 @@ export default function TabsLayout() {
         name="perfil"
         options={{
           title: "Perfil",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "person" : "person-outline"}
-              size={size}
+              size={TAB_ICON_SIZE}
               color={color}
             />
           ),
@@ -91,10 +99,10 @@ export default function TabsLayout() {
         name="cesta"
         options={{
           title: "Cesta",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "bag-handle" : "bag-handle-outline"}
-              size={size}
+              size={TAB_ICON_SIZE}
               color={color}
             />
           ),
@@ -105,10 +113,10 @@ export default function TabsLayout() {
         name="chat-global"
         options={{
           title: "Chat",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "chatbubbles" : "chatbubbles-outline"}
-              size={size}
+              size={TAB_ICON_SIZE}
               color={color}
             />
           ),
@@ -119,10 +127,10 @@ export default function TabsLayout() {
         name="blue-ia"
         options={{
           title: "Blue IA",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "sparkles" : "sparkles-outline"}
-              size={size}
+              size={TAB_ICON_SIZE}
               color={color}
             />
           ),

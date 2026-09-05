@@ -19,7 +19,15 @@
  *   directamente: ambos abren el mismo formulario "pop" de
  *   VenderAhoraModal (comparten el estado sellModalOpen), que guarda la
  *   solicitud en Supabase (tabla "sell_requests") para revisarla luego en
- *   el admin.
+ *   el admin. En móvil esa franja es un poco más compacta (icono, texto y
+ *   botón más pequeños) para que no ocupe tanto espacio visualmente.
+ * - Al deslizar hacia abajo dentro del ScrollView, la franja superior y la
+ *   barra de búsqueda flotante se ocultan solas con una animación suave
+ *   (fade + colapso de altura / desplazamiento), para dejar ver mejor el
+ *   contenido; al deslizar hacia arriba (o volver arriba del todo) vuelven
+ *   a aparecer. handleScroll detecta la dirección comparando cada posición
+ *   de scroll con la anterior y solo dispara la animación cuando cambia de
+ *   sentido, no en cada píxel.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
@@ -37,6 +45,8 @@ import type { Href } from "expo-router";
 import { router } from "expo-router";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   Linking,
   Platform,
@@ -161,8 +171,12 @@ const SEARCH_LAYOUT = {
   topSnapDesktop: 92,
   searchBarHeightMobile: 58,
   searchBarHeightDesktop: 64,
-  mobileTabBarHeight: 92,
-  desktopTabBarHeight: 96,
+  // La tab bar inferior se hizo más compacta (ver app/(tabs)/_layout.tsx)
+  // para dejar más hueco al scroll; estos valores acompañan esa altura
+  // real para que la barra de búsqueda "abajo" y el padding inferior del
+  // scroll no dejen un hueco de más.
+  mobileTabBarHeight: 78,
+  desktopTabBarHeight: 82,
   bottomGapMobile: 12,
   bottomGapDesktop: 14,
   widthMobilePercent: 0.86,
@@ -1093,6 +1107,43 @@ export default function HomeScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
 
+  // Ocultar/mostrar la franja superior y la barra de búsqueda flotante
+  // según la dirección del scroll: al bajar se ocultan (más sitio para ver
+  // contenido), al subir o al llegar arriba del todo vuelven a aparecer.
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const headerHiddenRef = useRef(false);
+  const lastScrollYRef = useRef(0);
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const [bannerHeight, setBannerHeight] = useState(0);
+
+  const handleScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const delta = y - lastScrollYRef.current;
+    const nearTop = y < 20;
+
+    if (nearTop && headerHiddenRef.current) {
+      headerHiddenRef.current = false;
+      setHeaderHidden(false);
+    } else if (delta > 6 && !nearTop && !headerHiddenRef.current) {
+      headerHiddenRef.current = true;
+      setHeaderHidden(true);
+    } else if (delta < -6 && headerHiddenRef.current) {
+      headerHiddenRef.current = false;
+      setHeaderHidden(false);
+    }
+
+    lastScrollYRef.current = y;
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(headerAnim, {
+      toValue: headerHidden ? 1 : 0,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [headerHidden, headerAnim]);
+
   const { width } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
 
@@ -1204,73 +1255,93 @@ export default function HomeScreen() {
       <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={{ backgroundColor: COLORS.bg2 }}>
-        <View
+        <Animated.View
           style={{
-            backgroundColor: "rgba(255, 178, 0, 0.14)",
-            borderBottomWidth: 1,
-            borderBottomColor: "rgba(255, 178, 0, 0.35)",
-            paddingVertical: 10,
-            paddingHorizontal: sidePadding,
+            height: bannerHeight
+              ? headerAnim.interpolate({ inputRange: [0, 1], outputRange: [bannerHeight, 0] })
+              : undefined,
+            opacity: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+            overflow: "hidden",
           }}
         >
-          <View
-            style={{
-              ...containerStyle,
-              flexDirection: isMobile ? "column" : "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: isMobile ? 8 : 12,
-            }}
-          >
+          <View onLayout={(e) => setBannerHeight(e.nativeEvent.layout.height)}>
             <View
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
+                backgroundColor: "rgba(255, 178, 0, 0.14)",
+                borderBottomWidth: 1,
+                borderBottomColor: "rgba(255, 178, 0, 0.35)",
+                paddingVertical: isMobile ? 7 : 10,
+                paddingHorizontal: sidePadding,
               }}
             >
-              <Ionicons name="flash-outline" size={16} color={COLORS.text} />
-              <Text
-                numberOfLines={2}
+              <View
                 style={{
-                  color: COLORS.text,
-                  fontWeight: "900",
-                  fontSize: isMobile ? 14 : 15,
-                  lineHeight: 20,
-                  textAlign: "center",
+                  ...containerStyle,
+                  flexDirection: isMobile ? "column" : "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: isMobile ? 6 : 12,
                 }}
               >
-                Te compramos tu consola en menos de 24h
-              </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 5,
+                  }}
+                >
+                  <Ionicons name="flash-outline" size={isMobile ? 13 : 16} color={COLORS.text} />
+                  <Text
+                    numberOfLines={2}
+                    style={{
+                      color: COLORS.text,
+                      fontWeight: "900",
+                      fontSize: isMobile ? 12 : 15,
+                      lineHeight: isMobile ? 16 : 20,
+                      textAlign: "center",
+                    }}
+                  >
+                    Te compramos tu consola en menos de 24h
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={() => setSellModalOpen(true)}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.85 : 1,
+                    paddingVertical: isMobile ? 6 : 8,
+                    paddingHorizontal: isMobile ? 11 : 14,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: COLORS.warningBorder,
+                    backgroundColor: COLORS.warningBg,
+                    flexShrink: 0,
+                  })}
+                >
+                  <Text
+                    style={{
+                      color: COLORS.text,
+                      fontWeight: "900",
+                      fontSize: isMobile ? 12 : 14,
+                    }}
+                  >
+                    Vender Ya
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
-            <Pressable
-              onPress={() => setSellModalOpen(true)}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.85 : 1,
-                paddingVertical: 8,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.warningBorder,
-                backgroundColor: COLORS.warningBg,
-                flexShrink: 0,
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Vender Ya</Text>
-            </Pressable>
+            <View
+              style={{
+                backgroundColor: COLORS.bg2,
+                borderBottomWidth: 1,
+                borderBottomColor: "rgba(11,33,56,0.06)",
+                height: 10,
+              }}
+            />
           </View>
-        </View>
-
-        <View
-          style={{
-            backgroundColor: COLORS.bg2,
-            borderBottomWidth: 1,
-            borderBottomColor: "rgba(11,33,56,0.06)",
-            height: 10,
-          }}
-        />
+        </Animated.View>
       </SafeAreaView>
 
       <ScrollView
@@ -1282,6 +1353,8 @@ export default function HomeScreen() {
           gap: 14,
         }}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
         <View style={{ ...containerStyle, gap: 14 }}>
           <View
@@ -1496,6 +1569,7 @@ export default function HomeScreen() {
         widthDesktopPercent={SEARCH_LAYOUT.widthDesktopPercent}
         maxWidth={SEARCH_LAYOUT.maxWidth}
         onSnapChange={setSearchSnapPosition}
+        hidden={headerHidden}
       />
 
       <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />

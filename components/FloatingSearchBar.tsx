@@ -8,6 +8,11 @@
  * muelle (spring) al soltar, y mide la altura real del teclado/viewport en
  * web para no tapar contenido. Los colores ya siguen el tema claro global
  * (fondo blanco, texto azul marino oscuro).
+ * - La prop "hidden" (la controla la pantalla de inicio según la
+ *   dirección del scroll) anima un fundido + un pequeño desplazamiento
+ *   hacia arriba para ocultarla suavemente sin perder su posición de
+ *   arrastre (animatedTop); al volver a "hidden=false" reaparece igual de
+ *   suave. Mientras está oculta no intercepta toques (pointerEvents).
  *
  * Conectado con: app/(tabs)/index.tsx → la usa como barra flotante sobre
  * la pantalla de inicio.
@@ -18,6 +23,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Animated,
+  Easing,
   PanResponder,
   Platform,
   Pressable,
@@ -71,6 +77,13 @@ type FloatingSearchBarProps = {
   maxWidth?: number;
 
   onSnapChange?: (position: SearchSnapPosition) => void;
+
+  /**
+   * true = ocultar con una animación suave (al hacer scroll hacia abajo en
+   * la pantalla de inicio). No afecta a su posición de arrastre (top/bottom
+   * snap), solo a si se ve o no en este momento.
+   */
+  hidden?: boolean;
 };
 
 const COLORS = {
@@ -184,6 +197,7 @@ export default function FloatingSearchBar({
   widthDesktopPercent = 0.74,
   maxWidth = 760,
   onSnapChange,
+  hidden = false,
 }: FloatingSearchBarProps) {
   const { width, height } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
@@ -349,6 +363,25 @@ export default function FloatingSearchBar({
     }).start();
   };
 
+  /**
+   * Ocultado por scroll: fundido + pequeño desplazamiento hacia arriba,
+   * independiente de "animatedTop" (que sigue guardando la posición de
+   * arrastre top/bottom para cuando vuelva a mostrarse).
+   */
+  const hideAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(hideAnim, {
+      toValue: hidden ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [hidden, hideAnim]);
+
+  const hideOpacity = hideAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const hideTranslateY = hideAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -24] });
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -405,7 +438,7 @@ export default function FloatingSearchBar({
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={hidden ? "none" : "box-none"}
       {...panResponder.panHandlers}
       style={{
         position: "absolute",
@@ -415,6 +448,8 @@ export default function FloatingSearchBar({
         alignItems: "center",
         zIndex: 999,
         elevation: 999,
+        opacity: hideOpacity,
+        transform: [{ translateY: hideTranslateY }],
       }}
     >
       <View
