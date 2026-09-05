@@ -14,11 +14,16 @@
  *   pegado a la izquierda.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
+ * - El botón "Vender ahora" ya no abre WhatsApp directamente: abre el
+ *   formulario "pop" de VenderAhoraModal, que guarda la solicitud en
+ *   Supabase (tabla "sell_requests") para revisarla luego en el admin.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
  * - components/FloatingSearchBar.tsx → barra de búsqueda flotante.
  * - components/Resenas.tsx → bloque de reseñas.
+ * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
+ *   (sustituye el envío por email; guarda en la tabla "sell_requests").
  * - app/catalogo.tsx, app/producto/[id].tsx, app/(tabs)/blue-ia.tsx →
  *   pantallas a las que enlazan los accesos rápidos y las tarjetas de
  *   producto destacado.
@@ -45,6 +50,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import Resenas from "../../components/Resenas";
 import FloatingSearchBar from "../../components/FloatingSearchBar";
+import VenderAhoraModal from "../../components/VenderAhoraModal";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -1079,6 +1085,7 @@ export default function HomeScreen() {
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
   const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
+  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
@@ -1318,8 +1325,8 @@ export default function HomeScreen() {
                 <PrimaryButton
                   title="Vender ahora"
                   subtitle="Te compramos tu consola o electrónica"
-                  rightHint="WA"
-                  onPress={openWhatsApp}
+                  rightHint="Ir →"
+                  onPress={() => setSellModalOpen(true)}
                   isMobile={isMobile}
                 />
               </View>
@@ -1489,6 +1496,8 @@ export default function HomeScreen() {
         maxWidth={SEARCH_LAYOUT.maxWidth}
         onSnapChange={setSearchSnapPosition}
       />
+
+      <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
     </View>
   );
 }

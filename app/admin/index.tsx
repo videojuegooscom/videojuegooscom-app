@@ -1,26 +1,23 @@
 // app/admin/index.tsx
 /**
- * Qué hace: pantalla principal del panel de administración (menú de admin).
- * Comprueba que hay una sesión de administrador válida y, si la hay, muestra
- * accesos directos a Categorías, Productos e Inventario, una checklist de
- * publicación y un botón para cerrar sesión o volver a la tienda pública.
+ * Qué hace: pantalla de inicio del panel admin. Comprueba que hay sesión y
+ * que el usuario tiene rol "admin" en la tabla profiles; si no, cierra
+ * sesión y redirige al login. Si todo está bien, muestra accesos directos
+ * a Categorías, Productos e Inventario, atajos rápidos y una checklist de
+ * publicación.
  *
- * Cómo funciona:
- * - validateAdminAccess() usa supabase.auth.getSession() y luego consulta
- *   la tabla "profiles" (columna "role"): si no hay sesión o el rol no es
- *   "admin", cierra sesión y redirige a /admin/login.
- * - Se suscribe a supabase.auth.onAuthStateChange() para revalidar el acceso
- *   si la sesión cambia mientras la pantalla está abierta.
- * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
- *   en azul marino oscuro.
+ * Cómo funciona: valida el acceso en cada carga y también cuando cambia el
+ * estado de auth de Supabase (onAuthStateChange), así que si la sesión
+ * expira o el rol cambia, expulsa automáticamente. Tema claro (fondo
+ * blanco, texto azul marino, acentos azul claro) con contenido centrado en
+ * pantallas anchas (columnStyle, maxWidth 1040).
  *
  * Conectado con:
- * - lib/supabase.ts → cliente de Supabase para leer sesión y perfil.
- * - app/admin/_layout.tsx → layout que envuelve todas las rutas /admin.
- * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/inventario.tsx
- *   → pantallas a las que enlazan las tarjetas de "Gestión principal".
- * - app/admin/login (router.replace) → a donde se redirige si el acceso no
- *   es válido.
+ * - lib/supabase.ts → cliente de Supabase para sesión, perfil y logout.
+ * - app/admin/categories.tsx, app/admin/products.tsx,
+ *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx → destino de las
+ *   tarjetas de "Gestión principal".
+ * - app/admin/login.tsx → destino cuando el acceso no es válido.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -59,6 +56,9 @@ const COLORS = {
   dangerBg: "#FFE4E6",
   dangerBorder: "#FDA4AF",
 };
+
+// Ancho máximo centrado para pantallas grandes (web/tablet); en móvil ocupa el 100%.
+const columnStyle = { width: "100%", maxWidth: 1040, alignSelf: "center" } as const;
 
 type AdminUserState = {
   checking: boolean;
@@ -370,6 +370,15 @@ export default function AdminHome() {
         badge: "Opcional",
         onPress: () => router.push("/admin/inventario"),
       },
+      {
+        key: "cotizaciones",
+        title: "Cotizaciones",
+        subtitle:
+          "Solicitudes de \"Vender ahora\" enviadas por clientes: artículo, estado, ciudad y precio esperado.",
+        icon: "document-text-outline" as IoniconName,
+        badge: "Leads",
+        onPress: () => router.push("/admin/cotizaciones"),
+      },
     ],
     []
   );
@@ -445,41 +454,33 @@ export default function AdminHome() {
           style={{
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
-            borderBottomColor: "#E3EAF2",
+            borderBottomColor: "#F6FAFD",
             paddingHorizontal: pagePadding,
             paddingTop: isMobile ? 12 : 14,
             paddingBottom: 14,
-            alignItems: "center",
+            gap: 10,
           }}
         >
-          {/* Columna centrada: mismo ancho máximo que el contenido de abajo */}
-          <View style={{ width: "100%", maxWidth: 1040, gap: 10 }}>
+        <View style={{ ...columnStyle, gap: 10 }}>
           <Text
             style={{
               color: COLORS.text,
               fontSize: isMobile ? 22 : 24,
               fontWeight: "900",
               lineHeight: isMobile ? 28 : 30,
-              textAlign: isMobile ? "center" : "left",
             }}
           >
             Panel Admin
           </Text>
 
-          <Text
-            style={{
-              color: COLORS.muted,
-              lineHeight: 20,
-              textAlign: isMobile ? "center" : "left",
-            }}
-          >
+          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
             Gestiona categorías, productos y estructura comercial. Lo que publiques aquí
             es lo que el cliente percibe fuera.
           </Text>
 
           <View
             style={{
-              alignSelf: isMobile ? "center" : "flex-start",
+              alignSelf: "flex-start",
               paddingVertical: 6,
               paddingHorizontal: 10,
               borderRadius: 999,
@@ -552,7 +553,7 @@ export default function AdminHome() {
               )}
             </Pressable>
           </View>
-          </View>
+        </View>
         </View>
 
         <ScrollView
@@ -562,8 +563,7 @@ export default function AdminHome() {
             alignItems: "center",
           }}
         >
-          {/* Columna centrada: mismo ancho máximo que la cabecera */}
-          <View style={{ width: "100%", maxWidth: 1040, gap: 14 }}>
+        <View style={{ ...columnStyle, gap: 14 }}>
           <View
             style={{
               borderRadius: 22,
@@ -598,7 +598,7 @@ export default function AdminHome() {
           <View>
             <SectionTitle
               title="Gestión principal"
-              subtitle="Las tres piezas clave del sistema. Aquí está el núcleo operativo."
+              subtitle="Las piezas clave del sistema. Aquí está el núcleo operativo."
               isMobile={isMobile}
             />
 
@@ -709,7 +709,7 @@ export default function AdminHome() {
               más que veinte fichas mediocres. Aquí o queda serio o queda cutre, no hay término medio.
             </Text>
           </View>
-          </View>
+        </View>
         </ScrollView>
       </SafeAreaView>
     </View>
