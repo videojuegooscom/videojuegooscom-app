@@ -13,7 +13,12 @@
  * - Estado de cada solicitud: nuevo → revisado → contactado, o descartado
  *   en cualquier momento. Son botones, no un desplegable, para poder
  *   avanzar el flujo con un solo toque.
- * - Filtro rápido por estado + buscador por artículo, ciudad o contacto.
+ * - Cada tarjeta muestra los datos del cliente (nombre, apellido, género,
+ *   confirmación de mayoría de edad), el método/valor de contacto elegido y
+ *   cómo entrega el artículo (recogida en su domicilio con dirección, o él
+ *   se desplaza, con su disponibilidad horaria).
+ * - Filtro rápido por estado + buscador por nombre, artículo, ciudad o
+ *   contacto.
  * - Tema claro (fondo blanco, texto azul marino, acentos azul claro) con
  *   contenido centrado en pantallas anchas (columnStyle, maxWidth 1160).
  *   El fondo oscuro semitransparente detrás del modal de confirmación de
@@ -74,18 +79,30 @@ const columnStyle = { width: "100%", maxWidth: 1160, alignSelf: "center" } as co
 const modalColumnStyle = { width: "100%", maxWidth: 560, alignSelf: "center" } as const;
 
 type SellRequestStatus = "nuevo" | "revisado" | "contactado" | "descartado";
+type MetodoContacto = "whatsapp" | "gmail" | "instagram" | "facebook" | "tiktok";
+type OpcionVenta = "domicilio" | "entrega";
+type Disponibilidad = "manana" | "mediodia" | "tardenoche";
+type Genero = "masculino" | "femenino";
 
 type SellRequestRow = {
   id: string;
   created_at: string;
   updated_at: string;
+  nombre: string;
+  apellido: string;
   articulo: string;
   funciona_bien: boolean;
   motivo_venta: string | null;
   descripcion_problema: string | null;
   ciudad: string;
   precio_estimado: string;
+  metodo_contacto: MetodoContacto | null;
   contacto: string | null;
+  opcion_venta: OpcionVenta;
+  direccion: string | null;
+  disponibilidad: Disponibilidad | null;
+  mayor_edad: boolean;
+  genero: Genero;
   status: SellRequestStatus;
 };
 
@@ -94,6 +111,25 @@ const STATUS_LABEL: Record<SellRequestStatus, string> = {
   revisado: "Revisada",
   contactado: "Contactada",
   descartado: "Descartada",
+};
+
+const METODO_LABEL: Record<MetodoContacto, string> = {
+  whatsapp: "WhatsApp",
+  gmail: "Gmail",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  tiktok: "TikTok",
+};
+
+const DISPONIBILIDAD_LABEL: Record<Disponibilidad, string> = {
+  manana: "Mañana",
+  mediodia: "Medio día",
+  tardenoche: "Tarde noche",
+};
+
+const GENERO_LABEL: Record<Genero, string> = {
+  masculino: "Masculino",
+  femenino: "Femenino",
 };
 
 const STATUS_COLORS: Record<SellRequestStatus, { bg: string; border: string }> = {
@@ -295,6 +331,8 @@ export default function AdminCotizaciones() {
 
       return (
         String(r.articulo ?? "").toLowerCase().includes(q) ||
+        String(r.nombre ?? "").toLowerCase().includes(q) ||
+        String(r.apellido ?? "").toLowerCase().includes(q) ||
         String(r.ciudad ?? "").toLowerCase().includes(q) ||
         String(r.contacto ?? "").toLowerCase().includes(q)
       );
@@ -309,7 +347,7 @@ export default function AdminCotizaciones() {
       const res = await supabase
         .from("sell_requests")
         .select(
-          "id,created_at,updated_at,articulo,funciona_bien,motivo_venta,descripcion_problema,ciudad,precio_estimado,contacto,status"
+          "id,created_at,updated_at,nombre,apellido,articulo,funciona_bien,motivo_venta,descripcion_problema,ciudad,precio_estimado,metodo_contacto,contacto,opcion_venta,direccion,disponibilidad,mayor_edad,genero,status"
         )
         .order("created_at", { ascending: false });
 
@@ -462,7 +500,7 @@ export default function AdminCotizaciones() {
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder="Buscar por artículo, ciudad o contacto"
+              placeholder="Buscar por nombre, artículo, ciudad o contacto"
               placeholderTextColor="rgba(11,33,56,0.40)"
               style={{
                 borderWidth: 1,
@@ -572,6 +610,9 @@ export default function AdminCotizaciones() {
                         >
                           {r.articulo}
                         </Text>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", marginTop: 2 }}>
+                          {r.nombre} {r.apellido}
+                        </Text>
                         <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 4 }}>
                           {r.created_at ? new Date(r.created_at).toLocaleString() : "-"}
                         </Text>
@@ -639,15 +680,53 @@ export default function AdminCotizaciones() {
                           💶 {r.precio_estimado}
                         </Text>
                       </View>
+
+                      <View
+                        style={{
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          backgroundColor: "#F6FAFD",
+                        }}
+                      >
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                          {GENERO_LABEL[r.genero]}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={{
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: r.mayor_edad ? COLORS.successBorder : COLORS.warningBorder,
+                          backgroundColor: r.mayor_edad ? COLORS.successBg : COLORS.warningBg,
+                        }}
+                      >
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                          {r.mayor_edad ? "18+ confirmado" : "Edad sin confirmar"}
+                        </Text>
+                      </View>
                     </View>
 
                     <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
                       {r.funciona_bien ? r.motivo_venta : r.descripcion_problema}
                     </Text>
 
+                    <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>
+                      {r.opcion_venta === "domicilio"
+                        ? `Recogida en domicilio: ${r.direccion ?? "-"}`
+                        : `Cliente se desplaza a entregar · Disponibilidad: ${
+                            r.disponibilidad ? DISPONIBILIDAD_LABEL[r.disponibilidad] : "-"
+                          }`}
+                    </Text>
+
                     {!!r.contacto && (
                       <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>
-                        Contacto: {r.contacto}
+                        Contacto{r.metodo_contacto ? ` (${METODO_LABEL[r.metodo_contacto]})` : ""}: {r.contacto}
                       </Text>
                     )}
 
