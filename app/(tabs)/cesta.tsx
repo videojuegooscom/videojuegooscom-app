@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
@@ -615,7 +616,10 @@ export default function CestaScreen() {
                         paddingHorizontal: 12,
                       })}
                     >
-                      <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>🗑️ Quitar</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Ionicons name="trash-outline" size={14} color="#FCA5A5" />
+                        <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Quitar</Text>
+                      </View>
                     </Pressable>
                   </View>
                 </View>

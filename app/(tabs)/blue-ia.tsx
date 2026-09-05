@@ -9,6 +9,9 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
   bg: "#071E33",
@@ -34,7 +37,7 @@ const COLORS = {
 
 type QuickAction = {
   id: string;
-  icon: string;
+  icon: IoniconName;
   title: string;
   desc: string;
 };
@@ -58,25 +61,25 @@ export default function BlueIAScreen() {
     () => [
       {
         id: "1",
-        icon: "🎮",
+        icon: "game-controller-outline",
         title: "Ayúdame a elegir",
         desc: "Dime tu presupuesto y te recomiendo lo que mejor te encaja.",
       },
       {
         id: "2",
-        icon: "💸",
+        icon: "cash-outline",
         title: "Quiero vender",
         desc: "Te explico cómo vender tu consola, móvil o accesorio.",
       },
       {
         id: "3",
-        icon: "🔁",
+        icon: "swap-horizontal-outline",
         title: "Quiero cambiar",
         desc: "Te ayudo si quieres entregar algo como parte de pago.",
       },
       {
         id: "4",
-        icon: "🧰",
+        icon: "construct-outline",
         title: "Reparación o limpieza",
         desc: "Resuelvo dudas sobre averías, mantenimiento y servicios.",
       },
@@ -552,7 +555,7 @@ function QuickActionCard({ item }: { item: QuickAction }) {
               borderColor: "rgba(255,255,255,0.08)",
             }}
           >
-            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+            <Ionicons name={item.icon} size={22} color={COLORS.text} />
           </View>
 
           <Text

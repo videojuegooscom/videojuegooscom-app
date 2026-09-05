@@ -15,7 +15,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
   bg: "#071E33",
@@ -110,7 +113,7 @@ function StatCard({
 }: {
   label: string;
   value: string;
-  icon?: string;
+  icon?: IoniconName;
   isMobile?: boolean;
   compact?: boolean;
 }) {
@@ -125,10 +128,12 @@ function StatCard({
         padding: isMobile ? 12 : 14,
       }}
     >
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
-        {icon ? `${icon} ` : ""}
-        {label}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+          {label}
+        </Text>
+      </View>
       <Text
         style={{
           color: COLORS.text,
@@ -515,9 +520,9 @@ export default function AdminCategories() {
             justifyContent: "space-between",
           }}
         >
-          <StatCard label="Total" value={String(stats.total)} icon="🗂️" isMobile={isMobile} compact />
-          <StatCard label="Activas" value={String(stats.active)} icon="✅" isMobile={isMobile} compact />
-          <StatCard label="Ocultas" value={String(stats.hidden)} icon="🙈" isMobile={isMobile} compact />
+          <StatCard label="Total" value={String(stats.total)} icon="folder-outline" isMobile={isMobile} compact />
+          <StatCard label="Activas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
+          <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} compact />
         </View>
 
         <View
@@ -671,7 +676,7 @@ export default function AdminCategories() {
                         style={{ width: "100%", height: "100%" }}
                       />
                     ) : (
-                      <Text style={{ fontSize: 28 }}>🗂️</Text>
+                      <Ionicons name="folder-outline" size={28} color={COLORS.muted2} />
                     )}
                   </View>
 

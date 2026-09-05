@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COLORS = {
@@ -469,9 +470,24 @@ export default function CheckoutScreen() {
                 }}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>Confianza</Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  ✅ Productos revisados · 🚚 Envío España · 🧾 Recibo · 🧑‍🔧 Soporte
-                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 2 }}>
+                  {(
+                    [
+                      { icon: "checkmark-circle-outline", label: "Productos revisados" },
+                      { icon: "cube-outline", label: "Envío España" },
+                      { icon: "receipt-outline", label: "Recibo" },
+                      { icon: "headset-outline", label: "Soporte" },
+                    ] as const
+                  ).map((item) => (
+                    <View
+                      key={item.label}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                    >
+                      <Ionicons name={item.icon} size={14} color={COLORS.muted} />
+                      <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{item.label}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             </View>
 
@@ -504,7 +520,10 @@ export default function CheckoutScreen() {
                   backgroundColor: "rgba(255,255,255,0.06)",
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>📲 Pedir por WhatsApp</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
+                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Pedir por WhatsApp</Text>
+                </View>
               </Pressable>
             </View>
           </ScrollView>

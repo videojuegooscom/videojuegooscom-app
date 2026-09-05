@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 
 const COLORS = {
@@ -706,11 +707,14 @@ export default function CatalogoScreen() {
                   backgroundColor: COLORS.accent2,
                 })}
               >
-                <Text
-                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}
-                >
-                  🛒 Cesta
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Ionicons name="cart-outline" size={16} color={COLORS.text} />
+                  <Text
+                    style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14 }}
+                  >
+                    Cesta
+                  </Text>
+                </View>
               </Pressable>
 
               <Pressable
@@ -855,7 +859,7 @@ export default function CatalogoScreen() {
                 gap: 10,
               }}
             >
-              <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 16 }}>🔎</Text>
+              <Ionicons name="search-outline" size={16} color={COLORS.muted} />
 
               <TextInput
                 value={q}

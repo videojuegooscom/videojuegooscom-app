@@ -12,6 +12,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import {
   COLORS,
@@ -910,10 +911,10 @@ export default function AdminProducts() {
             justifyContent: "space-between",
           }}
         >
-          <StatCard label="Total" value={String(stats.total)} icon="📦" isMobile={isMobile} compact />
-          <StatCard label="Publicados" value={String(stats.published)} icon="✅" isMobile={isMobile} compact />
-          <StatCard label="Visibles" value={String(stats.visible)} icon="👁️" isMobile={isMobile} compact />
-          <StatCard label="Destacados home" value={String(stats.featured)} icon="🔥" isMobile={isMobile} compact />
+          <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} compact />
+          <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
+          <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} compact />
+          <StatCard label="Destacados home" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} compact />
         </View>
 
         {!!screenErr && (
@@ -1091,13 +1092,13 @@ export default function AdminProducts() {
                         />
                       ) : primaryKind === "video" ? (
                         <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
-                          <Text style={{ fontSize: 30 }}>🎬</Text>
+                          <Ionicons name="videocam-outline" size={30} color={COLORS.text} />
                           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
                             Vídeo
                           </Text>
                         </View>
                       ) : (
-                        <Text style={{ fontSize: 28 }}>🎮</Text>
+                        <Ionicons name="game-controller-outline" size={28} color={COLORS.muted2} />
                       )}
                     </View>
 

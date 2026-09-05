@@ -13,7 +13,10 @@ import {
   View,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
   bg: "#071E33",
@@ -473,7 +476,7 @@ function ActionChip({
   onPress: () => void;
   disabled?: boolean;
   tone?: "accent" | "ghost";
-  icon?: string;
+  icon?: IoniconName;
   isMobile?: boolean;
 }) {
   const accentTone = tone === "accent";
@@ -495,11 +498,7 @@ function ActionChip({
         gap: 6,
       })}
     >
-      {icon ? (
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-          {icon}
-        </Text>
-      ) : null}
+      {icon ? <Ionicons name={icon} size={14} color={COLORS.text} /> : null}
 
       <Text
         style={{
@@ -1055,7 +1054,7 @@ ${price}
                 >
                   <ActionChip
                     label="Cesta"
-                    icon="🛒"
+                    icon="cart-outline"
                     onPress={() => pushRoute("/cesta" as Href)}
                     isMobile={isMobile}
                   />
@@ -1227,9 +1226,12 @@ ${price}
                       alignSelf: isMobile ? "stretch" : "flex-start",
                     })}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                      📲 Preguntar por WhatsApp
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
+                      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                        Preguntar por WhatsApp
+                      </Text>
+                    </View>
                   </Pressable>
                 </View>
               </View>

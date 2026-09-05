@@ -12,7 +12,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
   bg: "#071E33",
@@ -64,7 +67,7 @@ function CardButton({
   title: string;
   subtitle: string;
   onPress: () => void;
-  icon?: string;
+  icon?: IoniconName;
   badge?: string;
   isMobile?: boolean;
 }) {
@@ -90,17 +93,19 @@ function CardButton({
         }}
       >
         <View style={{ flex: 1 }}>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontWeight: "900",
-              fontSize: isMobile ? 15 : 16,
-              lineHeight: 22,
-            }}
-          >
-            {icon ? `${icon} ` : ""}
-            {title}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {icon ? <Ionicons name={icon} size={16} color={COLORS.text} /> : null}
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: isMobile ? 15 : 16,
+                lineHeight: 22,
+              }}
+            >
+              {title}
+            </Text>
+          </View>
 
           <Text
             style={{
@@ -145,7 +150,7 @@ function SmallStat({
 }: {
   label: string;
   value: string;
-  icon?: string;
+  icon?: IoniconName;
   isMobile?: boolean;
   compact?: boolean;
 }) {
@@ -160,10 +165,12 @@ function SmallStat({
         padding: isMobile ? 12 : 14,
       }}
     >
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
-        {icon ? `${icon} ` : ""}
-        {label}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+          {label}
+        </Text>
+      </View>
       <Text
         style={{
           color: COLORS.text,
@@ -318,7 +325,7 @@ export default function AdminHome() {
         title: "Categorías",
         subtitle:
           "Crear, ordenar, activar o desactivar las secciones que definen la navegación comercial de la tienda.",
-        icon: "🗂️",
+        icon: "folder-outline" as IoniconName,
         badge: "Base",
         onPress: () => router.push("/admin/categories"),
       },
@@ -327,7 +334,7 @@ export default function AdminHome() {
         title: "Productos",
         subtitle:
           "Crear, editar, publicar, revisar precio, imágenes, estado y visibilidad de cada producto.",
-        icon: "🧩",
+        icon: "pricetags-outline" as IoniconName,
         badge: "Ventas",
         onPress: () => router.push("/admin/products"),
       },
@@ -336,7 +343,7 @@ export default function AdminHome() {
         title: "Inventario",
         subtitle:
           "Control interno de stock y operativa. Si todavía no lo usas, puede quedarse como fase posterior.",
-        icon: "📦",
+        icon: "cube-outline" as IoniconName,
         badge: "Opcional",
         onPress: () => router.push("/admin/inventario"),
       },
@@ -547,9 +554,9 @@ export default function AdminHome() {
                 justifyContent: "space-between",
               }}
             >
-              <SmallStat label="Acceso" value="Protegido" icon="🔐" isMobile={isMobile} compact />
-              <SmallStat label="Rol" value="Admin" icon="👤" isMobile={isMobile} compact />
-              <SmallStat label="Objetivo" value="Publicar bien" icon="🚀" isMobile={isMobile} compact />
+              <SmallStat label="Acceso" value="Protegido" icon="lock-closed-outline" isMobile={isMobile} compact />
+              <SmallStat label="Rol" value="Admin" icon="person-outline" isMobile={isMobile} compact />
+              <SmallStat label="Objetivo" value="Publicar bien" icon="rocket-outline" isMobile={isMobile} compact />
             </View>
           </View>
 

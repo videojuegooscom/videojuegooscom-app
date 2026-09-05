@@ -15,9 +15,12 @@ import {
   useWindowDimensions,
   type LayoutChangeEvent,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import Resenas from "../../components/Resenas";
 import FloatingSearchBar from "../../components/FloatingSearchBar";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -61,7 +64,7 @@ type FeaturedProduct = {
 
 type HomeCategory = {
   title: string;
-  emoji: string;
+  icon: IoniconName;
   cat: string;
   span?: 1 | 2;
   cta?: string;
@@ -98,20 +101,20 @@ type ProductMediaRow = {
 type SearchSnapPosition = "top" | "bottom";
 
 const HOME_CATEGORIES: HomeCategory[] = [
-  { title: "PlayStation 5", emoji: "🎮", cat: "playstation-5", cta: "Ver categoría →" },
-  { title: "PlayStation 4", emoji: "🕹️", cat: "playstation-4", cta: "Ver categoría →" },
-  { title: "Nintendo Switch", emoji: "🟥", cat: "nintendo-switch", cta: "Ver categoría →" },
-  { title: "Xbox", emoji: "🟩", cat: "xbox", cta: "Ver categoría →" },
+  { title: "PlayStation 5", icon: "game-controller-outline", cat: "playstation-5", cta: "Ver categoría →" },
+  { title: "PlayStation 4", icon: "game-controller-outline", cat: "playstation-4", cta: "Ver categoría →" },
+  { title: "Nintendo Switch", icon: "game-controller-outline", cat: "nintendo-switch", cta: "Ver categoría →" },
+  { title: "Xbox", icon: "game-controller-outline", cat: "xbox", cta: "Ver categoría →" },
   {
     title: "Reparación / Limpieza",
-    emoji: "🛠️",
+    icon: "construct-outline",
     cat: "reparaciones",
     span: 2,
     cta: "Pedir información →",
   },
   {
     title: "Otros (electrónica)",
-    emoji: "📦",
+    icon: "cube-outline",
     cat: "electronica",
     span: 2,
     cta: "Ver categoría →",
@@ -469,7 +472,7 @@ function Pill({
   isMobile,
 }: {
   text: string;
-  icon?: string;
+  icon?: IoniconName;
   isMobile?: boolean;
 }) {
   return (
@@ -486,7 +489,7 @@ function Pill({
         gap: 6,
       }}
     >
-      {!!icon && <Text style={{ color: COLORS.text }}>{icon}</Text>}
+      {!!icon && <Ionicons name={icon} size={isMobile ? 13 : 14} color={COLORS.accentDark} />}
       <Text
         style={{
           color: "rgba(11,33,56,0.78)",
@@ -634,14 +637,14 @@ function SecondaryButton({
 
 function CategoryCard({
   title,
-  emoji,
+  icon,
   onPress,
   cta,
   widthPercent,
   isMobile,
 }: {
   title: string;
-  emoji: string;
+  icon: IoniconName;
   onPress: () => void;
   cta?: string;
   widthPercent?: string;
@@ -661,7 +664,18 @@ function CategoryCard({
         opacity: pressed ? 0.9 : 1,
       })}
     >
-      <Text style={{ fontSize: isMobile ? 21 : 22 }}>{emoji}</Text>
+      <View
+        style={{
+          width: isMobile ? 38 : 40,
+          height: isMobile ? 38 : 40,
+          borderRadius: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: COLORS.accent2,
+        }}
+      >
+        <Ionicons name={icon} size={isMobile ? 20 : 21} color={COLORS.accentDark} />
+      </View>
 
       <Text
         style={{
@@ -905,7 +919,7 @@ Precio: ${fmtEUR(item.priceEUR)}
                 padding: 20,
               }}
             >
-              <Text style={{ fontSize: 40 }}>🎮</Text>
+              <Ionicons name="game-controller-outline" size={40} color={COLORS.muted} />
               <Text style={{ color: COLORS.text, fontWeight: "900", marginTop: 10 }}>
                 Producto destacado
               </Text>
@@ -999,9 +1013,9 @@ Precio: ${fmtEUR(item.priceEUR)}
           </Text>
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <Pill icon="🔥" text="Destacado" isMobile={isMobile} />
-            <Pill icon="✅" text="Revisado" isMobile={isMobile} />
-            {item.categoryName ? <Pill icon="📦" text={item.categoryName} isMobile={isMobile} /> : null}
+            <Pill icon="flame-outline" text="Destacado" isMobile={isMobile} />
+            <Pill icon="checkmark-circle-outline" text="Revisado" isMobile={isMobile} />
+            {item.categoryName ? <Pill icon="cube-outline" text={item.categoryName} isMobile={isMobile} /> : null}
           </View>
 
           <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -1171,7 +1185,17 @@ export default function HomeScreen() {
               gap: 10,
             }}
           >
-            <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+            <View
+              style={{
+                flex: 1,
+                minWidth: 0,
+                paddingRight: 8,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Ionicons name="flash-outline" size={16} color={COLORS.text} />
               <Text
                 numberOfLines={2}
                 style={{
@@ -1179,9 +1203,10 @@ export default function HomeScreen() {
                   fontWeight: "900",
                   fontSize: isMobile ? 14 : 15,
                   lineHeight: 20,
+                  flexShrink: 1,
                 }}
               >
-                ⚡ Te compramos tu consola en menos de 24h
+                Te compramos tu consola en menos de 24h
               </Text>
             </View>
 
@@ -1274,10 +1299,10 @@ export default function HomeScreen() {
             </View>
 
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 2 }}>
-              <Pill icon="✅" text="Garantía" isMobile={isMobile} />
-              <Pill icon="🚚" text="Envíos en España" isMobile={isMobile} />
-              <Pill icon="⚙️" text="Productos revisados" isMobile={isMobile} />
-              <Pill icon="⚡" text="Pago rápido" isMobile={isMobile} />
+              <Pill icon="checkmark-circle-outline" text="Garantía" isMobile={isMobile} />
+              <Pill icon="cube-outline" text="Envíos en España" isMobile={isMobile} />
+              <Pill icon="shield-checkmark-outline" text="Productos revisados" isMobile={isMobile} />
+              <Pill icon="flash-outline" text="Pago rápido" isMobile={isMobile} />
             </View>
           </View>
 
@@ -1346,7 +1371,7 @@ export default function HomeScreen() {
                   <CategoryCard
                     key={category.cat}
                     title={category.title}
-                    emoji={category.emoji}
+                    icon={category.icon}
                     cta={category.cta}
                     onPress={onPress}
                     widthPercent={categoryCardWidth(category.span)}

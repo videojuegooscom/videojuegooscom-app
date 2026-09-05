@@ -1,6 +1,9 @@
 import React from "react";
 import { Image, Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "./products.constants";
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
 
 type MediaLike = ProductMediaRow | LocalPickedMedia;
@@ -96,7 +99,7 @@ export function StatCard({
 }: {
   label: string;
   value: string;
-  icon?: string;
+  icon?: IoniconName;
   isMobile?: boolean;
   compact?: boolean;
 }) {
@@ -111,10 +114,12 @@ export function StatCard({
         padding: isMobile ? 12 : 14,
       }}
     >
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
-        {icon ? `${icon} ` : ""}
-        {label}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+          {label}
+        </Text>
+      </View>
 
       <Text
         style={{
@@ -290,7 +295,11 @@ export function MediaThumb({
               gap: 6,
             }}
           >
-            <Text style={{ fontSize: 28 }}>{kind === "video" ? "🎬" : "🖼️"}</Text>
+            <Ionicons
+              name={kind === "video" ? "videocam-outline" : "image-outline"}
+              size={28}
+              color={COLORS.muted2}
+            />
             <Text
               style={{
                 color: COLORS.text,
