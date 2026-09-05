@@ -4,12 +4,12 @@ import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 const COLORS = {
-  bg: "#071E33",
-  card: "#0B2742",
-  border: "rgba(255,255,255,0.10)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.58)",
-  accent: "#00AAE4",
+  bg: "#FFFFFF",
+  card: "#FFFFFF",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.55)",
+  accent: "#1EA7E8",
 };
 
 export default function TabsLayout() {
@@ -31,6 +31,10 @@ export default function TabsLayout() {
           height: Platform.OS === "ios" ? 84 : 72,
           paddingTop: 8,
           paddingBottom: Platform.OS === "ios" ? 22 : 10,
+          ...Platform.select({
+            web: { boxShadow: "0 -6px 20px rgba(11,33,56,0.06)" },
+            default: {},
+          }),
         },
         tabBarItemStyle: {
           paddingVertical: 2,

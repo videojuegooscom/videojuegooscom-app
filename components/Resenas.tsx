@@ -2,17 +2,17 @@ import React from "react";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
 
 const COLORS = {
-  card: "rgba(255,255,255,0.06)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  muted2: "rgba(255,255,255,0.58)",
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
-  successBg: "rgba(34,197,94,0.16)",
-  successBorder: "rgba(34,197,94,0.34)",
-  gold: "#F7C948",
+  card: "#FFFFFF",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  successBg: "#E7F8EE",
+  successBorder: "#BCEBCB",
+  gold: "#F0B429",
 };
 
 function softShadow() {
@@ -52,8 +52,8 @@ function StatPill({
         minWidth: isMobile ? 100 : 120,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        backgroundColor: "rgba(255,255,255,0.05)",
+        borderColor: "rgba(11,33,56,0.10)",
+        backgroundColor: "#F6FAFD",
         paddingVertical: isMobile ? 10 : 12,
         paddingHorizontal: isMobile ? 12 : 14,
       }}
@@ -94,8 +94,8 @@ function ReviewMiniCard({
         width: "100%",
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        backgroundColor: "rgba(255,255,255,0.04)",
+        borderColor: "rgba(11,33,56,0.10)",
+        backgroundColor: "#F6FAFD",
         padding: isMobile ? 12 : 14,
       }}
     >
@@ -232,13 +232,13 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
               paddingHorizontal: 14,
               borderWidth: 1,
               borderColor: COLORS.accentBorder,
-              backgroundColor: "rgba(255,255,255,0.08)",
+              backgroundColor: "#FFFFFF",
               alignSelf: isMobile ? "stretch" : "center",
             })}
           >
             <Text
               style={{
-                color: COLORS.text,
+                color: COLORS.accent,
                 fontWeight: "900",
                 textAlign: "center",
               }}

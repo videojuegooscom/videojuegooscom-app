@@ -20,19 +20,25 @@ import Resenas from "../../components/Resenas";
 import FloatingSearchBar from "../../components/FloatingSearchBar";
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
-  warningBg: "rgba(255, 215, 0, 0.18)",
-  warningBorder: "rgba(255, 215, 0, 0.40)",
-  successBg: "rgba(34,197,94,0.16)",
-  successBorder: "rgba(34,197,94,0.34)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#FFFFFF",
+  cardBorder: "#E3EAF2",
+  border: "#E3EAF2",
+  tile: "#F6FAFD",
+  tileBorder: "rgba(11,33,56,0.10)",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accentDark: "#0F8FCC",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  onAccent: "#FFFFFF",
+  warningBg: "rgba(255, 178, 0, 0.14)",
+  warningBorder: "rgba(255, 178, 0, 0.45)",
+  successBg: "#E7F8EE",
+  successBorder: "#BCEBCB",
 };
 
 const BRAND = {
@@ -473,8 +479,8 @@ function Pill({
         paddingHorizontal: isMobile ? 9 : 10,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        backgroundColor: "rgba(255,255,255,0.06)",
+        borderColor: "rgba(11,33,56,0.12)",
+        backgroundColor: "#F6FAFD",
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
@@ -483,7 +489,7 @@ function Pill({
       {!!icon && <Text style={{ color: COLORS.text }}>{icon}</Text>}
       <Text
         style={{
-          color: "rgba(255,255,255,0.85)",
+          color: "rgba(11,33,56,0.78)",
           fontWeight: "800",
           fontSize: isMobile ? 12 : 13,
         }}
@@ -513,11 +519,11 @@ function PrimaryButton({
       style={({ pressed }) => ({
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: COLORS.accentBorder,
-        backgroundColor: COLORS.accent2,
+        borderColor: COLORS.accentDark,
+        backgroundColor: COLORS.accent,
         paddingVertical: isMobile ? 13 : 14,
         paddingHorizontal: isMobile ? 14 : 16,
-        opacity: pressed ? 0.88 : 1,
+        opacity: pressed ? 0.9 : 1,
         ...softShadow(),
       })}
     >
@@ -525,7 +531,7 @@ function PrimaryButton({
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text
             style={{
-              color: COLORS.text,
+              color: COLORS.onAccent,
               fontWeight: "900",
               fontSize: isMobile ? 15 : 16,
               lineHeight: isMobile ? 20 : 22,
@@ -537,7 +543,7 @@ function PrimaryButton({
           {!!subtitle && (
             <Text
               style={{
-                color: "rgba(255,255,255,0.80)",
+                color: "rgba(255,255,255,0.85)",
                 marginTop: 4,
                 lineHeight: 18,
                 fontSize: isMobile ? 13 : 14,
@@ -555,14 +561,14 @@ function PrimaryButton({
               paddingHorizontal: 10,
               borderRadius: 999,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.14)",
-              backgroundColor: "rgba(255,255,255,0.06)",
+              borderColor: "rgba(255,255,255,0.35)",
+              backgroundColor: "rgba(255,255,255,0.16)",
               alignSelf: "flex-start",
             }}
           >
             <Text
               style={{
-                color: "rgba(255,255,255,0.90)",
+                color: "#FFFFFF",
                 fontWeight: "900",
                 fontSize: 12,
               }}
@@ -592,9 +598,9 @@ function SecondaryButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
+        borderWidth: 1.5,
+        borderColor: COLORS.accentBorder,
+        backgroundColor: "#FFFFFF",
         paddingVertical: isMobile ? 13 : 14,
         paddingHorizontal: isMobile ? 14 : 16,
         opacity: pressed ? 0.88 : 1,
@@ -602,7 +608,7 @@ function SecondaryButton({
     >
       <Text
         style={{
-          color: COLORS.text,
+          color: COLORS.accentDark,
           fontWeight: "900",
           fontSize: isMobile ? 15 : 16,
         }}
@@ -613,7 +619,7 @@ function SecondaryButton({
       {!!subtitle && (
         <Text
           style={{
-            color: "rgba(255,255,255,0.70)",
+            color: COLORS.muted,
             marginTop: 4,
             lineHeight: 18,
             fontSize: isMobile ? 13 : 14,
@@ -631,26 +637,26 @@ function CategoryCard({
   emoji,
   onPress,
   cta,
-  forceFullWidth,
+  widthPercent,
   isMobile,
 }: {
   title: string;
   emoji: string;
   onPress: () => void;
   cta?: string;
-  forceFullWidth?: boolean;
+  widthPercent?: string;
   isMobile?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        width: forceFullWidth ? "100%" : isMobile ? "100%" : "48.8%",
+        width: widthPercent ?? (isMobile ? "100%" : "48.8%"),
         minHeight: isMobile ? 92 : 100,
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
+        borderColor: COLORS.tileBorder,
+        backgroundColor: COLORS.tile,
         padding: isMobile ? 12 : 14,
         opacity: pressed ? 0.9 : 1,
       })}
@@ -700,7 +706,7 @@ function FooterLink({
     >
       <Text
         style={{
-          color: "rgba(255,255,255,0.78)",
+          color: "rgba(11,33,56,0.72)",
           fontWeight: "700",
           lineHeight: 20,
         }}
@@ -759,7 +765,7 @@ function FooterAccordionSection({
             paddingHorizontal: 14,
             paddingBottom: 14,
             borderTopWidth: 1,
-            borderTopColor: "rgba(255,255,255,0.08)",
+            borderTopColor: "rgba(11,33,56,0.08)",
           }}
         >
           <View style={{ paddingTop: 8, gap: 2 }}>{children}</View>
@@ -772,15 +778,17 @@ function FooterAccordionSection({
 function FeaturedOfferCard({
   item,
   isDesktopish,
+  isWide,
   isMobile,
   onPressCategories,
 }: {
   item: FeaturedProduct | null;
   isDesktopish: boolean;
+  isWide?: boolean;
   isMobile: boolean;
   onPressCategories: () => void;
 }) {
-  const mediaHeight = isDesktopish ? 280 : isMobile ? 210 : 240;
+  const mediaHeight = isWide ? 320 : isDesktopish ? 280 : isMobile ? 210 : 240;
 
   if (!item) {
     return (
@@ -874,7 +882,7 @@ Precio: ${fmtEUR(item.priceEUR)}
           style={{
             flex: isDesktopish ? 1.05 : undefined,
             height: mediaHeight,
-            backgroundColor: "rgba(255,255,255,0.04)",
+            backgroundColor: COLORS.tile,
             position: "relative",
           }}
         >
@@ -891,6 +899,7 @@ Precio: ${fmtEUR(item.priceEUR)}
             <View
               style={{
                 height: mediaHeight,
+                backgroundColor: COLORS.tile,
                 alignItems: "center",
                 justifyContent: "center",
                 padding: 20,
@@ -1038,17 +1047,31 @@ export default function HomeScreen() {
 
   const isMobile = widthSafe < 700;
   const isDesktopish = widthSafe >= 900;
+  const isWide = widthSafe >= 1280;
+
+  const containerMaxWidth = isWide ? 1240 : isDesktopish ? 1040 : 920;
 
   const containerStyle = useMemo(
     () => ({
       width: "100%" as const,
-      maxWidth: 920,
+      maxWidth: containerMaxWidth,
       alignSelf: "center" as const,
     }),
-    []
+    [containerMaxWidth]
   );
 
-  const sidePadding = isMobile ? 12 : 16;
+  const categoryColumns = isMobile ? 1 : isWide ? 3 : 2;
+
+  const categoryCardWidth = useCallback(
+    (span?: 1 | 2) => {
+      if (isMobile) return "100%";
+      if (categoryColumns === 3) return span === 2 ? "66.2%" : "32%";
+      return span === 2 ? "100%" : "48.8%";
+    },
+    [isMobile, categoryColumns]
+  );
+
+  const sidePadding = isMobile ? 16 : isWide ? 24 : 16;
 
   const handleCategoriesLayout = useCallback((e: LayoutChangeEvent) => {
     setCategoriesY(e.nativeEvent.layout.y);
@@ -1132,9 +1155,9 @@ export default function HomeScreen() {
       <SafeAreaView style={{ backgroundColor: COLORS.bg2 }}>
         <View
           style={{
-            backgroundColor: "rgba(255, 215, 0, 0.20)",
+            backgroundColor: "rgba(255, 178, 0, 0.14)",
             borderBottomWidth: 1,
-            borderBottomColor: "rgba(255, 215, 0, 0.35)",
+            borderBottomColor: "rgba(255, 178, 0, 0.35)",
             paddingVertical: 10,
             paddingHorizontal: sidePadding,
           }}
@@ -1184,7 +1207,7 @@ export default function HomeScreen() {
           style={{
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
-            borderBottomColor: "rgba(255,255,255,0.06)",
+            borderBottomColor: "rgba(11,33,56,0.06)",
             height: 10,
           }}
         />
@@ -1205,8 +1228,8 @@ export default function HomeScreen() {
             style={{
               borderRadius: 22,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.10)",
-              backgroundColor: "rgba(255,255,255,0.04)",
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.card,
               padding: isMobile ? 14 : 16,
               gap: 12,
               ...softShadow(),
@@ -1279,6 +1302,7 @@ export default function HomeScreen() {
             <FeaturedOfferCard
               item={featured}
               isDesktopish={isDesktopish}
+              isWide={isWide}
               isMobile={isMobile}
               onPressCategories={scrollToCategories}
             />
@@ -1318,8 +1342,6 @@ export default function HomeScreen() {
                         )
                     : () => pushRoute(`/catalogo?cat=${encodeURIComponent(category.cat)}` as Href);
 
-                const forceFullWidth = isMobile || category.span === 2;
-
                 return (
                   <CategoryCard
                     key={category.cat}
@@ -1327,7 +1349,7 @@ export default function HomeScreen() {
                     emoji={category.emoji}
                     cta={category.cta}
                     onPress={onPress}
-                    forceFullWidth={forceFullWidth}
+                    widthPercent={categoryCardWidth(category.span)}
                     isMobile={isMobile}
                   />
                 );
@@ -1343,7 +1365,7 @@ export default function HomeScreen() {
               paddingTop: 16,
               paddingBottom: 30,
               borderTopWidth: 1,
-              borderTopColor: "rgba(255,255,255,0.08)",
+              borderTopColor: "rgba(11,33,56,0.08)",
               gap: 12,
             }}
           >
@@ -1391,7 +1413,7 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                color: "rgba(255,255,255,0.55)",
+                color: "rgba(11,33,56,0.50)",
                 marginTop: 6,
                 lineHeight: 18,
                 fontSize: 12,
