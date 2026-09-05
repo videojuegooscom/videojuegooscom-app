@@ -14,9 +14,12 @@
  *   pegado a la izquierda.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
- * - El botón "Vender ahora" ya no abre WhatsApp directamente: abre el
- *   formulario "pop" de VenderAhoraModal, que guarda la solicitud en
- *   Supabase (tabla "sell_requests") para revisarla luego en el admin.
+ * - El botón "Vender ahora" y el botón "Vender Ya" de la franja superior
+ *   ("Te compramos tu consola en menos de 24h") ya no abren WhatsApp
+ *   directamente: ambos abren el mismo formulario "pop" de
+ *   VenderAhoraModal (comparten el estado sellModalOpen), que guarda la
+ *   solicitud en Supabase (tabla "sell_requests") para revisarla luego en
+ *   el admin.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
@@ -1213,19 +1216,17 @@ export default function HomeScreen() {
           <View
             style={{
               ...containerStyle,
-              flexDirection: "row",
+              flexDirection: isMobile ? "column" : "row",
               alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
+              justifyContent: "center",
+              gap: isMobile ? 8 : 12,
             }}
           >
             <View
               style={{
-                flex: 1,
-                minWidth: 0,
-                paddingRight: 8,
                 flexDirection: "row",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: 6,
               }}
             >
@@ -1237,7 +1238,7 @@ export default function HomeScreen() {
                   fontWeight: "900",
                   fontSize: isMobile ? 14 : 15,
                   lineHeight: 20,
-                  flexShrink: 1,
+                  textAlign: "center",
                 }}
               >
                 Te compramos tu consola en menos de 24h
@@ -1245,11 +1246,11 @@ export default function HomeScreen() {
             </View>
 
             <Pressable
-              onPress={openWhatsApp}
+              onPress={() => setSellModalOpen(true)}
               style={({ pressed }) => ({
                 opacity: pressed ? 0.85 : 1,
                 paddingVertical: 8,
-                paddingHorizontal: 12,
+                paddingHorizontal: 14,
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: COLORS.warningBorder,
@@ -1257,7 +1258,7 @@ export default function HomeScreen() {
                 flexShrink: 0,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>WhatsApp</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Vender Ya</Text>
             </Pressable>
           </View>
         </View>

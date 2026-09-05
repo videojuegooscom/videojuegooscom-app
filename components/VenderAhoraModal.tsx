@@ -11,35 +11,53 @@
  * - Ocupa el ancho completo (hasta un máximo cómodo de lectura) tanto en
  *   móvil como en escritorio, con una animación de entrada tipo "pop"
  *   (fade + spring de escala) hecha con Animated.
- * - Responsive: en móvil todo va en una sola columna a ancho completo
- *   (igual que antes). A partir de tablet/escritorio (ancho >= 700) el
- *   modal crece hasta un máximo mayor y varios campos se colocan en pareja
- *   (Nombre/Apellido, Ciudad/Precio, selector+campo condicional de contacto
- *   y de entrega) para aprovechar el ancho sin que el formulario se vea
- *   como una columna interminable.
- * - Todos los TextInput usan fontSize 16: por debajo de 16px los navegadores
- *   móviles (Chrome/Safari) hacen zoom automático al enfocar un campo; con
- *   16px o más no lo hacen, así que al escribir la pantalla ya no salta.
+ * - Responsive: en móvil todo va en una sola columna a ancho completo. A
+ *   partir de tablet/escritorio (ancho >= 700) el modal crece hasta un
+ *   máximo mayor y varios campos se colocan en pareja (Nombre/Apellido,
+ *   Ciudad/Precio, selector+campo condicional de contacto y de entrega)
+ *   para aprovechar el ancho sin que el formulario se vea como una columna
+ *   interminable.
+ * - Todo el texto (títulos, subtítulos, preguntas/labels, botones y chips)
+ *   va centrado para que se vea más cuidado; lo único que NO se centra es
+ *   lo que el usuario escribe dentro de los campos de texto, que siempre
+ *   empieza por la izquierda como es normal al escribir.
+ * - En móvil los espaciados y tamaños son un poco más ajustados (paddings
+ *   menores, título algo más pequeño) para una sensación más "premium" y
+ *   menos apretada; los TextInput mantienen fontSize 16 siempre — por
+ *   debajo de 16px los navegadores móviles hacen zoom automático al
+ *   enfocar el campo, así que no se puede reducir sin que vuelva ese salto.
  * - Cada pregunta de "elegir una opción" (Sí/No, género, método de
  *   contacto, opción de venta, disponibilidad) usa SelectField: un botón
  *   compacto "Elegir" con un icono de flecha (Ionicons chevron, no un
  *   emoji) que al tocarlo despliega justo debajo las opciones en forma de
  *   chips; al elegir una, el botón pasa a mostrar el valor elegido y se
- *   pliega otra vez. Así el formulario no se ve todo lleno de botones a la
- *   vez, y en escritorio esos botones no ocupan una fila entera.
+ *   pliega otra vez.
+ * - Todos los botones y desplegables (SelectField y sus chips, la casilla
+ *   de mayor de edad, el chip de "+ Añadir @gmail.com", la X de cerrar, el
+ *   botón "Cerrar" final y el propio botón de enviar) tienen una pequeña
+ *   animación "pop" tipo Apple al pulsarlos: se encogen levemente
+ *   (Animated.spring) al tocar y vuelven a su tamaño al soltar, usando el
+ *   componente AnimatedPressable definido más abajo.
  * - "¿Todo funciona perfectamente?" (Sí/No). Si es Sí, pide el motivo de la
  *   venta; si es No, pide una breve descripción del problema.
  * - "Método de contacto" (WhatsApp/Gmail/Instagram/Facebook/TikTok) cambia
  *   el campo siguiente: WhatsApp añade el prefijo "+34" fijo antes del
  *   número, Gmail ofrece autocompletar "@gmail.com" con un chip si el
  *   usuario no lo ha escrito, y las redes sociales anteponen "@" de forma
- *   fija. Es opcional en conjunto, pero si se elige un método hay que
- *   rellenar su campo.
+ *   fija. Es obligatorio elegir un método y rellenar su dato de contacto:
+ *   sin eso no hay forma de contactar al cliente y el formulario no sirve.
  * - "Opción de venta" (recogida en domicilio / el cliente se desplaza a
  *   entregarlo). Si es domicilio pide la dirección completa; si es entrega
  *   pide la disponibilidad horaria (Mañana/Medio día/Tarde noche).
- * - Nombre, apellido, género (justo debajo de nombre y apellido) y la
- *   confirmación de ser mayor de 18 años son obligatorios.
+ * - El botón final es un progreso animado: se calculan 13 pasos
+ *   obligatorios (nombre, apellido, género, artículo, funciona/no,
+ *   motivo-o-problema según corresponda, ciudad, precio, método de
+ *   contacto y su dato, opción de venta, dirección-o-disponibilidad según
+ *   corresponda, y confirmar mayoría de edad). El botón se rellena de
+ *   color (con transición animada) según el % completado, se ve
+ *   apagado/desactivado por debajo del 100% y solo se puede pulsar
+ *   exactamente al llegar al 100%; mientras tanto muestra debajo del texto
+ *   "Enviar Formulario" un "XX% completado".
  * - Al pulsar "Enviar formulario" hace un INSERT en la tabla pública
  *   "sell_requests" (ver sql/sell_requests.sql) con status inicial "nuevo".
  *   Cualquiera puede insertar (política RLS pública de solo INSERT); nadie
@@ -57,7 +75,7 @@
  * - app/admin/cotizaciones.tsx → panel donde el admin ve lo que aquí se
  *   envía.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -103,6 +121,75 @@ type OpcionVenta = "domicilio" | "entrega";
 type Disponibilidad = "manana" | "mediodia" | "tardenoche";
 type Genero = "masculino" | "femenino";
 
+// Contexto ligero solo para saber si estamos en móvil, y así los
+// subcomponentes (definidos fuera del componente principal) puedan ajustar
+// tamaños/paddings sin tener que recibir la prop en cada uso.
+const IsMobileContext = React.createContext(false);
+function useIsMobile() {
+  return React.useContext(IsMobileContext);
+}
+
+// Envoltorio de Pressable con una pequeña animación "pop" tipo Apple: al
+// pulsar se encoge levemente (Animated.spring) y al soltar vuelve a su
+// tamaño normal. Se reparte en dos capas para no romper el posicionamiento
+// de los botones que usan position:"absolute" (como la X de cerrar): el
+// Pressable exterior lleva SOLO tamaño/posición (containerStyle) y el
+// Animated.View interior lleva todo lo visual (color, borde, padding...) y
+// es el que realmente se anima. style/children admiten función, igual que
+// el Pressable normal de React Native, para poder usar el estado "pressed".
+function AnimatedPressable({
+  onPress,
+  disabled,
+  containerStyle,
+  style,
+  children,
+}: {
+  onPress?: () => void;
+  disabled?: boolean;
+  containerStyle?: any;
+  style?: any | ((state: { pressed: boolean }) => any);
+  children?: React.ReactNode | ((state: { pressed: boolean }) => React.ReactNode);
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [pressed, setPressed] = useState(false);
+
+  function onPressIn() {
+    setPressed(true);
+    Animated.spring(scale, {
+      toValue: 0.95,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 6,
+    }).start();
+  }
+
+  function onPressOut() {
+    setPressed(false);
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 6,
+    }).start();
+  }
+
+  const resolvedStyle = typeof style === "function" ? style({ pressed }) : style;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={containerStyle}
+    >
+      <Animated.View style={[resolvedStyle, { transform: [{ scale }] }]}>
+        {typeof children === "function" ? children({ pressed }) : children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function softShadow() {
   return Platform.select<any>({
     ios: {
@@ -117,34 +204,50 @@ function softShadow() {
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
+  const isMobile = useIsMobile();
   return (
-    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, lineHeight: 19 }}>
+    <Text
+      style={{
+        color: COLORS.text,
+        fontWeight: "900",
+        fontSize: isMobile ? 13 : 14,
+        lineHeight: isMobile ? 18 : 19,
+        textAlign: "center",
+      }}
+    >
       {children}
     </Text>
   );
 }
 
 function FieldInput(props: React.ComponentProps<typeof TextInput>) {
+  const isMobile = useIsMobile();
+  const { style, ...rest } = props;
   return (
     <TextInput
       placeholderTextColor="rgba(11,33,56,0.40)"
-      style={{
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        borderRadius: 14,
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        color: COLORS.text,
-        backgroundColor: COLORS.cardSoft,
-        fontSize: INPUT_FONT_SIZE,
-      }}
-      {...props}
+      style={[
+        {
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          borderRadius: 14,
+          paddingHorizontal: isMobile ? 11 : 12,
+          paddingVertical: isMobile ? 10 : 12,
+          color: COLORS.text,
+          backgroundColor: COLORS.cardSoft,
+          fontSize: INPUT_FONT_SIZE,
+          textAlign: "left",
+        },
+        style,
+      ]}
+      {...rest}
     />
   );
 }
 
 // Fila fija (prefijo tipo "+34" o "@") + campo editable a su lado. Mismo
 // alto y tipografía que FieldInput para que no salte el zoom del navegador.
+// El texto que escribe el usuario sigue alineado a la izquierda a propósito.
 function PrefixedInput({
   prefix,
   value,
@@ -158,11 +261,12 @@ function PrefixedInput({
   placeholder?: string;
   keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
 }) {
+  const isMobile = useIsMobile();
   return (
     <View style={{ flexDirection: "row", gap: 8 }}>
       <View
         style={{
-          paddingHorizontal: 14,
+          paddingHorizontal: isMobile ? 12 : 14,
           borderRadius: 14,
           borderWidth: 1,
           borderColor: COLORS.border,
@@ -188,13 +292,13 @@ function PrefixedInput({
   );
 }
 
-// Selector "Elegir ⌄": un botón compacto que muestra el valor elegido (o
-// "Elegir" con un icono de flecha si no hay nada elegido todavía) y, al
-// tocarlo, despliega justo debajo las opciones en forma de chips. Al elegir
-// una se pliega de nuevo. compact=true lo deja con un ancho contenido y
-// alineado a la izquierda (para no estirarse una fila entera en pantallas
-// anchas); compact=false lo estira al 100% del contenedor (para cuando ya
-// va dentro de una columna de una fila de dos).
+// Selector "Elegir ⌄": un botón compacto y centrado que muestra el valor
+// elegido (o "Elegir" con un icono de flecha si no hay nada elegido
+// todavía) y, al tocarlo, despliega justo debajo las opciones en forma de
+// chips. Al elegir una se pliega de nuevo. compact=true lo deja con un
+// ancho contenido (para no estirarse una fila entera en pantallas anchas);
+// compact=false lo estira al 100% del contenedor (para cuando ya va dentro
+// de una columna de una fila de dos).
 function SelectField<T extends string>({
   options,
   value,
@@ -206,29 +310,32 @@ function SelectField<T extends string>({
   onChange: (v: T) => void;
   compact?: boolean;
 }) {
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
 
   return (
-    <View style={{ gap: 8 }}>
-      <Pressable
+    <View style={{ gap: 8, alignItems: compact ? "center" : "stretch" }}>
+      <AnimatedPressable
         onPress={() => setOpen((o) => !o)}
+        containerStyle={{
+          alignSelf: compact ? "center" : "stretch",
+          width: compact ? undefined : "100%",
+          minWidth: compact ? 180 : undefined,
+          maxWidth: compact ? 340 : undefined,
+        }}
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "center",
           gap: 10,
           borderRadius: 14,
           borderWidth: 1,
           borderColor: value ? COLORS.accentBorder : COLORS.border,
           backgroundColor: value ? COLORS.accent2 : COLORS.cardSoft,
-          paddingVertical: 12,
-          paddingHorizontal: 14,
+          paddingVertical: isMobile ? 10 : 12,
+          paddingHorizontal: isMobile ? 12 : 14,
           opacity: pressed ? 0.9 : 1,
-          alignSelf: compact ? "flex-start" : "stretch",
-          width: compact ? undefined : "100%",
-          minWidth: compact ? 180 : undefined,
-          maxWidth: compact ? 340 : undefined,
         })}
       >
         <Text
@@ -238,6 +345,7 @@ function SelectField<T extends string>({
             fontWeight: "900",
             fontSize: INPUT_FONT_SIZE,
             flexShrink: 1,
+            textAlign: "center",
           }}
         >
           {selected ? selected.label : "Elegir"}
@@ -247,24 +355,23 @@ function SelectField<T extends string>({
           size={18}
           color={COLORS.text}
         />
-      </Pressable>
+      </AnimatedPressable>
 
       {open && (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
           {options.map((opt) => {
             const active = value === opt.value;
             return (
-              <Pressable
+              <AnimatedPressable
                 key={opt.value}
                 onPress={() => {
                   onChange(opt.value);
                   setOpen(false);
                 }}
+                containerStyle={{ flexGrow: 1, minWidth: 96 }}
                 style={({ pressed }) => ({
-                  flexGrow: 1,
-                  minWidth: 96,
                   borderRadius: 14,
-                  paddingVertical: 12,
+                  paddingVertical: isMobile ? 10 : 12,
                   paddingHorizontal: 12,
                   alignItems: "center",
                   borderWidth: 1,
@@ -273,10 +380,10 @@ function SelectField<T extends string>({
                   opacity: pressed ? 0.9 : 1,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
                   {opt.label}
                 </Text>
-              </Pressable>
+              </AnimatedPressable>
             );
           })}
         </View>
@@ -319,34 +426,45 @@ function Checkbox({
   onToggle: () => void;
   label: string;
 }) {
+  const isMobile = useIsMobile();
+  const boxSize = isMobile ? 22 : 24;
   return (
-    <Pressable
-      onPress={onToggle}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <View
-        style={{
-          width: 24,
-          height: 24,
-          borderRadius: 7,
-          borderWidth: 1.5,
-          borderColor: checked ? COLORS.accentDark : COLORS.border,
-          backgroundColor: checked ? COLORS.accent : COLORS.cardSoft,
+    <View style={{ alignItems: "center" }}>
+      <AnimatedPressable
+        onPress={onToggle}
+        style={({ pressed }) => ({
+          flexDirection: "row",
           alignItems: "center",
-          justifyContent: "center",
-        }}
+          gap: 10,
+          opacity: pressed ? 0.85 : 1,
+        })}
       >
-        {checked ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, flex: 1, lineHeight: 19 }}>
-        {label}
-      </Text>
-    </Pressable>
+        <View
+          style={{
+            width: boxSize,
+            height: boxSize,
+            borderRadius: 7,
+            borderWidth: 1.5,
+            borderColor: checked ? COLORS.accentDark : COLORS.border,
+            backgroundColor: checked ? COLORS.accent : COLORS.cardSoft,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {checked ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+        </View>
+        <Text
+          style={{
+            color: COLORS.text,
+            fontWeight: "800",
+            fontSize: isMobile ? 13 : 14,
+            lineHeight: 19,
+          }}
+        >
+          {label}
+        </Text>
+      </AnimatedPressable>
+    </View>
   );
 }
 
@@ -435,6 +553,31 @@ export default function VenderAhoraModal({
 
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  // Escala "pop" del botón de enviar. Es un caso especial: el botón tiene
+  // capas de fondo (pista + relleno de progreso) que van por fuera del
+  // Pressable interior, así que la animación de escala se aplica al
+  // Animated.View exterior que envuelve todas esas capas, mientras que
+  // quien dispara el press-in/press-out sigue siendo el Pressable interior.
+  const submitScale = useRef(new Animated.Value(1)).current;
+
+  function submitPressIn() {
+    Animated.spring(submitScale, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 6,
+    }).start();
+  }
+
+  function submitPressOut() {
+    Animated.spring(submitScale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 6,
+    }).start();
+  }
 
   useEffect(() => {
     if (visible) {
@@ -457,6 +600,76 @@ export default function VenderAhoraModal({
       ]).start();
     }
   }, [visible, scaleAnim, fadeAnim]);
+
+  // Progreso del formulario: 13 pasos obligatorios con el mismo peso cada
+  // uno (el método de contacto y su dato cuentan como obligatorios: sin
+  // forma de contactar al cliente el formulario no sirve). El botón de
+  // enviar solo se activa al llegar exactamente al 100%.
+  const progress = useMemo(() => {
+    const steps: boolean[] = [
+      !!nombre.trim(),
+      !!apellido.trim(),
+      !!genero,
+      !!articulo.trim(),
+      funcionaBien !== null,
+      funcionaBien === true
+        ? !!motivoVenta.trim()
+        : funcionaBien === false
+          ? !!descripcionProblema.trim()
+          : false,
+      !!ciudad.trim(),
+      !!precioEstimado.trim(),
+      !!metodoContacto,
+      !!contactoValor.trim(),
+      !!opcionVenta,
+      opcionVenta === "domicilio"
+        ? !!direccion.trim()
+        : opcionVenta === "entrega"
+          ? !!disponibilidad
+          : false,
+      mayorEdad,
+    ];
+
+    const total = steps.length;
+    const completed = steps.filter(Boolean).length;
+    const percent = Math.round((completed / total) * 100);
+
+    return { percent, canSubmit: completed === total };
+  }, [
+    nombre,
+    apellido,
+    genero,
+    articulo,
+    funcionaBien,
+    motivoVenta,
+    descripcionProblema,
+    ciudad,
+    precioEstimado,
+    metodoContacto,
+    contactoValor,
+    opcionVenta,
+    direccion,
+    disponibilidad,
+    mayorEdad,
+  ]);
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progress.percent,
+      duration: 260,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+  }, [progress.percent, progressAnim]);
+
+  const fillWidth = progressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+  });
+  const buttonOpacity = progressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: [0.55, 1],
+  });
 
   function resetForm() {
     setNombre("");
@@ -506,7 +719,7 @@ export default function VenderAhoraModal({
   }
 
   async function handleSubmit() {
-    if (sending) return;
+    if (sending || !progress.canSubmit) return;
 
     const cleanNombre = nombre.trim();
     const cleanApellido = apellido.trim();
@@ -562,8 +775,13 @@ export default function VenderAhoraModal({
       return;
     }
 
-    if (metodoContacto && !contactoValor.trim()) {
-      setFormErr("Completa tu dato de contacto o quita el método elegido.");
+    if (!metodoContacto) {
+      setFormErr("Indica cómo prefieres que te contactemos.");
+      return;
+    }
+
+    if (!contactoValor.trim()) {
+      setFormErr("Completa tu dato de contacto.");
       return;
     }
 
@@ -625,119 +843,103 @@ export default function VenderAhoraModal({
   const showGmailHint = metodoContacto === "gmail" && !contactoValor.includes("@");
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.60)",
-          padding: isMobile ? 10 : 20,
-          justifyContent: "center",
-        }}
-      >
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
-          keyboardShouldPersistTaps="handled"
+    <IsMobileContext.Provider value={isMobile}>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.60)",
+            padding: isMobile ? 10 : 20,
+            justifyContent: "center",
+          }}
         >
-          <Animated.View
-            style={{
-              width: "100%",
-              maxWidth: modalMaxWidth,
-              alignSelf: "center",
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            }}
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            keyboardShouldPersistTaps="handled"
           >
-            <View
+            <Animated.View
               style={{
-                borderRadius: 22,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: COLORS.bg2,
-                padding: isMobile ? 16 : 22,
-                gap: 14,
-                ...softShadow(),
+                width: "100%",
+                maxWidth: modalMaxWidth,
+                alignSelf: "center",
+                opacity: fadeAnim,
+                transform: [{ scale: scaleAnim }],
               }}
             >
-              {sent ? (
-                <View style={{ alignItems: "center", gap: 12, paddingVertical: 10 }}>
-                  <View
-                    style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 28,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: COLORS.successBg,
-                      borderWidth: 1,
-                      borderColor: COLORS.successBorder,
-                    }}
-                  >
-                    <Ionicons name="checkmark" size={28} color={COLORS.success} />
-                  </View>
-
-                  <Text
-                    style={{
-                      color: COLORS.text,
-                      fontWeight: "900",
-                      fontSize: 18,
-                      textAlign: "center",
-                    }}
-                  >
-                    ¡Formulario enviado!
-                  </Text>
-
-                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-                    Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se
-                    pondrá en contacto contigo.
-                  </Text>
-
-                  <Pressable
-                    onPress={handleClose}
-                    style={({ pressed }) => ({
-                      marginTop: 4,
-                      opacity: pressed ? 0.9 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 12,
-                      paddingHorizontal: 20,
-                      backgroundColor: COLORS.accent,
-                    })}
-                  >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Cerrar</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: 10,
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          color: COLORS.text,
-                          fontSize: isMobile ? 19 : 21,
-                          fontWeight: "900",
-                          lineHeight: 26,
-                        }}
-                      >
-                        Vender mi artículo
-                      </Text>
-                      <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
-                        Cuéntanos lo básico y te contactamos con una propuesta.
-                      </Text>
+              <View
+                style={{
+                  borderRadius: 22,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.bg2,
+                  padding: isMobile ? 14 : 22,
+                  gap: isMobile ? 12 : 14,
+                  ...softShadow(),
+                }}
+              >
+                {sent ? (
+                  <View style={{ alignItems: "center", gap: 12, paddingVertical: 10 }}>
+                    <View
+                      style={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 28,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: COLORS.successBg,
+                        borderWidth: 1,
+                        borderColor: COLORS.successBorder,
+                      }}
+                    >
+                      <Ionicons name="checkmark" size={28} color={COLORS.success} />
                     </View>
 
-                    <Pressable
+                    <Text
+                      style={{
+                        color: COLORS.text,
+                        fontWeight: "900",
+                        fontSize: 18,
+                        textAlign: "center",
+                      }}
+                    >
+                      ¡Formulario enviado!
+                    </Text>
+
+                    <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                      Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se
+                      pondrá en contacto contigo.
+                    </Text>
+
+                    <AnimatedPressable
                       onPress={handleClose}
+                      containerStyle={{ marginTop: 4 }}
                       style={({ pressed }) => ({
+                        opacity: pressed ? 0.9 : 1,
+                        borderRadius: 999,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        backgroundColor: COLORS.accent,
+                      })}
+                    >
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Cerrar</Text>
+                    </AnimatedPressable>
+                  </View>
+                ) : (
+                  <>
+                    <AnimatedPressable
+                      onPress={handleClose}
+                      containerStyle={{
+                        position: "absolute",
+                        top: isMobile ? 12 : 16,
+                        right: isMobile ? 12 : 16,
+                        zIndex: 2,
+                        width: 32,
+                        height: 32,
+                      }}
+                      style={({ pressed }) => ({
+                        flex: 1,
                         opacity: pressed ? 0.8 : 1,
-                        width: 34,
-                        height: 34,
-                        borderRadius: 17,
+                        borderRadius: 16,
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: COLORS.card,
@@ -746,337 +948,433 @@ export default function VenderAhoraModal({
                       })}
                     >
                       <Ionicons name="close" size={18} color={COLORS.text} />
-                    </Pressable>
-                  </View>
+                    </AnimatedPressable>
 
-                  {/* Nombre + Apellido */}
-                  <View style={{ flexDirection: twoCol ? "row" : "column", gap: 14 }}>
-                    <View style={{ flex: 1, gap: 6 }}>
-                      <FieldLabel>Nombre</FieldLabel>
-                      <FieldInput
-                        value={nombre}
-                        onChangeText={(v) => {
-                          setNombre(v);
-                          setFormErr(null);
+                    <View style={{ alignItems: "center", paddingHorizontal: 34 }}>
+                      <Text
+                        style={{
+                          color: COLORS.text,
+                          fontSize: isMobile ? 18 : 21,
+                          fontWeight: "900",
+                          lineHeight: isMobile ? 24 : 26,
+                          textAlign: "center",
                         }}
-                        placeholder="Tu nombre"
-                      />
-                    </View>
-                    <View style={{ flex: 1, gap: 6 }}>
-                      <FieldLabel>Apellido</FieldLabel>
-                      <FieldInput
-                        value={apellido}
-                        onChangeText={(v) => {
-                          setApellido(v);
-                          setFormErr(null);
+                      >
+                        Vender mi artículo
+                      </Text>
+                      <Text
+                        style={{
+                          color: COLORS.muted,
+                          marginTop: 4,
+                          lineHeight: 20,
+                          textAlign: "center",
                         }}
-                        placeholder="Tu apellido"
-                      />
+                      >
+                        Cuéntanos lo básico y te contactamos con una propuesta.
+                      </Text>
                     </View>
-                  </View>
 
-                  {/* Género, justo debajo de Nombre y Apellido */}
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>Género</FieldLabel>
-                    <SelectField
-                      options={GENERO_OPTIONS}
-                      value={genero}
-                      onChange={(v) => {
-                        setGenero(v);
-                        setFormErr(null);
-                      }}
-                      compact={twoCol}
-                    />
-                  </View>
+                    {/* Nombre + Apellido */}
+                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>Nombre</FieldLabel>
+                        <FieldInput
+                          value={nombre}
+                          onChangeText={(v) => {
+                            setNombre(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="Tu nombre"
+                        />
+                      </View>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>Apellido</FieldLabel>
+                        <FieldInput
+                          value={apellido}
+                          onChangeText={(v) => {
+                            setApellido(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="Tu apellido"
+                        />
+                      </View>
+                    </View>
 
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
-                    <FieldInput
-                      value={articulo}
-                      onChangeText={(v) => {
-                        setArticulo(v);
-                        setFormErr(null);
-                      }}
-                      placeholder="Ej: PlayStation 5 con dos mandos"
-                      multiline
-                    />
-                  </View>
-
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>¿Todo funciona perfectamente?</FieldLabel>
-                    <YesNoSelect
-                      value={funcionaBien}
-                      onChange={(v) => {
-                        setFuncionaBien(v);
-                        setFormErr(null);
-                      }}
-                      compact={twoCol}
-                    />
-                  </View>
-
-                  {funcionaBien === true && (
+                    {/* Género, justo debajo de Nombre y Apellido */}
                     <View style={{ gap: 6 }}>
-                      <FieldLabel>¿Cuál es el motivo de la venta?</FieldLabel>
-                      <FieldInput
-                        value={motivoVenta}
-                        onChangeText={(v) => {
-                          setMotivoVenta(v);
+                      <FieldLabel>Género</FieldLabel>
+                      <SelectField
+                        options={GENERO_OPTIONS}
+                        value={genero}
+                        onChange={(v) => {
+                          setGenero(v);
                           setFormErr(null);
                         }}
-                        placeholder="Ej: ya no lo uso, cambio de consola..."
+                        compact={twoCol}
+                      />
+                    </View>
+
+                    <View style={{ gap: 6 }}>
+                      <FieldLabel>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
+                      <FieldInput
+                        value={articulo}
+                        onChangeText={(v) => {
+                          setArticulo(v);
+                          setFormErr(null);
+                        }}
+                        placeholder="Ej: PlayStation 5 con dos mandos"
                         multiline
                       />
                     </View>
-                  )}
 
-                  {funcionaBien === false && (
                     <View style={{ gap: 6 }}>
-                      <FieldLabel>
-                        ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
-                      </FieldLabel>
-                      <FieldInput
-                        value={descripcionProblema}
-                        onChangeText={(v) => {
-                          setDescripcionProblema(v);
-                          setFormErr(null);
-                        }}
-                        placeholder="Ej: no lee discos, la batería no carga..."
-                        multiline
-                      />
-                    </View>
-                  )}
-
-                  {/* Ciudad + Precio estimado */}
-                  <View style={{ flexDirection: twoCol ? "row" : "column", gap: 14 }}>
-                    <View style={{ flex: 1, gap: 6 }}>
-                      <FieldLabel>¿En qué ciudad te encuentras?</FieldLabel>
-                      <FieldInput
-                        value={ciudad}
-                        onChangeText={(v) => {
-                          setCiudad(v);
-                          setFormErr(null);
-                        }}
-                        placeholder="Ej: Zaragoza"
-                      />
-                    </View>
-                    <View style={{ flex: 1, gap: 6 }}>
-                      <FieldLabel>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
-                      <FieldInput
-                        value={precioEstimado}
-                        onChangeText={(v) => {
-                          setPrecioEstimado(v);
-                          setFormErr(null);
-                        }}
-                        placeholder="Ej: 150€"
-                      />
-                    </View>
-                  </View>
-
-                  {/* Método de contacto + su campo condicional en pareja cuando hay uno elegido */}
-                  <View
-                    style={{
-                      flexDirection: twoCol && metodoContacto ? "row" : "column",
-                      gap: 14,
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <View style={{ flex: metodoContacto ? 1 : undefined, width: metodoContacto ? undefined : "100%", gap: 6 }}>
-                      <FieldLabel>¿Cómo prefieres que te contactemos? (opcional)</FieldLabel>
-                      <SelectField
-                        options={METODO_OPTIONS}
-                        value={metodoContacto}
+                      <FieldLabel>¿Todo funciona perfectamente?</FieldLabel>
+                      <YesNoSelect
+                        value={funcionaBien}
                         onChange={(v) => {
-                          setMetodoContacto(v);
-                          setContactoValor("");
+                          setFuncionaBien(v);
                           setFormErr(null);
                         }}
-                        compact={twoCol && !metodoContacto}
+                        compact={twoCol}
                       />
                     </View>
 
-                    {metodoContacto === "whatsapp" && (
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>Tu número de WhatsApp</FieldLabel>
-                        <PrefixedInput
-                          prefix="+34"
-                          value={contactoValor}
-                          onChangeText={(v) => {
-                            setContactoValor(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="612 345 678"
-                          keyboardType="phone-pad"
-                        />
-                      </View>
-                    )}
-
-                    {metodoContacto === "gmail" && (
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>Tu email de Gmail</FieldLabel>
+                    {funcionaBien === true && (
+                      <View style={{ gap: 6 }}>
+                        <FieldLabel>¿Cuál es el motivo de la venta?</FieldLabel>
                         <FieldInput
-                          value={contactoValor}
+                          value={motivoVenta}
                           onChangeText={(v) => {
-                            setContactoValor(v);
+                            setMotivoVenta(v);
                             setFormErr(null);
                           }}
-                          placeholder="tunombre@gmail.com"
-                          keyboardType="email-address"
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                        />
-                        {showGmailHint && (
-                          <Pressable
-                            onPress={() =>
-                              setContactoValor((v) => (v.includes("@") ? v : `${v}@gmail.com`))
-                            }
-                            style={({ pressed }) => ({
-                              alignSelf: "flex-start",
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: COLORS.accentBorder,
-                              backgroundColor: COLORS.accent2,
-                              opacity: pressed ? 0.85 : 1,
-                            })}
-                          >
-                            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              + Añadir @gmail.com
-                            </Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    )}
-
-                    {(metodoContacto === "instagram" ||
-                      metodoContacto === "facebook" ||
-                      metodoContacto === "tiktok") && (
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>
-                          Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
-                        </FieldLabel>
-                        <PrefixedInput
-                          prefix="@"
-                          value={contactoValor}
-                          onChangeText={(v) => {
-                            setContactoValor(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="tu.usuario"
-                        />
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
-                  <View
-                    style={{
-                      flexDirection: twoCol && opcionVenta ? "row" : "column",
-                      gap: 14,
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <View style={{ flex: opcionVenta ? 1 : undefined, width: opcionVenta ? undefined : "100%", gap: 6 }}>
-                      <FieldLabel>Opción de venta</FieldLabel>
-                      <SelectField
-                        options={OPCION_VENTA_OPTIONS}
-                        value={opcionVenta}
-                        onChange={(v) => {
-                          setOpcionVenta(v);
-                          setFormErr(null);
-                        }}
-                        compact={twoCol && !opcionVenta}
-                      />
-                    </View>
-
-                    {opcionVenta === "domicilio" && (
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>Dirección completa</FieldLabel>
-                        <FieldInput
-                          value={direccion}
-                          onChangeText={(v) => {
-                            setDireccion(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Calle, número, puerta y letra"
+                          placeholder="Ej: ya no lo uso, cambio de consola..."
                           multiline
                         />
                       </View>
                     )}
 
-                    {opcionVenta === "entrega" && (
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel>Disponibilidad diaria</FieldLabel>
-                        <SelectField
-                          options={DISPONIBILIDAD_OPTIONS}
-                          value={disponibilidad}
-                          onChange={(v) => {
-                            setDisponibilidad(v);
+                    {funcionaBien === false && (
+                      <View style={{ gap: 6 }}>
+                        <FieldLabel>
+                          ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
+                        </FieldLabel>
+                        <FieldInput
+                          value={descripcionProblema}
+                          onChangeText={(v) => {
+                            setDescripcionProblema(v);
                             setFormErr(null);
                           }}
+                          placeholder="Ej: no lee discos, la batería no carga..."
+                          multiline
                         />
                       </View>
                     )}
-                  </View>
 
-                  <Checkbox
-                    checked={mayorEdad}
-                    onToggle={() => {
-                      setMayorEdad((v) => !v);
-                      setFormErr(null);
-                    }}
-                    label="Confirmo que soy mayor de 18 años"
-                  />
+                    {/* Ciudad + Precio estimado */}
+                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>¿En qué ciudad te encuentras?</FieldLabel>
+                        <FieldInput
+                          value={ciudad}
+                          onChangeText={(v) => {
+                            setCiudad(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="Ej: Zaragoza"
+                        />
+                      </View>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
+                        <FieldInput
+                          value={precioEstimado}
+                          onChangeText={(v) => {
+                            setPrecioEstimado(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="Ej: 150€"
+                        />
+                      </View>
+                    </View>
 
-                  {!!formErr && (
+                    {/* Método de contacto + su campo condicional en pareja cuando hay uno elegido */}
                     <View
                       style={{
-                        borderRadius: 14,
-                        borderWidth: 1,
-                        borderColor: COLORS.dangerBorder,
-                        backgroundColor: COLORS.dangerBg,
-                        padding: 10,
+                        flexDirection: twoCol && metodoContacto ? "row" : "column",
+                        gap: isMobile ? 12 : 14,
+                        alignItems: "flex-start",
                       }}
                     >
-                      <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                        {formErr}
-                      </Text>
-                    </View>
-                  )}
+                      <View
+                        style={{
+                          flex: metodoContacto ? 1 : undefined,
+                          width: metodoContacto ? undefined : "100%",
+                          gap: 6,
+                        }}
+                      >
+                        <FieldLabel>¿Cómo prefieres que te contactemos?</FieldLabel>
+                        <SelectField
+                          options={METODO_OPTIONS}
+                          value={metodoContacto}
+                          onChange={(v) => {
+                            setMetodoContacto(v);
+                            setContactoValor("");
+                            setFormErr(null);
+                          }}
+                          compact={twoCol && !metodoContacto}
+                        />
+                      </View>
 
-                  <Pressable
-                    onPress={handleSubmit}
-                    disabled={sending}
-                    style={({ pressed }) => ({
-                      opacity: sending ? 0.7 : pressed ? 0.9 : 1,
-                      borderRadius: 14,
-                      paddingVertical: 14,
-                      alignItems: "center",
-                      backgroundColor: COLORS.accent,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentDark,
-                      marginTop: 4,
-                    })}
-                  >
-                    {sending ? (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <ActivityIndicator color="#FFFFFF" />
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                          Enviando…
+                      {metodoContacto === "whatsapp" && (
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <FieldLabel>Tu número de WhatsApp</FieldLabel>
+                          <PrefixedInput
+                            prefix="+34"
+                            value={contactoValor}
+                            onChangeText={(v) => {
+                              setContactoValor(v);
+                              setFormErr(null);
+                            }}
+                            placeholder="612 345 678"
+                            keyboardType="phone-pad"
+                          />
+                        </View>
+                      )}
+
+                      {metodoContacto === "gmail" && (
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <FieldLabel>Tu email de Gmail</FieldLabel>
+                          <FieldInput
+                            value={contactoValor}
+                            onChangeText={(v) => {
+                              setContactoValor(v);
+                              setFormErr(null);
+                            }}
+                            placeholder="tunombre@gmail.com"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                          {showGmailHint && (
+                            <AnimatedPressable
+                              onPress={() =>
+                                setContactoValor((v) => (v.includes("@") ? v : `${v}@gmail.com`))
+                              }
+                              containerStyle={{ alignSelf: "center" }}
+                              style={({ pressed }) => ({
+                                paddingVertical: 6,
+                                paddingHorizontal: 10,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: COLORS.accentBorder,
+                                backgroundColor: COLORS.accent2,
+                                opacity: pressed ? 0.85 : 1,
+                              })}
+                            >
+                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                                + Añadir @gmail.com
+                              </Text>
+                            </AnimatedPressable>
+                          )}
+                        </View>
+                      )}
+
+                      {(metodoContacto === "instagram" ||
+                        metodoContacto === "facebook" ||
+                        metodoContacto === "tiktok") && (
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <FieldLabel>
+                            Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
+                          </FieldLabel>
+                          <PrefixedInput
+                            prefix="@"
+                            value={contactoValor}
+                            onChangeText={(v) => {
+                              setContactoValor(v);
+                              setFormErr(null);
+                            }}
+                            placeholder="tu.usuario"
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
+                    <View
+                      style={{
+                        flexDirection: twoCol && opcionVenta ? "row" : "column",
+                        gap: isMobile ? 12 : 14,
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <View
+                        style={{
+                          flex: opcionVenta ? 1 : undefined,
+                          width: opcionVenta ? undefined : "100%",
+                          gap: 6,
+                        }}
+                      >
+                        <FieldLabel>Opción de venta</FieldLabel>
+                        <SelectField
+                          options={OPCION_VENTA_OPTIONS}
+                          value={opcionVenta}
+                          onChange={(v) => {
+                            setOpcionVenta(v);
+                            setFormErr(null);
+                          }}
+                          compact={twoCol && !opcionVenta}
+                        />
+                      </View>
+
+                      {opcionVenta === "domicilio" && (
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <FieldLabel>Dirección completa</FieldLabel>
+                          <FieldInput
+                            value={direccion}
+                            onChangeText={(v) => {
+                              setDireccion(v);
+                              setFormErr(null);
+                            }}
+                            placeholder="Calle, número, puerta y letra"
+                            multiline
+                          />
+                        </View>
+                      )}
+
+                      {opcionVenta === "entrega" && (
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <FieldLabel>Disponibilidad diaria</FieldLabel>
+                          <SelectField
+                            options={DISPONIBILIDAD_OPTIONS}
+                            value={disponibilidad}
+                            onChange={(v) => {
+                              setDisponibilidad(v);
+                              setFormErr(null);
+                            }}
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    <Checkbox
+                      checked={mayorEdad}
+                      onToggle={() => {
+                        setMayorEdad((v) => !v);
+                        setFormErr(null);
+                      }}
+                      label="Confirmo que soy mayor de 18 años"
+                    />
+
+                    {!!formErr && (
+                      <View
+                        style={{
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: COLORS.dangerBorder,
+                          backgroundColor: COLORS.dangerBg,
+                          padding: 10,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: COLORS.danger,
+                            fontWeight: "800",
+                            lineHeight: 20,
+                            textAlign: "center",
+                          }}
+                        >
+                          {formErr}
                         </Text>
                       </View>
-                    ) : (
-                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                        Enviar Formulario
-                      </Text>
                     )}
-                  </Pressable>
-                </>
-              )}
-            </View>
-          </Animated.View>
-        </ScrollView>
-      </View>
-    </Modal>
+
+                    {/* Botón de enviar: se rellena de color según el % completado y solo
+                        se puede pulsar al llegar al 100%. */}
+                    <Animated.View
+                      style={{
+                        opacity: buttonOpacity,
+                        borderRadius: 14,
+                        overflow: "hidden",
+                        borderWidth: 1,
+                        borderColor: COLORS.accentDark,
+                        marginTop: 4,
+                        transform: [{ scale: submitScale }],
+                      }}
+                    >
+                      <View
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: COLORS.accentDark,
+                        }}
+                      />
+                      <Animated.View
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          bottom: 0,
+                          width: fillWidth,
+                          backgroundColor: COLORS.accent,
+                        }}
+                      />
+
+                      <Pressable
+                        onPress={handleSubmit}
+                        onPressIn={submitPressIn}
+                        onPressOut={submitPressOut}
+                        disabled={sending || !progress.canSubmit}
+                        style={({ pressed }) => ({
+                          paddingVertical: isMobile ? 13 : 14,
+                          alignItems: "center",
+                          opacity: pressed && progress.canSubmit ? 0.9 : 1,
+                        })}
+                      >
+                        {sending ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <ActivityIndicator color="#FFFFFF" />
+                            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
+                              Enviando…
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={{ alignItems: "center" }}>
+                            <Text
+                              style={{
+                                color: "#FFFFFF",
+                                fontWeight: "900",
+                                fontSize: 15,
+                                textAlign: "center",
+                              }}
+                            >
+                              Enviar Formulario
+                            </Text>
+                            {progress.percent < 100 && (
+                              <Text
+                                style={{
+                                  color: "rgba(255,255,255,0.85)",
+                                  fontWeight: "800",
+                                  fontSize: 12,
+                                  marginTop: 2,
+                                }}
+                              >
+                                {progress.percent}% completado
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                      </Pressable>
+                    </Animated.View>
+                  </>
+                )}
+              </View>
+            </Animated.View>
+          </ScrollView>
+        </View>
+      </Modal>
+    </IsMobileContext.Provider>
   );
 }
