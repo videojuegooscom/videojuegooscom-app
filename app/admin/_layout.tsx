@@ -1,15 +1,38 @@
 // app/admin/_layout.tsx
+/**
+ * Qué hace: layout "guardián" de todas las rutas /admin. Antes de mostrar
+ * cualquier pantalla de administración comprueba que hay sesión y que el
+ * rol es "admin"; si no, redirige a /admin/login. Mientras comprueba,
+ * muestra una pantalla de carga ("Verificando acceso").
+ *
+ * Cómo funciona:
+ * - validateAccess() usa supabase.auth.getSession() y luego consulta la
+ *   tabla "profiles" (columna "role"). Si no hay sesión, el perfil falla o
+ *   el rol no es "admin", cierra sesión y hace router.replace("/admin/login").
+ * - Se suscribe a supabase.auth.onAuthStateChange() para revalidar si la
+ *   sesión cambia mientras el panel está abierto.
+ * - safeNavigate() evita navegaciones duplicadas con un pequeño bloqueo
+ *   temporal (navLockRef).
+ * - Sigue el tema claro global en su pantalla de carga: fondo blanco, azul
+ *   claro de acento y texto en azul marino oscuro.
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para sesión y perfil.
+ * - app/admin/login, app/admin/index.tsx, app/admin/products.tsx,
+ *   app/admin/categories.tsx, app/admin/inventario.tsx → las rutas hijas
+ *   que este layout protege (Stack.Screen).
+ */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StatusBar, Text, View } from "react-native";
 import { Stack, router, usePathname } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.72)",
-  border: "rgba(255,255,255,0.10)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  border: "#E3EAF2",
 };
 
 type GuardState = {
@@ -177,7 +200,7 @@ export default function AdminLayout() {
           padding: 24,
         }}
       >
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle="dark-content" />
         <View
           style={{
             minWidth: 240,

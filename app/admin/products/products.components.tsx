@@ -1,3 +1,23 @@
+/**
+ * Qué hace: componentes visuales reutilizables del panel de administración
+ * de productos: título de sección (SectionTitle), tarjeta de estadística
+ * (StatCard), botones tipo chip (ChipButton), filtros tipo píldora
+ * (FilterPill) y la miniatura de foto/vídeo de un producto (MediaThumb).
+ *
+ * Cómo funciona: son componentes de presentación puros (sin llamadas a
+ * Supabase); reciben props y pintan según la paleta COLORS del tema claro
+ * global (fondo blanco, azul claro de acento, texto azul marino oscuro).
+ * MediaThumb además distingue entre foto y vídeo (icono, insignia de
+ * "IMAGEN"/"VÍDEO" y duración) y funciona tanto con archivos ya subidos a
+ * Supabase como con archivos locales todavía sin subir.
+ *
+ * Conectado con:
+ * - app/admin/products/products.constants.ts → de donde viene COLORS.
+ * - app/admin/products/products.types.ts → tipos LocalPickedMedia,
+ *   ProductMediaRow, ProductMediaKind usados por MediaThumb.
+ * - app/admin/products.tsx → pantalla principal que usa todos estos
+ *   componentes para construir la lista y el formulario de productos.
+ */
 import React from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -168,7 +188,7 @@ export function ChipButton({
       ? COLORS.successBg
       : isDanger
         ? COLORS.dangerBg
-        : "rgba(255,255,255,0.06)";
+        : "#F6FAFD";
 
   return (
     <Pressable
@@ -218,8 +238,8 @@ export function FilterPill({
         paddingVertical: 10,
         paddingHorizontal: 12,
         borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-        backgroundColor: active ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+        borderColor: active ? COLORS.accentBorder : "#E3EAF2",
+        backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
         opacity: pressed ? 0.88 : 1,
       })}
     >
@@ -267,7 +287,7 @@ export function MediaThumb({
         borderRadius: 16,
         borderWidth: 1,
         borderColor: COLORS.border,
-        backgroundColor: "rgba(255,255,255,0.04)",
+        backgroundColor: "#F8FBFE",
         overflow: "hidden",
       }}
     >
@@ -275,7 +295,7 @@ export function MediaThumb({
         style={{
           width: "100%",
           height: thumbHeight,
-          backgroundColor: "rgba(255,255,255,0.03)",
+          backgroundColor: "#F8FBFE",
           position: "relative",
           alignItems: "center",
           justifyContent: "center",
@@ -320,11 +340,9 @@ export function MediaThumb({
             borderRadius: 999,
             paddingVertical: 4,
             paddingHorizontal: 8,
-            backgroundColor:
-              kind === "image" ? "rgba(0,170,228,0.16)" : "rgba(216,176,74,0.18)",
+            backgroundColor: kind === "image" ? COLORS.accent2 : "#FBF0D9",
             borderWidth: 1,
-            borderColor:
-              kind === "image" ? COLORS.accentBorder : "rgba(216,176,74,0.36)",
+            borderColor: kind === "image" ? COLORS.accentBorder : "#EAD08A",
           }}
         >
           <Text

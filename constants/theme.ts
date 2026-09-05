@@ -1,4 +1,21 @@
 /**
+ * Qué hace: define la paleta de colores (Colors.light / Colors.dark) y las
+ * familias tipográficas (Fonts) usadas por los componentes "Themed*"
+ * (ThemedText, ThemedView) que vienen de la plantilla base de Expo.
+ *
+ * Cómo funciona: tintColorLight ya está alineado con el azul de acento de
+ * la app ("#1EA7E8"). Ojo: las pantallas principales (tabs, admin) NO usan
+ * este archivo — definen su propia paleta COLORS de tema claro directamente
+ * en cada fichero, así que este Colors.light/dark solo afecta a los
+ * componentes ThemedText/ThemedView (por ejemplo en app/modal.tsx).
+ *
+ * Conectado con:
+ * - hooks/use-theme-color.ts → lee Colors[theme][colorName].
+ * - components/themed-text.tsx, components/themed-view.tsx,
+ *   components/ui/collapsible.tsx → usan estos colores indirectamente.
+ */
+
+/**
  * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */

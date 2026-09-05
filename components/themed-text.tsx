@@ -1,3 +1,18 @@
+/**
+ * Qué hace: componente <Text> que adapta su color automáticamente al tema
+ * claro/oscuro del sistema, con variantes de estilo predefinidas (title,
+ * subtitle, link, defaultSemiBold). Viene de la plantilla base de Expo.
+ *
+ * Cómo funciona: usa el hook useThemeColor() para resolver el color según
+ * el esquema de color activo (o lightColor/darkColor si se pasan). Las
+ * pantallas principales de la app (tabs, admin) NO usan este componente:
+ * definen su propia paleta COLORS de tema claro directamente.
+ *
+ * Conectado con:
+ * - hooks/use-theme-color.ts → de donde saca el color.
+ * - app/modal.tsx, components/ui/collapsible.tsx → pantallas/componentes
+ *   que sí lo usan.
+ */
 import { StyleSheet, Text, type TextProps } from 'react-native';
 
 import { useThemeColor } from '@/hooks/use-theme-color';
@@ -55,6 +70,6 @@ const styles = StyleSheet.create({
   link: {
     lineHeight: 30,
     fontSize: 16,
-    color: '#0a7ea4',
+    color: '#1EA7E8',
   },
 });

@@ -1,3 +1,18 @@
+/**
+ * Qué hace: crea y exporta el cliente único (singleton) de Supabase que
+ * usa toda la app para autenticación y acceso a la base de datos.
+ *
+ * Cómo funciona: lee la URL y la clave anónima de las variables de entorno
+ * EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY (si faltan, lanza
+ * un error claro en consola al arrancar). Usa AsyncStorage para guardar la
+ * sesión en nativo (en web usa el storage por defecto del navegador) y
+ * globalThis.__videojuegoos_supabase__ para evitar crear más de un cliente
+ * si el archivo se vuelve a importar (hot reload, etc.).
+ *
+ * Conectado con: prácticamente todas las pantallas que leen o escriben
+ * datos (app/(tabs)/*.tsx, app/admin/*.tsx, app/producto/[id].tsx,
+ * app/catalogo.tsx) importan `supabase` desde aquí.
+ */
 import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";

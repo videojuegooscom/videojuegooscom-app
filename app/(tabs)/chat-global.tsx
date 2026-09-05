@@ -1,3 +1,21 @@
+/**
+ * app/(tabs)/chat-global.tsx
+ *
+ * Qué hace: "Chat Global", un hub social de la tienda con 4 pestañas (Chat,
+ * Noticias, Novedades, Torneos). Muestra quién está conectado, una lista de
+ * mensajes y un cuadro para escribir. De momento los mensajes iniciales y
+ * la lista de "conectados" son datos de ejemplo fijos en este archivo, no
+ * vienen de una base de datos ni hay chat en tiempo real todavía.
+ *
+ * Cómo funciona: si el usuario no ha iniciado sesión (isLoggedIn = false,
+ * fijo por ahora), intentar escribir o enviar un mensaje abre
+ * AuthRequiredModal en vez de mandarlo. handleSend() añade el mensaje a la
+ * lista local (useState), no lo guarda en ningún servidor.
+ *
+ * Conectado con: app/(tabs)/perfil.tsx (el modal de "inicia sesión" navega
+ * ahí). No usa lib/supabase.ts todavía — es la parte pendiente de conectar
+ * a un chat real.
+ */
 import React, { useMemo, useState } from "react";
 import {
   LayoutAnimation,
@@ -20,29 +38,29 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  bg3: "#0A2743",
-  card: "rgba(255,255,255,0.06)",
-  cardSoft: "rgba(255,255,255,0.035)",
-  border: "rgba(255,255,255,0.12)",
-  borderSoft: "rgba(255,255,255,0.08)",
-  text: "#FFFFFF",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  bg3: "#F6FAFD",
+  card: "#EAF6FD",
+  cardSoft: "#F8FBFE",
+  border: "#E3EAF2",
+  borderSoft: "#E3EAF2",
+  text: "#0B2138",
   textDark: "#0B1726",
-  muted: "rgba(255,255,255,0.74)",
-  soft: "rgba(255,255,255,0.52)",
-  accent: "#00AAE4",
-  accentSoft: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.34)",
+  muted: "rgba(11,33,56,0.62)",
+  soft: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accentSoft: "#EAF6FD",
+  accentBorder: "#BEE6FA",
   accentGlow: "rgba(0,170,228,0.20)",
   success: "#22C55E",
   successSoft: "rgba(34,197,94,0.16)",
   successBorder: "rgba(34,197,94,0.30)",
   bubbleMine: "rgba(0,170,228,0.22)",
-  bubbleOther: "rgba(255,255,255,0.055)",
+  bubbleOther: "#F1F6FA",
   bubbleSystem: "rgba(216,176,74,0.14)",
-  gold: "#D8B04A",
-  danger: "#FF6B6B",
+  gold: "#B8860B",
+  danger: "#DC2626",
   dangerSoft: "rgba(255,107,107,0.14)",
   dangerBorder: "rgba(255,107,107,0.30)",
   overlay: "rgba(3,10,18,0.76)",
@@ -308,8 +326,8 @@ export default function ChatGlobalScreen() {
             style={{
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.08)",
-              backgroundColor: "rgba(255,255,255,0.035)",
+              borderColor: "#E3EAF2",
+              backgroundColor: "#F8FBFE",
               padding: 12,
               gap: 12,
             }}
@@ -356,11 +374,11 @@ export default function ChatGlobalScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <LinearGradient
-          colors={["rgba(255,255,255,0.20)", "rgba(0,170,228,0.08)", "rgba(7,30,51,0.00)"]}
+          colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.08)", "rgba(255,255,255,0)"]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={{
@@ -378,11 +396,13 @@ export default function ChatGlobalScreen() {
             paddingHorizontal: 16,
             paddingTop: 18,
             paddingBottom: 130,
-            gap: 16,
+            alignItems: "center",
           }}
         >
+          {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
+          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
           <LinearGradient
-            colors={["rgba(255,255,255,0.13)", "rgba(0,170,228,0.08)", "rgba(6,26,44,0.94)"]}
+            colors={["rgba(30,167,232,0.10)", "rgba(0,170,228,0.08)", "#FFFFFF"]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
             style={{
@@ -393,7 +413,7 @@ export default function ChatGlobalScreen() {
             <View
               style={{
                 borderRadius: 27,
-                backgroundColor: "rgba(3,18,31,0.92)",
+                backgroundColor: "#FFFFFF",
                 paddingHorizontal: 18,
                 paddingVertical: 18,
                 gap: 14,
@@ -418,7 +438,7 @@ export default function ChatGlobalScreen() {
                     borderColor: "rgba(34,197,94,0.30)",
                   }}
                 >
-                  <Text style={{ color: "#BBF7D0", fontWeight: "900", fontSize: 12 }}>
+                  <Text style={{ color: "#15803D", fontWeight: "900", fontSize: 12 }}>
                     EN DIRECTO
                   </Text>
                 </View>
@@ -503,6 +523,7 @@ export default function ChatGlobalScreen() {
           </View>
 
           {renderActiveTabContent()}
+          </View>
         </ScrollView>
 
         {activeTab === "chat" ? (
@@ -541,24 +562,24 @@ function Tag({
 }) {
   const palette = {
     neutral: {
-      bg: "rgba(255,255,255,0.07)",
-      border: "rgba(255,255,255,0.12)",
-      text: "#FFFFFF",
+      bg: "#EEF3F8",
+      border: "#E3EAF2",
+      text: "#0B2138",
     },
     success: {
       bg: "rgba(34,197,94,0.14)",
       border: "rgba(34,197,94,0.30)",
-      text: "#BBF7D0",
+      text: "#15803D",
     },
     warn: {
       bg: "rgba(245,158,11,0.14)",
       border: "rgba(245,158,11,0.30)",
-      text: "#FDE68A",
+      text: "#92660B",
     },
     danger: {
       bg: "rgba(255,107,107,0.12)",
       border: "rgba(255,107,107,0.30)",
-      text: "#FFC0C0",
+      text: "#B91C1C",
     },
   }[tone];
 
@@ -596,7 +617,7 @@ function GlowPill({
       ? {
           bg: COLORS.successSoft,
           border: COLORS.successBorder,
-          text: "#BBF7D0",
+          text: "#15803D",
           shadow: COLORS.success,
         }
       : {
@@ -659,12 +680,12 @@ function ActionButton({
         borderRadius: 14,
         paddingVertical: 12,
         paddingHorizontal: 14,
-        backgroundColor: primary ? COLORS.accent : "rgba(255,255,255,0.05)",
+        backgroundColor: primary ? COLORS.accent : "#F6FAFD",
         borderWidth: 1,
-        borderColor: primary ? COLORS.accent : "rgba(255,255,255,0.12)",
+        borderColor: primary ? COLORS.accent : "#E3EAF2",
       })}
     >
-      <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{label}</Text>
+      <Text style={{ color: primary ? "#FFFFFF" : COLORS.text, fontWeight: "900" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -686,9 +707,9 @@ function HubTabButton({
         borderRadius: 999,
         paddingVertical: 10,
         paddingHorizontal: 14,
-        backgroundColor: active ? COLORS.accentSoft : "rgba(255,255,255,0.05)",
+        backgroundColor: active ? COLORS.accentSoft : "#F6FAFD",
         borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.10)",
+        borderColor: active ? COLORS.accentBorder : "#E3EAF2",
         shadowColor: active ? COLORS.accent : "transparent",
         shadowOpacity: active ? 0.18 : 0,
         shadowRadius: 12,
@@ -704,21 +725,21 @@ function ViewerRow({ viewer }: { viewer: Viewer }) {
   const modeMap = {
     viewer: {
       label: "Mirando",
-      bg: "rgba(255,255,255,0.06)",
-      border: "rgba(255,255,255,0.12)",
-      text: "#FFFFFF",
+      bg: "#EAF6FD",
+      border: "#E3EAF2",
+      text: "#0B2138",
     },
     member: {
       label: "Miembro",
-      bg: "rgba(0,170,228,0.16)",
+      bg: "#EAF6FD",
       border: "rgba(0,170,228,0.30)",
-      text: "#BAE6FD",
+      text: "#0F8FCC",
     },
     vip: {
       label: "VIP",
       bg: "rgba(216,176,74,0.16)",
       border: "rgba(216,176,74,0.30)",
-      text: "#FDE68A",
+      text: "#92660B",
     },
   }[viewer.mode];
 
@@ -727,8 +748,8 @@ function ViewerRow({ viewer }: { viewer: Viewer }) {
       style={{
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        backgroundColor: "rgba(255,255,255,0.04)",
+        borderColor: "#E3EAF2",
+        backgroundColor: "#F8FBFE",
         padding: 12,
         gap: 8,
       }}
@@ -788,7 +809,7 @@ function AvatarCircle({
     "rgba(0,170,228,0.20)",
     "rgba(34,197,94,0.18)",
     "rgba(216,176,74,0.18)",
-    "rgba(255,255,255,0.12)",
+    "#E3EAF2",
   ];
   const index = username.length % palette.length;
   const bg = palette[index];
@@ -803,7 +824,7 @@ function AvatarCircle({
         justifyContent: "center",
         backgroundColor: bg,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
+        borderColor: "#E3EAF2",
       }}
     >
       <Text style={{ color: COLORS.text, fontWeight: "900" }}>
@@ -826,9 +847,9 @@ function MiniInlineData({
         borderRadius: 999,
         paddingVertical: 6,
         paddingHorizontal: 10,
-        backgroundColor: "rgba(255,255,255,0.05)",
+        backgroundColor: "#F6FAFD",
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.08)",
+        borderColor: "#E3EAF2",
       }}
     >
       <Text style={{ color: COLORS.soft, fontSize: 11, fontWeight: "700" }}>
@@ -855,7 +876,7 @@ function MessageBubble({
     item.role === "admin"
       ? {
           bg: "rgba(0,170,228,0.18)",
-          text: "#BAE6FD",
+          text: "#0F8FCC",
           border: "rgba(0,170,228,0.30)",
           label: "ADMIN",
           accent: COLORS.accent,
@@ -863,17 +884,17 @@ function MessageBubble({
       : item.role === "vip"
         ? {
             bg: "rgba(216,176,74,0.16)",
-            text: "#FDE68A",
+            text: "#92660B",
             border: "rgba(216,176,74,0.30)",
             label: "VIP",
             accent: COLORS.gold,
           }
         : {
-            bg: "rgba(255,255,255,0.06)",
-            text: "#FFFFFF",
-            border: "rgba(255,255,255,0.12)",
+            bg: "#EAF6FD",
+            text: "#0B2138",
+            border: "#E3EAF2",
             label: "MIEMBRO",
-            accent: "rgba(255,255,255,0.18)",
+            accent: "rgba(30,167,232,0.14)",
           };
 
   const bubbleBg = item.mine ? COLORS.bubbleMine : COLORS.bubbleOther;
@@ -923,7 +944,7 @@ function MessageBubble({
         style={{
           borderRadius: 18,
           borderWidth: 1,
-          borderColor: item.mine ? "rgba(0,170,228,0.20)" : "rgba(255,255,255,0.08)",
+          borderColor: item.mine ? "rgba(0,170,228,0.20)" : "#E3EAF2",
           backgroundColor: bubbleBg,
           padding: 14,
           gap: 10,
@@ -938,8 +959,8 @@ function MessageBubble({
             style={{
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.08)",
-              backgroundColor: "rgba(255,255,255,0.03)",
+              borderColor: "#E3EAF2",
+              backgroundColor: "#FAFCFE",
               padding: 14,
               alignItems: "center",
               justifyContent: "center",
@@ -953,9 +974,9 @@ function MessageBubble({
                     borderRadius: 999,
                     paddingVertical: 6,
                     paddingHorizontal: 10,
-                    backgroundColor: "rgba(255,255,255,0.08)",
+                    backgroundColor: "#E3EAF2",
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.10)",
+                    borderColor: "#E3EAF2",
                   }}
                 >
                   <Text style={{ color: COLORS.text, fontWeight: "900" }}>GIF</Text>
@@ -976,7 +997,7 @@ function MessageBubble({
                     borderColor: COLORS.dangerBorder,
                   }}
                 >
-                  <Text style={{ color: "#FFC0C0", fontWeight: "900" }}>
+                  <Text style={{ color: "#B91C1C", fontWeight: "900" }}>
                     GIF bloqueado
                   </Text>
                 </View>
@@ -1025,7 +1046,7 @@ function FloatingComposer({
       }}
     >
       <LinearGradient
-        colors={["rgba(255,255,255,0.16)", "rgba(0,170,228,0.08)", "rgba(255,255,255,0.02)"]}
+        colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.08)", "rgba(30,167,232,0.02)"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{
@@ -1036,9 +1057,9 @@ function FloatingComposer({
         <View
           style={{
             borderRadius: 23,
-            backgroundColor: "rgba(6,26,44,0.94)",
+            backgroundColor: "#FFFFFF",
             borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.06)",
+            borderColor: "#EAF6FD",
             padding: 10,
             shadowColor: COLORS.accent,
             shadowOpacity: 0.14,
@@ -1064,14 +1085,14 @@ function FloatingComposer({
                   value={value}
                   onChangeText={onChangeText}
                   placeholder="Escribe un mensaje…"
-                  placeholderTextColor="rgba(255,255,255,0.42)"
+                  placeholderTextColor="rgba(11,33,56,0.35)"
                   style={{
                     minHeight: 48,
                     maxHeight: 110,
                     borderRadius: 16,
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.08)",
-                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderColor: "#E3EAF2",
+                    backgroundColor: "#F8FBFE",
                     color: COLORS.text,
                     paddingHorizontal: 14,
                     paddingVertical: 12,
@@ -1084,14 +1105,14 @@ function FloatingComposer({
                     minHeight: 48,
                     borderRadius: 16,
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.08)",
-                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderColor: "#E3EAF2",
+                    backgroundColor: "#F8FBFE",
                     paddingHorizontal: 14,
                     paddingVertical: 12,
                     justifyContent: "center",
                   }}
                 >
-                  <Text style={{ color: "rgba(255,255,255,0.42)" }}>
+                  <Text style={{ color: "rgba(11,33,56,0.35)" }}>
                     Escribe un mensaje…
                   </Text>
                 </View>
@@ -1146,7 +1167,7 @@ function AuthRequiredModal({
         }}
       >
         <LinearGradient
-          colors={["rgba(255,255,255,0.18)", "rgba(0,170,228,0.10)", "rgba(255,255,255,0.02)"]}
+          colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.10)", "rgba(30,167,232,0.02)"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{
@@ -1159,7 +1180,7 @@ function AuthRequiredModal({
           <View
             style={{
               borderRadius: 27,
-              backgroundColor: "rgba(6,26,44,0.98)",
+              backgroundColor: "#FFFFFF",
               padding: 20,
               gap: 14,
             }}
@@ -1251,8 +1272,8 @@ function InfoPanel({
             style={{
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.10)",
-              backgroundColor: "rgba(255,255,255,0.04)",
+              borderColor: "#E3EAF2",
+              backgroundColor: "#F8FBFE",
               padding: 12,
             }}
           >

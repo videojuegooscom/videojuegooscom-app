@@ -1,3 +1,14 @@
+/**
+ * Qué hace: versión de Link (expo-router) para enlaces externos: en web se
+ * comporta como un enlace normal (target="_blank"); en apps nativas abre la
+ * URL en un navegador dentro de la propia app en vez de salir a Safari/Chrome.
+ *
+ * Cómo funciona: envuelve <Link> y, si no está en web, cancela la navegación
+ * por defecto (event.preventDefault()) y llama a openBrowserAsync().
+ *
+ * Conectado con: cualquier pantalla que necesite abrir una URL externa
+ * (por ejemplo enlaces a redes sociales o páginas externas).
+ */
 import { Href, Link } from 'expo-router';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { type ComponentProps } from 'react';

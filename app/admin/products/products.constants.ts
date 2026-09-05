@@ -1,3 +1,19 @@
+/**
+ * Qué hace: constantes compartidas del módulo de administración de
+ * productos: límites de subida de fotos/vídeo, tipos MIME soportados,
+ * textos de error y la paleta de colores (COLORS) del panel de productos.
+ *
+ * Cómo funciona: son valores estáticos, sin lógica. COLORS define el tema
+ * claro (fondo blanco, azul claro de acento, texto azul marino oscuro) que
+ * usan todos los componentes de esta carpeta.
+ *
+ * Conectado con:
+ * - app/admin/products.tsx → importa COLORS y los límites de subida.
+ * - app/admin/products/products.components.tsx → importa COLORS para los
+ *   componentes visuales compartidos (ChipButton, StatCard, etc.).
+ * - app/admin/products/products.utils.ts → importa los límites (MAX_*) y
+ *   MEDIA_BUCKET para las funciones de subida de media.
+ */
 export const MEDIA_BUCKET = "product-media";
 
 // Límites funcionales
@@ -41,31 +57,31 @@ export const ERRORS = {
 } as const;
 
 export const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  cardSoft: "rgba(255,255,255,0.04)",
-  border: "rgba(255,255,255,0.12)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#F6FAFD",
+  cardSoft: "#F8FBFE",
+  border: "#E3EAF2",
 
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  muted2: "rgba(255,255,255,0.55)",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
 
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
+  accent: "#1EA7E8",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
 
-  gold: "#D8B04A",
+  gold: "#92660B",
 
-  success: "#86EFAC",
-  successBg: "rgba(34,197,94,0.14)",
-  successBorder: "rgba(34,197,94,0.34)",
+  success: "#15803D",
+  successBg: "#DCFCE7",
+  successBorder: "#86EFAC",
 
-  warning: "#FDE68A",
-  warningBg: "rgba(250,204,21,0.14)",
-  warningBorder: "rgba(250,204,21,0.34)",
+  warning: "#92660B",
+  warningBg: "#FEF3C7",
+  warningBorder: "#FDE68A",
 
-  danger: "#FCA5A5",
-  dangerBg: "rgba(255,59,48,0.12)",
-  dangerBorder: "rgba(255,59,48,0.35)",
+  danger: "#B91C1C",
+  dangerBg: "#FFE4E6",
+  dangerBorder: "#FDA4AF",
 } as const;

@@ -1,3 +1,27 @@
+/**
+ * Qué hace: pantalla "Mi cuenta" (pestaña Perfil). Antes de iniciar sesión
+ * muestra un formulario de acceso/registro; una vez hay sesión, muestra el
+ * email conectado, el botón de cerrar sesión y (si el rol es admin) el acceso
+ * al panel de administración.
+ *
+ * Cómo funciona:
+ * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
+ *   getSession) para el login y registro.
+ * - Tras autenticar, consulta la tabla "profiles" (columna "role") para saber
+ *   si la cuenta es "admin" o "user" y así decidir qué se muestra.
+ * - El registro guarda nombre, usuario y país como metadata del usuario en
+ *   Supabase (options.data en signUp).
+ * - Toda la interfaz sigue el tema claro global: fondo blanco, azul claro
+ *   como color de acento y textos en azul marino oscuro para contraste.
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase usado para todo el login/registro.
+ * - app/admin/index.tsx → se abre con router.push("/admin") cuando el rol es
+ *   "admin" (botón "Entrar al panel de administración").
+ * - app/(tabs)/chat-global.tsx → su modal de "inicia sesión para comentar"
+ *   trae al usuario a esta pantalla para autenticarse.
+ * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
+ */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,27 +39,27 @@ import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  cardSoft: "rgba(255,255,255,0.04)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  mutedSoft: "rgba(255,255,255,0.58)",
-  accent: "#00AAE4",
-  accentSoft: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
-  danger: "#FCA5A5",
-  dangerBg: "rgba(255,59,48,0.12)",
-  dangerBorder: "rgba(255,59,48,0.35)",
-  success: "#86EFAC",
-  successBg: "rgba(34,197,94,0.14)",
-  successBorder: "rgba(34,197,94,0.30)",
-  warning: "#FDE68A",
-  warningBg: "rgba(245,158,11,0.12)",
-  warningBorder: "rgba(245,158,11,0.30)",
-  gamingGlow: "rgba(0,170,228,0.22)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#F6FAFD",
+  cardSoft: "#F8FBFE",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  mutedSoft: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accentSoft: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  danger: "#B91C1C",
+  dangerBg: "#FFE4E6",
+  dangerBorder: "#FDA4AF",
+  success: "#15803D",
+  successBg: "#DCFCE7",
+  successBorder: "#86EFAC",
+  warning: "#92660B",
+  warningBg: "#FEF3C7",
+  warningBorder: "#FDE68A",
+  gamingGlow: "#1EA7E8",
 };
 
 type AccessState = "checking" | "idle" | "submitting" | "signingOut";
@@ -109,8 +133,8 @@ function Badge({
           color: COLORS.warning,
         }
       : {
-          bg: "rgba(255,255,255,0.05)",
-          border: "rgba(255,255,255,0.10)",
+          bg: "#F6FAFD",
+          border: "#E3EAF2",
           color: COLORS.text,
         };
 
@@ -166,11 +190,21 @@ function ActionButton({
     >
       {loading ? (
         <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-          <ActivityIndicator color="#FFFFFF" />
-          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{loadingText}</Text>
+          <ActivityIndicator color={isPrimary ? "#FFFFFF" : COLORS.text} />
+          <Text style={{ color: isPrimary ? "#FFFFFF" : COLORS.text, fontWeight: "900" }}>
+            {loadingText}
+          </Text>
         </View>
       ) : (
-        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{title}</Text>
+        <Text
+          style={{
+            color: isPrimary ? "#FFFFFF" : COLORS.text,
+            fontWeight: "900",
+            fontSize: 15,
+          }}
+        >
+          {title}
+        </Text>
       )}
     </Pressable>
   );
@@ -247,7 +281,7 @@ function Input({
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
-      placeholderTextColor="rgba(255,255,255,0.45)"
+      placeholderTextColor="rgba(11,33,56,0.40)"
       secureTextEntry={secureTextEntry}
       keyboardType={keyboardType}
       returnKeyType={returnKeyType}
@@ -264,7 +298,7 @@ function Input({
         paddingHorizontal: 12,
         paddingVertical: 13,
         color: COLORS.text,
-        backgroundColor: "rgba(255,255,255,0.03)",
+        backgroundColor: "#F8FBFE",
       }}
     />
   );
@@ -289,9 +323,9 @@ function TabButton({
         paddingHorizontal: 14,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: active ? COLORS.accentSoft : "rgba(255,255,255,0.03)",
+        backgroundColor: active ? COLORS.accentSoft : "#F8FBFE",
         borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.08)",
+        borderColor: active ? COLORS.accentBorder : "#E3EAF2",
         opacity: pressed ? 0.92 : 1,
       })}
     >
@@ -312,8 +346,8 @@ function FeatureItem({
       style={{
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.08)",
-        backgroundColor: "rgba(255,255,255,0.03)",
+        borderColor: "#E3EAF2",
+        backgroundColor: "#F8FBFE",
         padding: 14,
         gap: 6,
       }}
@@ -574,25 +608,43 @@ export default function PerfilScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <View
           style={{
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
-            borderBottomColor: "rgba(255,255,255,0.06)",
+            borderBottomColor: "#E3EAF2",
             paddingHorizontal: 16,
             paddingTop: 14,
             paddingBottom: 14,
+            alignItems: "center",
           }}
         >
-          <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
-            {headerTitle}
-          </Text>
-          <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
-            {headerDesc}
-          </Text>
+          {/* Columna centrada: mismo ancho máximo que el contenido de abajo */}
+          <View style={{ width: "100%", maxWidth: 920 }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: 24,
+                fontWeight: "900",
+                textAlign: "center",
+              }}
+            >
+              {headerTitle}
+            </Text>
+            <Text
+              style={{
+                color: COLORS.muted,
+                marginTop: 4,
+                lineHeight: 20,
+                textAlign: "center",
+              }}
+            >
+              {headerDesc}
+            </Text>
+          </View>
         </View>
 
         <KeyboardAvoidingView
@@ -621,8 +673,8 @@ export default function PerfilScreen() {
                   style={{
                     borderRadius: 22,
                     borderWidth: 1,
-                    borderColor: "rgba(0,170,228,0.18)",
-                    backgroundColor: "rgba(255,255,255,0.02)",
+                    borderColor: "#BEE6FA",
+                    backgroundColor: "#FFFFFF",
                     overflow: "hidden",
                   }}
                 >
@@ -672,7 +724,7 @@ export default function PerfilScreen() {
                       gap: 10,
                     }}
                   >
-                    <ActivityIndicator color="#FFFFFF" />
+                    <ActivityIndicator color={COLORS.accent} />
                     <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                       Comprobando sesión...
                     </Text>
@@ -751,8 +803,8 @@ export default function PerfilScreen() {
                           style={{
                             borderRadius: 16,
                             borderWidth: 1,
-                            borderColor: "rgba(255,255,255,0.08)",
-                            backgroundColor: "rgba(255,255,255,0.03)",
+                            borderColor: "#E3EAF2",
+                            backgroundColor: "#F8FBFE",
                             padding: 14,
                             gap: 6,
                           }}
@@ -885,8 +937,8 @@ export default function PerfilScreen() {
                       style={{
                         borderRadius: 16,
                         borderWidth: 1,
-                        borderColor: "rgba(255,255,255,0.08)",
-                        backgroundColor: "rgba(255,255,255,0.03)",
+                        borderColor: "#E3EAF2",
+                        backgroundColor: "#F8FBFE",
                         padding: 14,
                         gap: 8,
                       }}

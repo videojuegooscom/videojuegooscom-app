@@ -1,3 +1,17 @@
+/**
+ * Qué hace: pantalla modal de ejemplo (plantilla por defecto de Expo
+ * Router), registrada como ruta "modal" con presentation:"modal" en
+ * app/_layout.tsx. De momento no se abre desde ningún botón de la app.
+ *
+ * Cómo funciona: usa ThemedView/ThemedText, que adaptan sus colores según
+ * el esquema de color del dispositivo (ver hooks/use-color-scheme.ts), y ya
+ * está centrada por diseño (alignItems/justifyContent: "center").
+ *
+ * Conectado con:
+ * - components/themed-view.tsx, components/themed-text.tsx → contenedor y
+ *   texto que siguen el tema claro/oscuro del sistema.
+ * - app/_layout.tsx → registra esta pantalla como Stack.Screen "modal".
+ */
 import { Link } from 'expo-router';
 import { StyleSheet } from 'react-native';
 

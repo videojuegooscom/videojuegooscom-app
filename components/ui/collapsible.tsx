@@ -1,3 +1,14 @@
+/**
+ * Qué hace: bloque de contenido plegable/desplegable con una flecha que
+ * rota al abrir. Viene de la plantilla base de Expo.
+ *
+ * Cómo funciona: guarda isOpen en estado local y muestra/oculta children
+ * dentro de una ThemedView al pulsar el título; el icono usa los colores
+ * de constants/theme.ts según el tema claro/oscuro.
+ *
+ * Conectado con: de momento no se usa en ninguna pantalla de app/; queda
+ * disponible como componente reutilizable para secciones tipo FAQ o "ver más".
+ */
 import { PropsWithChildren, useState } from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 

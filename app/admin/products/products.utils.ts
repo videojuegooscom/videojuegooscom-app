@@ -1,3 +1,23 @@
+/**
+ * Qué hace: funciones auxiliares (sin componentes visuales) del módulo de
+ * administración de productos: formateo (precio en €, texto recortado,
+ * parseo de números con coma o punto), etiquetas en español de estado y
+ * condición, navegación "volver" inteligente, estilos de la insignia de
+ * estado (statusVisual) y todo el flujo de selección/validación/conversión
+ * de imágenes y vídeos que sube el admin (incluida la conversión HEIC→JPEG).
+ *
+ * Cómo funciona: pickMediaFilesWeb() abre el selector de archivos del
+ * navegador (solo funciona en web, no en la app nativa), valida cada
+ * archivo, calcula la duración de los vídeos y devuelve una lista de
+ * LocalPickedMedia lista para previsualizar y subir a Supabase Storage.
+ *
+ * Conectado con:
+ * - app/admin/products/products.types.ts → tipos usados por estas funciones.
+ * - app/admin/products/products.constants.ts → MEDIA_BUCKET y límites de
+ *   subida (importados directamente en app/admin/products.tsx, no aquí).
+ * - app/admin/products.tsx → usa todas estas funciones para el formulario
+ *   de alta/edición de productos y la subida de media.
+ */
 import { Platform } from "react-native";
 import { router } from "expo-router";
 import type {
@@ -107,7 +127,7 @@ export function statusVisual(status: ProductStatus, palette: any) {
   return {
     text: "Borrador",
     borderColor: palette.border,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "#F6FAFD",
   };
 }
 

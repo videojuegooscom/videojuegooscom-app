@@ -1,3 +1,16 @@
+/**
+ * Qué hace: contenedor de scroll con una imagen de cabecera que hace efecto
+ * "parallax" (se desplaza y escala a otra velocidad que el contenido) al
+ * hacer scroll. Viene de la plantilla base de Expo.
+ *
+ * Cómo funciona: usa react-native-reanimated para animar translateY/scale
+ * de la cabecera según el offset de scroll, y ThemedView/useThemeColor
+ * para adaptar el fondo al tema claro/oscuro del sistema.
+ *
+ * Conectado con: de momento no se usa en ninguna pantalla de app/ (las
+ * pantallas actuales usan ScrollView normal); queda disponible como
+ * plantilla para una futura pantalla con cabecera grande tipo "hero".
+ */
 import type { PropsWithChildren, ReactElement } from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, {

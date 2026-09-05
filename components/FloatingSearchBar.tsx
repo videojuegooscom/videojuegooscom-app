@@ -1,3 +1,17 @@
+/**
+ * Qué hace: barra de búsqueda flotante que aparece encima del contenido de
+ * la pantalla de inicio, con un botón de "Buscar" (lleva a /catalogo) y un
+ * botón de acceso rápido a Blue IA (lleva a /blue-ia). Se puede arrastrar
+ * verticalmente y se "engancha" (snap) arriba o abajo de la pantalla.
+ *
+ * Cómo funciona: usa Animated + PanResponder para el arrastre y el efecto
+ * muelle (spring) al soltar, y mide la altura real del teclado/viewport en
+ * web para no tapar contenido. Los colores ya siguen el tema claro global
+ * (fondo blanco, texto azul marino oscuro).
+ *
+ * Conectado con: app/(tabs)/index.tsx → la usa como barra flotante sobre
+ * la pantalla de inicio.
+ */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
@@ -60,9 +74,9 @@ type FloatingSearchBarProps = {
 };
 
 const COLORS = {
-  textDark: "#0B1726",
-  mutedDark: "rgba(11,23,38,0.70)",
-  searchBg: "rgba(255,255,255,0.96)",
+  textDark: "#0B2138",
+  mutedDark: "rgba(11,33,56,0.62)",
+  searchBg: "#FFFFFF",
 };
 
 function clampNumber(value: number, min: number, max: number) {
@@ -81,7 +95,7 @@ function SearchHeader({ isMobile }: { isMobile: boolean }) {
         opacity: pressed ? 0.96 : 1,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: "rgba(11,23,38,0.16)",
+        borderColor: "#E3EAF2",
         backgroundColor: COLORS.searchBg,
         minHeight: isMobile ? 58 : 64,
         paddingLeft: isMobile ? 16 : 18,
@@ -142,7 +156,7 @@ function SearchHeader({ isMobile }: { isMobile: boolean }) {
           height: isMobile ? 44 : 48,
           borderRadius: 999,
           borderWidth: 1,
-          borderColor: "rgba(11,23,38,0.12)",
+          borderColor: "#E3EAF2",
           backgroundColor: "#FFFFFF",
           alignItems: "center",
           justifyContent: "center",

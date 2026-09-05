@@ -1,5 +1,16 @@
 // Fallback for using MaterialIcons on Android and web.
-
+/**
+ * Qué hace: versión para Android/web del componente de icono IconSymbol.
+ * Traduce nombres de SF Symbols (iOS) a su equivalente en Material Icons.
+ *
+ * Cómo funciona: MAPPING define la tabla de equivalencias (por ejemplo
+ * "house.fill" → "home"); en iOS, Expo Router usa en su lugar
+ * icon-symbol.ios.tsx (SF Symbols nativos).
+ *
+ * Conectado con: components/ui/icon-symbol.ios.tsx → misma interfaz, pero
+ * con SF Symbols nativos en iOS. components/ui/collapsible.tsx → lo usa
+ * para el icono de la flecha.
+ */
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { SymbolWeight, SymbolViewProps } from 'expo-symbols';
 import { ComponentProps } from 'react';

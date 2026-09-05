@@ -1,3 +1,17 @@
+/**
+ * Qué hace: bloque de "Reseñas" de la pantalla de inicio: valoración media
+ * (5,0/5 con estrellas), estadísticas rápidas (opiniones, valoración,
+ * respuesta), un botón "Dejar una reseña" y 3 tarjetas con citas de
+ * ejemplo de clientes.
+ *
+ * Cómo funciona: es contenido de ejemplo/estático (las citas y cifras
+ * están escritas a mano, no vienen de Supabase); openReviewLink() abre la
+ * URL de la tienda en el navegador. Sigue el tema claro global: fondo
+ * blanco, azul claro de acento y texto en azul marino oscuro.
+ *
+ * Conectado con: app/(tabs)/index.tsx → lo incluye como sección de la
+ * pantalla de inicio.
+ */
 import React from "react";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
 

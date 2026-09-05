@@ -1,3 +1,17 @@
+/**
+ * Qué hace: layout de la barra de pestañas inferior (Inicio, Perfil,
+ * Cesta, Chat, Blue IA). Define iconos, colores y comportamiento de la
+ * tab bar para las 5 pantallas principales de la app.
+ *
+ * Cómo funciona: usa expo-router Tabs con headerShown:false (cada pantalla
+ * pinta su propia cabecera). COLORS aquí ya sigue el tema claro global
+ * (fondo blanco, azul claro de acento, texto azul marino oscuro).
+ *
+ * Conectado con:
+ * - app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, chat-global.tsx,
+ *   blue-ia.tsx → las 5 pantallas que aparecen como pestañas aquí.
+ * - app/_layout.tsx → layout raíz que monta este grupo "(tabs)".
+ */
 import React from "react";
 import { Platform } from "react-native";
 import { Tabs } from "expo-router";

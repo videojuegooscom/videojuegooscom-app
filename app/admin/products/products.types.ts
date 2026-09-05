@@ -1,3 +1,19 @@
+/**
+ * Qué hace: define los tipos TypeScript compartidos del módulo de
+ * administración de productos (categorías, productos, media de producto,
+ * filtros y estados de formulario). No contiene lógica ni estilos.
+ *
+ * Cómo funciona: son solo "types"/"type aliases" que describen la forma de
+ * los datos que van y vienen de Supabase (tablas "categories", "products",
+ * "product_media") y del formulario de edición de producto.
+ *
+ * Conectado con:
+ * - app/admin/products.tsx → usa casi todos estos tipos para su estado.
+ * - app/admin/products/products.components.tsx → usa ProductMediaRow,
+ *   LocalPickedMedia y ProductMediaKind en MediaThumb.
+ * - app/admin/products/products.utils.ts → usa varios de estos tipos en
+ *   sus funciones auxiliares (fmtEUR, labelStatus, labelCond, etc.).
+ */
 export type CategoryRow = {
   id: string;
   name: string;
