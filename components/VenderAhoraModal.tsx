@@ -2,32 +2,44 @@
 /**
  * Qué hace: modal ("pop") que se abre al pulsar "Vender ahora". Es el
  * formulario para clientes que quieren vender su consola/electrónica: datos
- * de contacto (nombre, apellido, edad, género), qué artículo es, si funciona
- * bien o no (con su pregunta según la respuesta), ciudad, precio esperado,
- * cómo prefieren que les contactemos y cómo se entrega el artículo. Al
- * enviarlo se guarda directamente en Supabase — no se envía ningún email.
+ * de contacto (nombre, apellido, género), qué artículo es, si funciona bien
+ * o no (con su pregunta según la respuesta), ciudad, precio esperado, cómo
+ * prefieren que les contactemos y cómo se entrega el artículo. Al enviarlo
+ * se guarda directamente en Supabase — no se envía ningún email.
  *
  * Cómo funciona:
  * - Ocupa el ancho completo (hasta un máximo cómodo de lectura) tanto en
  *   móvil como en escritorio, con una animación de entrada tipo "pop"
  *   (fade + spring de escala) hecha con Animated.
+ * - Responsive: en móvil todo va en una sola columna a ancho completo
+ *   (igual que antes). A partir de tablet/escritorio (ancho >= 700) el
+ *   modal crece hasta un máximo mayor y varios campos se colocan en pareja
+ *   (Nombre/Apellido, Ciudad/Precio, selector+campo condicional de contacto
+ *   y de entrega) para aprovechar el ancho sin que el formulario se vea
+ *   como una columna interminable.
  * - Todos los TextInput usan fontSize 16: por debajo de 16px los navegadores
  *   móviles (Chrome/Safari) hacen zoom automático al enfocar un campo; con
  *   16px o más no lo hacen, así que al escribir la pantalla ya no salta.
- * - "¿Todo funciona perfectamente?" es un selector Sí/No. Si es Sí, pide el
- *   motivo de la venta; si es No, pide una breve descripción del problema.
- * - "Método de contacto" es un selector (WhatsApp/Gmail/Instagram/Facebook/
- *   TikTok) que cambia el campo siguiente: WhatsApp añade el prefijo "+34"
- *   fijo antes del número, Gmail ofrece autocompletar "@gmail.com" con un
- *   chip si el usuario no lo ha escrito, y las redes sociales anteponen "@"
- *   de forma fija. El método de contacto es opcional en conjunto, pero si se
- *   elige uno hay que rellenar su campo.
- * - "Opción de venta" es un selector (recogida en domicilio / el cliente se
- *   desplaza a entregarlo). Si es domicilio pide la dirección completa; si
- *   es entrega pide la disponibilidad horaria (Mañana/Medio día/Tarde
- *   noche).
- * - Nombre, apellido, género y la confirmación de ser mayor de 18 años son
- *   obligatorios.
+ * - Cada pregunta de "elegir una opción" (Sí/No, género, método de
+ *   contacto, opción de venta, disponibilidad) usa SelectField: un botón
+ *   compacto "Elegir" con un icono de flecha (Ionicons chevron, no un
+ *   emoji) que al tocarlo despliega justo debajo las opciones en forma de
+ *   chips; al elegir una, el botón pasa a mostrar el valor elegido y se
+ *   pliega otra vez. Así el formulario no se ve todo lleno de botones a la
+ *   vez, y en escritorio esos botones no ocupan una fila entera.
+ * - "¿Todo funciona perfectamente?" (Sí/No). Si es Sí, pide el motivo de la
+ *   venta; si es No, pide una breve descripción del problema.
+ * - "Método de contacto" (WhatsApp/Gmail/Instagram/Facebook/TikTok) cambia
+ *   el campo siguiente: WhatsApp añade el prefijo "+34" fijo antes del
+ *   número, Gmail ofrece autocompletar "@gmail.com" con un chip si el
+ *   usuario no lo ha escrito, y las redes sociales anteponen "@" de forma
+ *   fija. Es opcional en conjunto, pero si se elige un método hay que
+ *   rellenar su campo.
+ * - "Opción de venta" (recogida en domicilio / el cliente se desplaza a
+ *   entregarlo). Si es domicilio pide la dirección completa; si es entrega
+ *   pide la disponibilidad horaria (Mañana/Medio día/Tarde noche).
+ * - Nombre, apellido, género (justo debajo de nombre y apellido) y la
+ *   confirmación de ser mayor de 18 años son obligatorios.
  * - Al pulsar "Enviar formulario" hace un INSERT en la tabla pública
  *   "sell_requests" (ver sql/sell_requests.sql) con status inicial "nuevo".
  *   Cualquiera puede insertar (política RLS pública de solo INSERT); nadie
@@ -81,10 +93,6 @@ const COLORS = {
   dangerBg: "#FFE4E6",
   dangerBorder: "#FDA4AF",
 };
-
-// Ancho máximo del "pop": ocupa todo el ancho disponible hasta este límite,
-// tanto en móvil como en escritorio.
-const modalColumnStyle = { width: "100%", maxWidth: 640, alignSelf: "center" } as const;
 
 // Tamaño mínimo de fuente en los campos de texto: por debajo de 16px los
 // navegadores móviles hacen zoom automático al enfocar el campo.
@@ -180,85 +188,125 @@ function PrefixedInput({
   );
 }
 
-function YesNoChoice({
-  value,
-  onChange,
-}: {
-  value: boolean | null;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <View style={{ flexDirection: "row", gap: 10 }}>
-      {[
-        { label: "Sí", v: true },
-        { label: "No", v: false },
-      ].map((opt) => {
-        const active = value === opt.v;
-        return (
-          <Pressable
-            key={opt.label}
-            onPress={() => onChange(opt.v)}
-            style={({ pressed }) => ({
-              flex: 1,
-              borderRadius: 14,
-              paddingVertical: 12,
-              alignItems: "center",
-              borderWidth: 1,
-              borderColor: active ? COLORS.accentBorder : COLORS.border,
-              backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-// Selector genérico en forma de "pop" de chips, del mismo ancho que un
-// recuadro de formulario. Se usa para método de contacto, opción de venta,
-// disponibilidad y género.
-function ChipChoice<T extends string>({
+// Selector "Elegir ⌄": un botón compacto que muestra el valor elegido (o
+// "Elegir" con un icono de flecha si no hay nada elegido todavía) y, al
+// tocarlo, despliega justo debajo las opciones en forma de chips. Al elegir
+// una se pliega de nuevo. compact=true lo deja con un ancho contenido y
+// alineado a la izquierda (para no estirarse una fila entera en pantallas
+// anchas); compact=false lo estira al 100% del contenedor (para cuando ya
+// va dentro de una columna de una fila de dos).
+function SelectField<T extends string>({
   options,
   value,
   onChange,
+  compact,
 }: {
   options: { label: string; value: T }[];
   value: T | null;
   onChange: (v: T) => void;
+  compact?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.value === value);
+
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-      {options.map((opt) => {
-        const active = value === opt.value;
-        return (
-          <Pressable
-            key={opt.value}
-            onPress={() => onChange(opt.value)}
-            style={({ pressed }) => ({
-              flexGrow: 1,
-              minWidth: 96,
-              borderRadius: 14,
-              paddingVertical: 12,
-              paddingHorizontal: 12,
-              alignItems: "center",
-              borderWidth: 1,
-              borderColor: active ? COLORS.accentBorder : COLORS.border,
-              backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={{ gap: 8 }}>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor: value ? COLORS.accentBorder : COLORS.border,
+          backgroundColor: value ? COLORS.accent2 : COLORS.cardSoft,
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          opacity: pressed ? 0.9 : 1,
+          alignSelf: compact ? "flex-start" : "stretch",
+          width: compact ? undefined : "100%",
+          minWidth: compact ? 180 : undefined,
+          maxWidth: compact ? 340 : undefined,
+        })}
+      >
+        <Text
+          numberOfLines={1}
+          style={{
+            color: COLORS.text,
+            fontWeight: "900",
+            fontSize: INPUT_FONT_SIZE,
+            flexShrink: 1,
+          }}
+        >
+          {selected ? selected.label : "Elegir"}
+        </Text>
+        <Ionicons
+          name={open ? "chevron-up-outline" : "chevron-down-outline"}
+          size={18}
+          color={COLORS.text}
+        />
+      </Pressable>
+
+      {open && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          {options.map((opt) => {
+            const active = value === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                style={({ pressed }) => ({
+                  flexGrow: 1,
+                  minWidth: 96,
+                  borderRadius: 14,
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: active ? COLORS.accentBorder : COLORS.border,
+                  backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
+                  opacity: pressed ? 0.9 : 1,
+                })}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
     </View>
+  );
+}
+
+// Igual que SelectField pero para la pregunta Sí/No (funcionaBien es
+// boolean, no un string), reutilizando el mismo botón "Elegir".
+function YesNoSelect({
+  value,
+  onChange,
+  compact,
+}: {
+  value: boolean | null;
+  onChange: (v: boolean) => void;
+  compact?: boolean;
+}) {
+  const mapped: "si" | "no" | null = value === null ? null : value ? "si" : "no";
+  return (
+    <SelectField
+      options={[
+        { label: "Sí", value: "si" as const },
+        { label: "No", value: "no" as const },
+      ]}
+      value={mapped}
+      onChange={(v) => onChange(v === "si")}
+      compact={compact}
+    />
   );
 }
 
@@ -355,6 +403,11 @@ export default function VenderAhoraModal({
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
+  const isDesktopish = widthSafe >= 1024;
+  // A partir de tablet/escritorio se usan parejas de campos en fila.
+  const twoCol = !isMobile;
+  // El modal crece en pantallas anchas para aprovechar mejor el ancho.
+  const modalMaxWidth = isDesktopish ? 860 : isMobile ? 640 : 720;
 
   const [nombre, setNombre] = useState("");
   const [apellido, setApellido] = useState("");
@@ -474,6 +527,11 @@ export default function VenderAhoraModal({
       return;
     }
 
+    if (!genero) {
+      setFormErr("Indica tu género.");
+      return;
+    }
+
     if (!cleanArticulo) {
       setFormErr("Cuéntanos qué artículo quieres vender.");
       return;
@@ -521,11 +579,6 @@ export default function VenderAhoraModal({
 
     if (opcionVenta === "entrega" && !disponibilidad) {
       setFormErr("Indica tu disponibilidad para entregarlo.");
-      return;
-    }
-
-    if (!genero) {
-      setFormErr("Indica tu género.");
       return;
     }
 
@@ -587,7 +640,9 @@ export default function VenderAhoraModal({
         >
           <Animated.View
             style={{
-              ...modalColumnStyle,
+              width: "100%",
+              maxWidth: modalMaxWidth,
+              alignSelf: "center",
               opacity: fadeAnim,
               transform: [{ scale: scaleAnim }],
             }}
@@ -598,7 +653,7 @@ export default function VenderAhoraModal({
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.bg2,
-                padding: isMobile ? 16 : 20,
+                padding: isMobile ? 16 : 22,
                 gap: 14,
                 ...softShadow(),
               }}
@@ -694,7 +749,8 @@ export default function VenderAhoraModal({
                     </Pressable>
                   </View>
 
-                  <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10 }}>
+                  {/* Nombre + Apellido */}
+                  <View style={{ flexDirection: twoCol ? "row" : "column", gap: 14 }}>
                     <View style={{ flex: 1, gap: 6 }}>
                       <FieldLabel>Nombre</FieldLabel>
                       <FieldInput
@@ -719,6 +775,20 @@ export default function VenderAhoraModal({
                     </View>
                   </View>
 
+                  {/* Género, justo debajo de Nombre y Apellido */}
+                  <View style={{ gap: 6 }}>
+                    <FieldLabel>Género</FieldLabel>
+                    <SelectField
+                      options={GENERO_OPTIONS}
+                      value={genero}
+                      onChange={(v) => {
+                        setGenero(v);
+                        setFormErr(null);
+                      }}
+                      compact={twoCol}
+                    />
+                  </View>
+
                   <View style={{ gap: 6 }}>
                     <FieldLabel>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
                     <FieldInput
@@ -734,12 +804,13 @@ export default function VenderAhoraModal({
 
                   <View style={{ gap: 6 }}>
                     <FieldLabel>¿Todo funciona perfectamente?</FieldLabel>
-                    <YesNoChoice
+                    <YesNoSelect
                       value={funcionaBien}
                       onChange={(v) => {
                         setFuncionaBien(v);
                         setFormErr(null);
                       }}
+                      compact={twoCol}
                     />
                   </View>
 
@@ -775,165 +846,177 @@ export default function VenderAhoraModal({
                     </View>
                   )}
 
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>¿En qué ciudad te encuentras?</FieldLabel>
-                    <FieldInput
-                      value={ciudad}
-                      onChangeText={(v) => {
-                        setCiudad(v);
-                        setFormErr(null);
-                      }}
-                      placeholder="Ej: Zaragoza"
-                    />
-                  </View>
-
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
-                    <FieldInput
-                      value={precioEstimado}
-                      onChangeText={(v) => {
-                        setPrecioEstimado(v);
-                        setFormErr(null);
-                      }}
-                      placeholder="Ej: 150€"
-                    />
-                  </View>
-
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>¿Cómo prefieres que te contactemos? (opcional)</FieldLabel>
-                    <ChipChoice
-                      options={METODO_OPTIONS}
-                      value={metodoContacto}
-                      onChange={(v) => {
-                        setMetodoContacto(v);
-                        setContactoValor("");
-                        setFormErr(null);
-                      }}
-                    />
-                  </View>
-
-                  {metodoContacto === "whatsapp" && (
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel>Tu número de WhatsApp</FieldLabel>
-                      <PrefixedInput
-                        prefix="+34"
-                        value={contactoValor}
-                        onChangeText={(v) => {
-                          setContactoValor(v);
-                          setFormErr(null);
-                        }}
-                        placeholder="612 345 678"
-                        keyboardType="phone-pad"
-                      />
-                    </View>
-                  )}
-
-                  {metodoContacto === "gmail" && (
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel>Tu email de Gmail</FieldLabel>
+                  {/* Ciudad + Precio estimado */}
+                  <View style={{ flexDirection: twoCol ? "row" : "column", gap: 14 }}>
+                    <View style={{ flex: 1, gap: 6 }}>
+                      <FieldLabel>¿En qué ciudad te encuentras?</FieldLabel>
                       <FieldInput
-                        value={contactoValor}
+                        value={ciudad}
                         onChangeText={(v) => {
-                          setContactoValor(v);
+                          setCiudad(v);
                           setFormErr(null);
                         }}
-                        placeholder="tunombre@gmail.com"
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        autoCorrect={false}
+                        placeholder="Ej: Zaragoza"
                       />
-                      {showGmailHint && (
-                        <Pressable
-                          onPress={() =>
-                            setContactoValor((v) => (v.includes("@") ? v : `${v}@gmail.com`))
-                          }
-                          style={({ pressed }) => ({
-                            alignSelf: "flex-start",
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: COLORS.accentBorder,
-                            backgroundColor: COLORS.accent2,
-                            opacity: pressed ? 0.85 : 1,
-                          })}
-                        >
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                            + Añadir @gmail.com
-                          </Text>
-                        </Pressable>
-                      )}
                     </View>
-                  )}
-
-                  {(metodoContacto === "instagram" ||
-                    metodoContacto === "facebook" ||
-                    metodoContacto === "tiktok") && (
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel>Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}</FieldLabel>
-                      <PrefixedInput
-                        prefix="@"
-                        value={contactoValor}
+                    <View style={{ flex: 1, gap: 6 }}>
+                      <FieldLabel>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
+                      <FieldInput
+                        value={precioEstimado}
                         onChangeText={(v) => {
-                          setContactoValor(v);
+                          setPrecioEstimado(v);
                           setFormErr(null);
                         }}
-                        placeholder="tu.usuario"
+                        placeholder="Ej: 150€"
                       />
                     </View>
-                  )}
-
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>Opción de venta</FieldLabel>
-                    <ChipChoice
-                      options={OPCION_VENTA_OPTIONS}
-                      value={opcionVenta}
-                      onChange={(v) => {
-                        setOpcionVenta(v);
-                        setFormErr(null);
-                      }}
-                    />
                   </View>
 
-                  {opcionVenta === "domicilio" && (
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel>Dirección completa</FieldLabel>
-                      <FieldInput
-                        value={direccion}
-                        onChangeText={(v) => {
-                          setDireccion(v);
-                          setFormErr(null);
-                        }}
-                        placeholder="Calle, número, puerta y letra"
-                        multiline
-                      />
-                    </View>
-                  )}
-
-                  {opcionVenta === "entrega" && (
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel>Disponibilidad diaria</FieldLabel>
-                      <ChipChoice
-                        options={DISPONIBILIDAD_OPTIONS}
-                        value={disponibilidad}
+                  {/* Método de contacto + su campo condicional en pareja cuando hay uno elegido */}
+                  <View
+                    style={{
+                      flexDirection: twoCol && metodoContacto ? "row" : "column",
+                      gap: 14,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <View style={{ flex: metodoContacto ? 1 : undefined, width: metodoContacto ? undefined : "100%", gap: 6 }}>
+                      <FieldLabel>¿Cómo prefieres que te contactemos? (opcional)</FieldLabel>
+                      <SelectField
+                        options={METODO_OPTIONS}
+                        value={metodoContacto}
                         onChange={(v) => {
-                          setDisponibilidad(v);
+                          setMetodoContacto(v);
+                          setContactoValor("");
                           setFormErr(null);
                         }}
+                        compact={twoCol && !metodoContacto}
                       />
                     </View>
-                  )}
 
-                  <View style={{ gap: 6 }}>
-                    <FieldLabel>Género</FieldLabel>
-                    <ChipChoice
-                      options={GENERO_OPTIONS}
-                      value={genero}
-                      onChange={(v) => {
-                        setGenero(v);
-                        setFormErr(null);
-                      }}
-                    />
+                    {metodoContacto === "whatsapp" && (
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>Tu número de WhatsApp</FieldLabel>
+                        <PrefixedInput
+                          prefix="+34"
+                          value={contactoValor}
+                          onChangeText={(v) => {
+                            setContactoValor(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="612 345 678"
+                          keyboardType="phone-pad"
+                        />
+                      </View>
+                    )}
+
+                    {metodoContacto === "gmail" && (
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>Tu email de Gmail</FieldLabel>
+                        <FieldInput
+                          value={contactoValor}
+                          onChangeText={(v) => {
+                            setContactoValor(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="tunombre@gmail.com"
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                        />
+                        {showGmailHint && (
+                          <Pressable
+                            onPress={() =>
+                              setContactoValor((v) => (v.includes("@") ? v : `${v}@gmail.com`))
+                            }
+                            style={({ pressed }) => ({
+                              alignSelf: "flex-start",
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: COLORS.accentBorder,
+                              backgroundColor: COLORS.accent2,
+                              opacity: pressed ? 0.85 : 1,
+                            })}
+                          >
+                            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                              + Añadir @gmail.com
+                            </Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    )}
+
+                    {(metodoContacto === "instagram" ||
+                      metodoContacto === "facebook" ||
+                      metodoContacto === "tiktok") && (
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>
+                          Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
+                        </FieldLabel>
+                        <PrefixedInput
+                          prefix="@"
+                          value={contactoValor}
+                          onChangeText={(v) => {
+                            setContactoValor(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="tu.usuario"
+                        />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
+                  <View
+                    style={{
+                      flexDirection: twoCol && opcionVenta ? "row" : "column",
+                      gap: 14,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <View style={{ flex: opcionVenta ? 1 : undefined, width: opcionVenta ? undefined : "100%", gap: 6 }}>
+                      <FieldLabel>Opción de venta</FieldLabel>
+                      <SelectField
+                        options={OPCION_VENTA_OPTIONS}
+                        value={opcionVenta}
+                        onChange={(v) => {
+                          setOpcionVenta(v);
+                          setFormErr(null);
+                        }}
+                        compact={twoCol && !opcionVenta}
+                      />
+                    </View>
+
+                    {opcionVenta === "domicilio" && (
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>Dirección completa</FieldLabel>
+                        <FieldInput
+                          value={direccion}
+                          onChangeText={(v) => {
+                            setDireccion(v);
+                            setFormErr(null);
+                          }}
+                          placeholder="Calle, número, puerta y letra"
+                          multiline
+                        />
+                      </View>
+                    )}
+
+                    {opcionVenta === "entrega" && (
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <FieldLabel>Disponibilidad diaria</FieldLabel>
+                        <SelectField
+                          options={DISPONIBILIDAD_OPTIONS}
+                          value={disponibilidad}
+                          onChange={(v) => {
+                            setDisponibilidad(v);
+                            setFormErr(null);
+                          }}
+                        />
+                      </View>
+                    )}
                   </View>
 
                   <Checkbox
