@@ -1,3 +1,22 @@
+/**
+ * app/producto/[id].tsx
+ *
+ * Qué hace: ficha de un producto individual. Carga el producto y su galería
+ * de fotos/vídeos desde Supabase a partir del id de la URL, y permite
+ * añadirlo a la cesta, ir a checkout o preguntar por WhatsApp.
+ *
+ * Cómo funciona: fetchProductSafe() intenta varias variantes de la consulta
+ * (con/sin join de categoría, con/sin columna de imágenes) para no romperse
+ * si falta alguna columna en la base de datos. pickInitialHeroImage() elige
+ * la foto de portada. detectAdmin() decide si se muestra información extra
+ * (estado interno) reservada para el panel de admin.
+ *
+ * Conectado con:
+ * - lib/supabase.ts → tablas products, product_media, categories, profiles.
+ * - app/catalogo.tsx → de donde se navega hasta aquí.
+ * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Cesta" y "Finalizar
+ *   compra".
+ */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import {
@@ -19,19 +38,19 @@ import { supabase } from "../../lib/supabase";
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  bg3: "#082743",
-  card: "rgba(255,255,255,0.06)",
-  cardStrong: "rgba(255,255,255,0.08)",
-  border: "rgba(255,255,255,0.12)",
-  borderSoft: "rgba(255,255,255,0.08)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.76)",
-  muted2: "rgba(255,255,255,0.58)",
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  bg3: "#F6FAFD",
+  card: "#F6FAFD",
+  cardStrong: "#EEF3F8",
+  border: "#E3EAF2",
+  borderSoft: "#EEF3F8",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
 };
 
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
@@ -131,15 +150,15 @@ function adminStatusLabel(s: UiStatus) {
 }
 
 function statusBg(s: UiStatus) {
-  if (s === "PUBLICADA") return "rgba(34,197,94,0.18)";
-  if (s === "LISTA") return "rgba(242,194,0,0.18)";
-  return "rgba(255,45,85,0.18)";
+  if (s === "PUBLICADA") return "#DCFCE7";
+  if (s === "LISTA") return "#FEF3C7";
+  return "#FFE4E6";
 }
 
 function statusBorder(s: UiStatus) {
-  if (s === "PUBLICADA") return "rgba(34,197,94,0.35)";
-  if (s === "LISTA") return "rgba(242,194,0,0.35)";
-  return "rgba(255,45,85,0.35)";
+  if (s === "PUBLICADA") return "#86EFAC";
+  if (s === "LISTA") return "#FDE68A";
+  return "#FDA4AF";
 }
 
 function softShadow() {
@@ -492,7 +511,7 @@ function ActionChip({
         borderRadius: 999,
         borderWidth: 1,
         borderColor: accentTone ? COLORS.accentBorder : COLORS.borderSoft,
-        backgroundColor: accentTone ? COLORS.accent2 : "rgba(255,255,255,0.05)",
+        backgroundColor: accentTone ? COLORS.accent2 : "#F6FAFD",
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
@@ -673,41 +692,51 @@ ${price}
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.06)",
+          borderBottomColor: "#F6FAFD",
           paddingHorizontal: pagePadding,
           paddingTop: isMobile ? 12 : 14,
           paddingBottom: isMobile ? 12 : 14,
-          gap: 12,
+          alignItems: "center",
         }}
       >
+        {/* Columna centrada: en pantallas anchas la ficha no se pega a la izquierda */}
+        <View style={{ width: "100%", maxWidth: 1240, gap: 12 }}>
         <View
           style={{
             flexDirection: isMobile ? "column" : "row",
             justifyContent: "space-between",
-            alignItems: isMobile ? "stretch" : "flex-start",
+            alignItems: isMobile ? "center" : "flex-start",
             gap: 10,
           }}
         >
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, alignItems: isMobile ? "center" : "flex-start" }}>
             <Text
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 24 : 28,
                 fontWeight: "900",
                 lineHeight: isMobile ? 30 : 32,
+                textAlign: isMobile ? "center" : "left",
               }}
               numberOfLines={isMobile ? 3 : 2}
             >
               {p?.title ?? "Producto"}
             </Text>
 
-            <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
+            <Text
+              style={{
+                color: COLORS.muted,
+                marginTop: 6,
+                lineHeight: 20,
+                textAlign: isMobile ? "center" : "left",
+              }}
+            >
               {heroSubcopy}
             </Text>
           </View>
@@ -717,7 +746,7 @@ ${price}
               flexDirection: "row",
               gap: 10,
               flexWrap: "wrap",
-              justifyContent: isMobile ? "flex-start" : "flex-end",
+              justifyContent: "center",
             }}
           >
             <Pressable
@@ -729,7 +758,7 @@ ${price}
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: "rgba(255,255,255,0.05)",
+                backgroundColor: "#F6FAFD",
               })}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
@@ -743,29 +772,30 @@ ${price}
             flexWrap: "wrap",
             gap: 8,
             alignItems: "center",
+            justifyContent: isMobile ? "center" : "flex-start",
           }}
         >
           <Pressable
             onPress={() => replaceRoute("/" as Href)}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
-            <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 13 }}>
+            <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800", fontSize: 13 }}>
               Inicio
             </Text>
           </Pressable>
 
-          <Text style={{ color: "rgba(255,255,255,0.42)" }}>›</Text>
+          <Text style={{ color: "rgba(11,33,56,0.35)" }}>›</Text>
 
           <Pressable
             onPress={() => replaceRoute("/catalogo" as Href)}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
-            <Text style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 13 }}>
+            <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800", fontSize: 13 }}>
               Catálogo
             </Text>
           </Pressable>
 
-          <Text style={{ color: "rgba(255,255,255,0.42)" }}>›</Text>
+          <Text style={{ color: "rgba(11,33,56,0.35)" }}>›</Text>
 
           <Text
             style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}
@@ -773,6 +803,7 @@ ${price}
           >
             {p?.title ?? "Producto"}
           </Text>
+        </View>
         </View>
       </View>
 
@@ -787,14 +818,14 @@ ${price}
             style={{
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: "rgba(255,59,48,0.35)",
-              backgroundColor: "rgba(255,59,48,0.12)",
+              borderColor: "#F5B5B5",
+              backgroundColor: "#FDECEC",
               padding: 14,
               gap: 6,
             }}
           >
-            <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Error</Text>
-            <Text style={{ color: "#FEE2E2", lineHeight: 20 }}>{err}</Text>
+            <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Error</Text>
+            <Text style={{ color: "#7A271A", lineHeight: 20 }}>{err}</Text>
           </View>
 
           <View
@@ -828,7 +859,7 @@ ${price}
                 borderRadius: 18,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: "rgba(255,255,255,0.06)",
+                backgroundColor: "#F6FAFD",
                 paddingVertical: 14,
                 paddingHorizontal: 16,
                 width: isMobile ? "100%" : undefined,
@@ -853,7 +884,7 @@ ${price}
               borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.06)",
+              backgroundColor: "#F6FAFD",
               paddingVertical: 14,
               paddingHorizontal: 16,
               alignSelf: isMobile ? "stretch" : "flex-start",
@@ -869,9 +900,10 @@ ${price}
           contentContainerStyle={{
             padding: pagePadding,
             paddingBottom: isMobile ? 28 : 36,
-            gap: 14,
+            alignItems: "center",
           }}
         >
+          <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
           <View
             style={{
               flexDirection: isWide ? "row" : "column",
@@ -889,7 +921,7 @@ ${price}
                 style={{
                   borderRadius: 24,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.10)",
+                  borderColor: "#E3EAF2",
                   backgroundColor: COLORS.card,
                   overflow: "hidden",
                   ...softShadow(),
@@ -901,7 +933,7 @@ ${price}
                     style={{
                       width: "100%",
                       height: isWide ? 520 : isTablet ? 360 : 260,
-                      backgroundColor: "rgba(255,255,255,0.04)",
+                      backgroundColor: "#F8FBFE",
                     }}
                     resizeMode="cover"
                   />
@@ -917,7 +949,7 @@ ${price}
                   >
                     <Text
                       style={{
-                        color: "rgba(255,255,255,0.20)",
+                        color: "rgba(11,33,56,0.15)",
                         fontWeight: "900",
                         fontSize: isMobile ? 46 : 56,
                       }}
@@ -973,8 +1005,8 @@ ${price}
                           borderRadius: 16,
                           overflow: "hidden",
                           borderWidth: 2,
-                          borderColor: active ? COLORS.accent : "rgba(255,255,255,0.10)",
-                          backgroundColor: "rgba(255,255,255,0.05)",
+                          borderColor: active ? COLORS.accent : "#E3EAF2",
+                          backgroundColor: "#F6FAFD",
                         })}
                       >
                         <Image
@@ -1036,7 +1068,7 @@ ${price}
                       borderRadius: 999,
                       borderWidth: 1,
                       borderColor: COLORS.borderSoft,
-                      backgroundColor: "rgba(255,255,255,0.05)",
+                      backgroundColor: "#F6FAFD",
                     }}
                   >
                     <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
@@ -1108,7 +1140,7 @@ ${price}
                     borderRadius: 18,
                     borderWidth: 1,
                     borderColor: COLORS.borderSoft,
-                    backgroundColor: "rgba(255,255,255,0.04)",
+                    backgroundColor: "#F8FBFE",
                     padding: 14,
                     gap: 8,
                   }}
@@ -1135,7 +1167,7 @@ ${price}
                     borderRadius: 18,
                     borderWidth: 1,
                     borderColor: COLORS.borderSoft,
-                    backgroundColor: "rgba(255,255,255,0.04)",
+                    backgroundColor: "#F8FBFE",
                     padding: 14,
                     gap: 10,
                   }}
@@ -1198,7 +1230,7 @@ ${price}
                     borderRadius: 18,
                     borderWidth: 1,
                     borderColor: COLORS.borderSoft,
-                    backgroundColor: "rgba(0,0,0,0.18)",
+                    backgroundColor: "#F4F9FD",
                     padding: 14,
                     gap: 8,
                   }}
@@ -1248,11 +1280,12 @@ ${price}
                 paddingHorizontal: 16,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: "rgba(255,255,255,0.06)",
+                backgroundColor: "#F6FAFD",
               })}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al catálogo</Text>
             </Pressable>
+          </View>
           </View>
         </ScrollView>
       )}
@@ -1310,12 +1343,12 @@ function Pill({
         paddingHorizontal: 10,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        backgroundColor: "rgba(255,255,255,0.06)",
+        borderColor: "#E3EAF2",
+        backgroundColor: "#F6FAFD",
         width: isMobile ? "auto" : undefined,
       }}
     >
-      <Text style={{ color: "rgba(255,255,255,0.88)", fontWeight: "800", fontSize: 13 }}>
+      <Text style={{ color: "rgba(11,33,56,0.72)", fontWeight: "800", fontSize: 13 }}>
         {text}
       </Text>
     </View>

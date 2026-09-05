@@ -1,3 +1,20 @@
+/**
+ * app/(tabs)/blue-ia.tsx
+ *
+ * Qué hace: pantalla "Blue IA", un asistente de ayuda con accesos rápidos
+ * (elegir producto, vender, cambiar, reparación), preguntas frecuentes
+ * sugeridas y un cuadro de texto para escribir una duda. De momento es solo
+ * la interfaz (no hay conexión todavía a un modelo de IA real: escribir y
+ * pulsar "Consultar Blue IA" no envía nada a ningún backend).
+ *
+ * Cómo funciona: todo el contenido (quickActions, suggestions, helpBlocks)
+ * es texto fijo definido en este mismo archivo, no viene de Supabase.
+ * Pulsar una pregunta frecuente (SuggestionChip) simplemente copia ese
+ * texto al cuadro de escritura (setDraft).
+ *
+ * Conectado con: ningún otro archivo de datos por ahora; es una pantalla
+ * independiente dentro de las pestañas principales (app/(tabs)/_layout.tsx).
+ */
 import React, { useMemo, useState } from "react";
 import {
   Pressable,
@@ -14,25 +31,25 @@ import { Ionicons } from "@expo/vector-icons";
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  bg3: "#0A2743",
-  card: "rgba(255,255,255,0.06)",
-  cardSoft: "rgba(255,255,255,0.035)",
-  border: "rgba(255,255,255,0.12)",
-  borderSoft: "rgba(255,255,255,0.08)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.74)",
-  soft: "rgba(255,255,255,0.52)",
-  accent: "#00AAE4",
-  accentSoft: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.34)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  bg3: "#F6FAFD",
+  card: "#EAF6FD",
+  cardSoft: "#F8FBFE",
+  border: "#E3EAF2",
+  borderSoft: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  soft: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accentSoft: "#EAF6FD",
+  accentBorder: "#BEE6FA",
   success: "#22C55E",
-  successSoft: "rgba(34,197,94,0.16)",
-  successBorder: "rgba(34,197,94,0.28)",
-  gold: "#D8B04A",
-  goldSoft: "rgba(216,176,74,0.14)",
-  goldBorder: "rgba(216,176,74,0.26)",
+  successSoft: "#DCFCE7",
+  successBorder: "#86EFAC",
+  gold: "#B8860B",
+  goldSoft: "#FBF3E0",
+  goldBorder: "#F0DFB0",
 };
 
 type QuickAction = {
@@ -125,14 +142,14 @@ export default function BlueIAScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <LinearGradient
           colors={[
-            "rgba(255,255,255,0.18)",
+            "rgba(30,167,232,0.14)",
             "rgba(0,170,228,0.08)",
-            "rgba(7,30,51,0.00)",
+            "rgba(255,255,255,0)",
           ]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
@@ -151,14 +168,16 @@ export default function BlueIAScreen() {
             paddingHorizontal: 16,
             paddingTop: 18,
             paddingBottom: 120,
-            gap: 16,
+            alignItems: "center",
           }}
         >
+          {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
+          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
           <LinearGradient
             colors={[
-              "rgba(255,255,255,0.13)",
+              "rgba(30,167,232,0.10)",
               "rgba(0,170,228,0.08)",
-              "rgba(6,26,44,0.94)",
+              "#F4F9FD",
             ]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
@@ -170,7 +189,7 @@ export default function BlueIAScreen() {
             <View
               style={{
                 borderRadius: 27,
-                backgroundColor: "rgba(3,18,31,0.92)",
+                backgroundColor: "#FFFFFF",
                 paddingHorizontal: 18,
                 paddingVertical: 18,
                 gap: 14,
@@ -187,7 +206,7 @@ export default function BlueIAScreen() {
                   borderColor: COLORS.accentBorder,
                 }}
               >
-                <Text style={{ color: "#BAE6FD", fontWeight: "900", fontSize: 12 }}>
+                <Text style={{ color: "#0F8FCC", fontWeight: "900", fontSize: 12 }}>
                   AYUDA RÁPIDA
                 </Text>
               </View>
@@ -234,9 +253,9 @@ export default function BlueIAScreen() {
 
           <LinearGradient
             colors={[
-              "rgba(255,255,255,0.10)",
+              "#E3EAF2",
               "rgba(0,170,228,0.06)",
-              "rgba(255,255,255,0.02)",
+              "rgba(30,167,232,0.02)",
             ]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -248,9 +267,9 @@ export default function BlueIAScreen() {
             <View
               style={{
                 borderRadius: 23,
-                backgroundColor: "rgba(6,26,44,0.92)",
+                backgroundColor: "#FFFFFF",
                 borderWidth: 1,
-                borderColor: "rgba(255,255,255,0.06)",
+                borderColor: "#EAF6FD",
                 padding: 14,
                 gap: 12,
               }}
@@ -278,8 +297,8 @@ export default function BlueIAScreen() {
                 style={{
                   borderRadius: 18,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.08)",
-                  backgroundColor: "rgba(255,255,255,0.04)",
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#F8FBFE",
                   padding: 10,
                   gap: 10,
                 }}
@@ -288,7 +307,7 @@ export default function BlueIAScreen() {
                   value={draft}
                   onChangeText={setDraft}
                   placeholder="Ejemplo: quiero una PS5 con mando y presupuesto de 450€"
-                  placeholderTextColor="rgba(255,255,255,0.42)"
+                  placeholderTextColor="rgba(11,33,56,0.35)"
                   multiline
                   style={{
                     minHeight: 76,
@@ -385,9 +404,9 @@ export default function BlueIAScreen() {
 
           <LinearGradient
             colors={[
-              "rgba(255,255,255,0.10)",
+              "#E3EAF2",
               "rgba(0,170,228,0.06)",
-              "rgba(255,255,255,0.02)",
+              "rgba(30,167,232,0.02)",
             ]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -399,9 +418,9 @@ export default function BlueIAScreen() {
             <View
               style={{
                 borderRadius: 21,
-                backgroundColor: "rgba(6,26,44,0.92)",
+                backgroundColor: "#FFFFFF",
                 borderWidth: 1,
-                borderColor: "rgba(255,255,255,0.06)",
+                borderColor: "#EAF6FD",
                 padding: 16,
                 gap: 12,
               }}
@@ -429,6 +448,7 @@ export default function BlueIAScreen() {
               </View>
             </View>
           </LinearGradient>
+          </View>
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -446,7 +466,7 @@ function SectionHeader({
     <View style={{ gap: 6 }}>
       <Text
         style={{
-          color: "#FFFFFF",
+          color: "#0B2138",
           fontSize: 24,
           fontWeight: "900",
           letterSpacing: 0.2,
@@ -456,7 +476,7 @@ function SectionHeader({
       </Text>
       <Text
         style={{
-          color: "rgba(255,255,255,0.72)",
+          color: "rgba(11,33,56,0.60)",
           lineHeight: 22,
         }}
       >
@@ -478,18 +498,18 @@ function MiniPill({
       ? {
           bg: COLORS.accentSoft,
           border: COLORS.accentBorder,
-          text: "#BAE6FD",
+          text: "#0F8FCC",
         }
       : tone === "success"
         ? {
             bg: COLORS.successSoft,
             border: COLORS.successBorder,
-            text: "#BBF7D0",
+            text: "#15803D",
           }
         : {
             bg: COLORS.goldSoft,
             border: COLORS.goldBorder,
-            text: "#FDE68A",
+            text: "#92660B",
           };
 
   return (
@@ -521,9 +541,9 @@ function QuickActionCard({ item }: { item: QuickAction }) {
     >
       <LinearGradient
         colors={[
-          "rgba(255,255,255,0.10)",
+          "#E3EAF2",
           "rgba(0,170,228,0.06)",
-          "rgba(255,255,255,0.02)",
+          "rgba(30,167,232,0.02)",
         ]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -535,9 +555,9 @@ function QuickActionCard({ item }: { item: QuickAction }) {
         <View
           style={{
             borderRadius: 21,
-            backgroundColor: "rgba(6,26,44,0.90)",
+            backgroundColor: "#FFFFFF",
             borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.06)",
+            borderColor: "#EAF6FD",
             padding: 16,
             gap: 10,
             minHeight: 148,
@@ -550,9 +570,9 @@ function QuickActionCard({ item }: { item: QuickAction }) {
               borderRadius: 14,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(255,255,255,0.06)",
+              backgroundColor: "#EAF6FD",
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.08)",
+              borderColor: "#E3EAF2",
             }}
           >
             <Ionicons name={item.icon} size={22} color={COLORS.text} />
@@ -601,9 +621,9 @@ function SuggestionChip({
           borderRadius: 999,
           paddingVertical: 12,
           paddingHorizontal: 14,
-          backgroundColor: "rgba(255,255,255,0.05)",
+          backgroundColor: "#F6FAFD",
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.10)",
+          borderColor: "#E3EAF2",
           maxWidth: 420,
         }}
       >

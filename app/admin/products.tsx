@@ -1,3 +1,36 @@
+/**
+ * Qué hace: pantalla de administración de productos. Lista, filtra
+ * (por estado y visibilidad), busca, crea, edita, publica/oculta, destaca
+ * en la home y borra los productos del catálogo, incluyendo la gestión de
+ * sus fotos y vídeo.
+ *
+ * Cómo funciona:
+ * - Lee/escribe en las tablas "products" y "product_media" de Supabase
+ *   (con detección automática de si "product_media" existe todavía).
+ * - El modal de alta/edición sube los archivos seleccionados a Supabase
+ *   Storage (bucket MEDIA_BUCKET) usando pickMediaFilesWeb() y
+ *   buildMediaPath() de products.utils.ts, validando tamaño, tipo y
+ *   duración de vídeo con los límites de products.constants.ts.
+ * - toggleActive()/toggleFeaturedHome() aplican cambios optimistas en la
+ *   lista y los revierten si Supabase devuelve error.
+ * - Sigue el tema claro global: fondo blanco, azul claro de acento y
+ *   textos en azul marino oscuro (COLORS de products.constants.ts).
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
+ * - app/admin/products/products.constants.ts → COLORS y límites de subida.
+ * - app/admin/products/products.types.ts → tipos de producto y media.
+ * - app/admin/products/products.utils.ts → formateo, validación y subida
+ *   de archivos.
+ * - app/admin/products/products.components.tsx → StatCard, ChipButton,
+ *   FilterPill, SectionTitle, MediaThumb usados en esta pantalla.
+ * - app/admin/index.tsx → pantalla desde la que se entra aquí y a la que
+ *   se vuelve con smartBackAdminHome().
+ * - app/admin/categories.tsx → los productos se clasifican con las
+ *   categorías creadas allí (category_id).
+ * - app/catalogo.tsx y app/producto/[id].tsx → lo que se publica aquí es
+ *   lo que se ve en la tienda pública.
+ */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -849,19 +882,21 @@ export default function AdminProducts() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.06)",
+          borderBottomColor: "#E3EAF2",
           paddingHorizontal: pagePadding,
           paddingTop: isMobile ? 12 : 14,
           paddingBottom: isMobile ? 12 : 12,
-          gap: 12,
+          alignItems: "center",
         }}
       >
+        {/* Columna centrada: mismo ancho máximo que la lista de abajo */}
+        <View style={{ width: "100%", maxWidth: 1160, gap: 12 }}>
         <View
           style={{
             flexDirection: isMobile ? "column" : "row",
@@ -877,11 +912,19 @@ export default function AdminProducts() {
                 fontSize: isMobile ? 22 : 24,
                 fontWeight: "900",
                 lineHeight: isMobile ? 28 : 30,
+                textAlign: isMobile ? "center" : "left",
               }}
             >
               Productos
             </Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
+            <Text
+              style={{
+                color: COLORS.muted,
+                marginTop: 4,
+                lineHeight: 20,
+                textAlign: isMobile ? "center" : "left",
+              }}
+            >
               Crear, editar, publicar y controlar la visibilidad real del catálogo.
             </Text>
           </View>
@@ -895,7 +938,7 @@ export default function AdminProducts() {
               borderRadius: 999,
               borderWidth: 1,
               borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.05)",
+              backgroundColor: "#F6FAFD",
               alignSelf: isMobile ? "flex-start" : "auto",
             })}
           >
@@ -963,7 +1006,7 @@ export default function AdminProducts() {
             value={search}
             onChangeText={setSearch}
             placeholder="Buscar por título o descripción"
-            placeholderTextColor="rgba(255,255,255,0.45)"
+            placeholderTextColor="rgba(11,33,56,0.40)"
             style={{
               borderWidth: 1,
               borderColor: COLORS.border,
@@ -971,7 +1014,7 @@ export default function AdminProducts() {
               paddingHorizontal: 12,
               paddingVertical: 12,
               color: COLORS.text,
-              backgroundColor: "rgba(255,255,255,0.03)",
+              backgroundColor: "#F8FBFE",
               fontSize: isMobile ? 14 : 15,
             }}
           />
@@ -1011,6 +1054,7 @@ export default function AdminProducts() {
             </Text>
           </Pressable>
         </View>
+        </View>
       </View>
 
       {loading ? (
@@ -1019,7 +1063,9 @@ export default function AdminProducts() {
           <Text style={{ color: COLORS.muted }}>Cargando productos…</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, gap: 12 }}>
+        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
+          {/* Columna centrada: mismo ancho máximo que la cabecera */}
+          <View style={{ width: "100%", maxWidth: 1160, gap: 12 }}>
           {filteredItems.length === 0 ? (
             <View
               style={{
@@ -1079,7 +1125,7 @@ export default function AdminProducts() {
                         overflow: "hidden",
                         borderWidth: 1,
                         borderColor: COLORS.border,
-                        backgroundColor: "rgba(255,255,255,0.04)",
+                        backgroundColor: "#F8FBFE",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
@@ -1146,7 +1192,7 @@ export default function AdminProducts() {
                                 borderRadius: 999,
                                 borderWidth: 1,
                                 borderColor: COLORS.border,
-                                backgroundColor: "rgba(255,255,255,0.06)",
+                                backgroundColor: "#F6FAFD",
                               }}
                             >
                               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
@@ -1161,7 +1207,7 @@ export default function AdminProducts() {
                                 borderRadius: 999,
                                 borderWidth: 1,
                                 borderColor: COLORS.border,
-                                backgroundColor: "rgba(255,255,255,0.06)",
+                                backgroundColor: "#F6FAFD",
                               }}
                             >
                               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
@@ -1176,7 +1222,7 @@ export default function AdminProducts() {
                                 borderRadius: 999,
                                 borderWidth: 1,
                                 borderColor: COLORS.border,
-                                backgroundColor: "rgba(255,255,255,0.06)",
+                                backgroundColor: "#F6FAFD",
                               }}
                             >
                               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
@@ -1233,6 +1279,7 @@ export default function AdminProducts() {
               );
             })
           )}
+          </View>
         </ScrollView>
       )}
 
@@ -1251,6 +1298,9 @@ export default function AdminProducts() {
           >
             <View
               style={{
+                width: "100%",
+                maxWidth: 720,
+                alignSelf: "center",
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
@@ -1279,7 +1329,7 @@ export default function AdminProducts() {
                   setModalErr(null);
                 }}
                 placeholder="Título (ej: PS5 Slim 1TB)"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
                 style={{
                   borderWidth: 1,
                   borderColor: COLORS.border,
@@ -1287,7 +1337,7 @@ export default function AdminProducts() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "#F8FBFE",
                   fontSize: 14,
                 }}
               />
@@ -1299,7 +1349,7 @@ export default function AdminProducts() {
                   setModalErr(null);
                 }}
                 placeholder="Descripción"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
                 multiline
                 style={{
                   borderWidth: 1,
@@ -1310,7 +1360,7 @@ export default function AdminProducts() {
                   color: COLORS.text,
                   minHeight: isMobile ? 88 : 96,
                   textAlignVertical: "top",
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "#F8FBFE",
                   fontSize: 14,
                 }}
               />
@@ -1322,7 +1372,7 @@ export default function AdminProducts() {
                   setModalErr(null);
                 }}
                 placeholder="Precio € (ej: 239)"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
                 keyboardType="numeric"
                 style={{
                   borderWidth: 1,
@@ -1331,7 +1381,7 @@ export default function AdminProducts() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "#F8FBFE",
                   fontSize: 14,
                 }}
               />
@@ -1414,8 +1464,8 @@ export default function AdminProducts() {
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor: status === s ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                      backgroundColor: status === s ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                      borderColor: status === s ? COLORS.accentBorder : "#E3EAF2",
+                      backgroundColor: status === s ? COLORS.accent2 : "#F6FAFD",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1438,9 +1488,9 @@ export default function AdminProducts() {
                       paddingHorizontal: 12,
                       borderWidth: 1,
                       borderColor:
-                        condition === c ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                        condition === c ? COLORS.accentBorder : "#E3EAF2",
                       backgroundColor:
-                        condition === c ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                        condition === c ? COLORS.accent2 : "#F6FAFD",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1464,8 +1514,8 @@ export default function AdminProducts() {
                     paddingVertical: 10,
                     paddingHorizontal: 12,
                     borderWidth: 1,
-                    borderColor: !categoryId ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-                    backgroundColor: !categoryId ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                    borderColor: !categoryId ? COLORS.accentBorder : "#E3EAF2",
+                    backgroundColor: !categoryId ? COLORS.accent2 : "#F6FAFD",
                   })}
                 >
                   <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1484,9 +1534,9 @@ export default function AdminProducts() {
                       paddingHorizontal: 12,
                       borderWidth: 1,
                       borderColor:
-                        categoryId === c.id ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
+                        categoryId === c.id ? COLORS.accentBorder : "#E3EAF2",
                       backgroundColor:
-                        categoryId === c.id ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+                        categoryId === c.id ? COLORS.accent2 : "#F6FAFD",
                     })}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1579,7 +1629,7 @@ export default function AdminProducts() {
                     paddingHorizontal: 14,
                     borderWidth: 1,
                     borderColor: COLORS.border,
-                    backgroundColor: "rgba(255,255,255,0.06)",
+                    backgroundColor: "#F6FAFD",
                     width: isMobile ? "100%" : undefined,
                   })}
                 >
@@ -1626,6 +1676,9 @@ export default function AdminProducts() {
         >
           <View
             style={{
+              width: "100%",
+              maxWidth: 520,
+              alignSelf: "center",
               borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,

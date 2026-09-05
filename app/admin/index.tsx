@@ -1,4 +1,27 @@
 // app/admin/index.tsx
+/**
+ * Qué hace: pantalla principal del panel de administración (menú de admin).
+ * Comprueba que hay una sesión de administrador válida y, si la hay, muestra
+ * accesos directos a Categorías, Productos e Inventario, una checklist de
+ * publicación y un botón para cerrar sesión o volver a la tienda pública.
+ *
+ * Cómo funciona:
+ * - validateAdminAccess() usa supabase.auth.getSession() y luego consulta
+ *   la tabla "profiles" (columna "role"): si no hay sesión o el rol no es
+ *   "admin", cierra sesión y redirige a /admin/login.
+ * - Se suscribe a supabase.auth.onAuthStateChange() para revalidar el acceso
+ *   si la sesión cambia mientras la pantalla está abierta.
+ * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
+ *   en azul marino oscuro.
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para leer sesión y perfil.
+ * - app/admin/_layout.tsx → layout que envuelve todas las rutas /admin.
+ * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/inventario.tsx
+ *   → pantallas a las que enlazan las tarjetas de "Gestión principal".
+ * - app/admin/login (router.replace) → a donde se redirige si el acceso no
+ *   es válido.
+ */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -18,23 +41,23 @@ import { supabase } from "../../lib/supabase";
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  cardSoft: "rgba(255,255,255,0.04)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  muted2: "rgba(255,255,255,0.58)",
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
-  successBg: "rgba(34,197,94,0.14)",
-  successBorder: "rgba(34,197,94,0.30)",
-  warningBg: "rgba(250,204,21,0.12)",
-  warningBorder: "rgba(250,204,21,0.30)",
-  dangerBg: "rgba(255,59,48,0.12)",
-  dangerBorder: "rgba(255,59,48,0.35)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#F6FAFD",
+  cardSoft: "#F8FBFE",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  successBg: "#DCFCE7",
+  successBorder: "#86EFAC",
+  warningBg: "#FEF3C7",
+  warningBorder: "#FDE68A",
+  dangerBg: "#FFE4E6",
+  dangerBorder: "#FDA4AF",
 };
 
 type AdminUserState = {
@@ -389,7 +412,7 @@ export default function AdminHome() {
   if (userState.checking) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle="dark-content" />
         <SafeAreaView style={{ flex: 1 }}>
           <View
             style={{
@@ -415,39 +438,48 @@ export default function AdminHome() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <View
           style={{
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
-            borderBottomColor: "rgba(255,255,255,0.06)",
+            borderBottomColor: "#E3EAF2",
             paddingHorizontal: pagePadding,
             paddingTop: isMobile ? 12 : 14,
             paddingBottom: 14,
-            gap: 10,
+            alignItems: "center",
           }}
         >
+          {/* Columna centrada: mismo ancho máximo que el contenido de abajo */}
+          <View style={{ width: "100%", maxWidth: 1040, gap: 10 }}>
           <Text
             style={{
               color: COLORS.text,
               fontSize: isMobile ? 22 : 24,
               fontWeight: "900",
               lineHeight: isMobile ? 28 : 30,
+              textAlign: isMobile ? "center" : "left",
             }}
           >
             Panel Admin
           </Text>
 
-          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+          <Text
+            style={{
+              color: COLORS.muted,
+              lineHeight: 20,
+              textAlign: isMobile ? "center" : "left",
+            }}
+          >
             Gestiona categorías, productos y estructura comercial. Lo que publiques aquí
             es lo que el cliente percibe fuera.
           </Text>
 
           <View
             style={{
-              alignSelf: "flex-start",
+              alignSelf: isMobile ? "center" : "flex-start",
               paddingVertical: 6,
               paddingHorizontal: 10,
               borderRadius: 999,
@@ -477,8 +509,8 @@ export default function AdminHome() {
                 paddingHorizontal: 12,
                 borderRadius: 999,
                 borderWidth: 1,
-                borderColor: "rgba(255,255,255,0.14)",
-                backgroundColor: "rgba(255,255,255,0.06)",
+                borderColor: "#E3EAF2",
+                backgroundColor: "#F6FAFD",
                 width: isMobile ? "100%" : undefined,
               })}
             >
@@ -520,15 +552,18 @@ export default function AdminHome() {
               )}
             </Pressable>
           </View>
+          </View>
         </View>
 
         <ScrollView
           contentContainerStyle={{
             padding: pagePadding,
             paddingBottom: 28,
-            gap: 14,
+            alignItems: "center",
           }}
         >
+          {/* Columna centrada: mismo ancho máximo que la cabecera */}
+          <View style={{ width: "100%", maxWidth: 1040, gap: 14 }}>
           <View
             style={{
               borderRadius: 22,
@@ -673,6 +708,7 @@ export default function AdminHome() {
               No publiques por publicar. Un catálogo con cuatro productos bien montados vende
               más que veinte fichas mediocres. Aquí o queda serio o queda cutre, no hay término medio.
             </Text>
+          </View>
           </View>
         </ScrollView>
       </SafeAreaView>

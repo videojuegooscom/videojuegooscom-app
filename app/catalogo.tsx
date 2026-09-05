@@ -1,3 +1,26 @@
+/**
+ * app/catalogo.tsx
+ *
+ * Qué hace: pantalla de catálogo público (y vista interna para admins).
+ * Carga productos y categorías desde Supabase, permite buscar, filtrar por
+ * categoría y (si eres admin) por estado (Publicada/Lista/Por revisar), y
+ * muestra los resultados en una rejilla de tarjetas de producto.
+ *
+ * Cómo funciona: detectAdmin() comprueba el rol del usuario logueado en
+ * Supabase (tabla profiles). Según sea admin o no, fetchProductsSafe() pide
+ * más o menos columnas/estados. pickHeroImage() elige la foto de portada de
+ * cada producto a partir de product_media. calcColumns() decide cuántas
+ * columnas tiene la rejilla según el ancho de pantalla.
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase (tablas products, categories,
+ *   product_media, profiles).
+ * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
+ * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Ir a la cesta" /
+ *   "Finalizar compra".
+ * - app/(tabs)/index.tsx → los accesos por categoría de la home enlazan aquí
+ *   con el parámetro ?cat=.
+ */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import {
@@ -16,19 +39,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  bg3: "#082743",
-  card: "rgba(255,255,255,0.06)",
-  cardStrong: "rgba(255,255,255,0.08)",
-  border: "rgba(255,255,255,0.12)",
-  borderSoft: "rgba(255,255,255,0.08)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.76)",
-  muted2: "rgba(255,255,255,0.58)",
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  bg3: "#F6FAFD",
+  card: "#F6FAFD",
+  cardStrong: "#EEF3F8",
+  border: "#E3EAF2",
+  borderSoft: "#EEF3F8",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
 };
 
 type UiFilter = "ALL" | "PUBLICADA" | "LISTA" | "REVISAR";
@@ -123,15 +146,15 @@ function adminStatusLabel(s: UiStatus) {
 }
 
 function statusBg(s: UiStatus) {
-  if (s === "PUBLICADA") return "rgba(34,197,94,0.18)";
-  if (s === "LISTA") return "rgba(242,194,0,0.18)";
-  return "rgba(255,45,85,0.18)";
+  if (s === "PUBLICADA") return "#DCFCE7";
+  if (s === "LISTA") return "#FEF3C7";
+  return "#FFE4E6";
 }
 
 function statusBorder(s: UiStatus) {
-  if (s === "PUBLICADA") return "rgba(34,197,94,0.35)";
-  if (s === "LISTA") return "rgba(242,194,0,0.35)";
-  return "rgba(255,45,85,0.35)";
+  if (s === "PUBLICADA") return "#86EFAC";
+  if (s === "LISTA") return "#FDE68A";
+  return "#FDA4AF";
 }
 
 function smartBack() {
@@ -636,7 +659,7 @@ export default function CatalogoScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: 28 }}
@@ -646,22 +669,24 @@ export default function CatalogoScreen() {
           style={{
             backgroundColor: COLORS.bg2,
             borderBottomWidth: 1,
-            borderBottomColor: "rgba(255,255,255,0.06)",
+            borderBottomColor: "#F6FAFD",
             paddingHorizontal: pagePadding,
             paddingTop: isMobile ? 12 : 14,
             paddingBottom: isMobile ? 14 : 18,
-            gap: 14,
+            alignItems: "center",
           }}
         >
+          {/* Columna centrada: en pantallas anchas el contenido no se pega a la izquierda */}
+          <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
           <View
             style={{
               flexDirection: isMobile ? "column" : "row",
               justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "flex-start",
+              alignItems: isMobile ? "center" : "flex-start",
               gap: 12,
             }}
           >
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, alignItems: isMobile ? "center" : "flex-start" }}>
               <Text
                 style={{
                   color: COLORS.text,
@@ -669,6 +694,7 @@ export default function CatalogoScreen() {
                   fontWeight: "900",
                   letterSpacing: -0.5,
                   lineHeight: isMobile ? 30 : 34,
+                  textAlign: isMobile ? "center" : "left",
                 }}
               >
                 {pageTitle}
@@ -681,6 +707,7 @@ export default function CatalogoScreen() {
                   fontSize: isMobile ? 13 : 14,
                   lineHeight: 20,
                   maxWidth: 760,
+                  textAlign: isMobile ? "center" : "left",
                 }}
               >
                 {pageSubtitle}
@@ -692,7 +719,7 @@ export default function CatalogoScreen() {
                 flexDirection: "row",
                 gap: 10,
                 flexWrap: "wrap",
-                justifyContent: isMobile ? "flex-start" : "flex-end",
+                justifyContent: "center",
               }}
             >
               <Pressable
@@ -726,7 +753,7 @@ export default function CatalogoScreen() {
                   borderRadius: 999,
                   borderWidth: 1,
                   borderColor: COLORS.border,
-                  backgroundColor: "rgba(255,255,255,0.05)",
+                  backgroundColor: "#F6FAFD",
                 })}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
@@ -740,7 +767,7 @@ export default function CatalogoScreen() {
                 borderRadius: 22,
                 borderWidth: 1,
                 borderColor: COLORS.borderSoft,
-                backgroundColor: "rgba(255,255,255,0.04)",
+                backgroundColor: "#F8FBFE",
                 padding: isMobile ? 14 : 16,
                 gap: 14,
               }}
@@ -865,7 +892,7 @@ export default function CatalogoScreen() {
                 value={q}
                 onChangeText={setQ}
                 placeholder="Buscar consola, videojuego, accesorio..."
-                placeholderTextColor="rgba(255,255,255,0.42)"
+                placeholderTextColor="rgba(11,33,56,0.35)"
                 style={{
                   flex: 1,
                   color: COLORS.text,
@@ -896,8 +923,8 @@ export default function CatalogoScreen() {
                     paddingHorizontal: 11,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.14)",
-                    backgroundColor: "rgba(255,255,255,0.06)",
+                    borderColor: "#E3EAF2",
+                    backgroundColor: "#F6FAFD",
                     width: isMobile ? "100%" : undefined,
                   })}
                 >
@@ -1007,15 +1034,16 @@ export default function CatalogoScreen() {
               style={{
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: "rgba(255,59,48,0.35)",
-                backgroundColor: "rgba(255,59,48,0.12)",
+                borderColor: "#F5B5B5",
+                backgroundColor: "#FDECEC",
                 padding: 12,
               }}
             >
-              <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Error cargando catálogo</Text>
-              <Text style={{ color: "#FEE2E2", marginTop: 4, lineHeight: 20 }}>{err}</Text>
+              <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Error cargando catálogo</Text>
+              <Text style={{ color: "#7A271A", marginTop: 4, lineHeight: 20 }}>{err}</Text>
             </View>
           ) : null}
+          </View>
         </View>
 
         {loading ? (
@@ -1032,7 +1060,8 @@ export default function CatalogoScreen() {
             <Text style={{ color: COLORS.muted }}>Cargando catálogo…</Text>
           </View>
         ) : (
-          <View style={{ paddingHorizontal: pagePadding, paddingTop: 16, gap: 14 }}>
+          <View style={{ paddingHorizontal: pagePadding, paddingTop: 16, alignItems: "center" }}>
+          <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
             <View
               style={{
                 borderRadius: 18,
@@ -1093,7 +1122,7 @@ export default function CatalogoScreen() {
                       paddingHorizontal: 14,
                       borderWidth: 1,
                       borderColor: COLORS.border,
-                      backgroundColor: "rgba(255,255,255,0.06)",
+                      backgroundColor: "#F6FAFD",
                       width: isMobile ? "100%" : undefined,
                     })}
                   >
@@ -1184,7 +1213,7 @@ export default function CatalogoScreen() {
                       paddingHorizontal: 14,
                       borderWidth: 1,
                       borderColor: COLORS.border,
-                      backgroundColor: "rgba(255,255,255,0.06)",
+                      backgroundColor: "#F6FAFD",
                       width: isMobile ? "100%" : undefined,
                     })}
                   >
@@ -1260,12 +1289,13 @@ export default function CatalogoScreen() {
                   paddingHorizontal: 16,
                   borderWidth: 1,
                   borderColor: COLORS.border,
-                  backgroundColor: "rgba(255,255,255,0.06)",
+                  backgroundColor: "#F6FAFD",
                 })}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
               </Pressable>
             </View>
+          </View>
           </View>
         )}
       </ScrollView>
@@ -1319,7 +1349,7 @@ function MetricCard({
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.borderSoft,
-        backgroundColor: "rgba(255,255,255,0.05)",
+        backgroundColor: "#F6FAFD",
         padding: isMobile ? 12 : 14,
         gap: 4,
       }}
@@ -1353,8 +1383,8 @@ function Chip({
         paddingVertical: 10,
         paddingHorizontal: 12,
         borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "rgba(255,255,255,0.14)",
-        backgroundColor: active ? COLORS.accent2 : "rgba(255,255,255,0.06)",
+        borderColor: active ? COLORS.accentBorder : "#E3EAF2",
+        backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
       })}
     >
       <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: isMobile ? 13 : 14 }}>
@@ -1460,7 +1490,7 @@ function ProductCard({
           >
             <Text
               style={{
-                color: "rgba(255,255,255,0.20)",
+                color: "rgba(11,33,56,0.15)",
                 fontWeight: "900",
                 fontSize: 40,
               }}
@@ -1510,7 +1540,8 @@ function ProductCard({
               borderColor: "rgba(255,255,255,0.16)",
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+            {/* Chip oscuro sobre la foto: texto blanco fijo, no sigue el tema claro de la página */}
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
               {p.imageCount} foto{p.imageCount === 1 ? "" : "s"}
               {p.hasVideo ? ` + ${p.videoCount} vídeo${p.videoCount === 1 ? "" : "s"}` : ""}
             </Text>
@@ -1568,7 +1599,7 @@ function ProductCard({
             borderRadius: 16,
             borderWidth: 1,
             borderColor: COLORS.borderSoft,
-            backgroundColor: "rgba(255,255,255,0.04)",
+            backgroundColor: "#F8FBFE",
             padding: 12,
             gap: 8,
           }}

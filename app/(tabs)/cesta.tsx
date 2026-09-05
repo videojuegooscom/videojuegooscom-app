@@ -1,3 +1,22 @@
+/**
+ * app/(tabs)/cesta.tsx
+ *
+ * Qué hace: pantalla de la cesta de la compra. Guarda los artículos en el
+ * dispositivo (AsyncStorage) para que sobrevivan a cerrar la app, permite
+ * subir/bajar cantidad, quitar artículos y calcula el total.
+ *
+ * Cómo funciona: usa la misma clave CART_KEY = "videojuegoos_cart_v1" que
+ * lee app/checkout.tsx. Si llegas aquí con el parámetro ?add=<id> (por
+ * ejemplo desde la ficha de producto), addToCartById() busca ese producto
+ * en Supabase y lo añade automáticamente.
+ *
+ * Conectado con:
+ * - app/producto/[id].tsx → botón "Añadir a la cesta" (navega aquí con
+ *   ?add=<id>).
+ * - app/checkout.tsx → botón "Ir a pagar".
+ * - lib/supabase.ts → tabla products, para completar los datos del
+ *   artículo añadido.
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router, useLocalSearchParams } from "expo-router";
@@ -15,17 +34,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  accent: "#00AAE4",
-  gold: "#D8B04A",
-  danger: "#FF3B30",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#F6FAFD",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  accent: "#1EA7E8",
+  gold: "#B8860B",
+  danger: "#DC2626",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
 };
 
 type CartItem = {
@@ -371,19 +390,21 @@ export default function CestaScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.06)",
+          borderBottomColor: "#F6FAFD",
           paddingHorizontal: 16,
           paddingTop: 14,
           paddingBottom: 12,
-          gap: 10,
+          alignItems: "center",
         }}
       >
+        {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
+        <View style={{ width: "100%", maxWidth: 640, gap: 10 }}>
         <View
           style={{
             flexDirection: "row",
@@ -393,14 +414,16 @@ export default function CestaScreen() {
           }}
         >
           <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900", textAlign: "center" }}>
               Cesta
             </Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21 }}>
+            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21, textAlign: "center" }}>
               Tus productos listos para cerrar la compra. Claro, limpio y sin historias raras.
             </Text>
           </View>
+        </View>
 
+        <View style={{ alignItems: "center" }}>
           <Pressable
             onPress={smartBackToHome}
             style={({ pressed }) => ({
@@ -410,7 +433,7 @@ export default function CestaScreen() {
               borderRadius: 999,
               borderWidth: 1,
               borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.05)",
+              backgroundColor: "#F6FAFD",
             })}
           >
             <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
@@ -422,22 +445,23 @@ export default function CestaScreen() {
             style={{
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: "rgba(255,59,48,0.35)",
-              backgroundColor: "rgba(255,59,48,0.12)",
+              borderColor: "#F5B5B5",
+              backgroundColor: "#FDECEC",
               padding: 10,
             }}
           >
-            <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Atención</Text>
-            <Text style={{ color: "#FEE2E2", marginTop: 4 }}>{err}</Text>
+            <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>Atención</Text>
+            <Text style={{ color: "#7A271A", marginTop: 4, textAlign: "center" }}>{err}</Text>
           </View>
         )}
 
         {adding ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}>
             <ActivityIndicator />
             <Text style={{ color: COLORS.muted }}>Añadiendo producto a la cesta…</Text>
           </View>
         ) : null}
+        </View>
       </View>
 
       {loading ? (
@@ -458,10 +482,11 @@ export default function CestaScreen() {
           contentContainerStyle={{
             padding: 16,
             paddingBottom: 28,
-            gap: 12,
+            alignItems: "center",
           }}
           showsVerticalScrollIndicator={false}
         >
+          <View style={{ width: "100%", maxWidth: 640, gap: 12 }}>
           {items.length === 0 ? (
             <View
               style={{
@@ -489,9 +514,9 @@ export default function CestaScreen() {
                   borderRadius: 999,
                   paddingVertical: 12,
                   paddingHorizontal: 14,
-                  backgroundColor: "rgba(0,170,228,0.18)",
+                  backgroundColor: "#EAF6FD",
                   borderWidth: 1,
-                  borderColor: "rgba(0,170,228,0.35)",
+                  borderColor: "#BEE6FA",
                   alignSelf: "flex-start",
                 })}
               >
@@ -534,7 +559,7 @@ export default function CestaScreen() {
 
                       <Text
                         style={{
-                          color: "rgba(255,255,255,0.55)",
+                          color: "rgba(11,33,56,0.48)",
                           marginTop: 8,
                           fontSize: 12,
                         }}
@@ -564,8 +589,8 @@ export default function CestaScreen() {
                           opacity: pressed ? 0.88 : 1,
                           borderRadius: 12,
                           borderWidth: 1,
-                          borderColor: "rgba(255,255,255,0.14)",
-                          backgroundColor: "rgba(255,255,255,0.06)",
+                          borderColor: "#E3EAF2",
+                          backgroundColor: "#F6FAFD",
                           paddingVertical: 10,
                           paddingHorizontal: 14,
                         })}
@@ -581,8 +606,8 @@ export default function CestaScreen() {
                           paddingVertical: 10,
                           borderRadius: 12,
                           borderWidth: 1,
-                          borderColor: "rgba(255,255,255,0.10)",
-                          backgroundColor: "rgba(0,0,0,0.12)",
+                          borderColor: "#E3EAF2",
+                          backgroundColor: "#F4F9FD",
                         }}
                       >
                         <Text style={{ color: COLORS.text, fontWeight: "900" }}>{it.qty}</Text>
@@ -610,15 +635,15 @@ export default function CestaScreen() {
                         opacity: pressed ? 0.88 : 1,
                         borderRadius: 12,
                         borderWidth: 1,
-                        borderColor: "rgba(255,59,48,0.35)",
-                        backgroundColor: "rgba(255,59,48,0.12)",
+                        borderColor: "#F5B5B5",
+                        backgroundColor: "#FDECEC",
                         paddingVertical: 10,
                         paddingHorizontal: 12,
                       })}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Ionicons name="trash-outline" size={14} color="#FCA5A5" />
-                        <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Quitar</Text>
+                        <Ionicons name="trash-outline" size={14} color="#B91C1C" />
+                        <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Quitar</Text>
                       </View>
                     </Pressable>
                   </View>
@@ -632,8 +657,8 @@ export default function CestaScreen() {
                   alignSelf: "flex-start",
                   borderRadius: 999,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#F6FAFD",
                   paddingVertical: 10,
                   paddingHorizontal: 14,
                 })}
@@ -648,14 +673,14 @@ export default function CestaScreen() {
               borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.04)",
+              backgroundColor: "#F8FBFE",
               padding: 14,
               gap: 10,
             }}
           >
             <Row label="Subtotal" value={fmtEUR(subtotal)} />
             <Row label="Envío" value={shipping === 0 ? "Gratis" : fmtEUR(shipping)} />
-            <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.10)" }} />
+            <View style={{ height: 1, backgroundColor: "#E3EAF2" }} />
             <Row label="Total" value={fmtEUR(total)} strong />
 
             <Pressable
@@ -666,7 +691,7 @@ export default function CestaScreen() {
                 borderRadius: 14,
                 paddingVertical: 14,
                 alignItems: "center",
-                backgroundColor: items.length === 0 ? "rgba(0,170,228,0.20)" : COLORS.accent,
+                backgroundColor: items.length === 0 ? "#EAF6FD" : COLORS.accent,
                 opacity: items.length === 0 ? 0.45 : pressed ? 0.88 : 1,
               })}
             >
@@ -681,6 +706,7 @@ export default function CestaScreen() {
                 ← Seguir comprando
               </Text>
             </Pressable>
+          </View>
           </View>
         </ScrollView>
       )}
@@ -707,13 +733,13 @@ function Row({
     >
       <Text
         style={{
-          color: "rgba(255,255,255,0.75)",
+          color: "rgba(11,33,56,0.62)",
           fontWeight: strong ? "900" : "700",
         }}
       >
         {label}
       </Text>
-      <Text style={{ color: "#FFFFFF", fontWeight: strong ? "900" : "800" }}>{value}</Text>
+      <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
     </View>
   );
 }

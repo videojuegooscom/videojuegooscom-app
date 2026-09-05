@@ -1,3 +1,29 @@
+/**
+ * Qué hace: pantalla de inicio (pestaña "Inicio"). Es el escaparate
+ * principal: cabecera con marca, barra de búsqueda flotante, accesos
+ * rápidos a categorías, productos destacados desde Supabase, bloque de
+ * reseñas y footer con enlaces y contacto por WhatsApp.
+ *
+ * Cómo funciona:
+ * - Carga productos destacados desde la tabla "products" de Supabase
+ *   (con su categoría e imágenes) para la sección de destacados.
+ * - FloatingSearchBar es un componente aparte que se superpone al
+ *   contenido y se puede arrastrar arriba/abajo.
+ * - containerStyle (maxWidth según el ancho de pantalla: 920/1040/1240)
+ *   centra todo el contenido en pantallas anchas para que nada quede
+ *   pegado a la izquierda.
+ * - Sigue el tema claro global: fondo blanco, azul claro de acento y
+ *   texto en azul marino oscuro (COLORS de este mismo archivo).
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para los productos destacados.
+ * - components/FloatingSearchBar.tsx → barra de búsqueda flotante.
+ * - components/Resenas.tsx → bloque de reseñas.
+ * - app/catalogo.tsx, app/producto/[id].tsx, app/(tabs)/blue-ia.tsx →
+ *   pantallas a las que enlazan los accesos rápidos y las tarjetas de
+ *   producto destacado.
+ * - app/(tabs)/_layout.tsx → define esta pantalla como la pestaña "Inicio".
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
@@ -950,7 +976,8 @@ Precio: ${fmtEUR(item.priceEUR)}
                 borderColor: "rgba(255,255,255,0.16)",
               }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+              {/* Chip oscuro sobre la foto: texto blanco fijo, no sigue el tema claro de la página */}
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
                 {item.mediaCount} foto{item.mediaCount === 1 ? "" : "s"}
                 {item.hasVideo ? " + vídeo" : ""}
               </Text>
@@ -1164,7 +1191,7 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={{ backgroundColor: COLORS.bg2 }}>
         <View

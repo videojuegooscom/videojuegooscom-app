@@ -1,4 +1,22 @@
-// app/checkout.tsx
+/**
+ * app/checkout.tsx
+ *
+ * Qué hace: pantalla de checkout (finalizar compra). Lee el carrito guardado
+ * en AsyncStorage, pide los datos de envío (nombre, email, teléfono,
+ * dirección) y, al confirmar, arma un mensaje con el pedido y lo abre en
+ * WhatsApp (todavía no hay pasarela de pago tipo Stripe conectada).
+ *
+ * Cómo funciona: guarda el carrito en local con la misma clave que usa
+ * cesta.tsx (CART_KEY = "videojuegoos_cart_v1"), valida el formulario campo
+ * a campo (formOk), y construye el texto del pedido (whatsText) para
+ * enviarlo por WhatsApp con openWhatsApp().
+ *
+ * Conectado con:
+ * - app/(tabs)/cesta.tsx → de donde viene el carrito guardado.
+ * - app/catalogo.tsx → a donde vuelve el usuario si el carrito está vacío
+ *   o si pulsa "Seguir viendo".
+ * - @react-native-async-storage/async-storage → persistencia del carrito.
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,24 +28,25 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  accent: "#00AAE4",
-  gold: "#D8B04A",
-  danger: "#FF3B30",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
-  inputBg: "rgba(255,255,255,0.06)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#F6FAFD",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  accent: "#1EA7E8",
+  gold: "#B8860B",
+  danger: "#DC2626",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  inputBg: "#F6FAFD",
 };
 
 type CartItem = {
@@ -125,7 +144,7 @@ function inputStyle() {
     width: "100%" as const,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "#E3EAF2",
     backgroundColor: COLORS.inputBg,
     paddingVertical: Platform.select({ web: 12, default: 12 }),
     paddingHorizontal: 12,
@@ -135,6 +154,15 @@ function inputStyle() {
 }
 
 export default function CheckoutScreen() {
+  useWindowDimensions(); // fuerza re-render en cambios de tamaño (web/responsive)
+  // Columna centrada: en desktop el checkout no se estira de borde a borde,
+  // se queda como una columna centrada (igual que cualquier checkout premium).
+  const columnStyle = {
+    width: "100%" as const,
+    maxWidth: 640,
+    alignSelf: "center" as const,
+  };
+
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -252,57 +280,71 @@ export default function CheckoutScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       {/* Header */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.06)",
+          borderBottomColor: "#F6FAFD",
           paddingHorizontal: 16,
           paddingTop: 14,
           paddingBottom: 12,
           gap: 10,
         }}
       >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900" }}>Checkout</Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4 }}>
-              Rápido, claro y sin “sorpresas premium”.
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={smartBackToHome}
-            style={{
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.05)",
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
-          </Pressable>
-        </View>
-
-        {err ? (
+        <View style={columnStyle}>
           <View
             style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "rgba(255,59,48,0.35)",
-              backgroundColor: "rgba(255,59,48,0.12)",
-              padding: 10,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
             }}
           >
-            <Text style={{ color: "#FCA5A5", fontWeight: "900" }}>Ojo:</Text>
-            <Text style={{ color: "#FEE2E2", marginTop: 4 }}>{err}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
+                Checkout
+              </Text>
+              <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>
+                Rápido, claro y sin “sorpresas premium”.
+              </Text>
+            </View>
           </View>
-        ) : null}
+
+          <View style={{ alignItems: "center", marginTop: 10 }}>
+            <Pressable
+              onPress={smartBackToHome}
+              style={{
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "#F6FAFD",
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
+            </Pressable>
+          </View>
+
+          {err ? (
+            <View
+              style={{
+                marginTop: 10,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: "#F5B5B5",
+                backgroundColor: "#FDECEC",
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>Ojo:</Text>
+              <Text style={{ color: "#7A271A", marginTop: 4, textAlign: "center" }}>{err}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       {loading ? (
@@ -311,21 +353,23 @@ export default function CheckoutScreen() {
           <Text style={{ color: COLORS.muted }}>Cargando checkout…</Text>
         </View>
       ) : items.length === 0 ? (
-        <View style={{ padding: 16, gap: 12 }}>
+        <View style={{ padding: 16, gap: 12, alignItems: "center" }}>
           <View
             style={{
+              ...columnStyle,
               borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 16,
               gap: 10,
+              alignItems: "center",
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
               Tu carrito está vacío.
             </Text>
-            <Text style={{ color: COLORS.muted }}>
+            <Text style={{ color: COLORS.muted, textAlign: "center" }}>
               Para pagar, primero añade algo desde el catálogo.
             </Text>
 
@@ -336,10 +380,10 @@ export default function CheckoutScreen() {
                 borderRadius: 999,
                 paddingVertical: 12,
                 paddingHorizontal: 14,
-                backgroundColor: "rgba(0,170,228,0.18)",
+                backgroundColor: "#EAF6FD",
                 borderWidth: 1,
-                borderColor: "rgba(0,170,228,0.35)",
-                alignSelf: "flex-start",
+                borderColor: "#BEE6FA",
+                alignSelf: "center",
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>Ir al catálogo</Text>
@@ -348,7 +392,8 @@ export default function CheckoutScreen() {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, gap: 12 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, alignItems: "center" }}>
+            <View style={{ ...columnStyle, gap: 12 }}>
             {/* Resumen pedido */}
             <View
               style={{
@@ -368,8 +413,8 @@ export default function CheckoutScreen() {
                   style={{
                     borderRadius: 14,
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.10)",
-                    backgroundColor: "rgba(0,0,0,0.12)",
+                    borderColor: "#E3EAF2",
+                    backgroundColor: "#F4F9FD",
                     padding: 12,
                     gap: 6,
                   }}
@@ -382,7 +427,7 @@ export default function CheckoutScreen() {
                   ) : null}
 
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={{ color: "rgba(255,255,255,0.65)" }}>x{it.qty}</Text>
+                    <Text style={{ color: "rgba(11,33,56,0.55)" }}>x{it.qty}</Text>
                     <Text style={{ color: COLORS.gold, fontWeight: "900" }}>
                       {fmtEUR(it.priceEUR * it.qty)}
                     </Text>
@@ -390,7 +435,7 @@ export default function CheckoutScreen() {
                 </View>
               ))}
 
-              <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.10)" }} />
+              <View style={{ height: 1, backgroundColor: "#E3EAF2" }} />
               <Row label="Subtotal" value={fmtEUR(subtotal)} />
               <Row label="Envío" value={shipping === 0 ? "Gratis" : fmtEUR(shipping)} />
               <Row label="Total" value={fmtEUR(total)} strong />
@@ -463,8 +508,8 @@ export default function CheckoutScreen() {
                 style={{
                   borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.10)",
-                  backgroundColor: "rgba(0,0,0,0.12)",
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#F4F9FD",
                   padding: 12,
                   gap: 6,
                 }}
@@ -501,8 +546,8 @@ export default function CheckoutScreen() {
                   paddingVertical: 10,
                   paddingHorizontal: 14,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#F6FAFD",
                 })}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al carrito</Text>
@@ -516,8 +561,8 @@ export default function CheckoutScreen() {
                   paddingVertical: 10,
                   paddingHorizontal: 14,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#F6FAFD",
                 })}
               >
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -525,6 +570,7 @@ export default function CheckoutScreen() {
                   <Text style={{ color: COLORS.text, fontWeight: "900" }}>Pedir por WhatsApp</Text>
                 </View>
               </Pressable>
+            </View>
             </View>
           </ScrollView>
 
@@ -536,12 +582,17 @@ export default function CheckoutScreen() {
               right: 0,
               bottom: 0,
               padding: 14,
-              backgroundColor: "rgba(6,26,44,0.92)",
+              backgroundColor: "#FFFFFF",
               borderTopWidth: 1,
-              borderTopColor: "rgba(255,255,255,0.10)",
+              borderTopColor: "#E3EAF2",
+              shadowColor: "#0B2138",
+              shadowOpacity: 0.08,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: -4 },
+              elevation: 12,
             }}
           >
-            <View style={{ flexDirection: "row", gap: 10 }}>
+            <View style={{ ...columnStyle, flexDirection: "row", gap: 10 }}>
               <Pressable
                 disabled={!formOk || submitting}
                 onPress={onPay}
@@ -560,7 +611,7 @@ export default function CheckoutScreen() {
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                   {submitting ? "Iniciando…" : "Pagar ahora"}
                 </Text>
-                <Text style={{ color: "rgba(255,255,255,0.70)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
+                <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
                   Total: {fmtEUR(total)}
                 </Text>
               </Pressable>
@@ -572,22 +623,22 @@ export default function CheckoutScreen() {
                   opacity: pressed ? 0.88 : 1,
                   borderRadius: 18,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderColor: "#E3EAF2",
+                  backgroundColor: "#F6FAFD",
                   paddingVertical: 14,
                   alignItems: "center",
                   justifyContent: "center",
                 })}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>Seguir viendo</Text>
-                <Text style={{ color: "rgba(255,255,255,0.70)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
+                <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
                   Volver al catálogo
                 </Text>
               </Pressable>
             </View>
 
             {!formOk ? (
-              <Text style={{ color: "rgba(255,255,255,0.60)", marginTop: 10, textAlign: "center" }}>
+              <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 10, textAlign: "center" }}>
                 Completa los datos de envío para activar “Pagar ahora”.
               </Text>
             ) : null}
@@ -609,10 +660,10 @@ function Row({
 }) {
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <Text style={{ color: "rgba(255,255,255,0.75)", fontWeight: strong ? "900" : "700" }}>
+      <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: strong ? "900" : "700" }}>
         {label}
       </Text>
-      <Text style={{ color: "#FFFFFF", fontWeight: strong ? "900" : "800" }}>{value}</Text>
+      <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
     </View>
   );
 }
@@ -630,12 +681,12 @@ function Field(props: {
 
   return (
     <View style={{ gap: 8 }}>
-      <Text style={{ color: "rgba(255,255,255,0.80)", fontWeight: "800" }}>{label}</Text>
+      <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800" }}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="rgba(255,255,255,0.45)"
+        placeholderTextColor="rgba(11,33,56,0.35)"
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         multiline={multiline}
@@ -643,11 +694,11 @@ function Field(props: {
           width: "100%",
           borderRadius: 14,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.14)",
-          backgroundColor: "rgba(255,255,255,0.06)",
+          borderColor: "#E3EAF2",
+          backgroundColor: "#F6FAFD",
           paddingVertical: Platform.select({ web: 12, default: 12 }),
           paddingHorizontal: 12,
-          color: "#FFFFFF",
+          color: "#0B2138",
           fontWeight: "800",
           minHeight: multiline ? 90 : undefined,
           textAlignVertical: multiline ? "top" : "auto",

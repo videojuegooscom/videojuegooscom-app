@@ -1,4 +1,29 @@
 // app/admin/categories.tsx
+/**
+ * Qué hace: pantalla de administración de categorías. Lista, crea, edita,
+ * activa/desactiva y borra las categorías que estructuran la navegación
+ * comercial de la tienda (por ejemplo "PlayStation 5", "Xbox", "PC Gaming").
+ *
+ * Cómo funciona:
+ * - Lee/escribe directamente en la tabla "categories" de Supabase
+ *   (columnas: id, name, slug, sort_order, is_active, image_url,
+ *   created_at, updated_at).
+ * - Si la columna "image_url" no existe todavía en Supabase, hace un
+ *   fallback automático a una consulta sin esa columna (supportsImageUrl).
+ * - El modal de creación/edición valida nombre, slug (autogenerado desde el
+ *   nombre) y URL de imagen antes de guardar con insert/update.
+ * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
+ *   Supabase devuelve error.
+ * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
+ *   en azul marino oscuro.
+ *
+ * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
+ * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
+ *   "Categorías") y a la que se vuelve con smartBackAdminHome().
+ * - app/admin/products.tsx → los productos usan estas categorías
+ *   (category_id) para clasificarse en el catálogo público.
+ */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -21,26 +46,26 @@ import { supabase } from "../../lib/supabase";
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const COLORS = {
-  bg: "#071E33",
-  bg2: "#061A2C",
-  card: "rgba(255,255,255,0.06)",
-  cardSoft: "rgba(255,255,255,0.04)",
-  border: "rgba(255,255,255,0.12)",
-  text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.75)",
-  muted2: "rgba(255,255,255,0.55)",
-  accent: "#00AAE4",
-  accent2: "rgba(0,170,228,0.16)",
-  accentBorder: "rgba(0,170,228,0.45)",
-  success: "#86EFAC",
-  successBg: "rgba(34,197,94,0.14)",
-  successBorder: "rgba(34,197,94,0.34)",
-  warning: "#FDE68A",
-  warningBg: "rgba(250,204,21,0.14)",
-  warningBorder: "rgba(250,204,21,0.34)",
-  danger: "#FCA5A5",
-  dangerBg: "rgba(255,59,48,0.12)",
-  dangerBorder: "rgba(255,59,48,0.35)",
+  bg: "#FFFFFF",
+  bg2: "#F4F9FD",
+  card: "#F6FAFD",
+  cardSoft: "#F8FBFE",
+  border: "#E3EAF2",
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  muted2: "rgba(11,33,56,0.48)",
+  accent: "#1EA7E8",
+  accent2: "#EAF6FD",
+  accentBorder: "#BEE6FA",
+  success: "#15803D",
+  successBg: "#DCFCE7",
+  successBorder: "#86EFAC",
+  warning: "#92660B",
+  warningBg: "#FEF3C7",
+  warningBorder: "#FDE68A",
+  danger: "#B91C1C",
+  dangerBg: "#FFE4E6",
+  dangerBorder: "#FDA4AF",
 };
 
 type CategoryRow = {
@@ -176,7 +201,7 @@ function ChipButton({
     ? COLORS.accent2
     : isDanger
       ? COLORS.dangerBg
-      : "rgba(255,255,255,0.06)";
+      : "#F6FAFD";
 
   return (
     <Pressable
@@ -458,19 +483,21 @@ export default function AdminCategories() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.06)",
+          borderBottomColor: "#E3EAF2",
           paddingHorizontal: pagePadding,
           paddingTop: isMobile ? 12 : 14,
           paddingBottom: isMobile ? 12 : 12,
-          gap: 12,
+          alignItems: "center",
         }}
       >
+        {/* Columna centrada: mismo ancho máximo que la lista de abajo */}
+        <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
         <View
           style={{
             flexDirection: isMobile ? "column" : "row",
@@ -486,11 +513,19 @@ export default function AdminCategories() {
                 fontSize: isMobile ? 22 : 24,
                 fontWeight: "900",
                 lineHeight: isMobile ? 28 : 30,
+                textAlign: isMobile ? "center" : "left",
               }}
             >
               Categorías
             </Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
+            <Text
+              style={{
+                color: COLORS.muted,
+                marginTop: 4,
+                lineHeight: 20,
+                textAlign: isMobile ? "center" : "left",
+              }}
+            >
               Crea, ordena y activa las secciones que estructuran la navegación comercial.
             </Text>
           </View>
@@ -504,7 +539,7 @@ export default function AdminCategories() {
               borderRadius: 999,
               borderWidth: 1,
               borderColor: COLORS.border,
-              backgroundColor: "rgba(255,255,255,0.05)",
+              backgroundColor: "#F6FAFD",
               alignSelf: isMobile ? "flex-start" : "auto",
             })}
           >
@@ -539,7 +574,7 @@ export default function AdminCategories() {
             value={search}
             onChangeText={(v) => setSearch(v)}
             placeholder="Buscar por nombre o slug"
-            placeholderTextColor="rgba(255,255,255,0.45)"
+            placeholderTextColor="rgba(11,33,56,0.40)"
             style={{
               borderWidth: 1,
               borderColor: COLORS.border,
@@ -547,7 +582,7 @@ export default function AdminCategories() {
               paddingHorizontal: 12,
               paddingVertical: 12,
               color: COLORS.text,
-              backgroundColor: "rgba(255,255,255,0.03)",
+              backgroundColor: "#F8FBFE",
               fontSize: isMobile ? 14 : 15,
             }}
           />
@@ -602,6 +637,7 @@ export default function AdminCategories() {
             </Text>
           </View>
         )}
+        </View>
       </View>
 
       {loading ? (
@@ -614,9 +650,11 @@ export default function AdminCategories() {
           contentContainerStyle={{
             padding: pagePadding,
             paddingBottom: 30,
-            gap: 12,
+            alignItems: "center",
           }}
         >
+          {/* Columna centrada: mismo ancho máximo que la cabecera */}
+          <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
           {filteredItems.length === 0 ? (
             <View
               style={{
@@ -664,7 +702,7 @@ export default function AdminCategories() {
                       overflow: "hidden",
                       borderWidth: 1,
                       borderColor: COLORS.border,
-                      backgroundColor: "rgba(255,255,255,0.04)",
+                      backgroundColor: "#F8FBFE",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
@@ -716,7 +754,7 @@ export default function AdminCategories() {
                               borderRadius: 999,
                               borderWidth: 1,
                               borderColor: COLORS.border,
-                              backgroundColor: "rgba(255,255,255,0.06)",
+                              backgroundColor: "#F6FAFD",
                             }}
                           >
                             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
@@ -731,7 +769,7 @@ export default function AdminCategories() {
                               borderRadius: 999,
                               borderWidth: 1,
                               borderColor: COLORS.border,
-                              backgroundColor: "rgba(255,255,255,0.06)",
+                              backgroundColor: "#F6FAFD",
                             }}
                           >
                             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
@@ -795,6 +833,7 @@ export default function AdminCategories() {
               </View>
             ))
           )}
+          </View>
         </ScrollView>
       )}
 
@@ -813,6 +852,9 @@ export default function AdminCategories() {
           >
             <View
               style={{
+                width: "100%",
+                maxWidth: 640,
+                alignSelf: "center",
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
@@ -844,7 +886,7 @@ export default function AdminCategories() {
                   setModalErr(null);
                 }}
                 placeholder="Nombre (ej: PlayStation 5)"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
                 style={{
                   borderWidth: 1,
                   borderColor: COLORS.border,
@@ -852,7 +894,7 @@ export default function AdminCategories() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "#F8FBFE",
                   fontSize: 14,
                 }}
               />
@@ -864,7 +906,7 @@ export default function AdminCategories() {
                   setModalErr(null);
                 }}
                 placeholder="Slug (ej: playstation-5)"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
                 autoCapitalize="none"
                 style={{
                   borderWidth: 1,
@@ -873,7 +915,7 @@ export default function AdminCategories() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "#F8FBFE",
                   fontSize: 14,
                 }}
               />
@@ -885,7 +927,7 @@ export default function AdminCategories() {
                   setModalErr(null);
                 }}
                 placeholder="Orden (0, 10, 20...)"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
                 keyboardType="numeric"
                 style={{
                   borderWidth: 1,
@@ -894,7 +936,7 @@ export default function AdminCategories() {
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   color: COLORS.text,
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "#F8FBFE",
                   fontSize: 14,
                 }}
               />
@@ -908,7 +950,7 @@ export default function AdminCategories() {
                       setModalErr(null);
                     }}
                     placeholder="Imagen URL (https://...)"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
+                    placeholderTextColor="rgba(11,33,56,0.40)"
                     autoCapitalize="none"
                     style={{
                       borderWidth: 1,
@@ -917,7 +959,7 @@ export default function AdminCategories() {
                       paddingHorizontal: 12,
                       paddingVertical: 12,
                       color: COLORS.text,
-                      backgroundColor: "rgba(255,255,255,0.03)",
+                      backgroundColor: "#F8FBFE",
                       fontSize: 14,
                     }}
                   />
@@ -931,7 +973,7 @@ export default function AdminCategories() {
                         overflow: "hidden",
                         borderWidth: 1,
                         borderColor: COLORS.border,
-                        backgroundColor: "rgba(255,255,255,0.04)",
+                        backgroundColor: "#F8FBFE",
                       }}
                     >
                       <Image
@@ -1008,7 +1050,7 @@ export default function AdminCategories() {
                     paddingHorizontal: 14,
                     borderWidth: 1,
                     borderColor: COLORS.border,
-                    backgroundColor: "rgba(255,255,255,0.06)",
+                    backgroundColor: "#F6FAFD",
                     width: isMobile ? "100%" : undefined,
                   })}
                 >
@@ -1055,6 +1097,9 @@ export default function AdminCategories() {
         >
           <View
             style={{
+              width: "100%",
+              maxWidth: 520,
+              alignSelf: "center",
               borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,
