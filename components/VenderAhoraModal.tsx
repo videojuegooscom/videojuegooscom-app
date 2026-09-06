@@ -62,6 +62,13 @@
  * - "Opción de venta" (recogida en domicilio / el cliente se desplaza a
  *   entregarlo). Si es domicilio pide la dirección completa; si es entrega
  *   pide la disponibilidad horaria (Mañana/Medio día/Tarde noche).
+ * - Fotos y vídeo del artículo (opcional): hasta 10 imágenes + 1 vídeo de
+ *   hasta 20 segundos, con SellMediaPicker (ver components/
+ *   SellRequestMedia.tsx). No cuentan para el progreso/obligatoriedad del
+ *   formulario — un cliente puede enviar la solicitud sin adjuntar nada.
+ *   Se suben a Storage DESPUÉS de guardar la solicitud (hace falta su id
+ *   para enlazarlos); si la subida falla, la solicitud ya guardada no se
+ *   pierde, solo se avisa en la pantalla de confirmación.
  * - El botón final es un progreso animado: se calculan 13 pasos
  *   obligatorios (nombre, apellido, género, artículo, funciona/no,
  *   motivo-o-problema según corresponda, ciudad, precio, método de
@@ -104,6 +111,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import {
+  SellMediaPicker,
+  uploadSellRequestMedia,
+  type LocalSellMedia,
+} from "./SellRequestMedia";
 
 const COLORS = {
   bg2: "#F4F9FD",
@@ -629,6 +641,10 @@ export default function VenderAhoraModal({
   const [mayorEdad, setMayorEdad] = useState(false);
   const [genero, setGenero] = useState<Genero | null>(null);
 
+  const [mediaImages, setMediaImages] = useState<LocalSellMedia[]>([]);
+  const [mediaVideo, setMediaVideo] = useState<LocalSellMedia | null>(null);
+  const [mediaUploadFailed, setMediaUploadFailed] = useState(false);
+
   const [sending, setSending] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -777,6 +793,26 @@ export default function VenderAhoraModal({
     setDisponibilidad(null);
     setMayorEdad(false);
     setGenero(null);
+
+    // Libera los blobs de previsualización antes de vaciar el estado.
+    mediaImages.forEach((item) => {
+      try {
+        URL.revokeObjectURL(item.previewUrl);
+      } catch {
+        // ignore
+      }
+    });
+    if (mediaVideo) {
+      try {
+        URL.revokeObjectURL(mediaVideo.previewUrl);
+      } catch {
+        // ignore
+      }
+    }
+    setMediaImages([]);
+    setMediaVideo(null);
+    setMediaUploadFailed(false);
+
     setFormErr(null);
     setSent(false);
   }
@@ -933,8 +969,24 @@ export default function VenderAhoraModal({
     };
 
     try {
-      const { error } = await supabase.from("sell_requests").insert(payload);
+      const { data: insertedRow, error } = await supabase
+        .from("sell_requests")
+        .insert(payload)
+        .select("id")
+        .single();
       if (error) throw error;
+
+      // La solicitud ya está guardada. Si hay fotos/vídeo, se suben aparte:
+      // un fallo aquí no debe hacer parecer que se perdió toda la solicitud.
+      if (insertedRow?.id && (mediaImages.length > 0 || mediaVideo)) {
+        try {
+          await uploadSellRequestMedia(insertedRow.id, mediaImages, mediaVideo);
+        } catch (mediaErr) {
+          console.error("Error subiendo fotos/vídeo de la solicitud:", mediaErr);
+          setMediaUploadFailed(true);
+        }
+      }
+
       setSent(true);
     } catch (e: any) {
       setFormErr(
@@ -1014,6 +1066,21 @@ export default function VenderAhoraModal({
                       Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se
                       pondrá en contacto contigo.
                     </Text>
+
+                    {mediaUploadFailed && (
+                      <Text
+                        style={{
+                          color: COLORS.danger,
+                          textAlign: "center",
+                          lineHeight: 19,
+                          fontSize: 13,
+                          fontWeight: "700",
+                        }}
+                      >
+                        Tu solicitud se guardó correctamente, pero no pudimos subir tus fotos o tu
+                        vídeo. Puedes enviarlos directamente por el método de contacto que elegiste.
+                      </Text>
+                    )}
 
                     <AnimatedPressable
                       onPress={handleClose}
@@ -1370,6 +1437,20 @@ export default function VenderAhoraModal({
                           />
                         </View>
                       )}
+                    </View>
+
+                    {/* Fotos y vídeo: opcional, no cuenta para el progreso del formulario */}
+                    <View style={{ gap: 6 }}>
+                      <FieldLabel dim={mediaImages.length > 0 || !!mediaVideo}>
+                        Fotos y vídeo del artículo (opcional)
+                      </FieldLabel>
+                      <SellMediaPicker
+                        images={mediaImages}
+                        video={mediaVideo}
+                        onImagesChange={setMediaImages}
+                        onVideoChange={setMediaVideo}
+                        disabled={sending}
+                      />
                     </View>
 
                     <Checkbox

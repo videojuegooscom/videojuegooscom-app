@@ -23,11 +23,20 @@
  *   contenido centrado en pantallas anchas (columnStyle, maxWidth 1160).
  *   El fondo oscuro semitransparente detrás del modal de confirmación de
  *   borrado se mantiene oscuro a propósito.
+ * - Si el cliente adjuntó fotos/vídeo, cada tarjeta muestra un botón
+ *   "Descargar" por archivo (foto 1, foto 2..., vídeo). El bucket de
+ *   Storage es privado a propósito: no hay galería ni previsualización
+ *   embebida, cada archivo se descarga al dispositivo del admin uno a uno
+ *   (ver components/SellRequestMedia.tsx → downloadSellRequestMedia()).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para leer/escribir solicitudes.
  * - sql/sell_requests.sql → define la tabla y sus políticas RLS.
- * - components/VenderAhoraModal.tsx → origen de cada fila (INSERT público).
+ * - sql/sell_request_media.sql → define la tabla "sell_request_media" y el
+ *   bucket privado "sell-request-media" con sus políticas RLS.
+ * - components/VenderAhoraModal.tsx → origen de cada fila (INSERT público)
+ *   y de sus archivos adjuntos.
+ * - components/SellRequestMedia.tsx → tipos y descarga de cada archivo.
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("cotizaciones") dentro del
  *   Stack protegido del panel admin.
@@ -48,6 +57,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { downloadSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -313,6 +323,14 @@ export default function AdminCotizaciones() {
   const [confirmDelete, setConfirmDelete] = useState<SellRequestRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Fotos/vídeo adjuntos por solicitud (tabla "sell_request_media"),
+  // agrupados por sell_request_id. Si la tabla todavía no existe (falta
+  // ejecutar sql/sell_request_media.sql) se deja vacío sin romper el resto
+  // del panel.
+  const [mediaByRequest, setMediaByRequest] = useState<Record<string, SellRequestMediaRow[]>>({});
+  const [downloadingMediaId, setDownloadingMediaId] = useState<string | null>(null);
+  const [mediaErr, setMediaErr] = useState<string | null>(null);
+
   const stats = useMemo(() => {
     const total = items.length;
     const nuevo = items.filter((x) => x.status === "nuevo").length;
@@ -354,6 +372,29 @@ export default function AdminCotizaciones() {
       if (res.error) throw res.error;
 
       setItems((res.data ?? []) as SellRequestRow[]);
+
+      // Aparte, y sin bloquear la lista si falla: los archivos adjuntos.
+      try {
+        const mediaRes = await supabase
+          .from("sell_request_media")
+          .select("id,sell_request_id,kind,storage_path,file_name,mime_type,size_bytes,duration_seconds,sort_order,created_at")
+          .order("sell_request_id", { ascending: true })
+          .order("sort_order", { ascending: true });
+
+        if (mediaRes.error) throw mediaRes.error;
+
+        const grouped: Record<string, SellRequestMediaRow[]> = {};
+        for (const row of (mediaRes.data ?? []) as SellRequestMediaRow[]) {
+          const list = grouped[row.sell_request_id] ?? (grouped[row.sell_request_id] = []);
+          list.push(row);
+        }
+        setMediaByRequest(grouped);
+      } catch {
+        // La tabla puede no existir todavía (falta ejecutar la migración) o
+        // el usuario puede no tener permisos; en cualquier caso, se listan
+        // las solicitudes igualmente, solo sin sus archivos.
+        setMediaByRequest({});
+      }
     } catch (e: any) {
       const msg = String(e?.message ?? "Error cargando cotizaciones.");
       const missingTable = msg.toLowerCase().includes("sell_requests");
@@ -393,6 +434,21 @@ export default function AdminCotizaciones() {
       setScreenErr(e?.message ?? "No se pudo actualizar el estado.");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleDownloadMedia(row: SellRequestMediaRow) {
+    if (downloadingMediaId) return;
+
+    setMediaErr(null);
+    setDownloadingMediaId(row.id);
+
+    try {
+      await downloadSellRequestMedia(row);
+    } catch (e: any) {
+      setMediaErr(e?.message ?? "No se pudo descargar el archivo.");
+    } finally {
+      setDownloadingMediaId(null);
     }
   }
 
@@ -535,6 +591,22 @@ export default function AdminCotizaciones() {
             >
               <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
                 {screenErr}
+              </Text>
+            </View>
+          )}
+
+          {!!mediaErr && (
+            <View
+              style={{
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: COLORS.dangerBorder,
+                backgroundColor: COLORS.dangerBg,
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+                {mediaErr}
               </Text>
             </View>
           )}
@@ -729,6 +801,35 @@ export default function AdminCotizaciones() {
                         Contacto{r.metodo_contacto ? ` (${METODO_LABEL[r.metodo_contacto]})` : ""}: {r.contacto}
                       </Text>
                     )}
+
+                    {(() => {
+                      const media = mediaByRequest[r.id];
+                      if (!media?.length) return null;
+                      let imgCount = 0;
+                      return (
+                        <View style={{ gap: 6 }}>
+                          <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
+                            Fotos y vídeo adjuntos ({media.length})
+                          </Text>
+                          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                            {media.map((m) => {
+                              const label =
+                                m.kind === "video" ? "Descargar vídeo" : `Descargar foto ${++imgCount}`;
+                              return (
+                                <ChipButton
+                                  key={m.id}
+                                  label={downloadingMediaId === m.id ? "Descargando…" : label}
+                                  variant="ghost"
+                                  disabled={!!downloadingMediaId}
+                                  onPress={() => handleDownloadMedia(m)}
+                                  isMobile={isMobile}
+                                />
+                              );
+                            })}
+                          </View>
+                        </View>
+                      );
+                    })()}
 
                     <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
                       {r.status !== "revisado" && (
