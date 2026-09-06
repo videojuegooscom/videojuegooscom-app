@@ -301,6 +301,15 @@ function buildSellMediaPath(sellRequestId: string, item: LocalSellMedia, index: 
  * Sube cada archivo local al bucket privado y crea su fila en
  * "sell_request_media". Se llama DESPUÉS de insertar la fila en
  * "sell_requests" (hace falta su id para enlazar los archivos).
+ *
+ * Optimización: las subidas a Storage se lanzan en paralelo (Promise.allSettled,
+ * no una tras otra) y las filas de la tabla se insertan todas juntas en una
+ * sola llamada — con 10 fotos + 1 vídeo esto pasa de ~22 idas y vueltas a la
+ * red a 1 (el tiempo total lo marca el archivo más lento, no la suma de
+ * todos). Si algún archivo falla, los que sí subieron se guardan igualmente
+ * (no es todo o nada) y se lanza un error al final solo para avisar de
+ * cuántos fallaron — VenderAhoraModal.tsx ya captura ese error sin bloquear
+ * el envío de la solicitud, que se guarda aparte.
  */
 export async function uploadSellRequestMedia(
   sellRequestId: string,
@@ -308,28 +317,44 @@ export async function uploadSellRequestMedia(
   video: LocalSellMedia | null
 ) {
   const items = video ? [...images, video] : images;
+  if (items.length === 0) return;
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    const path = buildSellMediaPath(sellRequestId, item, i);
+  const results = await Promise.allSettled(
+    items.map(async (item, i) => {
+      const path = buildSellMediaPath(sellRequestId, item, i);
+      const uploadRes = await supabase.storage.from(SELL_MEDIA_BUCKET).upload(path, item.file, {
+        contentType: item.mimeType,
+        upsert: false,
+      });
+      if (uploadRes.error) throw uploadRes.error;
 
-    const uploadRes = await supabase.storage.from(SELL_MEDIA_BUCKET).upload(path, item.file, {
-      contentType: item.mimeType,
-      upsert: false,
-    });
-    if (uploadRes.error) throw uploadRes.error;
+      return {
+        sell_request_id: sellRequestId,
+        kind: item.kind,
+        storage_path: path,
+        file_name: item.name,
+        mime_type: item.mimeType,
+        size_bytes: item.size,
+        duration_seconds: item.durationSeconds,
+        sort_order: i,
+      };
+    })
+  );
 
-    const insertRes = await supabase.from("sell_request_media").insert({
-      sell_request_id: sellRequestId,
-      kind: item.kind,
-      storage_path: path,
-      file_name: item.name,
-      mime_type: item.mimeType,
-      size_bytes: item.size,
-      duration_seconds: item.durationSeconds,
-      sort_order: i,
-    });
+  const rows = results
+    .filter(
+      (r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === "fulfilled"
+    )
+    .map((r) => r.value);
+
+  if (rows.length > 0) {
+    const insertRes = await supabase.from("sell_request_media").insert(rows);
     if (insertRes.error) throw insertRes.error;
+  }
+
+  const failedCount = results.length - rows.length;
+  if (failedCount > 0) {
+    throw new Error(`${failedCount} de ${items.length} archivo(s) no se pudieron subir.`);
   }
 }
 
@@ -435,6 +460,17 @@ function ThumbChip({
   );
 }
 
+// Revoca el blob URL de una previsualización que ya no se usa (al quitar un
+// archivo antes de enviar el formulario). Sin esto, cada foto/vídeo quitado
+// seguía ocupando memoria en el navegador hasta recargar la página.
+function revokePreview(item: LocalSellMedia) {
+  try {
+    URL.revokeObjectURL(item.previewUrl);
+  } catch {
+    // no-op: algunos entornos no soportan revokeObjectURL o la url ya no es válida
+  }
+}
+
 export function SellMediaPicker({
   images,
   video,
@@ -463,14 +499,26 @@ export function SellMediaPicker({
       const toProcess = files.slice(0, room);
       const skipped = files.length - toProcess.length;
 
+      // Cada archivo se procesa por separado: si uno falla (formato o tamaño
+      // no válido) no se pierden los demás ya convertidos de la misma tanda,
+      // y no se generan previsualizaciones "huérfanas" que nunca se liberan.
       const built: LocalSellMedia[] = [];
+      const failedNames: string[] = [];
       for (const f of toProcess) {
-        built.push(await buildLocalImage(f));
+        try {
+          built.push(await buildLocalImage(f));
+        } catch {
+          failedNames.push(f.name);
+        }
       }
 
-      onImagesChange([...images, ...built]);
+      if (built.length > 0) {
+        onImagesChange([...images, ...built]);
+      }
 
-      if (skipped > 0) {
+      if (failedNames.length > 0) {
+        setError(`No se pudieron añadir: ${failedNames.join(", ")}.`);
+      } else if (skipped > 0) {
         setError(`Se añadieron ${toProcess.length} foto(s); el máximo es ${MAX_SELL_IMAGES}.`);
       }
     } catch (e: any) {
@@ -501,11 +549,21 @@ export function SellMediaPicker({
               key={img.id}
               item={img}
               disabled={disabled}
-              onRemove={() => onImagesChange(images.filter((i) => i.id !== img.id))}
+              onRemove={() => {
+                revokePreview(img);
+                onImagesChange(images.filter((i) => i.id !== img.id));
+              }}
             />
           ))}
           {video && (
-            <ThumbChip item={video} disabled={disabled} onRemove={() => onVideoChange(null)} />
+            <ThumbChip
+              item={video}
+              disabled={disabled}
+              onRemove={() => {
+                revokePreview(video);
+                onVideoChange(null);
+              }}
+            />
           )}
         </View>
       )}
