@@ -320,24 +320,6 @@ function isMissingRelationError(error: unknown, relationName: string) {
   );
 }
 
-/**
- * Back inteligente:
- * - Si hay stack: back()
- * - Si entraste por URL directa/refresh: vuelve al Home "/"
- */
-function smartBackToHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // no-op
-  }
-
-  replaceRoute("/" as Href);
-}
-
 async function loadCart(): Promise<CartItem[]> {
   try {
     const raw = await AsyncStorage.getItem(CART_KEY);
@@ -581,22 +563,6 @@ export default function CestaScreen() {
           </View>
         </View>
 
-        <View style={{ alignItems: "center" }}>
-          <AnimatedPressable
-            onPress={smartBackToHome}
-            style={{
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: "#F6FAFD",
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
-          </AnimatedPressable>
-        </View>
-
         {!!err && (
           <View
             style={{
@@ -723,79 +689,63 @@ export default function CestaScreen() {
                     </Text>
                   </View>
 
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <AnimatedPressable
-                        onPress={() => dec(it.id)}
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 19,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          borderWidth: 1,
-                          borderColor: "#E3EAF2",
-                          backgroundColor: "#F6FAFD",
-                        }}
-                      >
-                        <Ionicons name="remove-outline" size={18} color={COLORS.text} />
-                      </AnimatedPressable>
+                  {/*
+                    Mismo patrón que la cesta de Amazon: un único control de
+                    cantidad donde el botón de la izquierda hace de "quitar"
+                    cuando queda 1 unidad (icono de papelera) y de "restar"
+                    cuando hay más de 1 (icono de menos) — así no hace falta
+                    un botón "Quitar" aparte en otro sitio.
+                  */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <AnimatedPressable
+                      onPress={() => (it.qty <= 1 ? remove(it.id) : dec(it.id))}
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderWidth: 1,
+                        borderColor: it.qty <= 1 ? "#F5B5B5" : "#E3EAF2",
+                        backgroundColor: it.qty <= 1 ? "#FDECEC" : "#F6FAFD",
+                      }}
+                    >
+                      <Ionicons
+                        name={it.qty <= 1 ? "trash-outline" : "remove-outline"}
+                        size={18}
+                        color={it.qty <= 1 ? "#B91C1C" : COLORS.text}
+                      />
+                    </AnimatedPressable>
 
-                      <View
-                        style={{
-                          minWidth: 40,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          paddingVertical: 9,
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: "#E3EAF2",
-                          backgroundColor: "#F4F9FD",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{it.qty}</Text>
-                      </View>
-
-                      <AnimatedPressable
-                        onPress={() => inc(it.id)}
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 19,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          borderWidth: 1,
-                          borderColor: COLORS.accentBorder,
-                          backgroundColor: COLORS.accent2,
-                        }}
-                      >
-                        <Ionicons name="add-outline" size={18} color={COLORS.text} />
-                      </AnimatedPressable>
+                    <View
+                      style={{
+                        minWidth: 40,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 9,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: "#E3EAF2",
+                        backgroundColor: "#F4F9FD",
+                      }}
+                    >
+                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{it.qty}</Text>
                     </View>
 
                     <AnimatedPressable
-                      onPress={() => remove(it.id)}
+                      onPress={() => inc(it.id)}
                       style={{
-                        borderRadius: 12,
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        alignItems: "center",
+                        justifyContent: "center",
                         borderWidth: 1,
-                        borderColor: "#F5B5B5",
-                        backgroundColor: "#FDECEC",
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
+                        borderColor: COLORS.accentBorder,
+                        backgroundColor: COLORS.accent2,
                       }}
                     >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Ionicons name="trash-outline" size={14} color="#B91C1C" />
-                        <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Quitar</Text>
-                      </View>
+                      <Ionicons name="add-outline" size={18} color={COLORS.text} />
                     </AnimatedPressable>
                   </View>
                 </View>
