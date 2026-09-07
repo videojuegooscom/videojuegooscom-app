@@ -930,12 +930,6 @@ export default function PerfilScreen() {
                       alignItems: "center",
                     }}
                   >
-                    <Badge
-                      text={sessionRole === "guest" ? "Acceso a tu cuenta" : "Sesión activa"}
-                      tone={sessionRole === "guest" ? "accent" : "success"}
-                      center
-                    />
-
                     <Text
                       style={{
                         color: COLORS.text,
