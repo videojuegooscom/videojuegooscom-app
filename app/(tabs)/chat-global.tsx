@@ -196,6 +196,7 @@ export default function ChatGlobalScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [hasCompletedCommunityProfile] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const [activeTab, setActiveTab] = useState<HubTab>("chat");
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [draft, setDraft] = useState("");
@@ -628,77 +629,63 @@ export default function ChatGlobalScreen() {
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-          <LinearGradient
-            colors={["rgba(30,167,232,0.10)", "rgba(0,170,228,0.08)", "#FFFFFF"]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
+          {/*
+            Antes había aquí una tarjeta grande con el título "Chat Global" y
+            el párrafo de bienvenida ocupando espacio siempre. Ahora esa
+            información vive en InfoModal (el "Pop" centrado) y aquí solo
+            queda una barra estrecha con el icono de información y el
+            recuadro real de "viendo ahora" — nada permanente de más.
+          */}
+          <View
             style={{
-              borderRadius: 28,
-              padding: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 8,
+              alignSelf: "flex-end",
+              backgroundColor: "#FFFFFF",
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: COLORS.borderSoft,
+              paddingVertical: 6,
+              paddingLeft: 6,
+              paddingRight: 8,
+              shadowColor: COLORS.accent,
+              shadowOpacity: 0.08,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 3 },
             }}
           >
-            <View
-              style={{
-                borderRadius: 27,
-                backgroundColor: "#FFFFFF",
-                paddingHorizontal: 18,
-                paddingVertical: 18,
-                gap: 10,
-              }}
+            <Pressable
+              onPress={() => setShowInfoModal(true)}
+              style={({ pressed }) => ({
+                width: 30,
+                height: 30,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: COLORS.accentSoft,
+                borderWidth: 1,
+                borderColor: COLORS.accentBorder,
+                opacity: pressed ? 0.85 : 1,
+              })}
             >
-              {/*
-                Un único recuadro con el conteo real de gente que tiene esta
-                pantalla abierta ahora mismo (Supabase Presence), en la
-                esquina superior derecha y a tamaño normal — sustituye a los
-                tres avisos ("EN DIRECTO" + "conectados" + "Viendo ahora")
-                que había antes.
-              */}
-              <View style={{ position: "relative" }}>
-                <Pressable
-                  onPress={toggleViewers}
-                  style={({ pressed }) => ({
-                    position: "absolute",
-                    top: 0,
-                    right: 0,
-                    opacity: pressed ? 0.9 : 1,
-                    zIndex: 2,
-                  })}
-                >
-                  <GlowPill
-                    text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
-                    tone="success"
-                    size="default"
-                  />
-                </Pressable>
+              <Ionicons name="information-circle-outline" size={18} color={COLORS.accent} />
+            </Pressable>
 
-                <Text
-                  style={{
-                    color: COLORS.text,
-                    fontSize: 34,
-                    lineHeight: 38,
-                    fontWeight: "900",
-                    letterSpacing: 0.2,
-                    paddingRight: 132,
-                  }}
-                >
-                  Chat Global
-                </Text>
-              </View>
-
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  fontSize: 15,
-                  lineHeight: 23,
-                  maxWidth: 980,
-                }}
-              >
-                Conecta con otros gamers, encuentra gente para jugar a
-                Fortnite, descubre personas de tu misma ciudad o país y sigue
-                noticias gaming, novedades de la tienda y torneos.
-              </Text>
-            </View>
-          </LinearGradient>
+            <Pressable
+              onPress={toggleViewers}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.9 : 1,
+              })}
+            >
+              <GlowPill
+                text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
+                tone="success"
+                size="default"
+              />
+            </Pressable>
+          </View>
 
           <View
             style={{
@@ -766,6 +753,8 @@ export default function ChatGlobalScreen() {
             handleGoPerfil();
           }}
         />
+
+        <InfoModal visible={showInfoModal} onClose={() => setShowInfoModal(false)} />
       </View>
     </SafeAreaView>
 
@@ -1439,16 +1428,19 @@ function FloatingComposer({
                   placeholderTextColor="rgba(11,33,56,0.35)"
                   editable={!sending}
                   style={{
-                    minHeight: 40,
+                    minHeight: 42,
                     maxHeight: 96,
                     borderRadius: 14,
                     borderWidth: 1,
                     borderColor: "#E3EAF2",
                     backgroundColor: "#F8FBFE",
                     color: COLORS.text,
-                    fontSize: 14,
+                    // 16px es el mínimo que evita que Safari/iOS haga zoom
+                    // automático al enfocar el campo (por debajo de 16px lo
+                    // dispara siempre). No bajar de aquí.
+                    fontSize: 16,
                     paddingHorizontal: 14,
-                    paddingVertical: 9,
+                    paddingVertical: 10,
                     opacity: sending ? 0.6 : 1,
                   }}
                   multiline
@@ -1456,17 +1448,17 @@ function FloatingComposer({
               ) : (
                 <View
                   style={{
-                    minHeight: 40,
+                    minHeight: 42,
                     borderRadius: 14,
                     borderWidth: 1,
                     borderColor: "#E3EAF2",
                     backgroundColor: "#F8FBFE",
                     paddingHorizontal: 14,
-                    paddingVertical: 9,
+                    paddingVertical: 10,
                     justifyContent: "center",
                   }}
                 >
-                  <Text style={{ color: "rgba(11,33,56,0.35)", fontSize: 14 }}>
+                  <Text style={{ color: "rgba(11,33,56,0.35)", fontSize: 16 }}>
                     Escribe un mensaje…
                   </Text>
                 </View>
@@ -1578,6 +1570,93 @@ function AuthRequiredModal({
           </View>
         </LinearGradient>
       </View>
+    </Modal>
+  );
+}
+
+// El "Pop" centrado que sustituye al título y párrafo que antes estaban
+// siempre visibles en la cabecera. Se abre al tocar el icono de información
+// (i) junto al recuadro de "viendo ahora". Tocar fuera de la tarjeta también
+// lo cierra: el fondo es un Pressable, y la tarjeta interior absorbe el
+// toque con su propio Pressable para que tocar dentro no lo cierre.
+function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Pressable onPress={() => {}}>
+          <LinearGradient
+            colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.10)", "rgba(30,167,232,0.02)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              width: "100%",
+              maxWidth: 460,
+              borderRadius: 28,
+              padding: 1,
+            }}
+          >
+            <View
+              style={{
+                borderRadius: 27,
+                backgroundColor: "#FFFFFF",
+                padding: 22,
+                gap: 14,
+              }}
+            >
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: COLORS.accentSoft,
+                  borderWidth: 1,
+                  borderColor: COLORS.accentBorder,
+                }}
+              >
+                <Ionicons name="chatbubbles-outline" size={22} color={COLORS.accent} />
+              </View>
+
+              <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+                Chat Global
+              </Text>
+
+              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                Conecta con otros gamers, encuentra gente para jugar a Fortnite,
+                descubre personas de tu misma ciudad o país y sigue noticias
+                gaming, novedades de la tienda y torneos.
+              </Text>
+
+              <Pressable
+                onPress={onClose}
+                style={({ pressed }) => ({
+                  opacity: pressed ? 0.9 : 1,
+                  alignSelf: "flex-start",
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: "#F6FAFD",
+                  paddingVertical: 9,
+                  paddingHorizontal: 16,
+                  marginTop: 2,
+                })}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Entendido</Text>
+              </Pressable>
+            </View>
+          </LinearGradient>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
