@@ -825,34 +825,30 @@ export default function ChatGlobalScreen() {
               justifyContent: "flex-end",
               gap: 8,
               alignSelf: "flex-end",
-              backgroundColor: "#FFFFFF",
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.borderSoft,
-              paddingVertical: 6,
-              paddingLeft: 6,
-              paddingRight: 8,
-              shadowColor: COLORS.accent,
-              shadowOpacity: 0.08,
-              shadowRadius: 10,
-              shadowOffset: { width: 0, height: 3 },
             }}
           >
+            {/* Sueltos, cada uno con su propia burbuja — ya no comparten
+                una caja blanca común, y los dos son más pequeños para no
+                competir visualmente con el resto de la pantalla. */}
             <Pressable
               onPress={() => setShowInfoModal(true)}
               style={({ pressed }) => ({
-                width: 30,
-                height: 30,
+                width: 26,
+                height: 26,
                 borderRadius: 999,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: COLORS.accentSoft,
+                backgroundColor: "#FFFFFF",
                 borderWidth: 1,
                 borderColor: COLORS.accentBorder,
                 opacity: pressed ? 0.85 : 1,
+                shadowColor: COLORS.accent,
+                shadowOpacity: 0.08,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 2 },
               })}
             >
-              <Ionicons name="information-circle-outline" size={18} color={COLORS.accent} />
+              <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
             </Pressable>
 
             <Pressable
@@ -864,7 +860,7 @@ export default function ChatGlobalScreen() {
               <GlowPill
                 text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
                 tone="success"
-                size="default"
+                size="compact"
               />
             </Pressable>
           </View>
@@ -879,6 +875,29 @@ export default function ChatGlobalScreen() {
           {renderActiveTabContent()}
           </View>
         </ScrollView>
+
+        {/*
+          Fondo atenuado detrás del menú de pestañas: al desplegarlo, todo
+          lo demás (los mensajes) se oscurece un poco para que el foco quede
+          en lo que se acaba de pulsar. Tocar fuera también cierra el menú.
+        */}
+        <Animated.View
+          pointerEvents={tabsMenuOpen ? "auto" : "none"}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "#030A12",
+            opacity: tabsMenuAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 0.35],
+            }),
+          }}
+        >
+          <Pressable style={{ flex: 1 }} onPress={() => setTabsMenuOpen(false)} />
+        </Animated.View>
 
         <BottomBar
           isChatTab={activeTab === "chat"}
@@ -977,9 +996,13 @@ function GlowPill({
 }: {
   text: string;
   tone: "accent" | "success";
-  size?: "default" | "hero";
+  size?: "default" | "hero" | "compact";
 }) {
   const isHero = size === "hero";
+  // "compact": versión pequeña para cuando el recuadro va suelto (sin caja
+  // blanca alrededor), como el contador "viendo ahora" junto al icono de
+  // información — para no romper el orden visual con algo demasiado grande.
+  const isCompact = size === "compact";
 
   const style =
     tone === "success"
@@ -1000,19 +1023,19 @@ function GlowPill({
     <View
       style={{
         borderRadius: 999,
-        minHeight: isHero ? 46 : 34,
-        paddingVertical: isHero ? 11 : 8,
-        paddingHorizontal: isHero ? 16 : 12,
+        minHeight: isHero ? 46 : isCompact ? 28 : 34,
+        paddingVertical: isHero ? 11 : isCompact ? 6 : 8,
+        paddingHorizontal: isHero ? 16 : isCompact ? 10 : 12,
         backgroundColor: style.bg,
         borderWidth: 1.2,
         borderColor: style.border,
         alignItems: "center",
         justifyContent: "center",
         shadowColor: style.shadow,
-        shadowOpacity: isHero ? 0.22 : 0.16,
-        shadowRadius: isHero ? 18 : 12,
+        shadowOpacity: isHero ? 0.22 : isCompact ? 0.12 : 0.16,
+        shadowRadius: isHero ? 18 : isCompact ? 8 : 12,
         shadowOffset: { width: 0, height: 0 },
-        elevation: isHero ? 4 : 2,
+        elevation: isHero ? 4 : isCompact ? 1 : 2,
         maxWidth: "100%",
       }}
     >
@@ -1020,8 +1043,8 @@ function GlowPill({
         style={{
           color: style.text,
           fontWeight: "900",
-          fontSize: isHero ? 14 : 13,
-          lineHeight: isHero ? 18 : 16,
+          fontSize: isHero ? 14 : isCompact ? 11 : 13,
+          lineHeight: isHero ? 18 : isCompact ? 14 : 16,
           textAlign: "center",
           flexShrink: 1,
         }}
@@ -1755,21 +1778,12 @@ function BottomBar({
           ],
         }}
       >
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.borderSoft,
-            backgroundColor: "#FFFFFF",
-            padding: 8,
-            gap: 6,
-            minWidth: 200,
-            shadowColor: "#000",
-            shadowOpacity: 0.14,
-            shadowRadius: 18,
-            shadowOffset: { width: 0, height: 8 },
-          }}
-        >
+        {/*
+          Sin caja blanca alrededor: solo el título de cada pestaña dentro
+          de su propia burbuja pequeña (HubTabButton ya trae su propio
+          fondo/borde), alineadas a la derecha, una debajo de otra.
+        */}
+        <View style={{ alignItems: "flex-end", gap: 8 }}>
           {TAB_ITEMS.map((tabItem) => (
             <HubTabButton
               key={tabItem.key}
