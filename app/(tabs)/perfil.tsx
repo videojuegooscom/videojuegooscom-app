@@ -359,6 +359,44 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Fila de etiqueta con, opcionalmente, el botón de cerrar (X) alineado a la
+// derecha a la misma altura que el texto. Se usa solo en el campo "Email"
+// de cada panel (login/registro) para que la X quede a la altura de ese
+// encabezado, en la esquina derecha, en vez de flotar arriba del todo de
+// la tarjeta.
+function LabelRow({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose?: () => void;
+}) {
+  return (
+    <View style={{ position: "relative", justifyContent: "center" }}>
+      <Label>{children}</Label>
+      {onClose ? (
+        <Pressable
+          onPress={onClose}
+          hitSlop={8}
+          style={{
+            position: "absolute",
+            right: 0,
+            top: -7,
+            width: 30,
+            height: 30,
+            borderRadius: 15,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(11,33,56,0.06)",
+          }}
+        >
+          <Ionicons name="close" size={16} color={COLORS.text} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 function Input({
   value,
   onChangeText,
@@ -481,7 +519,7 @@ function AuthPill({
     }).start();
   }
 
-  const flex = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.35] });
+  const flex = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] });
   const backgroundColor = anim.interpolate({
     inputRange: [0, 1],
     outputRange: ["#F8FBFE", COLORS.accent],
@@ -494,9 +532,13 @@ function AuthPill({
     inputRange: [0, 1],
     outputRange: [COLORS.text, "#FFFFFF"],
   });
+  const fontSize = anim.interpolate({ inputRange: [0, 1], outputRange: [13.5, 15] });
 
   return (
-    <Animated.View style={{ flex }}>
+    // minWidth garantiza que, aunque el otro botón crezca al activarse, este
+    // siempre tenga hueco de sobra para su texto completo (ni en móvil ni en
+    // pantallas grandes se corta "Crear cuenta" a mitad).
+    <Animated.View style={{ flex, minWidth: 118 }}>
       <Pressable onPress={onPress} disabled={disabled} onPressIn={onPressIn} onPressOut={onPressOut}>
         <Animated.View style={{ transform: [{ scale: pressScale }] }}>
           <Animated.View
@@ -506,7 +548,7 @@ function AuthPill({
               borderColor,
               backgroundColor,
               paddingVertical: 13,
-              paddingHorizontal: 12,
+              paddingHorizontal: 8,
               alignItems: "center",
               justifyContent: "center",
               flexDirection: "row",
@@ -518,8 +560,10 @@ function AuthPill({
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Animated.Text
-                style={{ color: textColor, fontWeight: "900", fontSize: 15 }}
+                style={{ color: textColor, fontWeight: "900", fontSize }}
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
               >
                 {title}
               </Animated.Text>
@@ -944,30 +988,6 @@ export default function PerfilScreen() {
               }}
             >
               <SectionCard padding={cardPadding}>
-                {sessionRole === "guest" && formOpen ? (
-                  <Pressable
-                    onPress={() => {
-                      clearMessages();
-                      setFormOpen(false);
-                    }}
-                    hitSlop={8}
-                    style={{
-                      position: "absolute",
-                      top: 14,
-                      right: 14,
-                      width: 34,
-                      height: 34,
-                      borderRadius: 17,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: "rgba(11,33,56,0.06)",
-                      zIndex: 5,
-                    }}
-                  >
-                    <Ionicons name="close" size={18} color={COLORS.text} />
-                  </Pressable>
-                ) : null}
-
                 <View
                   style={{
                     borderRadius: 22,
@@ -1071,7 +1091,14 @@ export default function PerfilScreen() {
                       <RevealPanel>
                         <View style={{ gap: 12 }}>
                           <View style={{ gap: 8 }}>
-                            <Label>Email</Label>
+                            <LabelRow
+                              onClose={() => {
+                                clearMessages();
+                                setFormOpen(false);
+                              }}
+                            >
+                              Email
+                            </LabelRow>
                             <Input
                               value={email}
                               onChangeText={(text) => {
@@ -1173,7 +1200,14 @@ export default function PerfilScreen() {
                           </View>
 
                           <View style={{ gap: 8 }}>
-                            <Label>Email</Label>
+                            <LabelRow
+                              onClose={() => {
+                                clearMessages();
+                                setFormOpen(false);
+                              }}
+                            >
+                              Email
+                            </LabelRow>
                             <Input
                               value={email}
                               onChangeText={(text) => {
