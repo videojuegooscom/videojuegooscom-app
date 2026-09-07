@@ -21,11 +21,9 @@
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja.
  */
-import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -38,9 +36,11 @@ import {
   Text,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../../lib/supabase";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
-import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
