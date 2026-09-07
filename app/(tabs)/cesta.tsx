@@ -21,11 +21,15 @@
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Href } from "expo-router";
 import { router, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -33,25 +37,161 @@ import {
   Text,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "../../lib/supabase";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
+import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
   card: "#F6FAFD",
+  cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
+  mutedSoft: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
   gold: "#B8860B",
   danger: "#DC2626",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
+  success: "#15803D",
+  successBg: "#DCFCE7",
+  successBorder: "#86EFAC",
+  gamingGlow: "#1EA7E8",
 };
+
+function softShadow() {
+  return Platform.select<any>({
+    ios: {
+      shadowColor: "#000",
+      shadowOpacity: 0.24,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+    },
+    android: { elevation: 3 },
+    default: {},
+  });
+}
+
+// Envoltorio de Pressable con una pequeña animación "pop" al pulsar (mismo
+// patrón que app/(tabs)/perfil.tsx y components/VenderAhoraModal.tsx): se
+// encoge levemente y vuelve a su tamaño con un muelle.
+function AnimatedPressable({
+  onPress,
+  disabled,
+  style,
+  children,
+}: {
+  onPress?: () => void;
+  disabled?: boolean;
+  style?: any;
+  children?: React.ReactNode;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  function onPressIn() {
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 6,
+    }).start();
+  }
+
+  function onPressOut() {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 6,
+    }).start();
+  }
+
+  return (
+    <Pressable onPress={onPress} disabled={disabled} onPressIn={onPressIn} onPressOut={onPressOut}>
+      <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
+    </Pressable>
+  );
+}
+
+// Botón de acción principal/secundario, mismo estilo que app/(tabs)/perfil.tsx
+// (fondo azul sólido con texto blanco en "primary", fondo suave con borde en
+// "secondary"), para que la cesta se sienta parte de la misma app.
+function ActionButton({
+  title,
+  onPress,
+  disabled,
+  variant = "primary",
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+  variant?: "primary" | "secondary";
+}) {
+  const isPrimary = variant === "primary";
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        borderRadius: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: isPrimary ? 0 : 1,
+        borderColor: isPrimary ? "transparent" : COLORS.border,
+        backgroundColor: isPrimary ? COLORS.accent : COLORS.cardSoft,
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <Text
+        style={{
+          color: isPrimary ? "#FFFFFF" : COLORS.text,
+          fontWeight: "900",
+          fontSize: 15,
+        }}
+      >
+        {title}
+      </Text>
+    </AnimatedPressable>
+  );
+}
+
+// Insignia pequeña en píldora, mismo componente que app/(tabs)/perfil.tsx:
+// se usa para el contador de artículos y para destacar "Envío gratis".
+function Badge({
+  text,
+  tone = "default",
+}: {
+  text: string;
+  tone?: "default" | "accent" | "success";
+}) {
+  const toneStyles =
+    tone === "accent"
+      ? { bg: COLORS.accent2, border: COLORS.accentBorder, color: COLORS.text }
+      : tone === "success"
+      ? { bg: COLORS.successBg, border: COLORS.successBorder, color: COLORS.success }
+      : { bg: "#F6FAFD", border: COLORS.border, color: COLORS.text };
+
+  return (
+    <View
+      style={{
+        alignSelf: "center",
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: toneStyles.border,
+        backgroundColor: toneStyles.bg,
+      }}
+    >
+      <Text style={{ color: toneStyles.color, fontWeight: "900", fontSize: 12 }}>{text}</Text>
+    </View>
+  );
+}
 
 type CartItem = {
   id: string;
@@ -425,31 +565,36 @@ export default function CestaScreen() {
             gap: 12,
           }}
         >
-          <View style={{ flex: 1, paddingRight: 8 }}>
+          <View style={{ flex: 1, paddingRight: 8, gap: 8 }}>
             <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900", textAlign: "center" }}>
               Cesta
             </Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21, textAlign: "center" }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
               Tus productos listos para cerrar la compra, de forma clara y sencilla.
             </Text>
+            {!loading && items.length > 0 ? (
+              <Badge
+                text={`${items.length} ${items.length === 1 ? "artículo" : "artículos"}`}
+                tone="accent"
+              />
+            ) : null}
           </View>
         </View>
 
         <View style={{ alignItems: "center" }}>
-          <Pressable
+          <AnimatedPressable
             onPress={smartBackToHome}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.9 : 1,
+            style={{
               paddingVertical: 10,
               paddingHorizontal: 14,
               borderRadius: 999,
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: "#F6FAFD",
-            })}
+            }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         {!!err && (
@@ -502,40 +647,42 @@ export default function CestaScreen() {
           {items.length === 0 ? (
             <View
               style={{
-                borderRadius: 18,
+                borderRadius: 24,
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
-                padding: 16,
-                gap: 10,
+                padding: 24,
+                gap: 12,
+                alignItems: "center",
+                ...softShadow(),
               }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: COLORS.accent2,
+                  borderWidth: 1,
+                  borderColor: COLORS.accentBorder,
+                }}
+              >
+                <Ionicons name="cart-outline" size={26} color={COLORS.accent} />
+              </View>
+
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
                 Tu cesta está vacía
               </Text>
 
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
                 Aún no has añadido nada. Vuelve al catálogo y elige tu próximo producto.
               </Text>
 
-              <Pressable
-                onPress={() => pushRoute("/catalogo" as Href)}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.9 : 1,
-                  marginTop: 6,
-                  borderRadius: 999,
-                  paddingVertical: 12,
-                  paddingHorizontal: 14,
-                  backgroundColor: "#EAF6FD",
-                  borderWidth: 1,
-                  borderColor: "#BEE6FA",
-                  alignSelf: "flex-start",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  Ir al catálogo
-                </Text>
-              </Pressable>
+              <View style={{ marginTop: 6, width: "100%", maxWidth: 260 }}>
+                <ActionButton title="Ir al catálogo" onPress={() => pushRoute("/catalogo" as Href)} />
+              </View>
             </View>
           ) : (
             <View style={{ gap: 12 }}>
@@ -543,12 +690,13 @@ export default function CestaScreen() {
                 <View
                   key={it.id}
                   style={{
-                    borderRadius: 18,
+                    borderRadius: 24,
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: COLORS.card,
-                    padding: 14,
-                    gap: 10,
+                    padding: 16,
+                    gap: 12,
+                    ...softShadow(),
                   }}
                 >
                   <View
@@ -584,28 +732,29 @@ export default function CestaScreen() {
                       flexWrap: "wrap",
                     }}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Pressable
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <AnimatedPressable
                         onPress={() => dec(it.id)}
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.88 : 1,
-                          borderRadius: 12,
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 19,
+                          alignItems: "center",
+                          justifyContent: "center",
                           borderWidth: 1,
                           borderColor: "#E3EAF2",
                           backgroundColor: "#F6FAFD",
-                          paddingVertical: 10,
-                          paddingHorizontal: 14,
-                        })}
+                        }}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>−</Text>
-                      </Pressable>
+                        <Ionicons name="remove-outline" size={18} color={COLORS.text} />
+                      </AnimatedPressable>
 
                       <View
                         style={{
-                          minWidth: 46,
+                          minWidth: 40,
                           alignItems: "center",
                           justifyContent: "center",
-                          paddingVertical: 10,
+                          paddingVertical: 9,
                           borderRadius: 12,
                           borderWidth: 1,
                           borderColor: "#E3EAF2",
@@ -615,47 +764,46 @@ export default function CestaScreen() {
                         <Text style={{ color: COLORS.text, fontWeight: "900" }}>{it.qty}</Text>
                       </View>
 
-                      <Pressable
+                      <AnimatedPressable
                         onPress={() => inc(it.id)}
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.88 : 1,
-                          borderRadius: 12,
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 19,
+                          alignItems: "center",
+                          justifyContent: "center",
                           borderWidth: 1,
                           borderColor: COLORS.accentBorder,
                           backgroundColor: COLORS.accent2,
-                          paddingVertical: 10,
-                          paddingHorizontal: 14,
-                        })}
+                        }}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>+</Text>
-                      </Pressable>
+                        <Ionicons name="add-outline" size={18} color={COLORS.text} />
+                      </AnimatedPressable>
                     </View>
 
-                    <Pressable
+                    <AnimatedPressable
                       onPress={() => remove(it.id)}
-                      style={({ pressed }) => ({
-                        opacity: pressed ? 0.88 : 1,
+                      style={{
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: "#F5B5B5",
                         backgroundColor: "#FDECEC",
                         paddingVertical: 10,
                         paddingHorizontal: 12,
-                      })}
+                      }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Ionicons name="trash-outline" size={14} color="#B91C1C" />
                         <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Quitar</Text>
                       </View>
-                    </Pressable>
+                    </AnimatedPressable>
                   </View>
                 </View>
               ))}
 
-              <Pressable
+              <AnimatedPressable
                 onPress={clear}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
+                style={{
                   alignSelf: "flex-start",
                   borderRadius: 999,
                   borderWidth: 1,
@@ -663,48 +811,46 @@ export default function CestaScreen() {
                   backgroundColor: "#F6FAFD",
                   paddingVertical: 10,
                   paddingHorizontal: 14,
-                })}
+                }}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>Vaciar cesta</Text>
-              </Pressable>
+              </AnimatedPressable>
             </View>
           )}
 
           <View
             style={{
-              borderRadius: 18,
+              borderRadius: 24,
               borderWidth: 1,
               borderColor: COLORS.border,
-              backgroundColor: "#F8FBFE",
-              padding: 14,
-              gap: 10,
+              backgroundColor: COLORS.cardSoft,
+              padding: 18,
+              gap: 12,
+              ...softShadow(),
             }}
           >
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+              Resumen del pedido
+            </Text>
+
             <Row label="Subtotal" value={fmtEUR(subtotal)} />
-            <Row label="Envío" value={shipping === 0 ? "Gratis" : fmtEUR(shipping)} />
+            <Row label="Envío" value={fmtEUR(shipping)} freeBadge={shipping === 0} />
             <View style={{ height: 1, backgroundColor: "#E3EAF2" }} />
             <Row label="Total" value={fmtEUR(total)} strong />
 
-            <Pressable
-              disabled={items.length === 0}
-              onPress={() => pushRoute("/checkout" as Href)}
-              style={({ pressed }) => ({
-                marginTop: 8,
-                borderRadius: 14,
-                paddingVertical: 14,
-                alignItems: "center",
-                backgroundColor: items.length === 0 ? "#EAF6FD" : COLORS.accent,
-                opacity: items.length === 0 ? 0.45 : pressed ? 0.88 : 1,
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ir a pagar</Text>
-            </Pressable>
+            <View style={{ marginTop: 4 }}>
+              <ActionButton
+                title="Ir a pagar"
+                disabled={items.length === 0}
+                onPress={() => pushRoute("/checkout" as Href)}
+              />
+            </View>
 
             <Pressable
               onPress={() => replaceRoute("/" as Href)}
-              style={{ alignItems: "center", paddingVertical: 10 }}
+              style={{ alignItems: "center", paddingVertical: 6 }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "800" }}>
+              <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>
                 ← Seguir comprando
               </Text>
             </Pressable>
@@ -723,10 +869,12 @@ function Row({
   label,
   value,
   strong,
+  freeBadge,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  freeBadge?: boolean;
 }) {
   return (
     <View
@@ -744,7 +892,11 @@ function Row({
       >
         {label}
       </Text>
-      <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
+      {freeBadge ? (
+        <Badge text="Gratis" tone="success" />
+      ) : (
+        <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
+      )}
     </View>
   );
 }
