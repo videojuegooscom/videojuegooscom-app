@@ -256,11 +256,21 @@ export default function ChatGlobalScreen() {
   const [replyTarget, setReplyTarget] = useState<MessageItem | null>(null);
   const [sellModalOpen, setSellModalOpen] = useState(false);
   const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
+  // Al leer historial hacia arriba se ocultan el compositor, el botón de
+  // enviar, el de información y el de "viendo ahora"; al volver a bajar
+  // reaparecen. showScrollToBottom es el "⬇️" que aparece cuando te alejas
+  // bastante del final del chat.
+  const [composerVisible, setComposerVisible] = useState(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const mountedRef = useRef(true);
   const justSentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabsMenuAnim = useRef(new Animated.Value(0)).current;
+  const uiVisibleAnim = useRef(new Animated.Value(1)).current;
+  const lastScrollYRef = useRef(0);
+  const isNearBottomRef = useRef(true);
+  const hasScrolledInitialRef = useRef(false);
 
   const isLoggedIn = !!currentUserId;
 
@@ -463,11 +473,18 @@ export default function ChatGlobalScreen() {
   }, []);
 
   // Cuando llega un mensaje nuevo (o se entra en la pestaña Chat), baja la
-  // pantalla para que se vea el mensaje más reciente.
+  // pantalla para que se vea el mensaje más reciente — pero solo si ya
+  // estabas cerca del final. Si has subido a leer historial, un mensaje
+  // nuevo de otra persona ya no te arrastra hacia abajo (isNearBottomRef,
+  // que actualiza handleScroll); enviar tú un mensaje sí fuerza el salto
+  // (handleSend pone isNearBottomRef a true antes de que llegue por Realtime).
   useEffect(() => {
     if (activeTab !== "chat") return;
+    const isInitialLoad = !hasScrolledInitialRef.current;
+    if (!isInitialLoad && !isNearBottomRef.current) return;
     const id = setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
+      scrollRef.current?.scrollToEnd({ animated: !isInitialLoad });
+      hasScrolledInitialRef.current = true;
     }, 60);
     return () => clearTimeout(id);
   }, [messages.length, activeTab]);
@@ -511,6 +528,53 @@ export default function ChatGlobalScreen() {
       useNativeDriver: true,
     }).start();
   }, [tabsMenuOpen, tabsMenuAnim]);
+
+  // Compositor, botón de enviar, info y "viendo ahora" se ocultan/reaparecen
+  // con un fundido + pequeño desplazamiento — igual de "natural" que el
+  // menú de pestañas de arriba.
+  useEffect(() => {
+    Animated.timing(uiVisibleAnim, {
+      toValue: composerVisible ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+    // Si el compositor se oculta mientras el menú de pestañas está abierto,
+    // ciérralo también: no tiene sentido dejar el desplegable flotando sin
+    // el botón que lo abrió.
+    if (!composerVisible) setTabsMenuOpen(false);
+  }, [composerVisible, uiVisibleAnim]);
+
+  // Detecta hacia dónde se desplaza el chat: subir (leer historial) oculta
+  // la interfaz de escritura; bajar (volver a lo reciente), o estar ya
+  // cerca del final, la vuelve a mostrar. También decide cuándo mostrar el
+  // botón "⬇️" de volver al último mensaje.
+  const handleScroll = useCallback((e: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const y = contentOffset.y as number;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - y;
+    const nearBottom = distanceFromBottom < 80;
+
+    isNearBottomRef.current = nearBottom;
+
+    const delta = y - lastScrollYRef.current;
+    lastScrollYRef.current = y;
+
+    if (nearBottom) {
+      setComposerVisible(true);
+    } else if (delta < -6) {
+      setComposerVisible(false);
+    } else if (delta > 6) {
+      setComposerVisible(true);
+    }
+
+    setShowScrollToBottom(distanceFromBottom > 400);
+  }, []);
+
+  const handleScrollToLatest = useCallback(() => {
+    scrollRef.current?.scrollToEnd({ animated: true });
+    setShowScrollToBottom(false);
+    setComposerVisible(true);
+  }, []);
 
   const handleSelectTab = useCallback((tab: HubTab) => {
     setActiveTab(tab);
@@ -557,6 +621,12 @@ export default function ChatGlobalScreen() {
       if (!mountedRef.current) return;
       setDraft("");
       setReplyTarget(null);
+
+      // Enviar tu propio mensaje siempre te lleva al final, aunque hubieras
+      // subido a leer historial: fuerza isNearBottomRef antes de que el
+      // mensaje llegue por Realtime, así el efecto de auto-scroll no lo ignora.
+      isNearBottomRef.current = true;
+      setComposerVisible(true);
 
       // Pequeño "enviado ✓" en el botón, estilo WhatsApp, que se apaga solo.
       setJustSent(true);
@@ -802,69 +872,17 @@ export default function ChatGlobalScreen() {
         <ScrollView
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingTop: 18,
+            paddingTop: 58,
             paddingBottom: 130,
             alignItems: "center",
           }}
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-          {/*
-            Antes había aquí una tarjeta grande con el título "Chat Global" y
-            el párrafo de bienvenida ocupando espacio siempre. Ahora esa
-            información vive en InfoModal (el "Pop" centrado) y aquí solo
-            queda una barra estrecha con el icono de información y el
-            recuadro real de "viendo ahora" — nada permanente de más.
-          */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              gap: 8,
-              alignSelf: "flex-end",
-            }}
-          >
-            {/* Sueltos, cada uno con su propia burbuja — ya no comparten
-                una caja blanca común, y los dos son más pequeños para no
-                competir visualmente con el resto de la pantalla. */}
-            <Pressable
-              onPress={() => setShowInfoModal(true)}
-              style={({ pressed }) => ({
-                width: 26,
-                height: 26,
-                borderRadius: 999,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#FFFFFF",
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                opacity: pressed ? 0.85 : 1,
-                shadowColor: COLORS.accent,
-                shadowOpacity: 0.08,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-              })}
-            >
-              <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
-            </Pressable>
-
-            <Pressable
-              onPress={toggleViewers}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.9 : 1,
-              })}
-            >
-              <GlowPill
-                text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
-                tone="success"
-                size="compact"
-              />
-            </Pressable>
-          </View>
-
           {/*
             Las 4 pestañas (Chat Global, Noticias, Novedades, Torneos) ya no
             están fijas aquí arriba: ahora viven en el menú desplegable "🔼"
@@ -899,6 +917,106 @@ export default function ChatGlobalScreen() {
           <Pressable style={{ flex: 1 }} onPress={() => setTabsMenuOpen(false)} />
         </Animated.View>
 
+        {/*
+          Antes había aquí una tarjeta grande con el título "Chat Global" y
+          el párrafo de bienvenida ocupando espacio siempre. Ahora esa
+          información vive en InfoModal (el "Pop" centrado) y aquí solo queda
+          una barra estrecha con el icono de información y el recuadro real
+          de "viendo ahora" — flotando arriba a la derecha, y se oculta junto
+          con el compositor al leer historial hacia arriba (mismo uiVisibleAnim).
+        */}
+        <Animated.View
+          pointerEvents={composerVisible ? "box-none" : "none"}
+          style={{
+            position: "absolute",
+            top: 14,
+            right: 16,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            opacity: uiVisibleAnim,
+            transform: [
+              {
+                translateY: uiVisibleAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-16, 0],
+                }),
+              },
+            ],
+          }}
+        >
+          {/* Sueltos, cada uno con su propia burbuja — ya no comparten
+              una caja blanca común, y los dos son más pequeños para no
+              competir visualmente con el resto de la pantalla. */}
+          <Pressable
+            onPress={() => setShowInfoModal(true)}
+            style={({ pressed }) => ({
+              width: 26,
+              height: 26,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.accentBorder,
+              opacity: pressed ? 0.85 : 1,
+              shadowColor: COLORS.accent,
+              shadowOpacity: 0.08,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 2 },
+            })}
+          >
+            <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
+          </Pressable>
+
+          <Pressable
+            onPress={toggleViewers}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.9 : 1,
+            })}
+          >
+            <GlowPill
+              text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
+              tone="success"
+              size="compact"
+            />
+          </Pressable>
+        </Animated.View>
+
+        {/*
+          "⬇️" para volver al último mensaje: aparece cuando te alejas
+          bastante del final del chat (ver handleScroll), independiente de si
+          el compositor está oculto o no — siempre visible mientras haga
+          falta, con su propio fundido de entrada/salida.
+        */}
+        {showScrollToBottom && (
+          <Pressable
+            onPress={handleScrollToLatest}
+            style={({ pressed }) => ({
+              position: "absolute",
+              right: 16,
+              bottom: 118,
+              width: 40,
+              height: 40,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.accentBorder,
+              opacity: pressed ? 0.85 : 1,
+              shadowColor: COLORS.accent,
+              shadowOpacity: 0.16,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 4,
+            })}
+          >
+            <Ionicons name="arrow-down-circle" size={26} color={COLORS.accent} />
+          </Pressable>
+        )}
+
         <BottomBar
           isChatTab={activeTab === "chat"}
           value={draft}
@@ -917,6 +1035,8 @@ export default function ChatGlobalScreen() {
           tabsMenuOpen={tabsMenuOpen}
           onToggleTabsMenu={() => setTabsMenuOpen((prev) => !prev)}
           tabsMenuAnim={tabsMenuAnim}
+          visible={composerVisible}
+          visibleAnim={uiVisibleAnim}
         />
 
         <AuthRequiredModal
@@ -1716,6 +1836,8 @@ function BottomBar({
   tabsMenuOpen,
   onToggleTabsMenu,
   tabsMenuAnim,
+  visible,
+  visibleAnim,
 }: {
   isChatTab: boolean;
   value: string;
@@ -1734,6 +1856,8 @@ function BottomBar({
   tabsMenuOpen: boolean;
   onToggleTabsMenu: () => void;
   tabsMenuAnim: Animated.Value;
+  visible: boolean;
+  visibleAnim: Animated.Value;
 }) {
   // El botón se desactiva solo cuando SÍ hay sesión pero el mensaje es
   // demasiado corto (≤ 3 caracteres). Sin sesión se deja pulsable para que
@@ -1741,13 +1865,28 @@ function BottomBar({
   const sendDisabled = !!sending || canSend === false;
 
   return (
-    <View
-      pointerEvents="box-none"
+    <Animated.View
+      // Todo este bloque (compositor + botón de enviar + menú de pestañas)
+      // se oculta/reaparece al leer historial hacia arriba/abajo. La
+      // animación va directamente en la raíz — que ya es position:"absolute"
+      // — porque envolverla en otro Animated.View externo rompería ese
+      // posicionamiento (el wrapper colapsaría a tamaño cero y el hijo
+      // absoluto se ancoraría a él en vez de a toda la pantalla).
+      pointerEvents={visible ? "box-none" : "none"}
       style={{
         position: "absolute",
         left: 12,
         right: 12,
         bottom: 12,
+        opacity: visibleAnim,
+        transform: [
+          {
+            translateY: visibleAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [30, 0],
+            }),
+          },
+        ],
       }}
     >
       {/*
@@ -1893,98 +2032,77 @@ function BottomBar({
         </View>
       )}
 
-      <LinearGradient
-        colors={["rgba(30,167,232,0.12)", "rgba(0,170,228,0.06)", "rgba(30,167,232,0.02)"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+      {/*
+        Sin "manta blanca" alrededor: antes había un borde en degradado y una
+        tarjeta blanca envolviendo todo el compositor. Ahora el recuadro que
+        escribe el texto es translúcido (se lee perfectamente pero no es
+        blanco puro) y no hay ninguna caja alrededor — solo el campo y, al
+        lado, el botón de enviar tal cual estaba.
+      */}
+      <View
         style={{
-          borderRadius: 20,
-          padding: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
         }}
       >
-        <View
+        <Pressable
+          onPress={onPressInput}
           style={{
-            borderRadius: 19,
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: "#EAF6FD",
-            padding: 6,
-            shadowColor: COLORS.accent,
-            shadowOpacity: 0.1,
-            shadowRadius: 14,
-            shadowOffset: { width: 0, height: 3 },
+            flex: 1,
           }}
         >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <Pressable
-              onPress={onPressInput}
+          {isLoggedIn ? (
+            <TextInput
+              value={value}
+              onChangeText={onChangeText}
+              placeholder="Escribe un mensaje…"
+              placeholderTextColor="rgba(11,33,56,0.4)"
+              editable={!sending}
               style={{
-                flex: 1,
+                minHeight: 42,
+                maxHeight: 96,
+                borderRadius: 14,
+                backgroundColor: "rgba(255,255,255,0.42)",
+                color: COLORS.text,
+                // 16px es el mínimo que evita que Safari/iOS haga zoom
+                // automático al enfocar el campo (por debajo de 16px lo
+                // dispara siempre). No bajar de aquí.
+                fontSize: 16,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                opacity: sending ? 0.6 : 1,
+              }}
+              multiline
+            />
+          ) : (
+            <View
+              style={{
+                minHeight: 42,
+                borderRadius: 14,
+                backgroundColor: "rgba(255,255,255,0.42)",
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                justifyContent: "center",
               }}
             >
-              {isLoggedIn ? (
-                <TextInput
-                  value={value}
-                  onChangeText={onChangeText}
-                  placeholder="Escribe un mensaje…"
-                  placeholderTextColor="rgba(11,33,56,0.35)"
-                  editable={!sending}
-                  style={{
-                    minHeight: 42,
-                    maxHeight: 96,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: "#E3EAF2",
-                    backgroundColor: "#F8FBFE",
-                    color: COLORS.text,
-                    // 16px es el mínimo que evita que Safari/iOS haga zoom
-                    // automático al enfocar el campo (por debajo de 16px lo
-                    // dispara siempre). No bajar de aquí.
-                    fontSize: 16,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    opacity: sending ? 0.6 : 1,
-                  }}
-                  multiline
-                />
-              ) : (
-                <View
-                  style={{
-                    minHeight: 42,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: "#E3EAF2",
-                    backgroundColor: "#F8FBFE",
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    justifyContent: "center",
-                  }}
-                >
-                  <Text style={{ color: "rgba(11,33,56,0.35)", fontSize: 16 }}>
-                    Escribe un mensaje…
-                  </Text>
-                </View>
-              )}
-            </Pressable>
+              <Text style={{ color: "rgba(11,33,56,0.4)", fontSize: 16 }}>
+                Escribe un mensaje…
+              </Text>
+            </View>
+          )}
+        </Pressable>
 
-            <ComposerSendButton
-              onPress={onPressSend}
-              disabled={sendDisabled}
-              sending={sending}
-              justSent={justSent}
-            />
-          </View>
-        </View>
-      </LinearGradient>
+        <ComposerSendButton
+          onPress={onPressSend}
+          disabled={sendDisabled}
+          sending={sending}
+          justSent={justSent}
+        />
+      </View>
       </>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
