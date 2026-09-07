@@ -41,8 +41,6 @@
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
-import { LinearGradient } from "expo-linear-gradient";
-import { router, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -58,9 +56,11 @@ import {
   UIManager,
   View,
 } from "react-native";
+import { router, type Href } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { supabase } from "../../lib/supabase";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
-import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
