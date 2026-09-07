@@ -417,7 +417,7 @@ export default function CatalogoScreen() {
     if (resolvedCategory?.name) {
       return `${getCategoryHint(resolvedCategory.name)} · Envíos a toda España`;
     }
-    return "Consolas, videojuegos y electrónica revisada lista para vender";
+    return "Consolas, videojuegos y electrónica de segunda mano, revisados y listos para ti";
   }, [isAdmin, resolvedCategory]);
 
   const categoryChips = useMemo(() => {
@@ -622,7 +622,8 @@ export default function CatalogoScreen() {
     try {
       await loadAll({ queryOverride: queryFromUrl });
     } catch (e: any) {
-      setErr(e?.message ?? "Error cargando catálogo.");
+      console.error("Error cargando catálogo:", e);
+      setErr("No hemos podido cargar el catálogo. Comprueba tu conexión e inténtalo de nuevo.");
       setItems([]);
       setCategories([]);
       setIsAdmin(false);
@@ -636,7 +637,8 @@ export default function CatalogoScreen() {
     try {
       await loadAll(opts);
     } catch (e: any) {
-      setErr(e?.message ?? "Error actualizando catálogo.");
+      console.error("Error actualizando catálogo:", e);
+      setErr("No hemos podido actualizar el catálogo. Inténtalo de nuevo en unos segundos.");
     } finally {
       setRefreshing(false);
     }
@@ -789,7 +791,7 @@ export default function CatalogoScreen() {
                       lineHeight: isMobile ? 24 : 26,
                     }}
                   >
-                    Encuentra consolas, videojuegos y accesorios con aspecto de tienda seria.
+                    Encuentra consolas, videojuegos y accesorios revisados y listos para usar.
                   </Text>
                   <Text
                     style={{
@@ -798,7 +800,7 @@ export default function CatalogoScreen() {
                       lineHeight: 20,
                     }}
                   >
-                    Catálogo claro, contacto directo y productos publicados con enfoque real de venta.
+                    Compra fácil, atención directa y envíos a toda España.
                   </Text>
                 </View>
 
@@ -859,11 +861,11 @@ export default function CatalogoScreen() {
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                Vista admin
+                Panel de administración
               </Text>
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Aquí sí tiene sentido ver estados internos. En público solo se debe sentir tienda,
-                no panel.
+                Consulta el estado interno de cada producto: publicado, listo o pendiente de
+                revisión.
               </Text>
             </View>
           )}
@@ -961,7 +963,7 @@ export default function CatalogoScreen() {
                     textAlign: "center",
                   }}
                 >
-                  {refreshing ? "..." : "Buscar"}
+                  {refreshing ? "Buscando…" : "Buscar"}
                 </Text>
               </Pressable>
             </View>
@@ -1087,7 +1089,7 @@ export default function CatalogoScreen() {
                   </Text>
 
                   <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
-                    {!isAdmin ? "Catálogo público" : "Vista interna"} ·{" "}
+                    {!isAdmin ? "Catálogo público" : "Gestión interna"} ·{" "}
                     {effectiveFilter === "ALL"
                       ? "Todos"
                       : effectiveFilter === "PUBLICADA"
@@ -1166,13 +1168,12 @@ export default function CatalogoScreen() {
                 <Text
                   style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20 }}
                 >
-                  Ahora mismo no hay productos para esta vista.
+                  No hay productos que coincidan con tu búsqueda
                 </Text>
 
                 <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                  Quita filtros, cambia de categoría o vuelve al catálogo general para ver todo lo
-                  disponible. Si esta pantalla la ve un cliente, el problema no es el diseño: es que
-                  faltan productos publicados y activos.
+                  Prueba a quitar algún filtro, cambiar de categoría o revisar más tarde: renovamos
+                  el catálogo con frecuencia y seguro que encuentras algo que te interese.
                 </Text>
 
                 <View
@@ -1505,7 +1506,7 @@ function ProductCard({
                 textAlign: "center",
               }}
             >
-              Imagen pendiente o no disponible
+              Foto no disponible
             </Text>
           </View>
         )}
@@ -1590,7 +1591,7 @@ function ProductCard({
           >
             {p.description?.trim()
               ? p.description.trim()
-              : "Producto revisado y presentado con enfoque claro para compra rápida."}
+              : "Descripción disponible próximamente. Escríbenos si tienes alguna duda sobre este producto."}
           </Text>
         </View>
 
@@ -1639,7 +1640,7 @@ function ProductCard({
 
           {!isAdmin ? (
             <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18 }}>
-              Compra clara, contacto rápido y producto orientado a venta real.
+              Compra clara, contacto rápido y envío en cuanto confirmes el pedido.
             </Text>
           ) : (
             <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18 }}>

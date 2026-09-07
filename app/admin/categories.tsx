@@ -333,7 +333,8 @@ export default function AdminCategories() {
       setSupportsImageUrl(true);
       setItems((res.data ?? []) as CategoryRow[]);
     } catch (e: any) {
-      setScreenErr(e?.message ?? "Error cargando categorías.");
+      console.error("Error cargando categorías:", e);
+      setScreenErr("No se han podido cargar las categorías. Inténtalo de nuevo.");
       setItems([]);
     } finally {
       setLoading(false);
@@ -382,7 +383,7 @@ export default function AdminCategories() {
     const cleanImg = String(imageUrl ?? "").trim();
 
     if (!cleanName) {
-      setModalErr("Pon un nombre de categoría.");
+      setModalErr("Introduce un nombre de categoría.");
       setSaving(false);
       return;
     }
@@ -433,12 +434,13 @@ export default function AdminCategories() {
       resetForm();
       await load();
     } catch (e: any) {
-      const msg = String(e?.message ?? "Error guardando categoría.");
+      console.error("Error guardando categoría:", e);
+      const msg = String(e?.message ?? "");
 
       if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
         setModalErr("Ya existe una categoría con ese nombre o slug.");
       } else {
-        setModalErr(msg);
+        setModalErr("No se pudo guardar la categoría. Inténtalo de nuevo.");
       }
     } finally {
       setSaving(false);
@@ -477,7 +479,8 @@ export default function AdminCategories() {
       if (error) throw error;
       await load();
     } catch (e: any) {
-      setScreenErr(e?.message ?? "Error borrando categoría.");
+      console.error("Error borrando categoría:", e);
+      setScreenErr("No se ha podido borrar la categoría. Inténtalo de nuevo.");
     }
   }
 
@@ -631,9 +634,8 @@ export default function AdminCategories() {
             }}
           >
             <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              La columna <Text style={{ fontWeight: "900" }}>image_url</Text> no existe en tu
-              tabla <Text style={{ fontWeight: "900" }}>categories</Text>. El panel sigue
-              funcionando, pero la imagen por URL queda desactivada.
+              La imagen por URL no está disponible todavía para las categorías. El resto del
+              panel sigue funcionando con normalidad.
             </Text>
           </View>
         )}
@@ -670,7 +672,7 @@ export default function AdminCategories() {
                 No hay categorías para este filtro.
               </Text>
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Crea una base limpia primero. Luego ya metes producto encima y dejas de vender en una nave vacía.
+                Crea tu primera categoría para empezar a organizar el catálogo.
               </Text>
             </View>
           ) : (
@@ -758,7 +760,7 @@ export default function AdminCategories() {
                             }}
                           >
                             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              slug: {c.slug}
+                              Slug: {c.slug}
                             </Text>
                           </View>
 
@@ -773,7 +775,7 @@ export default function AdminCategories() {
                             }}
                           >
                             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              orden: {c.sort_order}
+                              Orden: {c.sort_order}
                             </Text>
                           </View>
 
@@ -788,7 +790,7 @@ export default function AdminCategories() {
                             }}
                           >
                             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              {c.is_active ? "Activa" : "Oculta"}
+                              {c.is_active ? "Visible" : "Oculta"}
                             </Text>
                           </View>
                         </View>
@@ -875,7 +877,7 @@ export default function AdminCategories() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Aquí defines el esqueleto comercial de la tienda. Si ordenas mal las categorías, el escaparate se resiente.
+                Define el nombre, el orden y la visibilidad de la categoría en la navegación pública.
               </Text>
 
               <TextInput
@@ -885,7 +887,7 @@ export default function AdminCategories() {
                   if (!isEdit) setSlug(slugify(v));
                   setModalErr(null);
                 }}
-                placeholder="Nombre (ej: PlayStation 5)"
+                placeholder="Nombre de la categoría"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 style={{
                   borderWidth: 1,
@@ -905,7 +907,7 @@ export default function AdminCategories() {
                   setSlug(v);
                   setModalErr(null);
                 }}
-                placeholder="Slug (ej: playstation-5)"
+                placeholder="Identificador para la URL"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 autoCapitalize="none"
                 style={{
@@ -1118,9 +1120,7 @@ export default function AdminCategories() {
                 {confirmDelete?.name ?? ""}
               </Text>
               .{"\n\n"}
-              Si hay productos ligados a esta categoría, por tu configuración deberían quedarse sin
-              categoría (
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>category_id = null</Text>).
+              Si hay productos vinculados a esta categoría, se quedarán sin categoría asignada.
             </Text>
 
             <View

@@ -316,7 +316,7 @@ export default function BlueIAScreen() {
                 <TextInput
                   value={draft}
                   onChangeText={setDraft}
-                  placeholder="Ejemplo: quiero una PS5 con mando y presupuesto de 450€"
+                  placeholder="Escribe tu consulta, por ejemplo una PS5 con mando y presupuesto de 450€"
                   placeholderTextColor="rgba(11,33,56,0.35)"
                   multiline
                   style={{
@@ -365,7 +365,7 @@ export default function BlueIAScreen() {
 
           <SectionHeader
             title="¿En qué te puede ayudar?"
-            subtitle="Toca una opción rápida si quieres ir al grano."
+            subtitle="Toca una opción rápida para resolverlo de forma directa y eficiente."
           />
 
           <View
@@ -403,7 +403,7 @@ export default function BlueIAScreen() {
 
           <SectionHeader
             title="Lo que puedes hacer aquí"
-            subtitle="Blue IA está pensada para ayudarte antes, durante y después de la compra."
+            subtitle="Blue IA te ayuda antes, durante y después de la compra."
           />
 
           <View style={{ gap: 12 }}>
@@ -440,9 +440,8 @@ export default function BlueIAScreen() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Esta sección está pensada para que encuentres ayuda sin perder tiempo.
-                Si tienes dudas sobre una compra, una venta, una reparación o un
-                envío, Blue IA te orienta de forma sencilla.
+                Encuentra ayuda sin perder tiempo. Si tienes dudas sobre una compra, una
+                venta, una reparación o un envío, Blue IA te orienta de forma sencilla.
               </Text>
 
               <View

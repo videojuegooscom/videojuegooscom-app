@@ -47,13 +47,13 @@ export const CONVERTIBLE_IMAGE_MIME = [
 ] as const;
 
 export const ERRORS = {
-  FILE_TOO_LARGE: `El archivo supera el máximo de ${MAX_FILE_SIZE_MB}MB.`,
-  INVALID_IMAGE_TYPE: "Formato de imagen no soportado.",
-  INVALID_VIDEO_TYPE: "Formato de vídeo no soportado.",
+  FILE_TOO_LARGE: `El archivo supera el máximo de ${MAX_FILE_SIZE_MB} MB.`,
+  INVALID_IMAGE_TYPE: "Formato de imagen no compatible.",
+  INVALID_VIDEO_TYPE: "Formato de vídeo no compatible.",
   VIDEO_TOO_LONG: `El vídeo no puede superar ${MAX_VIDEO_SECONDS} segundos.`,
   MAX_IMAGES: `Máximo ${MAX_IMAGES} imágenes por producto.`,
   MAX_VIDEO: "Solo se permite 1 vídeo por producto.",
-  GENERIC_UPLOAD: "Error subiendo archivos.",
+  GENERIC_UPLOAD: "No se pudieron subir los archivos.",
 } as const;
 
 export const COLORS = {

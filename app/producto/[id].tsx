@@ -14,8 +14,8 @@
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
  * - app/catalogo.tsx → de donde se navega hasta aquí.
- * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Cesta" y "Finalizar
- *   compra".
+ * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Ver cesta" y
+ *   "Finalizar compra".
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
@@ -349,9 +349,9 @@ function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | nu
 
 function productTrustCopy(hasDescription: boolean) {
   if (hasDescription) {
-    return "Producto presentado con información clara, contacto directo y enfoque real de venta.";
+    return "Toda la información de este producto está verificada, y nuestro equipo está disponible para resolver cualquier duda antes de tu compra.";
   }
-  return "Ficha limpia, contacto rápido y soporte directo si necesitas confirmar cualquier detalle.";
+  return "Ficha de producto sencilla y clara, con atención rápida y directa si necesitas confirmar cualquier detalle antes de comprar.";
 }
 
 function productHintByCategory(name?: string | null) {
@@ -409,7 +409,7 @@ function mediaCountLabel(media: ProductMedia[]) {
   const images = media.filter((m) => m.kind === "image").length;
   const videos = media.filter((m) => m.kind === "video").length;
 
-  if (!images && !videos) return "Sin multimedia";
+  if (!images && !videos) return "Sin imágenes disponibles";
   if (images && videos) {
     return `${images} foto${images === 1 ? "" : "s"} + ${videos} vídeo${videos === 1 ? "" : "s"}`;
   }
@@ -582,22 +582,22 @@ export default function ProductoScreen() {
   }, [p, isAdmin]);
 
   const whatsappText = useMemo(() => {
-    const title = p?.title ? `Producto: ${p.title}` : `Producto ID: ${productId}`;
+    const title = p?.title ? `Producto: ${p.title}` : "Producto de la tienda";
     const price = p?.priceEUR ? `Precio: ${fmtEUR(p.priceEUR)}` : "";
 
-    return `Hola, vengo desde Videojuegoos.com.
+    return `Hola, vengo desde Videojuegoszaragoza.com.
 
 ${title}
 ${price}
 
 ¿Sigue disponible? Me interesa este producto.`;
-  }, [p?.title, p?.priceEUR, productId]);
+  }, [p?.title, p?.priceEUR]);
 
   async function loadProduct() {
     const seq = ++reqSeqRef.current;
 
     if (!productId) {
-      setErr("Falta el id del producto.");
+      setErr("No hemos podido encontrar este producto.");
       setP(null);
       setSelectedImageUrl(null);
       setLoading(false);
@@ -618,7 +618,9 @@ ${price}
       if (!productRow) {
         setP(null);
         setSelectedImageUrl(null);
-        setErr("Producto no encontrado o no disponible.");
+        setErr(
+          "Este producto no existe o ya no está disponible para la venta. Prueba a volver al catálogo para ver el resto de artículos."
+        );
         return;
       }
 
@@ -653,7 +655,8 @@ ${price}
       setSelectedImageUrl(heroImage);
     } catch (e: any) {
       if (seq !== reqSeqRef.current) return;
-      setErr(e?.message ?? "Error cargando el producto.");
+      console.error("Error cargando el producto:", e);
+      setErr("No hemos podido cargar este producto en este momento. Inténtalo de nuevo en unos instantes.");
       setP(null);
       setSelectedImageUrl(null);
     } finally {
@@ -824,7 +827,7 @@ ${price}
               gap: 6,
             }}
           >
-            <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Error</Text>
+            <Text style={{ color: "#B91C1C", fontWeight: "900" }}>No se ha podido cargar el producto</Text>
             <Text style={{ color: "#7A271A", lineHeight: 20 }}>{err}</Text>
           </View>
 
@@ -975,8 +978,8 @@ ${price}
                         maxWidth: 380,
                       }}
                     >
-                      Este producto todavía no tiene imagen publicada. La ficha sigue accesible
-                      para no romper la venta por una tontería.
+                      Este producto todavía no tiene una imagen disponible, pero puedes consultar
+                      el resto de la información y escribirnos si necesitas más detalles.
                     </Text>
                   </View>
                 )}
@@ -1085,7 +1088,7 @@ ${price}
                   }}
                 >
                   <ActionChip
-                    label="Cesta"
+                    label="Ver cesta"
                     icon="cart-outline"
                     onPress={() => pushRoute("/cesta" as Href)}
                     isMobile={isMobile}
@@ -1107,7 +1110,7 @@ ${price}
                   />
 
                   <ActionChip
-                    label="WhatsApp"
+                    label="Preguntar por WhatsApp"
                     onPress={() => openWhatsApp(whatsappText)}
                     isMobile={isMobile}
                   />
@@ -1155,9 +1158,9 @@ ${price}
                     </Text>
                   ) : (
                     <Text style={{ color: COLORS.muted2, lineHeight: 22 }}>
-                      Este producto todavía no tiene una descripción publicada. Aun así, puedes
-                      preguntarnos por estado, contenido, compatibilidad o disponibilidad por
-                      WhatsApp.
+                      Todavía no hay una descripción disponible para este producto. Aun así,
+                      puedes preguntarnos por su estado, contenido, compatibilidad o
+                      disponibilidad por WhatsApp.
                     </Text>
                   )}
                 </View>
@@ -1173,7 +1176,7 @@ ${price}
                   }}
                 >
                   <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                    Lo importante
+                    Información del producto
                   </Text>
 
                   <View style={{ gap: 8 }}>
@@ -1241,7 +1244,7 @@ ${price}
 
                   <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
                     Escríbenos y te confirmamos disponibilidad, estado, accesorios incluidos o
-                    cualquier detalle. Sin rodeos.
+                    cualquier otro detalle que necesites.
                   </Text>
 
                   <Pressable

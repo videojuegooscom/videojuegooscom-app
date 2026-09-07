@@ -261,12 +261,16 @@ function blobToFile(blob: Blob, fileName: string, mimeType: string) {
   });
 }
 
+// Nota para desarrolladores: la conversión de HEIC a JPEG depende del
+// paquete opcional "heic2any" (npm install heic2any). Si no está
+// disponible, se informa al usuario con un mensaje en español sin
+// detalles técnicos.
 async function dynamicImportHeic2Any(): Promise<any> {
   try {
     const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
     return await importer("heic2any");
   } catch {
-    throw new Error('Falta instalar la librería HEIC. Ejecuta: npm install heic2any');
+    throw new Error("Este formato de imagen no está disponible en este momento. Prueba a subirla en formato JPG, PNG, WEBP o AVIF.");
   }
 }
 
@@ -275,7 +279,7 @@ async function convertHeicToJpeg(file: File): Promise<File> {
   const heic2any = mod?.default ?? mod;
 
   if (typeof heic2any !== "function") {
-    throw new Error("No se pudo cargar el conversor HEIC.");
+    throw new Error("No se pudo convertir la imagen. Prueba a subirla en formato JPG, PNG, WEBP o AVIF.");
   }
 
   const converted = await heic2any({
@@ -287,7 +291,7 @@ async function convertHeicToJpeg(file: File): Promise<File> {
   const outputBlob = Array.isArray(converted) ? converted[0] : converted;
 
   if (!(outputBlob instanceof Blob)) {
-    throw new Error("La conversión HEIC no devolvió una imagen válida.");
+    throw new Error("No se pudo convertir la imagen a un formato compatible.");
   }
 
   const nextName = replaceExtension(file.name, "jpg");
@@ -306,7 +310,7 @@ function ensureSupportedImageMime(file: File) {
   ]);
 
   if (!supported.has(mime)) {
-    throw new Error(`No se soporta MIME Type ${mime || "(vacío)"}`);
+    throw new Error("Este tipo de archivo de imagen no es compatible. Usa JPG, PNG, WEBP o AVIF.");
   }
 }
 
@@ -321,7 +325,7 @@ function ensureSupportedVideoMime(file: File) {
   ]);
 
   if (!supported.has(mime)) {
-    throw new Error(`No se soporta MIME Type ${mime || "(vacío)"}`);
+    throw new Error("Este tipo de archivo de vídeo no es compatible. Usa MP4, WEBM o MOV.");
   }
 }
 
@@ -347,12 +351,12 @@ async function normalizePickedFile(file: File): Promise<File> {
     return file;
   }
 
-  throw new Error(`No se soporta MIME Type ${mime || "(vacío)"}`);
+  throw new Error("Este tipo de archivo no es compatible.");
 }
 
 export async function pickMediaFilesWeb(): Promise<LocalPickedMedia[]> {
   if (Platform.OS !== "web" || typeof document === "undefined") {
-    throw new Error("La subida de archivos desde este panel está preparada para web.");
+    throw new Error("La subida de archivos solo está disponible desde la versión web del panel.");
   }
 
   return new Promise((resolve, reject) => {

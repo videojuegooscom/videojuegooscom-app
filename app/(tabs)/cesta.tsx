@@ -340,7 +340,8 @@ export default function CestaScreen() {
       const stored = await loadCart();
       setItems(stored);
     } catch (e: any) {
-      setErr(e?.message ?? "Error cargando la cesta.");
+      console.error("Error cargando la cesta:", e);
+      setErr("No hemos podido cargar tu cesta. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -369,14 +370,15 @@ export default function CestaScreen() {
         const fetched = await fetchProductForCart(productId);
 
         if (!fetched) {
-          setErr("Ese producto no está disponible o no está publicado.");
+          setErr("Ese producto no está disponible en este momento.");
           return;
         }
 
         const next = [fetched, ...items];
         await persist(next);
       } catch (e: any) {
-        setErr(e?.message ?? "No se pudo añadir el producto a la cesta.");
+        console.error("Error añadiendo producto a la cesta:", e);
+        setErr("No se pudo añadir el producto a la cesta. Inténtalo de nuevo.");
       } finally {
         setAdding(false);
       }
@@ -428,7 +430,7 @@ export default function CestaScreen() {
               Cesta
             </Text>
             <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 21, textAlign: "center" }}>
-              Tus productos listos para cerrar la compra. Claro, limpio y sin historias raras.
+              Tus productos listos para cerrar la compra, de forma clara y sencilla.
             </Text>
           </View>
         </View>
@@ -513,7 +515,7 @@ export default function CestaScreen() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Aún no has añadido nada. Vuelve al catálogo y mete aquí algo serio.
+                Aún no has añadido nada. Vuelve al catálogo y elige tu próximo producto.
               </Text>
 
               <Pressable
@@ -566,16 +568,6 @@ export default function CestaScreen() {
                           {it.subtitle}
                         </Text>
                       ) : null}
-
-                      <Text
-                        style={{
-                          color: "rgba(11,33,56,0.48)",
-                          marginTop: 8,
-                          fontSize: 12,
-                        }}
-                      >
-                        ID: {it.id}
-                      </Text>
                     </View>
 
                     <Text style={{ color: COLORS.gold, fontSize: 16, fontWeight: "900" }}>

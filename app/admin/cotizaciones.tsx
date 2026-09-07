@@ -133,8 +133,8 @@ const METODO_LABEL: Record<MetodoContacto, string> = {
 
 const DISPONIBILIDAD_LABEL: Record<Disponibilidad, string> = {
   manana: "Mañana",
-  mediodia: "Medio día",
-  tardenoche: "Tarde noche",
+  mediodia: "Mediodía",
+  tardenoche: "Tarde y noche",
 };
 
 const GENERO_LABEL: Record<Genero, string> = {
@@ -396,14 +396,8 @@ export default function AdminCotizaciones() {
         setMediaByRequest({});
       }
     } catch (e: any) {
-      const msg = String(e?.message ?? "Error cargando cotizaciones.");
-      const missingTable = msg.toLowerCase().includes("sell_requests");
-
-      setScreenErr(
-        missingTable
-          ? "La tabla sell_requests no existe todavía. Ejecuta sql/sell_requests.sql en el SQL Editor de Supabase."
-          : msg
-      );
+      console.error("Error cargando las solicitudes:", e);
+      setScreenErr("No se han podido cargar las solicitudes. Inténtalo de nuevo en unos minutos.");
       setItems([]);
     } finally {
       setLoading(false);
@@ -431,7 +425,8 @@ export default function AdminCotizaciones() {
       if (error) throw error;
     } catch (e: any) {
       setItems(prev);
-      setScreenErr(e?.message ?? "No se pudo actualizar el estado.");
+      console.error("Error actualizando el estado:", e);
+      setScreenErr("No se pudo actualizar el estado. Inténtalo de nuevo.");
     } finally {
       setBusyId(null);
     }
@@ -446,7 +441,8 @@ export default function AdminCotizaciones() {
     try {
       await downloadSellRequestMedia(row);
     } catch (e: any) {
-      setMediaErr(e?.message ?? "No se pudo descargar el archivo.");
+      console.error("Error descargando el archivo:", e);
+      setMediaErr("No se pudo descargar el archivo. Inténtalo de nuevo.");
     } finally {
       setDownloadingMediaId(null);
     }
@@ -468,7 +464,8 @@ export default function AdminCotizaciones() {
       if (error) throw error;
       await load();
     } catch (e: any) {
-      setScreenErr(e?.message ?? "Error borrando la solicitud.");
+      console.error("Error borrando la solicitud:", e);
+      setScreenErr("No se pudo borrar la solicitud. Inténtalo de nuevo.");
     }
   }
 
@@ -505,7 +502,7 @@ export default function AdminCotizaciones() {
                   lineHeight: isMobile ? 28 : 30,
                 }}
               >
-                Cotizaciones
+                Solicitudes de venta
               </Text>
               <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
                 Solicitudes de "Vender ahora" enviadas por clientes desde la app.
@@ -616,7 +613,7 @@ export default function AdminCotizaciones() {
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
           <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando cotizaciones…</Text>
+          <Text style={{ color: COLORS.muted }}>Cargando solicitudes…</Text>
         </View>
       ) : (
         <ScrollView
@@ -639,7 +636,7 @@ export default function AdminCotizaciones() {
                 }}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                  No hay cotizaciones para este filtro.
+                  No hay solicitudes para este filtro.
                 </Text>
                 <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
                   En cuanto un cliente envíe el formulario de "Vender ahora" aparecerá aquí.
@@ -719,12 +716,15 @@ export default function AdminCotizaciones() {
                         }}
                       >
                         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {r.funciona_bien ? "Funciona bien" : "Tiene un problema"}
+                          {r.funciona_bien ? "Funciona bien" : "Presenta una avería"}
                         </Text>
                       </View>
 
                       <View
                         style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
                           paddingVertical: 6,
                           paddingHorizontal: 10,
                           borderRadius: 999,
@@ -733,13 +733,17 @@ export default function AdminCotizaciones() {
                           backgroundColor: "#F6FAFD",
                         }}
                       >
+                        <Ionicons name="location-outline" size={13} color={COLORS.text} />
                         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          📍 {r.ciudad}
+                          {r.ciudad}
                         </Text>
                       </View>
 
                       <View
                         style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
                           paddingVertical: 6,
                           paddingHorizontal: 10,
                           borderRadius: 999,
@@ -748,8 +752,9 @@ export default function AdminCotizaciones() {
                           backgroundColor: "#F6FAFD",
                         }}
                       >
+                        <Ionicons name="cash-outline" size={13} color={COLORS.text} />
                         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          💶 {r.precio_estimado}
+                          {r.precio_estimado}
                         </Text>
                       </View>
 
@@ -779,7 +784,7 @@ export default function AdminCotizaciones() {
                         }}
                       >
                         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {r.mayor_edad ? "18+ confirmado" : "Edad sin confirmar"}
+                          {r.mayor_edad ? "Mayoría de edad confirmada" : "Mayoría de edad sin confirmar"}
                         </Text>
                       </View>
                     </View>
@@ -791,7 +796,7 @@ export default function AdminCotizaciones() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>
                       {r.opcion_venta === "domicilio"
                         ? `Recogida en domicilio: ${r.direccion ?? "-"}`
-                        : `Cliente se desplaza a entregar · Disponibilidad: ${
+                        : `El cliente se desplaza para entregar el artículo · Disponibilidad: ${
                             r.disponibilidad ? DISPONIBILIDAD_LABEL[r.disponibilidad] : "-"
                           }`}
                     </Text>
@@ -901,7 +906,7 @@ export default function AdminCotizaciones() {
             }}
           >
             <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
-              Borrar cotización
+              Borrar solicitud
             </Text>
 
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>

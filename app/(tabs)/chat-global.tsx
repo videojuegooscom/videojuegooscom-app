@@ -115,8 +115,8 @@ const INITIAL_MESSAGES: MessageItem[] = [
   {
     id: "m3",
     type: "message",
-    username: "videojuegoos",
-    displayName: "Videojuegoos",
+    username: "videojuegoszaragoza",
+    displayName: "Videojuegoszaragoza.com",
     role: "admin",
     time: "12:09",
     text: "La idea es esa: que podáis encontrar gente por ciudad, país y juego, además de enteraros de novedades y torneos.",
@@ -292,7 +292,7 @@ export default function ChatGlobalScreen() {
           items={[
             "Fortnite prepara nuevas rotaciones y eventos semanales.",
             "La escena competitiva sigue empujando el juego cruzado y el contenido en directo.",
-            "El objetivo aquí sería mostrar noticias breves, claras y muy visuales.",
+            "Publicamos noticias breves, claras y muy visuales para que estés al día en un vistazo.",
           ]}
         />
       );
@@ -340,8 +340,7 @@ export default function ChatGlobalScreen() {
             }}
           >
             <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-              Aquí puedes ver quién está conectado ahora mismo. Más adelante esto
-              debería poder filtrarse por ciudad, país, juego y plataforma.
+              Aquí puedes ver quién está conectado ahora mismo.
             </Text>
 
             <View style={{ gap: 10 }}>
@@ -489,8 +488,8 @@ export default function ChatGlobalScreen() {
                   maxWidth: 980,
                 }}
               >
-                Hub social para conectar gamers, encontrar gente para jugar a
-                Fortnite, descubrir personas de tu misma ciudad o país y seguir
+                Conecta con otros gamers, encuentra gente para jugar a
+                Fortnite, descubre personas de tu misma ciudad o país y sigue
                 noticias gaming, novedades de la tienda y torneos.
               </Text>
             </View>
@@ -1225,7 +1224,7 @@ function AuthRequiredModal({
 
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               <Tag text="Chat visible" tone="success" />
-              <Tag text="Enviar = login" tone="warn" />
+              <Tag text="Inicio de sesión requerido" tone="warn" />
               <Tag text="Comunidad protegida" tone="neutral" />
             </View>
 

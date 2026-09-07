@@ -226,7 +226,7 @@ export default function AdminLayout() {
               lineHeight: 20,
             }}
           >
-            Comprobando sesión y permisos del panel admin…
+            Comprobando sesión y permisos del panel de administración…
           </Text>
         </View>
       </View>

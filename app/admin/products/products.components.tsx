@@ -352,7 +352,7 @@ export function MediaThumb({
               fontSize: 10,
             }}
           >
-            {kind === "image" ? "IMAGEN" : kind === "video" ? "VÍDEO" : "MEDIA"}
+            {kind === "image" ? "IMAGEN" : kind === "video" ? "VÍDEO" : "MULTIMEDIA"}
           </Text>
         </View>
 
@@ -413,7 +413,7 @@ export function MediaThumb({
             ? "Foto del producto"
             : kind === "video"
               ? "Vídeo del producto"
-              : "Media del producto"}
+              : "Archivo multimedia del producto"}
         </Text>
 
         {!!onRemove && (

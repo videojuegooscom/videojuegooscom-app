@@ -28,6 +28,16 @@ const MOCK = [
   { id: "003", title: "DualSense (mando)", status: "IN_REPAIR" },
 ];
 
+const STATUS_LABELS: Record<string, string> = {
+  TO_REVIEW: "Por revisar",
+  READY_TO_LIST: "Listo para publicar",
+  IN_REPAIR: "En reparación",
+};
+
+function statusLabel(status: string) {
+  return STATUS_LABELS[status] ?? status;
+}
+
 export default function Inventario() {
   return (
     <ScrollView
@@ -40,7 +50,7 @@ export default function Inventario() {
           Inventario
         </Text>
         <Text style={{ color: MUTED, textAlign: "center" }}>
-          Código interno + estado. Esto será tu "cerebro".
+          Consulta el código interno y el estado de cada unidad en un solo vistazo.
         </Text>
 
         {MOCK.map((i) => (
@@ -58,7 +68,7 @@ export default function Inventario() {
             <Text style={{ fontWeight: "900", color: TEXT }}>
               {i.id} · {i.title}
             </Text>
-            <Text style={{ color: ACCENT, fontWeight: "800" }}>Estado: {i.status}</Text>
+            <Text style={{ color: ACCENT, fontWeight: "800" }}>Estado: {statusLabel(i.status)}</Text>
           </View>
         ))}
 

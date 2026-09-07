@@ -365,7 +365,7 @@ export default function AdminHome() {
         key: "inventario",
         title: "Inventario",
         subtitle:
-          "Control interno de stock y operativa. Si todavía no lo usas, puede quedarse como fase posterior.",
+          "Control interno de existencias y operativa de almacén.",
         icon: "cube-outline" as IoniconName,
         badge: "Opcional",
         onPress: () => router.push("/admin/inventario"),
@@ -376,7 +376,7 @@ export default function AdminHome() {
         subtitle:
           "Solicitudes de \"Vender ahora\" enviadas por clientes: artículo, estado, ciudad y precio esperado.",
         icon: "document-text-outline" as IoniconName,
-        badge: "Leads",
+        badge: "Solicitudes",
         onPress: () => router.push("/admin/cotizaciones"),
       },
     ],
@@ -434,7 +434,7 @@ export default function AdminHome() {
           >
             <ActivityIndicator color={COLORS.text} />
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-              Comprobando acceso admin…
+              Comprobando acceso de administrador…
             </Text>
             <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
               Validando sesión y permisos antes de abrir el panel.
@@ -470,12 +470,12 @@ export default function AdminHome() {
               lineHeight: isMobile ? 28 : 30,
             }}
           >
-            Panel Admin
+            Panel de Administración
           </Text>
 
           <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-            Gestiona categorías, productos y estructura comercial. Lo que publiques aquí
-            es lo que el cliente percibe fuera.
+            Gestiona las categorías, los productos y la estructura comercial de la tienda.
+            El contenido que publiques aquí es exactamente lo que verán tus clientes.
           </Text>
 
           <View
@@ -490,7 +490,7 @@ export default function AdminHome() {
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-              Admin activo{userState.email ? ` · ${userState.email}` : ""}
+              Administrador activo{userState.email ? ` · ${userState.email}` : ""}
             </Text>
           </View>
 
@@ -516,7 +516,7 @@ export default function AdminHome() {
               })}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                ← Tienda
+                Volver a la tienda
               </Text>
             </Pressable>
 
@@ -577,7 +577,7 @@ export default function AdminHome() {
           >
             <SectionTitle
               title="Vista general"
-              subtitle="Este panel debe servir para operar rápido, publicar bien y no convertir la tienda en un mercadillo desordenado."
+              subtitle="Este panel te permite operar con rapidez y mantener el catálogo siempre ordenado y actualizado."
               isMobile={isMobile}
             />
 
@@ -590,15 +590,15 @@ export default function AdminHome() {
               }}
             >
               <SmallStat label="Acceso" value="Protegido" icon="lock-closed-outline" isMobile={isMobile} compact />
-              <SmallStat label="Rol" value="Admin" icon="person-outline" isMobile={isMobile} compact />
-              <SmallStat label="Objetivo" value="Publicar bien" icon="rocket-outline" isMobile={isMobile} compact />
+              <SmallStat label="Rol" value="Administrador" icon="person-outline" isMobile={isMobile} compact />
+              <SmallStat label="Objetivo" value="Calidad del catálogo" icon="rocket-outline" isMobile={isMobile} compact />
             </View>
           </View>
 
           <View>
             <SectionTitle
               title="Gestión principal"
-              subtitle="Las piezas clave del sistema. Aquí está el núcleo operativo."
+              subtitle="Accede a las áreas principales de gestión de la tienda."
               isMobile={isMobile}
             />
 
@@ -674,20 +674,20 @@ export default function AdminHome() {
             }}
           >
             <SectionTitle
-              title="Checklist de publicación"
-              subtitle="Esto es lo mínimo para que la tienda pública deje de parecer vacía o rota."
+              title="Lista de comprobación de publicación"
+              subtitle="Sigue estos pasos para que cada producto se publique correctamente en la tienda."
               isMobile={isMobile}
             />
 
             <Text style={{ color: COLORS.text, lineHeight: 21 }}>
               1) Crear o activar categorías útiles{"\n"}
               2) Crear productos con título, precio e imagen{"\n"}
-              3) Asignar categoría correcta{"\n"}
-              4) Poner <Text style={{ fontWeight: "900" }}>status = PUBLISHED</Text> y{" "}
-              <Text style={{ fontWeight: "900" }}>is_active = true</Text>
+              3) Asignar la categoría correcta{"\n"}
+              4) Marcar el producto como{" "}
+              <Text style={{ fontWeight: "900" }}>publicado y activo</Text>
               {"\n"}
-              5) Revisar ficha pública en <Text style={{ fontWeight: "900" }}>/catalogo</Text> y{" "}
-              <Text style={{ fontWeight: "900" }}>/producto/[id]</Text>
+              5) Revisar la ficha del producto en el{" "}
+              <Text style={{ fontWeight: "900" }}>catálogo público</Text>
             </Text>
           </View>
 
@@ -705,8 +705,9 @@ export default function AdminHome() {
               Regla importante
             </Text>
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              No publiques por publicar. Un catálogo con cuatro productos bien montados vende
-              más que veinte fichas mediocres. Aquí o queda serio o queda cutre, no hay término medio.
+              No publiques por publicar. Un catálogo con pocos productos bien presentados
+              vende más que muchas fichas incompletas: cuida cada publicación para transmitir
+              una imagen profesional.
             </Text>
           </View>
         </View>

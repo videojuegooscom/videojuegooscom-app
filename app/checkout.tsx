@@ -204,7 +204,7 @@ export default function CheckoutScreen() {
 
   const whatsText = useMemo(() => {
     const lines: string[] = [];
-    lines.push("Hola! Quiero hacer un pedido desde Videojuegoos.com 👇");
+    lines.push("¡Hola! Quiero hacer un pedido desde Videojuegoszaragoza.com 👇");
     lines.push("");
     if (items.length > 0) {
       lines.push("🛒 Pedido:");
@@ -236,7 +236,8 @@ export default function CheckoutScreen() {
       const stored = await loadCart();
       setItems(stored);
     } catch (e: any) {
-      setErr(e?.message ?? "Error cargando checkout.");
+      console.error("Error cargando el checkout:", e);
+      setErr("No hemos podido cargar el proceso de compra. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -256,7 +257,7 @@ export default function CheckoutScreen() {
       return;
     }
     if (!formOk) {
-      setErr("Revisa tus datos. Falta algo importante para el envío.");
+      setErr("Revisa tus datos. Falta algún campo obligatorio para el envío.");
       return;
     }
 
@@ -272,7 +273,8 @@ export default function CheckoutScreen() {
       // await saveCart([]);
       // setItems([]);
     } catch (e: any) {
-      setErr(e?.message ?? "No se pudo iniciar el pago.");
+      console.error("Error al finalizar el pedido:", e);
+      setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
     } finally {
       setSubmitting(false);
     }
@@ -308,7 +310,7 @@ export default function CheckoutScreen() {
                 Checkout
               </Text>
               <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>
-                Rápido, claro y sin “sorpresas premium”.
+                Rápido, claro y sin costes ocultos.
               </Text>
             </View>
           </View>
@@ -340,7 +342,7 @@ export default function CheckoutScreen() {
                 padding: 10,
               }}
             >
-              <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>Ojo:</Text>
+              <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>Importante:</Text>
               <Text style={{ color: "#7A271A", marginTop: 4, textAlign: "center" }}>{err}</Text>
             </View>
           ) : null}
@@ -370,7 +372,7 @@ export default function CheckoutScreen() {
               Tu carrito está vacío.
             </Text>
             <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-              Para pagar, primero añade algo desde el catálogo.
+              Para comprar, primero añade algún producto desde el catálogo.
             </Text>
 
             <Pressable
@@ -454,15 +456,15 @@ export default function CheckoutScreen() {
             >
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>Datos de envío</Text>
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Esto es lo mínimo para enviar sin perder tiempo (ni ventas).
+                Esto es lo mínimo que necesitamos para preparar tu envío.
               </Text>
 
-              <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Ej: Dani G." />
+              <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />
               <Field
                 label="Email"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="ejemplo@gmail.com"
+                placeholder="tu@email.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
@@ -470,7 +472,7 @@ export default function CheckoutScreen() {
                 label="Teléfono"
                 value={phone}
                 onChangeText={setPhone}
-                placeholder="Ej: 627 748 741"
+                placeholder="627 748 741"
                 keyboardType="phone-pad"
               />
               <Field
@@ -499,7 +501,7 @@ export default function CheckoutScreen() {
                 label="Notas (opcional)"
                 value={notes}
                 onChangeText={setNotes}
-                placeholder="Ej: entregar por la tarde / no llamar al timbre..."
+                placeholder="Entregar por la tarde, no llamar al timbre..."
                 multiline
               />
 
@@ -519,7 +521,7 @@ export default function CheckoutScreen() {
                   {(
                     [
                       { icon: "checkmark-circle-outline", label: "Productos revisados" },
-                      { icon: "cube-outline", label: "Envío España" },
+                      { icon: "cube-outline", label: "Envío a España" },
                       { icon: "receipt-outline", label: "Recibo" },
                       { icon: "headset-outline", label: "Soporte" },
                     ] as const
@@ -609,7 +611,7 @@ export default function CheckoutScreen() {
                 })}
               >
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  {submitting ? "Iniciando…" : "Pagar ahora"}
+                  {submitting ? "Abriendo WhatsApp…" : "Finalizar pedido por WhatsApp"}
                 </Text>
                 <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
                   Total: {fmtEUR(total)}
@@ -639,7 +641,7 @@ export default function CheckoutScreen() {
 
             {!formOk ? (
               <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 10, textAlign: "center" }}>
-                Completa los datos de envío para activar “Pagar ahora”.
+                Completa los datos de envío para activar “Finalizar pedido por WhatsApp”.
               </Text>
             ) : null}
           </View>

@@ -93,7 +93,7 @@ const COLORS = {
 };
 
 const BRAND = {
-  name: "Videojuegoos",
+  name: "Videojuegoszaragoza.com",
   whatsappPhoneE164: "+34627748741",
   whatsappPrefill:
     "Hola, vengo desde videojuegoszaragoza.com. Quiero vender o tasar mi consola/electrónica. ¿Te paso fotos y modelo?",
@@ -161,7 +161,7 @@ const HOME_CATEGORIES: HomeCategory[] = [
     cta: "Pedir información →",
   },
   {
-    title: "Otros (electrónica)",
+    title: "Electrónica y otros",
     icon: "cube-outline",
     cat: "electronica",
     span: 2,
@@ -892,12 +892,12 @@ function FeaturedOfferCard({
             lineHeight: isMobile ? 25 : 28,
           }}
         >
-          Estamos preparando la próxima oferta destacada.
+          Descubre nuestras categorías destacadas.
         </Text>
 
         <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-          Mientras tanto, puedes explorar las categorías disponibles o escribirnos por WhatsApp para
-          preguntarnos qué producto te recomendamos ahora mismo.
+          Explora las categorías disponibles o escríbenos por WhatsApp y te recomendamos el
+          producto que mejor encaja contigo.
         </Text>
 
         <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
@@ -983,7 +983,7 @@ Precio: ${fmtEUR(item.priceEUR)}
                   lineHeight: 18,
                 }}
               >
-                Esta oferta todavía no tiene imagen publicada.
+                Sin imagen disponible.
               </Text>
             </View>
           )}
@@ -1062,7 +1062,7 @@ Precio: ${fmtEUR(item.priceEUR)}
           <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
             {item.description?.trim()
               ? clampText(item.description, 180)
-              : "Producto revisado y seleccionado para destacar esta semana por relación calidad-precio y salida comercial."}
+              : "Producto revisado y seleccionado para destacar esta semana por su excelente relación calidad-precio."}
           </Text>
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>

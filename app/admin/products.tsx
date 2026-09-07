@@ -439,9 +439,11 @@ export default function AdminProducts() {
 
         if (definitelyMissing) {
           supportsMedia = false;
-          setMediaDebugErr(rawMsg || "La tabla product_media no existe o no está accesible.");
+          console.warn("No se pudo leer la tabla de multimedia de productos:", rawMsg);
+          setMediaDebugErr("La gestión de fotos y vídeos no está disponible en este momento.");
         } else {
-          setMediaDebugErr(rawMsg || "Error desconocido al leer product_media.");
+          console.error("Error leyendo la multimedia de productos:", rawMsg);
+          setMediaDebugErr("No se han podido cargar las fotos y vídeos de los productos.");
           throw e;
         }
       }
@@ -464,9 +466,11 @@ export default function AdminProducts() {
       setCategories((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]);
       setItems(merged);
     } catch (e: any) {
-      const exactMessage =
-        e?.message || e?.error_description || e?.details || "Error cargando productos.";
-      setScreenErr(exactMessage);
+      console.error(
+        "Error cargando productos:",
+        e?.message || e?.error_description || e?.details || e
+      );
+      setScreenErr("No se han podido cargar los productos. Inténtalo de nuevo.");
       setCategories([]);
       setItems([]);
     } finally {
@@ -521,7 +525,7 @@ export default function AdminProducts() {
 
     if (!supportsProductMedia) {
       setModalErr(
-        mediaDebugErr || "La tabla product_media no está disponible todavía para este panel."
+        mediaDebugErr || "La gestión de fotos y vídeos no está disponible en este momento."
       );
       return;
     }
@@ -572,7 +576,8 @@ export default function AdminProducts() {
 
       setNewMedia((prev) => [...prev, ...picked]);
     } catch (e: any) {
-      setModalErr(e?.message ?? "No se pudieron seleccionar archivos.");
+      console.error("Error seleccionando archivos:", e?.message ?? e);
+      setModalErr("No se han podido seleccionar los archivos.");
     }
   }
 
@@ -676,7 +681,7 @@ export default function AdminProducts() {
     const priceEur = toIntSafe(price, 0);
 
     if (!cleanTitle) {
-      setModalErr("Pon un título.");
+      setModalErr("Introduce un título.");
       setSaving(false);
       return;
     }
@@ -753,7 +758,7 @@ export default function AdminProducts() {
         productId = data?.id ?? null;
       }
 
-      if (!productId) throw new Error("No se pudo resolver el ID del producto.");
+      if (!productId) throw new Error("No se pudo completar la creación del producto.");
 
       if (supportsProductMedia) {
         await deleteRemovedMedia();
@@ -765,9 +770,11 @@ export default function AdminProducts() {
       resetForm();
       await load();
     } catch (e: any) {
-      const exactMessage =
-        e?.message || e?.error_description || e?.details || "Error guardando producto.";
-      setModalErr(exactMessage);
+      console.error(
+        "Error guardando producto:",
+        e?.message || e?.error_description || e?.details || e
+      );
+      setModalErr("No se ha podido guardar el producto. Inténtalo de nuevo.");
     } finally {
       setSaving(false);
     }
@@ -798,9 +805,11 @@ export default function AdminProducts() {
 
       await load();
     } catch (e: any) {
-      const exactMessage =
-        e?.message || e?.error_description || e?.details || "Error borrando producto.";
-      setScreenErr(exactMessage);
+      console.error(
+        "Error borrando producto:",
+        e?.message || e?.error_description || e?.details || e
+      );
+      setScreenErr("No se ha podido borrar el producto. Inténtalo de nuevo.");
     }
   }
 
@@ -818,7 +827,8 @@ export default function AdminProducts() {
 
     if (error) {
       setItems(prev);
-      setScreenErr(error.message);
+      console.error("Error publicando producto:", error.message);
+      setScreenErr("No se ha podido publicar el producto. Inténtalo de nuevo.");
     }
   }
 
@@ -834,15 +844,14 @@ export default function AdminProducts() {
 
     if (error) {
       setItems(prev);
-      setScreenErr(error.message);
+      console.error("Error cambiando la visibilidad del producto:", error.message);
+      setScreenErr("No se ha podido cambiar la visibilidad del producto. Inténtalo de nuevo.");
     }
   }
 
   async function toggleFeaturedHome(p: ProductRow) {
     if (!supportsFeaturedHome) {
-      setScreenErr(
-        "Tu tabla products todavía no tiene la columna is_featured_home. Si quieres usar destacado en home, hay que crearla."
-      );
+      setScreenErr("No se puede destacar en portada: esta función no está disponible en este catálogo.");
       return;
     }
 
@@ -876,7 +885,8 @@ export default function AdminProducts() {
       if (error) throw error;
     } catch (e: any) {
       setItems(prev);
-      setScreenErr(e?.message ?? "Error cambiando producto destacado.");
+      console.error("Error cambiando producto destacado:", e?.message ?? e);
+      setScreenErr("No se ha podido actualizar el producto destacado. Inténtalo de nuevo.");
     }
   }
 
@@ -957,7 +967,7 @@ export default function AdminProducts() {
           <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} compact />
           <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
           <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} compact />
-          <StatCard label="Destacados home" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} compact />
+          <StatCard label="Destacados portada" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} compact />
         </View>
 
         {!!screenErr && (
@@ -987,7 +997,7 @@ export default function AdminProducts() {
             }}
           >
             <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              {mediaDebugErr || "El panel no ha podido leer product_media."}
+              {mediaDebugErr || "No se han podido cargar las fotos y vídeos de los productos."}
             </Text>
           </View>
         )}
@@ -1081,7 +1091,7 @@ export default function AdminProducts() {
                 No hay productos para este filtro.
               </Text>
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Cambia la búsqueda o crea el primero. Un catálogo vacío no vende ni aunque rece.
+                Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas.
               </Text>
             </View>
           ) : (
@@ -1266,7 +1276,7 @@ export default function AdminProducts() {
                         ) : null}
                         {supportsFeaturedHome ? (
                           <ChipButton
-                            label={p.is_featured_home ? "Quitar destacado" : "Destacar en home"}
+                            label={p.is_featured_home ? "Quitar destacado" : "Destacar en portada"}
                             onPress={() => toggleFeaturedHome(p)}
                             isMobile={isMobile}
                           />
@@ -1319,7 +1329,7 @@ export default function AdminProducts() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Peso máximo recomendado por archivo: {MAX_FILE_SIZE_MB}MB.
+                Peso máximo por archivo: {MAX_FILE_SIZE_MB}MB.
               </Text>
 
               <TextInput
@@ -1328,7 +1338,7 @@ export default function AdminProducts() {
                   setTitle(v);
                   setModalErr(null);
                 }}
-                placeholder="Título (ej: PS5 Slim 1TB)"
+                placeholder="Título del producto"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 style={{
                   borderWidth: 1,
@@ -1371,7 +1381,7 @@ export default function AdminProducts() {
                   setPrice(v);
                   setModalErr(null);
                 }}
-                placeholder="Precio € (ej: 239)"
+                placeholder="Precio en euros"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 keyboardType="numeric"
                 style={{
@@ -1388,7 +1398,7 @@ export default function AdminProducts() {
 
               <SectionTitle
                 title="Media del producto"
-                subtitle="Sube fotos reales y, si quieres, un vídeo corto enseñando el artículo."
+                subtitle="Sube fotos reales y, opcionalmente, un vídeo corto mostrando el artículo."
                 isMobile={isMobile}
               />
 
@@ -1412,7 +1422,7 @@ export default function AdminProducts() {
                 </View>
 
                 <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
-                  Ahora mismo: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
+                  Actualmente: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
                 </Text>
 
                 {!!existingMedia.length && (
@@ -1583,9 +1593,9 @@ export default function AdminProducts() {
                     }}
                   >
                     <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>Destacar en home</Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>Destacar en portada</Text>
                       <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
-                        Marca este producto como oferta destacada principal de la home.
+                        Marca este producto como oferta destacada principal de la portada.
                       </Text>
                     </View>
                     <Switch value={isFeaturedHome} onValueChange={setIsFeaturedHome} />
