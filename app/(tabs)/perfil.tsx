@@ -33,6 +33,11 @@
  *   useWindowDimensions): en móvil ocupa el ancho disponible, en pantallas
  *   grandes crece a una tarjeta centrada más ancha y con más aire (padding,
  *   tipografía), sin pasar a un layout de columnas.
+ * - El ScrollView usa flexGrow:1 + justifyContent:"center" en su
+ *   contentContainerStyle: cuando la tarjeta es más baja que la pantalla
+ *   (caso normal, panel cerrado) queda centrada vertical y horizontalmente;
+ *   si crece (panel abierto, mensajes de error, panel de admin...) el
+ *   scroll sigue funcionando con normalidad desde arriba.
  * - ActionButton y AuthPill usan AnimatedPressable (definido en este mismo
  *   archivo, mismo patrón que components/VenderAhoraModal.tsx) para el
  *   efecto "pop" al pulsar: se encogen levemente y vuelven a su tamaño con
@@ -887,13 +892,16 @@ export default function PerfilScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <ScrollView
+            style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{
+              flexGrow: 1,
               paddingHorizontal: pagePadding,
               paddingTop: isMobile ? 18 : 28,
               paddingBottom: 32,
               gap: 14,
               alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <View

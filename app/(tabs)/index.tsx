@@ -178,8 +178,8 @@ const SEARCH_LAYOUT = {
   // para dejar más hueco al scroll; estos valores acompañan esa altura
   // real para que la barra de búsqueda "abajo" y el padding inferior del
   // scroll no dejen un hueco de más.
-  mobileTabBarHeight: 78,
-  desktopTabBarHeight: 82,
+  mobileTabBarHeight: 84,
+  desktopTabBarHeight: 88,
   bottomGapMobile: 12,
   bottomGapDesktop: 14,
   widthMobilePercent: 0.86,
