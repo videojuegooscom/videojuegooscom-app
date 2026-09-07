@@ -13,18 +13,35 @@
  *   Supabase (options.data en signUp).
  * - Toda la interfaz sigue el tema claro global: fondo blanco, azul claro
  *   como color de acento y textos en azul marino oscuro para contraste.
+ * - Los textos de la pantalla de acceso son deliberadamente sobrios y
+ *   funcionales (sin hablar de funciones futuras que aún no existen, como
+ *   "chat global" o "perfil comunitario"): es lo primero que ve un cliente
+ *   real de la tienda.
+ * - ActionButton y TabButton usan AnimatedPressable (definido en este mismo
+ *   archivo, mismo patrón que components/VenderAhoraModal.tsx) para el
+ *   efecto "pop" al pulsar: se encogen levemente y vuelven a su tamaño con
+ *   un muelle (Animated.spring).
+ * - El enlace "¿Olvidaste tu contraseña?" (solo en el modo "Iniciar sesión")
+ *   llama a sendPasswordReset(), que usa
+ *   supabase.auth.resetPasswordForEmail() y manda al cliente a
+ *   app/reset-password.tsx por email. El mensaje de éxito es siempre igual,
+ *   exista o no una cuenta con ese email (para no dejar comprobar por aquí
+ *   qué emails están registrados).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase usado para todo el login/registro.
+ * - app/reset-password.tsx → pantalla a la que llega el cliente desde el
+ *   enlace de "olvidé mi contraseña".
  * - app/admin/index.tsx → se abre con router.push("/admin") cuando el rol es
  *   "admin" (botón "Entrar al panel de administración").
  * - app/(tabs)/chat-global.tsx → su modal de "inicia sesión para comentar"
  *   trae al usuario a esta pantalla para autenticarse.
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -62,7 +79,7 @@ const COLORS = {
   gamingGlow: "#1EA7E8",
 };
 
-type AccessState = "checking" | "idle" | "submitting" | "signingOut";
+type AccessState = "checking" | "idle" | "submitting" | "signingOut" | "resettingPassword";
 type SessionRole = "admin" | "user" | "guest";
 type AuthMode = "signin" | "signup";
 
@@ -155,6 +172,57 @@ function Badge({
   );
 }
 
+// Envoltorio de Pressable con una pequeña animación "pop" tipo Apple: al
+// pulsar se encoge levemente (Animated.spring) y al soltar vuelve a su
+// tamaño normal. Mismo criterio que components/VenderAhoraModal.tsx —
+// se define aquí también en vez de importarlo porque es un helper pequeño
+// y este archivo no depende de ese componente (patrón ya usado en otros
+// archivos del proyecto, como components/SellRequestMedia.tsx).
+function AnimatedPressable({
+  onPress,
+  disabled,
+  style,
+  children,
+}: {
+  onPress?: () => void;
+  disabled?: boolean;
+  style?: any | ((state: { pressed: boolean }) => any);
+  children?: React.ReactNode | ((state: { pressed: boolean }) => React.ReactNode);
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [pressed, setPressed] = useState(false);
+
+  function onPressIn() {
+    setPressed(true);
+    Animated.spring(scale, {
+      toValue: 0.95,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 6,
+    }).start();
+  }
+
+  function onPressOut() {
+    setPressed(false);
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 6,
+    }).start();
+  }
+
+  const resolvedStyle = typeof style === "function" ? style({ pressed }) : style;
+
+  return (
+    <Pressable onPress={onPress} disabled={disabled} onPressIn={onPressIn} onPressOut={onPressOut}>
+      <Animated.View style={[resolvedStyle, { transform: [{ scale }] }]}>
+        {typeof children === "function" ? children({ pressed }) : children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function ActionButton({
   title,
   onPress,
@@ -173,10 +241,10 @@ function ActionButton({
   const isPrimary = variant === "primary";
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       disabled={disabled || loading}
-      style={({ pressed }) => ({
+      style={{
         borderRadius: 16,
         paddingVertical: 14,
         paddingHorizontal: 14,
@@ -185,8 +253,8 @@ function ActionButton({
         borderWidth: isPrimary ? 0 : 1,
         borderColor: isPrimary ? "transparent" : COLORS.border,
         backgroundColor: isPrimary ? COLORS.accent : COLORS.cardSoft,
-        opacity: disabled || loading ? 0.5 : pressed ? 0.9 : 1,
-      })}
+        opacity: disabled || loading ? 0.5 : 1,
+      }}
     >
       {loading ? (
         <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
@@ -206,7 +274,7 @@ function ActionButton({
           {title}
         </Text>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -314,9 +382,9 @@ function TabButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
-      style={({ pressed }) => ({
+      style={{
         flex: 1,
         borderRadius: 14,
         paddingVertical: 12,
@@ -326,35 +394,10 @@ function TabButton({
         backgroundColor: active ? COLORS.accentSoft : "#F8FBFE",
         borderWidth: 1,
         borderColor: active ? COLORS.accentBorder : "#E3EAF2",
-        opacity: pressed ? 0.92 : 1,
-      })}
-    >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{title}</Text>
-    </Pressable>
-  );
-}
-
-function FeatureItem({
-  title,
-  text,
-}: {
-  title: string;
-  text: string;
-}) {
-  return (
-    <View
-      style={{
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: "#E3EAF2",
-        backgroundColor: "#F8FBFE",
-        padding: 14,
-        gap: 6,
       }}
     >
       <Text style={{ color: COLORS.text, fontWeight: "900" }}>{title}</Text>
-      <Text style={{ color: COLORS.muted, lineHeight: 19 }}>{text}</Text>
-    </View>
+    </AnimatedPressable>
   );
 }
 
@@ -378,6 +421,7 @@ export default function PerfilScreen() {
   const isChecking = state === "checking";
   const isSubmitting = state === "submitting";
   const isSigningOut = state === "signingOut";
+  const isResettingPassword = state === "resettingPassword";
 
   const clearMessages = useCallback(() => {
     if (msg) setMsg(null);
@@ -576,6 +620,46 @@ export default function PerfilScreen() {
     }
   }, [clearMessages, email, pass, registerCountry, registerName, registerUsername]);
 
+  // Envía el enlace de "olvidé mi contraseña" (ver app/reset-password.tsx).
+  // El mensaje de éxito es siempre el mismo exista o no una cuenta con ese
+  // email: así nadie puede usar este formulario para comprobar qué emails
+  // están registrados en la tienda.
+  const sendPasswordReset = useCallback(async () => {
+    const e = normalizeEmail(email);
+
+    clearMessages();
+
+    if (!isValidEmail(e)) {
+      setMsg("Escribe tu email arriba y pulsa de nuevo para recibir el enlace.");
+      return;
+    }
+
+    setState("resettingPassword");
+
+    try {
+      const redirectTo =
+        Platform.OS === "web" && typeof window !== "undefined"
+          ? `${window.location.origin}/reset-password`
+          : undefined;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(e, { redirectTo });
+
+      if (error) {
+        setMsg(error.message);
+        setState("idle");
+        return;
+      }
+
+      setOkMsg(
+        "Si ese email tiene una cuenta, te hemos enviado un enlace para crear una contraseña nueva."
+      );
+      setState("idle");
+    } catch (error: any) {
+      setMsg(error?.message ?? "No se pudo enviar el enlace de recuperación.");
+      setState("idle");
+    }
+  }, [clearMessages, email]);
+
   const signOut = useCallback(async () => {
     clearMessages();
     setState("signingOut");
@@ -601,10 +685,8 @@ export default function PerfilScreen() {
   const headerTitle = sessionRole === "guest" ? "Acceso y registro" : "Mi cuenta";
   const headerDesc =
     sessionRole === "guest"
-      ? "Accede a tu cuenta o únete a la comunidad gamer de Videojuegoos con una entrada seria, limpia y lista para crecer."
-      : "Gestiona tu sesión y tu acceso a la comunidad desde un único punto, sin duplicados ni rutas raras.";
-
-  const showCommunityBaseSection = sessionRole !== "admin";
+      ? "Inicia sesión o crea una cuenta para comprar, vender y seguir tus pedidos."
+      : "Gestiona tu sesión y tu cuenta desde un único sitio.";
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -686,22 +768,20 @@ export default function PerfilScreen() {
                     }}
                   >
                     <Badge
-                      text={sessionRole === "guest" ? "Entrada a la comunidad" : "Sesión activa"}
+                      text={sessionRole === "guest" ? "Acceso a tu cuenta" : "Sesión activa"}
                       tone={sessionRole === "guest" ? "accent" : "success"}
                     />
 
                     <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: "900" }}>
-                      {sessionRole === "guest"
-                        ? "Tu perfil gamer empieza aquí"
-                        : "Tu cuenta está activa"}
+                      {sessionRole === "guest" ? "Inicia sesión o regístrate" : "Tu cuenta está activa"}
                     </Text>
 
                     <Text style={{ color: COLORS.muted, lineHeight: 22, maxWidth: 720 }}>
                       {sessionRole === "guest"
-                        ? "Regístrate o inicia sesión para comentar en el chat global, preparar tu perfil comunitario y entrar en una experiencia más seria, social y gaming."
+                        ? "Accede con tu email y contraseña, o crea una cuenta nueva en un minuto."
                         : sessionRole === "admin"
-                        ? "Has iniciado sesión correctamente. Esta cuenta tiene acceso interno además del acceso normal de usuario."
-                        : "Has iniciado sesión correctamente. Desde aquí podrás evolucionar tu cuenta, tu perfil comunitario y tu acceso al chat."}
+                        ? "Has iniciado sesión correctamente. Esta cuenta tiene acceso al panel de administración."
+                        : "Has iniciado sesión correctamente."}
                     </Text>
                   </View>
 
@@ -765,7 +845,7 @@ export default function PerfilScreen() {
                             placeholder="tu@email.com"
                             keyboardType="email-address"
                             returnKeyType="next"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             textContentType="username"
                             autoComplete="email"
                           />
@@ -782,7 +862,7 @@ export default function PerfilScreen() {
                             placeholder="Tu contraseña"
                             secureTextEntry
                             returnKeyType="go"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             textContentType="password"
                             autoComplete="password"
                             onSubmitEditing={() => {
@@ -791,6 +871,20 @@ export default function PerfilScreen() {
                           />
                         </View>
 
+                        <Pressable
+                          onPress={sendPasswordReset}
+                          disabled={isSubmitting || isResettingPassword}
+                          hitSlop={6}
+                          style={({ pressed }) => ({
+                            alignSelf: "flex-end",
+                            opacity: isSubmitting || isResettingPassword ? 0.5 : pressed ? 0.6 : 1,
+                          })}
+                        >
+                          <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>
+                            {isResettingPassword ? "Enviando enlace..." : "¿Olvidaste tu contraseña?"}
+                          </Text>
+                        </Pressable>
+
                         <ActionButton
                           title="Iniciar sesión"
                           onPress={signIn}
@@ -798,25 +892,6 @@ export default function PerfilScreen() {
                           loading={isSubmitting}
                           loadingText="Entrando..."
                         />
-
-                        <View
-                          style={{
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: "#E3EAF2",
-                            backgroundColor: "#F8FBFE",
-                            padding: 14,
-                            gap: 6,
-                          }}
-                        >
-                          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                            Acceso normal, sin puertas raras
-                          </Text>
-                          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                            Todo el mundo entra por aquí. Si una cuenta además tiene permisos
-                            internos, el acceso administrativo aparecerá automáticamente.
-                          </Text>
-                        </View>
                       </View>
                     ) : (
                       <View style={{ gap: 12 }}>
@@ -829,7 +904,7 @@ export default function PerfilScreen() {
                               clearMessages();
                             }}
                             placeholder="Ejemplo: Dani Jefe"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             autoCapitalize="words"
                             textContentType="name"
                             autoComplete="name"
@@ -845,7 +920,7 @@ export default function PerfilScreen() {
                               clearMessages();
                             }}
                             placeholder="Ejemplo: danijefe"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             autoCapitalize="none"
                             autoCorrect={false}
                           />
@@ -860,7 +935,7 @@ export default function PerfilScreen() {
                               clearMessages();
                             }}
                             placeholder="Ejemplo: España"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             autoCapitalize="words"
                           />
                         </View>
@@ -876,7 +951,7 @@ export default function PerfilScreen() {
                             placeholder="tu@email.com"
                             keyboardType="email-address"
                             returnKeyType="next"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             textContentType="emailAddress"
                             autoComplete="email"
                           />
@@ -893,7 +968,7 @@ export default function PerfilScreen() {
                             placeholder="Mínimo 6 caracteres"
                             secureTextEntry
                             returnKeyType="go"
-                            editable={!isChecking && !isSigningOut}
+                            editable={!isChecking && !isSigningOut && !isResettingPassword}
                             textContentType="newPassword"
                             autoComplete="password-new"
                             onSubmitEditing={() => {
@@ -909,25 +984,6 @@ export default function PerfilScreen() {
                           loading={isSubmitting}
                           loadingText="Creando cuenta..."
                         />
-
-                        <View
-                          style={{
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: COLORS.accentBorder,
-                            backgroundColor: COLORS.accentSoft,
-                            padding: 14,
-                            gap: 8,
-                          }}
-                        >
-                          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                            Registro pensado para la comunidad
-                          </Text>
-                          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                            Esta es la base para que luego completes tu perfil gamer, comentes
-                            en el chat y conectes con personas de tu ciudad o país.
-                          </Text>
-                        </View>
                       </View>
                     )}
                   </>
@@ -984,36 +1040,6 @@ export default function PerfilScreen() {
                     title="Entrar al panel de administración"
                     onPress={openAdminPanel}
                   />
-                </SectionCard>
-              ) : null}
-
-              {showCommunityBaseSection ? (
-                <SectionCard>
-                  <Badge text="Comunidad + gaming" tone="warning" />
-
-                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                    Lo que desbloquea esta base
-                  </Text>
-
-                  <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                    Esta página ya queda orientada a evolucionar hacia un registro serio para el
-                    chat global, la comunidad gamer y el perfil social de Videojuegoos.
-                  </Text>
-
-                  <View style={{ gap: 10 }}>
-                    <FeatureItem
-                      title="Perfil comunitario"
-                      text="Nombre público, país, ciudad, juego principal, fotos y portada."
-                    />
-                    <FeatureItem
-                      title="Chat global"
-                      text="Participación real en la sala, viewers silenciosos, multimedia y filtros."
-                    />
-                    <FeatureItem
-                      title="Conectar con jugadores"
-                      text="Encontrar gente para jugar por ciudad, país, plataforma o juego."
-                    />
-                  </View>
                 </SectionCard>
               ) : null}
             </View>

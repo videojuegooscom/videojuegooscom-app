@@ -12,7 +12,8 @@
  * - app/(tabs)/_layout.tsx → navegación por pestañas (inicio, catálogo,
  *   cesta, chat, blue-ia, perfil...).
  * - app/catalogo.tsx, app/checkout.tsx, app/producto/[id].tsx,
- *   app/modal.tsx → rutas públicas fuera de las pestañas.
+ *   app/modal.tsx, app/reset-password.tsx → rutas públicas fuera de las
+ *   pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
  */
 import React, { useEffect, useState } from "react";
@@ -47,6 +48,7 @@ export default function RootLayout() {
       {/* Rutas públicas / complementarias fuera de tabs */}
       <Stack.Screen name="catalogo" />
       <Stack.Screen name="checkout" />
+      <Stack.Screen name="reset-password" />
 
       {/* Producto dinámico */}
       <Stack.Screen name="producto/[id]" />
