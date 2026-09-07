@@ -14,6 +14,10 @@
  *
  * Conectado con: ningún otro archivo de datos por ahora; es una pantalla
  * independiente dentro de las pestañas principales (app/(tabs)/_layout.tsx).
+ * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
+ *   arriba del todo (misma franja que en el resto de pestañas).
+ * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
+ *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
 import React, { useMemo, useState } from "react";
 import {
@@ -27,6 +31,8 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import PromoBanner from "../../components/PromoBanner";
+import VenderAhoraModal from "../../components/VenderAhoraModal";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -73,6 +79,7 @@ type HelpBlock = {
 
 export default function BlueIAScreen() {
   const [draft, setDraft] = useState("");
+  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const quickActions = useMemo<QuickAction[]>(
     () => [
@@ -141,8 +148,11 @@ export default function BlueIAScreen() {
   );
 
   return (
+    <>
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
+
+      <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <LinearGradient
@@ -452,6 +462,9 @@ export default function BlueIAScreen() {
         </ScrollView>
       </View>
     </SafeAreaView>
+
+    <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+    </>
   );
 }
 

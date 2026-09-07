@@ -16,6 +16,10 @@
  * - app/checkout.tsx → botón "Ir a pagar".
  * - lib/supabase.ts → tabla products, para completar los datos del
  *   artículo añadido.
+ * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
+ *   arriba del todo (misma franja que en el resto de pestañas).
+ * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
+ *   Ya" de esa franja.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
@@ -32,6 +36,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import PromoBanner from "../../components/PromoBanner";
+import VenderAhoraModal from "../../components/VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -278,6 +284,7 @@ export default function CestaScreen() {
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [items, setItems] = useState<CartItem[]>([]);
+  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const bootedRef = useRef(false);
   const lastAddRef = useRef<string>("");
@@ -389,8 +396,11 @@ export default function CestaScreen() {
   }, [addId, addToCartById]);
 
   return (
+    <>
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
+
+      <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
       <View
         style={{
@@ -711,6 +721,9 @@ export default function CestaScreen() {
         </ScrollView>
       )}
     </SafeAreaView>
+
+    <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+    </>
   );
 }
 

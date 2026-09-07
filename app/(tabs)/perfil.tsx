@@ -17,7 +17,23 @@
  *   funcionales (sin hablar de funciones futuras que aún no existen, como
  *   "chat global" o "perfil comunitario"): es lo primero que ve un cliente
  *   real de la tienda.
- * - ActionButton y TabButton usan AnimatedPressable (definido en este mismo
+ * - Ya no hay una cabecera de página separada ("Acceso y registro" en gris
+ *   arriba del todo): en su lugar va PromoBanner (misma franja "Te
+ *   compramos tu consola..." que en el resto de pestañas), y todo el
+ *   contenido de acceso vive centrado dentro de la tarjeta blanca.
+ * - Solo hay UN botón de "Iniciar sesión": es el propio selector que está al
+ *   lado de "Crear cuenta" (componente AuthPill). El primer toque abre el
+ *   panel con los campos Email/Contraseña (formOpen) y, mientras ese modo
+ *   sigue activo, el mismo botón crece y se pinta como el CTA azul grande
+ *   (interpolando su Animated.Value pillAnimSignin/pillAnimSignup entre 0 y
+ *   1): un segundo toque sobre él ya no cambia de modo, envía el formulario
+ *   (handlePillPress). Lo mismo aplica a "Crear cuenta" en modo registro.
+ *   Así no hay un botón duplicado "Iniciar sesión" arriba y otro abajo.
+ * - El ancho de la tarjeta es responsive (cardMaxWidth vía
+ *   useWindowDimensions): en móvil ocupa el ancho disponible, en pantallas
+ *   grandes crece a una tarjeta centrada más ancha y con más aire (padding,
+ *   tipografía), sin pasar a un layout de columnas.
+ * - ActionButton y AuthPill usan AnimatedPressable (definido en este mismo
  *   archivo, mismo patrón que components/VenderAhoraModal.tsx) para el
  *   efecto "pop" al pulsar: se encogen levemente y vuelven a su tamaño con
  *   un muelle (Animated.spring).
@@ -37,11 +53,16 @@
  * - app/(tabs)/chat-global.tsx → su modal de "inicia sesión para comentar"
  *   trae al usuario a esta pantalla para autenticarse.
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
+ * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
+ *   arriba del todo.
+ * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
+ *   Ya" de esa franja.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -51,9 +72,12 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import PromoBanner from "../../components/PromoBanner";
+import VenderAhoraModal from "../../components/VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -105,7 +129,13 @@ function softShadow() {
   });
 }
 
-function SectionCard({ children }: { children: React.ReactNode }) {
+function SectionCard({
+  children,
+  padding = 18,
+}: {
+  children: React.ReactNode;
+  padding?: number;
+}) {
   return (
     <View
       style={{
@@ -113,7 +143,7 @@ function SectionCard({ children }: { children: React.ReactNode }) {
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.card,
-        padding: 18,
+        padding,
         gap: 14,
         ...softShadow(),
       }}
@@ -126,9 +156,11 @@ function SectionCard({ children }: { children: React.ReactNode }) {
 function Badge({
   text,
   tone = "default",
+  center = false,
 }: {
   text: string;
   tone?: "default" | "accent" | "success" | "warning";
+  center?: boolean;
 }) {
   const toneStyles =
     tone === "accent"
@@ -158,7 +190,7 @@ function Badge({
   return (
     <View
       style={{
-        alignSelf: "flex-start",
+        alignSelf: center ? "center" : "flex-start",
         paddingVertical: 6,
         paddingHorizontal: 10,
         borderRadius: 999,
@@ -372,37 +404,128 @@ function Input({
   );
 }
 
-function TabButton({
+// Botón/pestaña combinados: es el selector de modo (Iniciar sesión / Crear
+// cuenta) y, cuando su modo ya está activo, también el botón de envío del
+// formulario — así no hace falta un segundo botón "Iniciar sesión" más
+// abajo. `anim` (0 → 1) controla, con Animated.spring, tanto el ancho
+// relativo (flex) como los colores: en 0 es una pestaña neutra pequeña, en 1
+// es el CTA azul grande. El "pop" de pulsación (pressScale) es un
+// Animated.Value aparte con useNativeDriver:true para que no choque con la
+// animación de flex/color, que necesita useNativeDriver:false.
+function AuthPill({
   title,
-  active,
+  anim,
   onPress,
+  disabled,
+  loading,
 }: {
   title: string;
-  active: boolean;
+  anim: Animated.Value;
   onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
 }) {
+  const pressScale = useRef(new Animated.Value(1)).current;
+
+  function onPressIn() {
+    Animated.spring(pressScale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 6,
+    }).start();
+  }
+
+  function onPressOut() {
+    Animated.spring(pressScale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 6,
+    }).start();
+  }
+
+  const flex = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.35] });
+  const backgroundColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#F8FBFE", COLORS.accent],
+  });
+  const borderColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [COLORS.border, COLORS.accent],
+  });
+  const textColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [COLORS.text, "#FFFFFF"],
+  });
+
   return (
-    <AnimatedPressable
-      onPress={onPress}
+    <Animated.View style={{ flex }}>
+      <Pressable onPress={onPress} disabled={disabled} onPressIn={onPressIn} onPressOut={onPressOut}>
+        <Animated.View style={{ transform: [{ scale: pressScale }] }}>
+          <Animated.View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor,
+              backgroundColor,
+              paddingVertical: 13,
+              paddingHorizontal: 12,
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "row",
+              gap: 8,
+              opacity: disabled ? 0.6 : 1,
+            }}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Animated.Text
+                style={{ color: textColor, fontWeight: "900", fontSize: 15 }}
+                numberOfLines={1}
+              >
+                {title}
+              </Animated.Text>
+            )}
+          </Animated.View>
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Aparición suave (fade + pequeño desplazamiento) para el panel de campos
+// que revela AuthPill al abrirse. Se remonta cada vez que cambia formOpen o
+// mode, así que la animación se dispara de nuevo en cada apertura/cambio.
+function RevealPanel({ children }: { children: React.ReactNode }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [anim]);
+
+  return (
+    <Animated.View
       style={{
-        flex: 1,
-        borderRadius: 14,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: active ? COLORS.accentSoft : "#F8FBFE",
-        borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "#E3EAF2",
+        opacity: anim,
+        transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
       }}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{title}</Text>
-    </AnimatedPressable>
+      {children}
+    </Animated.View>
   );
 }
 
 export default function PerfilScreen() {
   const [mode, setMode] = useState<AuthMode>("signin");
+  const [formOpen, setFormOpen] = useState(false);
+  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -422,6 +545,44 @@ export default function PerfilScreen() {
   const isSubmitting = state === "submitting";
   const isSigningOut = state === "signingOut";
   const isResettingPassword = state === "resettingPassword";
+
+  // Responsive: tarjeta centrada más ancha y con más aire en pantallas
+  // grandes, sin pasar a un layout de columnas (móvil sigue con el ancho
+  // disponible y su padding compacto habitual).
+  const { width } = useWindowDimensions();
+  const widthSafe = width > 0 ? width : 1024;
+  const isMobile = widthSafe < 700;
+  const isDesktop = widthSafe >= 1024;
+  const cardMaxWidth = isMobile ? undefined : isDesktop ? 620 : 560;
+  const cardPadding = isMobile ? 18 : isDesktop ? 26 : 22;
+  const heroTitleSize = isMobile ? 24 : isDesktop ? 30 : 27;
+  const pagePadding = isMobile ? 16 : 24;
+
+  // pillAnimSignin/pillAnimSignup: 0 = pestaña neutra pequeña, 1 = CTA
+  // grande activo. Solo uno de los dos vale 1 a la vez (o ninguno, si el
+  // panel todavía no se ha abierto) — ver AuthPill y el useEffect de abajo.
+  const pillAnimSignin = useRef(new Animated.Value(0)).current;
+  const pillAnimSignup = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const targetSignin = formOpen && mode === "signin" ? 1 : 0;
+    const targetSignup = formOpen && mode === "signup" ? 1 : 0;
+
+    Animated.parallel([
+      Animated.spring(pillAnimSignin, {
+        toValue: targetSignin,
+        useNativeDriver: false,
+        speed: 14,
+        bounciness: 6,
+      }),
+      Animated.spring(pillAnimSignup, {
+        toValue: targetSignup,
+        useNativeDriver: false,
+        speed: 14,
+        bounciness: 6,
+      }),
+    ]).start();
+  }, [formOpen, mode, pillAnimSignin, pillAnimSignup]);
 
   const clearMessages = useCallback(() => {
     if (msg) setMsg(null);
@@ -620,6 +781,36 @@ export default function PerfilScreen() {
     }
   }, [clearMessages, email, pass, registerCountry, registerName, registerUsername]);
 
+  // Un único botón por modo hace dos cosas según el estado: si el panel
+  // todavía no está abierto, el primer toque solo lo abre (y fija el modo).
+  // Si ya está abierto y el modo pulsado ya es el activo, ese mismo toque
+  // ahora significa "enviar" (equivale al botón grande que antes iba debajo
+  // del formulario). Si está abierto pero el modo pulsado es el otro, solo
+  // cambia de modo (signin <-> signup) sin cerrar el panel.
+  const handlePillPress = useCallback(
+    (target: AuthMode) => {
+      clearMessages();
+
+      if (!formOpen) {
+        setMode(target);
+        setFormOpen(true);
+        return;
+      }
+
+      if (mode !== target) {
+        setMode(target);
+        return;
+      }
+
+      if (target === "signin") {
+        if (canSubmitLogin) signIn();
+      } else if (canSubmitRegister) {
+        signUp();
+      }
+    },
+    [formOpen, mode, clearMessages, canSubmitLogin, canSubmitRegister, signIn, signUp]
+  );
+
   // Envía el enlace de "olvidé mi contraseña" (ver app/reset-password.tsx).
   // El mensaje de éxito es siempre el mismo exista o no una cuenta con ese
   // email: así nadie puede usar este formulario para comprobar qué emails
@@ -670,6 +861,8 @@ export default function PerfilScreen() {
       setSessionRole("guest");
       setEmail("");
       setPass("");
+      setMode("signin");
+      setFormOpen(false);
       setOkMsg("Sesión cerrada correctamente.");
       setState("idle");
     } catch (error: any) {
@@ -682,52 +875,12 @@ export default function PerfilScreen() {
     router.push("/admin");
   }, []);
 
-  const headerTitle = sessionRole === "guest" ? "Acceso y registro" : "Mi cuenta";
-  const headerDesc =
-    sessionRole === "guest"
-      ? "Inicia sesión o crea una cuenta para comprar, vender y seguir tus pedidos."
-      : "Gestiona tu sesión y tu cuenta desde un único sitio.";
-
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-        <View
-          style={{
-            backgroundColor: COLORS.bg2,
-            borderBottomWidth: 1,
-            borderBottomColor: "#E3EAF2",
-            paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 14,
-            alignItems: "center",
-          }}
-        >
-          {/* Columna centrada: mismo ancho máximo que el contenido de abajo */}
-          <View style={{ width: "100%", maxWidth: 920 }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: 24,
-                fontWeight: "900",
-                textAlign: "center",
-              }}
-            >
-              {headerTitle}
-            </Text>
-            <Text
-              style={{
-                color: COLORS.muted,
-                marginTop: 4,
-                lineHeight: 20,
-                textAlign: "center",
-              }}
-            >
-              {headerDesc}
-            </Text>
-          </View>
-        </View>
+        <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -736,21 +889,22 @@ export default function PerfilScreen() {
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{
-              paddingHorizontal: 16,
-              paddingTop: 18,
+              paddingHorizontal: pagePadding,
+              paddingTop: isMobile ? 18 : 28,
               paddingBottom: 32,
               gap: 14,
+              alignItems: "center",
             }}
           >
             <View
               style={{
                 width: "100%",
-                maxWidth: 920,
+                maxWidth: cardMaxWidth,
                 alignSelf: "center",
                 gap: 14,
               }}
             >
-              <SectionCard>
+              <SectionCard padding={cardPadding}>
                 <View
                   style={{
                     borderRadius: 22,
@@ -762,21 +916,37 @@ export default function PerfilScreen() {
                 >
                   <View
                     style={{
-                      padding: 18,
+                      padding: cardPadding,
                       gap: 12,
                       backgroundColor: COLORS.bg2,
+                      alignItems: "center",
                     }}
                   >
                     <Badge
                       text={sessionRole === "guest" ? "Acceso a tu cuenta" : "Sesión activa"}
                       tone={sessionRole === "guest" ? "accent" : "success"}
+                      center
                     />
 
-                    <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: "900" }}>
+                    <Text
+                      style={{
+                        color: COLORS.text,
+                        fontSize: heroTitleSize,
+                        fontWeight: "900",
+                        textAlign: "center",
+                      }}
+                    >
                       {sessionRole === "guest" ? "Inicia sesión o regístrate" : "Tu cuenta está activa"}
                     </Text>
 
-                    <Text style={{ color: COLORS.muted, lineHeight: 22, maxWidth: 720 }}>
+                    <Text
+                      style={{
+                        color: COLORS.muted,
+                        lineHeight: 22,
+                        maxWidth: 460,
+                        textAlign: "center",
+                      }}
+                    >
                       {sessionRole === "guest"
                         ? "Accede con tu email y contraseña, o crea una cuenta nueva en un minuto."
                         : sessionRole === "admin"
@@ -814,178 +984,176 @@ export default function PerfilScreen() {
                 {sessionRole === "guest" ? (
                   <>
                     <View style={{ flexDirection: "row", gap: 10 }}>
-                      <TabButton
+                      <AuthPill
                         title="Iniciar sesión"
-                        active={mode === "signin"}
-                        onPress={() => {
-                          clearMessages();
-                          setMode("signin");
-                        }}
+                        anim={pillAnimSignin}
+                        onPress={() => handlePillPress("signin")}
+                        disabled={
+                          isChecking ||
+                          isSigningOut ||
+                          isResettingPassword ||
+                          (isSubmitting && mode !== "signin")
+                        }
+                        loading={isSubmitting && formOpen && mode === "signin"}
                       />
-                      <TabButton
+                      <AuthPill
                         title="Crear cuenta"
-                        active={mode === "signup"}
-                        onPress={() => {
-                          clearMessages();
-                          setMode("signup");
-                        }}
+                        anim={pillAnimSignup}
+                        onPress={() => handlePillPress("signup")}
+                        disabled={
+                          isChecking ||
+                          isSigningOut ||
+                          isResettingPassword ||
+                          (isSubmitting && mode !== "signup")
+                        }
+                        loading={isSubmitting && formOpen && mode === "signup"}
                       />
                     </View>
 
-                    {mode === "signin" ? (
-                      <View style={{ gap: 12 }}>
-                        <View style={{ gap: 8 }}>
-                          <Label>Email</Label>
-                          <Input
-                            value={email}
-                            onChangeText={(text) => {
-                              setEmail(text);
-                              clearMessages();
-                            }}
-                            placeholder="tu@email.com"
-                            keyboardType="email-address"
-                            returnKeyType="next"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            textContentType="username"
-                            autoComplete="email"
-                          />
+                    {formOpen && mode === "signin" ? (
+                      <RevealPanel>
+                        <View style={{ gap: 12 }}>
+                          <View style={{ gap: 8 }}>
+                            <Label>Email</Label>
+                            <Input
+                              value={email}
+                              onChangeText={(text) => {
+                                setEmail(text);
+                                clearMessages();
+                              }}
+                              placeholder="tu@email.com"
+                              keyboardType="email-address"
+                              returnKeyType="next"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              textContentType="username"
+                              autoComplete="email"
+                            />
+                          </View>
+
+                          <View style={{ gap: 8 }}>
+                            <Label>Contraseña</Label>
+                            <Input
+                              value={pass}
+                              onChangeText={(text) => {
+                                setPass(text);
+                                clearMessages();
+                              }}
+                              placeholder="Tu contraseña"
+                              secureTextEntry
+                              returnKeyType="go"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              textContentType="password"
+                              autoComplete="password"
+                              onSubmitEditing={() => {
+                                if (canSubmitLogin) signIn();
+                              }}
+                            />
+                          </View>
+
+                          <Pressable
+                            onPress={sendPasswordReset}
+                            disabled={isSubmitting || isResettingPassword}
+                            hitSlop={6}
+                            style={({ pressed }) => ({
+                              alignSelf: "center",
+                              opacity: isSubmitting || isResettingPassword ? 0.5 : pressed ? 0.6 : 1,
+                            })}
+                          >
+                            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>
+                              {isResettingPassword ? "Enviando enlace..." : "¿Olvidaste tu contraseña?"}
+                            </Text>
+                          </Pressable>
                         </View>
+                      </RevealPanel>
+                    ) : null}
 
-                        <View style={{ gap: 8 }}>
-                          <Label>Contraseña</Label>
-                          <Input
-                            value={pass}
-                            onChangeText={(text) => {
-                              setPass(text);
-                              clearMessages();
-                            }}
-                            placeholder="Tu contraseña"
-                            secureTextEntry
-                            returnKeyType="go"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            textContentType="password"
-                            autoComplete="password"
-                            onSubmitEditing={() => {
-                              if (canSubmitLogin) signIn();
-                            }}
-                          />
+                    {formOpen && mode === "signup" ? (
+                      <RevealPanel>
+                        <View style={{ gap: 12 }}>
+                          <View style={{ gap: 8 }}>
+                            <Label>Nombre visible</Label>
+                            <Input
+                              value={registerName}
+                              onChangeText={(text) => {
+                                setRegisterName(text);
+                                clearMessages();
+                              }}
+                              placeholder="Ejemplo: Dani Jefe"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              autoCapitalize="words"
+                              textContentType="name"
+                              autoComplete="name"
+                            />
+                          </View>
+
+                          <View style={{ gap: 8 }}>
+                            <Label>Nombre de usuario</Label>
+                            <Input
+                              value={registerUsername}
+                              onChangeText={(text) => {
+                                setRegisterUsername(text);
+                                clearMessages();
+                              }}
+                              placeholder="Ejemplo: danijefe"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              autoCapitalize="none"
+                              autoCorrect={false}
+                            />
+                          </View>
+
+                          <View style={{ gap: 8 }}>
+                            <Label>País</Label>
+                            <Input
+                              value={registerCountry}
+                              onChangeText={(text) => {
+                                setRegisterCountry(text);
+                                clearMessages();
+                              }}
+                              placeholder="Ejemplo: España"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              autoCapitalize="words"
+                            />
+                          </View>
+
+                          <View style={{ gap: 8 }}>
+                            <Label>Email</Label>
+                            <Input
+                              value={email}
+                              onChangeText={(text) => {
+                                setEmail(text);
+                                clearMessages();
+                              }}
+                              placeholder="tu@email.com"
+                              keyboardType="email-address"
+                              returnKeyType="next"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              textContentType="emailAddress"
+                              autoComplete="email"
+                            />
+                          </View>
+
+                          <View style={{ gap: 8 }}>
+                            <Label>Contraseña</Label>
+                            <Input
+                              value={pass}
+                              onChangeText={(text) => {
+                                setPass(text);
+                                clearMessages();
+                              }}
+                              placeholder="Mínimo 6 caracteres"
+                              secureTextEntry
+                              returnKeyType="go"
+                              editable={!isChecking && !isSigningOut && !isResettingPassword}
+                              textContentType="newPassword"
+                              autoComplete="password-new"
+                              onSubmitEditing={() => {
+                                if (canSubmitRegister) signUp();
+                              }}
+                            />
+                          </View>
                         </View>
-
-                        <Pressable
-                          onPress={sendPasswordReset}
-                          disabled={isSubmitting || isResettingPassword}
-                          hitSlop={6}
-                          style={({ pressed }) => ({
-                            alignSelf: "flex-end",
-                            opacity: isSubmitting || isResettingPassword ? 0.5 : pressed ? 0.6 : 1,
-                          })}
-                        >
-                          <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>
-                            {isResettingPassword ? "Enviando enlace..." : "¿Olvidaste tu contraseña?"}
-                          </Text>
-                        </Pressable>
-
-                        <ActionButton
-                          title="Iniciar sesión"
-                          onPress={signIn}
-                          disabled={!canSubmitLogin}
-                          loading={isSubmitting}
-                          loadingText="Entrando..."
-                        />
-                      </View>
-                    ) : (
-                      <View style={{ gap: 12 }}>
-                        <View style={{ gap: 8 }}>
-                          <Label>Nombre visible</Label>
-                          <Input
-                            value={registerName}
-                            onChangeText={(text) => {
-                              setRegisterName(text);
-                              clearMessages();
-                            }}
-                            placeholder="Ejemplo: Dani Jefe"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            autoCapitalize="words"
-                            textContentType="name"
-                            autoComplete="name"
-                          />
-                        </View>
-
-                        <View style={{ gap: 8 }}>
-                          <Label>Nombre de usuario</Label>
-                          <Input
-                            value={registerUsername}
-                            onChangeText={(text) => {
-                              setRegisterUsername(text);
-                              clearMessages();
-                            }}
-                            placeholder="Ejemplo: danijefe"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                          />
-                        </View>
-
-                        <View style={{ gap: 8 }}>
-                          <Label>País</Label>
-                          <Input
-                            value={registerCountry}
-                            onChangeText={(text) => {
-                              setRegisterCountry(text);
-                              clearMessages();
-                            }}
-                            placeholder="Ejemplo: España"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            autoCapitalize="words"
-                          />
-                        </View>
-
-                        <View style={{ gap: 8 }}>
-                          <Label>Email</Label>
-                          <Input
-                            value={email}
-                            onChangeText={(text) => {
-                              setEmail(text);
-                              clearMessages();
-                            }}
-                            placeholder="tu@email.com"
-                            keyboardType="email-address"
-                            returnKeyType="next"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            textContentType="emailAddress"
-                            autoComplete="email"
-                          />
-                        </View>
-
-                        <View style={{ gap: 8 }}>
-                          <Label>Contraseña</Label>
-                          <Input
-                            value={pass}
-                            onChangeText={(text) => {
-                              setPass(text);
-                              clearMessages();
-                            }}
-                            placeholder="Mínimo 6 caracteres"
-                            secureTextEntry
-                            returnKeyType="go"
-                            editable={!isChecking && !isSigningOut && !isResettingPassword}
-                            textContentType="newPassword"
-                            autoComplete="password-new"
-                            onSubmitEditing={() => {
-                              if (canSubmitRegister) signUp();
-                            }}
-                          />
-                        </View>
-
-                        <ActionButton
-                          title="Crear cuenta"
-                          onPress={signUp}
-                          disabled={!canSubmitRegister}
-                          loading={isSubmitting}
-                          loadingText="Creando cuenta..."
-                        />
-                      </View>
-                    )}
+                      </RevealPanel>
+                    ) : null}
                   </>
                 ) : (
                   <View style={{ gap: 12 }}>
@@ -997,6 +1165,7 @@ export default function PerfilScreen() {
                         backgroundColor: "#F8FBFE",
                         padding: 14,
                         gap: 8,
+                        alignItems: "center",
                       }}
                     >
                       <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800" }}>
@@ -1005,7 +1174,7 @@ export default function PerfilScreen() {
                       <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900" }}>
                         {sessionEmail || "No hay sesión iniciada"}
                       </Text>
-                      <Text style={{ color: COLORS.mutedSoft, lineHeight: 19 }}>
+                      <Text style={{ color: COLORS.mutedSoft, lineHeight: 19, textAlign: "center" }}>
                         {sessionRole === "admin"
                           ? "Cuenta iniciada correctamente con acceso interno disponible."
                           : "Cuenta iniciada correctamente."}
@@ -1024,17 +1193,26 @@ export default function PerfilScreen() {
               </SectionCard>
 
               {sessionRole === "admin" ? (
-                <SectionCard>
-                  <Badge text="Herramientas internas" tone="accent" />
+                <SectionCard padding={cardPadding}>
+                  <View style={{ alignItems: "center", gap: 14 }}>
+                    <Badge text="Herramientas internas" tone="accent" center />
 
-                  <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                    Acceso interno disponible
-                  </Text>
+                    <Text
+                      style={{
+                        color: COLORS.text,
+                        fontSize: 20,
+                        fontWeight: "900",
+                        textAlign: "center",
+                      }}
+                    >
+                      Acceso interno disponible
+                    </Text>
 
-                  <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                    Esta cuenta tiene permisos autorizados. El acceso administrativo solo se
-                    muestra cuando el usuario autenticado es realmente administrador.
-                  </Text>
+                    <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
+                      Esta cuenta tiene permisos autorizados. El acceso administrativo solo se
+                      muestra cuando el usuario autenticado es realmente administrador.
+                    </Text>
+                  </View>
 
                   <ActionButton
                     title="Entrar al panel de administración"
@@ -1046,6 +1224,8 @@ export default function PerfilScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
     </View>
   );
 }

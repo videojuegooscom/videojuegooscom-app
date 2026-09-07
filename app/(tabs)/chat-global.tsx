@@ -15,6 +15,10 @@
  * Conectado con: app/(tabs)/perfil.tsx (el modal de "inicia sesión" navega
  * ahí). No usa lib/supabase.ts todavía — es la parte pendiente de conectar
  * a un chat real.
+ * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
+ *   arriba del todo (misma franja que en el resto de pestañas).
+ * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
+ *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
 import React, { useMemo, useState } from "react";
 import {
@@ -32,6 +36,8 @@ import {
 } from "react-native";
 import { router, type Href } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import PromoBanner from "../../components/PromoBanner";
+import VenderAhoraModal from "../../components/VenderAhoraModal";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -152,6 +158,7 @@ export default function ChatGlobalScreen() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<MessageItem[]>(INITIAL_MESSAGES);
+  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const viewers = useMemo<Viewer[]>(
     () => [
@@ -373,8 +380,11 @@ export default function ChatGlobalScreen() {
   };
 
   return (
+    <>
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
+
+      <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <LinearGradient
@@ -550,6 +560,9 @@ export default function ChatGlobalScreen() {
         />
       </View>
     </SafeAreaView>
+
+    <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+    </>
   );
 }
 

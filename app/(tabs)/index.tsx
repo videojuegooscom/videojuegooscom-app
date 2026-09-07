@@ -15,12 +15,13 @@
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
  * - El botón "Vender ahora" y el botón "Vender Ya" de la franja superior
- *   ("Te compramos tu consola en menos de 24h") ya no abren WhatsApp
- *   directamente: ambos abren el mismo formulario "pop" de
- *   VenderAhoraModal (comparten el estado sellModalOpen), que guarda la
+ *   ("Te compramos tu consola en menos de 24h", ahora components/PromoBanner.tsx)
+ *   ya no abren WhatsApp directamente: ambos abren el mismo formulario "pop"
+ *   de VenderAhoraModal (comparten el estado sellModalOpen), que guarda la
  *   solicitud en Supabase (tabla "sell_requests") para revisarla luego en
- *   el admin. En móvil esa franja es un poco más compacta (icono, texto y
- *   botón más pequeños) para que no ocupe tanto espacio visualmente.
+ *   el admin. PromoBanner también se muestra en las otras 4 pestañas
+ *   (perfil, cesta, chat-global, blue-ia), pero solo aquí, en Inicio, va
+ *   dentro de este Animated.View que la oculta al hacer scroll.
  * - Al deslizar hacia abajo dentro del ScrollView, la franja superior y la
  *   barra de búsqueda flotante se ocultan solas con una animación suave
  *   (fade + colapso de altura / desplazamiento), para dejar ver mejor el
@@ -33,6 +34,7 @@
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
  * - components/FloatingSearchBar.tsx → barra de búsqueda flotante.
  * - components/Resenas.tsx → bloque de reseñas.
+ * - components/PromoBanner.tsx → franja "Te compramos tu consola...".
  * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
  *   (sustituye el envío por email; guarda en la tabla "sell_requests").
  * - app/catalogo.tsx, app/producto/[id].tsx, app/(tabs)/blue-ia.tsx →
@@ -63,6 +65,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import Resenas from "../../components/Resenas";
 import FloatingSearchBar from "../../components/FloatingSearchBar";
+import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -1265,72 +1268,7 @@ export default function HomeScreen() {
           }}
         >
           <View onLayout={(e) => setBannerHeight(e.nativeEvent.layout.height)}>
-            <View
-              style={{
-                backgroundColor: "rgba(255, 178, 0, 0.14)",
-                borderBottomWidth: 1,
-                borderBottomColor: "rgba(255, 178, 0, 0.35)",
-                paddingVertical: isMobile ? 7 : 10,
-                paddingHorizontal: sidePadding,
-              }}
-            >
-              <View
-                style={{
-                  ...containerStyle,
-                  flexDirection: isMobile ? "column" : "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: isMobile ? 6 : 12,
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 5,
-                  }}
-                >
-                  <Ionicons name="flash-outline" size={isMobile ? 13 : 16} color={COLORS.text} />
-                  <Text
-                    numberOfLines={2}
-                    style={{
-                      color: COLORS.text,
-                      fontWeight: "900",
-                      fontSize: isMobile ? 12 : 15,
-                      lineHeight: isMobile ? 16 : 20,
-                      textAlign: "center",
-                    }}
-                  >
-                    Te compramos tu consola en menos de 24h
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={() => setSellModalOpen(true)}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.85 : 1,
-                    paddingVertical: isMobile ? 6 : 8,
-                    paddingHorizontal: isMobile ? 11 : 14,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.warningBorder,
-                    backgroundColor: COLORS.warningBg,
-                    flexShrink: 0,
-                  })}
-                >
-                  <Text
-                    style={{
-                      color: COLORS.text,
-                      fontWeight: "900",
-                      fontSize: isMobile ? 12 : 14,
-                    }}
-                  >
-                    Vender Ya
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
+            <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
             <View
               style={{
