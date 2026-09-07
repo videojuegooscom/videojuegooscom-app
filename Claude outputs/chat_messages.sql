@@ -26,6 +26,11 @@
 --   supabase.channel(...).on("postgres_changes", ...), sin recargar la
 --   página.
 --
+-- - reply_to_id apunta a otro mensaje de la misma tabla cuando alguien
+--   responde a uno (doble toque en chat-global.tsx). No hace falta ningún
+--   trigger para esta columna: el cliente la manda tal cual, no es un dato
+--   sensible (solo es una referencia a qué mensaje se está citando).
+--
 -- Cómo aplicarlo: copia y ejecuta este archivo completo en el SQL Editor de
 -- tu proyecto de Supabase (Dashboard → SQL Editor → New query → Run). Es
 -- seguro volver a ejecutarlo (usa IF NOT EXISTS / OR REPLACE / DROP...IF
@@ -34,6 +39,8 @@
 --
 -- Conectado con:
 -- - app/(tabs)/chat-global.tsx → lee, envía y escucha mensajes nuevos.
+-- - sql/chat_message_reactions.sql → reacciones (👍❤️😂...) a cada mensaje,
+--   tabla aparte que depende de esta.
 -- - sql/products.sql → public.profiles (rol) y public.is_admin(), que ya
 --   deben existir antes de ejecutar este archivo.
 -- ---------------------------------------------------------------------------
@@ -63,6 +70,17 @@ create index if not exists chat_messages_created_at_idx
 
 create index if not exists chat_messages_user_id_idx
   on public.chat_messages (user_id);
+
+-- Responder a un mensaje: apunta a otro mensaje de esta misma tabla. Si el
+-- mensaje original se borra, la respuesta se queda sin cita (no se borra).
+alter table public.chat_messages add column if not exists reply_to_id uuid;
+
+alter table public.chat_messages drop constraint if exists chat_messages_reply_to_id_fkey;
+alter table public.chat_messages add constraint chat_messages_reply_to_id_fkey
+  foreign key (reply_to_id) references public.chat_messages(id) on delete set null;
+
+create index if not exists chat_messages_reply_to_id_idx
+  on public.chat_messages (reply_to_id);
 
 -- Rellena SIEMPRE quién envía el mensaje a partir de la sesión real (nunca
 -- de lo que mande el cliente), para que el remitente no se pueda falsear.

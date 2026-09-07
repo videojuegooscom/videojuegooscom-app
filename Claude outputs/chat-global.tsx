@@ -120,14 +120,30 @@ type MessageItem = {
   id: string;
   type: "message" | "gif" | "system";
   userId: string;
+  // username se guarda (llega de la base de datos) pero ya NO se muestra en
+  // el chat: es un dato privado del usuario, solo pensado para que un
+  // administrador pueda identificarlo si hace falta moderar.
   username: string;
   displayName: string;
   role?: "viewer" | "member" | "vip" | "admin";
   time: string;
   text: string;
+  replyToId: string | null;
 };
 
 type HubTab = "chat" | "news" | "novedades" | "torneos";
+
+// Los 6 emojis de reacción disponibles (ver sql/chat_message_reactions.sql —
+// el check constraint de la tabla solo admite estos mismos).
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
+type ReactionEmoji = (typeof REACTION_EMOJIS)[number];
+
+// Fila tal cual la devuelve la tabla chat_message_reactions.
+type ReactionRow = {
+  message_id: string;
+  user_id: string;
+  emoji: string;
+};
 
 // Fila tal cual la devuelve la tabla chat_messages (ver sql/chat_messages.sql).
 // username, display_name y role los rellena SIEMPRE un trigger en la base de
@@ -141,6 +157,7 @@ type ChatMessageRow = {
   display_name: string;
   role: string;
   body: string;
+  reply_to_id: string | null;
 };
 
 function isMissingRelationError(error: unknown, relationName: string) {
@@ -171,13 +188,14 @@ function rowToMessageItem(row: ChatMessageRow): MessageItem {
     role: row.role === "admin" ? "admin" : "member",
     time: formatMessageTime(row.created_at),
     text: row.body,
+    replyToId: row.reply_to_id ?? null,
   };
 }
 
 async function fetchInitialMessages(): Promise<MessageItem[]> {
   const { data, error } = await supabase
     .from("chat_messages")
-    .select("id,created_at,user_id,username,display_name,role,body")
+    .select("id,created_at,user_id,username,display_name,role,body,reply_to_id")
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -190,6 +208,24 @@ async function fetchInitialMessages(): Promise<MessageItem[]> {
 
   const rows = Array.isArray(data) ? (data as unknown as ChatMessageRow[]) : [];
   return rows.slice().reverse().map(rowToMessageItem);
+}
+
+async function fetchReactionsForMessages(messageIds: string[]): Promise<ReactionRow[]> {
+  if (!messageIds.length) return [];
+
+  const { data, error } = await supabase
+    .from("chat_message_reactions")
+    .select("message_id,user_id,emoji")
+    .in("message_id", messageIds);
+
+  if (error) {
+    // Si todavía no se ha ejecutado sql/chat_message_reactions.sql, el chat
+    // sigue funcionando igual, simplemente sin reacciones.
+    if (isMissingRelationError(error, "chat_message_reactions")) return [];
+    throw error;
+  }
+
+  return Array.isArray(data) ? (data as unknown as ReactionRow[]) : [];
 }
 
 export default function ChatGlobalScreen() {
@@ -207,6 +243,8 @@ export default function ChatGlobalScreen() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [justSent, setJustSent] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
+  const [reactionRows, setReactionRows] = useState<ReactionRow[]>([]);
+  const [replyTarget, setReplyTarget] = useState<MessageItem | null>(null);
   const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
@@ -297,6 +335,26 @@ export default function ChatGlobalScreen() {
     [messages]
   );
 
+  // Agrupa las filas sueltas de chat_message_reactions en: cuántas veces
+  // tiene cada mensaje cada emoji, y con cuál ha reaccionado YO (para
+  // resaltarlo en el selector y poder "desmarcarlo" al volver a tocarlo).
+  const { reactionCountsByMessage, myReactionByMessage } = useMemo(() => {
+    const counts: Record<string, Partial<Record<string, number>>> = {};
+    const mine: Record<string, string> = {};
+
+    for (const row of reactionRows) {
+      if (!counts[row.message_id]) counts[row.message_id] = {};
+      const bucket = counts[row.message_id]!;
+      bucket[row.emoji] = (bucket[row.emoji] ?? 0) + 1;
+
+      if (currentUserId && row.user_id === currentUserId) {
+        mine[row.message_id] = row.emoji;
+      }
+    }
+
+    return { reactionCountsByMessage: counts, myReactionByMessage: mine };
+  }, [reactionRows, currentUserId]);
+
   const toggleViewers = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowViewers((prev) => !prev);
@@ -324,8 +382,9 @@ export default function ChatGlobalScreen() {
     };
   }, []);
 
-  // Mensajes reales: carga los últimos 100 al entrar y luego escucha en
-  // directo los mensajes nuevos de cualquier usuario (tiempo real).
+  // Mensajes reales: carga los últimos 100 al entrar (y sus reacciones) y
+  // luego escucha en directo los mensajes y reacciones nuevos de cualquier
+  // usuario (tiempo real).
   useEffect(() => {
     let active = true;
 
@@ -335,7 +394,11 @@ export default function ChatGlobalScreen() {
 
       try {
         const initial = await fetchInitialMessages();
-        if (active) setMessages(initial);
+        if (!active) return;
+        setMessages(initial);
+
+        const initialReactions = await fetchReactionsForMessages(initial.map((m) => m.id));
+        if (active) setReactionRows(initialReactions);
       } catch (e: any) {
         console.error("Error cargando el chat:", e);
         if (active) setLoadError("No se pudo cargar el chat. Inténtalo de nuevo.");
@@ -354,6 +417,29 @@ export default function ChatGlobalScreen() {
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev;
             return [...prev, rowToMessageItem(row)];
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "chat_message_reactions" },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            const old = payload.old as Partial<ReactionRow>;
+            setReactionRows((prev) =>
+              prev.filter(
+                (r) => !(r.message_id === old.message_id && r.user_id === old.user_id)
+              )
+            );
+            return;
+          }
+
+          const row = payload.new as unknown as ReactionRow;
+          setReactionRows((prev) => {
+            const withoutOld = prev.filter(
+              (r) => !(r.message_id === row.message_id && r.user_id === row.user_id)
+            );
+            return [...withoutOld, row];
           });
         }
       )
@@ -433,13 +519,18 @@ export default function ChatGlobalScreen() {
     setSending(true);
 
     try {
-      // Solo mandamos el texto: quién lo escribe lo pone la base de datos
-      // (ver el trigger en sql/chat_messages.sql), no el cliente.
-      const { error } = await supabase.from("chat_messages").insert({ body: clean });
+      // Solo mandamos el texto (y, si se está respondiendo a algo, a qué
+      // mensaje): quién lo escribe lo pone la base de datos (ver el trigger
+      // en sql/chat_messages.sql), no el cliente.
+      const { error } = await supabase.from("chat_messages").insert({
+        body: clean,
+        reply_to_id: replyTarget?.id ?? null,
+      });
       if (error) throw error;
 
       if (!mountedRef.current) return;
       setDraft("");
+      setReplyTarget(null);
 
       // Pequeño "enviado ✓" en el botón, estilo WhatsApp, que se apaga solo.
       setJustSent(true);
@@ -453,7 +544,61 @@ export default function ChatGlobalScreen() {
     } finally {
       if (mountedRef.current) setSending(false);
     }
-  }, [draft, isLoggedIn]);
+  }, [draft, isLoggedIn, replyTarget]);
+
+  // Un toque en un mensaje = abrir el selector de reacciones para ESE
+  // mensaje (ver MessageBubble); tocar un emoji del selector llama aquí.
+  // Repetir el mismo emoji quita la reacción; tocar uno distinto la cambia.
+  const handleReact = useCallback(
+    async (messageId: string, emoji: ReactionEmoji) => {
+      if (!isLoggedIn || !currentUserId) {
+        setShowAuthModal(true);
+        return;
+      }
+
+      const current = myReactionByMessage[messageId];
+
+      try {
+        if (current === emoji) {
+          const { error } = await supabase
+            .from("chat_message_reactions")
+            .delete()
+            .eq("message_id", messageId)
+            .eq("user_id", currentUserId);
+          if (error) throw error;
+        } else if (current) {
+          const { error } = await supabase
+            .from("chat_message_reactions")
+            .update({ emoji })
+            .eq("message_id", messageId)
+            .eq("user_id", currentUserId);
+          if (error) throw error;
+        } else {
+          // user_id lo rellena el trigger (ver sql/chat_message_reactions.sql).
+          const { error } = await supabase
+            .from("chat_message_reactions")
+            .insert({ message_id: messageId, emoji });
+          if (error) throw error;
+        }
+      } catch (e: any) {
+        console.error("Error al reaccionar al mensaje:", e);
+      }
+    },
+    [isLoggedIn, currentUserId, myReactionByMessage]
+  );
+
+  // Doble toque en un mensaje = responder: deja el mensaje citado listo en
+  // el cuadro de escribir.
+  const handleReply = useCallback(
+    (item: MessageItem) => {
+      if (!isLoggedIn) {
+        setShowAuthModal(true);
+        return;
+      }
+      setReplyTarget(item);
+    },
+    [isLoggedIn]
+  );
 
   const handleGoPerfil = () => {
     router.push("/perfil" as Href);
@@ -580,6 +725,10 @@ export default function ChatGlobalScreen() {
                 message.type === "message" &&
                 prev.userId === message.userId;
 
+              const replyPreview = message.replyToId
+                ? messages.find((m) => m.id === message.replyToId) ?? null
+                : null;
+
               return (
                 <MessageBubble
                   key={message.id}
@@ -587,6 +736,13 @@ export default function ChatGlobalScreen() {
                   canViewMedia={canViewMedia}
                   grouped={grouped}
                   mine={message.userId === currentUserId}
+                  isLoggedIn={isLoggedIn}
+                  replyPreview={replyPreview}
+                  hasReply={!!message.replyToId}
+                  reactionCounts={reactionCountsByMessage[message.id]}
+                  myReaction={myReactionByMessage[message.id]}
+                  onReact={(emoji) => handleReact(message.id, emoji)}
+                  onReply={() => handleReply(message)}
                 />
               );
             })}
@@ -738,6 +894,8 @@ export default function ChatGlobalScreen() {
             justSent={justSent}
             canSend={canSend}
             errorText={sendError}
+            replyTarget={replyTarget}
+            onCancelReply={() => setReplyTarget(null)}
           />
         ) : null}
 
@@ -1069,17 +1227,44 @@ function MiniInlineData({
   );
 }
 
+// Cuánto puede pasar entre dos toques para que cuenten como "doble toque"
+// (responder) en vez de dos toques sueltos (reaccionar, reaccionar).
+const DOUBLE_TAP_WINDOW_MS = 280;
+
 function MessageBubble({
   item,
   canViewMedia,
   grouped,
   mine,
+  replyPreview,
+  hasReply,
+  reactionCounts,
+  myReaction,
+  onReact,
+  onReply,
 }: {
   item: MessageItem;
   canViewMedia: boolean;
   grouped?: boolean;
   mine?: boolean;
+  isLoggedIn?: boolean;
+  replyPreview?: MessageItem | null;
+  hasReply?: boolean;
+  reactionCounts?: Partial<Record<string, number>>;
+  myReaction?: string;
+  onReact: (emoji: ReactionEmoji) => void;
+  onReply: () => void;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const lastTapAtRef = useRef(0);
+  const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
+    };
+  }, []);
+
   if (item.type === "system") {
     return null;
   }
@@ -1110,6 +1295,34 @@ function MessageBubble({
           };
 
   const bubbleBg = mine ? COLORS.bubbleMine : COLORS.bubbleOther;
+  const reactionEntries = Object.entries(reactionCounts ?? {}).filter(
+    ([, count]) => (count ?? 0) > 0
+  );
+
+  // Un toque = abre/cierra el selector de reacciones. Dos toques seguidos
+  // (dentro de DOUBLE_TAP_WINDOW_MS) = responder a este mensaje. No hay
+  // "onDoublePress" nativo en Pressable, así que lo detectamos a mano
+  // comparando cuándo llegó el toque anterior.
+  const handleBubblePress = () => {
+    const now = Date.now();
+    const delta = now - lastTapAtRef.current;
+    lastTapAtRef.current = now;
+
+    if (delta > 0 && delta < DOUBLE_TAP_WINDOW_MS) {
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+        singleTapTimeoutRef.current = null;
+      }
+      setPickerOpen(false);
+      onReply();
+      return;
+    }
+
+    singleTapTimeoutRef.current = setTimeout(() => {
+      setPickerOpen((prev) => !prev);
+      singleTapTimeoutRef.current = null;
+    }, DOUBLE_TAP_WINDOW_MS);
+  };
 
   return (
     <View
@@ -1124,112 +1337,242 @@ function MessageBubble({
         <View
           style={{
             flexDirection: "row",
-            alignItems: "center",
+            alignItems: "flex-start",
             gap: 10,
-            flexWrap: "wrap",
           }}
         >
-          <AvatarCircle username={item.username} />
-          <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.displayName}</Text>
-          <Text style={{ color: COLORS.soft, fontSize: 12 }}>@{item.username}</Text>
+          <AvatarCircle username={item.displayName} />
 
-          <View
-            style={{
-              borderRadius: 999,
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-              backgroundColor: roleTone.bg,
-              borderWidth: 1,
-              borderColor: roleTone.border,
-            }}
-          >
-            <Text style={{ color: roleTone.text, fontSize: 11, fontWeight: "900" }}>
-              {roleTone.label}
-            </Text>
+          <View style={{ gap: 4 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.displayName}</Text>
+
+            {/*
+              El "@usuario" se quitó del chat: es un dato privado, pensado
+              solo para que un administrador pueda identificar a alguien si
+              hace falta moderar — no para que lo vea todo el mundo. El rol
+              (MIEMBRO/ADMIN) ahora va debajo del nombre en vez de al lado.
+            */}
+            <View
+              style={{
+                alignSelf: "flex-start",
+                borderRadius: 999,
+                paddingVertical: 3,
+                paddingHorizontal: 8,
+                backgroundColor: roleTone.bg,
+                borderWidth: 1,
+                borderColor: roleTone.border,
+              }}
+            >
+              <Text style={{ color: roleTone.text, fontSize: 10, fontWeight: "900" }}>
+                {roleTone.label}
+              </Text>
+            </View>
           </View>
-
-          <Text style={{ color: COLORS.soft, fontSize: 12 }}>{item.time}</Text>
         </View>
       ) : null}
 
-      <View
-        style={{
-          borderRadius: 18,
-          borderWidth: 1,
-          borderColor: mine ? "rgba(0,170,228,0.20)" : "#E3EAF2",
-          backgroundColor: bubbleBg,
-          padding: 14,
-          gap: 10,
-          shadowColor: mine ? COLORS.accent : roleTone.accent,
-          shadowOpacity: mine ? 0.12 : 0.06,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 2 },
-        }}
-      >
-        {item.type === "gif" ? (
-          <View
+      <Pressable onPress={handleBubblePress}>
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: mine ? "rgba(0,170,228,0.20)" : "#E3EAF2",
+            backgroundColor: bubbleBg,
+            padding: 14,
+            gap: 6,
+            shadowColor: mine ? COLORS.accent : roleTone.accent,
+            shadowOpacity: mine ? 0.12 : 0.06,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 2 },
+          }}
+        >
+          {hasReply ? (
+            <View
+              style={{
+                borderLeftWidth: 3,
+                borderLeftColor: COLORS.accent,
+                backgroundColor: "rgba(255,255,255,0.55)",
+                borderRadius: 10,
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                marginBottom: 2,
+              }}
+            >
+              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 12 }}>
+                {replyPreview ? replyPreview.displayName : "Mensaje original"}
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}
+              >
+                {replyPreview ? replyPreview.text : "No disponible"}
+              </Text>
+            </View>
+          ) : null}
+
+          {item.type === "gif" ? (
+            <View
+              style={{
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: "#E3EAF2",
+                backgroundColor: "#FAFCFE",
+                padding: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 120,
+              }}
+            >
+              {canViewMedia ? (
+                <>
+                  <View
+                    style={{
+                      borderRadius: 999,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      backgroundColor: "#E3EAF2",
+                      borderWidth: 1,
+                      borderColor: "#E3EAF2",
+                    }}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>GIF</Text>
+                  </View>
+                  <Text style={{ color: COLORS.muted, marginTop: 10, textAlign: "center" }}>
+                    {item.text}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <View
+                    style={{
+                      borderRadius: 999,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      backgroundColor: COLORS.dangerSoft,
+                      borderWidth: 1,
+                      borderColor: COLORS.dangerBorder,
+                    }}
+                  >
+                    <Text style={{ color: "#B91C1C", fontWeight: "900" }}>
+                      GIF bloqueado
+                    </Text>
+                  </View>
+                  <Text
+                    style={{
+                      color: COLORS.muted,
+                      marginTop: 10,
+                      textAlign: "center",
+                      lineHeight: 21,
+                    }}
+                  >
+                    Inicia sesión y completa tu perfil para abrir multimedia del chat.
+                  </Text>
+                </>
+              )}
+            </View>
+          ) : (
+            <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item.text}</Text>
+          )}
+
+          {/* La hora va dentro de la propia casilla del mensaje, esquina
+              inferior derecha — como en WhatsApp. */}
+          <Text
             style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "#E3EAF2",
-              backgroundColor: "#FAFCFE",
-              padding: 14,
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 120,
+              alignSelf: "flex-end",
+              color: mine ? "rgba(11,33,56,0.45)" : COLORS.soft,
+              fontSize: 11,
+              marginTop: 2,
             }}
           >
-            {canViewMedia ? (
-              <>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    backgroundColor: "#E3EAF2",
-                    borderWidth: 1,
-                    borderColor: "#E3EAF2",
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>GIF</Text>
-                </View>
-                <Text style={{ color: COLORS.muted, marginTop: 10, textAlign: "center" }}>
-                  {item.text}
-                </Text>
-              </>
-            ) : (
-              <>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    backgroundColor: COLORS.dangerSoft,
-                    borderWidth: 1,
-                    borderColor: COLORS.dangerBorder,
-                  }}
-                >
-                  <Text style={{ color: "#B91C1C", fontWeight: "900" }}>
-                    GIF bloqueado
-                  </Text>
-                </View>
+            {item.time}
+          </Text>
+        </View>
+      </Pressable>
+
+      {reactionEntries.length > 0 ? (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 6,
+            alignSelf: mine ? "flex-end" : "flex-start",
+          }}
+        >
+          {reactionEntries.map(([emoji, count]) => {
+            const isMine = myReaction === emoji;
+            return (
+              <Pressable
+                key={emoji}
+                onPress={() => onReact(emoji as ReactionEmoji)}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  borderRadius: 999,
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  backgroundColor: isMine ? COLORS.accentSoft : "#F6FAFD",
+                  borderWidth: 1,
+                  borderColor: isMine ? COLORS.accentBorder : "#E3EAF2",
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text style={{ fontSize: 13 }}>{emoji}</Text>
                 <Text
                   style={{
-                    color: COLORS.muted,
-                    marginTop: 10,
-                    textAlign: "center",
-                    lineHeight: 21,
+                    fontSize: 11,
+                    fontWeight: "900",
+                    color: isMine ? COLORS.text : COLORS.soft,
                   }}
                 >
-                  Inicia sesión y completa tu perfil para abrir multimedia del chat.
+                  {count}
                 </Text>
-              </>
-            )}
-          </View>
-        ) : (
-          <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item.text}</Text>
-        )}
-      </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {pickerOpen ? (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            alignSelf: mine ? "flex-end" : "flex-start",
+            backgroundColor: "#FFFFFF",
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            paddingVertical: 6,
+            paddingHorizontal: 8,
+            shadowColor: "#000",
+            shadowOpacity: 0.1,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
+          }}
+        >
+          {REACTION_EMOJIS.map((emoji) => (
+            <Pressable
+              key={emoji}
+              onPress={() => {
+                onReact(emoji);
+                setPickerOpen(false);
+              }}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: pressed ? "#EAF6FD" : "transparent",
+              })}
+            >
+              <Text style={{ fontSize: 18 }}>{emoji}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1341,6 +1684,8 @@ function FloatingComposer({
   justSent,
   canSend,
   errorText,
+  replyTarget,
+  onCancelReply,
 }: {
   value: string;
   onChangeText: (text: string) => void;
@@ -1351,6 +1696,8 @@ function FloatingComposer({
   justSent?: boolean;
   canSend?: boolean;
   errorText?: string | null;
+  replyTarget?: MessageItem | null;
+  onCancelReply?: () => void;
 }) {
   // El botón se desactiva solo cuando SÍ hay sesión pero el mensaje es
   // demasiado corto (≤ 3 caracteres). Sin sesión se deja pulsable para que
@@ -1382,6 +1729,57 @@ function FloatingComposer({
           <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>
             {errorText}
           </Text>
+        </View>
+      )}
+
+      {!!replyTarget && (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: "#D6ECFA",
+            backgroundColor: "#EAF6FD",
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            marginBottom: 8,
+            gap: 10,
+          }}
+        >
+          <View
+            style={{
+              width: 3,
+              alignSelf: "stretch",
+              borderRadius: 2,
+              backgroundColor: COLORS.accent,
+            }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12 }}>
+              Respondiendo a {replyTarget.displayName || "usuario"}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={{ color: "rgba(11,33,56,0.6)", fontSize: 12, marginTop: 2 }}
+            >
+              {replyTarget.type === "gif" ? "GIF" : replyTarget.text}
+            </Text>
+          </View>
+          <Pressable
+            onPress={onCancelReply}
+            hitSlop={8}
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 12,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(11,33,56,0.08)",
+            }}
+          >
+            <Ionicons name="close" size={15} color={COLORS.text} />
+          </Pressable>
         </View>
       )}
 
