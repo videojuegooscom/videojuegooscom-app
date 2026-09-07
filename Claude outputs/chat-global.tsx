@@ -27,6 +27,16 @@
  * - Noticias, Novedades y Torneos siguen siendo contenido de ejemplo fijo en
  *   este archivo (InfoPanel) — no era la parte pedida en esta ronda de
  *   cambios.
+ * - El contador "X viendo ahora" de la cabecera es real: cada persona que
+ *   tiene esta pantalla abierta (con sesión o sin ella) se cuenta con
+ *   Supabase Realtime Presence (canal "chat_global_presence",
+ *   channel.track(...) + presenceState()) — no hace falta ninguna tabla ni
+ *   política RLS extra para esto, es solo por socket. El listado de
+ *   "quién está conectado" que se despliega al tocarlo sigue siendo de
+ *   ejemplo (array `viewers` fijo en este archivo).
+ * - El botón de enviar solo se activa a partir de 4 caracteres escritos, y
+ *   hace un pequeño "pop" al pulsarlo y otro más marcado (con un check)
+ *   justo al enviarse, estilo WhatsApp.
  *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
@@ -44,6 +54,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   LayoutAnimation,
   Modal,
   Platform,
@@ -58,6 +69,7 @@ import {
 } from "react-native";
 import { router, type Href } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
@@ -192,9 +204,13 @@ export default function ChatGlobalScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [justSent, setJustSent] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
   const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
+  const mountedRef = useRef(true);
+  const justSentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLoggedIn = !!currentUserId;
 
@@ -269,7 +285,11 @@ export default function ChatGlobalScreen() {
   );
 
   const canViewMedia = isLoggedIn && hasCompletedCommunityProfile;
-  const totalViewers = viewers.length + 21;
+  const trimmedDraftLength = draft.trim().length;
+  // El botón de enviar solo se activa a partir de 4 caracteres. Si no hay
+  // sesión lo dejamos siempre "activo" para que al pulsarlo se abra el aviso
+  // de inicio de sesión en vez de quedarse mudo.
+  const canSend = isLoggedIn ? trimmedDraftLength > 3 : true;
 
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.type !== "system"),
@@ -354,6 +374,36 @@ export default function ChatGlobalScreen() {
     return () => clearTimeout(id);
   }, [messages.length, activeTab]);
 
+  // Contador real de "viendo ahora": Supabase Realtime Presence cuenta a
+  // cualquiera que tenga esta pantalla abierta ahora mismo (con sesión o
+  // sin ella), sin tocar ninguna tabla — es solo por socket.
+  useEffect(() => {
+    const channel = supabase.channel("chat_global_presence");
+
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        setViewerCount(Object.keys(state).length);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (justSentTimeoutRef.current) clearTimeout(justSentTimeoutRef.current);
+    };
+  }, []);
+
   const handleComposerPress = () => {
     if (!isLoggedIn) {
       setShowAuthModal(true);
@@ -368,7 +418,10 @@ export default function ChatGlobalScreen() {
     }
 
     const clean = draft.trim();
-    if (!clean) return;
+    // El botón ya está desactivado por debajo de 4 caracteres, pero lo
+    // comprobamos también aquí por si se llama a mano (p. ej. desde el
+    // teclado).
+    if (clean.length <= 3) return;
 
     if (clean.length > 500) {
       setSendError("El mensaje es demasiado largo (máximo 500 caracteres).");
@@ -383,12 +436,21 @@ export default function ChatGlobalScreen() {
       // (ver el trigger en sql/chat_messages.sql), no el cliente.
       const { error } = await supabase.from("chat_messages").insert({ body: clean });
       if (error) throw error;
+
+      if (!mountedRef.current) return;
       setDraft("");
+
+      // Pequeño "enviado ✓" en el botón, estilo WhatsApp, que se apaga solo.
+      setJustSent(true);
+      if (justSentTimeoutRef.current) clearTimeout(justSentTimeoutRef.current);
+      justSentTimeoutRef.current = setTimeout(() => {
+        if (mountedRef.current) setJustSent(false);
+      }, 900);
     } catch (e: any) {
       console.error("Error enviando mensaje al chat:", e);
-      setSendError("No se pudo enviar el mensaje. Inténtalo de nuevo.");
+      if (mountedRef.current) setSendError("No se pudo enviar el mensaje. Inténtalo de nuevo.");
     } finally {
-      setSending(false);
+      if (mountedRef.current) setSending(false);
     }
   }, [draft, isLoggedIn]);
 
@@ -581,60 +643,47 @@ export default function ChatGlobalScreen() {
                 backgroundColor: "#FFFFFF",
                 paddingHorizontal: 18,
                 paddingVertical: 18,
-                gap: 14,
+                gap: 10,
               }}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 10,
-                }}
-              >
-                <View
-                  style={{
-                    alignSelf: "flex-start",
-                    borderRadius: 999,
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    backgroundColor: "rgba(34,197,94,0.16)",
-                    borderWidth: 1,
-                    borderColor: "rgba(34,197,94,0.30)",
-                  }}
-                >
-                  <Text style={{ color: "#15803D", fontWeight: "900", fontSize: 12 }}>
-                    EN DIRECTO
-                  </Text>
-                </View>
-
-                <GlowPill text={`${totalViewers} conectados`} tone="success" size="hero" />
-
+              {/*
+                Un único recuadro con el conteo real de gente que tiene esta
+                pantalla abierta ahora mismo (Supabase Presence), en la
+                esquina superior derecha y a tamaño normal — sustituye a los
+                tres avisos ("EN DIRECTO" + "conectados" + "Viendo ahora")
+                que había antes.
+              */}
+              <View style={{ position: "relative" }}>
                 <Pressable
                   onPress={toggleViewers}
                   style={({ pressed }) => ({
-                    opacity: pressed ? 0.92 : 1,
+                    position: "absolute",
+                    top: 0,
+                    right: 0,
+                    opacity: pressed ? 0.9 : 1,
+                    zIndex: 2,
                   })}
                 >
                   <GlowPill
-                    text={`Viendo ahora · ${totalViewers} ${showViewers ? "▲" : "▼"}`}
-                    tone="accent"
-                    size="hero"
+                    text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
+                    tone="success"
+                    size="default"
                   />
                 </Pressable>
-              </View>
 
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 34,
-                  lineHeight: 38,
-                  fontWeight: "900",
-                  letterSpacing: 0.2,
-                }}
-              >
-                Chat Global
-              </Text>
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: 34,
+                    lineHeight: 38,
+                    fontWeight: "900",
+                    letterSpacing: 0.2,
+                    paddingRight: 132,
+                  }}
+                >
+                  Chat Global
+                </Text>
+              </View>
 
               <Text
                 style={{
@@ -699,6 +748,8 @@ export default function ChatGlobalScreen() {
             onPressSend={handleSend}
             isLoggedIn={isLoggedIn}
             sending={sending}
+            justSent={justSent}
+            canSend={canSend}
             errorText={sendError}
           />
         ) : null}
@@ -1194,6 +1245,103 @@ function MessageBubble({
   );
 }
 
+// Botón de enviar con su propia animación: un "pop" al pulsarlo (como
+// AnimatedPressable en app/(tabs)/perfil.tsx y cesta.tsx) y otro más
+// marcado, con un check, justo cuando el mensaje se acaba de enviar —
+// pensado para que se sienta como el de WhatsApp.
+function ComposerSendButton({
+  onPress,
+  disabled,
+  sending,
+  justSent,
+}: {
+  onPress: () => void;
+  disabled?: boolean;
+  sending?: boolean;
+  justSent?: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.9,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 6,
+    }).start();
+  };
+
+  const onPressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 6,
+    }).start();
+  };
+
+  useEffect(() => {
+    if (!justSent) return;
+    Animated.sequence([
+      Animated.spring(scale, {
+        toValue: 1.2,
+        useNativeDriver: true,
+        speed: 40,
+        bounciness: 10,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 18,
+        bounciness: 8,
+      }),
+    ]).start();
+  }, [justSent, scale]);
+
+  const isActive = !disabled && !sending;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+    >
+      <Animated.View
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isActive ? COLORS.accent : "#DCE6EF",
+          transform: [{ scale }],
+          shadowColor: COLORS.accent,
+          shadowOpacity: isActive ? 0.22 : 0,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 2 },
+        }}
+      >
+        {sending ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : justSent ? (
+          <Ionicons name="checkmark" size={19} color="#FFFFFF" />
+        ) : (
+          <Text
+            style={{
+              color: isActive ? "#FFFFFF" : "#8FA3B8",
+              fontWeight: "900",
+              fontSize: 16,
+            }}
+          >
+            ➤
+          </Text>
+        )}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function FloatingComposer({
   value,
   onChangeText,
@@ -1201,6 +1349,8 @@ function FloatingComposer({
   onPressSend,
   isLoggedIn,
   sending,
+  justSent,
+  canSend,
   errorText,
 }: {
   value: string;
@@ -1209,8 +1359,15 @@ function FloatingComposer({
   onPressSend: () => void;
   isLoggedIn: boolean;
   sending?: boolean;
+  justSent?: boolean;
+  canSend?: boolean;
   errorText?: string | null;
 }) {
+  // El botón se desactiva solo cuando SÍ hay sesión pero el mensaje es
+  // demasiado corto (≤ 3 caracteres). Sin sesión se deja pulsable para que
+  // abra el aviso de inicio de sesión.
+  const sendDisabled = !!sending || canSend === false;
+
   return (
     <View
       pointerEvents="box-none"
@@ -1240,32 +1397,32 @@ function FloatingComposer({
       )}
 
       <LinearGradient
-        colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.08)", "rgba(30,167,232,0.02)"]}
+        colors={["rgba(30,167,232,0.12)", "rgba(0,170,228,0.06)", "rgba(30,167,232,0.02)"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{
-          borderRadius: 24,
+          borderRadius: 20,
           padding: 1,
         }}
       >
         <View
           style={{
-            borderRadius: 23,
+            borderRadius: 19,
             backgroundColor: "#FFFFFF",
             borderWidth: 1,
             borderColor: "#EAF6FD",
-            padding: 10,
+            padding: 6,
             shadowColor: COLORS.accent,
-            shadowOpacity: 0.14,
-            shadowRadius: 18,
-            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.1,
+            shadowRadius: 14,
+            shadowOffset: { width: 0, height: 3 },
           }}
         >
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
+              gap: 8,
             }}
           >
             <Pressable
@@ -1282,15 +1439,16 @@ function FloatingComposer({
                   placeholderTextColor="rgba(11,33,56,0.35)"
                   editable={!sending}
                   style={{
-                    minHeight: 48,
-                    maxHeight: 110,
-                    borderRadius: 16,
+                    minHeight: 40,
+                    maxHeight: 96,
+                    borderRadius: 14,
                     borderWidth: 1,
                     borderColor: "#E3EAF2",
                     backgroundColor: "#F8FBFE",
                     color: COLORS.text,
+                    fontSize: 14,
                     paddingHorizontal: 14,
-                    paddingVertical: 12,
+                    paddingVertical: 9,
                     opacity: sending ? 0.6 : 1,
                   }}
                   multiline
@@ -1298,46 +1456,29 @@ function FloatingComposer({
               ) : (
                 <View
                   style={{
-                    minHeight: 48,
-                    borderRadius: 16,
+                    minHeight: 40,
+                    borderRadius: 14,
                     borderWidth: 1,
                     borderColor: "#E3EAF2",
                     backgroundColor: "#F8FBFE",
                     paddingHorizontal: 14,
-                    paddingVertical: 12,
+                    paddingVertical: 9,
                     justifyContent: "center",
                   }}
                 >
-                  <Text style={{ color: "rgba(11,33,56,0.35)" }}>
+                  <Text style={{ color: "rgba(11,33,56,0.35)", fontSize: 14 }}>
                     Escribe un mensaje…
                   </Text>
                 </View>
               )}
             </Pressable>
 
-            <Pressable
+            <ComposerSendButton
               onPress={onPressSend}
-              disabled={sending}
-              style={({ pressed }) => ({
-                width: 50,
-                height: 50,
-                borderRadius: 999,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: COLORS.accent,
-                opacity: sending ? 0.7 : pressed ? 0.9 : 1,
-                shadowColor: COLORS.accent,
-                shadowOpacity: 0.24,
-                shadowRadius: 14,
-                shadowOffset: { width: 0, height: 2 },
-              })}
-            >
-              {sending ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 18 }}>➤</Text>
-              )}
-            </Pressable>
+              disabled={sendDisabled}
+              sending={sending}
+              justSent={justSent}
+            />
           </View>
         </View>
       </LinearGradient>
