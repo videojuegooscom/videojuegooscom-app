@@ -133,6 +133,15 @@ type MessageItem = {
 
 type HubTab = "chat" | "news" | "novedades" | "torneos";
 
+// Las 4 pestañas del hub, en el orden en que aparecen en el menú
+// desplegable "🔼" (antes iban en una barra fija arriba de los mensajes).
+const TAB_ITEMS: { key: HubTab; label: string }[] = [
+  { key: "chat", label: "Chat Global" },
+  { key: "news", label: "Noticias Gaming" },
+  { key: "novedades", label: "Nuestras Novedades" },
+  { key: "torneos", label: "Torneos" },
+];
+
 // Los 6 emojis de reacción disponibles (ver sql/chat_message_reactions.sql —
 // el check constraint de la tabla solo admite estos mismos).
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
@@ -246,10 +255,12 @@ export default function ChatGlobalScreen() {
   const [reactionRows, setReactionRows] = useState<ReactionRow[]>([]);
   const [replyTarget, setReplyTarget] = useState<MessageItem | null>(null);
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const mountedRef = useRef(true);
   const justSentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tabsMenuAnim = useRef(new Animated.Value(0)).current;
 
   const isLoggedIn = !!currentUserId;
 
@@ -489,6 +500,21 @@ export default function ChatGlobalScreen() {
       mountedRef.current = false;
       if (justSentTimeoutRef.current) clearTimeout(justSentTimeoutRef.current);
     };
+  }, []);
+
+  // Animación del menú de pestañas: sube con un fundido cuando se abre,
+  // baja con un fundido cuando se cierra.
+  useEffect(() => {
+    Animated.timing(tabsMenuAnim, {
+      toValue: tabsMenuOpen ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [tabsMenuOpen, tabsMenuAnim]);
+
+  const handleSelectTab = useCallback((tab: HubTab) => {
+    setActiveTab(tab);
+    setTabsMenuOpen(false);
   }, []);
 
   const handleComposerPress = () => {
@@ -843,61 +869,36 @@ export default function ChatGlobalScreen() {
             </Pressable>
           </View>
 
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.borderSoft,
-              backgroundColor: COLORS.card,
-              paddingHorizontal: 10,
-              paddingVertical: 10,
-            }}
-          >
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 6 }}>
-                <HubTabButton
-                  active={activeTab === "chat"}
-                  label="Chat Global"
-                  onPress={() => setActiveTab("chat")}
-                />
-                <HubTabButton
-                  active={activeTab === "news"}
-                  label="Noticias Gaming"
-                  onPress={() => setActiveTab("news")}
-                />
-                <HubTabButton
-                  active={activeTab === "novedades"}
-                  label="Nuestras Novedades"
-                  onPress={() => setActiveTab("novedades")}
-                />
-                <HubTabButton
-                  active={activeTab === "torneos"}
-                  label="Torneos"
-                  onPress={() => setActiveTab("torneos")}
-                />
-              </View>
-            </ScrollView>
-          </View>
+          {/*
+            Las 4 pestañas (Chat Global, Noticias, Novedades, Torneos) ya no
+            están fijas aquí arriba: ahora viven en el menú desplegable "🔼"
+            justo encima del botón de enviar mensaje (ver BottomBar), para
+            dejarle todo este espacio a los mensajes, que es lo importante.
+          */}
 
           {renderActiveTabContent()}
           </View>
         </ScrollView>
 
-        {activeTab === "chat" ? (
-          <FloatingComposer
-            value={draft}
-            onChangeText={setDraft}
-            onPressInput={handleComposerPress}
-            onPressSend={handleSend}
-            isLoggedIn={isLoggedIn}
-            sending={sending}
-            justSent={justSent}
-            canSend={canSend}
-            errorText={sendError}
-            replyTarget={replyTarget}
-            onCancelReply={() => setReplyTarget(null)}
-          />
-        ) : null}
+        <BottomBar
+          isChatTab={activeTab === "chat"}
+          value={draft}
+          onChangeText={setDraft}
+          onPressInput={handleComposerPress}
+          onPressSend={handleSend}
+          isLoggedIn={isLoggedIn}
+          sending={sending}
+          justSent={justSent}
+          canSend={canSend}
+          errorText={sendError}
+          replyTarget={replyTarget}
+          onCancelReply={() => setReplyTarget(null)}
+          activeTab={activeTab}
+          onSelectTab={handleSelectTab}
+          tabsMenuOpen={tabsMenuOpen}
+          onToggleTabsMenu={() => setTabsMenuOpen((prev) => !prev)}
+          tabsMenuAnim={tabsMenuAnim}
+        />
 
         <AuthRequiredModal
           visible={showAuthModal}
@@ -1674,7 +1675,8 @@ function ComposerSendButton({
   );
 }
 
-function FloatingComposer({
+function BottomBar({
+  isChatTab,
   value,
   onChangeText,
   onPressInput,
@@ -1686,7 +1688,13 @@ function FloatingComposer({
   errorText,
   replyTarget,
   onCancelReply,
+  activeTab,
+  onSelectTab,
+  tabsMenuOpen,
+  onToggleTabsMenu,
+  tabsMenuAnim,
 }: {
+  isChatTab: boolean;
   value: string;
   onChangeText: (text: string) => void;
   onPressInput: () => void;
@@ -1698,6 +1706,11 @@ function FloatingComposer({
   errorText?: string | null;
   replyTarget?: MessageItem | null;
   onCancelReply?: () => void;
+  activeTab: HubTab;
+  onSelectTab: (tab: HubTab) => void;
+  tabsMenuOpen: boolean;
+  onToggleTabsMenu: () => void;
+  tabsMenuAnim: Animated.Value;
 }) {
   // El botón se desactiva solo cuando SÍ hay sesión pero el mensaje es
   // demasiado corto (≤ 3 caracteres). Sin sesión se deja pulsable para que
@@ -1714,6 +1727,89 @@ function FloatingComposer({
         bottom: 12,
       }}
     >
+      {/*
+        Menú de pestañas (Chat Global / Noticias / Novedades / Torneos):
+        antes iba fijo arriba del todo, ocupando espacio siempre. Ahora se
+        despliega hacia arriba, animado, justo encima del botón "🔼" — que a
+        su vez está justo encima del botón de enviar mensaje.
+      */}
+      <Animated.View
+        pointerEvents={tabsMenuOpen ? "auto" : "none"}
+        style={{
+          alignSelf: "flex-end",
+          marginBottom: tabsMenuOpen ? 8 : 0,
+          opacity: tabsMenuAnim,
+          transform: [
+            {
+              translateY: tabsMenuAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [14, 0],
+              }),
+            },
+            {
+              scale: tabsMenuAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.94, 1],
+              }),
+            },
+          ],
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: COLORS.borderSoft,
+            backgroundColor: "#FFFFFF",
+            padding: 8,
+            gap: 6,
+            minWidth: 200,
+            shadowColor: "#000",
+            shadowOpacity: 0.14,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+          }}
+        >
+          {TAB_ITEMS.map((tabItem) => (
+            <HubTabButton
+              key={tabItem.key}
+              active={activeTab === tabItem.key}
+              label={tabItem.label}
+              onPress={() => onSelectTab(tabItem.key)}
+            />
+          ))}
+        </View>
+      </Animated.View>
+
+      <Pressable
+        onPress={onToggleTabsMenu}
+        style={({ pressed }) => ({
+          alignSelf: "flex-end",
+          width: 34,
+          height: 34,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#FFFFFF",
+          borderWidth: 1,
+          borderColor: COLORS.borderSoft,
+          marginBottom: 8,
+          opacity: pressed ? 0.85 : 1,
+          shadowColor: COLORS.accent,
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+        })}
+      >
+        <Ionicons
+          name={tabsMenuOpen ? "chevron-down" : "chevron-up"}
+          size={18}
+          color={COLORS.accent}
+        />
+      </Pressable>
+
+      {!isChatTab ? null : (
+      <>
       {!!errorText && (
         <View
           style={{
@@ -1872,6 +1968,8 @@ function FloatingComposer({
           </View>
         </View>
       </LinearGradient>
+      </>
+      )}
     </View>
   );
 }
@@ -2008,6 +2106,7 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
                 backgroundColor: "#FFFFFF",
                 padding: 22,
                 gap: 14,
+                alignItems: "center",
               }}
             >
               <View
@@ -2025,11 +2124,18 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
                 <Ionicons name="chatbubbles-outline" size={22} color={COLORS.accent} />
               </View>
 
-              <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: 24,
+                  fontWeight: "900",
+                  textAlign: "center",
+                }}
+              >
                 Chat Global
               </Text>
 
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
                 Conecta con otros gamers, encuentra gente para jugar a Fortnite,
                 descubre personas de tu misma ciudad o país y sigue noticias
                 gaming, novedades de la tienda y torneos.
@@ -2039,7 +2145,7 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
                 onPress={onClose}
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.9 : 1,
-                  alignSelf: "flex-start",
+                  alignSelf: "center",
                   borderRadius: 999,
                   borderWidth: 1,
                   borderColor: COLORS.border,
