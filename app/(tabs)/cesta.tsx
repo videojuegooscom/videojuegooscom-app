@@ -705,12 +705,15 @@ export default function CestaScreen() {
         </View>
       ) : (
         <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{
+            flexGrow: 1,
             padding: 16,
             paddingBottom: 28,
             alignItems: "center",
+            justifyContent: "center",
           }}
-          showsVerticalScrollIndicator={false}
         >
           <View style={{ width: "100%", maxWidth: 640, gap: 12 }}>
           {items.length === 0 ? (
