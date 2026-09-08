@@ -924,51 +924,21 @@ export default function AdminProducts() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
-          paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: isMobile ? 12 : 12,
-          alignItems: "center",
-        }}
-      >
-        {/* Columna centrada: mismo ancho máximo que la lista de abajo */}
-        <View style={{ width: "100%", maxWidth: 1160, gap: 12 }}>
-        <View
-          style={{
-            flexDirection: isMobile ? "column" : "row",
-            justifyContent: "space-between",
-            alignItems: isMobile ? "stretch" : "center",
-            gap: 10,
-          }}
-        >
-          <View style={{ flex: isMobile ? undefined : 1, paddingRight: isMobile ? 0 : 10 }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: isMobile ? 22 : 24,
-                fontWeight: "900",
-                lineHeight: isMobile ? 28 : 30,
-                textAlign: isMobile ? "center" : "left",
-              }}
-            >
-              Productos
-            </Text>
-            <Text
-              style={{
-                color: COLORS.muted,
-                marginTop: 4,
-                lineHeight: 20,
-                textAlign: isMobile ? "center" : "left",
-              }}
-            >
-              Crear, editar, publicar y controlar la visibilidad real del catálogo.
-            </Text>
-          </View>
-
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <ActivityIndicator color={COLORS.text} />
+          <Text style={{ color: COLORS.muted }}>Cargando productos…</Text>
+        </View>
+      ) : (
+        // Todo el contenido (volver, estadísticas, buscador, filtros, botón
+        // de crear y la lista de productos) vive dentro de este único
+        // ScrollView. Antes el título "Productos" y ese bloque de arriba
+        // estaban fuera del scroll (una cabecera fija aparte de la lista);
+        // ahora todo se desplaza junto, como un solo scroll de la pestaña,
+        // y se quitó el título/subtítulo para aprovechar ese espacio.
+        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
+          {/* Columna centrada: mismo ancho máximo en toda la pantalla */}
+          <View style={{ width: "100%", maxWidth: 1160, gap: 12 }}>
           <Pressable
             onPress={smartBackAdminHome}
             style={({ pressed }) => ({
@@ -979,133 +949,121 @@ export default function AdminProducts() {
               borderWidth: 1,
               borderColor: COLORS.border,
               backgroundColor: "#F6FAFD",
-              alignSelf: isMobile ? "flex-start" : "auto",
+              alignSelf: "flex-start",
             })}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
           </Pressable>
-        </View>
 
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 10,
-            justifyContent: "space-between",
-          }}
-        >
-          <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} compact />
-          <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
-          <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} compact />
-          <StatCard label="Destacados portada" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} compact />
-        </View>
-
-        {!!screenErr && (
           <View
             style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.dangerBg,
-              padding: 10,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 10,
+              justifyContent: "space-between",
             }}
           >
-            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-              {screenErr}
-            </Text>
+            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} compact />
+            <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
+            <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} compact />
+            <StatCard label="Destacados portada" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} compact />
           </View>
-        )}
 
-        {!supportsProductMedia && (
+          {!!screenErr && (
+            <View
+              style={{
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: COLORS.dangerBorder,
+                backgroundColor: COLORS.dangerBg,
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
+                {screenErr}
+              </Text>
+            </View>
+          )}
+
+          {!supportsProductMedia && (
+            <View
+              style={{
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: COLORS.warningBorder,
+                backgroundColor: COLORS.warningBg,
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
+                {mediaDebugErr || "No se han podido cargar las fotos y vídeos de los productos."}
+              </Text>
+            </View>
+          )}
+
           <View
             style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: COLORS.warningBorder,
-              backgroundColor: COLORS.warningBg,
-              padding: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              {mediaDebugErr || "No se han podido cargar las fotos y vídeos de los productos."}
-            </Text>
-          </View>
-        )}
-
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.card,
-            padding: 12,
-            gap: 10,
-          }}
-        >
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Buscar por título o descripción"
-            placeholderTextColor="rgba(11,33,56,0.40)"
-            style={{
+              borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 12,
-              paddingVertical: 12,
-              color: COLORS.text,
-              backgroundColor: "#F8FBFE",
-              fontSize: isMobile ? 14 : 15,
+              backgroundColor: COLORS.card,
+              padding: 12,
+              gap: 10,
             }}
-          />
-
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <FilterPill label="Todos" active={statusFilter === "ALL"} onPress={() => setStatusFilter("ALL")} isMobile={isMobile} />
-              <FilterPill label="Borrador" active={statusFilter === "DRAFT"} onPress={() => setStatusFilter("DRAFT")} isMobile={isMobile} />
-              <FilterPill label="Por revisar" active={statusFilter === "REVIEW"} onPress={() => setStatusFilter("REVIEW")} isMobile={isMobile} />
-              <FilterPill label="Publicado" active={statusFilter === "PUBLISHED"} onPress={() => setStatusFilter("PUBLISHED")} isMobile={isMobile} />
-            </View>
-          </View>
-
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Visibilidad</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <FilterPill label="Todos" active={visibilityFilter === "ALL"} onPress={() => setVisibilityFilter("ALL")} isMobile={isMobile} />
-              <FilterPill label="Visibles" active={visibilityFilter === "VISIBLE"} onPress={() => setVisibilityFilter("VISIBLE")} isMobile={isMobile} />
-              <FilterPill label="Ocultos" active={visibilityFilter === "HIDDEN"} onPress={() => setVisibilityFilter("HIDDEN")} isMobile={isMobile} />
-            </View>
-          </View>
-
-          <Pressable
-            onPress={openCreate}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.9 : 1,
-              borderRadius: 14,
-              paddingVertical: 13,
-              alignItems: "center",
-              backgroundColor: COLORS.accent,
-              ...softShadow(),
-            })}
           >
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-              + Nuevo producto
-            </Text>
-          </Pressable>
-        </View>
-        </View>
-      </View>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Buscar por título o descripción"
+              placeholderTextColor="rgba(11,33,56,0.40)"
+              style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 14,
+                paddingHorizontal: 12,
+                paddingVertical: 12,
+                color: COLORS.text,
+                backgroundColor: "#F8FBFE",
+                fontSize: isMobile ? 14 : 15,
+              }}
+            />
 
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando productos…</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
-          {/* Columna centrada: mismo ancho máximo que la cabecera */}
-          <View style={{ width: "100%", maxWidth: 1160, gap: 12 }}>
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <FilterPill label="Todos" active={statusFilter === "ALL"} onPress={() => setStatusFilter("ALL")} isMobile={isMobile} />
+                <FilterPill label="Borrador" active={statusFilter === "DRAFT"} onPress={() => setStatusFilter("DRAFT")} isMobile={isMobile} />
+                <FilterPill label="Por revisar" active={statusFilter === "REVIEW"} onPress={() => setStatusFilter("REVIEW")} isMobile={isMobile} />
+                <FilterPill label="Publicado" active={statusFilter === "PUBLISHED"} onPress={() => setStatusFilter("PUBLISHED")} isMobile={isMobile} />
+              </View>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Visibilidad</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <FilterPill label="Todos" active={visibilityFilter === "ALL"} onPress={() => setVisibilityFilter("ALL")} isMobile={isMobile} />
+                <FilterPill label="Visibles" active={visibilityFilter === "VISIBLE"} onPress={() => setVisibilityFilter("VISIBLE")} isMobile={isMobile} />
+                <FilterPill label="Ocultos" active={visibilityFilter === "HIDDEN"} onPress={() => setVisibilityFilter("HIDDEN")} isMobile={isMobile} />
+              </View>
+            </View>
+
+            <Pressable
+              onPress={openCreate}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.9 : 1,
+                borderRadius: 14,
+                paddingVertical: 13,
+                alignItems: "center",
+                backgroundColor: COLORS.accent,
+                ...softShadow(),
+              })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
+                + Nuevo producto
+              </Text>
+            </Pressable>
+          </View>
+
           {filteredItems.length === 0 ? (
             <View
               style={{
