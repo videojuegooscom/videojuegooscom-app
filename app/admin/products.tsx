@@ -35,6 +35,12 @@
  * la multimedia solo de esos productos (.in("product_id", ids)) en vez de
  * toda la tabla. normalizeMediaForProduct() reordena la multimedia con un
  * único .upsert() por id en lugar de un .update() por archivo.
+ *
+ * Móvil: las 4 tarjetas de estadísticas (Total/Publicados/Visibles/
+ * Destacados portada) van en rejilla de 2 columnas también en pantallas
+ * pequeñas (antes ocupaban el 100% del ancho cada una, es decir 4 filas
+ * completas solo de estadísticas antes de llegar al buscador y a "+ Nuevo
+ * producto"). Ver StatCard en products.components.tsx.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {

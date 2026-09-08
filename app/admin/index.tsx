@@ -2,17 +2,21 @@
 /**
  * Qué hace: pantalla de inicio del panel admin. Comprueba que hay sesión y
  * que el usuario tiene rol "admin" en la tabla profiles; si no, cierra
- * sesión y redirige al login. Si todo está bien, muestra accesos directos
- * a Categorías, Productos e Inventario, atajos rápidos y una checklist de
- * publicación.
+ * sesión y redirige al login. Si todo está bien, muestra directamente los
+ * accesos a Categorías, Productos, Inventario y Cotizaciones ("Gestión
+ * principal"), sin nada más de por medio.
  *
  * Cómo funciona: la comprobación de sesión + rol "admin" la hace
  * app/admin/_layout.tsx antes de montar cualquier pantalla del panel, así
  * que esta pantalla ya no la repite (antes duplicaba esa misma consulta a
  * "profiles" en cada carga); aquí solo se lee el email de la sesión para
- * mostrarlo en la cabecera. Tema claro (fondo blanco, texto azul marino,
- * acentos azul claro) con contenido centrado en pantallas anchas
- * (columnStyle, maxWidth 1040).
+ * mostrarlo en la cabecera. Antes había además un bloque "Vista general"
+ * (3 datos fijos sin utilidad real: Acceso/Rol/Objetivo), "Operativa
+ * rápida", una checklist de publicación y un aviso "Regla importante": se
+ * quitaron a petición de Jefe para que la pantalla vaya directa al grano y
+ * "Gestión principal" ocupe el espacio nada más entrar. Tema claro (fondo
+ * blanco, texto azul marino, acentos azul claro) con contenido centrado en
+ * pantallas anchas (columnStyle, maxWidth 1040).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para sesión, perfil y logout.
@@ -164,50 +168,6 @@ function CardButton({
   );
 }
 
-function SmallStat({
-  label,
-  value,
-  icon,
-  isMobile,
-  compact,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: compact ? (isMobile ? "100%" : "31.9%") : "100%",
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
-          {label}
-        </Text>
-      </View>
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          fontSize: isMobile ? 17 : 18,
-          marginTop: 6,
-        }}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 function SectionTitle({
   title,
   subtitle,
@@ -308,27 +268,6 @@ export default function AdminHome() {
         icon: "document-text-outline" as IoniconName,
         badge: "Solicitudes",
         onPress: () => router.push("/admin/cotizaciones"),
-      },
-    ],
-    []
-  );
-
-  const quickActions = useMemo(
-    () => [
-      {
-        key: "go-store",
-        label: "Ver tienda pública",
-        onPress: () => router.replace("/"),
-      },
-      {
-        key: "go-catalog",
-        label: "Abrir catálogo",
-        onPress: () => router.push("/catalogo"),
-      },
-      {
-        key: "go-products",
-        label: "Gestionar productos",
-        onPress: () => router.push("/admin/products"),
       },
     ],
     []
@@ -467,37 +406,6 @@ export default function AdminHome() {
           }}
         >
         <View style={{ ...columnStyle, gap: 14 }}>
-          <View
-            style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: COLORS.card,
-              padding: isMobile ? 14 : 16,
-              gap: 12,
-              ...softShadow(),
-            }}
-          >
-            <SectionTitle
-              title="Vista general"
-              subtitle="Este panel te permite operar con rapidez y mantener el catálogo siempre ordenado y actualizado."
-              isMobile={isMobile}
-            />
-
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: 10,
-                justifyContent: "space-between",
-              }}
-            >
-              <SmallStat label="Acceso" value="Protegido" icon="lock-closed-outline" isMobile={isMobile} compact />
-              <SmallStat label="Rol" value="Administrador" icon="person-outline" isMobile={isMobile} compact />
-              <SmallStat label="Objetivo" value="Calidad del catálogo" icon="rocket-outline" isMobile={isMobile} compact />
-            </View>
-          </View>
-
           <View>
             <SectionTitle
               title="Gestión principal"
@@ -518,100 +426,6 @@ export default function AdminHome() {
                 />
               ))}
             </View>
-          </View>
-
-          <View
-            style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: COLORS.cardSoft,
-              padding: isMobile ? 14 : 16,
-              gap: 10,
-            }}
-          >
-            <SectionTitle
-              title="Operativa rápida"
-              subtitle="Atajos directos para no perder tiempo navegando por el panel."
-              isMobile={isMobile}
-            />
-
-            <View
-              style={{
-                flexDirection: isMobile ? "column" : "row",
-                flexWrap: "wrap",
-                gap: 10,
-              }}
-            >
-              {quickActions.map((item) => (
-                <Pressable
-                  key={item.key}
-                  onPress={item.onPress}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.accentBorder,
-                    backgroundColor: COLORS.accent2,
-                    width: isMobile ? "100%" : undefined,
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                    {item.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          <View
-            style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.warningBorder,
-              backgroundColor: COLORS.warningBg,
-              padding: isMobile ? 14 : 16,
-              gap: 10,
-            }}
-          >
-            <SectionTitle
-              title="Lista de comprobación de publicación"
-              subtitle="Sigue estos pasos para que cada producto se publique correctamente en la tienda."
-              isMobile={isMobile}
-            />
-
-            <Text style={{ color: COLORS.text, lineHeight: 21 }}>
-              1) Crear o activar categorías útiles{"\n"}
-              2) Crear productos con título, precio e imagen{"\n"}
-              3) Asignar la categoría correcta{"\n"}
-              4) Marcar el producto como{" "}
-              <Text style={{ fontWeight: "900" }}>publicado y activo</Text>
-              {"\n"}
-              5) Revisar la ficha del producto en el{" "}
-              <Text style={{ fontWeight: "900" }}>catálogo público</Text>
-            </Text>
-          </View>
-
-          <View
-            style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.dangerBg,
-              padding: isMobile ? 14 : 16,
-              gap: 8,
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-              Regla importante
-            </Text>
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              No publiques por publicar. Un catálogo con pocos productos bien presentados
-              vende más que muchas fichas incompletas: cuida cada publicación para transmitir
-              una imagen profesional.
-            </Text>
           </View>
         </View>
         </ScrollView>

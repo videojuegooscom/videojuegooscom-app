@@ -126,17 +126,25 @@ export function StatCard({
   return (
     <View
       style={{
-        width: compact ? (isMobile ? "100%" : "48.6%") : "100%",
+        // En móvil antes ocupaba el 100% del ancho: con 4 tarjetas (Total,
+        // Publicados, Visibles, Destacados portada) eso eran 4 filas enteras
+        // solo de estadísticas antes de llegar al buscador. Ahora van en
+        // rejilla de 2 columnas también en móvil, igual que en el resto del
+        // panel (categorías, inventario), para que ocupen la mitad de alto.
+        width: compact ? (isMobile ? "48%" : "48.6%") : "100%",
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
+        padding: isMobile ? 10 : 14,
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+        <Text
+          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}
+          numberOfLines={1}
+        >
           {label}
         </Text>
       </View>
