@@ -3,13 +3,29 @@
  *
  * Qué hace: ficha de un producto individual. Carga el producto y su galería
  * de fotos/vídeos desde Supabase a partir del id de la URL, y permite
- * añadirlo a la cesta, ir a checkout o preguntar por WhatsApp.
+ * añadirlo a la cesta, ir a checkout, preguntar por WhatsApp, compartir la
+ * ficha o darle "me gusta".
  *
  * Cómo funciona: fetchProductSafe() intenta varias variantes de la consulta
- * (con/sin join de categoría, con/sin columna de imágenes) para no romperse
- * si falta alguna columna en la base de datos. pickInitialHeroImage() elige
- * la foto de portada. detectAdmin() decide si se muestra información extra
- * (estado interno) reservada para el panel de admin.
+ * (con/sin join de categoría, con/sin columna de imágenes, con/sin
+ * like_count) para no romperse si falta alguna columna en la base de datos.
+ * pickInitialHeroImage() elige la foto de portada. detectAdmin() decide si
+ * se muestra información extra (estado interno) reservada para el panel de
+ * admin.
+ *
+ * "Me gusta": el contador vive en products.like_count (ver
+ * sql/product_likes.sql — hay que ejecutarlo una vez en Supabase). Se
+ * actualiza con la función adjust_product_like(product_id, delta), que solo
+ * puede sumar o restar 1 a ese contador (no da acceso a modificar el resto
+ * de la fila), así que un visitante sin cuenta también puede dar like. Qué
+ * productos ha marcado CADA dispositivo se guarda en AsyncStorage (igual que
+ * la cesta), no en Supabase, para no exigir inicio de sesión. Si la tabla
+ * todavía no tiene la columna like_count, el botón se deshabilita solo
+ * (likesSupported=false) en vez de romper la pantalla.
+ *
+ * "Compartir": usa la Web Share API del navegador (navigator.share) en
+ * móvil/web, con copiar el enlace al portapapeles como alternativa en
+ * escritorio; en nativo (iOS/Android) usa el Share de React Native.
  *
  * Rendimiento: dentro de loadProduct(), la comprobación de admin y la carga
  * del producto siguen siendo secuenciales a propósito (la segunda necesita
@@ -19,6 +35,7 @@
  *
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
+ * - sql/product_likes.sql → columna like_count y función adjust_product_like.
  * - app/catalogo.tsx → de donde se navega hasta aquí.
  * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Ver cesta" y
  *   "Finalizar compra".
@@ -32,6 +49,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StatusBar,
   Text,
   useWindowDimensions,
@@ -39,6 +57,7 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -62,6 +81,7 @@ const COLORS = {
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
 type UiStatus = "PUBLICADA" | "LISTA" | "REVISAR";
 type ProductMediaKind = "image" | "video";
+type ProductCondition = "NEW" | "LIKE_NEW" | "GOOD" | "FAIR" | "PARTS";
 
 type Category = {
   id: string;
@@ -102,6 +122,8 @@ type ProductDbRow = {
   created_at: string | null;
   images: string[] | null;
   category: Category | null;
+  condition: string | null;
+  like_count: number | null;
 };
 
 type Product = {
@@ -114,11 +136,37 @@ type Product = {
   imageUrl: string | null;
   category: Category | null;
   media: ProductMedia[];
+  condition: ProductCondition;
+  likeCount: number;
 };
 
 const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
+
+const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
+
+async function getLikedProductIds(): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(LIKED_PRODUCTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+async function saveLikedProductIds(ids: Set<string>) {
+  try {
+    await AsyncStorage.setItem(LIKED_PRODUCTS_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Si falla el guardado local no pasa nada grave: como mucho el like se
+    // olvida al recargar la página, pero el contador ya se actualizó en
+    // Supabase.
+  }
+}
 
 function pushRoute(route: Href | { pathname: string; params?: Record<string, string> }) {
   router.push(route as never);
@@ -165,6 +213,24 @@ function statusBorder(s: UiStatus) {
   if (s === "PUBLICADA") return "#86EFAC";
   if (s === "LISTA") return "#FDE68A";
   return "#FDA4AF";
+}
+
+function asProductCondition(value: unknown): ProductCondition {
+  const raw = String(value ?? "").trim().toUpperCase();
+  if (raw === "NEW" || raw === "LIKE_NEW" || raw === "GOOD" || raw === "FAIR" || raw === "PARTS") {
+    return raw;
+  }
+  return "GOOD";
+}
+
+// Mismo texto que labelCond() en app/admin/products/products.utils.ts, para
+// que el estado que ve el cliente coincida con el que elige el admin.
+function labelCondition(c: ProductCondition) {
+  if (c === "NEW") return "Nuevo";
+  if (c === "LIKE_NEW") return "Como nuevo";
+  if (c === "GOOD") return "Bueno";
+  if (c === "FAIR") return "Regular";
+  return "Para piezas";
 }
 
 function softShadow() {
@@ -264,6 +330,13 @@ function asProductDbRow(value: unknown): ProductDbRow | null {
       ? row.images.filter((v): v is string => typeof v === "string" && !!v.trim())
       : null,
     category: asCategory(row.category),
+    condition: typeof row.condition === "string" ? row.condition : null,
+    like_count:
+      typeof row.like_count === "number"
+        ? row.like_count
+        : row.like_count != null
+        ? Number(row.like_count)
+        : null,
   };
 }
 
@@ -445,48 +518,64 @@ async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[
     .filter((row): row is ProductMediaRow => Boolean(row));
 }
 
-async function fetchProductSafe(productId: string, adminFlag: boolean): Promise<ProductDbRow | null> {
-  const selectWithJoinAndImages =
-    "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
-  const selectWithJoinBase =
-    "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
-  const selectImagesNoJoin =
-    "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at";
-  const selectBaseNoJoin =
-    "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at";
+function buildProductSelectVariants(includeLikeCount: boolean) {
+  const likeCountFrag = includeLikeCount ? ",like_count" : "";
 
-  const attempts = [
-    selectWithJoinAndImages,
-    selectWithJoinBase,
-    selectImagesNoJoin,
-    selectBaseNoJoin,
-  ];
+  return {
+    withJoinAndImages: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${likeCountFrag},category:categories(id,name,slug)`,
+    withJoinBase: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${likeCountFrag},category:categories(id,name,slug)`,
+    imagesNoJoin: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${likeCountFrag}`,
+    baseNoJoin: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${likeCountFrag}`,
+  };
+}
 
-  for (const selectStr of attempts) {
-    let query = supabase.from("products").select(selectStr).eq("id", productId);
+// Devuelve tanto la fila como si el "me gusta" está disponible: si la tabla
+// products todavía no tiene la columna like_count (falta ejecutar
+// sql/product_likes.sql en Supabase), se reintenta toda la consulta sin
+// pedirla en vez de romper la ficha de producto.
+async function fetchProductSafe(
+  productId: string,
+  adminFlag: boolean
+): Promise<{ row: ProductDbRow | null; likesSupported: boolean }> {
+  for (const includeLikeCount of [true, false]) {
+    const variants = buildProductSelectVariants(includeLikeCount);
+    const attempts = [
+      variants.withJoinAndImages,
+      variants.withJoinBase,
+      variants.imagesNoJoin,
+      variants.baseNoJoin,
+    ];
 
-    if (!adminFlag) {
-      query = query.eq("is_active", true).eq("status", "PUBLISHED");
-    }
+    for (const selectStr of attempts) {
+      let query = supabase.from("products").select(selectStr).eq("id", productId);
 
-    const res = await query.maybeSingle();
+      if (!adminFlag) {
+        query = query.eq("is_active", true).eq("status", "PUBLISHED");
+      }
 
-    if (!res.error) {
-      return asProductDbRow(res.data);
-    }
+      const res = await query.maybeSingle();
 
-    const canFallback =
-      isMissingColumnError(res.error, "images") ||
-      isMissingRelationError(res.error, "categories") ||
-      isMissingColumnError(res.error, "slug") ||
-      isMissingColumnError(res.error, "name");
+      if (!res.error) {
+        return { row: asProductDbRow(res.data), likesSupported: includeLikeCount };
+      }
 
-    if (!canFallback) {
-      throw res.error;
+      if (includeLikeCount && isMissingColumnError(res.error, "like_count")) {
+        break;
+      }
+
+      const canFallback =
+        isMissingColumnError(res.error, "images") ||
+        isMissingRelationError(res.error, "categories") ||
+        isMissingColumnError(res.error, "slug") ||
+        isMissingColumnError(res.error, "name");
+
+      if (!canFallback) {
+        throw res.error;
+      }
     }
   }
 
-  return null;
+  return { row: null, likesSupported: false };
 }
 
 function ActionChip({
@@ -554,6 +643,11 @@ export default function ProductoScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [p, setP] = useState<Product | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [likesSupported, setLikesSupported] = useState(true);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
 
   const reqSeqRef = useRef(0);
 
@@ -618,8 +712,12 @@ ${price}
       if (seq !== reqSeqRef.current) return;
       setIsAdmin(adminFlag);
 
-      const productRow = await fetchProductSafe(productId, adminFlag);
+      const { row: productRow, likesSupported: likesOk } = await fetchProductSafe(
+        productId,
+        adminFlag
+      );
       if (seq !== reqSeqRef.current) return;
+      setLikesSupported(likesOk);
 
       if (!productRow) {
         setP(null);
@@ -657,10 +755,17 @@ ${price}
         imageUrl: heroImage,
         category,
         media: normalizedMedia,
+        condition: asProductCondition(productRow.condition),
+        likeCount: Math.max(0, Number(productRow.like_count ?? 0)),
       };
 
       setP(mapped);
       setSelectedImageUrl(heroImage);
+      setLikeCount(mapped.likeCount);
+
+      const likedIds = await getLikedProductIds();
+      if (seq !== reqSeqRef.current) return;
+      setLiked(likedIds.has(mapped.id));
     } catch (e: any) {
       if (seq !== reqSeqRef.current) return;
       console.error("Error cargando el producto:", e);
@@ -701,6 +806,78 @@ ${price}
     return p.media.filter((m) => m.kind === "image");
   }, [p]);
 
+  async function toggleLike() {
+    if (!p || !likesSupported || likeBusy) return;
+
+    const nextLiked = !liked;
+    const delta = nextLiked ? 1 : -1;
+
+    setLikeBusy(true);
+    setLiked(nextLiked);
+    setLikeCount((prev) => Math.max(0, prev + delta));
+
+    try {
+      const { data, error } = await supabase.rpc("adjust_product_like", {
+        product_id: p.id,
+        delta,
+      });
+
+      if (error) throw error;
+      if (typeof data === "number") setLikeCount(data);
+
+      const likedIds = await getLikedProductIds();
+      if (nextLiked) likedIds.add(p.id);
+      else likedIds.delete(p.id);
+      await saveLikedProductIds(likedIds);
+    } catch (e) {
+      console.error("Error actualizando el like:", e);
+      // Si falla la llamada, se deshace el cambio optimista.
+      setLiked(!nextLiked);
+      setLikeCount((prev) => Math.max(0, prev - delta));
+    } finally {
+      setLikeBusy(false);
+    }
+  }
+
+  async function shareProduct() {
+    if (!p) return;
+
+    const url =
+      Platform.OS === "web" && typeof window !== "undefined"
+        ? window.location.href
+        : `https://videojuegoszaragoza.com/producto/${p.id}`;
+
+    if (Platform.OS !== "web") {
+      try {
+        await Share.share({ title: p.title, message: `${p.title} · ${fmtEUR(p.priceEUR)} · ${url}`, url });
+      } catch {
+        // El usuario canceló el share nativo: no hay nada que hacer.
+      }
+      return;
+    }
+
+    const nav: any = typeof navigator !== "undefined" ? navigator : null;
+
+    if (nav?.share) {
+      try {
+        await nav.share({ title: p.title, url });
+      } catch {
+        // El usuario canceló el share del navegador: no hay nada que hacer.
+      }
+      return;
+    }
+
+    if (nav?.clipboard?.writeText) {
+      try {
+        await nav.clipboard.writeText(url);
+        setShareFeedback("Enlace copiado");
+        setTimeout(() => setShareFeedback(null), 2000);
+      } catch {
+        // Sin permiso de portapapeles: no hay más alternativa silenciosa.
+      }
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -718,6 +895,22 @@ ${price}
       >
         {/* Columna centrada: en pantallas anchas la ficha no se pega a la izquierda */}
         <View style={{ width: "100%", maxWidth: 1240, gap: 12 }}>
+        <Pressable
+          onPress={smartBack}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.88 : 1,
+            alignSelf: "flex-start",
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: "#F6FAFD",
+          })}
+        >
+          <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
+        </Pressable>
+
         <View
           style={{
             flexDirection: isMobile ? "column" : "row",
@@ -751,69 +944,6 @@ ${price}
               {heroSubcopy}
             </Text>
           </View>
-
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 10,
-              flexWrap: "wrap",
-              justifyContent: "center",
-            }}
-          >
-            <Pressable
-              onPress={smartBack}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            alignItems: "center",
-            justifyContent: isMobile ? "center" : "flex-start",
-          }}
-        >
-          <Pressable
-            onPress={() => replaceRoute("/" as Href)}
-            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
-          >
-            <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800", fontSize: 13 }}>
-              Inicio
-            </Text>
-          </Pressable>
-
-          <Text style={{ color: "rgba(11,33,56,0.35)" }}>›</Text>
-
-          <Pressable
-            onPress={() => replaceRoute("/catalogo" as Href)}
-            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
-          >
-            <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800", fontSize: 13 }}>
-              Catálogo
-            </Text>
-          </Pressable>
-
-          <Text style={{ color: "rgba(11,33,56,0.35)" }}>›</Text>
-
-          <Text
-            style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}
-            numberOfLines={1}
-          >
-            {p?.title ?? "Producto"}
-          </Text>
         </View>
         </View>
       </View>
@@ -935,6 +1065,7 @@ ${price}
                   borderColor: "#E3EAF2",
                   backgroundColor: COLORS.card,
                   overflow: "hidden",
+                  position: "relative",
                   ...softShadow(),
                 }}
               >
@@ -991,6 +1122,75 @@ ${price}
                     </Text>
                   </View>
                 )}
+
+                {shareFeedback ? (
+                  <View
+                    style={{
+                      position: "absolute",
+                      right: 12,
+                      bottom: 62,
+                      paddingVertical: 6,
+                      paddingHorizontal: 12,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(11,33,56,0.78)",
+                    }}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12 }}>
+                      {shareFeedback}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View
+                  style={{
+                    position: "absolute",
+                    right: 12,
+                    bottom: 12,
+                    flexDirection: "row",
+                    gap: 8,
+                  }}
+                >
+                  <Pressable
+                    onPress={shareProduct}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.85 : 1,
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: "rgba(11,33,56,0.60)",
+                    })}
+                  >
+                    <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
+                  </Pressable>
+
+                  <Pressable
+                    onPress={toggleLike}
+                    disabled={!likesSupported || likeBusy}
+                    style={({ pressed }) => ({
+                      opacity: !likesSupported ? 0.5 : pressed ? 0.85 : 1,
+                      minWidth: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      paddingHorizontal: 12,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      backgroundColor: "rgba(11,33,56,0.60)",
+                    })}
+                  >
+                    <Ionicons
+                      name={liked ? "heart" : "heart-outline"}
+                      size={18}
+                      color={liked ? "#FF5A7A" : "#FFFFFF"}
+                    />
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>
+                      {likeCount}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
 
               {imageGallery.length > 1 ? (
@@ -1068,25 +1268,21 @@ ${price}
                     }}
                   >
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                      {badgeLabel}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={{
-                      paddingVertical: 7,
-                      paddingHorizontal: 12,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "#F6FAFD",
-                    }}
-                  >
-                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
-                      Segunda mano
+                      De segunda mano: {labelCondition(p.condition)}
                     </Text>
                   </View>
                 </View>
+
+                <Text
+                  style={{
+                    color: COLORS.accent,
+                    fontSize: isMobile ? 28 : 34,
+                    fontWeight: "900",
+                    lineHeight: isMobile ? 32 : 38,
+                  }}
+                >
+                  {fmtEUR(p.priceEUR)}
+                </Text>
 
                 <View
                   style={{
@@ -1123,28 +1319,6 @@ ${price}
                     isMobile={isMobile}
                   />
                 </View>
-
-                <Text
-                  style={{
-                    color: COLORS.text,
-                    fontSize: isMobile ? 24 : 30,
-                    fontWeight: "900",
-                    lineHeight: isMobile ? 29 : 34,
-                  }}
-                >
-                  {p.title}
-                </Text>
-
-                <Text
-                  style={{
-                    color: COLORS.accent,
-                    fontSize: isMobile ? 28 : 34,
-                    fontWeight: "900",
-                    lineHeight: isMobile ? 32 : 38,
-                  }}
-                >
-                  {fmtEUR(p.priceEUR)}
-                </Text>
 
                 <View
                   style={{
