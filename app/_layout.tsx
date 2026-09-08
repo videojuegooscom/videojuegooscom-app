@@ -1,11 +1,24 @@
 // app/app/_layout.tsx
 /**
  * Qué hace: layout raíz de toda la app (Expo Router). Muestra una pantalla
- * de carga de marca durante 1 segundo al arrancar y luego monta el Stack
- * de navegación con todas las rutas de nivel superior.
+ * de carga de marca al arrancar y luego monta el Stack de navegación con
+ * todas las rutas de nivel superior.
  *
  * Cómo funciona: usa expo-router Stack con headerShown:false (cada
  * pantalla dibuja su propia cabecera) y animación "fade" entre rutas.
+ *
+ * Pantalla de carga: se mantiene hasta que se cumplen DOS condiciones a la
+ * vez — un mínimo de 1 segundo (para que la marca se vea, no sea un parpadeo)
+ * Y que la fuente de iconos (Ionicons, usada por TODA la app: cabeceras,
+ * botones, tarjetas...) haya terminado de descargarse, vía useFonts() de
+ * expo-font. Antes solo dependía del segundo fijo: en la primera visita en
+ * la web (o con conexión lenta/caché fría), si la fuente tardaba más de 1s
+ * en llegar, la pantalla de carga desaparecía igualmente y la app real
+ * aparecía con todos los iconos en blanco/invisibles durante un instante —
+ * eso es lo que se veía "raro" hasta refrescar la página (momento en el que
+ * la fuente ya estaba en la caché del navegador y cargaba al instante). Con
+ * este cambio, la pantalla de carga no se quita hasta que los iconos ya
+ * están listos para pintarse bien a la primera, sin depender de refrescar.
  *
  * Conectado con:
  * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
@@ -18,18 +31,29 @@
  */
 import React, { useEffect, useState } from "react";
 import { Stack } from "expo-router";
+import { useFonts } from "expo-font";
+import { Ionicons } from "@expo/vector-icons";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 
+const MIN_BOOT_MS = 1000;
+
 export default function RootLayout() {
-  const [bootLoading, setBootLoading] = useState(true);
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+  });
+  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setBootLoading(false);
-    }, 1000);
+      setMinTimeElapsed(true);
+    }, MIN_BOOT_MS);
 
     return () => clearTimeout(timer);
   }, []);
+
+  // Si la fuente falla en cargar (fontError), no nos quedamos bloqueados
+  // para siempre: se deja pasar igualmente pasado el segundo mínimo.
+  const bootLoading = !minTimeElapsed || (!fontsLoaded && !fontError);
 
   if (bootLoading) {
     return <BrandLoadingScreen message="Cargando tienda..." />;
