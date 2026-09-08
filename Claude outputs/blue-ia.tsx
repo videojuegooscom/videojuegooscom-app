@@ -34,8 +34,6 @@
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -48,6 +46,8 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 
