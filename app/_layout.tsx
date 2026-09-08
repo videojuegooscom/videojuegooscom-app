@@ -22,18 +22,23 @@
  *
  * Conectado con:
  * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
+ * - components/Campanita.tsx → campanita flotante de notificaciones, se
+ *   monta aquí UNA sola vez (fuera y por encima del Stack) para que
+ *   aparezca en todas las pantallas y no se reinicie al navegar.
  * - app/(tabs)/_layout.tsx → navegación por pestañas (inicio, catálogo,
  *   cesta, chat, blue-ia, perfil...).
  * - app/catalogo.tsx, app/checkout.tsx, app/producto/[id].tsx,
- *   app/modal.tsx, app/reset-password.tsx → rutas públicas fuera de las
- *   pestañas.
+ *   app/chat/[chatId].tsx, app/modal.tsx, app/reset-password.tsx → rutas
+ *   públicas fuera de las pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
  */
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
+import Campanita from "../components/Campanita";
 
 const MIN_BOOT_MS = 1000;
 
@@ -60,33 +65,41 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        animation: "fade",
-      }}
-    >
-      {/* Navegación principal inferior */}
-      <Stack.Screen name="(tabs)" />
-
-      {/* Rutas públicas / complementarias fuera de tabs */}
-      <Stack.Screen name="catalogo" />
-      <Stack.Screen name="checkout" />
-      <Stack.Screen name="reset-password" />
-
-      {/* Producto dinámico */}
-      <Stack.Screen name="producto/[id]" />
-
-      {/* Admin */}
-      <Stack.Screen name="admin" />
-
-      {/* Modal global */}
-      <Stack.Screen
-        name="modal"
-        options={{
-          presentation: "modal",
+    <View style={{ flex: 1 }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: "fade",
         }}
-      />
-    </Stack>
+      >
+        {/* Navegación principal inferior */}
+        <Stack.Screen name="(tabs)" />
+
+        {/* Rutas públicas / complementarias fuera de tabs */}
+        <Stack.Screen name="catalogo" />
+        <Stack.Screen name="checkout" />
+        <Stack.Screen name="reset-password" />
+
+        {/* Producto dinámico */}
+        <Stack.Screen name="producto/[id]" />
+
+        {/* Chat privado por producto (cliente) */}
+        <Stack.Screen name="chat/[chatId]" />
+
+        {/* Admin */}
+        <Stack.Screen name="admin" />
+
+        {/* Modal global */}
+        <Stack.Screen
+          name="modal"
+          options={{
+            presentation: "modal",
+          }}
+        />
+      </Stack>
+
+      {/* Campanita flotante: por encima de TODO, en todas las pantallas. */}
+      <Campanita />
+    </View>
   );
 }

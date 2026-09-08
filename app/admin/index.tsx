@@ -21,8 +21,8 @@
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para sesión, perfil y logout.
  * - app/admin/categories.tsx, app/admin/products.tsx,
- *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx → destino de las
- *   tarjetas de "Gestión principal".
+ *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx,
+ *   app/admin/chats.tsx → destino de las tarjetas de "Gestión principal".
  * - app/admin/login.tsx → destino cuando el acceso no es válido.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -268,6 +268,15 @@ export default function AdminHome() {
         icon: "document-text-outline" as IoniconName,
         badge: "Solicitudes",
         onPress: () => router.push("/admin/cotizaciones"),
+      },
+      {
+        key: "chats",
+        title: "Chat",
+        subtitle:
+          "Conversaciones privadas de clientes por producto: elige a la persona correcta y márcala como vendida.",
+        icon: "chatbubbles-outline" as IoniconName,
+        badge: "Ventas",
+        onPress: () => router.push("/admin/chats"),
       },
     ],
     []

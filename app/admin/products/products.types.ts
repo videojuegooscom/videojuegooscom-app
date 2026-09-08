@@ -61,6 +61,7 @@ export type ProductRow = {
   created_at: string;
   updated_at: string;
   is_featured_home?: boolean | null;
+  reference?: string | null;
   media: ProductMediaRow[];
 };
 

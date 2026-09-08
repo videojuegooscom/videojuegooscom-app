@@ -11,10 +11,23 @@
  * a campo (formOk), y construye el texto del pedido (whatsText) para
  * enviarlo por WhatsApp con openWhatsApp().
  *
+ * "Comprar ya" → vendido automático: si el producto se añadió con el botón
+ * "Comprar ya" de app/producto/[id].tsx (que ya exige sesión iniciada),
+ * queda un marcador en AsyncStorage (BUY_NOW_MARK_KEY). Al confirmar aquí el
+ * pedido, si ese marcador sigue apuntando a un producto que todavía está en
+ * el carrito y la sesión coincide, se inserta solo en product_sales (ver
+ * sql/product_sales.sql) — así ese producto queda marcado como vendido a
+ * esa persona sin que Jefe tenga que hacerlo a mano. Si el pedido viene solo
+ * de "Añadir a la cesta" (sin pasar por "Comprar ya"), no hay marcador y no
+ * se marca nada automáticamente: esas ventas se siguen marcando a mano
+ * desde el chat del producto o desde el panel de Productos.
+ *
  * Conectado con:
  * - app/(tabs)/cesta.tsx → de donde viene el carrito guardado.
  * - app/catalogo.tsx → a donde vuelve el usuario si el carrito está vacío
  *   o si pulsa "Seguir viendo".
+ * - app/producto/[id].tsx → deja el marcador de "Comprar ya".
+ * - sql/product_sales.sql → tabla e INSERT del vendido automático.
  * - @react-native-async-storage/async-storage → persistencia del carrito.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +46,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -58,6 +72,33 @@ type CartItem = {
 };
 
 const CART_KEY = "videojuegoos_cart_v1";
+const BUY_NOW_MARK_KEY = "videojuegoos_buy_now_mark_v1";
+
+type BuyNowMark = { productId: string; userId: string };
+
+// Si el pedido incluye el producto de "Comprar ya" y la sesión coincide,
+// lo marca como vendido a esa persona (ver sql/product_sales.sql). No
+// bloquea ni avisa si falla: es un extra sobre el pedido por WhatsApp, que
+// es lo que de verdad cierra la venta.
+async function markBuyNowSoldIfApplies(items: CartItem[]) {
+  try {
+    const raw = await AsyncStorage.getItem(BUY_NOW_MARK_KEY);
+    if (!raw) return;
+
+    const mark = JSON.parse(raw) as BuyNowMark;
+    if (!mark?.productId || !mark?.userId) return;
+    if (!items.some((it) => it.id === mark.productId)) return;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.user?.id !== mark.userId) return;
+
+    await supabase.from("product_sales").insert({ product_id: mark.productId });
+  } catch (e) {
+    console.error("Error marcando la venta automática de Comprar ya:", e);
+  } finally {
+    await AsyncStorage.removeItem(BUY_NOW_MARK_KEY);
+  }
+}
 
 const BRAND = {
   whatsappPhoneE164: "+34627748741",
@@ -267,6 +308,7 @@ export default function CheckoutScreen() {
       // Cuando metamos Stripe: aquí llamaremos a /api/stripe/create-checkout-session
       // y redirigiremos al checkout real.
       openWhatsApp(whatsText);
+      await markBuyNowSoldIfApplies(items);
 
       // Opcional: si quieres vaciar carrito al iniciar “pago”
       // (yo lo haría cuando haya pago confirmado, no aquí)

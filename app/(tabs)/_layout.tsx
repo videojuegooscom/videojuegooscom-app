@@ -1,6 +1,6 @@
 /**
  * Qué hace: layout de la barra de pestañas inferior (Inicio, Perfil,
- * Cesta, Chat, Blue IA). Define iconos, colores y comportamiento de la
+ * Cesta, Foro, Blue IA). Define iconos, colores y comportamiento de la
  * tab bar para las 5 pantallas principales de la app.
  *
  * Cómo funciona: usa expo-router Tabs con headerShown:false (cada pantalla
@@ -116,7 +116,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="chat-global"
         options={{
-          title: "Chat",
+          title: "Foro",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "chatbubbles" : "chatbubbles-outline"}

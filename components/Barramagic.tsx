@@ -1,21 +1,44 @@
 /**
- * Qué hace: barra de búsqueda flotante que aparece encima del contenido de
- * la pantalla de inicio, con un botón de "Buscar" (lleva a /catalogo) y un
- * botón de acceso rápido a Blue IA (lleva a /blue-ia). Se puede arrastrar
- * verticalmente y se "engancha" (snap) arriba o abajo de la pantalla.
+ * components/Barramagic.tsx
  *
- * Cómo funciona: usa Animated + PanResponder para el arrastre y el efecto
- * muelle (spring) al soltar, y mide la altura real del teclado/viewport en
- * web para no tapar contenido. Los colores ya siguen el tema claro global
- * (fondo blanco, texto azul marino oscuro).
- * - La prop "hidden" (la controla la pantalla de inicio según la
- *   dirección del scroll) anima un fundido + un pequeño desplazamiento
- *   hacia arriba para ocultarla suavemente sin perder su posición de
- *   arrastre (animatedTop); al volver a "hidden=false" reaparece igual de
- *   suave. Mientras está oculta no intercepta toques (pointerEvents).
+ * Qué hace: TODO lo relacionado con la barra de búsqueda de la app vive en
+ * este único archivo (antes estaba repartido entre este archivo y
+ * FloatingSearchBar.tsx, que ya no existe, para no confundirse sobre dónde
+ * tocar cada cosa). Exporta dos cosas:
  *
- * Conectado con: app/(tabs)/index.tsx → la usa como barra flotante sobre
- * la pantalla de inicio.
+ * - `Barramagic` (export por defecto): la píldora en sí (icono de lupa +
+ *   texto/campo + botón ✨ de acceso a Blue IA). Es la pieza visual y se usa
+ *   quieta, dentro del scroll normal de una pantalla — así la usa
+ *   app/catalogo.tsx.
+ * - `FloatingBarramagic` (export con nombre): la misma píldora pero flotando
+ *   encima del contenido, arrastrable verticalmente y que se "engancha"
+ *   (snap) arriba o abajo, más el ocultado suave al hacer scroll. Así la usa
+ *   app/(tabs)/index.tsx (Inicio).
+ *
+ * Cómo funciona `Barramagic`: tiene dos modos —
+ * - mode="input" (por defecto): un TextInput real y controlado
+ *   (value/onChangeText/onSubmit), con una "x" para borrar cuando hay texto
+ *   escrito. Busca de verdad en la pantalla que la usa (no navega a otro
+ *   sitio).
+ * - mode="link": no es editable — es un botón que, al tocarlo, llama a
+ *   onPress. La usa así FloatingBarramagic, porque en Inicio la búsqueda de
+ *   verdad ocurre al entrar en /catalogo.
+ * En ambos modos, el botón de la derecha (✨) lleva a /blue-ia salvo que se
+ * pase onPressAi con otra acción.
+ *
+ * Cómo funciona `FloatingBarramagic`: usa Animated + PanResponder para el
+ * arrastre y el efecto muelle (spring) al soltar, y mide la altura real del
+ * teclado/viewport en web para no tapar contenido. La prop "hidden" (la
+ * controla la pantalla que la use, normalmente según la dirección del
+ * scroll) anima un fundido + un pequeño desplazamiento hacia arriba para
+ * ocultarla suavemente sin perder su posición de arrastre; al volver a
+ * "hidden=false" reaparece igual de suave. Mientras está oculta no
+ * intercepta toques.
+ *
+ * Conectado con:
+ * - app/(tabs)/index.tsx → usa FloatingBarramagic sobre la pantalla de
+ *   inicio.
+ * - app/catalogo.tsx → usa Barramagic (modo "input") dentro del scroll.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
@@ -28,14 +51,192 @@ import {
   Platform,
   Pressable,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
+  type GestureResponderEvent,
   type LayoutChangeEvent,
+  type ViewStyle,
 } from "react-native";
+
+const COLORS = {
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  bg: "#FFFFFF",
+  border: "#E3EAF2",
+};
+
+function pushRoute(route: Href) {
+  router.push(route);
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, max));
+}
+
+export type BarramagicProps = {
+  isMobile: boolean;
+
+  /** "input" = buscador real y editable. "link" = botón que navega. */
+  mode?: "input" | "link";
+
+  /** mode="input": valor controlado del campo. */
+  value?: string;
+  /** mode="input": se llama al escribir. */
+  onChangeText?: (text: string) => void;
+  /** mode="input": se llama al pulsar intro/buscar en el teclado. */
+  onSubmit?: () => void;
+  /** mode="input": se llama al tocar la "x" para borrar (por defecto, deja el campo vacío). */
+  onClear?: () => void;
+
+  /** mode="link": se llama al tocar toda la píldora. */
+  onPress?: () => void;
+
+  /** Botón ✨: por defecto lleva a /blue-ia. */
+  onPressAi?: () => void;
+
+  placeholder?: string;
+  style?: ViewStyle;
+};
+
+export default function Barramagic({
+  isMobile,
+  mode = "input",
+  value,
+  onChangeText,
+  onSubmit,
+  onClear,
+  onPress,
+  onPressAi,
+  placeholder = "Buscar producto o hacer una pregunta",
+  style,
+}: BarramagicProps) {
+  const handleAiPress = (event?: GestureResponderEvent) => {
+    event?.stopPropagation?.();
+    if (onPressAi) {
+      onPressAi();
+      return;
+    }
+    pushRoute("/blue-ia" as Href);
+  };
+
+  const pillStyle: ViewStyle = {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+    minHeight: isMobile ? 58 : 64,
+    paddingLeft: isMobile ? 16 : 18,
+    paddingRight: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
+    ...style,
+  };
+
+  const aiButton = (
+    <Pressable
+      onPress={handleAiPress}
+      hitSlop={8}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.82 : 1,
+        width: isMobile ? 44 : 48,
+        height: isMobile ? 44 : 48,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.bg,
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      })}
+    >
+      <Ionicons name="sparkles-outline" size={isMobile ? 20 : 22} color={COLORS.text} />
+    </Pressable>
+  );
+
+  if (mode === "link") {
+    return (
+      <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.96 : 1 })}>
+        <View style={pillStyle}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14, flex: 1, minWidth: 0 }}>
+            <Ionicons name="search-outline" size={isMobile ? 24 : 27} color={COLORS.text} />
+            <Text
+              numberOfLines={1}
+              style={{
+                color: COLORS.muted,
+                fontSize: isMobile ? 15 : 16,
+                lineHeight: isMobile ? 20 : 22,
+                flex: 1,
+              }}
+            >
+              {placeholder}
+            </Text>
+          </View>
+          {aiButton}
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={pillStyle}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 14, flex: 1, minWidth: 0 }}>
+        <Ionicons name="search-outline" size={isMobile ? 24 : 27} color={COLORS.text} />
+
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="rgba(11,33,56,0.45)"
+          style={{
+            flex: 1,
+            color: COLORS.text,
+            fontWeight: "600",
+            paddingVertical: 0,
+            // 16px fijo (antes 15 en móvil): por debajo de 16, el móvil
+            // hace zoom automático al tocar la casilla, y como esto es el
+            // buscador de toda la app, ese zoom se notaba en casi
+            // cualquier pantalla.
+            fontSize: 16,
+          }}
+          returnKeyType="search"
+          onSubmitEditing={onSubmit}
+        />
+
+        {value ? (
+          <Pressable
+            onPress={() => (onClear ? onClear() : onChangeText?.(""))}
+            hitSlop={8}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          >
+            <Ionicons name="close-circle" size={19} color={COLORS.muted} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      {aiButton}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FloatingBarramagic — la misma píldora, pero flotante/arrastrable (Inicio).
+// ---------------------------------------------------------------------------
 
 type SearchSnapPosition = "top" | "bottom";
 
-type FloatingSearchBarProps = {
+export type FloatingBarramagicProps = {
   isMobile: boolean;
 
   /**
@@ -84,109 +285,13 @@ type FloatingSearchBarProps = {
    * snap), solo a si se ve o no en este momento.
    */
   hidden?: boolean;
+
+  /** A dónde navega al tocar la píldora (por defecto /catalogo). */
+  onPress?: () => void;
+  placeholder?: string;
 };
 
-const COLORS = {
-  textDark: "#0B2138",
-  mutedDark: "rgba(11,33,56,0.62)",
-  searchBg: "#FFFFFF",
-};
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(value, max));
-}
-
-function pushRoute(route: Href) {
-  router.push(route);
-}
-
-function SearchHeader({ isMobile }: { isMobile: boolean }) {
-  return (
-    <Pressable
-      onPress={() => pushRoute("/catalogo" as Href)}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.96 : 1,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: "#E3EAF2",
-        backgroundColor: COLORS.searchBg,
-        minHeight: isMobile ? 58 : 64,
-        paddingLeft: isMobile ? 16 : 18,
-        paddingRight: 8,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        ...Platform.select({
-          ios: {
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-          },
-          android: { elevation: 2 },
-          default: {},
-        }),
-      })}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 14,
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        <Ionicons
-          name="search-outline"
-          size={isMobile ? 24 : 27}
-          color={COLORS.textDark}
-        />
-
-        <Text
-          numberOfLines={1}
-          style={{
-            color: COLORS.mutedDark,
-            fontSize: isMobile ? 15 : 16,
-            lineHeight: isMobile ? 20 : 22,
-            flex: 1,
-          }}
-        >
-          Buscar producto o hacer una pregunta
-        </Text>
-      </View>
-
-      <Pressable
-        onPress={(event) => {
-          event.stopPropagation?.();
-          pushRoute("/blue-ia" as Href);
-        }}
-        hitSlop={8}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.82 : 1,
-          width: isMobile ? 44 : 48,
-          height: isMobile ? 44 : 48,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: "#E3EAF2",
-          backgroundColor: "#FFFFFF",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        })}
-      >
-        <Ionicons
-          name="sparkles-outline"
-          size={isMobile ? 20 : 22}
-          color={COLORS.textDark}
-        />
-      </Pressable>
-    </Pressable>
-  );
-}
-
-export default function FloatingSearchBar({
+export function FloatingBarramagic({
   isMobile,
   topSnapY,
   mobileTabBarHeight = 92,
@@ -198,7 +303,9 @@ export default function FloatingSearchBar({
   maxWidth = 760,
   onSnapChange,
   hidden = false,
-}: FloatingSearchBarProps) {
+  onPress,
+  placeholder = "Buscar producto o hacer una pregunta",
+}: FloatingBarramagicProps) {
   const { width, height } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
 
@@ -459,7 +566,12 @@ export default function FloatingSearchBar({
           maxWidth,
         }}
       >
-        <SearchHeader isMobile={isMobile} />
+        <Barramagic
+          isMobile={isMobile}
+          mode="link"
+          onPress={onPress ?? (() => pushRoute("/catalogo" as Href))}
+          placeholder={placeholder}
+        />
       </View>
     </Animated.View>
   );

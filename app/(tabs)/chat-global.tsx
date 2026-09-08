@@ -1,11 +1,18 @@
 /**
  * app/(tabs)/chat-global.tsx
  *
- * Qué hace: "Chat Global", un hub social de la tienda con 4 pestañas (Chat,
- * Noticias, Novedades, Torneos). La pestaña Chat muestra los mensajes reales
- * de la comunidad en tiempo real y un cuadro para escribir. Cualquiera puede
- * leer el chat sin iniciar sesión, pero solo un usuario registrado y con la
- * sesión iniciada puede escribir/enviar mensajes.
+ * Qué hace: "Foro" (antes "Chat"), un hub social de la tienda con 5
+ * pestañas: Foro, Noticias, Novedades, Torneos y Chat. La pestaña Foro
+ * muestra los mensajes reales de la comunidad en tiempo real y un cuadro
+ * para escribir — es el mismo chat público de siempre, solo con nombre
+ * nuevo. Cualquiera puede leerlo sin iniciar sesión, pero solo un usuario
+ * registrado y con la sesión iniciada puede escribir/enviar mensajes.
+ *
+ * La pestaña "Chat" (nueva) es distinta: es la bandeja PRIVADA del cliente
+ * logueado, con una conversación por cada producto por el que ha escrito
+ * (botón "Chat" de app/producto/[id].tsx) — ver sql/product_chats.sql y
+ * components/ProductChatThread.tsx. No tiene nada que ver con el Foro
+ * público: solo esa persona y los administradores ven esos mensajes.
  *
  * Cómo funciona:
  * - Los mensajes viven en la tabla chat_messages de Supabase (ver
@@ -47,7 +54,10 @@
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
  * - sql/chat_messages.sql → crea la tabla, el trigger que rellena el
  *   remitente y las políticas RLS (leer: todo el mundo; escribir: solo
- *   sesión iniciada).
+ *   sesión iniciada) del Foro público.
+ * - sql/product_chats.sql, components/ProductChatThread.tsx → la pestaña
+ *   "Chat" (bandeja privada por producto).
+ * - app/chat/[chatId].tsx → a donde lleva cada conversación de la bandeja.
  * - app/(tabs)/perfil.tsx (el modal de "inicia sesión" navega ahí; también
  *   es donde se registran full_name/username que el trigger usa para
  *   mostrar el nombre de cada mensaje).
@@ -56,13 +66,15 @@
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, type Href } from "expo-router";
+import { router, useLocalSearchParams, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Image,
   LayoutAnimation,
   Modal,
   Platform,
@@ -136,15 +148,19 @@ type MessageItem = {
   replyToId: string | null;
 };
 
-type HubTab = "chat" | "news" | "novedades" | "torneos";
+type HubTab = "chat" | "news" | "novedades" | "torneos" | "privados";
 
-// Las 4 pestañas del hub, en el orden en que aparecen en el menú
+// Las 5 pestañas del hub, en el orden en que aparecen en el menú
 // desplegable "🔼" (antes iban en una barra fija arriba de los mensajes).
+// "chat" (la clave interna no cambia para no tocar el resto del archivo) es
+// ahora el "Foro" público; "privados" es la bandeja de conversaciones
+// privadas por producto.
 const TAB_ITEMS: { key: HubTab; label: string }[] = [
-  { key: "chat", label: "Chat Global" },
+  { key: "chat", label: "Foro" },
   { key: "news", label: "Noticias Gaming" },
   { key: "novedades", label: "Nuestras Novedades" },
   { key: "torneos", label: "Torneos" },
+  { key: "privados", label: "Chat" },
 ];
 
 // Los 6 emojis de reacción disponibles (ver sql/chat_message_reactions.sql —
@@ -242,12 +258,29 @@ async function fetchReactionsForMessages(messageIds: string[]): Promise<Reaction
   return Array.isArray(data) ? (data as unknown as ReactionRow[]) : [];
 }
 
+const HUB_TAB_VALUES: HubTab[] = ["chat", "news", "novedades", "torneos", "privados"];
+
+// Marca de "ya lo he visto" para la pestaña Nuestras Novedades: mismo
+// número que NOVEDADES_CONTENT_VERSION en components/Campanita.tsx. Cuando
+// el contenido de esta pestaña cambie de verdad, se sube el número ahí Y
+// aquí — así la campanita vuelve a avisar una vez a cada dispositivo que no
+// haya vuelto a entrar desde entonces.
+const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
+const NOVEDADES_CONTENT_VERSION = 1;
+
 export default function ChatGlobalScreen() {
+  // Permite llegar directamente a una pestaña concreta, p. ej. desde la
+  // campanita (components/Campanita.tsx) con /chat-global?tab=privados.
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const initialTab: HubTab = HUB_TAB_VALUES.includes(params.tab as HubTab)
+    ? (params.tab as HubTab)
+    : "chat";
+
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [hasCompletedCommunityProfile] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<HubTab>("chat");
+  const [activeTab, setActiveTab] = useState<HubTab>(initialTab);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -524,6 +557,14 @@ export default function ChatGlobalScreen() {
     };
   }, []);
 
+  // Al entrar en Nuestras Novedades se guarda la versión actual del
+  // contenido como "vista" — así la campanita (components/Campanita.tsx)
+  // deja de avisar de esta pestaña hasta que el contenido cambie de verdad.
+  useEffect(() => {
+    if (activeTab !== "novedades") return;
+    AsyncStorage.setItem(NOVEDADES_SEEN_KEY, String(NOVEDADES_CONTENT_VERSION)).catch(() => {});
+  }, [activeTab]);
+
   // Animación del menú de pestañas: sube con un fundido cuando se abre,
   // baja con un fundido cuando se cierra.
   useEffect(() => {
@@ -709,13 +750,15 @@ export default function ChatGlobalScreen() {
     if (activeTab === "news") {
       return (
         <InfoPanel
-          title="Noticias Gaming"
-          subtitle="Noticias rápidas de gaming y comunidad para mantener el hub vivo."
+          title="Noticias"
+          subtitle="Titulares breves sobre el mundo del videojuego y la comunidad, pensados para leerse en unos segundos."
           items={[
-            "Fortnite prepara nuevas rotaciones y eventos semanales.",
-            "La escena competitiva sigue empujando el juego cruzado y el contenido en directo.",
-            "Publicamos noticias breves, claras y muy visuales para que estés al día en un vistazo.",
+            "Así se verán los titulares: novedades de lanzamientos, actualizaciones y grandes eventos del sector.",
+            "Cobertura de la escena competitiva: torneos, resultados y tendencias que marcan la actualidad gamer.",
+            "Un resumen claro y directo, sin relleno, para que estés al día en cada visita.",
           ]}
+          badge="Vista previa"
+          note="Esta sección está en construcción. El contenido de arriba es un ejemplo de cómo lucirán las noticias reales cuando publiquemos la primera."
         />
       );
     }
@@ -724,12 +767,14 @@ export default function ChatGlobalScreen() {
       return (
         <InfoPanel
           title="Nuestras Novedades"
-          subtitle="Entradas nuevas de tienda, packs, reacondicionados y avisos importantes."
+          subtitle="El canal oficial para anunciar lanzamientos de la tienda, restocks y mejoras de la plataforma."
           items={[
-            "Nuevos packs de consola disponibles.",
-            "Entradas recientes de mandos, accesorios y reacondicionados.",
-            "Próximas mejoras del chat, perfiles gamer y búsqueda por ciudad.",
+            "Nuevas incorporaciones al catálogo: consolas, packs y ediciones especiales según vayan llegando.",
+            "Avisos de disponibilidad para artículos reacondicionados y accesorios de alta demanda.",
+            "Mejoras de la web y la app: nuevas funciones, ajustes de rendimiento y novedades del servicio.",
           ]}
+          badge="Vista previa"
+          note="Esta sección está en construcción. El contenido de arriba es un ejemplo de cómo lucirán nuestros anuncios reales."
         />
       );
     }
@@ -738,12 +783,23 @@ export default function ChatGlobalScreen() {
       return (
         <InfoPanel
           title="Torneos"
-          subtitle="Torneos, retos, clasificatorias y eventos comunitarios."
+          subtitle="El espacio dedicado a la competición: torneos, retos y eventos organizados por la comunidad."
           items={[
-            "Torneo Fortnite dúos — próximamente.",
-            "Retos semanales para activar comunidad.",
-            "Ranking local por ciudad o por sala más adelante.",
+            "Convocatorias de torneos con formato, fechas y premios detallados antes de cada inscripción.",
+            "Retos semanales abiertos a toda la comunidad para ganar visibilidad y recompensas.",
+            "Clasificaciones y rankings locales, organizados por ciudad o por sala de juego.",
           ]}
+          badge="Vista previa"
+          note="Esta sección está en construcción. El contenido de arriba es un ejemplo de cómo se anunciarán los torneos reales."
+        />
+      );
+    }
+
+    if (activeTab === "privados") {
+      return (
+        <PrivateChatsInbox
+          isLoggedIn={isLoggedIn}
+          onLoginPress={() => setShowAuthModal(true)}
         />
       );
     }
@@ -2322,10 +2378,16 @@ function InfoPanel({
   title,
   subtitle,
   items,
+  badge,
+  note,
 }: {
   title: string;
   subtitle: string;
   items: string[];
+  // "Vista previa": deja claro que el contenido de abajo es un ejemplo de
+  // cómo lucirá la sección, no una publicación real todavía.
+  badge?: string;
+  note?: string;
 }) {
   return (
     <View
@@ -2338,9 +2400,44 @@ function InfoPanel({
         gap: 12,
       }}
     >
-      <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-        {title}
-      </Text>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+        }}
+      >
+        <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
+          {title}
+        </Text>
+
+        {badge ? (
+          <View
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: COLORS.accentBorder,
+              backgroundColor: COLORS.accentSoft,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+            }}
+          >
+            <Text
+              style={{
+                color: COLORS.accent,
+                fontWeight: "900",
+                fontSize: 11,
+                letterSpacing: 0.3,
+                textTransform: "uppercase",
+              }}
+            >
+              {badge}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
       <Text style={{ color: COLORS.muted, lineHeight: 22 }}>{subtitle}</Text>
 
       <View style={{ gap: 10 }}>
@@ -2359,6 +2456,257 @@ function InfoPanel({
           </View>
         ))}
       </View>
+
+      {note ? (
+        <View
+          style={{
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: COLORS.borderSoft,
+            backgroundColor: "rgba(11,33,56,0.04)",
+            padding: 10,
+            flexDirection: "row",
+            alignItems: "flex-start",
+            gap: 8,
+          }}
+        >
+          <Ionicons name="information-circle-outline" size={16} color={COLORS.muted} />
+          <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: 12.5, flex: 1 }}>
+            {note}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// --- Pestaña "Chat": bandeja privada por producto -------------------------
+
+type PrivateChatRow = {
+  id: string;
+  product_id: string;
+  last_message_at: string;
+  last_message_preview: string;
+  product_title: string;
+  product_image: string | null;
+};
+
+function formatInboxDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
+}
+
+// Bandeja del cliente logueado: una fila por producto en el que ha escrito
+// (ver sql/product_chats.sql). Tocar una fila abre app/chat/[chatId].tsx,
+// donde vive la conversación de verdad (components/ProductChatThread.tsx).
+function PrivateChatsInbox({
+  isLoggedIn,
+  onLoginPress,
+}: {
+  isLoggedIn: boolean;
+  onLoginPress: () => void;
+}) {
+  const [rows, setRows] = useState<PrivateChatRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setLoading(false);
+      return;
+    }
+
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData.session?.user?.id;
+        if (!userId) return;
+
+        const { data: chats, error } = await supabase
+          .from("product_chats")
+          .select("id,product_id,last_message_at,last_message_preview")
+          .eq("customer_user_id", userId)
+          .order("last_message_at", { ascending: false });
+
+        if (error) throw error;
+        if (!alive) return;
+
+        const chatRows = (chats ?? []) as {
+          id: string;
+          product_id: string;
+          last_message_at: string;
+          last_message_preview: string;
+        }[];
+
+        const productIds = Array.from(new Set(chatRows.map((c) => c.product_id)));
+        let titleById: Record<string, string> = {};
+        let imageById: Record<string, string | null> = {};
+
+        if (productIds.length > 0) {
+          const { data: products } = await supabase
+            .from("products")
+            .select("id,title,images")
+            .in("id", productIds);
+
+          for (const row of (products ?? []) as any[]) {
+            titleById[row.id] = row.title ?? "Producto";
+            imageById[row.id] = row.images?.[0] ?? null;
+          }
+
+          const { data: media } = await supabase
+            .from("product_media")
+            .select("product_id,public_url,is_cover,sort_order")
+            .in("product_id", productIds)
+            .eq("kind", "image")
+            .order("is_cover", { ascending: false })
+            .order("sort_order", { ascending: true });
+
+          for (const row of (media ?? []) as any[]) {
+            if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
+          }
+        }
+
+        if (!alive) return;
+        setRows(
+          chatRows.map((c) => ({
+            ...c,
+            product_title: titleById[c.product_id] ?? "Producto",
+            product_image: imageById[c.product_id] ?? null,
+          }))
+        );
+      } catch (e) {
+        console.error("Error cargando tus conversaciones:", e);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [isLoggedIn]);
+
+  if (!isLoggedIn) {
+    return (
+      <View
+        style={{
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: COLORS.borderSoft,
+          backgroundColor: COLORS.card,
+          padding: 20,
+          gap: 10,
+          alignItems: "center",
+        }}
+      >
+        <Ionicons name="chatbubble-ellipses-outline" size={26} color={COLORS.muted} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+          Inicia sesión para ver tus conversaciones
+        </Text>
+        <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+          Aquí aparecen tus conversaciones privadas con la tienda sobre productos concretos.
+        </Text>
+        <Pressable
+          onPress={onLoginPress}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.9 : 1,
+            marginTop: 4,
+            borderRadius: 999,
+            paddingVertical: 12,
+            paddingHorizontal: 20,
+            backgroundColor: COLORS.accent,
+          })}
+        >
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={{ alignItems: "center", paddingVertical: 30 }}>
+        <ActivityIndicator color={COLORS.accent} />
+      </View>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <View
+        style={{
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: COLORS.borderSoft,
+          backgroundColor: COLORS.card,
+          padding: 20,
+          gap: 6,
+          alignItems: "center",
+        }}
+      >
+        <Ionicons name="chatbubble-ellipses-outline" size={26} color={COLORS.muted} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+          Todavía no tienes conversaciones
+        </Text>
+        <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+          Pulsa "Chat" en la ficha de un producto para escribirnos por él.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: 8 }}>
+      {rows.map((row) => (
+        <Pressable
+          key={row.id}
+          onPress={() => router.push({ pathname: "/chat/[chatId]", params: { chatId: row.id } } as any)}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.9 : 1,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: COLORS.borderSoft,
+            backgroundColor: COLORS.card,
+            padding: 12,
+          })}
+        >
+          {row.product_image ? (
+            <Image
+              source={{ uri: row.product_image }}
+              style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: COLORS.bg3 }}
+            />
+          ) : (
+            <View
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 12,
+                backgroundColor: COLORS.bg3,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="cube-outline" size={20} color={COLORS.muted} />
+            </View>
+          )}
+
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+              {row.product_title}
+            </Text>
+            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
+              {row.last_message_preview || "Sin mensajes todavía"}
+            </Text>
+          </View>
+
+          <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatInboxDate(row.last_message_at)}</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }

@@ -7,8 +7,8 @@
  * Cómo funciona:
  * - Carga productos destacados desde la tabla "products" de Supabase
  *   (con su categoría e imágenes) para la sección de destacados.
- * - FloatingSearchBar es un componente aparte que se superpone al
- *   contenido y se puede arrastrar arriba/abajo.
+ * - FloatingBarramagic (components/Barramagic.tsx) es un componente aparte
+ *   que se superpone al contenido y se puede arrastrar arriba/abajo.
  * - containerStyle (maxWidth según el ancho de pantalla: 920/1040/1240)
  *   centra todo el contenido en pantallas anchas para que nada quede
  *   pegado a la izquierda.
@@ -32,7 +32,9 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
- * - components/FloatingSearchBar.tsx → barra de búsqueda flotante.
+ * - components/Barramagic.tsx → barra de búsqueda (aquí, en modo flotante
+ *   vía FloatingBarramagic; app/catalogo.tsx usa el mismo archivo en modo
+ *   fijo/editable).
  * - components/Resenas.tsx → bloque de reseñas.
  * - components/PromoBanner.tsx → franja "Te compramos tu consola...".
  * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
@@ -64,7 +66,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import Resenas from "../../components/Resenas";
-import FloatingSearchBar from "../../components/FloatingSearchBar";
+import { FloatingBarramagic } from "../../components/Barramagic";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 
@@ -504,26 +506,37 @@ function SectionTitle({
   title,
   subtitle,
   isMobile,
+  center,
 }: {
   title: string;
   subtitle?: string;
   isMobile?: boolean;
+  /** Centra título y subtítulo (solo se usa donde se pide explícitamente). */
+  center?: boolean;
 }) {
   return (
-    <View style={{ marginBottom: 10 }}>
+    <View style={{ marginBottom: 10, alignItems: center ? "center" : "flex-start" }}>
       <Text
         style={{
           color: COLORS.text,
           fontSize: isMobile ? 17 : 18,
           fontWeight: "900",
           lineHeight: isMobile ? 22 : 24,
+          textAlign: center ? "center" : "left",
         }}
       >
         {title}
       </Text>
 
       {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+        <Text
+          style={{
+            color: COLORS.muted,
+            marginTop: 4,
+            lineHeight: 19,
+            textAlign: center ? "center" : "left",
+          }}
+        >
           {subtitle}
         </Text>
       )}
@@ -744,7 +757,7 @@ function CategoryCard({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        width: widthPercent ?? (isMobile ? "100%" : "48.8%"),
+        width: widthPercent ?? "48.8%",
         minHeight: isMobile ? 92 : 100,
         borderRadius: 18,
         borderWidth: 1,
@@ -752,6 +765,10 @@ function CategoryCard({
         backgroundColor: COLORS.tile,
         padding: isMobile ? 12 : 14,
         opacity: pressed ? 0.9 : 1,
+        // En móvil, icono/título/enlace centrados (se ve más cuidado en una
+        // rejilla de 2 columnas estrecha); en escritorio se deja como
+        // estaba, alineado a la izquierda.
+        alignItems: isMobile ? "center" : "flex-start",
       })}
     >
       <View
@@ -774,6 +791,7 @@ function CategoryCard({
           marginTop: 6,
           lineHeight: 20,
           fontSize: isMobile ? 14 : 15,
+          textAlign: isMobile ? "center" : "left",
         }}
       >
         {title}
@@ -785,6 +803,7 @@ function CategoryCard({
           marginTop: 4,
           fontSize: 12,
           lineHeight: 16,
+          textAlign: isMobile ? "center" : "left",
         }}
       >
         {cta ?? "Ver categoría →"}
@@ -1154,23 +1173,46 @@ export default function HomeScreen() {
   const [headerHidden, setHeaderHidden] = useState(false);
   const headerHiddenRef = useRef(false);
   const lastScrollYRef = useRef(0);
+  // Recorrido acumulado en la dirección actual, para no ocultar/mostrar la
+  // franja superior a la primera sacudida del dedo (antes bastaban 6px de un
+  // solo evento de scroll, y con scrollEventThrottle=16 eso disparaba el
+  // cambio en cuanto el usuario tocaba la pantalla, dando una sensación
+  // "nerviosa"). Ahora hace falta un recorrido sostenido en la misma
+  // dirección antes de reaccionar, como en apps con scroll "suave".
+  const scrollRunRef = useRef(0);
   const headerAnim = useRef(new Animated.Value(0)).current;
   const [bannerHeight, setBannerHeight] = useState(0);
+
+  const HEADER_SCROLL_HIDE_THRESHOLD = 28;
+  const HEADER_SCROLL_SHOW_THRESHOLD = 18;
 
   const handleScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
     const y = e.nativeEvent.contentOffset.y;
     const delta = y - lastScrollYRef.current;
     const nearTop = y < 20;
 
-    if (nearTop && headerHiddenRef.current) {
-      headerHiddenRef.current = false;
-      setHeaderHidden(false);
-    } else if (delta > 6 && !nearTop && !headerHiddenRef.current) {
-      headerHiddenRef.current = true;
-      setHeaderHidden(true);
-    } else if (delta < -6 && headerHiddenRef.current) {
-      headerHiddenRef.current = false;
-      setHeaderHidden(false);
+    if (nearTop) {
+      scrollRunRef.current = 0;
+      if (headerHiddenRef.current) {
+        headerHiddenRef.current = false;
+        setHeaderHidden(false);
+      }
+    } else if (delta > 0) {
+      // Bajando: solo acumula mientras se siga bajando; si el usuario cambia
+      // de sentido, el recorrido se reinicia en vez de restar (evita que un
+      // pequeño rebote hacia arriba "gaste" progreso y luego dispare el
+      // ocultado de golpe).
+      scrollRunRef.current = scrollRunRef.current > 0 ? scrollRunRef.current + delta : delta;
+      if (scrollRunRef.current > HEADER_SCROLL_HIDE_THRESHOLD && !headerHiddenRef.current) {
+        headerHiddenRef.current = true;
+        setHeaderHidden(true);
+      }
+    } else if (delta < 0) {
+      scrollRunRef.current = scrollRunRef.current < 0 ? scrollRunRef.current + delta : delta;
+      if (scrollRunRef.current < -HEADER_SCROLL_SHOW_THRESHOLD && headerHiddenRef.current) {
+        headerHiddenRef.current = false;
+        setHeaderHidden(false);
+      }
     }
 
     lastScrollYRef.current = y;
@@ -1179,8 +1221,8 @@ export default function HomeScreen() {
   useEffect(() => {
     Animated.timing(headerAnim, {
       toValue: headerHidden ? 1 : 0,
-      duration: 240,
-      easing: Easing.out(Easing.cubic),
+      duration: 280,
+      easing: Easing.inOut(Easing.cubic),
       useNativeDriver: false,
     }).start();
   }, [headerHidden, headerAnim]);
@@ -1207,7 +1249,15 @@ export default function HomeScreen() {
 
   const categoryCardWidth = useCallback(
     (span?: 1 | 2) => {
-      if (isMobile) return "100%";
+      // En móvil todas las categorías van en rejilla de 2 columnas (incluso
+      // las que en escritorio ocupan el ancho completo con span:2), para
+      // que quepan más sin tener que hacer tanto scroll. 46% y no 48.8%:
+      // el contenedor fila tiene "gap:10" además del ancho en porcentaje, y
+      // en pantallas estrechas ese hueco fijo de 10px no dejaba sitio para
+      // la segunda tarjeta (48.8% + 48.8% + 10px se pasaba del 100%
+      // disponible por un par de píxeles), así que cada tarjeta acababa
+      // sola en su fila. 46% dejamos margen de sobra para que quepan las 2.
+      if (isMobile) return "46%";
       if (categoryColumns === 3) return span === 2 ? "66.2%" : "32%";
       return span === 2 ? "100%" : "48.8%";
     },
@@ -1432,6 +1482,7 @@ export default function HomeScreen() {
               title="Categorías"
               subtitle="Explora las principales secciones de la tienda."
               isMobile={isMobile}
+              center={isMobile}
             />
 
             <View
@@ -1527,7 +1578,7 @@ export default function HomeScreen() {
                 <FooterLink label="Cesta" onPress={() => pushRoute("/cesta" as Href)} />
                 <FooterLink label="Checkout" onPress={() => pushRoute("/checkout" as Href)} />
                 <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
-                <FooterLink label="Chat Global" onPress={() => pushRoute("/chat-global" as Href)} />
+                <FooterLink label="Foro" onPress={() => pushRoute("/chat-global" as Href)} />
                 <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
               </FooterAccordionSection>
 
@@ -1567,7 +1618,7 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <FloatingSearchBar
+      <FloatingBarramagic
         isMobile={isMobile}
         topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
         mobileTabBarHeight={SEARCH_LAYOUT.mobileTabBarHeight}

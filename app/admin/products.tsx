@@ -13,10 +13,19 @@
  *   duración de vídeo con los límites de products.constants.ts.
  * - toggleActive()/toggleFeaturedHome() aplican cambios optimistas en la
  *   lista y los revierten si Supabase devuelve error.
+ * - "Marcar vendido" (MarkSoldModal, al final del archivo): busca un
+ *   usuario registrado por nombre/usuario/email (función admin_search_users
+ *   de sql/product_sales.sql, la única forma segura de leer auth.users
+ *   desde el cliente) y, al elegirlo, inserta en product_sales. Es la vía
+ *   directa, sin depender de que haya escrito por el chat del producto (esa
+ *   otra vía vive en app/admin/chats.tsx) — ambas escriben en la misma
+ *   tabla, así que la miniatura en components/Resenas.tsx aparece igual
+ *   venga de una vía o de la otra.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   textos en azul marino oscuro (COLORS de products.constants.ts).
  *
  * Conectado con:
+ * - sql/product_sales.sql → tabla e insert de "Marcar vendido".
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/admin/products/products.constants.ts → COLORS y límites de subida.
  * - app/admin/products/products.types.ts → tipos de producto y media.
@@ -250,8 +259,74 @@ function sanitizeProductRow(row: any): ProductRow {
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
     is_featured_home: Boolean(row.is_featured_home),
+    reference: typeof row.reference === "string" ? row.reference : null,
     media: [],
   };
+}
+
+function buildAdminProductsSelect(includeFeatured: boolean, includeReference: boolean) {
+  const base =
+    "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at";
+
+  return (
+    base +
+    (includeFeatured ? ",is_featured_home" : "") +
+    (includeReference ? ",reference" : "")
+  );
+}
+
+// Trae la lista de productos probando primero con todas las columnas
+// "nuevas" (is_featured_home, reference); si alguna todavía no existe en la
+// base de datos (falta ejecutar su migración en Supabase), reintenta sin
+// esa columna en vez de romper el panel entero. Sigue el mismo patrón que
+// ya usaba is_featured_home, solo que ahora cubre dos columnas opcionales
+// en vez de una.
+async function fetchAdminProductsSafe(): Promise<{
+  rows: any[];
+  supportsFeatured: boolean;
+  supportsReference: boolean;
+}> {
+  let includeFeatured = true;
+  let includeReference = true;
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await supabase
+      .from("products")
+      .select(buildAdminProductsSelect(includeFeatured, includeReference))
+      .order("updated_at", { ascending: false })
+      .limit(300);
+
+    if (!res.error) {
+      return {
+        rows: Array.isArray(res.data) ? res.data : [],
+        supportsFeatured: includeFeatured,
+        supportsReference: includeReference,
+      };
+    }
+
+    const msg = String(res.error.message ?? "").toLowerCase();
+    const featuredMissing =
+      includeFeatured &&
+      msg.includes("is_featured_home") &&
+      (msg.includes("column") || msg.includes("does not exist"));
+    const referenceMissing =
+      includeReference &&
+      msg.includes("reference") &&
+      (msg.includes("column") || msg.includes("does not exist"));
+
+    if (featuredMissing) {
+      includeFeatured = false;
+      continue;
+    }
+    if (referenceMissing) {
+      includeReference = false;
+      continue;
+    }
+
+    throw res.error;
+  }
+
+  throw new Error("No se pudo cargar la lista de productos.");
 }
 
 export default function AdminProducts() {
@@ -273,6 +348,7 @@ export default function AdminProducts() {
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("ALL");
 
   const [supportsFeaturedHome, setSupportsFeaturedHome] = useState(true);
+  const [supportsReference, setSupportsReference] = useState(true);
   const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
   const itemsRef = useRef<ProductRow[]>([]);
@@ -285,6 +361,7 @@ export default function AdminProducts() {
   const [modalErr, setModalErr] = useState<string | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<ProductRow | null>(null);
+  const [markSoldTarget, setMarkSoldTarget] = useState<ProductRow | null>(null);
 
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const isEdit = !!editing;
@@ -294,6 +371,7 @@ export default function AdminProducts() {
   const [price, setPrice] = useState("");
   const [status, setStatus] = useState<ProductStatus>("DRAFT");
   const [condition, setCondition] = useState<ProductCondition>("GOOD");
+  const [reference, setReference] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [isFeaturedHome, setIsFeaturedHome] = useState(false);
@@ -400,57 +478,19 @@ export default function AdminProducts() {
     setMediaDebugErr(null);
 
     try {
-      const [catsRes, prodRes] = await Promise.all([
+      const [catsRes, prodResult] = await Promise.all([
         supabase
           .from("categories")
           .select("id,name,slug,sort_order,is_active")
           .order("sort_order", { ascending: true })
           .order("name", { ascending: true }),
-        supabase
-          .from("products")
-          .select(
-            "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at,is_featured_home"
-          )
-          .order("updated_at", { ascending: false })
-          .limit(300),
+        fetchAdminProductsSafe(),
       ]);
 
       if (catsRes.error) throw catsRes.error;
 
-      let supportsFeatured = true;
-      let productsData: ProductRow[] = [];
-
-      if (prodRes.error) {
-        const msg = String(prodRes.error.message ?? "");
-        const featuredColumnMissing =
-          msg.includes("is_featured_home") &&
-          (msg.includes("column") || msg.includes("does not exist"));
-
-        if (featuredColumnMissing) {
-          const fallbackRes = await supabase
-            .from("products")
-            .select(
-              "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at"
-            )
-            .order("updated_at", { ascending: false })
-            .limit(300);
-
-          if (fallbackRes.error) throw fallbackRes.error;
-
-          supportsFeatured = false;
-          productsData = (Array.isArray(fallbackRes.data) ? fallbackRes.data : []).map((row) => ({
-            ...sanitizeProductRow(row),
-            is_featured_home: false,
-            media: [],
-          }));
-        } else {
-          throw prodRes.error;
-        }
-      } else {
-        productsData = (Array.isArray(prodRes.data) ? prodRes.data : []).map((row) =>
-          sanitizeProductRow(row)
-        );
-      }
+      const supportsFeatured = prodResult.supportsFeatured;
+      const productsData: ProductRow[] = prodResult.rows.map((row) => sanitizeProductRow(row));
 
       let supportsMedia = true;
       let mediaRows: ProductMediaRow[] = [];
@@ -492,6 +532,7 @@ export default function AdminProducts() {
       }));
 
       setSupportsFeaturedHome(supportsFeatured);
+      setSupportsReference(prodResult.supportsReference);
       setSupportsProductMedia(supportsMedia);
       setCategories((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]);
       setItems(merged);
@@ -519,6 +560,7 @@ export default function AdminProducts() {
     setPrice("");
     setStatus("DRAFT");
     setCondition("GOOD");
+    setReference("");
     setCategoryId(null);
     setIsActive(true);
     setIsFeaturedHome(false);
@@ -542,6 +584,7 @@ export default function AdminProducts() {
     setPrice(String(p.price_eur ?? 0));
     setStatus(p.status ?? "DRAFT");
     setCondition(p.condition ?? "GOOD");
+    setReference(p.reference ?? "");
     setCategoryId(p.category_id ?? null);
     setIsActive(!!p.is_active);
     setIsFeaturedHome(!!p.is_featured_home);
@@ -757,6 +800,8 @@ export default function AdminProducts() {
       return;
     }
 
+    const cleanReference = reference.trim();
+
     const payload: Record<string, any> = {
       title: cleanTitle,
       description: cleanDesc || null,
@@ -769,6 +814,10 @@ export default function AdminProducts() {
 
     if (supportsFeaturedHome) {
       payload.is_featured_home = !!isFeaturedHome;
+    }
+
+    if (supportsReference) {
+      payload.reference = cleanReference || null;
     }
 
     try {
@@ -804,7 +853,12 @@ export default function AdminProducts() {
         "Error guardando producto:",
         e?.message || e?.error_description || e?.details || e
       );
-      setModalErr("No se ha podido guardar el producto. Inténtalo de nuevo.");
+
+      if (e?.code === "23505" && String(e?.message ?? "").toLowerCase().includes("reference")) {
+        setModalErr("Ya existe otro producto con ese número de referencia. Usa uno distinto.");
+      } else {
+        setModalErr("No se ha podido guardar el producto. Inténtalo de nuevo.");
+      }
     } finally {
       setSaving(false);
     }
@@ -1269,6 +1323,11 @@ export default function AdminProducts() {
                             isMobile={isMobile}
                           />
                         ) : null}
+                        <ChipButton
+                          label="Marcar vendido"
+                          onPress={() => setMarkSoldTarget(p)}
+                          isMobile={isMobile}
+                        />
                         <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(p)} isMobile={isMobile} />
                       </View>
                     </View>
@@ -1383,6 +1442,34 @@ export default function AdminProducts() {
                   fontSize: 14,
                 }}
               />
+
+              {supportsReference ? (
+                <TextInput
+                  value={reference}
+                  onChangeText={(v) => {
+                    setReference(v);
+                    setModalErr(null);
+                  }}
+                  placeholder="Número de referencia del artículo (opcional)"
+                  placeholderTextColor="rgba(11,33,56,0.40)"
+                  autoCapitalize="characters"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderRadius: 14,
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    color: COLORS.text,
+                    backgroundColor: "#F8FBFE",
+                    fontSize: 14,
+                  }}
+                />
+              ) : (
+                <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: 12 }}>
+                  El número de referencia todavía no está activado: ejecuta
+                  sql/product_reference.sql en Supabase para poder rellenarlo.
+                </Text>
+              )}
 
               <SectionTitle
                 title="Media del producto"
@@ -1723,6 +1810,225 @@ export default function AdminProducts() {
           </View>
         </View>
       </Modal>
+
+      <MarkSoldModal
+        product={markSoldTarget}
+        isMobile={isMobile}
+        onClose={() => setMarkSoldTarget(null)}
+      />
     </View>
+  );
+}
+
+// --- "Marcar vendido" buscando un usuario registrado ----------------------
+// No depende de que el cliente haya escrito por el chat del producto (esa
+// otra vía vive en app/admin/chats.tsx): aquí Jefe busca directamente por
+// nombre, usuario o email con la función admin_search_users (ver
+// sql/product_sales.sql, la única forma de leer auth.users desde el cliente
+// sin exponer la tabla entera) y marca el producto como vendido a quien
+// elija. Ambas vías escriben en la misma tabla product_sales.
+type AdminUserResult = { id: string; email: string; full_name: string; username: string };
+type ExistingSale = { buyer_user_id: string; created_at: string };
+
+function MarkSoldModal({
+  product,
+  isMobile,
+  onClose,
+}: {
+  product: ProductRow | null;
+  isMobile: boolean;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<AdminUserResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const [markedName, setMarkedName] = useState<string | null>(null);
+  const [existingSale, setExistingSale] = useState<ExistingSale | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!product) {
+      setQuery("");
+      setResults([]);
+      setMarkedName(null);
+      setExistingSale(null);
+      return;
+    }
+
+    supabase
+      .from("product_sales")
+      .select("buyer_user_id,created_at")
+      .eq("product_id", product.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setExistingSale((data as ExistingSale) ?? null));
+  }, [product?.id]);
+
+  useEffect(() => {
+    if (!product) return;
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { data, error } = await supabase.rpc("admin_search_users", { q: query });
+        if (error) throw error;
+        setResults((data ?? []) as AdminUserResult[]);
+      } catch (e) {
+        console.error("Error buscando usuarios:", e);
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, product?.id]);
+
+  async function markSoldTo(user: AdminUserResult) {
+    if (!product || marking) return;
+
+    setMarking(true);
+    try {
+      const { error } = await supabase
+        .from("product_sales")
+        .insert({ product_id: product.id, buyer_user_id: user.id });
+      if (error) throw error;
+
+      setMarkedName(user.full_name || user.username || user.email);
+      setExistingSale({ buyer_user_id: user.id, created_at: new Date().toISOString() });
+    } catch (e) {
+      console.error("Error marcando como vendido:", e);
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  return (
+    <Modal visible={!!product} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.55)",
+          padding: isMobile ? 10 : 16,
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 480,
+            alignSelf: "center",
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: COLORS.bg2,
+            padding: isMobile ? 14 : 16,
+            gap: 12,
+          }}
+        >
+          <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+            Marcar como vendido
+          </Text>
+
+          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            Busca al cliente registrado (nombre, usuario o email) al que le has vendido{" "}
+            <Text style={{ color: COLORS.text, fontWeight: "900" }}>{product?.title ?? ""}</Text>.
+          </Text>
+
+          {existingSale ? (
+            <View
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: COLORS.successBorder,
+                backgroundColor: COLORS.successBg,
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                {markedName ? `Marcado como vendido a ${markedName}.` : "Este producto ya tiene una venta registrada."}
+              </Text>
+            </View>
+          ) : null}
+
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Nombre, usuario o email…"
+            placeholderTextColor="rgba(11,33,56,0.40)"
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 12,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              color: COLORS.text,
+              backgroundColor: "#FFFFFF",
+              fontSize: 16,
+            }}
+          />
+
+          <View style={{ gap: 8, maxHeight: 260 }}>
+            {searching ? (
+              <View style={{ alignItems: "center", paddingVertical: 12 }}>
+                <ActivityIndicator color={COLORS.accent} />
+              </View>
+            ) : results.length === 0 ? (
+              <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", paddingVertical: 8 }}>
+                {query.trim() ? "Sin resultados." : "Escribe para buscar entre los usuarios registrados."}
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 260 }}>
+                <View style={{ gap: 6 }}>
+                  {results.map((u) => {
+                    const isSoldToThis = existingSale?.buyer_user_id === u.id;
+                    return (
+                      <Pressable
+                        key={u.id}
+                        onPress={() => markSoldTo(u)}
+                        disabled={marking}
+                        style={({ pressed }) => ({
+                          opacity: marking ? 0.6 : pressed ? 0.9 : 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: isSoldToThis ? COLORS.successBorder : COLORS.border,
+                          backgroundColor: isSoldToThis ? COLORS.successBg : "#FFFFFF",
+                          padding: 10,
+                        })}
+                      >
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                            {u.full_name || u.username || "Sin nombre"}
+                          </Text>
+                          <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                            {u.email}
+                          </Text>
+                        </View>
+                        {isSoldToThis ? (
+                          <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            )}
+          </View>
+
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 4 }}>
+            <ChipButton label="Cerrar" variant="ghost" onPress={onClose} isMobile={isMobile} />
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }

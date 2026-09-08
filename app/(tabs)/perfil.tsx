@@ -452,6 +452,9 @@ function Input({
           paddingVertical: 13,
           color: COLORS.text,
           backgroundColor: "#F8FBFE",
+          // 16px mínimo: por debajo, el móvil hace zoom automático al
+          // tocar la casilla (ver components/ProductChatThread.tsx).
+          fontSize: 16,
         }}
       />
 

@@ -3,8 +3,15 @@
  *
  * Qué hace: ficha de un producto individual. Carga el producto y su galería
  * de fotos/vídeos desde Supabase a partir del id de la URL, y permite
- * añadirlo a la cesta, ir a checkout, preguntar por WhatsApp, compartir la
- * ficha o darle "me gusta".
+ * añadirlo a la cesta, ir a checkout, preguntar por WhatsApp, abrir un chat
+ * privado sobre este producto, compartir la ficha o darle "me gusta".
+ *
+ * Chat privado: el botón "Chat" (junto a "Preguntar por WhatsApp") exige
+ * sesión iniciada; con sesión, get_or_create_product_chat (ver
+ * sql/product_chats.sql) crea o reutiliza la conversación de
+ * (este producto, este cliente) y lleva a app/chat/[chatId].tsx. Así Jefe
+ * puede ver, desde app/admin/chats.tsx, quién le ha escrito por cada
+ * artículo y marcarlo como vendido a la persona correcta.
  *
  * Cómo funciona: fetchProductSafe() intenta varias variantes de la consulta
  * (con/sin join de categoría, con/sin columna de imágenes, con/sin
@@ -27,6 +34,31 @@
  * móvil/web, con copiar el enlace al portapapeles como alternativa en
  * escritorio; en nativo (iOS/Android) usa el Share de React Native.
  *
+ * Comprar: "Añadir a la cesta" y "Comprar ya" (con selector de Cantidad)
+ * escriben directamente en la misma cesta que usan app/(tabs)/cesta.tsx y
+ * app/checkout.tsx (misma clave de AsyncStorage, CART_KEY), duplicada aquí
+ * en vez de importada, igual que el resto de pantallas de este proyecto.
+ * "Comprar ya" añade el producto y lleva directo a checkout, saltándose la
+ * cesta, como el botón equivalente de otras tiendas online.
+ *
+ * Imagen ampliada: al tocar la foto principal se abre
+ * components/ImageLightbox.tsx, un visor a pantalla completa con zoom
+ * (pellizco, doble toque o rueda del ratón) y navegación entre todas las
+ * fotos del producto. La foto principal (sin abrir el visor) también se
+ * puede deslizar con el dedo hacia los lados como un carrusel, para pasar
+ * de una foto a otra sin salir de la ficha (mainImagePan).
+ *
+ * Cabecera: solo el botón "←" queda fijo arriba; el título y el subtítulo
+ * del producto viven dentro del ScrollView (son lo primero que se ve) y
+ * desaparecen al hacer scroll como el resto del contenido, en vez de
+ * quedarse pegados arriba.
+ *
+ * Número de referencia: viene de products.reference (ver
+ * sql/product_reference.sql — columna nueva, opcional, hay que ejecutar el
+ * script una vez en Supabase). Se rellena al crear/editar el producto desde
+ * app/admin/products.tsx y aquí solo se muestra dentro de "Información del
+ * producto" cuando el producto tiene uno asignado.
+ *
  * Rendimiento: dentro de loadProduct(), la comprobación de admin y la carga
  * del producto siguen siendo secuenciales a propósito (la segunda necesita
  * saber si eres admin antes de decidir qué puede ver), pero la consulta de
@@ -46,6 +78,7 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -59,8 +92,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -76,6 +108,7 @@ const COLORS = {
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
+  accentDark: "#0E86C4",
 };
 
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
@@ -124,6 +157,7 @@ type ProductDbRow = {
   category: Category | null;
   condition: string | null;
   like_count: number | null;
+  reference: string | null;
 };
 
 type Product = {
@@ -138,6 +172,7 @@ type Product = {
   media: ProductMedia[];
   condition: ProductCondition;
   likeCount: number;
+  reference: string | null;
 };
 
 const BRAND = {
@@ -165,6 +200,51 @@ async function saveLikedProductIds(ids: Set<string>) {
     // Si falla el guardado local no pasa nada grave: como mucho el like se
     // olvida al recargar la página, pero el contador ya se actualizó en
     // Supabase.
+  }
+}
+
+// Misma clave y forma que usan app/(tabs)/cesta.tsx y app/checkout.tsx
+// (CART_KEY = "videojuegoos_cart_v1"), duplicada aquí en vez de importada
+// -siguiendo cómo está hecho el resto del proyecto- para poder añadir al
+// carrito directamente desde esta pantalla (botones "Añadir a la cesta" y
+// "Comprar ya") sin depender de que cesta.tsx esté montada.
+type CartItem = {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  priceEUR: number;
+  qty: number;
+  imageUrl?: string | null;
+};
+
+const CART_KEY = "videojuegoos_cart_v1";
+
+// Marcador de "Comprar ya": qué producto se compró así con qué usuario
+// logueado, para que app/checkout.tsx pueda marcarlo como vendido solo al
+// confirmar el pedido (ver sql/product_sales.sql). Es distinto de CART_KEY
+// porque un pedido puede llevar además otros productos añadidos a mano a la
+// cesta, que no se marcan como vendidos automáticamente.
+const BUY_NOW_MARK_KEY = "videojuegoos_buy_now_mark_v1";
+
+type BuyNowMark = { productId: string; userId: string };
+
+async function loadCart(): Promise<CartItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(CART_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((it: CartItem) => it && it.id && it.title)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveCart(items: CartItem[]) {
+  try {
+    await AsyncStorage.setItem(CART_KEY, JSON.stringify(items));
+  } catch {
+    // Si falla el guardado, la cesta se queda como estaba antes del intento.
   }
 }
 
@@ -201,18 +281,6 @@ function adminStatusLabel(s: UiStatus) {
   if (s === "PUBLICADA") return "Publicada";
   if (s === "LISTA") return "Lista";
   return "Por revisar";
-}
-
-function statusBg(s: UiStatus) {
-  if (s === "PUBLICADA") return "#DCFCE7";
-  if (s === "LISTA") return "#FEF3C7";
-  return "#FFE4E6";
-}
-
-function statusBorder(s: UiStatus) {
-  if (s === "PUBLICADA") return "#86EFAC";
-  if (s === "LISTA") return "#FDE68A";
-  return "#FDA4AF";
 }
 
 function asProductCondition(value: unknown): ProductCondition {
@@ -337,6 +405,7 @@ function asProductDbRow(value: unknown): ProductDbRow | null {
         : row.like_count != null
         ? Number(row.like_count)
         : null,
+    reference: typeof row.reference === "string" && row.reference.trim() ? row.reference.trim() : null,
   };
 }
 
@@ -518,113 +587,80 @@ async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[
     .filter((row): row is ProductMediaRow => Boolean(row));
 }
 
-function buildProductSelectVariants(includeLikeCount: boolean) {
-  const likeCountFrag = includeLikeCount ? ",like_count" : "";
+function buildProductSelectVariants(includeLikeCount: boolean, includeReference: boolean) {
+  const extraFrag =
+    (includeLikeCount ? ",like_count" : "") + (includeReference ? ",reference" : "");
 
   return {
-    withJoinAndImages: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${likeCountFrag},category:categories(id,name,slug)`,
-    withJoinBase: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${likeCountFrag},category:categories(id,name,slug)`,
-    imagesNoJoin: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${likeCountFrag}`,
-    baseNoJoin: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${likeCountFrag}`,
+    withJoinAndImages: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${extraFrag},category:categories(id,name,slug)`,
+    withJoinBase: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${extraFrag},category:categories(id,name,slug)`,
+    imagesNoJoin: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${extraFrag}`,
+    baseNoJoin: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${extraFrag}`,
   };
 }
 
-// Devuelve tanto la fila como si el "me gusta" está disponible: si la tabla
-// products todavía no tiene la columna like_count (falta ejecutar
-// sql/product_likes.sql en Supabase), se reintenta toda la consulta sin
-// pedirla en vez de romper la ficha de producto.
+// Devuelve la fila y si el "me gusta" y el número de referencia están
+// disponibles: si a la tabla products todavía le falta like_count (falta
+// ejecutar sql/product_likes.sql) o reference (falta sql/product_reference.sql),
+// se reintenta toda la consulta sin la columna que falte en vez de romper
+// la ficha de producto.
 async function fetchProductSafe(
   productId: string,
   adminFlag: boolean
-): Promise<{ row: ProductDbRow | null; likesSupported: boolean }> {
+): Promise<{ row: ProductDbRow | null; likesSupported: boolean; referenceSupported: boolean }> {
   for (const includeLikeCount of [true, false]) {
-    const variants = buildProductSelectVariants(includeLikeCount);
-    const attempts = [
-      variants.withJoinAndImages,
-      variants.withJoinBase,
-      variants.imagesNoJoin,
-      variants.baseNoJoin,
-    ];
+    for (const includeReference of [true, false]) {
+      const variants = buildProductSelectVariants(includeLikeCount, includeReference);
+      const attempts = [
+        variants.withJoinAndImages,
+        variants.withJoinBase,
+        variants.imagesNoJoin,
+        variants.baseNoJoin,
+      ];
 
-    for (const selectStr of attempts) {
-      let query = supabase.from("products").select(selectStr).eq("id", productId);
+      let missingOptionalColumn = false;
 
-      if (!adminFlag) {
-        query = query.eq("is_active", true).eq("status", "PUBLISHED");
+      for (const selectStr of attempts) {
+        let query = supabase.from("products").select(selectStr).eq("id", productId);
+
+        if (!adminFlag) {
+          query = query.eq("is_active", true).eq("status", "PUBLISHED");
+        }
+
+        const res = await query.maybeSingle();
+
+        if (!res.error) {
+          return {
+            row: asProductDbRow(res.data),
+            likesSupported: includeLikeCount,
+            referenceSupported: includeReference,
+          };
+        }
+
+        if (
+          (includeLikeCount && isMissingColumnError(res.error, "like_count")) ||
+          (includeReference && isMissingColumnError(res.error, "reference"))
+        ) {
+          missingOptionalColumn = true;
+          break;
+        }
+
+        const canFallback =
+          isMissingColumnError(res.error, "images") ||
+          isMissingRelationError(res.error, "categories") ||
+          isMissingColumnError(res.error, "slug") ||
+          isMissingColumnError(res.error, "name");
+
+        if (!canFallback) {
+          throw res.error;
+        }
       }
 
-      const res = await query.maybeSingle();
-
-      if (!res.error) {
-        return { row: asProductDbRow(res.data), likesSupported: includeLikeCount };
-      }
-
-      if (includeLikeCount && isMissingColumnError(res.error, "like_count")) {
-        break;
-      }
-
-      const canFallback =
-        isMissingColumnError(res.error, "images") ||
-        isMissingRelationError(res.error, "categories") ||
-        isMissingColumnError(res.error, "slug") ||
-        isMissingColumnError(res.error, "name");
-
-      if (!canFallback) {
-        throw res.error;
-      }
+      if (!missingOptionalColumn) break;
     }
   }
 
-  return { row: null, likesSupported: false };
-}
-
-function ActionChip({
-  label,
-  onPress,
-  disabled,
-  tone = "accent",
-  icon,
-  isMobile,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  tone?: "accent" | "ghost";
-  icon?: IoniconName;
-  isMobile?: boolean;
-}) {
-  const accentTone = tone === "accent";
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => ({
-        opacity: disabled ? 0.45 : pressed ? 0.88 : 1,
-        paddingVertical: isMobile ? 10 : 9,
-        paddingHorizontal: isMobile ? 14 : 12,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: accentTone ? COLORS.accentBorder : COLORS.borderSoft,
-        backgroundColor: accentTone ? COLORS.accent2 : "#F6FAFD",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-      })}
-    >
-      {icon ? <Ionicons name={icon} size={14} color={COLORS.text} /> : null}
-
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          fontSize: isMobile ? 12 : 12,
-        }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
+  return { row: null, likesSupported: false, referenceSupported: false };
 }
 
 export default function ProductoScreen() {
@@ -648,6 +684,11 @@ export default function ProductoScreen() {
   const [likeBusy, setLikeBusy] = useState(false);
   const [likesSupported, setLikesSupported] = useState(true);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [qty, setQty] = useState(1);
+  const [cartBusy, setCartBusy] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   const reqSeqRef = useRef(0);
 
@@ -757,6 +798,7 @@ ${price}
         media: normalizedMedia,
         condition: asProductCondition(productRow.condition),
         likeCount: Math.max(0, Number(productRow.like_count ?? 0)),
+        reference: productRow.reference ?? null,
       };
 
       setP(mapped);
@@ -780,6 +822,7 @@ ${price}
 
   useEffect(() => {
     loadProduct();
+    setQty(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
@@ -805,6 +848,137 @@ ${price}
     if (!p) return [];
     return p.media.filter((m) => m.kind === "image");
   }, [p]);
+
+  // Imágenes para el visor a pantalla completa (ImageLightbox). Si el
+  // producto no tiene fotos en product_media pero sí una imagen "de toda la
+  // vida" en products.images, se usa esa como única foto del visor en vez
+  // de dejarlo sin nada.
+  const lightboxImages: LightboxImage[] = useMemo(() => {
+    if (imageGallery.length > 0) {
+      return imageGallery.map((m) => ({ id: m.id, url: m.publicUrl }));
+    }
+    if (p?.imageUrl) {
+      return [{ id: p.id, url: p.imageUrl }];
+    }
+    return [];
+  }, [imageGallery, p?.id, p?.imageUrl]);
+
+  function openLightbox() {
+    if (!lightboxImages.length) return;
+    const idx = selectedImageUrl
+      ? lightboxImages.findIndex((img) => img.url === selectedImageUrl)
+      : 0;
+    setLightboxIndex(idx >= 0 ? idx : 0);
+    setLightboxOpen(true);
+  }
+
+  // Desliza la foto principal como un carrusel (sin zoom: el zoom vive en
+  // ImageLightbox). "delta" es -1 (anterior) o 1 (siguiente), y da la
+  // vuelta al llegar al final, como cualquier carrusel.
+  function stepImage(delta: number) {
+    if (imageGallery.length < 2) return;
+    const currentIdx = imageGallery.findIndex((m) => m.publicUrl === selectedImageUrl);
+    const base = currentIdx >= 0 ? currentIdx : 0;
+    const next = ((base + delta) % imageGallery.length + imageGallery.length) % imageGallery.length;
+    setSelectedImageUrl(imageGallery[next].publicUrl);
+  }
+
+  // Un toque corto (sin apenas movimiento) abre el visor a pantalla
+  // completa; un arrastre horizontal claro cambia de foto tipo carrusel. Se
+  // crea de nuevo en cada render (a propósito, no con useRef) para que
+  // siempre "vea" el selectedImageUrl/imageGallery actuales -si se creara
+  // una sola vez, se quedaría con los valores del primer render.
+  const mainImagePan = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_evt, gestureState) =>
+      Math.abs(gestureState.dx) > 6 || Math.abs(gestureState.dy) > 6,
+    onPanResponderRelease: (_evt, gestureState) => {
+      const movedLittle = Math.abs(gestureState.dx) < 6 && Math.abs(gestureState.dy) < 6;
+
+      if (movedLittle) {
+        openLightbox();
+        return;
+      }
+
+      if (Math.abs(gestureState.dx) > 40 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy)) {
+        stepImage(gestureState.dx > 0 ? -1 : 1);
+      }
+    },
+  });
+
+  async function addToCart(mode: "cart" | "buyNow") {
+    if (!p || cartBusy) return;
+
+    setCartBusy(true);
+    try {
+      // "Comprar ya" exige sesión iniciada: es lo que permite marcar el
+      // producto como vendido solo al confirmar el pedido. "Añadir a la
+      // cesta" sigue funcionando como invitado, sin pedir login.
+      if (mode === "buyNow") {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData.session?.user?.id;
+        if (!userId) {
+          pushRoute("/perfil" as Href);
+          return;
+        }
+        await AsyncStorage.setItem(
+          BUY_NOW_MARK_KEY,
+          JSON.stringify({ productId: p.id, userId } as BuyNowMark)
+        );
+      }
+
+      const current = await loadCart();
+      const existing = current.find((it) => it.id === p.id);
+
+      const next: CartItem[] = existing
+        ? current.map((it) => (it.id === p.id ? { ...it, qty: it.qty + qty } : it))
+        : [
+            {
+              id: p.id,
+              title: p.title,
+              subtitle: p.category?.name ?? null,
+              priceEUR: p.priceEUR,
+              qty,
+              imageUrl: p.imageUrl,
+            },
+            ...current,
+          ];
+
+      await saveCart(next);
+
+      if (mode === "buyNow") {
+        replaceRoute("/checkout" as Href);
+      } else {
+        pushRoute("/cesta" as Href);
+      }
+    } finally {
+      setCartBusy(false);
+    }
+  }
+
+  async function handleChatPress() {
+    if (!p || chatBusy) return;
+
+    setChatBusy(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user) {
+        pushRoute("/perfil" as Href);
+        return;
+      }
+
+      const { data: chatId, error } = await supabase.rpc("get_or_create_product_chat", {
+        p_product_id: p.id,
+      });
+      if (error) throw error;
+
+      pushRoute({ pathname: "/chat/[chatId]", params: { chatId: String(chatId) } });
+    } catch (e) {
+      console.error("Error abriendo el chat del producto:", e);
+    } finally {
+      setChatBusy(false);
+    }
+  }
 
   async function toggleLike() {
     if (!p || !likesSupported || likeBusy) return;
@@ -894,7 +1068,7 @@ ${price}
         }}
       >
         {/* Columna centrada: en pantallas anchas la ficha no se pega a la izquierda */}
-        <View style={{ width: "100%", maxWidth: 1240, gap: 12 }}>
+        <View style={{ width: "100%", maxWidth: 1240 }}>
         <Pressable
           onPress={smartBack}
           style={({ pressed }) => ({
@@ -910,41 +1084,6 @@ ${price}
         >
           <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
         </Pressable>
-
-        <View
-          style={{
-            flexDirection: isMobile ? "column" : "row",
-            justifyContent: "space-between",
-            alignItems: isMobile ? "center" : "flex-start",
-            gap: 10,
-          }}
-        >
-          <View style={{ flex: 1, alignItems: isMobile ? "center" : "flex-start" }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: isMobile ? 24 : 28,
-                fontWeight: "900",
-                lineHeight: isMobile ? 30 : 32,
-                textAlign: isMobile ? "center" : "left",
-              }}
-              numberOfLines={isMobile ? 3 : 2}
-            >
-              {p?.title ?? "Producto"}
-            </Text>
-
-            <Text
-              style={{
-                color: COLORS.muted,
-                marginTop: 6,
-                lineHeight: 20,
-                textAlign: isMobile ? "center" : "left",
-              }}
-            >
-              {heroSubcopy}
-            </Text>
-          </View>
-        </View>
         </View>
       </View>
 
@@ -1045,6 +1184,32 @@ ${price}
           }}
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
+          <View style={{ width: "100%", alignItems: isMobile ? "center" : "flex-start" }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: isMobile ? 24 : 28,
+                fontWeight: "900",
+                lineHeight: isMobile ? 30 : 32,
+                textAlign: isMobile ? "center" : "left",
+              }}
+              numberOfLines={isMobile ? 3 : 2}
+            >
+              {p.title}
+            </Text>
+
+            <Text
+              style={{
+                color: COLORS.muted,
+                marginTop: 6,
+                lineHeight: 20,
+                textAlign: isMobile ? "center" : "left",
+              }}
+            >
+              {heroSubcopy}
+            </Text>
+          </View>
+
           <View
             style={{
               flexDirection: isWide ? "row" : "column",
@@ -1070,15 +1235,17 @@ ${price}
                 }}
               >
                 {selectedImageUrl ? (
-                  <Image
-                    source={{ uri: selectedImageUrl }}
-                    style={{
-                      width: "100%",
-                      height: isWide ? 520 : isTablet ? 360 : 260,
-                      backgroundColor: "#F8FBFE",
-                    }}
-                    resizeMode="cover"
-                  />
+                  <View style={{ width: "100%" }} {...mainImagePan.panHandlers}>
+                    <Image
+                      source={{ uri: selectedImageUrl }}
+                      style={{
+                        width: "100%",
+                        height: isWide ? 520 : isTablet ? 360 : 260,
+                        backgroundColor: "#F8FBFE",
+                      }}
+                      resizeMode="contain"
+                    />
+                  </View>
                 ) : (
                   <View
                     style={{
@@ -1128,7 +1295,7 @@ ${price}
                     style={{
                       position: "absolute",
                       right: 12,
-                      bottom: 62,
+                      bottom: 52,
                       paddingVertical: 6,
                       paddingHorizontal: 12,
                       borderRadius: 999,
@@ -1154,15 +1321,15 @@ ${price}
                     onPress={shareProduct}
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.85 : 1,
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: "rgba(11,33,56,0.60)",
                     })}
                   >
-                    <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
+                    <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
                   </Pressable>
 
                   <Pressable
@@ -1170,23 +1337,23 @@ ${price}
                     disabled={!likesSupported || likeBusy}
                     style={({ pressed }) => ({
                       opacity: !likesSupported ? 0.5 : pressed ? 0.85 : 1,
-                      minWidth: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      paddingHorizontal: 12,
+                      minWidth: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      paddingHorizontal: 10,
                       flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 6,
+                      gap: 5,
                       backgroundColor: "rgba(11,33,56,0.60)",
                     })}
                   >
                     <Ionicons
                       name={liked ? "heart" : "heart-outline"}
-                      size={18}
+                      size={15}
                       color={liked ? "#FF5A7A" : "#FFFFFF"}
                     />
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 11 }}>
                       {likeCount}
                     </Text>
                   </Pressable>
@@ -1259,15 +1426,26 @@ ${price}
                 >
                   <View
                     style={{
-                      paddingVertical: 7,
-                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
                       borderRadius: 999,
-                      backgroundColor: statusBg(p.status),
+                      backgroundColor: COLORS.accent2,
                       borderWidth: 1,
-                      borderColor: statusBorder(p.status),
+                      borderColor: COLORS.accentBorder,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
                     }}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                    <Ionicons name="shield-checkmark-outline" size={14} color={COLORS.accent} />
+                    <Text
+                      style={{
+                        color: COLORS.text,
+                        fontWeight: "900",
+                        fontSize: 12,
+                        letterSpacing: 0.2,
+                      }}
+                    >
                       De segunda mano: {labelCondition(p.condition)}
                     </Text>
                   </View>
@@ -1284,40 +1462,129 @@ ${price}
                   {fmtEUR(p.priceEUR)}
                 </Text>
 
-                <View
-                  style={{
-                    flexDirection: "row",
-                    flexWrap: "wrap",
-                    gap: 10,
-                  }}
-                >
-                  <ActionChip
-                    label="Ver cesta"
-                    icon="cart-outline"
-                    onPress={() => pushRoute("/cesta" as Href)}
-                    isMobile={isMobile}
-                  />
+                <View style={{ gap: 10 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 13 }}>
+                        Cantidad
+                      </Text>
 
-                  <ActionChip
-                    label="Añadir a la cesta"
-                    onPress={() =>
-                      pushRoute({ pathname: "/cesta", params: { add: p.id } })
-                    }
-                    disabled={!canBuy}
-                    isMobile={isMobile}
-                  />
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          backgroundColor: "#F6FAFD",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <Pressable
+                          onPress={() => setQty((n) => Math.max(1, n - 1))}
+                          disabled={qty <= 1}
+                          style={({ pressed }) => ({
+                            opacity: qty <= 1 ? 0.4 : pressed ? 0.85 : 1,
+                            width: 36,
+                            height: 36,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          })}
+                        >
+                          <Ionicons name="remove" size={16} color={COLORS.text} />
+                        </Pressable>
 
-                  <ActionChip
-                    label="Finalizar compra"
-                    onPress={() => pushRoute("/checkout" as Href)}
-                    isMobile={isMobile}
-                  />
+                        <Text
+                          style={{
+                            minWidth: 30,
+                            textAlign: "center",
+                            color: COLORS.text,
+                            fontWeight: "900",
+                          }}
+                      >
+                        {qty}
+                      </Text>
 
-                  <ActionChip
-                    label="Preguntar por WhatsApp"
-                    onPress={() => openWhatsApp(whatsappText)}
-                    isMobile={isMobile}
-                  />
+                      <Pressable
+                        onPress={() => setQty((n) => Math.min(20, n + 1))}
+                        disabled={qty >= 20}
+                        style={({ pressed }) => ({
+                          opacity: qty >= 20 ? 0.4 : pressed ? 0.85 : 1,
+                          width: 36,
+                          height: 36,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        })}
+                      >
+                        <Ionicons name="add" size={16} color={COLORS.text} />
+                      </Pressable>
+                    </View>
+                    </View>
+
+                    <Pressable
+                      onPress={handleChatPress}
+                      disabled={chatBusy}
+                      style={({ pressed }) => ({
+                        opacity: chatBusy ? 0.6 : pressed ? 0.88 : 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        height: 36,
+                        paddingHorizontal: 14,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        backgroundColor: "#FFFFFF",
+                      })}
+                    >
+                      {chatBusy ? (
+                        <ActivityIndicator size="small" color={COLORS.text} />
+                      ) : (
+                        <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                      )}
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>Chat</Text>
+                    </Pressable>
+                  </View>
+
+                  <Pressable
+                    onPress={() => addToCart("cart")}
+                    disabled={!canBuy || cartBusy}
+                    style={({ pressed }) => ({
+                      opacity: !canBuy ? 0.45 : pressed ? 0.9 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 14,
+                      alignItems: "center",
+                      backgroundColor: COLORS.accent,
+                    })}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
+                      Añadir a la cesta
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => addToCart("buyNow")}
+                    disabled={!canBuy || cartBusy}
+                    style={({ pressed }) => ({
+                      opacity: !canBuy ? 0.45 : pressed ? 0.9 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 14,
+                      alignItems: "center",
+                      backgroundColor: COLORS.accentDark,
+                    })}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
+                      Comprar ya
+                    </Text>
+                  </Pressable>
                 </View>
 
                 <View
@@ -1363,6 +1630,13 @@ ${price}
 
                   <View style={{ gap: 8 }}>
                     <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
+                    {p.reference ? (
+                      <InfoRow
+                        label="Número de referencia del artículo"
+                        value={p.reference}
+                        isMobile={isMobile}
+                      />
+                    ) : null}
                     <InfoRow
                       label="Categoría"
                       value={p.category?.name ?? "General"}
@@ -1474,6 +1748,13 @@ ${price}
           </View>
         </ScrollView>
       )}
+
+      <ImageLightbox
+        visible={lightboxOpen}
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+      />
     </View>
   );
 }
