@@ -649,8 +649,8 @@ function TrustInfoRow({
       style={{
         flexDirection: "row",
         flexWrap: "wrap",
-        justifyContent: isMobile ? "space-between" : "center",
-        gap: isMobile ? 10 : 26,
+        justifyContent: "center",
+        gap: isMobile ? 16 : 28,
       }}
     >
       {TRUST_INFO.map((item) => (
@@ -661,16 +661,15 @@ function TrustInfoRow({
             opacity: pressed ? 0.65 : 1,
             flexDirection: "row",
             alignItems: "center",
-            gap: 7,
-            width: isMobile ? "47%" : undefined,
+            gap: 8,
           })}
         >
-          <Ionicons name={item.icon} size={16} color={COLORS.accentDark} />
+          <Ionicons name={item.icon} size={19} color={COLORS.accentDark} />
           <Text
             style={{
               color: COLORS.muted,
               fontWeight: "700",
-              fontSize: isMobile ? 12.5 : 13,
+              fontSize: isMobile ? 14 : 14.5,
             }}
           >
             {item.title}
@@ -1058,21 +1057,9 @@ function FeaturedOfferCard({
           gap: 12,
         }}
       >
-        <View
-          style={{
-            alignSelf: "flex-start",
-            paddingVertical: 6,
-            paddingHorizontal: 10,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: COLORS.warningBorder,
-            backgroundColor: COLORS.warningBg,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-            Oferta de la semana
-          </Text>
-        </View>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+          Oferta de la semana
+        </Text>
 
         <Text
           style={{
@@ -1145,7 +1132,7 @@ Precio: ${fmtEUR(item.priceEUR)}
           {item.imageUrl ? (
             <Image
               source={{ uri: item.imageUrl }}
-              resizeMode="cover"
+              resizeMode="contain"
               style={{
                 width: "100%",
                 height: mediaHeight,
@@ -1209,21 +1196,9 @@ Precio: ${fmtEUR(item.priceEUR)}
             justifyContent: "center",
           }}
         >
-          <View
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.successBorder,
-              backgroundColor: COLORS.successBg,
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-              Oferta de la semana
-            </Text>
-          </View>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+            Oferta de la semana
+          </Text>
 
           <View>
             <Text
@@ -1255,9 +1230,19 @@ Precio: ${fmtEUR(item.priceEUR)}
               : "Producto revisado y seleccionado para destacar esta semana por su excelente relación calidad-precio."}
           </Text>
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <Pill icon="flame-outline" text="Destacado" isMobile={isMobile} />
-            <Pill icon="checkmark-circle-outline" text="Revisado" isMobile={isMobile} />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name="checkmark-circle-outline" size={isMobile ? 14 : 15} color={COLORS.accentDark} />
+              <Text
+                style={{
+                  color: "rgba(11,33,56,0.78)",
+                  fontWeight: "800",
+                  fontSize: isMobile ? 12 : 13,
+                }}
+              >
+                Revisado
+              </Text>
+            </View>
             {item.categoryName ? <Pill icon="cube-outline" text={item.categoryName} isMobile={isMobile} /> : null}
           </View>
 
@@ -1323,7 +1308,14 @@ export default function HomeScreen() {
   const HEADER_SCROLL_HIDE_THRESHOLD = 28;
   const HEADER_SCROLL_SHOW_THRESHOLD = 18;
 
-  const handleScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
+  const handleScroll = useCallback(
+    (e: {
+      nativeEvent: {
+        contentOffset: { y: number };
+        contentSize?: { height: number };
+        layoutMeasurement?: { height: number };
+      };
+    }) => {
     const y = e.nativeEvent.contentOffset.y;
     const delta = y - lastScrollYRef.current;
     const nearTop = y < 20;
@@ -1352,10 +1344,18 @@ export default function HomeScreen() {
       }
     }
 
-    setShowScrollTop(y > 480);
+    // El botón "volver arriba" se oculta al acercarse al final de verdad
+    // (el pie de página) para que nunca quede montado encima del texto del
+    // pie — solo se ve mientras hay contenido normal debajo.
+    const contentHeight = e.nativeEvent.contentSize?.height ?? 0;
+    const viewportHeight = e.nativeEvent.layoutMeasurement?.height ?? 0;
+    const distanceFromBottom = contentHeight - viewportHeight - y;
+    setShowScrollTop(y > 480 && distanceFromBottom > 280);
 
     lastScrollYRef.current = y;
-  }, []);
+    },
+    []
+  );
 
   const scrollToTop = useCallback(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -1486,12 +1486,6 @@ export default function HomeScreen() {
         (isMobile ? SEARCH_LAYOUT.topContentGapMobile : SEARCH_LAYOUT.topContentGapDesktop)
       : 0;
 
-  const bottomOverlaySpace =
-    searchSnapPosition === "bottom"
-      ? searchBarHeight +
-        (isMobile ? SEARCH_LAYOUT.bottomContentGapMobile : SEARCH_LAYOUT.bottomContentGapDesktop)
-      : 40;
-
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -1534,7 +1528,16 @@ export default function HomeScreen() {
         contentContainerStyle={{
           paddingHorizontal: sidePadding,
           paddingTop: (isMobile ? 12 : 16) + topOverlaySpace,
-          paddingBottom: (isMobile ? 30 : 36) + bottomOverlaySpace,
+          // Antes llevaba también + bottomOverlaySpace (el hueco reservado
+          // para que el buscador flotante no tape el contenido mientras se
+          // desplaza). Al llegar del todo abajo esa reserva ya no hace
+          // falta — el buscador se oculta solo al bajar (hidden={headerHidden}
+          // en FloatingBarramagic más abajo) — y sumada al propio padding
+          // del pie de página dejaba un hueco en blanco de más entre el pie
+          // y la barra de pestañas, con la sensación de que el scroll "se
+          // pasaba" del final. Con un margen fijo pequeño el pie de página
+          // queda pegado a la barra de pestañas, como debe ser.
+          paddingBottom: isMobile ? 24 : 28,
           gap: 14,
         }}
         showsVerticalScrollIndicator={false}
@@ -1725,7 +1728,14 @@ export default function HomeScreen() {
           }}
         >
           <View style={{ ...containerStyle, gap: 12 }}>
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>
+            <Text
+              style={{
+                color: "#FFFFFF",
+                fontWeight: "900",
+                fontSize: 16,
+                textAlign: "center",
+              }}
+            >
               Videojuegoszaragoza.com
             </Text>
 
