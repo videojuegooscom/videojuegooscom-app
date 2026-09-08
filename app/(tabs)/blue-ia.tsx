@@ -1,11 +1,14 @@
 /**
  * app/(tabs)/blue-ia.tsx
  *
- * Qué hace: pantalla "Blue IA", el asistente de la tienda. Ya no es solo
- * maqueta: escribir una pregunta (o tocar una de las tarjetas rápidas) la
- * manda de verdad a un modelo de IA real (OpenAI, a través de
- * api/blue-ia.ts) y la respuesta aparece como una conversación tipo chat,
- * con burbujas de pregunta y respuesta una debajo de otra.
+ * Qué hace: pantalla "Blue IA", el asistente de la tienda. Ahora es una
+ * conversación de pantalla completa, estilo ChatGPT, con el mismo lenguaje
+ * visual que usa "Chat Global" (app/(tabs)/chat-global.tsx): los mensajes
+ * ocupan toda la pantalla, hay un compositor fijo abajo del todo con un
+ * cuadro de texto redondeado + botón circular de enviar, y no hay ninguna
+ * tarjeta grande de bienvenida estorbando — esa información (qué es Blue
+ * IA y para qué sirve) vive en un modal accesible con el icono "ⓘ" de
+ * arriba a la derecha, igual que en Chat Global.
  *
  * Cómo funciona:
  * - El navegador nunca habla directamente con OpenAI (la clave es secreta):
@@ -17,11 +20,20 @@
  * - La conversación vive solo en el estado de esta pantalla (useState): no
  *   se guarda en Supabase ni sobrevive a recargar la página — es un asistente
  *   de sesión, no un historial permanente como el Chat Global.
- * - Las 4 tarjetas rápidas (quickActions) tienen cada una su propia pregunta
- *   ya escrita: tocarlas la manda directamente a Blue IA, como si el usuario
- *   la hubiera escrito él mismo. Las preguntas frecuentes (suggestions) solo
- *   rellenan el cuadro de texto, para que el usuario pueda tocarla o
- *   editarla antes de enviar.
+ * - Las "sugerencias rápidas" (antes eran 4 tarjetas grandes) ahora son una
+ *   fila de chips que se desliza en horizontal justo ENCIMA del compositor,
+ *   y solo se ven antes de la primera pregunta (antes de que haya
+ *   conversación de verdad) — exactamente igual que las sugerencias
+ *   iniciales de ChatGPT: en cuanto se manda la primera pregunta,
+ *   desaparecen para dejarle todo el sitio a la conversación. Tocar una
+ *   sugerencia manda esa pregunta directamente, como si el usuario la
+ *   hubiera escrito él mismo.
+ * - "Preguntas frecuentes" ya NO vive aquí: se movió a la portada (Inicio),
+ *   entre reseñas y el pie de página (ver app/(tabs)/index.tsx). Desde ahí,
+ *   tocar una pregunta frecuente trae a la persona directamente a esta
+ *   pantalla con esa pregunta ya enviada — se detecta con el parámetro de
+ *   navegación "q" (useLocalSearchParams) y se manda automáticamente una
+ *   sola vez al entrar.
  * - BLUE_IA_API_URL es relativa ("/api/blue-ia") en web, porque ahí Vercel
  *   sirve la función serverless en el mismo dominio que la app. Esto solo
  *   funciona una vez desplegado en Vercel (no en `expo start --web` local,
@@ -29,6 +41,8 @@
  *
  * Conectado con:
  * - api/blue-ia.ts → el backend real de este asistente.
+ * - app/(tabs)/index.tsx → la sección "Preguntas frecuentes" de Inicio
+ *   enlaza aquí con "/blue-ia?q=..." para preguntar directamente.
  * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
  *   arriba del todo (misma franja que en el resto de pestañas).
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
@@ -36,9 +50,11 @@
  */
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -85,21 +101,16 @@ const COLORS = {
   danger: "#DC2626",
   dangerSoft: "#FDECEC",
   dangerBorder: "#F5B5B5",
+  overlay: "rgba(3,10,18,0.76)",
 };
 
 type QuickAction = {
   id: string;
   icon: IoniconName;
   title: string;
-  desc: string;
-  // Pregunta real que se manda a Blue IA al tocar la tarjeta — el usuario
-  // no tiene que escribir nada, la tarjeta "pregunta por él".
+  // Pregunta real que se manda a Blue IA al tocar la sugerencia — el
+  // usuario no tiene que escribir nada, la sugerencia "pregunta por él".
   prompt: string;
-};
-
-type Suggestion = {
-  id: string;
-  text: string;
 };
 
 type HelpBlock = {
@@ -120,15 +131,22 @@ const WELCOME_MESSAGE: BlueIAMessage = {
   id: "welcome",
   role: "assistant",
   text:
-    "Hola, soy Blue IA. Pregúntame lo que necesites sobre productos, ventas, cambios, reparaciones o pago a plazos — o toca una de las opciones rápidas de abajo.",
+    "Hola, soy Blue IA. Pregúntame lo que necesites sobre productos, ventas, cambios, reparaciones o pago a plazos — o toca una de las sugerencias de abajo.",
 };
 
 export default function BlueIAScreen() {
+  const params = useLocalSearchParams<{ q?: string }>();
+
   const [draft, setDraft] = useState("");
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [messages, setMessages] = useState<BlueIAMessage[]>([WELCOME_MESSAGE]);
   const [sending, setSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const scrollRef = useRef<ScrollView | null>(null);
+  const autoAskedRef = useRef(false);
 
   // Copia siempre al día de messages, para poder mandar el historial real a
   // la API sin que handleAsk quede "atado" al estado del momento en que se
@@ -145,7 +163,6 @@ export default function BlueIAScreen() {
         id: "1",
         icon: "game-controller-outline",
         title: "Ayúdame a elegir",
-        desc: "Dime tu presupuesto y te recomiendo lo que mejor te encaja.",
         prompt:
           "Quiero que me ayudes a elegir un producto. Pregúntame lo que necesites saber (presupuesto, qué busco, para qué lo quiero) antes de recomendarme algo.",
       },
@@ -153,14 +170,12 @@ export default function BlueIAScreen() {
         id: "2",
         icon: "cash-outline",
         title: "Quiero vender",
-        desc: "Te explico cómo vender tu consola, móvil o accesorio.",
         prompt: "Quiero vender un dispositivo. ¿Cómo funciona el proceso?",
       },
       {
         id: "3",
         icon: "swap-horizontal-outline",
         title: "Quiero cambiar",
-        desc: "Te ayudo si quieres entregar algo como parte de pago.",
         prompt:
           "Quiero entregar un dispositivo como parte de pago para otra compra. ¿Cómo funciona?",
       },
@@ -168,21 +183,8 @@ export default function BlueIAScreen() {
         id: "4",
         icon: "construct-outline",
         title: "Reparación o limpieza",
-        desc: "Resuelvo dudas sobre averías, mantenimiento y servicios.",
         prompt: "Tengo una duda sobre reparación o limpieza de mi dispositivo. ¿Me puedes ayudar?",
       },
-    ],
-    []
-  );
-
-  const suggestions = useMemo<Suggestion[]>(
-    () => [
-      { id: "1", text: "Quiero una PS5 por unos 450€" },
-      { id: "2", text: "Tengo una Nintendo Switch para vender" },
-      { id: "3", text: "¿Cuánto cuesta limpiar una consola?" },
-      { id: "4", text: "Busco un mando bueno y barato para PS4" },
-      { id: "5", text: "¿Puedo pagar a plazos?" },
-      { id: "6", text: "Quiero un pack completo para empezar a jugar" },
     ],
     []
   );
@@ -212,8 +214,8 @@ export default function BlueIAScreen() {
   );
 
   // Único punto por el que sale cualquier pregunta hacia Blue IA: lo llaman
-  // tanto el botón "Consultar Blue IA" (con el texto del cuadro) como las 4
-  // tarjetas rápidas (con su propia pregunta ya escrita).
+  // el compositor de abajo, las sugerencias rápidas y el autoenvío al
+  // llegar desde "Preguntas frecuentes" de Inicio.
   const handleAsk = useCallback(
     async (rawText?: string) => {
       const clean = (rawText ?? draft).trim();
@@ -274,7 +276,45 @@ export default function BlueIAScreen() {
     [draft, sending]
   );
 
-  const hasConversation = messages.length > 1 || sending;
+  // Si se llega aquí desde "Preguntas frecuentes" (Inicio → /blue-ia?q=...),
+  // manda esa pregunta automáticamente una sola vez al entrar — igual que
+  // tocar una sugerencia rápida, pero disparado por la navegación en vez de
+  // por un toque en esta misma pantalla.
+  useEffect(() => {
+    const incoming = typeof params.q === "string" ? params.q.trim() : "";
+    if (!incoming || autoAskedRef.current) return;
+    autoAskedRef.current = true;
+    handleAsk(incoming);
+    // Solo debe dispararse al entrar con el parámetro, no cada vez que
+    // cambie handleAsk (que se recrea con cada tecla escrita en el cuadro).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.q]);
+
+  // Las sugerencias rápidas solo tienen sentido antes de que exista una
+  // conversación real: en cuanto hay alguna pregunta (o se está esperando
+  // respuesta), desaparecen para dejar toda la pantalla a la conversación.
+  const showQuickSuggestions = messages.length <= 1 && !sending;
+
+  // Autoscroll: cada vez que llega un mensaje nuevo (o empieza/termina la
+  // espera de respuesta), baja la conversación hasta el final.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 60);
+    return () => clearTimeout(id);
+  }, [messages.length, sending]);
+
+  const handleScroll = useCallback((e: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - layoutMeasurement.height - (contentOffset.y as number);
+    setShowScrollToBottom(distanceFromBottom > 260);
+  }, []);
+
+  const handleScrollToLatest = useCallback(() => {
+    scrollRef.current?.scrollToEnd({ animated: true });
+    setShowScrollToBottom(false);
+  }, []);
 
   return (
     <>
@@ -297,431 +337,177 @@ export default function BlueIAScreen() {
             top: 0,
             left: 0,
             right: 0,
-            height: 280,
+            height: 260,
           }}
         />
 
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingTop: 18,
-            paddingBottom: 120,
+            paddingTop: 58,
+            paddingBottom: showQuickSuggestions ? 190 : 120,
             alignItems: "center",
           }}
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-          <LinearGradient
-            colors={[
-              "rgba(30,167,232,0.10)",
-              "rgba(0,170,228,0.08)",
-              "#F4F9FD",
-            ]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={{
-              borderRadius: 28,
-              padding: 1,
-            }}
+          <View style={{ width: "100%", maxWidth: 860, gap: 10 }}>
+            {messages.map((message) => (
+              <BlueIABubble key={message.id} message={message} />
+            ))}
+            {sending && <BlueIATypingBubble />}
+          </View>
+        </ScrollView>
+
+        {/*
+          Icono "ⓘ" flotante arriba a la derecha: abre el modal con qué es
+          Blue IA y para qué sirve — el mismo patrón que usa Chat Global en
+          vez de tener una tarjeta de bienvenida ocupando espacio siempre.
+        */}
+        <Pressable
+          onPress={() => setInfoModalOpen(true)}
+          style={({ pressed }) => ({
+            position: "absolute",
+            top: 14,
+            right: 16,
+            width: 26,
+            height: 26,
+            borderRadius: 999,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "#FFFFFF",
+            borderWidth: 1,
+            borderColor: COLORS.accentBorder,
+            opacity: pressed ? 0.85 : 1,
+            shadowColor: COLORS.accent,
+            shadowOpacity: 0.08,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+          })}
+        >
+          <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
+        </Pressable>
+
+        {/* "⬇️" para volver al último mensaje, igual que en Chat Global. */}
+        {showScrollToBottom && (
+          <Pressable
+            onPress={handleScrollToLatest}
+            style={({ pressed }) => ({
+              position: "absolute",
+              right: 16,
+              bottom: showQuickSuggestions ? 168 : 108,
+              width: 40,
+              height: 40,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.accentBorder,
+              opacity: pressed ? 0.85 : 1,
+              shadowColor: COLORS.accent,
+              shadowOpacity: 0.16,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 4,
+            })}
           >
-            <View
-              style={{
-                borderRadius: 27,
-                backgroundColor: "#FFFFFF",
-                paddingHorizontal: 18,
-                paddingVertical: 18,
-                gap: 14,
-              }}
+            <Ionicons name="arrow-down-circle" size={26} color={COLORS.accent} />
+          </Pressable>
+        )}
+
+        {/* Compositor fijo abajo del todo, con las sugerencias rápidas justo
+            encima (solo antes de la primera pregunta) — mismo estilo que el
+            compositor de Chat Global. */}
+        <View
+          style={{
+            position: "absolute",
+            left: 12,
+            right: 12,
+            bottom: 12,
+            gap: 10,
+          }}
+        >
+          {showQuickSuggestions && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingRight: 4 }}
             >
-              <View
-                style={{
-                  alignSelf: "flex-start",
-                  borderRadius: 999,
-                  paddingVertical: 6,
-                  paddingHorizontal: 10,
-                  backgroundColor: COLORS.accentSoft,
-                  borderWidth: 1,
-                  borderColor: COLORS.accentBorder,
-                }}
-              >
-                <Text style={{ color: "#0F8FCC", fontWeight: "900", fontSize: 12 }}>
-                  AYUDA RÁPIDA
-                </Text>
-              </View>
-
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 34,
-                  lineHeight: 38,
-                  fontWeight: "900",
-                  letterSpacing: 0.2,
-                }}
-              >
-                Blue IA
-              </Text>
-
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  fontSize: 15,
-                  lineHeight: 23,
-                  maxWidth: 980,
-                }}
-              >
-                Tu asistente para resolver dudas sobre productos, compras, ventas,
-                cambios, reparaciones, limpieza, envíos y mucho más.
-              </Text>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: 10,
-                  marginTop: 2,
-                }}
-              >
-                <MiniPill text="Productos" tone="accent" />
-                <MiniPill text="Ventas" tone="success" />
-                <MiniPill text="Cambios" tone="gold" />
-                <MiniPill text="Pago a plazos" tone="accent" />
-              </View>
-            </View>
-          </LinearGradient>
-
-          <LinearGradient
-            colors={[
-              "#E3EAF2",
-              "rgba(0,170,228,0.06)",
-              "rgba(30,167,232,0.02)",
-            ]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              borderRadius: 24,
-              padding: 1,
-            }}
-          >
-            <View
-              style={{
-                borderRadius: 23,
-                backgroundColor: "#FFFFFF",
-                borderWidth: 1,
-                borderColor: "#EAF6FD",
-                padding: 14,
-                gap: 12,
-              }}
-            >
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 20,
-                  fontWeight: "900",
-                }}
-              >
-                Escribe tu duda
-              </Text>
-
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  lineHeight: 22,
-                }}
-              >
-                Pregunta lo que necesites y Blue IA te orientará de forma rápida y clara.
-              </Text>
-
-              <View
-                style={{
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
-                  backgroundColor: "#F8FBFE",
-                  padding: 10,
-                  gap: 10,
-                }}
-              >
-                <TextInput
-                  value={draft}
-                  onChangeText={setDraft}
-                  placeholder="Escribe tu consulta, por ejemplo una PS5 con mando y presupuesto de 450€"
-                  placeholderTextColor="rgba(11,33,56,0.35)"
-                  editable={!sending}
-                  multiline
-                  style={{
-                    minHeight: 76,
-                    color: COLORS.text,
-                    paddingHorizontal: 8,
-                    paddingVertical: 8,
-                    textAlignVertical: "top",
-                    opacity: sending ? 0.6 : 1,
-                  }}
+              {quickActions.map((item) => (
+                <QuickSuggestionChip
+                  key={item.id}
+                  item={item}
+                  onPress={() => handleAsk(item.prompt)}
                 />
+              ))}
+            </ScrollView>
+          )}
 
-                {!!errorText && (
-                  <View
-                    style={{
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: COLORS.dangerBorder,
-                      backgroundColor: COLORS.dangerSoft,
-                      paddingVertical: 8,
-                      paddingHorizontal: 10,
-                    }}
-                  >
-                    <Text style={{ color: "#B91C1C", fontWeight: "800", fontSize: 12 }}>
-                      {errorText}
-                    </Text>
-                  </View>
-                )}
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    flexWrap: "wrap",
-                    gap: 10,
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={{ color: COLORS.soft, fontSize: 12 }}>
-                    Puedes preguntar por compras, ventas, cambios, limpieza o soporte.
-                  </Text>
-
-                  <Pressable
-                    onPress={() => handleAsk()}
-                    disabled={sending || !draft.trim()}
-                    style={({ pressed }) => ({
-                      opacity: sending || !draft.trim() ? 0.6 : pressed ? 0.92 : 1,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      borderRadius: 999,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      backgroundColor: COLORS.accent,
-                      shadowColor: COLORS.accent,
-                      shadowOpacity: 0.2,
-                      shadowRadius: 12,
-                      shadowOffset: { width: 0, height: 2 },
-                    })}
-                  >
-                    {sending && <ActivityIndicator size="small" color="#FFFFFF" />}
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
-                      {sending ? "Consultando…" : "Consultar Blue IA"}
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-          </LinearGradient>
-
-          {hasConversation && (
+          {!!errorText && (
             <View
               style={{
-                borderRadius: 22,
+                borderRadius: 14,
                 borderWidth: 1,
-                borderColor: COLORS.borderSoft,
-                backgroundColor: COLORS.bg3,
-                padding: 14,
-                gap: 12,
+                borderColor: COLORS.dangerBorder,
+                backgroundColor: COLORS.dangerSoft,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
               }}
             >
-              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900" }}>
-                Conversación con Blue IA
+              <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>
+                {errorText}
               </Text>
-
-              <View style={{ gap: 10 }}>
-                {messages.map((message) => (
-                  <BlueIABubble key={message.id} message={message} />
-                ))}
-                {sending && <BlueIATypingBubble />}
-              </View>
             </View>
           )}
 
-          <SectionHeader
-            title="¿En qué te puede ayudar?"
-            subtitle="Toca una opción rápida para resolverlo de forma directa y eficiente."
-          />
-
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 12,
-            }}
-          >
-            {quickActions.map((item) => (
-              <QuickActionCard
-                key={item.id}
-                item={item}
-                disabled={sending}
-                onPress={() => handleAsk(item.prompt)}
-              />
-            ))}
-          </View>
-
-          <SectionHeader
-            title="Preguntas frecuentes"
-            subtitle="Pulsa una y se copiará arriba para ayudarte más rápido."
-          />
-
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 10,
-            }}
-          >
-            {suggestions.map((item) => (
-              <SuggestionChip
-                key={item.id}
-                text={item.text}
-                onPress={() => setDraft(item.text)}
-              />
-            ))}
-          </View>
-
-          <SectionHeader
-            title="Lo que puedes hacer aquí"
-            subtitle="Blue IA te ayuda antes, durante y después de la compra."
-          />
-
-          <View style={{ gap: 12 }}>
-            {helpBlocks.map((item) => (
-              <HelpCard key={item.id} item={item} />
-            ))}
-          </View>
-
-          <LinearGradient
-            colors={[
-              "#E3EAF2",
-              "rgba(0,170,228,0.06)",
-              "rgba(30,167,232,0.02)",
-            ]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              borderRadius: 22,
-              padding: 1,
-            }}
-          >
-            <View
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Pregúntale a Blue IA…"
+              placeholderTextColor="rgba(11,33,56,0.4)"
+              editable={!sending}
+              multiline
               style={{
-                borderRadius: 21,
-                backgroundColor: "#FFFFFF",
+                flex: 1,
+                minHeight: 42,
+                maxHeight: 96,
+                borderRadius: 14,
+                backgroundColor: "rgba(255,255,255,0.85)",
                 borderWidth: 1,
-                borderColor: "#EAF6FD",
-                padding: 16,
-                gap: 12,
+                borderColor: COLORS.border,
+                color: COLORS.text,
+                // 16px es el mínimo que evita que Safari/iOS haga zoom
+                // automático al enfocar el campo.
+                fontSize: 16,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                opacity: sending ? 0.6 : 1,
               }}
-            >
-              <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-                Respuestas rápidas y claras
-              </Text>
+            />
 
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-                Encuentra ayuda sin perder tiempo. Si tienes dudas sobre una compra, una
-                venta, una reparación o un envío, Blue IA te orienta de forma sencilla.
-              </Text>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: 10,
-                }}
-              >
-                <MiniPill text="Compra mejor" tone="accent" />
-                <MiniPill text="Resuelve dudas" tone="success" />
-                <MiniPill text="Ayuda rápida" tone="gold" />
-              </View>
-            </View>
-          </LinearGradient>
+            <BlueIASendButton
+              onPress={() => handleAsk()}
+              disabled={sending || !draft.trim()}
+              sending={sending}
+            />
           </View>
-        </ScrollView>
+        </View>
       </View>
     </SafeAreaView>
 
     <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+
+    <BlueIAInfoModal
+      visible={infoModalOpen}
+      onClose={() => setInfoModalOpen(false)}
+      helpBlocks={helpBlocks}
+    />
     </>
-  );
-}
-
-function SectionHeader({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <View style={{ gap: 6 }}>
-      <Text
-        style={{
-          color: "#0B2138",
-          fontSize: 24,
-          fontWeight: "900",
-          letterSpacing: 0.2,
-        }}
-      >
-        {title}
-      </Text>
-      <Text
-        style={{
-          color: "rgba(11,33,56,0.60)",
-          lineHeight: 22,
-        }}
-      >
-        {subtitle}
-      </Text>
-    </View>
-  );
-}
-
-function MiniPill({
-  text,
-  tone,
-}: {
-  text: string;
-  tone: "accent" | "success" | "gold";
-}) {
-  const palette =
-    tone === "accent"
-      ? {
-          bg: COLORS.accentSoft,
-          border: COLORS.accentBorder,
-          text: "#0F8FCC",
-        }
-      : tone === "success"
-        ? {
-            bg: COLORS.successSoft,
-            border: COLORS.successBorder,
-            text: "#15803D",
-          }
-        : {
-            bg: COLORS.goldSoft,
-            border: COLORS.goldBorder,
-            text: "#92660B",
-          };
-
-  return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        backgroundColor: palette.bg,
-        borderWidth: 1,
-        borderColor: palette.border,
-      }}
-    >
-      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 12 }}>
-        {text}
-      </Text>
-    </View>
   );
 }
 
@@ -829,124 +615,246 @@ function BlueIATypingBubble() {
   );
 }
 
-function QuickActionCard({
+// Chip compacto de sugerencia rápida, pensado para ir en una fila horizontal
+// justo encima del compositor (a diferencia de las tarjetas grandes de
+// antes, aquí solo hay sitio para icono + título).
+function QuickSuggestionChip({
   item,
-  disabled,
   onPress,
 }: {
   item: QuickAction;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => ({
-        opacity: disabled ? 0.6 : pressed ? 0.94 : 1,
-        flexBasis: 260,
-        flexGrow: 1,
-      })}
-    >
-      <LinearGradient
-        colors={[
-          "#E3EAF2",
-          "rgba(0,170,228,0.06)",
-          "rgba(30,167,232,0.02)",
-        ]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{
-          borderRadius: 22,
-          padding: 1,
-        }}
-      >
-        <View
-          style={{
-            borderRadius: 21,
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: "#EAF6FD",
-            padding: 16,
-            gap: 10,
-            minHeight: 148,
-          }}
-        >
-          <View
-            style={{
-              width: 46,
-              height: 46,
-              borderRadius: 14,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "#EAF6FD",
-              borderWidth: 1,
-              borderColor: "#E3EAF2",
-            }}
-          >
-            <Ionicons name={item.icon} size={22} color={COLORS.text} />
-          </View>
-
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: 18,
-              fontWeight: "900",
-            }}
-          >
-            {item.title}
-          </Text>
-
-          <Text
-            style={{
-              color: COLORS.muted,
-              lineHeight: 21,
-            }}
-          >
-            {item.desc}
-          </Text>
-        </View>
-      </LinearGradient>
-    </Pressable>
-  );
-}
-
-function SuggestionChip({
-  text,
-  onPress,
-}: {
-  text: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        opacity: pressed ? 0.92 : 1,
+        opacity: pressed ? 0.9 : 1,
       })}
     >
       <View
         style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
           borderRadius: 999,
-          paddingVertical: 12,
+          paddingVertical: 10,
           paddingHorizontal: 14,
-          backgroundColor: "#F6FAFD",
+          backgroundColor: "#FFFFFF",
           borderWidth: 1,
-          borderColor: "#E3EAF2",
-          maxWidth: 420,
+          borderColor: COLORS.border,
+          shadowColor: COLORS.accent,
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
         }}
       >
-        <Text
-          style={{
-            color: COLORS.text,
-            fontWeight: "800",
-            lineHeight: 20,
-          }}
-        >
-          {text}
-        </Text>
+        <Ionicons name={item.icon} size={16} color={COLORS.accent} />
+        <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{item.title}</Text>
       </View>
     </Pressable>
+  );
+}
+
+// Botón redondo de enviar, mismo tamaño y espíritu que el de Chat Global
+// (círculo azul con flecha), simplificado sin la animación de "enviado ✓"
+// porque aquí no hace falta ese matiz.
+function BlueIASendButton({
+  onPress,
+  disabled,
+  sending,
+}: {
+  onPress: () => void;
+  disabled?: boolean;
+  sending?: boolean;
+}) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled}>
+      {({ pressed }) => (
+        <View
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 999,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: disabled ? "rgba(0,170,228,0.35)" : COLORS.accent,
+            opacity: pressed ? 0.9 : 1,
+            shadowColor: COLORS.accent,
+            shadowOpacity: disabled ? 0 : 0.28,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 3 },
+          }}
+        >
+          {sending ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
+          )}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+// Modal "ⓘ": qué es Blue IA y para qué sirve. Sustituye a la tarjeta de
+// bienvenida que antes ocupaba espacio siempre arriba de la pantalla — igual
+// que hace Chat Global con su propio InfoModal.
+function BlueIAInfoModal({
+  visible,
+  onClose,
+  helpBlocks,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  helpBlocks: HelpBlock[];
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 480 }}>
+          <LinearGradient
+            colors={["rgba(30,167,232,0.14)", "rgba(0,170,228,0.10)", "rgba(30,167,232,0.02)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ borderRadius: 28, padding: 1 }}
+          >
+            <View
+              style={{
+                borderRadius: 27,
+                backgroundColor: "#FFFFFF",
+                padding: 22,
+                gap: 14,
+                maxHeight: 560,
+              }}
+            >
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
+                <View style={{ alignItems: "center", gap: 14 }}>
+                  <View
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 999,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: COLORS.accentSoft,
+                      borderWidth: 1,
+                      borderColor: COLORS.accentBorder,
+                    }}
+                  >
+                    <Ionicons name="sparkles-outline" size={22} color={COLORS.accent} />
+                  </View>
+
+                  <Text
+                    style={{
+                      color: COLORS.text,
+                      fontSize: 24,
+                      fontWeight: "900",
+                      textAlign: "center",
+                    }}
+                  >
+                    Blue IA
+                  </Text>
+
+                  <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
+                    Tu asistente para resolver dudas sobre productos, compras, ventas, cambios,
+                    reparaciones, limpieza, envíos y pago a plazos.
+                  </Text>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      justifyContent: "center",
+                    }}
+                  >
+                    <MiniPill text="Productos" tone="accent" />
+                    <MiniPill text="Ventas" tone="success" />
+                    <MiniPill text="Cambios" tone="gold" />
+                    <MiniPill text="Pago a plazos" tone="accent" />
+                  </View>
+
+                  <View style={{ width: "100%", gap: 10, marginTop: 4 }}>
+                    {helpBlocks.map((item) => (
+                      <HelpCard key={item.id} item={item} />
+                    ))}
+                  </View>
+
+                  <Pressable
+                    onPress={onClose}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.9 : 1,
+                      alignSelf: "center",
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      backgroundColor: "#F6FAFD",
+                      paddingVertical: 9,
+                      paddingHorizontal: 16,
+                      marginTop: 4,
+                    })}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Entendido</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </View>
+          </LinearGradient>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function MiniPill({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "accent" | "success" | "gold";
+}) {
+  const palette =
+    tone === "accent"
+      ? {
+          bg: COLORS.accentSoft,
+          border: COLORS.accentBorder,
+          text: "#0F8FCC",
+        }
+      : tone === "success"
+        ? {
+            bg: COLORS.successSoft,
+            border: COLORS.successBorder,
+            text: "#15803D",
+          }
+        : {
+            bg: COLORS.goldSoft,
+            border: COLORS.goldBorder,
+            text: "#92660B",
+          };
+
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        backgroundColor: palette.bg,
+        borderWidth: 1,
+        borderColor: palette.border,
+      }}
+    >
+      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 12 }}>{text}</Text>
+    </View>
   );
 }
 
@@ -973,44 +881,18 @@ function HelpCard({ item }: { item: HelpBlock }) {
   return (
     <View
       style={{
-        borderRadius: 20,
+        borderRadius: 18,
         borderWidth: 1,
         borderColor: palette.border,
         backgroundColor: palette.bg,
         overflow: "hidden",
       }}
     >
-      <View
-        style={{
-          height: 3,
-          backgroundColor: palette.line,
-        }}
-      />
+      <View style={{ height: 3, backgroundColor: palette.line }} />
 
-      <View
-        style={{
-          padding: 16,
-          gap: 8,
-        }}
-      >
-        <Text
-          style={{
-            color: COLORS.text,
-            fontSize: 18,
-            fontWeight: "900",
-          }}
-        >
-          {item.title}
-        </Text>
-
-        <Text
-          style={{
-            color: COLORS.muted,
-            lineHeight: 22,
-          }}
-        >
-          {item.desc}
-        </Text>
+      <View style={{ padding: 14, gap: 6 }}>
+        <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: "900" }}>{item.title}</Text>
+        <Text style={{ color: COLORS.muted, lineHeight: 20, fontSize: 13 }}>{item.desc}</Text>
       </View>
     </View>
   );

@@ -99,6 +99,19 @@ const BRAND = {
     "Hola, vengo desde videojuegoszaragoza.com. Quiero vender o tasar mi consola/electrónica. ¿Te paso fotos y modelo?",
 };
 
+// Preguntas frecuentes de la sección "Preguntas frecuentes" de Inicio (antes
+// vivían dentro de Blue IA). Tocar una lleva a "/blue-ia?q=..." y esa
+// pantalla la manda automáticamente en cuanto entra — ver el useEffect de
+// autoenvío en app/(tabs)/blue-ia.tsx.
+const HOME_FAQ = [
+  "Quiero una PS5 por unos 450€",
+  "Tengo una Nintendo Switch para vender",
+  "¿Cuánto cuesta limpiar una consola?",
+  "Busco un mando bueno y barato para PS4",
+  "¿Puedo pagar a plazos?",
+  "Quiero un pack completo para empezar a jugar",
+];
+
 type FeaturedProduct = {
   id: string;
   title: string;
@@ -515,6 +528,31 @@ function SectionTitle({
         </Text>
       )}
     </View>
+  );
+}
+
+function FaqChip({ text, onPress }: { text: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.9 : 1,
+      })}
+    >
+      <View
+        style={{
+          borderRadius: 999,
+          paddingVertical: 10,
+          paddingHorizontal: 14,
+          backgroundColor: "#F6FAFD",
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          maxWidth: 420,
+        }}
+      >
+        <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>{text}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -1429,6 +1467,39 @@ export default function HomeScreen() {
           </View>
 
           <Resenas isMobile={isMobile} />
+
+          <View
+            style={{
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.card,
+              padding: isMobile ? 14 : 16,
+              gap: 12,
+            }}
+          >
+            <SectionTitle
+              title="Preguntas frecuentes"
+              subtitle="Toca una y Blue IA te responde al momento."
+              isMobile={isMobile}
+            />
+
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 10,
+              }}
+            >
+              {HOME_FAQ.map((item) => (
+                <FaqChip
+                  key={item}
+                  text={item}
+                  onPress={() => pushRoute(`/blue-ia?q=${encodeURIComponent(item)}` as Href)}
+                />
+              ))}
+            </View>
+          </View>
 
           <View
             style={{
