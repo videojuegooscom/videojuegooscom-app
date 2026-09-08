@@ -53,6 +53,7 @@ import {
   Easing,
   Image,
   Linking,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -603,6 +604,138 @@ function Pill({
         {text}
       </Text>
     </View>
+  );
+}
+
+// Antes "Garantía / Envíos en España / Productos revisados / Pago rápido"
+// eran píldoras con borde (parecían botones) justo debajo de la cabecera.
+// Ahora viven aquí, debajo de "Categorías", como información sencilla (solo
+// icono + texto, sin fondo ni borde) — y al tocarlas se abre un "Pop" con el
+// detalle (ver InfoPopModal más abajo).
+type TrustInfoItem = { icon: IoniconName; title: string; detail: string };
+
+const TRUST_INFO: TrustInfoItem[] = [
+  {
+    icon: "checkmark-circle-outline",
+    title: "Garantía",
+    detail: "Todo lo que vendemos incluye garantía de tienda: si algo falla, te lo solucionamos sin líos.",
+  },
+  {
+    icon: "cube-outline",
+    title: "Envíos en España",
+    detail: "Enviamos a toda España bien protegido y con seguimiento. También puedes recoger en tienda.",
+  },
+  {
+    icon: "shield-checkmark-outline",
+    title: "Productos revisados",
+    detail: "Cada producto pasa una revisión de funcionamiento antes de ponerse a la venta.",
+  },
+  {
+    icon: "flash-outline",
+    title: "Pago rápido",
+    detail: "Si nos vendes tu consola o electrónica, la tasamos y te pagamos en menos de 24h.",
+  },
+];
+
+function TrustInfoRow({
+  isMobile,
+  onPressItem,
+}: {
+  isMobile?: boolean;
+  onPressItem: (item: TrustInfoItem) => void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: isMobile ? "space-between" : "center",
+        gap: isMobile ? 10 : 26,
+      }}
+    >
+      {TRUST_INFO.map((item) => (
+        <Pressable
+          key={item.title}
+          onPress={() => onPressItem(item)}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.65 : 1,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 7,
+            width: isMobile ? "47%" : undefined,
+          })}
+        >
+          <Ionicons name={item.icon} size={16} color={COLORS.accentDark} />
+          <Text
+            style={{
+              color: COLORS.muted,
+              fontWeight: "700",
+              fontSize: isMobile ? 12.5 : 13,
+            }}
+          >
+            {item.title}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function InfoPopModal({
+  item,
+  onClose,
+}: {
+  item: TrustInfoItem | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.55)",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+        onPress={onClose}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: "100%",
+            maxWidth: 380,
+            backgroundColor: COLORS.card,
+            borderRadius: 20,
+            padding: 20,
+            gap: 12,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                backgroundColor: COLORS.accent2,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {item ? <Ionicons name={item.icon} size={19} color={COLORS.accentDark} /> : null}
+            </View>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, flex: 1 }}>
+              {item?.title ?? ""}
+            </Text>
+            <Pressable onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={20} color={COLORS.muted} />
+            </Pressable>
+          </View>
+
+          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{item?.detail ?? ""}</Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1163,6 +1296,10 @@ export default function HomeScreen() {
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
   const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
+  // Botón flotante "volver arriba" ⬆️: aparece tras bajar bastante.
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollTopAnim = useRef(new Animated.Value(0)).current;
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
@@ -1215,8 +1352,22 @@ export default function HomeScreen() {
       }
     }
 
+    setShowScrollTop(y > 480);
+
     lastScrollYRef.current = y;
   }, []);
+
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(scrollTopAnim, {
+      toValue: showScrollTop ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [showScrollTop, scrollTopAnim]);
 
   useEffect(() => {
     Animated.timing(headerAnim, {
@@ -1372,6 +1523,14 @@ export default function HomeScreen() {
 
       <ScrollView
         ref={scrollRef}
+        // overscrollBehaviorY:"contain" (propiedad web) es lo que evita que,
+        // al llegar abajo del todo (justo después del pie de página), el
+        // scroll "rebote" más allá del contenido y haya que volver a subir
+        // para que se acomode — el rebote elástico se queda contenido
+        // dentro de este ScrollView en vez de notarse en toda la pantalla.
+        style={{ overscrollBehaviorY: "contain" } as any}
+        bounces={false}
+        overScrollMode="never"
         contentContainerStyle={{
           paddingHorizontal: sidePadding,
           paddingTop: (isMobile ? 12 : 16) + topOverlaySpace,
@@ -1400,22 +1559,23 @@ export default function HomeScreen() {
                 fontSize: isMobile ? 21 : 22,
                 fontWeight: "900",
                 lineHeight: 28,
+                textAlign: "center",
               }}
             >
               Compra y vende consolas y electrónica con confianza.
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              Productos revisados, precios claros y soporte real. Explora primero las categorías
-              disponibles y entra solo en lo que realmente te interesa.
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+              ¡Véndenos, Intercambia, Repara o realízale mantenimiento a tus dispositivos
+              electrónicos!
             </Text>
 
-            <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
+            <View style={{ flexDirection: "row", gap: 12 }}>
               <View style={{ flex: 1 }}>
                 <PrimaryButton
                   title="Ver categorías"
                   subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
-                  rightHint="Ir →"
+                  rightHint={isMobile ? undefined : "Ir →"}
                   onPress={scrollToCategories}
                   isMobile={isMobile}
                 />
@@ -1424,19 +1584,12 @@ export default function HomeScreen() {
               <View style={{ flex: 1 }}>
                 <PrimaryButton
                   title="Vender ahora"
-                  subtitle="Te compramos tu consola o electrónica"
-                  rightHint="Ir →"
+                  subtitle="Te lo compramos rápido y al mejor precio"
+                  rightHint={isMobile ? undefined : "Ir →"}
                   onPress={() => setSellModalOpen(true)}
                   isMobile={isMobile}
                 />
               </View>
-            </View>
-
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 2 }}>
-              <Pill icon="checkmark-circle-outline" text="Garantía" isMobile={isMobile} />
-              <Pill icon="cube-outline" text="Envíos en España" isMobile={isMobile} />
-              <Pill icon="shield-checkmark-outline" text="Productos revisados" isMobile={isMobile} />
-              <Pill icon="flash-outline" text="Pago rápido" isMobile={isMobile} />
             </View>
           </View>
 
@@ -1517,6 +1670,8 @@ export default function HomeScreen() {
             </View>
           </View>
 
+          <TrustInfoRow isMobile={isMobile} onPressItem={setInfoPop} />
+
           <Resenas isMobile={isMobile} />
 
           <View
@@ -1533,12 +1688,14 @@ export default function HomeScreen() {
               title="Preguntas frecuentes"
               subtitle="Toca una y Blue IA te responde al momento."
               isMobile={isMobile}
+              center
             />
 
             <View
               style={{
                 flexDirection: "row",
                 flexWrap: "wrap",
+                justifyContent: "center",
                 gap: 10,
               }}
             >
@@ -1551,18 +1708,24 @@ export default function HomeScreen() {
               ))}
             </View>
           </View>
+        </View>
 
-          <View
-            style={{
-              marginTop: 8,
-              paddingTop: 16,
-              paddingBottom: 30,
-              borderTopWidth: 1,
-              borderTopColor: "rgba(11,33,56,0.08)",
-              gap: 12,
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+        {/* Pie de página en banda completa (color oscuro de la paleta, de
+            lado a lado) en vez de ir metido dentro de la columna centrada
+            como el resto de secciones — así se lee de verdad como el pie de
+            una web, no como una tarjeta más. */}
+        <View
+          style={{
+            marginTop: 8,
+            marginHorizontal: -sidePadding,
+            paddingHorizontal: sidePadding,
+            paddingTop: 28,
+            paddingBottom: 34,
+            backgroundColor: COLORS.text,
+          }}
+        >
+          <View style={{ ...containerStyle, gap: 12 }}>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>
               Videojuegoszaragoza.com
             </Text>
 
@@ -1606,7 +1769,7 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                color: "rgba(11,33,56,0.50)",
+                color: "rgba(255,255,255,0.55)",
                 marginTop: 6,
                 lineHeight: 18,
                 fontSize: 12,
@@ -1617,6 +1780,40 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* "Volver arriba": aparece solo tras bajar bastante, en la esquina
+          izquierda para no chocar con FloatingBarramagic (el buscador
+          flotante, que vive más centrado/derecha). */}
+      <Animated.View
+        pointerEvents={showScrollTop ? "auto" : "none"}
+        style={{
+          position: "absolute",
+          left: 14,
+          bottom: (isMobile ? SEARCH_LAYOUT.mobileTabBarHeight : SEARCH_LAYOUT.desktopTabBarHeight) + 14,
+          opacity: scrollTopAnim,
+          transform: [
+            {
+              translateY: scrollTopAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+            },
+          ],
+        }}
+      >
+        <Pressable
+          onPress={scrollToTop}
+          style={({ pressed }) => ({
+            width: 38,
+            height: 38,
+            borderRadius: 19,
+            backgroundColor: "rgba(11,33,56,0.75)",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.85 : 1,
+            ...softShadow(),
+          })}
+        >
+          <Ionicons name="arrow-up" size={17} color="#FFFFFF" />
+        </Pressable>
+      </Animated.View>
 
       <FloatingBarramagic
         isMobile={isMobile}
@@ -1633,6 +1830,8 @@ export default function HomeScreen() {
       />
 
       <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+
+      <InfoPopModal item={infoPop} onClose={() => setInfoPop(null)} />
     </View>
   );
 }

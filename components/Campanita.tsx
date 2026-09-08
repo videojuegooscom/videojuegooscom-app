@@ -1,14 +1,17 @@
 /**
  * components/Campanita.tsx
  *
- * Qué hace: la campanita 🔔 flotante de notificaciones que aparece en TODA
- * la app (se monta una sola vez en app/_layout.tsx, por encima del Stack,
- * así que sobrevive a cualquier cambio de pantalla: inicio, catálogo,
- * producto, perfil, admin...). Se puede arrastrar a cualquiera de las 4
- * esquinas de la pantalla — basta con empezar a moverla, no hace falta
- * arrastrarla mucho — y se queda ahí (recordado en AsyncStorage) hasta que
- * se vuelva a mover. Un simple toque (sin arrastre) abre el panel de
- * notificaciones.
+ * Qué hace: la campanita flotante de notificaciones que aparece en TODA la
+ * app (se monta una sola vez en app/_layout.tsx, por encima del Stack, así
+ * que sobrevive a cualquier cambio de pantalla: inicio, catálogo, producto,
+ * perfil, admin...). Es un icono de verdad (Ionicons "notifications", en
+ * dorado), no un emoji de texto, y solo se ve la forma de la campana — sin
+ * ningún círculo ni fondo alrededor. De vez en cuando "suena" con un
+ * pequeño balanceo (ver ringAnim) para llamar la atención sin ser
+ * ruidosa. Se puede arrastrar a cualquiera de las 4 esquinas de la
+ * pantalla — basta con empezar a moverla, no hace falta arrastrarla mucho —
+ * y se queda ahí (recordado en AsyncStorage) hasta que se vuelva a mover.
+ * Un simple toque (sin arrastre) abre el panel de notificaciones.
  *
  * Qué cuenta como notificación (número en la campanita):
  * - Mensajes sin leer en el chat privado por producto (sql/product_chats.sql
@@ -45,6 +48,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Animated,
   Dimensions,
+  Easing,
   Modal,
   PanResponder,
   Platform,
@@ -67,9 +71,7 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
-  gold: "#B8860B",
-  goldBorder: "rgba(184,134,11,0.35)",
-  goldGlow: "rgba(212,175,55,0.20)",
+  gold: "#D4AF37",
   danger: "#DC2626",
 };
 
@@ -247,6 +249,56 @@ export default function Campanita() {
   const totalCount = unreadChats + likedUnavailable.length + (novedadesPending ? 1 : 0);
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
+  // --- animación: la campana "suena" cada pocos segundos, un balanceo
+  // suave que se repite en bucle en vez de un giro constante — llama la
+  // atención sin marear.
+  const ringAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(2600),
+        Animated.timing(ringAnim, {
+          toValue: 1,
+          duration: 120,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ringAnim, {
+          toValue: -1,
+          duration: 170,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ringAnim, {
+          toValue: 0.6,
+          duration: 140,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ringAnim, {
+          toValue: -0.3,
+          duration: 120,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ringAnim, {
+          toValue: 0,
+          duration: 110,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [ringAnim]);
+
+  const bellRotate = ringAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: ["-16deg", "16deg"],
+  });
+
   // --- arrastrar / tocar ---------------------------------------------------
   const openPanel = useCallback(() => {
     setPanelOpen(true);
@@ -342,60 +394,47 @@ export default function Campanita() {
           elevation: 20,
           width: BELL_SIZE,
           height: BELL_SIZE,
+          alignItems: "center",
+          justifyContent: "center",
           transform: pan.getTranslateTransform(),
         }}
       >
-        <View
-          style={{
-            width: BELL_SIZE,
-            height: BELL_SIZE,
-            borderRadius: BELL_SIZE / 2,
-            backgroundColor: COLORS.bg,
-            borderWidth: 1.5,
-            borderColor: COLORS.goldBorder,
-            alignItems: "center",
-            justifyContent: "center",
-            ...Platform.select({
-              ios: {
-                shadowColor: "#000",
-                shadowOpacity: 0.16,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 4 },
-              },
-              android: { elevation: 6 },
-              default: {
-                shadowColor: "#000",
-                shadowOpacity: 0.16,
-                shadowRadius: 10,
-              },
-            }),
-          }}
-        >
-          <Text style={{ fontSize: 26 }}>🔔</Text>
+        {/* Solo la forma de la campana — sin círculo ni fondo alrededor. */}
+        <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
+          <Ionicons
+            name="notifications"
+            size={34}
+            color={COLORS.gold}
+            style={{
+              textShadowColor: "rgba(0,0,0,0.28)",
+              textShadowRadius: 6,
+              textShadowOffset: { width: 0, height: 2 },
+            }}
+          />
+        </Animated.View>
 
-          {totalCount > 0 ? (
-            <View
-              style={{
-                position: "absolute",
-                top: -4,
-                right: -4,
-                minWidth: 20,
-                height: 20,
-                borderRadius: 10,
-                paddingHorizontal: 4,
-                backgroundColor: COLORS.danger,
-                borderWidth: 2,
-                borderColor: COLORS.bg,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: "#FFFFFF", fontSize: 10.5, fontWeight: "900" }}>
-                {badgeLabel}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        {totalCount > 0 ? (
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 2,
+              minWidth: 18,
+              height: 18,
+              borderRadius: 9,
+              paddingHorizontal: 4,
+              backgroundColor: COLORS.danger,
+              borderWidth: 2,
+              borderColor: COLORS.bg,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "900" }}>
+              {badgeLabel}
+            </Text>
+          </View>
+        ) : null}
       </Animated.View>
 
       <Modal
@@ -428,7 +467,7 @@ export default function Campanita() {
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 20 }}>🔔</Text>
+                <Ionicons name="notifications" size={19} color={COLORS.gold} />
                 <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
                   Notificaciones
                 </Text>
