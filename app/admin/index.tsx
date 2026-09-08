@@ -297,7 +297,7 @@ export default function AdminHome() {
         subtitle:
           "Control interno de existencias y operativa de almacén.",
         icon: "cube-outline" as IoniconName,
-        badge: "Opcional",
+        badge: "Stock",
         onPress: () => router.push("/admin/inventario"),
       },
       {
