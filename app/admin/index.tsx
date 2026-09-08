@@ -6,11 +6,13 @@
  * a Categorías, Productos e Inventario, atajos rápidos y una checklist de
  * publicación.
  *
- * Cómo funciona: valida el acceso en cada carga y también cuando cambia el
- * estado de auth de Supabase (onAuthStateChange), así que si la sesión
- * expira o el rol cambia, expulsa automáticamente. Tema claro (fondo
- * blanco, texto azul marino, acentos azul claro) con contenido centrado en
- * pantallas anchas (columnStyle, maxWidth 1040).
+ * Cómo funciona: la comprobación de sesión + rol "admin" la hace
+ * app/admin/_layout.tsx antes de montar cualquier pantalla del panel, así
+ * que esta pantalla ya no la repite (antes duplicaba esa misma consulta a
+ * "profiles" en cada carga); aquí solo se lee el email de la sesión para
+ * mostrarlo en la cabecera. Tema claro (fondo blanco, texto azul marino,
+ * acentos azul claro) con contenido centrado en pantallas anchas
+ * (columnStyle, maxWidth 1040).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para sesión, perfil y logout.
@@ -61,9 +63,7 @@ const COLORS = {
 const columnStyle = { width: "100%", maxWidth: 1040, alignSelf: "center" } as const;
 
 type AdminUserState = {
-  checking: boolean;
   email: string | null;
-  isAdmin: boolean;
 };
 
 function softShadow() {
@@ -245,101 +245,31 @@ export default function AdminHome() {
   const pagePadding = isMobile ? 12 : 16;
 
   const [userState, setUserState] = useState<AdminUserState>({
-    checking: true,
     email: null,
-    isAdmin: false,
   });
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const validateAdminAccess = useCallback(async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user) {
-        setUserState({
-          checking: false,
-          email: null,
-          isAdmin: false,
-        });
-        router.replace("/admin/login");
-        return;
-      }
-
-      const userId = session.user.id;
-      const email = session.user.email ?? null;
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", userId)
-        .maybeSingle<{ role: string | null }>();
-
-      if (error) {
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-        setUserState({
-          checking: false,
-          email: null,
-          isAdmin: false,
-        });
-        router.replace("/admin/login");
-        return;
-      }
-
-      const role = String(profile?.role ?? "").trim().toLowerCase();
-      const isAdmin = role === "admin";
-
-      if (!isAdmin) {
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-        setUserState({
-          checking: false,
-          email,
-          isAdmin: false,
-        });
-        router.replace("/admin/login");
-        return;
-      }
-
-      setUserState({
-        checking: false,
-        email,
-        isAdmin: true,
-      });
-    } catch {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        // ignore
-      }
-      setUserState({
-        checking: false,
-        email: null,
-        isAdmin: false,
-      });
-      router.replace("/admin/login");
-    }
-  }, []);
-
+  // La comprobación de sesión + rol "admin" ya la hace app/admin/_layout.tsx
+  // antes de montar esta pantalla (bloquea el Stack hasta que se valida), así
+  // que aquí no se repite: solo se lee el email de la sesión activa para
+  // mostrarlo en la cabecera.
   useEffect(() => {
-    validateAdminAccess();
+    let active = true;
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-      validateAdminAccess();
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (active) setUserState({ email: session?.user?.email ?? null });
+      })
+      .catch(() => {
+        // Si falla, simplemente no se muestra el email; _layout.tsx es quien
+        // decide si hay que expulsar al login.
+      });
 
     return () => {
-      authListener.subscription.unsubscribe();
+      active = false;
     };
-  }, [validateAdminAccess]);
+  }, []);
 
   const actions = useMemo(
     () => [
@@ -417,33 +347,6 @@ export default function AdminHome() {
       router.replace("/admin/login");
     }
   }, [loggingOut]);
-
-  if (userState.checking) {
-    return (
-      <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-        <StatusBar barStyle="dark-content" />
-        <SafeAreaView style={{ flex: 1 }}>
-          <View
-            style={{
-              flex: 1,
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 24,
-              gap: 12,
-            }}
-          >
-            <ActivityIndicator color={COLORS.text} />
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-              Comprobando acceso de administrador…
-            </Text>
-            <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-              Validando sesión y permisos antes de abrir el panel.
-            </Text>
-          </View>
-        </SafeAreaView>
-      </View>
-    );
-  }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>

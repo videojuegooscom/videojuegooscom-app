@@ -11,6 +11,12 @@
  * la foto de portada. detectAdmin() decide si se muestra información extra
  * (estado interno) reservada para el panel de admin.
  *
+ * Rendimiento: dentro de loadProduct(), la comprobación de admin y la carga
+ * del producto siguen siendo secuenciales a propósito (la segunda necesita
+ * saber si eres admin antes de decidir qué puede ver), pero la consulta de
+ * categoría y la de fotos/vídeos del producto ya NO dependen entre sí, así
+ * que se lanzan juntas con Promise.all en vez de una detrás de otra.
+ *
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
  * - app/catalogo.tsx → de donde se navega hasta aquí.
@@ -624,12 +630,14 @@ ${price}
         return;
       }
 
-      const categoryMap = await fetchCategoryMapByIds(
-        productRow.category_id ? [productRow.category_id] : []
-      );
-      if (seq !== reqSeqRef.current) return;
-
-      const mediaRows = await loadProductMediaRows(productRow.id);
+      // Estas dos consultas no dependen entre sí (solo del producto que ya
+      // tenemos), así que se lanzan a la vez en vez de una detrás de otra —
+      // se ahorra una ida y vuelta a la red completa en cada ficha de
+      // producto, algo que se nota sobre todo en móvil con red lenta.
+      const [categoryMap, mediaRows] = await Promise.all([
+        fetchCategoryMapByIds(productRow.category_id ? [productRow.category_id] : []),
+        loadProductMediaRows(productRow.id),
+      ]);
       if (seq !== reqSeqRef.current) return;
 
       const normalizedMedia = normalizeProductMediaRows(mediaRows);

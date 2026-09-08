@@ -12,6 +12,15 @@
  * cada producto a partir de product_media. calcColumns() decide cuántas
  * columnas tiene la rejilla según el ancho de pantalla.
  *
+ * Rendimiento: detectAdmin() y fetchCategoriesSafe() (loadIdentity) se
+ * ejecutan UNA sola vez al entrar en la pantalla — antes se repetían en cada
+ * cambio de categoría/búsqueda/filtro (loadAll llamaba a ambas cada vez).
+ * fetchCategoryMapByIds() solo se llama ahora como respaldo, cuando el join
+ * "category:categories(...)" de fetchProductsSafe no ha podido traer la
+ * categoría de algún producto (antes se llamaba siempre, aunque el join ya
+ * hubiera funcionado). fetchProductsSafe() lleva un límite de seguridad
+ * (300) para no traer el catálogo entero de golpe si crece mucho.
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas products, categories,
  *   product_media, profiles).
@@ -443,6 +452,25 @@ export default function CatalogoScreen() {
     return { total, withPrice, categoryCount };
   }, [items, categories]);
 
+  // Las tarjetas solo deben recrearse cuando cambian los productos o algo
+  // que afecte a cómo se pintan — no en cada tecla escrita en el buscador
+  // ni en cada cambio de "loading"/"refreshing", que antes recreaba toda la
+  // lista (y la rejilla la volvía a repartir en filas) sin necesidad.
+  const productCards = useMemo(
+    () =>
+      items.map((p) => (
+        <ProductCard
+          key={p.id}
+          p={p}
+          isAdmin={isAdmin}
+          isMobile={isMobile}
+          isTablet={isTablet}
+          onPress={() => pushRoute(`/producto/${p.id}` as Href)}
+        />
+      )),
+    [items, isAdmin, isMobile, isTablet]
+  );
+
   async function fetchProductsSafe(
     adminFlag: boolean,
     queryText: string,
@@ -486,7 +514,9 @@ export default function CatalogoScreen() {
         query = query.or(`title.ilike.${pattern},description.ilike.${pattern}`);
       }
 
-      return query;
+      // Red de seguridad: sin esto, si el catálogo crece a cientos de
+      // productos, cada visita/búsqueda los traería todos de golpe.
+      return query.limit(300);
     };
 
     const attempts = [
@@ -559,27 +589,40 @@ export default function CatalogoScreen() {
     return map;
   }
 
-  async function loadAll(opts?: { queryOverride?: string }) {
+  // Se ejecuta UNA sola vez al entrar en la pantalla: quién eres (admin o
+  // no) y la lista de categorías no cambian al cambiar de filtro o buscar,
+  // así que no tiene sentido repetir estas dos consultas en cada cambio.
+  async function loadIdentity(): Promise<{ adminFlag: boolean; cats: CategoryRow[] }> {
+    const adminFlag = await detectAdmin();
+    const cats = await fetchCategoriesSafe(adminFlag);
+    return { adminFlag, cats };
+  }
+
+  async function loadResults(
+    adminFlag: boolean,
+    cats: CategoryRow[],
+    opts?: { queryOverride?: string }
+  ) {
     const seq = ++reqSeqRef.current;
     const queryText = (opts?.queryOverride ?? q ?? "").trim();
 
     setErr(null);
 
-    const adminFlag = await detectAdmin();
-    if (seq !== reqSeqRef.current) return;
-    setIsAdmin(adminFlag);
-
-    const cats = await fetchCategoriesSafe(adminFlag);
-    if (seq !== reqSeqRef.current) return;
-    setCategories(cats);
-
     const resolvedCatLocal = resolveCategory(rawCat, cats);
     const rows = await fetchProductsSafe(adminFlag, queryText, resolvedCatLocal);
     if (seq !== reqSeqRef.current) return;
 
-    const categoryMap = await fetchCategoryMapByIds(
-      rows.map((row) => row.category_id).filter((v): v is string => !!v)
-    );
+    // La consulta de arriba ya intenta traer la categoría de cada producto
+    // con un join (category:categories(...)); solo hace falta esta consulta
+    // de respaldo si ese join no ha podido traerla para algún producto que
+    // sí tiene category_id (p. ej. porque el join falló y se usó una de las
+    // consultas de reserva sin él).
+    const needsCategoryFallback = rows.some((row) => row.category_id && !row.category);
+    const categoryMap = needsCategoryFallback
+      ? await fetchCategoryMapByIds(
+          rows.map((row) => row.category_id).filter((v): v is string => !!v)
+        )
+      : new Map<string, CategoryRow>();
     if (seq !== reqSeqRef.current) return;
 
     const productIds = rows.map((row) => row.id);
@@ -620,7 +663,10 @@ export default function CatalogoScreen() {
   async function bootstrap() {
     setLoading(true);
     try {
-      await loadAll({ queryOverride: queryFromUrl });
+      const { adminFlag, cats } = await loadIdentity();
+      setIsAdmin(adminFlag);
+      setCategories(cats);
+      await loadResults(adminFlag, cats, { queryOverride: queryFromUrl });
     } catch (e: any) {
       console.error("Error cargando catálogo:", e);
       setErr("No hemos podido cargar el catálogo. Comprueba tu conexión e inténtalo de nuevo.");
@@ -635,7 +681,10 @@ export default function CatalogoScreen() {
   async function refresh(opts?: { queryOverride?: string }) {
     setRefreshing(true);
     try {
-      await loadAll(opts);
+      // isAdmin/categories ya están cargados (loadIdentity solo corre en
+      // bootstrap): un cambio de filtro/búsqueda/categoría solo necesita
+      // volver a pedir productos, no quién eres ni la lista de categorías.
+      await loadResults(isAdmin, categories, opts);
     } catch (e: any) {
       console.error("Error actualizando catálogo:", e);
       setErr("No hemos podido actualizar el catálogo. Inténtalo de nuevo en unos segundos.");
@@ -1226,16 +1275,7 @@ export default function CatalogoScreen() {
               </View>
             ) : (
               <Grid columns={cols} gap={14}>
-                {items.map((p) => (
-                  <ProductCard
-                    key={p.id}
-                    p={p}
-                    isAdmin={isAdmin}
-                    isMobile={isMobile}
-                    isTablet={isTablet}
-                    onPress={() => pushRoute(`/producto/${p.id}` as Href)}
-                  />
-                ))}
+                {productCards}
               </Grid>
             )}
 
@@ -1404,11 +1444,18 @@ function Grid({
   gap: number;
   children: React.ReactNode;
 }) {
-  const kids = React.Children.toArray(children);
-  const rows: React.ReactNode[][] = [];
-  for (let i = 0; i < kids.length; i += columns) {
-    rows.push(kids.slice(i, i + columns));
-  }
+  // Repartir en filas es barato hoy, pero se recalculaba en CADA render de
+  // la pantalla (por ejemplo, en cada letra escrita en el buscador) aunque
+  // los productos no hubieran cambiado. Con useMemo solo se rehace cuando de
+  // verdad cambian los hijos o el número de columnas.
+  const rows = useMemo(() => {
+    const kids = React.Children.toArray(children);
+    const chunked: React.ReactNode[][] = [];
+    for (let i = 0; i < kids.length; i += columns) {
+      chunked.push(kids.slice(i, i + columns));
+    }
+    return chunked;
+  }, [children, columns]);
 
   return (
     <View style={{ gap }}>

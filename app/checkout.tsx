@@ -541,7 +541,7 @@ export default function CheckoutScreen() {
             {/* Acciones secundarias */}
             <View style={{ alignItems: "center", gap: 10 }}>
               <Pressable
-                onPress={() => router.push("/carrito")}
+                onPress={() => router.push("/cesta")}
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.88 : 1,
                   borderRadius: 999,

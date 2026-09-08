@@ -37,6 +37,11 @@
  * - El botón de enviar solo se activa a partir de 4 caracteres escritos, y
  *   hace un pequeño "pop" al pulsarlo y otro más marcado (con un check)
  *   justo al enviarse, estilo WhatsApp.
+ * - Rendimiento: MessageBubble está envuelto en React.memo para que escribir
+ *   en el compositor no vuelva a pintar los ~100 mensajes del historial en
+ *   cada tecla. Para que el memo funcione de verdad, onReact/onReply se le
+ *   pasan tal cual (handleReact/handleReply, ya memorizadas con useCallback)
+ *   en vez de envolverlas en una función nueva por mensaje en cada render.
  *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
@@ -837,8 +842,15 @@ export default function ChatGlobalScreen() {
                   hasReply={!!message.replyToId}
                   reactionCounts={reactionCountsByMessage[message.id]}
                   myReaction={myReactionByMessage[message.id]}
-                  onReact={(emoji) => handleReact(message.id, emoji)}
-                  onReply={() => handleReply(message)}
+                  // onReact/onReply pasan las funciones YA memorizadas
+                  // (handleReact/handleReply, con useCallback) tal cual, en
+                  // vez de envolverlas aquí en una función nueva por mensaje
+                  // en cada render — eso es lo que permite que
+                  // React.memo(MessageBubble) funcione de verdad (ver más
+                  // abajo): si la propiedad cambiara de referencia en cada
+                  // render, memo nunca podría evitar el repintado.
+                  onReact={handleReact}
+                  onReply={handleReply}
                 />
               );
             })}
@@ -1375,7 +1387,16 @@ function MiniInlineData({
 // (responder) en vez de dos toques sueltos (reaccionar, reaccionar).
 const DOUBLE_TAP_WINDOW_MS = 280;
 
-function MessageBubble({
+// Envuelto en React.memo: antes, cada tecla escrita en el compositor volvía
+// a pintar los ~100 mensajes del chat, aunque ninguno hubiera cambiado — el
+// componente entero (ChatGlobalScreen) se vuelve a ejecutar en cada cambio
+// de estado, y como la lista se generaba con .map() en línea, React creaba
+// elementos nuevos para cada burbuja. React.memo evita repintar una burbuja
+// si sus propiedades no han cambiado de verdad. Para que esto funcione,
+// onReact/onReply deben ser SIEMPRE la misma función entre renders (ver el
+// punto de llamada: ahora se pasan handleReact/handleReply directamente en
+// vez de envolverlas en una función nueva por mensaje).
+const MessageBubble = React.memo(function MessageBubble({
   item,
   canViewMedia,
   grouped,
@@ -1396,8 +1417,8 @@ function MessageBubble({
   hasReply?: boolean;
   reactionCounts?: Partial<Record<string, number>>;
   myReaction?: string;
-  onReact: (emoji: ReactionEmoji) => void;
-  onReply: () => void;
+  onReact: (messageId: string, emoji: ReactionEmoji) => void;
+  onReply: (item: MessageItem) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const lastTapAtRef = useRef(0);
@@ -1458,7 +1479,7 @@ function MessageBubble({
         singleTapTimeoutRef.current = null;
       }
       setPickerOpen(false);
-      onReply();
+      onReply(item);
       return;
     }
 
@@ -1647,7 +1668,7 @@ function MessageBubble({
             return (
               <Pressable
                 key={emoji}
-                onPress={() => onReact(emoji as ReactionEmoji)}
+                onPress={() => onReact(item.id, emoji as ReactionEmoji)}
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
@@ -1700,7 +1721,7 @@ function MessageBubble({
             <Pressable
               key={emoji}
               onPress={() => {
-                onReact(emoji);
+                onReact(item.id, emoji);
                 setPickerOpen(false);
               }}
               style={({ pressed }) => ({
@@ -1719,7 +1740,7 @@ function MessageBubble({
       ) : null}
     </View>
   );
-}
+});
 
 // Botón de enviar con su propia animación: un "pop" al pulsarlo (como
 // AnimatedPressable en app/(tabs)/perfil.tsx y cesta.tsx) y otro más

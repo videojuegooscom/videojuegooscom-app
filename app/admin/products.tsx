@@ -30,6 +30,11 @@
  *   categorías creadas allí (category_id).
  * - app/catalogo.tsx y app/producto/[id].tsx → lo que se publica aquí es
  *   lo que se ve en la tienda pública.
+ *
+ * Rendimiento: load() limita la consulta de "products" a 300 filas y pide
+ * la multimedia solo de esos productos (.in("product_id", ids)) en vez de
+ * toda la tabla. normalizeMediaForProduct() reordena la multimedia con un
+ * único .upsert() por id en lugar de un .update() por archivo.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -167,26 +172,39 @@ function sanitizeMediaRow(row: any): ProductMediaRow {
   };
 }
 
-async function fetchProductMediaRowsSafe(productId?: string): Promise<ProductMediaRow[]> {
+async function fetchProductMediaRowsSafe(
+  productId?: string | string[]
+): Promise<ProductMediaRow[]> {
   const selects = [
     "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,duration_seconds,created_at",
     "id,product_id,kind,storage_path,public_url,file_name,mime_type,sort_order,is_cover,created_at",
     "id,product_id,storage_path,public_url,file_name,mime_type,sort_order,is_cover,created_at",
   ];
 
+  // Si nos piden varios productos a la vez (carga del listado), acotamos con
+  // .in() a esos ids en vez de traer toda la tabla; el .limit() se deja como
+  // red de seguridad por si un producto tuviera muchísima multimedia.
+  if (Array.isArray(productId) && productId.length === 0) return [];
+
   let lastError: unknown = null;
 
   for (const selectStr of selects) {
     let query = supabase.from("product_media").select(selectStr);
 
-    if (productId) {
+    if (Array.isArray(productId)) {
+      query = query
+        .in("product_id", productId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(3000);
+    } else if (productId) {
       query = query
         .eq("product_id", productId)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true })
         .limit(200);
     } else {
-      query = query.limit(5000);
+      query = query.limit(3000);
     }
 
     const res = await query;
@@ -341,27 +359,30 @@ export default function AdminProducts() {
 
     const firstImage = rows.find((m) => getRowKind(m) === "image");
 
+    // Antes se hacía un .update() por fila (hasta 15 llamadas secuenciales al
+    // guardar). Ahora se agrupan los cambios y se envían en un único
+    // .upsert() por id, que Supabase resuelve como un solo UPDATE por fila
+    // pero en una sola petición de red.
+    const changedRows: Array<{ id: string; sort_order: number; is_cover: boolean }> = [];
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const shouldCover = !!firstImage && row.id === firstImage.id;
       const shouldOrder = i;
 
       if (getRowSortOrder(row) !== shouldOrder || Boolean(row.is_cover) !== shouldCover) {
-        const payload = {
-          sort_order: shouldOrder,
-          is_cover: shouldCover,
-        };
-
-        const { error: updateError } = await supabase
-          .from("product_media")
-          .update(payload)
-          .eq("id", row.id);
-
-        if (updateError) throw updateError;
-
+        changedRows.push({ id: row.id, sort_order: shouldOrder, is_cover: shouldCover });
         row.sort_order = shouldOrder;
         row.is_cover = shouldCover;
       }
+    }
+
+    if (changedRows.length) {
+      const { error: upsertError } = await supabase
+        .from("product_media")
+        .upsert(changedRows, { onConflict: "id" });
+
+      if (upsertError) throw upsertError;
     }
 
     return rows;
@@ -384,7 +405,8 @@ export default function AdminProducts() {
           .select(
             "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at,is_featured_home"
           )
-          .order("updated_at", { ascending: false }),
+          .order("updated_at", { ascending: false })
+          .limit(300),
       ]);
 
       if (catsRes.error) throw catsRes.error;
@@ -404,7 +426,8 @@ export default function AdminProducts() {
             .select(
               "id,title,description,price_eur,status,condition,category_id,is_active,created_at,updated_at"
             )
-            .order("updated_at", { ascending: false });
+            .order("updated_at", { ascending: false })
+            .limit(300);
 
           if (fallbackRes.error) throw fallbackRes.error;
 
@@ -425,9 +448,10 @@ export default function AdminProducts() {
 
       let supportsMedia = true;
       let mediaRows: ProductMediaRow[] = [];
+      const productIds = productsData.map((p) => p.id);
 
       try {
-        mediaRows = await fetchProductMediaRowsSafe();
+        mediaRows = await fetchProductMediaRowsSafe(productIds);
       } catch (e: any) {
         const rawMsg = String(e?.message ?? "");
         const msg = rawMsg.toLowerCase();

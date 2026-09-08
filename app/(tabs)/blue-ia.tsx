@@ -251,7 +251,15 @@ export default function BlueIAScreen() {
         const data = await response.json().catch(() => null);
 
         if (!response.ok || !data?.reply) {
-          throw new Error(data?.error || "Blue IA no ha podido responder.");
+          // data?.error viene de nuestra propia api/blue-ia.ts (límite de
+          // peticiones, origen no permitido, falta la clave de OpenAI...) y
+          // ya está escrito para que la persona lo lea tal cual — se marca
+          // con isApiError para poder distinguirlo abajo de un fallo de red
+          // real (donde e.message trae texto técnico en inglés, no apto
+          // para mostrar).
+          const err: any = new Error(data?.error || "Blue IA no ha podido responder.");
+          err.isApiError = true;
+          throw err;
         }
 
         setMessages((prev) => [
@@ -260,12 +268,16 @@ export default function BlueIAScreen() {
         ]);
       } catch (e: any) {
         console.error("Error consultando a Blue IA:", e);
+        const friendlyText =
+          e?.isApiError && typeof e.message === "string" && e.message
+            ? e.message
+            : "No he podido responder ahora mismo. Inténtalo de nuevo en unos segundos.";
         setMessages((prev) => [
           ...prev,
           {
             id: `${Date.now()}-err`,
             role: "assistant",
-            text: "No he podido responder ahora mismo. Inténtalo de nuevo en unos segundos.",
+            text: friendlyText,
             isError: true,
           },
         ]);

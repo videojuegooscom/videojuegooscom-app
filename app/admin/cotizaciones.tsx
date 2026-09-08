@@ -40,6 +40,10 @@
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("cotizaciones") dentro del
  *   Stack protegido del panel admin.
+ *
+ * Rendimiento: load() limita "sell_requests" a 200 filas y pide los
+ * adjuntos de "sell_request_media" solo de esas solicitudes (.in) con su
+ * propio límite de 200, para no crecer sin control con el tiempo.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -367,19 +371,31 @@ export default function AdminCotizaciones() {
         .select(
           "id,created_at,updated_at,nombre,apellido,articulo,funciona_bien,motivo_venta,descripcion_problema,ciudad,precio_estimado,metodo_contacto,contacto,opcion_venta,direccion,disponibilidad,mayor_edad,genero,status"
         )
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(200);
 
       if (res.error) throw res.error;
 
-      setItems((res.data ?? []) as SellRequestRow[]);
+      const rows = (res.data ?? []) as SellRequestRow[];
+      setItems(rows);
 
       // Aparte, y sin bloquear la lista si falla: los archivos adjuntos.
+      // Se piden solo los de las solicitudes ya cargadas (.in) y con un
+      // límite de seguridad, en vez de traer toda la tabla de adjuntos.
       try {
+        const requestIds = rows.map((r) => r.id);
+        if (!requestIds.length) {
+          setMediaByRequest({});
+          return;
+        }
+
         const mediaRes = await supabase
           .from("sell_request_media")
           .select("id,sell_request_id,kind,storage_path,file_name,mime_type,size_bytes,duration_seconds,sort_order,created_at")
+          .in("sell_request_id", requestIds)
           .order("sell_request_id", { ascending: true })
-          .order("sort_order", { ascending: true });
+          .order("sort_order", { ascending: true })
+          .limit(200);
 
         if (mediaRes.error) throw mediaRes.error;
 
