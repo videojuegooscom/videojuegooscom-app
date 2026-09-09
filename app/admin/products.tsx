@@ -51,7 +51,7 @@
  * completas solo de estadísticas antes de llegar al buscador y a "+ Nuevo
  * producto"). Ver StatCard en products.components.tsx.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -349,6 +349,363 @@ async function fetchAdminProductsSafe(): Promise<{
   throw new Error("No se pudo cargar la lista de productos.");
 }
 
+// Selector "desplegable": una caja con el valor actual que, al tocarla,
+// abre un panel centrado en pantalla con las opciones disponibles (igual
+// que cualquier selector nativo). Se usa para Estado, Condición y
+// Categoría en el formulario de producto, en vez de tener siempre todas
+// las opciones visibles como chips — así el formulario ocupa mucho menos
+// alto y es más rápido de escanear.
+function DropdownField({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value);
+
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13 }}>{label}</Text>
+
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.9 : 1,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          borderRadius: 14,
+          paddingHorizontal: 12,
+          paddingVertical: 12,
+          backgroundColor: "#F8FBFE",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        })}
+      >
+        <Text
+          style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, flexShrink: 1 }}
+          numberOfLines={1}
+        >
+          {current?.label ?? placeholder ?? "Seleccionar"}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color={COLORS.muted} />
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable
+          onPress={() => setOpen(false)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <Pressable
+            onPress={() => {}}
+            style={{
+              width: "100%",
+              maxWidth: 380,
+              maxHeight: "80%",
+              borderRadius: 18,
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 14,
+              gap: 10,
+            }}
+          >
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: 16,
+                textAlign: "center",
+              }}
+            >
+              {label}
+            </Text>
+
+            <ScrollView style={{ maxHeight: 360 }}>
+              <View style={{ gap: 8 }}>
+                {options.map((o) => {
+                  const selected = o.value === value;
+                  return (
+                    <Pressable
+                      key={o.value}
+                      onPress={() => {
+                        onChange(o.value);
+                        setOpen(false);
+                      }}
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.88 : 1,
+                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        backgroundColor: selected ? COLORS.accent2 : "#F6FAFD",
+                        borderWidth: 1,
+                        borderColor: selected ? COLORS.accentBorder : "#E3EAF2",
+                        alignItems: "center",
+                      })}
+                    >
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+                        {o.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <Pressable
+              onPress={() => setOpen(false)}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.88 : 1,
+                borderRadius: 12,
+                paddingVertical: 10,
+                alignItems: "center",
+              })}
+            >
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cancelar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+type ProductListItemData = ProductRow & { catName: string };
+
+// Una fila de la lista de productos, memoizada. Antes esta fila se
+// construía inline dentro del .map() del componente principal: cualquier
+// cambio de estado en TODO el panel (por ejemplo escribir en el formulario
+// de edición, o simplemente abrirlo) obligaba a React a volver a construir
+// y comparar la lista ENTERA (hasta 300 productos con su imagen, chips y
+// botones) antes de poder pintar nada más — eso es lo que hacía que el
+// "pop" de editar tardase tanto en abrirse en el móvil. Al extraer la fila
+// a su propio componente con React.memo(), React se salta por completo
+// esas ~300 filas cuando lo que cambia es el formulario, no la lista.
+const ProductListItem = React.memo(function ProductListItem({
+  item: p,
+  isMobile,
+  isDesktopish,
+  supportsFeaturedHome,
+  onEdit,
+  onPublish,
+  onToggleFeatured,
+  onMarkSold,
+  onDelete,
+  onToggleActive,
+}: {
+  item: ProductListItemData;
+  isMobile: boolean;
+  isDesktopish: boolean;
+  supportsFeaturedHome: boolean;
+  onEdit: (p: ProductRow) => void;
+  onPublish: (p: ProductRow) => void;
+  onToggleFeatured: (p: ProductRow) => void;
+  onMarkSold: (p: ProductRow) => void;
+  onDelete: (p: ProductRow) => void;
+  onToggleActive: (p: ProductRow) => void;
+}) {
+  const statusUi = statusVisual(p.status, COLORS);
+  const primaryMedia = getPrimaryMedia(p.media);
+  const primaryKind = primaryMedia ? getRowKind(primaryMedia) : null;
+  const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
+  const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
+  const hasVideo = p.media.some((m) => getRowKind(m) === "video");
+
+  return (
+    <View
+      style={{
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.card,
+        padding: isMobile ? 12 : 14,
+        gap: 12,
+        ...softShadow(),
+      }}
+    >
+      <View
+        style={{
+          flexDirection: isDesktopish ? "row" : "column",
+          gap: 14,
+          alignItems: isDesktopish ? "flex-start" : "stretch",
+        }}
+      >
+        <View
+          style={{
+            width: isDesktopish ? 110 : "100%",
+            height: isDesktopish ? 110 : isMobile ? 190 : 220,
+            borderRadius: 16,
+            overflow: "hidden",
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: "#F8FBFE",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {primaryKind === "image" && primaryUrl ? (
+            <Image
+              source={{ uri: primaryUrl }}
+              resizeMode="cover"
+              style={{ width: "100%", height: "100%" }}
+            />
+          ) : primaryKind === "video" ? (
+            <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Ionicons name="videocam-outline" size={30} color={COLORS.text} />
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Vídeo</Text>
+            </View>
+          ) : (
+            <Ionicons name="game-controller-outline" size={28} color={COLORS.muted2} />
+          )}
+        </View>
+
+        <View style={{ flex: 1, gap: 10 }}>
+          <View
+            style={{
+              flexDirection: isMobile ? "column" : "row",
+              justifyContent: "space-between",
+              alignItems: isMobile ? "stretch" : "flex-start",
+              gap: 12,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontWeight: "900",
+                  fontSize: isMobile ? 16 : 17,
+                  lineHeight: isMobile ? 22 : 22,
+                }}
+              >
+                {p.title}
+              </Text>
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                <View
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: statusUi.borderColor,
+                    backgroundColor: statusUi.backgroundColor,
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                    {statusUi.text}
+                  </Text>
+                </View>
+
+                <View
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: "#F6FAFD",
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                    {labelCond(p.condition)}
+                  </Text>
+                </View>
+
+                <View
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: "#F6FAFD",
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                    {p.catName}
+                  </Text>
+                </View>
+
+                <View
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: "#F6FAFD",
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                    {imageCount} foto{imageCount === 1 ? "" : "s"}
+                    {hasVideo ? " + vídeo" : ""}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={{ alignItems: isMobile ? "flex-start" : "flex-end", gap: 10 }}>
+              <Text
+                style={{
+                  color: COLORS.gold,
+                  fontWeight: "900",
+                  fontSize: isMobile ? 17 : 18,
+                }}
+              >
+                {fmtEUR(Number(p.price_eur ?? 0))}
+              </Text>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+                  {p.is_active ? "Visible" : "Oculto"}
+                </Text>
+                <Switch value={p.is_active} onValueChange={() => onToggleActive(p)} />
+              </View>
+            </View>
+          </View>
+
+          {!!p.description && (
+            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+              {clampText(p.description, isMobile ? 140 : 200)}
+            </Text>
+          )}
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <ChipButton label="Editar" variant="primary" onPress={() => onEdit(p)} isMobile={isMobile} />
+            {p.status !== "PUBLISHED" ? (
+              <ChipButton label="Publicar" variant="success" onPress={() => onPublish(p)} isMobile={isMobile} />
+            ) : null}
+            {supportsFeaturedHome ? (
+              <ChipButton
+                label={p.is_featured_home ? "Quitar destacado" : "Destacar en portada"}
+                onPress={() => onToggleFeatured(p)}
+                isMobile={isMobile}
+              />
+            ) : null}
+            <ChipButton label="Marcar vendido" onPress={() => onMarkSold(p)} isMobile={isMobile} />
+            <ChipButton label="Borrar" variant="danger" onPress={() => onDelete(p)} isMobile={isMobile} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+});
+
 export default function AdminProducts() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -402,6 +759,17 @@ export default function AdminProducts() {
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(
     null
   );
+  const [descExpanded, setDescExpanded] = useState(false);
+
+  // Se lee desde resetForm()/openEditProduct() vía ref (en vez de como
+  // dependencia normal de useCallback) para que esas funciones mantengan
+  // SIEMPRE la misma identidad entre renders — así ProductListItem (más
+  // abajo) nunca se ve obligado a re-renderizarse solo porque el usuario
+  // añadió o quitó una foto pendiente en el formulario.
+  const newMediaRef = useRef<LocalPickedMedia[]>([]);
+  useEffect(() => {
+    newMediaRef.current = newMedia;
+  }, [newMedia]);
 
   useEffect(() => {
     return () => {
@@ -409,10 +777,6 @@ export default function AdminProducts() {
     };
   }, [newMedia]);
 
-  const categoryName = useMemo(() => {
-    if (!categoryId) return "Sin categoría";
-    return categories.find((c) => c.id === categoryId)?.name ?? "Sin categoría";
-  }, [categoryId, categories]);
 
   const activeCategories = useMemo(() => categories.filter((c) => !!c.is_active), [categories]);
 
@@ -435,6 +799,21 @@ export default function AdminProducts() {
       return matchesSearch && matchesStatus && matchesVisibility;
     });
   }, [items, search, statusFilter, visibilityFilter]);
+
+  // Se calcula aquí (con el nombre de categoría ya resuelto) para que
+  // ProductListItem no necesite la lista completa de "categories" como
+  // prop — así solo vuelve a calcularse cuando cambian los productos
+  // filtrados o las categorías, nunca por el formulario de edición.
+  const listData: ProductListItemData[] = useMemo(
+    () =>
+      filteredItems.map((p) => ({
+        ...p,
+        catName: p.category_id
+          ? categories.find((c) => c.id === p.category_id)?.name ?? "Categoría"
+          : "Sin categoría",
+      })),
+    [filteredItems, categories]
+  );
 
   const stats = useMemo(() => {
     const total = items.length;
@@ -597,7 +976,7 @@ export default function AdminProducts() {
     load();
   }, []);
 
-  function resetForm() {
+  const resetForm = useCallback(() => {
     setEditing(null);
     setTitle("");
     setDesc("");
@@ -610,33 +989,37 @@ export default function AdminProducts() {
     setIsFeaturedHome(false);
     setExistingMedia([]);
     setRemovedMedia([]);
-    revokeLocalMedia(newMedia);
+    revokeLocalMedia(newMediaRef.current);
     setNewMedia([]);
     setUploadProgress(null);
     setModalErr(null);
-  }
+    setDescExpanded(false);
+  }, []);
 
-  function openCreate() {
+  const openCreate = useCallback(() => {
     resetForm();
     setOpen(true);
-  }
+  }, [resetForm]);
 
-  function openEditProduct(p: ProductRow) {
-    resetForm();
-    setEditing(p);
-    setTitle(p.title ?? "");
-    setDesc(p.description ?? "");
-    setPrice(String(p.price_eur ?? 0));
-    setStatus(p.status ?? "DRAFT");
-    setCondition(p.condition ?? "GOOD");
-    setReference(p.reference ?? "");
-    setCategoryId(p.category_id ?? null);
-    setIsActive(!!p.is_active);
-    setIsFeaturedHome(!!p.is_featured_home);
-    setExistingMedia([...(p.media ?? [])].sort(sortMediaRows));
-    setModalErr(null);
-    setOpen(true);
-  }
+  const openEditProduct = useCallback(
+    (p: ProductRow) => {
+      resetForm();
+      setEditing(p);
+      setTitle(p.title ?? "");
+      setDesc(p.description ?? "");
+      setPrice(String(p.price_eur ?? 0));
+      setStatus(p.status ?? "DRAFT");
+      setCondition(p.condition ?? "GOOD");
+      setReference(p.reference ?? "");
+      setCategoryId(p.category_id ?? null);
+      setIsActive(!!p.is_active);
+      setIsFeaturedHome(!!p.is_featured_home);
+      setExistingMedia([...(p.media ?? [])].sort(sortMediaRows));
+      setModalErr(null);
+      setOpen(true);
+    },
+    [resetForm]
+  );
 
   async function addMediaFromPicker() {
     setModalErr(null);
@@ -1031,9 +1414,9 @@ export default function AdminProducts() {
     }
   }
 
-  function askRemove(p: ProductRow) {
+  const askRemove = useCallback((p: ProductRow) => {
     setConfirmDelete(p);
-  }
+  }, []);
 
   async function removeProductConfirmed() {
     const p = confirmDelete;
@@ -1064,7 +1447,7 @@ export default function AdminProducts() {
     }
   }
 
-  async function quickPublish(p: ProductRow) {
+  const quickPublish = useCallback(async (p: ProductRow) => {
     const prev = itemsRef.current;
     const next = prev.map((x) =>
       x.id === p.id ? { ...x, status: "PUBLISHED" as ProductStatus } : x
@@ -1081,9 +1464,9 @@ export default function AdminProducts() {
       console.error("Error publicando producto:", error.message);
       setScreenErr("No se ha podido publicar el producto. Inténtalo de nuevo.");
     }
-  }
+  }, []);
 
-  async function toggleActive(p: ProductRow) {
+  const toggleActive = useCallback(async (p: ProductRow) => {
     const prev = itemsRef.current;
     const next = prev.map((x) => (x.id === p.id ? { ...x, is_active: !x.is_active } : x));
     setItems(next);
@@ -1098,48 +1481,51 @@ export default function AdminProducts() {
       console.error("Error cambiando la visibilidad del producto:", error.message);
       setScreenErr("No se ha podido cambiar la visibilidad del producto. Inténtalo de nuevo.");
     }
-  }
+  }, []);
 
-  async function toggleFeaturedHome(p: ProductRow) {
-    if (!supportsFeaturedHome) {
-      setScreenErr("No se puede destacar en portada: esta función no está disponible en este catálogo.");
-      return;
-    }
-
-    const nextValue = !p.is_featured_home;
-    const prev = itemsRef.current;
-
-    const next = prev.map((x) => {
-      if (nextValue) return { ...x, is_featured_home: x.id === p.id };
-      if (x.id === p.id) return { ...x, is_featured_home: false };
-      return x;
-    });
-
-    setItems(next);
-
-    try {
-      if (nextValue) {
-        const currentFeatured = prev.find((x) => x.is_featured_home && x.id !== p.id);
-        if (currentFeatured) {
-          await supabase
-            .from("products")
-            .update({ is_featured_home: false })
-            .eq("id", currentFeatured.id);
-        }
+  const toggleFeaturedHome = useCallback(
+    async (p: ProductRow) => {
+      if (!supportsFeaturedHome) {
+        setScreenErr("No se puede destacar en portada: esta función no está disponible en este catálogo.");
+        return;
       }
 
-      const { error } = await supabase
-        .from("products")
-        .update({ is_featured_home: nextValue })
-        .eq("id", p.id);
+      const nextValue = !p.is_featured_home;
+      const prev = itemsRef.current;
 
-      if (error) throw error;
-    } catch (e: any) {
-      setItems(prev);
-      console.error("Error cambiando producto destacado:", e?.message ?? e);
-      setScreenErr("No se ha podido actualizar el producto destacado. Inténtalo de nuevo.");
-    }
-  }
+      const next = prev.map((x) => {
+        if (nextValue) return { ...x, is_featured_home: x.id === p.id };
+        if (x.id === p.id) return { ...x, is_featured_home: false };
+        return x;
+      });
+
+      setItems(next);
+
+      try {
+        if (nextValue) {
+          const currentFeatured = prev.find((x) => x.is_featured_home && x.id !== p.id);
+          if (currentFeatured) {
+            await supabase
+              .from("products")
+              .update({ is_featured_home: false })
+              .eq("id", currentFeatured.id);
+          }
+        }
+
+        const { error } = await supabase
+          .from("products")
+          .update({ is_featured_home: nextValue })
+          .eq("id", p.id);
+
+        if (error) throw error;
+      } catch (e: any) {
+        setItems(prev);
+        console.error("Error cambiando producto destacado:", e?.message ?? e);
+        setScreenErr("No se ha podido actualizar el producto destacado. Inténtalo de nuevo.");
+      }
+    },
+    [supportsFeaturedHome]
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -1304,204 +1690,21 @@ export default function AdminProducts() {
               </Text>
             </View>
           ) : (
-            filteredItems.map((p) => {
-              const catName = p.category_id
-                ? categories.find((c) => c.id === p.category_id)?.name ?? "Categoría"
-                : "Sin categoría";
-
-              const statusUi = statusVisual(p.status, COLORS);
-              const primaryMedia = getPrimaryMedia(p.media);
-              const primaryKind = primaryMedia ? getRowKind(primaryMedia) : null;
-              const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
-              const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
-              const hasVideo = p.media.some((m) => getRowKind(m) === "video");
-
-              return (
-                <View
-                  key={p.id}
-                  style={{
-                    borderRadius: 20,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 12 : 14,
-                    gap: 12,
-                    ...softShadow(),
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: isDesktopish ? "row" : "column",
-                      gap: 14,
-                      alignItems: isDesktopish ? "flex-start" : "stretch",
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: isDesktopish ? 110 : "100%",
-                        height: isDesktopish ? 110 : isMobile ? 190 : 220,
-                        borderRadius: 16,
-                        overflow: "hidden",
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#F8FBFE",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {primaryKind === "image" && primaryUrl ? (
-                        <Image
-                          source={{ uri: primaryUrl }}
-                          resizeMode="cover"
-                          style={{ width: "100%", height: "100%" }}
-                        />
-                      ) : primaryKind === "video" ? (
-                        <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
-                          <Ionicons name="videocam-outline" size={30} color={COLORS.text} />
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                            Vídeo
-                          </Text>
-                        </View>
-                      ) : (
-                        <Ionicons name="game-controller-outline" size={28} color={COLORS.muted2} />
-                      )}
-                    </View>
-
-                    <View style={{ flex: 1, gap: 10 }}>
-                      <View
-                        style={{
-                          flexDirection: isMobile ? "column" : "row",
-                          justifyContent: "space-between",
-                          alignItems: isMobile ? "stretch" : "flex-start",
-                          gap: 12,
-                        }}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={{
-                              color: COLORS.text,
-                              fontWeight: "900",
-                              fontSize: isMobile ? 16 : 17,
-                              lineHeight: isMobile ? 22 : 22,
-                            }}
-                          >
-                            {p.title}
-                          </Text>
-
-                          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-                            <View
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 10,
-                                borderRadius: 999,
-                                borderWidth: 1,
-                                borderColor: statusUi.borderColor,
-                                backgroundColor: statusUi.backgroundColor,
-                              }}
-                            >
-                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                                {statusUi.text}
-                              </Text>
-                            </View>
-
-                            <View
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 10,
-                                borderRadius: 999,
-                                borderWidth: 1,
-                                borderColor: COLORS.border,
-                                backgroundColor: "#F6FAFD",
-                              }}
-                            >
-                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                                {labelCond(p.condition)}
-                              </Text>
-                            </View>
-
-                            <View
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 10,
-                                borderRadius: 999,
-                                borderWidth: 1,
-                                borderColor: COLORS.border,
-                                backgroundColor: "#F6FAFD",
-                              }}
-                            >
-                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                                {catName}
-                              </Text>
-                            </View>
-
-                            <View
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 10,
-                                borderRadius: 999,
-                                borderWidth: 1,
-                                borderColor: COLORS.border,
-                                backgroundColor: "#F6FAFD",
-                              }}
-                            >
-                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                                {imageCount} foto{imageCount === 1 ? "" : "s"}
-                                {hasVideo ? " + vídeo" : ""}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-
-                        <View style={{ alignItems: isMobile ? "flex-start" : "flex-end", gap: 10 }}>
-                          <Text
-                            style={{
-                              color: COLORS.gold,
-                              fontWeight: "900",
-                              fontSize: isMobile ? 17 : 18,
-                            }}
-                          >
-                            {fmtEUR(Number(p.price_eur ?? 0))}
-                          </Text>
-
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
-                              {p.is_active ? "Visible" : "Oculto"}
-                            </Text>
-                            <Switch value={p.is_active} onValueChange={() => toggleActive(p)} />
-                          </View>
-                        </View>
-                      </View>
-
-                      {!!p.description && (
-                        <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                          {clampText(p.description, isMobile ? 140 : 200)}
-                        </Text>
-                      )}
-
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                        <ChipButton label="Editar" variant="primary" onPress={() => openEditProduct(p)} isMobile={isMobile} />
-                        {p.status !== "PUBLISHED" ? (
-                          <ChipButton label="Publicar" variant="success" onPress={() => quickPublish(p)} isMobile={isMobile} />
-                        ) : null}
-                        {supportsFeaturedHome ? (
-                          <ChipButton
-                            label={p.is_featured_home ? "Quitar destacado" : "Destacar en portada"}
-                            onPress={() => toggleFeaturedHome(p)}
-                            isMobile={isMobile}
-                          />
-                        ) : null}
-                        <ChipButton
-                          label="Marcar vendido"
-                          onPress={() => setMarkSoldTarget(p)}
-                          isMobile={isMobile}
-                        />
-                        <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(p)} isMobile={isMobile} />
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              );
-            })
+            listData.map((p) => (
+              <ProductListItem
+                key={p.id}
+                item={p}
+                isMobile={isMobile}
+                isDesktopish={isDesktopish}
+                supportsFeaturedHome={supportsFeaturedHome}
+                onEdit={openEditProduct}
+                onPublish={quickPublish}
+                onToggleFeatured={toggleFeaturedHome}
+                onMarkSold={setMarkSoldTarget}
+                onDelete={askRemove}
+                onToggleActive={toggleActive}
+              />
+            ))
           )}
           </View>
         </ScrollView>
@@ -1592,28 +1795,66 @@ export default function AdminProducts() {
                 }}
               />
 
-              <TextInput
-                value={desc}
-                onChangeText={(v) => {
-                  setDesc(v);
-                  setModalErr(null);
-                }}
-                placeholder="Descripción"
-                placeholderTextColor="rgba(11,33,56,0.40)"
-                multiline
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  minHeight: isMobile ? 88 : 96,
-                  textAlignVertical: "top",
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                }}
-              />
+              <View style={{ gap: 8 }}>
+                <Pressable
+                  onPress={() => setDescExpanded((v) => !v)}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.9 : 1,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderRadius: 14,
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    backgroundColor: "#F8FBFE",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  })}
+                >
+                  <Text
+                    style={{ color: desc.trim() ? COLORS.text : "rgba(11,33,56,0.40)", fontSize: 14, flex: 1 }}
+                    numberOfLines={1}
+                  >
+                    {descExpanded
+                      ? "Descripción"
+                      : desc.trim()
+                        ? clampText(desc, 60)
+                        : "Descripción (opcional)"}
+                  </Text>
+                  <Ionicons
+                    name={descExpanded ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color={COLORS.muted}
+                  />
+                </Pressable>
+
+                {descExpanded && (
+                  <TextInput
+                    value={desc}
+                    onChangeText={(v) => {
+                      setDesc(v);
+                      setModalErr(null);
+                    }}
+                    placeholder="Descripción"
+                    placeholderTextColor="rgba(11,33,56,0.40)"
+                    multiline
+                    autoFocus
+                    style={{
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      borderRadius: 14,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                      color: COLORS.text,
+                      minHeight: (isMobile ? 88 : 96) * 3,
+                      textAlignVertical: "top",
+                      backgroundColor: "#F8FBFE",
+                      fontSize: 14,
+                    }}
+                  />
+                )}
+              </View>
 
               <TextInput
                 value={price}
@@ -1746,142 +1987,85 @@ export default function AdminProducts() {
                 )}
               </View>
 
-              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
-              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                {(["DRAFT", "REVIEW", "PUBLISHED"] as ProductStatus[]).map((s) => (
-                  <Pressable
-                    key={s}
-                    onPress={() => setStatus(s)}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderWidth: 1,
-                      borderColor: status === s ? COLORS.accentBorder : "#E3EAF2",
-                      backgroundColor: status === s ? COLORS.accent2 : "#F6FAFD",
-                    })}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
-                      {labelStatus(s)}
-                    </Text>
-                  </Pressable>
-                ))}
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <DropdownField
+                    label="Estado"
+                    value={status}
+                    onChange={(v) => setStatus(v as ProductStatus)}
+                    options={(["DRAFT", "REVIEW", "PUBLISHED"] as ProductStatus[]).map((s) => ({
+                      value: s,
+                      label: labelStatus(s),
+                    }))}
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <DropdownField
+                    label="Condición"
+                    value={condition}
+                    onChange={(v) => setCondition(v as ProductCondition)}
+                    options={(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as ProductCondition[]).map(
+                      (c) => ({ value: c, label: labelCond(c) })
+                    )}
+                  />
+                </View>
               </View>
 
-              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Condición</Text>
-              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                {(["NEW", "LIKE_NEW", "GOOD", "FAIR", "PARTS"] as ProductCondition[]).map((c) => (
-                  <Pressable
-                    key={c}
-                    onPress={() => setCondition(c)}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderWidth: 1,
-                      borderColor:
-                        condition === c ? COLORS.accentBorder : "#E3EAF2",
-                      backgroundColor:
-                        condition === c ? COLORS.accent2 : "#F6FAFD",
-                    })}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
-                      {labelCond(c)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              <DropdownField
+                label="Categoría"
+                value={categoryId ?? ""}
+                onChange={(v) => setCategoryId(v || null)}
+                placeholder="Sin categoría"
+                options={[
+                  { value: "", label: "Sin categoría" },
+                  ...activeCategories.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
 
-              <Text style={{ color: COLORS.muted, fontWeight: "800", lineHeight: 20 }}>
-                Categoría actual:{" "}
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>{categoryName}</Text>
-              </Text>
-
-              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                <Pressable
-                  onPress={() => setCategoryId(null)}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderWidth: 1,
-                    borderColor: !categoryId ? COLORS.accentBorder : "#E3EAF2",
-                    backgroundColor: !categoryId ? COLORS.accent2 : "#F6FAFD",
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
-                    Sin categoría
-                  </Text>
-                </Pressable>
-
-                {activeCategories.map((c) => (
-                  <Pressable
-                    key={c.id}
-                    onPress={() => setCategoryId(c.id)}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderWidth: 1,
-                      borderColor:
-                        categoryId === c.id ? COLORS.accentBorder : "#E3EAF2",
-                      backgroundColor:
-                        categoryId === c.id ? COLORS.accent2 : "#F6FAFD",
-                    })}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
-                      {c.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <View
-                style={{
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.cardSoft,
-                  padding: 12,
-                  gap: 12,
-                }}
-              >
+              <View style={{ flexDirection: "row", gap: 10 }}>
                 <View
                   style={{
-                    flexDirection: isMobile ? "column" : "row",
+                    flex: 1,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    backgroundColor: COLORS.cardSoft,
+                    padding: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
                     justifyContent: "space-between",
-                    alignItems: isMobile ? "stretch" : "center",
-                    gap: 10,
+                    gap: 8,
                   }}
                 >
-                  <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Producto activo</Text>
-                    <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
-                      Si está activo, puede mostrarse en tienda según estado y filtros públicos.
-                    </Text>
-                  </View>
+                  <Text
+                    style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14, flexShrink: 1 }}
+                  >
+                    Producto activo
+                  </Text>
                   <Switch value={isActive} onValueChange={setIsActive} />
                 </View>
 
                 {supportsFeaturedHome ? (
                   <View
                     style={{
-                      flexDirection: isMobile ? "column" : "row",
+                      flex: 1,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      backgroundColor: COLORS.cardSoft,
+                      padding: 12,
+                      flexDirection: "row",
+                      alignItems: "center",
                       justifyContent: "space-between",
-                      alignItems: isMobile ? "stretch" : "center",
-                      gap: 10,
+                      gap: 8,
                     }}
                   >
-                    <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>Destacar en portada</Text>
-                      <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
-                        Marca este producto como oferta destacada principal de la portada.
-                      </Text>
-                    </View>
+                    <Text
+                      style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14, flexShrink: 1 }}
+                    >
+                      Destacar en portada
+                    </Text>
                     <Switch value={isFeaturedHome} onValueChange={setIsFeaturedHome} />
                   </View>
                 ) : null}
