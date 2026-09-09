@@ -1,33 +1,33 @@
 // app/admin/index.tsx
 /**
- * Qué hace: pantalla de inicio del panel admin. Comprueba que hay sesión y
- * que el usuario tiene rol "admin" en la tabla profiles; si no, cierra
- * sesión y redirige al login. Si todo está bien, muestra directamente los
- * accesos a Categorías, Productos, Inventario y Cotizaciones ("Gestión
- * principal"), sin nada más de por medio.
+ * Qué hace: pantalla de inicio del panel admin. La comprobación de sesión y
+ * rol "admin" la hace app/admin/_layout.tsx antes de montar esta pantalla,
+ * así que aquí no hay lógica de sesión: solo la cabecera (título + volver a
+ * la tienda) y, ocupando el resto de la pantalla, "Gestión principal" con
+ * los accesos a Categorías, Productos, Inventario, Cotizaciones y Chat.
  *
- * Cómo funciona: la comprobación de sesión + rol "admin" la hace
- * app/admin/_layout.tsx antes de montar cualquier pantalla del panel, así
- * que esta pantalla ya no la repite (antes duplicaba esa misma consulta a
- * "profiles" en cada carga); aquí solo se lee el email de la sesión para
- * mostrarlo en la cabecera. Antes había además un bloque "Vista general"
- * (3 datos fijos sin utilidad real: Acceso/Rol/Objetivo), "Operativa
- * rápida", una checklist de publicación y un aviso "Regla importante": se
- * quitaron a petición de Jefe para que la pantalla vaya directa al grano y
- * "Gestión principal" ocupe el espacio nada más entrar. Tema claro (fondo
- * blanco, texto azul marino, acentos azul claro) con contenido centrado en
- * pantallas anchas (columnStyle, maxWidth 1040).
+ * Cómo funciona: antes la cabecera incluía además un párrafo explicativo,
+ * una insignia "Administrador activo · email" y el botón "Cerrar sesión";
+ * se quitaron a petición de Jefe para que la cabecera sea mínima y ese
+ * espacio lo aproveche directamente "Gestión principal". Las tarjetas de
+ * acceso (CardButton) son ahora azulejos de un único color (el acento de la
+ * marca) con animación al pulsar (escala + opacidad), sin la burbuja de
+ * categoría ("Base"/"Ventas"/"Stock"/"Solicitudes") que tenían antes. En
+ * móvil se apilan en rejilla de 2 columnas (igual que "Categorías" en
+ * Inicio); en escritorio se quedan en lista de una columna con más detalle
+ * (icono + título + subtítulo). Tema claro (fondo blanco, texto azul
+ * marino, acentos azul claro) con contenido centrado en pantallas anchas
+ * (columnStyle, maxWidth 1040).
  *
  * Conectado con:
- * - lib/supabase.ts → cliente de Supabase para sesión, perfil y logout.
  * - app/admin/categories.tsx, app/admin/products.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx,
  *   app/admin/chats.tsx → destino de las tarjetas de "Gestión principal".
- * - app/admin/login.tsx → destino cuando el acceso no es válido.
+ * - app/admin/login.tsx → destino cuando el acceso no es válido
+ *   (gestionado por app/admin/_layout.tsx).
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -39,7 +39,6 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -66,10 +65,6 @@ const COLORS = {
 // Ancho máximo centrado para pantallas grandes (web/tablet); en móvil ocupa el 100%.
 const columnStyle = { width: "100%", maxWidth: 1040, alignSelf: "center" } as const;
 
-type AdminUserState = {
-  email: string | null;
-};
-
 function softShadow() {
   return Platform.select<any>({
     ios: {
@@ -88,82 +83,88 @@ function CardButton({
   subtitle,
   onPress,
   icon,
-  badge,
   isMobile,
 }: {
   title: string;
   subtitle: string;
   onPress: () => void;
   icon?: IoniconName;
-  badge?: string;
   isMobile?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => ({
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
-        padding: isMobile ? 14 : 16,
-        opacity: pressed ? 0.9 : 1,
-        ...softShadow(),
-      })}
+      style={
+        ({ pressed }) =>
+          ({
+            width: isMobile ? "48.8%" : "100%",
+            minHeight: isMobile ? 132 : undefined,
+            borderRadius: 20,
+            backgroundColor: COLORS.accent,
+            padding: isMobile ? 14 : 18,
+            opacity: pressed ? 0.88 : 1,
+            transform: [{ scale: pressed ? 0.97 : 1 }],
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "center" : "center",
+            justifyContent: isMobile ? "flex-start" : "space-between",
+            gap: isMobile ? 8 : 14,
+            transitionProperty: "transform, opacity",
+            transitionDuration: "140ms",
+            transitionTimingFunction: "ease-out",
+            ...softShadow(),
+          } as any)
+      }
     >
       <View
         style={{
           flexDirection: isMobile ? "column" : "row",
-          alignItems: isMobile ? "flex-start" : "flex-start",
-          justifyContent: "space-between",
-          gap: 10,
+          alignItems: "center",
+          gap: isMobile ? 8 : 14,
+          flex: isMobile ? undefined : 1,
         }}
       >
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {icon ? <Ionicons name={icon} size={16} color={COLORS.text} /> : null}
-            <Text
-              style={{
-                color: COLORS.text,
-                fontWeight: "900",
-                fontSize: isMobile ? 15 : 16,
-                lineHeight: 22,
-              }}
-            >
-              {title}
-            </Text>
-          </View>
-
-          <Text
-            style={{
-              color: COLORS.muted,
-              marginTop: 6,
-              lineHeight: 20,
-              fontSize: isMobile ? 13 : 14,
-            }}
-          >
-            {subtitle}
-          </Text>
+        <View
+          style={{
+            width: isMobile ? 44 : 46,
+            height: isMobile ? 44 : 46,
+            borderRadius: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(255,255,255,0.22)",
+          }}
+        >
+          {icon ? <Ionicons name={icon} size={22} color="#FFFFFF" /> : null}
         </View>
 
-        {!!badge && (
-          <View
+        <View style={{ flex: isMobile ? undefined : 1, alignItems: isMobile ? "center" : "flex-start" }}>
+          <Text
             style={{
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.accentBorder,
-              backgroundColor: COLORS.accent2,
-              alignSelf: isMobile ? "flex-start" : "flex-start",
+              color: "#FFFFFF",
+              fontWeight: "900",
+              fontSize: isMobile ? 14.5 : 16,
+              lineHeight: isMobile ? 19 : 22,
+              textAlign: isMobile ? "center" : "left",
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-              {badge}
+            {title}
+          </Text>
+
+          {!isMobile && (
+            <Text
+              style={{
+                color: "rgba(255,255,255,0.85)",
+                marginTop: 4,
+                lineHeight: 19,
+                fontSize: 13,
+              }}
+            >
+              {subtitle}
             </Text>
-          </View>
-        )}
+          )}
+        </View>
       </View>
+
+      {!isMobile && <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />}
     </Pressable>
   );
 }
@@ -178,19 +179,20 @@ function SectionTitle({
   isMobile?: boolean;
 }) {
   return (
-    <View style={{ marginBottom: 10 }}>
+    <View style={{ marginBottom: 10, alignItems: "center" }}>
       <Text
         style={{
           color: COLORS.text,
           fontWeight: "900",
           fontSize: isMobile ? 17 : 18,
           lineHeight: isMobile ? 22 : 24,
+          textAlign: "center",
         }}
       >
         {title}
       </Text>
       {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
+        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19, textAlign: "center" }}>
           {subtitle}
         </Text>
       )}
@@ -204,33 +206,6 @@ export default function AdminHome() {
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
 
-  const [userState, setUserState] = useState<AdminUserState>({
-    email: null,
-  });
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  // La comprobación de sesión + rol "admin" ya la hace app/admin/_layout.tsx
-  // antes de montar esta pantalla (bloquea el Stack hasta que se valida), así
-  // que aquí no se repite: solo se lee el email de la sesión activa para
-  // mostrarlo en la cabecera.
-  useEffect(() => {
-    let active = true;
-
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) => {
-        if (active) setUserState({ email: session?.user?.email ?? null });
-      })
-      .catch(() => {
-        // Si falla, simplemente no se muestra el email; _layout.tsx es quien
-        // decide si hay que expulsar al login.
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const actions = useMemo(
     () => [
       {
@@ -239,7 +214,6 @@ export default function AdminHome() {
         subtitle:
           "Crear, ordenar, activar o desactivar las secciones que definen la navegación comercial de la tienda.",
         icon: "folder-outline" as IoniconName,
-        badge: "Base",
         onPress: () => router.push("/admin/categories"),
       },
       {
@@ -248,7 +222,6 @@ export default function AdminHome() {
         subtitle:
           "Crear, editar, publicar, revisar precio, imágenes, estado y visibilidad de cada producto.",
         icon: "pricetags-outline" as IoniconName,
-        badge: "Ventas",
         onPress: () => router.push("/admin/products"),
       },
       {
@@ -257,7 +230,6 @@ export default function AdminHome() {
         subtitle:
           "Control interno de existencias y operativa de almacén.",
         icon: "cube-outline" as IoniconName,
-        badge: "Stock",
         onPress: () => router.push("/admin/inventario"),
       },
       {
@@ -266,7 +238,6 @@ export default function AdminHome() {
         subtitle:
           "Solicitudes de \"Vender ahora\" enviadas por clientes: artículo, estado, ciudad y precio esperado.",
         icon: "document-text-outline" as IoniconName,
-        badge: "Solicitudes",
         onPress: () => router.push("/admin/cotizaciones"),
       },
       {
@@ -275,26 +246,11 @@ export default function AdminHome() {
         subtitle:
           "Conversaciones privadas de clientes por producto: elige a la persona correcta y márcala como vendida.",
         icon: "chatbubbles-outline" as IoniconName,
-        badge: "Ventas",
         onPress: () => router.push("/admin/chats"),
       },
     ],
     []
   );
-
-  const logout = useCallback(async () => {
-    if (loggingOut) return;
-    setLoggingOut(true);
-
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      // ignore
-    } finally {
-      setLoggingOut(false);
-      router.replace("/admin/login");
-    }
-  }, [loggingOut]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -324,86 +280,24 @@ export default function AdminHome() {
             Panel de Administración
           </Text>
 
-          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-            Gestiona las categorías, los productos y la estructura comercial de la tienda.
-            El contenido que publiques aquí es exactamente lo que verán tus clientes.
-          </Text>
-
-          <View
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 6,
-              paddingHorizontal: 10,
+          <Pressable
+            onPress={() => router.replace("/")}
+            style={({ pressed }) => ({
+              alignSelf: isMobile ? "stretch" : "flex-start",
+              opacity: pressed ? 0.85 : 1,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
               borderRadius: 999,
               borderWidth: 1,
-              borderColor: COLORS.successBorder,
-              backgroundColor: COLORS.successBg,
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-              Administrador activo{userState.email ? ` · ${userState.email}` : ""}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              flexDirection: isMobile ? "column" : "row",
-              flexWrap: "wrap",
-              gap: 10,
+              borderColor: "#E3EAF2",
+              backgroundColor: "#F6FAFD",
               marginTop: 2,
-            }}
+            })}
           >
-            <Pressable
-              onPress={() => router.replace("/")}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.85 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: "#E3EAF2",
-                backgroundColor: "#F6FAFD",
-                width: isMobile ? "100%" : undefined,
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                Volver a la tienda
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={logout}
-              disabled={loggingOut}
-              style={({ pressed }) => ({
-                opacity: loggingOut ? 0.55 : pressed ? 0.85 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                backgroundColor: COLORS.accent2,
-                width: isMobile ? "100%" : undefined,
-              })}
-            >
-              {loggingOut ? (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                  }}
-                >
-                  <ActivityIndicator color={COLORS.text} />
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Saliendo…</Text>
-                </View>
-              ) : (
-                <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                  Cerrar sesión
-                </Text>
-              )}
-            </Pressable>
-          </View>
+            <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+              Volver a la tienda
+            </Text>
+          </Pressable>
         </View>
         </View>
 
@@ -422,14 +316,20 @@ export default function AdminHome() {
               isMobile={isMobile}
             />
 
-            <View style={{ gap: 12 }}>
+            <View
+              style={{
+                flexDirection: isMobile ? "row" : "column",
+                flexWrap: isMobile ? "wrap" : "nowrap",
+                justifyContent: isMobile ? "space-between" : undefined,
+                gap: 12,
+              }}
+            >
               {actions.map((a) => (
                 <CardButton
                   key={a.key}
                   title={a.title}
                   subtitle={a.subtitle}
                   icon={a.icon}
-                  badge={a.badge}
                   onPress={a.onPress}
                   isMobile={isMobile}
                 />
