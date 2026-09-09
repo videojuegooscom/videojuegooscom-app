@@ -115,6 +115,27 @@ function revokeLocalMedia(items: LocalPickedMedia[]) {
   });
 }
 
+// Reintenta una operación de red un par de veces con una pequeña espera
+// entre intentos. Al subir muchos archivos de golpe (por ejemplo 15 fotos),
+// un fallo puntual de conexión en UNA de ellas ya no aborta directamente:
+// se reintenta sola un par de veces antes de darse por vencida.
+async function withRetries<T>(fn: () => Promise<T>, attempts = 3, delayMs = 600): Promise<T> {
+  let lastErr: unknown;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+      }
+    }
+  }
+
+  throw lastErr;
+}
+
 function normalizeMediaKind(value: unknown): "image" | "video" | null {
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "image") return "image";
@@ -379,6 +400,9 @@ export default function AdminProducts() {
   const [existingMedia, setExistingMedia] = useState<ProductMediaRow[]>([]);
   const [removedMedia, setRemovedMedia] = useState<ProductMediaRow[]>([]);
   const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
 
   useEffect(() => {
     return () => {
@@ -568,6 +592,7 @@ export default function AdminProducts() {
     setRemovedMedia([]);
     revokeLocalMedia(newMedia);
     setNewMedia([]);
+    setUploadProgress(null);
     setModalErr(null);
   }
 
@@ -676,43 +701,39 @@ export default function AdminProducts() {
     if (!newMedia.length) return;
 
     const startIndex = existingMedia.length;
+    // Archivos que SÍ terminan de subirse (Storage + fila en product_media)
+    // en esta pasada. Si algo falla a mitad (por ejemplo la 3ª de 5 fotos),
+    // los quitamos de "pendientes" (newMedia) antes de propagar el error,
+    // para que si el admin pulsa "Guardar cambios" otra vez no se vuelvan a
+    // subir duplicados.
+    const uploadedIds: string[] = [];
+    const total = newMedia.length;
 
-    for (let i = 0; i < newMedia.length; i++) {
-      const item = newMedia[i];
-      const storagePath = buildMediaPath(productId, item, startIndex + i);
+    setUploadProgress({ done: 0, total });
 
-      const uploadRes = await supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: item.mimeType || undefined,
-      });
+    try {
+      for (let i = 0; i < newMedia.length; i++) {
+        const item = newMedia[i];
+        const storagePath = buildMediaPath(productId, item, startIndex + i);
 
-      if (uploadRes.error) throw uploadRes.error;
+        // Se reintenta un par de veces cada subida antes de rendirse: al
+        // mandar de golpe 10-15 fotos seguidas, un corte de red de un
+        // instante en UNA de ellas ya no aborta el resto ni obliga a
+        // repetir todo desde cero.
+        const uploadRes = await withRetries(() =>
+          supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: item.mimeType || undefined,
+          })
+        );
 
-      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
-      const publicUrl = publicData?.publicUrl ?? "";
+        if (uploadRes.error) throw uploadRes.error;
 
-      const basePayload: Record<string, any> = {
-        product_id: productId,
-        storage_path: storagePath,
-        public_url: publicUrl,
-        file_name: item.name,
-        mime_type: item.mimeType || null,
-        sort_order: startIndex + i,
-        is_cover: false,
-      };
+        const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+        const publicUrl = publicData?.publicUrl ?? "";
 
-      if (item.kind === "image" || item.kind === "video") {
-        basePayload.kind = item.kind;
-      }
-
-      if (item.kind === "video") {
-        basePayload.duration_seconds = item.durationSeconds ?? null;
-      }
-
-      const insertRes = await supabase.from("product_media").insert(basePayload);
-      if (insertRes.error) {
-        const fallbackPayload = {
+        const basePayload: Record<string, any> = {
           product_id: productId,
           storage_path: storagePath,
           public_url: publicUrl,
@@ -722,9 +743,46 @@ export default function AdminProducts() {
           is_cover: false,
         };
 
-        const retryRes = await supabase.from("product_media").insert(fallbackPayload);
-        if (retryRes.error) throw retryRes.error;
+        if (item.kind === "image" || item.kind === "video") {
+          basePayload.kind = item.kind;
+        }
+
+        if (item.kind === "video") {
+          basePayload.duration_seconds = item.durationSeconds ?? null;
+        }
+
+        const insertRes = await withRetries(() =>
+          supabase.from("product_media").insert(basePayload)
+        );
+        if (insertRes.error) {
+          const fallbackPayload = {
+            product_id: productId,
+            storage_path: storagePath,
+            public_url: publicUrl,
+            file_name: item.name,
+            mime_type: item.mimeType || null,
+            sort_order: startIndex + i,
+            is_cover: false,
+          };
+
+          const retryRes = await withRetries(() =>
+            supabase.from("product_media").insert(fallbackPayload)
+          );
+          if (retryRes.error) throw retryRes.error;
+        }
+
+        uploadedIds.push(item.id);
+        setUploadProgress({ done: i + 1, total });
       }
+    } catch (err) {
+      if (uploadedIds.length) {
+        const uploadedSet = new Set(uploadedIds);
+        setNewMedia((prev) => {
+          revokeLocalMedia(prev.filter((m) => uploadedSet.has(m.id)));
+          return prev.filter((m) => !uploadedSet.has(m.id));
+        });
+      }
+      throw err;
     }
   }
 
@@ -741,6 +799,55 @@ export default function AdminProducts() {
 
     const dbDelete = await supabase.from("product_media").delete().in("id", ids);
     if (dbDelete.error) throw dbDelete.error;
+  }
+
+  // Antes, cualquier fallo al guardar (de la ficha del producto o de las
+  // fotos/vídeo) mostraba siempre el mismo mensaje genérico
+  // ("No se ha podido guardar el producto. Inténtalo de nuevo."), sin decir
+  // POR QUÉ — eso hacía imposible saber si era un problema de permisos, de
+  // tamaño de archivo, de conexión, etc. Ahora se muestra también el
+  // detalle real que devuelve Supabase, traducido cuando reconocemos la
+  // causa habitual.
+  function describeSaveError(e: any, contexto: "el producto" | "las fotos o el vídeo") {
+    const rawMessage = String(
+      e?.message || e?.error_description || e?.details || e?.hint || e?.error || ""
+    ).trim();
+    const lower = rawMessage.toLowerCase();
+    const statusCode = String(e?.statusCode ?? e?.status ?? "").trim();
+
+    if (e?.code === "23505" && lower.includes("reference")) {
+      return "Ya existe otro producto con ese número de referencia. Usa uno distinto.";
+    }
+
+    if (
+      lower.includes("row-level security") ||
+      lower.includes("permission denied") ||
+      statusCode === "403"
+    ) {
+      return `No tienes permiso para guardar ${contexto} (comprueba que tu cuenta siga marcada como administrador). Detalle: ${
+        rawMessage || "sin detalle"
+      }`;
+    }
+
+    if (lower.includes("exceeded the maximum allowed size") || statusCode === "413") {
+      return `Uno de los archivos es demasiado grande para subirlo. Detalle: ${
+        rawMessage || "sin detalle"
+      }`;
+    }
+
+    if (lower.includes("bucket not found")) {
+      return "No se encuentra el almacén de fotos/vídeo en Supabase (bucket 'product-media'). Puede que falte ejecutar sql/product_media.sql.";
+    }
+
+    if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
+      return "No se ha podido conectar con el servidor. Comprueba tu conexión a internet e inténtalo de nuevo.";
+    }
+
+    if (rawMessage) {
+      return `No se ha podido guardar ${contexto}. Detalle: ${rawMessage}`;
+    }
+
+    return `No se ha podido guardar ${contexto}. Inténtalo de nuevo.`;
   }
 
   async function save() {
@@ -822,6 +929,7 @@ export default function AdminProducts() {
 
     try {
       let productId = editing?.id ?? null;
+      const wasNewProduct = !editing;
 
       if (editing) {
         const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
@@ -839,10 +947,53 @@ export default function AdminProducts() {
 
       if (!productId) throw new Error("No se pudo completar la creación del producto.");
 
+      if (wasNewProduct) {
+        // La ficha del producto ya se ha creado en la base de datos. Si la
+        // subida de fotos/vídeo de más abajo falla, necesitamos que un
+        // reintento ACTUALICE este producto en vez de crear uno nuevo
+        // duplicado con el mismo título — por eso lo marcamos como
+        // "editing" ya aquí, antes de intentar subir nada.
+        setEditing({
+          id: productId,
+          title: cleanTitle,
+          description: cleanDesc || null,
+          price_eur: priceEur,
+          status,
+          condition,
+          category_id: categoryId,
+          is_active: isActive,
+          created_at: "",
+          updated_at: "",
+          is_featured_home: !!isFeaturedHome,
+          reference: cleanReference || null,
+          media: [],
+        });
+      }
+
       if (supportsProductMedia) {
-        await deleteRemovedMedia();
-        await uploadNewMedia(productId);
-        await normalizeMediaForProduct(productId);
+        try {
+          await deleteRemovedMedia();
+          await uploadNewMedia(productId);
+          await normalizeMediaForProduct(productId);
+        } catch (mediaErr: any) {
+          // El producto (título, precio, estado...) SÍ se ha guardado bien;
+          // el fallo es solo al subir las fotos/vídeo nuevos. Se avisa de
+          // forma distinta para no decir "no se ha guardado" cuando sí se
+          // ha guardado, y se deja el formulario abierto (con el resto de
+          // fotos pendientes que uploadNewMedia() no llegó a subir) para
+          // que el admin pueda reintentar solo esa parte.
+          console.error(
+            "Error subiendo fotos/vídeo del producto:",
+            mediaErr?.message || mediaErr?.error_description || mediaErr?.details || mediaErr
+          );
+          setModalErr(
+            `El producto se ha guardado, pero no se han podido subir las fotos o el vídeo nuevos. ${describeSaveError(
+              mediaErr,
+              "las fotos o el vídeo"
+            )}`
+          );
+          return;
+        }
       }
 
       setOpen(false);
@@ -853,14 +1004,10 @@ export default function AdminProducts() {
         "Error guardando producto:",
         e?.message || e?.error_description || e?.details || e
       );
-
-      if (e?.code === "23505" && String(e?.message ?? "").toLowerCase().includes("reference")) {
-        setModalErr("Ya existe otro producto con ese número de referencia. Usa uno distinto.");
-      } else {
-        setModalErr("No se ha podido guardar el producto. Inténtalo de nuevo.");
-      }
+      setModalErr(describeSaveError(e, "el producto"));
     } finally {
       setSaving(false);
+      setUploadProgress(null);
     }
   }
 
@@ -1493,12 +1640,34 @@ export default function AdminProducts() {
                     variant="primary"
                     onPress={addMediaFromPicker}
                     isMobile={isMobile}
+                    disabled={!!uploadProgress}
                   />
                 </View>
 
                 <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
                   Actualmente: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
                 </Text>
+
+                {!!uploadProgress && (
+                  <View
+                    style={{
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: COLORS.accentBorder,
+                      backgroundColor: COLORS.accent2,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <ActivityIndicator size="small" color={COLORS.accent} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
+                      Subiendo fotos/vídeo… {uploadProgress.done}/{uploadProgress.total}
+                    </Text>
+                  </View>
+                )}
 
                 {!!existingMedia.length && (
                   <View style={{ gap: 8 }}>
