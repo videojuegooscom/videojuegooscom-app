@@ -18,8 +18,8 @@
  * - app/admin/products.tsx → usa todas estas funciones para el formulario
  *   de alta/edición de productos y la subida de media.
  */
-import { router } from "expo-router";
 import { Platform } from "react-native";
+import { router } from "expo-router";
 import type {
   LocalPickedMedia,
   ProductCondition,

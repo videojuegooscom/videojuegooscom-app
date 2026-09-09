@@ -37,8 +37,6 @@
  * - app/admin/_layout.tsx → registra esta ruta ("services") dentro del
  *   Stack protegido del panel admin.
  */
-import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -53,10 +51,12 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "./products/products.constants";
+import { pickMediaFilesWeb, buildMediaPath, fmtEUR, clampText, toIntSafe } from "./products/products.utils";
+import { MEDIA_BUCKET, MAX_IMAGES, ERRORS } from "./products/products.constants";
 import type { LocalPickedMedia } from "./products/products.types";
-import { buildMediaPath, fmtEUR, pickMediaFilesWeb, toIntSafe } from "./products/products.utils";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 

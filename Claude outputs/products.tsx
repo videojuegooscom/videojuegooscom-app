@@ -51,7 +51,6 @@
  * completas solo de estadísticas antes de llegar al buscador y a "+ Nuevo
  * producto"). Ver StatCard en products.components.tsx.
  */
-import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -66,13 +65,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import {
-  ChipButton,
-  FilterPill,
-  MediaThumb,
-  StatCard,
-} from "./products/products.components";
 import {
   COLORS,
   MAX_FILE_SIZE_MB,
@@ -103,6 +97,12 @@ import {
   statusVisual,
   toIntSafe,
 } from "./products/products.utils";
+import {
+  ChipButton,
+  FilterPill,
+  MediaThumb,
+  StatCard,
+} from "./products/products.components";
 
 function revokeLocalMedia(items: LocalPickedMedia[]) {
   items.forEach((m) => {
