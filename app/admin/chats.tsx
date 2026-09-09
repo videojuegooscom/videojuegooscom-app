@@ -24,10 +24,16 @@
  *   desde "Comprar ya"). Si ese producto ya tiene una venta registrada para
  *   esa misma persona, el botón se sustituye por un aviso "Ya vendido ✓" en
  *   vez de dejar duplicar la fila sin querer.
+ * - Nombre del cliente en la lista: se pide con admin_users_by_ids (ver
+ *   sql/admin_users_by_ids.sql), que devuelve el nombre real aunque esa
+ *   persona no haya escrito ni un mensaje. Si esa función todavía no existe
+ *   en Supabase (falta ejecutar el script), se cae al nombre sacado del
+ *   primer mensaje del cliente y, si tampoco hay, a "Cliente".
  *
  * Conectado con:
  * - sql/product_chats.sql → product_chats, product_chat_messages.
  * - sql/product_sales.sql → marcar como vendido.
+ * - sql/admin_users_by_ids.sql → nombre real del cliente en la lista.
  * - components/ProductChatThread.tsx → el hilo de mensajes en sí.
  * - app/admin/products.tsx → la otra forma de marcar "vendido" (buscando al
  *   usuario registrado, sin depender de que haya escrito por chat).
@@ -125,24 +131,34 @@ export default function AdminChats() {
 
       const chatIds = chatRows.map((c) => c.id);
       const productIds = Array.from(new Set(chatRows.map((c) => c.product_id)));
+      const customerIds = Array.from(new Set(chatRows.map((c) => c.customer_user_id)));
 
-      const [{ data: products }, { data: media }, { data: firstMsgs }, { data: sales }] = await Promise.all([
-        supabase.from("products").select("id,title,images").in("id", productIds),
-        supabase
-          .from("product_media")
-          .select("product_id,public_url,is_cover,sort_order")
-          .in("product_id", productIds)
-          .eq("kind", "image")
-          .order("is_cover", { ascending: false })
-          .order("sort_order", { ascending: true }),
-        supabase
-          .from("product_chat_messages")
-          .select("chat_id,sender_role,sender_name,created_at")
-          .in("chat_id", chatIds)
-          .eq("sender_role", "customer")
-          .order("created_at", { ascending: true }),
-        supabase.from("product_sales").select("product_id,buyer_user_id").in("product_id", productIds),
-      ]);
+      const [{ data: products }, { data: media }, { data: firstMsgs }, { data: sales }, { data: realUsers }] =
+        await Promise.all([
+          supabase.from("products").select("id,title,images").in("id", productIds),
+          supabase
+            .from("product_media")
+            .select("product_id,public_url,is_cover,sort_order")
+            .in("product_id", productIds)
+            .eq("kind", "image")
+            .order("is_cover", { ascending: false })
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("product_chat_messages")
+            .select("chat_id,sender_role,sender_name,created_at")
+            .in("chat_id", chatIds)
+            .eq("sender_role", "customer")
+            .order("created_at", { ascending: true }),
+          supabase.from("product_sales").select("product_id,buyer_user_id").in("product_id", productIds),
+          // Nombre REAL del cliente aunque todavía no haya escrito ningún
+          // mensaje (ver sql/admin_users_by_ids.sql). Si esa función todavía
+          // no existe en el proyecto de Supabase (falta ejecutar el script),
+          // esto falla en silencio y se cae al nombre sacado de los mensajes.
+          supabase.rpc("admin_users_by_ids", { ids: customerIds }).then(
+            (res) => res,
+            () => ({ data: null })
+          ),
+        ]);
 
       const titleById: Record<string, string> = {};
       const imageById: Record<string, string | null> = {};
@@ -154,9 +170,19 @@ export default function AdminChats() {
         if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
       }
 
+      // Nombre por chat, sacado del primer mensaje del cliente (solo existe
+      // si ya ha escrito algo).
       const nameByChat: Record<string, string> = {};
       for (const row of (firstMsgs ?? []) as any[]) {
-        if (!nameByChat[row.chat_id]) nameByChat[row.chat_id] = row.sender_name || "Cliente";
+        if (!nameByChat[row.chat_id]) nameByChat[row.chat_id] = row.sender_name || "";
+      }
+
+      // Nombre real por cliente (id de auth.users), disponible aunque no
+      // haya escrito nada todavía. Tiene prioridad sobre el anterior.
+      const nameByCustomer: Record<string, string> = {};
+      for (const row of (realUsers ?? []) as any[]) {
+        const name = (row.full_name || row.username || row.email || "").trim();
+        if (name) nameByCustomer[row.id] = name;
       }
 
       const sold = new Set<string>();
@@ -175,7 +201,8 @@ export default function AdminChats() {
             product_image: imageById[c.product_id] ?? null,
             chats: [],
           });
-        group.chats.push({ ...c, customer_name: nameByChat[c.id] ?? "Cliente" });
+        const customerName = nameByCustomer[c.customer_user_id] || nameByChat[c.id] || "Cliente";
+        group.chats.push({ ...c, customer_name: customerName });
       }
 
       const groupList = Object.values(byProduct).sort((a, b) => {

@@ -59,6 +59,15 @@
  * app/admin/products.tsx y aquí solo se muestra dentro de "Información del
  * producto" cuando el producto tiene uno asignado.
  *
+ * "X Visitas": contador REAL (nunca inventado) junto a "De segunda mano:
+ * ...", ambos como texto plano (sin fondo/borde de burbuja). Vive en
+ * products.view_count (ver sql/product_views.sql — columna nueva, hay que
+ * ejecutar el script una vez en Supabase) y sube exactamente 1 en cada carga
+ * real de esta ficha vía increment_product_view(), salvo cuando la abre el
+ * propio admin (para no inflar el número con sus propias revisiones). Si esa
+ * función todavía no existe en Supabase, el número simplemente no se
+ * muestra en vez de romper la ficha.
+ *
  * Rendimiento: dentro de loadProduct(), la comprobación de admin y la carga
  * del producto siguen siendo secuenciales a propósito (la segunda necesita
  * saber si eres admin antes de decidir qué puede ver), pero la consulta de
@@ -68,6 +77,7 @@
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
  * - sql/product_likes.sql → columna like_count y función adjust_product_like.
+ * - sql/product_views.sql → columna view_count y función increment_product_view.
  * - app/catalogo.tsx → de donde se navega hasta aquí.
  * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Ver cesta" y
  *   "Finalizar compra".
@@ -683,6 +693,7 @@ export default function ProductoScreen() {
   const [likeCount, setLikeCount] = useState(0);
   const [likeBusy, setLikeBusy] = useState(false);
   const [likesSupported, setLikesSupported] = useState(true);
+  const [viewCount, setViewCount] = useState<number | null>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [cartBusy, setCartBusy] = useState(false);
@@ -763,10 +774,29 @@ ${price}
       if (!productRow) {
         setP(null);
         setSelectedImageUrl(null);
+        setViewCount(null);
         setErr(
           "Este producto no existe o ya no está disponible para la venta. Prueba a volver al catálogo para ver el resto de artículos."
         );
         return;
+      }
+
+      // Contador de visitas REAL (ver sql/product_views.sql): se suma 1 en
+      // cada carga real de la ficha, salvo cuando la abre el propio admin
+      // (esas no son visitas de clientes). No bloquea el resto de la
+      // pantalla: si la función todavía no existe en Supabase (falta
+      // ejecutar el script) o falla por lo que sea, simplemente no se
+      // muestra el número, sin romper la ficha.
+      if (!adminFlag) {
+        supabase
+          .rpc("increment_product_view", { product_id: productRow.id })
+          .then(({ data, error }) => {
+            if (seq !== reqSeqRef.current) return;
+            if (!error && typeof data === "number") setViewCount(data);
+          })
+          .catch(() => {});
+      } else {
+        setViewCount(null);
       }
 
       // Estas dos consultas no dependen entre sí (solo del producto que ya
@@ -1421,22 +1451,11 @@ ${price}
                     flexDirection: "row",
                     flexWrap: "wrap",
                     alignItems: "center",
+                    justifyContent: "space-between",
                     gap: 10,
                   }}
                 >
-                  <View
-                    style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: 999,
-                      backgroundColor: COLORS.accent2,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <Ionicons name="shield-checkmark-outline" size={14} color={COLORS.accent} />
                     <Text
                       style={{
@@ -1449,6 +1468,21 @@ ${price}
                       De segunda mano: {labelCondition(p.condition)}
                     </Text>
                   </View>
+
+                  {viewCount !== null && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <Ionicons name="eye-outline" size={14} color={COLORS.muted} />
+                      <Text
+                        style={{
+                          color: COLORS.muted,
+                          fontWeight: "700",
+                          fontSize: 12,
+                        }}
+                      >
+                        {viewCount} {viewCount === 1 ? "Visita" : "Visitas"}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 <Text

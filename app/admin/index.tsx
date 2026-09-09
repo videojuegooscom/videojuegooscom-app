@@ -97,19 +97,19 @@ function CardButton({
       style={
         ({ pressed }) =>
           ({
-            width: isMobile ? "48.8%" : "100%",
+            width: "100%",
             minHeight: isMobile ? 132 : undefined,
             borderRadius: 20,
             backgroundColor: COLORS.accent,
             padding: isMobile ? 14 : 18,
-            opacity: pressed ? 0.88 : 1,
-            transform: [{ scale: pressed ? 0.97 : 1 }],
+            opacity: pressed ? 0.78 : 1,
+            transform: [{ scale: pressed ? 0.93 : 1 }],
             flexDirection: isMobile ? "column" : "row",
             alignItems: isMobile ? "center" : "center",
             justifyContent: isMobile ? "flex-start" : "space-between",
             gap: isMobile ? 8 : 14,
-            transitionProperty: "transform, opacity",
-            transitionDuration: "140ms",
+            transitionProperty: "transform, opacity, box-shadow",
+            transitionDuration: "160ms",
             transitionTimingFunction: "ease-out",
             ...softShadow(),
           } as any)
@@ -275,29 +275,11 @@ export default function AdminHome() {
               fontSize: isMobile ? 22 : 24,
               fontWeight: "900",
               lineHeight: isMobile ? 28 : 30,
+              textAlign: "center",
             }}
           >
             Panel de Administración
           </Text>
-
-          <Pressable
-            onPress={() => router.replace("/")}
-            style={({ pressed }) => ({
-              alignSelf: isMobile ? "stretch" : "flex-start",
-              opacity: pressed ? 0.85 : 1,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: "#E3EAF2",
-              backgroundColor: "#F6FAFD",
-              marginTop: 2,
-            })}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-              Volver a la tienda
-            </Text>
-          </Pressable>
         </View>
         </View>
 
@@ -317,12 +299,15 @@ export default function AdminHome() {
             />
 
             <View
-              style={{
-                flexDirection: isMobile ? "row" : "column",
-                flexWrap: isMobile ? "wrap" : "nowrap",
-                justifyContent: isMobile ? "space-between" : undefined,
-                gap: 12,
-              }}
+              style={
+                isMobile
+                  ? ({
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 12,
+                    } as any)
+                  : { flexDirection: "column", gap: 12 }
+              }
             >
               {actions.map((a) => (
                 <CardButton
@@ -335,6 +320,25 @@ export default function AdminHome() {
                 />
               ))}
             </View>
+
+            <Pressable
+              onPress={() => router.replace("/")}
+              style={({ pressed }) => ({
+                alignSelf: isMobile ? "stretch" : "flex-start",
+                opacity: pressed ? 0.85 : 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: "#E3EAF2",
+                backgroundColor: "#F6FAFD",
+                marginTop: 16,
+              })}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                Volver a la tienda
+              </Text>
+            </Pressable>
           </View>
         </View>
         </ScrollView>
