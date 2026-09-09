@@ -216,13 +216,14 @@ function StatCard({ label, value, icon, isMobile }: { label: string; value: stri
         borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
+        alignItems: "center",
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>{label}</Text>
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, textAlign: "center" }}>{label}</Text>
       </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
         {value}
       </Text>
     </View>
@@ -294,8 +295,8 @@ function TextField({
   keyboardType?: "default" | "numeric";
 }) {
   return (
-    <View style={{ gap: 6 }}>
-      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{label}</Text>
+    <View style={{ gap: 6, alignItems: "center" }}>
+      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -304,6 +305,7 @@ function TextField({
         multiline={!!multiline}
         keyboardType={keyboardType ?? "default"}
         style={{
+          width: "100%",
           borderWidth: 1,
           borderColor: COLORS.border,
           borderRadius: 14,
@@ -313,6 +315,7 @@ function TextField({
           color: COLORS.text,
           backgroundColor: COLORS.cardSoft,
           minHeight: multiline ? 90 : undefined,
+          textAlign: multiline ? "left" : "center",
           textAlignVertical: multiline ? "top" : "center",
         }}
       />
@@ -716,10 +719,13 @@ export default function AdminServices() {
         }}
       >
         <View style={{ ...columnStyle, gap: 10 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ position: "relative", justifyContent: "center", minHeight: 36 }}>
             <Pressable
               onPress={smartBackAdminHome}
               style={({ pressed }) => ({
+                position: "absolute",
+                left: 0,
+                top: 0,
                 opacity: pressed ? 0.85 : 1,
                 width: 36,
                 height: 36,
@@ -730,12 +736,20 @@ export default function AdminServices() {
             >
               <Ionicons name="chevron-back" size={22} color={COLORS.text} />
             </Pressable>
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900" }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: isMobile ? 20 : 22,
+                fontWeight: "900",
+                textAlign: "center",
+                paddingHorizontal: 44,
+              }}
+            >
               Servicios
             </Text>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
             <ChipButton
               label="Catálogo"
               onPress={() => setTab("catalogo")}
@@ -778,6 +792,7 @@ export default function AdminServices() {
                     fontSize: 14,
                     color: COLORS.text,
                     backgroundColor: COLORS.cardSoft,
+                    textAlign: "center",
                   }}
                 />
               </View>
@@ -844,10 +859,10 @@ export default function AdminServices() {
                       )}
 
                       <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
                           {s.title || "Sin título"}
                         </Text>
-                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
                           {fmtEUR(s.price_eur)} · {STATUS_LABEL[s.status]}
                           {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
                         </Text>
@@ -881,7 +896,7 @@ export default function AdminServices() {
       ) : (
         <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40 }}>
           <View style={{ ...columnStyle, gap: 14 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
               {(["ALL", "nuevo", "revisado", "contactado", "descartado"] as const).map((f) => (
                 <ChipButton
                   key={f}
@@ -935,10 +950,10 @@ export default function AdminServices() {
                     >
                       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
+                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
                             {r.nombre} {r.apellido}
                           </Text>
-                          <Text style={{ color: COLORS.muted, fontSize: 12.5, marginTop: 2 }}>
+                          <Text style={{ color: COLORS.muted, fontSize: 12.5, marginTop: 2, textAlign: "center" }}>
                             {r.service_title} · {formatDate(r.created_at)}
                           </Text>
                         </View>
@@ -958,38 +973,38 @@ export default function AdminServices() {
                         </View>
                       </View>
 
-                      <View style={{ gap: 4 }}>
-                        <Text style={{ color: COLORS.text, fontSize: 13 }}>
+                      <View style={{ gap: 4, alignItems: "center" }}>
+                        <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                           <Text style={{ fontWeight: "800" }}>Ciudad: </Text>
                           {r.ciudad}
                         </Text>
                         {r.metodo_contacto ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13 }}>
+                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>{METODO_LABEL[r.metodo_contacto]}: </Text>
                             {r.contacto || "—"}
                           </Text>
                         ) : null}
                         {r.direccion ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13 }}>
+                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>Dirección: </Text>
                             {r.direccion}
                           </Text>
                         ) : null}
                         {r.disponibilidad ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13 }}>
+                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>Disponibilidad: </Text>
                             {DISPONIBILIDAD_LABEL[r.disponibilidad]}
                           </Text>
                         ) : null}
                         {r.comentario ? (
-                          <Text style={{ color: COLORS.text, fontSize: 13 }}>
+                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>Detalles: </Text>
                             {r.comentario}
                           </Text>
                         ) : null}
                       </View>
 
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                         {(["nuevo", "revisado", "contactado", "descartado"] as RequestStatus[])
                           .filter((s) => s !== r.status)
                           .map((s) => (
@@ -1031,18 +1046,34 @@ export default function AdminServices() {
           >
             <View
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
+                position: "relative",
+                justifyContent: "center",
                 padding: 16,
                 borderBottomWidth: 1,
                 borderBottomColor: COLORS.border,
               }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17 }}>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontWeight: "900",
+                  fontSize: 17,
+                  textAlign: "center",
+                  paddingHorizontal: 34,
+                }}
+              >
                 {editing ? "Editar servicio" : "Nuevo servicio"}
               </Text>
-              <Pressable onPress={closeModal} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 4 })}>
+              <Pressable
+                onPress={closeModal}
+                style={({ pressed }) => ({
+                  position: "absolute",
+                  right: 10,
+                  top: 10,
+                  opacity: pressed ? 0.7 : 1,
+                  padding: 4,
+                })}
+              >
                 <Ionicons name="close" size={22} color={COLORS.text} />
               </Pressable>
             </View>
@@ -1058,10 +1089,10 @@ export default function AdminServices() {
               />
               <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0" keyboardType="numeric" />
 
-              <View style={{ gap: 6 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>Estado</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  {(["DRAFT", "PUBLISHED", "REVIEW"] as ServiceStatus[]).map((st) => (
+              <View style={{ gap: 6, alignItems: "center" }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>Estado</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                  {(["DRAFT", "PUBLISHED"] as ServiceStatus[]).map((st) => (
                     <ChipButton
                       key={st}
                       label={STATUS_LABEL[st]}
@@ -1077,6 +1108,8 @@ export default function AdminServices() {
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
+                  justifyContent: "center",
+                  alignSelf: "center",
                   gap: 10,
                   opacity: pressed ? 0.85 : 1,
                 })}
@@ -1089,12 +1122,12 @@ export default function AdminServices() {
                 <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>Visible en la tienda</Text>
               </Pressable>
 
-              <View style={{ gap: 8 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
+              <View style={{ gap: 8, alignItems: "center" }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
                   Fotos ({existingMedia.length + newMedia.length}/{MAX_IMAGES})
                 </Text>
 
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                   {existingMedia.map((m) => (
                     <View key={m.id} style={{ width: 76, height: 76 }}>
                       <Image source={{ uri: m.public_url ?? "" }} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
@@ -1195,7 +1228,7 @@ export default function AdminServices() {
                 </View>
 
                 {picking && (
-                  <Text style={{ color: COLORS.muted, fontSize: 12 }}>
+                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
                     Procesando fotos… puede tardar unos segundos si son varias o vienen en formato
                     HEIC del iPhone.
                   </Text>
@@ -1212,7 +1245,7 @@ export default function AdminServices() {
                     padding: 10,
                   }}
                 >
-                  <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5 }}>{modalErr}</Text>
+                  <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>{modalErr}</Text>
                 </View>
               )}
 

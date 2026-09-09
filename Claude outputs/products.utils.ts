@@ -381,8 +381,47 @@ export async function pickMediaFilesWeb(): Promise<PickMediaResult> {
     input.accept =
       "image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif,video/mp4,video/webm,video/quicktime,.mov";
 
+    // Si el usuario abre el selector de archivos del sistema y lo cierra sin
+    // elegir nada (pulsa "Cancelar", o simplemente lo cierra), muchos
+    // navegadores NO disparan "change" en absoluto. Sin esto, la promesa se
+    // quedaba esperando para siempre y el botón se veía "cargando"
+    // (girando) sin parar, aunque no hubiera ningún archivo en proceso.
+    // Se cubre con dos mecanismos, el que llegue primero gana:
+    //  1) el evento "cancel" del propio <input> (Chrome/Edge modernos).
+    //  2) si la ventana recupera el foco (el selector se cerró) y no ha
+    //     llegado "change" poco después, se asume cancelado.
+    let settled = false;
+    let focusTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = (result: PickMediaResult) => {
+      if (settled) return;
+      settled = true;
+      if (focusTimer) clearTimeout(focusTimer);
+      window.removeEventListener("focus", onWindowFocus);
+      resolve(result);
+    };
+
+    function onWindowFocus() {
+      window.removeEventListener("focus", onWindowFocus);
+      // Da un margen a que "change" llegue primero si sí se eligieron
+      // archivos (el foco vuelve a la ventana justo antes de ese evento).
+      focusTimer = setTimeout(() => finish({ items: [], skipped: [] }), 900);
+    }
+
+    input.addEventListener("cancel", () => finish({ items: [], skipped: [] }));
+    window.addEventListener("focus", onWindowFocus);
+
     input.onchange = async () => {
       const originalFiles = Array.from(input.files ?? []);
+
+      if (!originalFiles.length) {
+        // El navegador disparó "change" pero sin archivos (equivalente a
+        // cancelar): tratarlo igual que un cancel, no como "0 fotos, sigue
+        // procesando".
+        finish({ items: [], skipped: [] });
+        return;
+      }
+
       const out: LocalPickedMedia[] = [];
       const skipped: SkippedPickedFile[] = [];
 
@@ -424,7 +463,7 @@ export async function pickMediaFilesWeb(): Promise<PickMediaResult> {
         }
       }
 
-      resolve({ items: out, skipped });
+      finish({ items: out, skipped });
     };
 
     input.click();
