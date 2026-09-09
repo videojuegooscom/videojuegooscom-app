@@ -174,7 +174,7 @@ const HOME_CATEGORIES: HomeCategory[] = [
     icon: "construct-outline",
     cat: "reparaciones",
     span: 2,
-    cta: "Pedir información →",
+    cta: "Ver servicios →",
   },
   {
     title: "Electrónica y otros",
@@ -1652,10 +1652,7 @@ export default function HomeScreen() {
               {HOME_CATEGORIES.map((category) => {
                 const onPress =
                   category.cat === "reparaciones"
-                    ? () =>
-                        openWhatsAppWithText(
-                          "Hola, vengo desde videojuegoszaragoza.com. Me interesa vuestro servicio de reparación o limpieza. ¿Qué necesitáis para darme información?"
-                        )
+                    ? () => pushRoute("/servicios" as Href)
                     : () => pushRoute(`/catalogo?cat=${encodeURIComponent(category.cat)}` as Href);
 
                 return (

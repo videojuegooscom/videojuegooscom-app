@@ -27,9 +27,10 @@
  *   aparezca en todas las pantallas y no se reinicie al navegar.
  * - app/(tabs)/_layout.tsx → navegación por pestañas (inicio, catálogo,
  *   cesta, chat, blue-ia, perfil...).
- * - app/catalogo.tsx, app/checkout.tsx, app/producto/[id].tsx,
- *   app/chat/[chatId].tsx, app/modal.tsx, app/reset-password.tsx → rutas
- *   públicas fuera de las pestañas.
+ * - app/catalogo.tsx, app/servicios.tsx, app/checkout.tsx,
+ *   app/producto/[id].tsx, app/servicio/[id].tsx, app/chat/[chatId].tsx,
+ *   app/modal.tsx, app/reset-password.tsx → rutas públicas fuera de las
+ *   pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
  */
 import React, { useEffect, useState } from "react";
@@ -77,11 +78,15 @@ export default function RootLayout() {
 
         {/* Rutas públicas / complementarias fuera de tabs */}
         <Stack.Screen name="catalogo" />
+        <Stack.Screen name="servicios" />
         <Stack.Screen name="checkout" />
         <Stack.Screen name="reset-password" />
 
         {/* Producto dinámico */}
         <Stack.Screen name="producto/[id]" />
+
+        {/* Servicio dinámico */}
+        <Stack.Screen name="servicio/[id]" />
 
         {/* Chat privado por producto (cliente) */}
         <Stack.Screen name="chat/[chatId]" />

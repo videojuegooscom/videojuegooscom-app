@@ -4,7 +4,8 @@
  * rol "admin" la hace app/admin/_layout.tsx antes de montar esta pantalla,
  * así que aquí no hay lógica de sesión: solo la cabecera (título + volver a
  * la tienda) y, ocupando el resto de la pantalla, "Gestión principal" con
- * los accesos a Categorías, Productos, Inventario, Cotizaciones y Chat.
+ * los accesos a Categorías, Productos, Servicios, Inventario, Cotizaciones
+ * y Chat (6 tarjetas: en móvil la rejilla de 2 columnas queda 2-2-2).
  *
  * Cómo funciona: antes la cabecera incluía además un párrafo explicativo,
  * una insignia "Administrador activo · email" y el botón "Cerrar sesión";
@@ -20,7 +21,7 @@
  * (columnStyle, maxWidth 1040).
  *
  * Conectado con:
- * - app/admin/categories.tsx, app/admin/products.tsx,
+ * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx,
  *   app/admin/chats.tsx → destino de las tarjetas de "Gestión principal".
  * - app/admin/login.tsx → destino cuando el acceso no es válido
@@ -223,6 +224,14 @@ export default function AdminHome() {
           "Crear, editar, publicar, revisar precio, imágenes, estado y visibilidad de cada producto.",
         icon: "pricetags-outline" as IoniconName,
         onPress: () => router.push("/admin/products"),
+      },
+      {
+        key: "services",
+        title: "Servicios",
+        subtitle:
+          "Reparación, limpieza y mantenimiento: ficha, precio, fotos y solicitudes de contratación.",
+        icon: "construct-outline" as IoniconName,
+        onPress: () => router.push("/admin/services"),
       },
       {
         key: "inventario",
