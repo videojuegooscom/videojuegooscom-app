@@ -101,7 +101,6 @@ import {
   ChipButton,
   FilterPill,
   MediaThumb,
-  SectionTitle,
   StatCard,
 } from "./products/products.components";
 
@@ -471,7 +470,23 @@ export default function AdminProducts() {
     // guardar). Ahora se agrupan los cambios y se envían en un único
     // .upsert() por id, que Supabase resuelve como un solo UPDATE por fila
     // pero en una sola petición de red.
-    const changedRows: Array<{ id: string; sort_order: number; is_cover: boolean }> = [];
+    //
+    // BUG corregido: este .upsert() es en realidad un
+    // "INSERT ... ON CONFLICT (id) DO UPDATE" a nivel de Postgres. Aunque el
+    // "id" ya existe y solo se pretende actualizar, Postgres valida las
+    // columnas NOT NULL del INSERT igualmente antes de resolver el
+    // conflicto — y "product_id" es NOT NULL y sin valor por defecto. Al
+    // enviar solo {id, sort_order, is_cover} (sin product_id), cualquier
+    // guardado que necesitara reordenar fotos (por ejemplo tras borrar
+    // alguna) fallaba con "null value in column product_id violates
+    // not-null constraint". Se soluciona incluyendo también product_id en
+    // cada fila enviada.
+    const changedRows: Array<{
+      id: string;
+      product_id: string;
+      sort_order: number;
+      is_cover: boolean;
+    }> = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -479,7 +494,12 @@ export default function AdminProducts() {
       const shouldOrder = i;
 
       if (getRowSortOrder(row) !== shouldOrder || Boolean(row.is_cover) !== shouldCover) {
-        changedRows.push({ id: row.id, sort_order: shouldOrder, is_cover: shouldCover });
+        changedRows.push({
+          id: row.id,
+          product_id: row.product_id,
+          sort_order: shouldOrder,
+          is_cover: shouldCover,
+        });
         row.sort_order = shouldOrder;
         row.is_cover = shouldCover;
       }
@@ -1514,17 +1534,43 @@ export default function AdminProducts() {
                 ...softShadow(),
               }}
             >
-              <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900" }}>
-                {isEdit ? "Editar producto" : "Nuevo producto"}
-              </Text>
+              <View style={{ position: "relative", justifyContent: "center" }}>
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: isMobile ? 19 : 20,
+                    fontWeight: "900",
+                    textAlign: "center",
+                    paddingHorizontal: 40,
+                  }}
+                >
+                  {isEdit ? "Editar producto" : "Nuevo producto"}
+                </Text>
 
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Hasta {MAX_IMAGES} imágenes y 1 vídeo de máximo {MAX_VIDEO_SECONDS} segundos.
-              </Text>
-
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Peso máximo por archivo: {MAX_FILE_SIZE_MB}MB.
-              </Text>
+                <Pressable
+                  onPress={() => {
+                    setOpen(false);
+                    resetForm();
+                  }}
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    position: "absolute",
+                    top: -4,
+                    right: -4,
+                    opacity: pressed ? 0.75 : 1,
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#F6FAFD",
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                  })}
+                >
+                  <Ionicons name="close" size={19} color={COLORS.text} />
+                </Pressable>
+              </View>
 
               <TextInput
                 value={title}
@@ -1617,12 +1663,6 @@ export default function AdminProducts() {
                   sql/product_reference.sql en Supabase para poder rellenarlo.
                 </Text>
               )}
-
-              <SectionTitle
-                title="Media del producto"
-                subtitle="Sube fotos reales y, opcionalmente, un vídeo corto mostrando el artículo."
-                isMobile={isMobile}
-              />
 
               <View
                 style={{
