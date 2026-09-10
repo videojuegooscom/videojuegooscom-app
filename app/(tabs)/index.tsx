@@ -279,16 +279,6 @@ function openWhatsApp() {
   });
 }
 
-function openWhatsAppWithText(prefill: string) {
-  const url = buildWhatsAppUrl(prefill);
-
-  Linking.openURL(url).catch(() => {
-    const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "").replace("+", "");
-    const text = encodeURIComponent(clampText(prefill, 400));
-    Linking.openURL(`https://api.whatsapp.com/send?phone=${phone}&text=${text}`);
-  });
-}
-
 function softShadow() {
   return Platform.select({
     ios: {
@@ -773,13 +763,14 @@ function PrimaryButton({
       })}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
           <Text
             style={{
               color: COLORS.onAccent,
               fontWeight: "900",
               fontSize: isMobile ? 15 : 16,
               lineHeight: isMobile ? 20 : 22,
+              textAlign: "center",
             }}
           >
             {title}
@@ -792,6 +783,7 @@ function PrimaryButton({
                 marginTop: 4,
                 lineHeight: 18,
                 fontSize: isMobile ? 13 : 14,
+                textAlign: "center",
               }}
             >
               {subtitle}
@@ -853,7 +845,7 @@ function SecondaryButton({
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}>
         {!!icon && <Ionicons name={icon} size={isMobile ? 15 : 16} color={COLORS.accentDark} />}
         <Text
           style={{
@@ -873,6 +865,7 @@ function SecondaryButton({
             marginTop: 4,
             lineHeight: 18,
             fontSize: isMobile ? 13 : 14,
+            textAlign: "center",
           }}
         >
           {subtitle}
@@ -1048,12 +1041,19 @@ function FeaturedOfferCard({
   isWide,
   isMobile,
   onPressCategories,
+  onPressChat,
+  chatBusy,
 }: {
   item: FeaturedProduct | null;
   isDesktopish: boolean;
   isWide?: boolean;
   isMobile: boolean;
   onPressCategories: () => void;
+  // Abre el chat interno del producto destacado (mismo flujo que el botón
+  // "Chat" de la ficha de producto): pide login si hace falta y crea/reusa
+  // la conversación en app/chat/[chatId].tsx.
+  onPressChat: () => void;
+  chatBusy?: boolean;
 }) {
   const mediaHeight = isWide ? 320 : isDesktopish ? 280 : isMobile ? 210 : 240;
 
@@ -1112,14 +1112,6 @@ function FeaturedOfferCard({
       </View>
     );
   }
-
-  const waText = `Hola, vengo desde videojuegoszaragoza.com.
-
-Me interesa esta oferta de la semana:
-${item.title}
-Precio: ${fmtEUR(item.priceEUR)}
-
-¿Sigue disponible?`;
 
   return (
     <View
@@ -1276,9 +1268,9 @@ Precio: ${fmtEUR(item.priceEUR)}
             <View style={{ flex: 1 }}>
               <SecondaryButton
                 title="Consultar por Chat"
-                subtitle="Confirmar disponibilidad"
+                subtitle={chatBusy ? "Abriendo…" : "Confirmar disponibilidad"}
                 icon="chatbubble-ellipses-outline"
-                onPress={() => openWhatsAppWithText(waText)}
+                onPress={onPressChat}
                 isMobile={isMobile}
               />
             </View>
@@ -1292,6 +1284,7 @@ Precio: ${fmtEUR(item.priceEUR)}
 export default function HomeScreen() {
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
+  const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
 
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
@@ -1456,6 +1449,35 @@ export default function HomeScreen() {
     const target = Math.max(categoriesY - 12, 0);
     scrollRef.current.scrollTo({ y: target, animated: true });
   }, [categoriesY]);
+
+  // Mismo flujo que el botón "Chat" de la ficha de producto
+  // (handleChatPress en app/producto/[id].tsx): exige sesión iniciada y usa
+  // get_or_create_product_chat para crear o reutilizar la conversación de
+  // (este producto destacado, este cliente) antes de llevar a
+  // app/chat/[chatId].tsx.
+  const handleFeaturedChatPress = useCallback(async () => {
+    if (!featured || featuredChatBusy) return;
+
+    setFeaturedChatBusy(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user) {
+        pushRoute("/perfil" as Href);
+        return;
+      }
+
+      const { data: chatId, error } = await supabase.rpc("get_or_create_product_chat", {
+        p_product_id: featured.id,
+      });
+      if (error) throw error;
+
+      router.push({ pathname: "/chat/[chatId]", params: { chatId: String(chatId) } } as never);
+    } catch (e) {
+      console.error("Error abriendo el chat del producto destacado:", e);
+    } finally {
+      setFeaturedChatBusy(false);
+    }
+  }, [featured, featuredChatBusy]);
 
   useEffect(() => {
     let alive = true;
@@ -1646,6 +1668,8 @@ export default function HomeScreen() {
               isWide={isWide}
               isMobile={isMobile}
               onPressCategories={scrollToCategories}
+              onPressChat={handleFeaturedChatPress}
+              chatBusy={featuredChatBusy}
             />
           )}
 
