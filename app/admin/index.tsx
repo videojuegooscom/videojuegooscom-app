@@ -5,9 +5,9 @@
  * así que aquí no hay lógica de sesión: solo la cabecera (título + volver a
  * la tienda) y, ocupando el resto de la pantalla, "Gestión principal" con
  * los accesos a Categorías, Productos, Servicios, Inventario, Cotizaciones,
- * Chat, Noticias Flash, Políticas, Blog, Visitas y métricas, y Usuarios y
- * participación (11 tarjetas: en móvil la rejilla de 2 columnas queda
- * 2-2-2-2-2-1).
+ * Chat, Noticias Flash, Políticas, Blog, Visitas y métricas, Usuarios y
+ * participación, y Marca y SEO (12 tarjetas: en móvil la rejilla de 2
+ * columnas queda 2-2-2-2-2-2).
  *
  * Cómo funciona: antes la cabecera incluía además un párrafo explicativo,
  * una insignia "Administrador activo · email" y el botón "Cerrar sesión";
@@ -26,8 +26,8 @@
  * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
  *   app/admin/flash-news.tsx, app/admin/policies.tsx, app/admin/blog.tsx,
- *   app/admin/analytics.tsx, app/admin/users.tsx → destino de las tarjetas
- *   de "Gestión principal".
+ *   app/admin/analytics.tsx, app/admin/users.tsx, app/admin/marca-seo.tsx →
+ *   destino de las tarjetas de "Gestión principal".
  * - app/admin/login.tsx → destino cuando el acceso no es válido
  *   (gestionado por app/admin/_layout.tsx).
  */
@@ -300,6 +300,14 @@ export default function AdminHome() {
           "Usuarios registrados, mensajes en el foro, chats de producto y reseñas de cada uno.",
         icon: "people-outline" as IoniconName,
         onPress: () => router.push("/admin/users"),
+      },
+      {
+        key: "marca-seo",
+        title: "Marca y SEO",
+        subtitle:
+          "Logo de la tienda y el título/descripción que se ven al buscarla en Google y en el navegador.",
+        icon: "image-outline" as IoniconName,
+        onPress: () => router.push("/admin/marca-seo"),
       },
     ],
     []

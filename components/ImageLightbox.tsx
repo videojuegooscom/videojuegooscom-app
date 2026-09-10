@@ -18,8 +18,9 @@
  * con PanResponder, que ya viene con React Native.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { Image, Platform, PanResponder, Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Platform, PanResponder, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import SmartImage from "./SmartImage";
 
 export type LightboxImage = {
   id: string;
@@ -272,10 +273,10 @@ export default function ImageLightbox({
       ) : null}
 
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <Image
+        <SmartImage
           key={current.id}
-          source={{ uri: current.url }}
-          resizeMode="contain"
+          uri={current.url}
+          contentFit="contain"
           style={{
             width,
             height: height * 0.86,

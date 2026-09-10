@@ -250,6 +250,7 @@ export default function AdminLayout() {
       <Stack.Screen name="blog" />
       <Stack.Screen name="analytics" />
       <Stack.Screen name="users" />
+      <Stack.Screen name="marca-seo" />
     </Stack>
   );
 }

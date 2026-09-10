@@ -67,7 +67,6 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  Image,
   Linking,
   Modal,
   Platform,
@@ -86,6 +85,7 @@ import {
 import { FloatingBarramagic } from "../../components/Barramagic";
 import PromoBanner from "../../components/PromoBanner";
 import Resenas from "../../components/Resenas";
+import SmartImage from "../../components/SmartImage";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
@@ -1148,10 +1148,10 @@ function FeaturedMediaCarousel({
           scrollEventThrottle={16}
         >
           {images.map((uri, index) => (
-            <Image
+            <SmartImage
               key={`${uri}-${index}`}
-              source={{ uri }}
-              resizeMode="contain"
+              uri={uri}
+              contentFit="contain"
               style={{ width: containerWidth, height: mediaHeight }}
             />
           ))}

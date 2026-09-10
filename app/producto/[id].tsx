@@ -92,7 +92,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import {
   ActivityIndicator,
-  Image,
   Linking,
   PanResponder,
   Platform,
@@ -110,6 +109,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
+import SmartImage from "../../components/SmartImage";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -1290,14 +1290,14 @@ ${price}
               >
                 {selectedImageUrl ? (
                   <View style={{ width: "100%" }} {...mainImagePan.panHandlers}>
-                    <Image
-                      source={{ uri: selectedImageUrl }}
+                    <SmartImage
+                      uri={selectedImageUrl}
                       style={{
                         width: "100%",
                         height: isWide ? 520 : isTablet ? 360 : 260,
                         backgroundColor: "#F8FBFE",
                       }}
-                      resizeMode="contain"
+                      contentFit="contain"
                     />
                   </View>
                 ) : (
@@ -1441,9 +1441,9 @@ ${price}
                           backgroundColor: "#F6FAFD",
                         })}
                       >
-                        <Image
-                          source={{ uri: media.publicUrl }}
-                          resizeMode="cover"
+                        <SmartImage
+                          uri={media.publicUrl}
+                          contentFit="cover"
                           style={{ width: "100%", height: "100%" }}
                         />
                       </Pressable>

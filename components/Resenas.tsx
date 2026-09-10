@@ -29,9 +29,10 @@
  * - app/(tabs)/index.tsx → lo incluye como sección de la pantalla de inicio.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Image, Platform, Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
 import ReviewModal, { type PublishedReview } from "./ReviewModal";
+import SmartImage from "./SmartImage";
 
 // Mismo texto que labelCondition() en app/producto/[id].tsx (duplicado a
 // propósito, como el resto de textos de estado en este proyecto).
@@ -128,8 +129,8 @@ function ReviewCard({
       {soldProduct ? (
         <View style={{ width: isMobile ? 56 : 64, gap: 4 }}>
           {soldProduct.image ? (
-            <Image
-              source={{ uri: soldProduct.image }}
+            <SmartImage
+              uri={soldProduct.image}
               style={{
                 width: isMobile ? 56 : 64,
                 height: isMobile ? 56 : 64,

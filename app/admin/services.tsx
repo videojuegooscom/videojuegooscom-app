@@ -42,7 +42,6 @@ import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -54,6 +53,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
+import SmartImage from "../../components/SmartImage";
 import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "./products/products.constants";
 import type { LocalPickedMedia } from "./products/products.types";
 import { buildMediaPath, fmtEUR, pickMediaFilesWeb, toIntSafe } from "./products/products.utils";
@@ -842,7 +842,7 @@ export default function AdminServices() {
                       }}
                     >
                       {cover ? (
-                        <Image source={{ uri: cover }} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                        <SmartImage uri={cover} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
                       ) : (
                         <View
                           style={{
@@ -1130,7 +1130,7 @@ export default function AdminServices() {
                 <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                   {existingMedia.map((m) => (
                     <View key={m.id} style={{ width: 76, height: 76 }}>
-                      <Image source={{ uri: m.public_url ?? "" }} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                      <SmartImage uri={m.public_url ?? ""} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
                       <Pressable
                         onPress={() => setCoverId(m.id)}
                         style={{
@@ -1168,7 +1168,7 @@ export default function AdminServices() {
 
                   {newMedia.map((m) => (
                     <View key={m.id} style={{ width: 76, height: 76 }}>
-                      <Image source={{ uri: m.previewUrl }} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                      <SmartImage uri={m.previewUrl} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
                       <Pressable
                         onPress={() => setCoverId(m.id)}
                         style={{

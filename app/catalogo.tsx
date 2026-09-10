@@ -40,7 +40,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -53,6 +52,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../lib/analytics";
 import Barramagic from "../components/Barramagic";
+import SmartImage from "../components/SmartImage";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -1154,9 +1154,9 @@ function ProductCard({
         }}
       >
         {p.imageUrl ? (
-          <Image
-            source={{ uri: p.imageUrl }}
-            resizeMode="cover"
+          <SmartImage
+            uri={p.imageUrl}
+            contentFit="cover"
             style={{ width: "100%", height: "100%" }}
           />
         ) : (

@@ -37,11 +37,15 @@
  * - app/admin/flash-news.tsx → editor de administración para estas noticias
  *   (añadir hasta 5, reordenar, activar/desactivar, elegir color y segundos).
  * - lib/supabase.ts → cliente de Supabase para leer "flash_news".
+ * - lib/flashBannerBus.ts → aquí se mide (onLayout) y se publica el alto
+ *   real de esta franja, para que components/GlobalLoadingBar.tsx pueda
+ *   pegarse justo debajo sin adivinar un número de píxeles fijo.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Animated, Pressable, Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { setFlashBannerHeight } from "../lib/flashBannerBus";
 
 const COLORS = {
   text: "#0B2138",
@@ -180,8 +184,13 @@ export default function PromoBanner({
   const bg = hexToRgba(active.colorHex, 0.14);
   const border = hexToRgba(active.colorHex, 0.45);
 
+  function handleLayout(e: LayoutChangeEvent) {
+    setFlashBannerHeight(e.nativeEvent.layout.height);
+  }
+
   return (
     <View
+      onLayout={handleLayout}
       style={{
         backgroundColor: bg,
         borderBottomWidth: 1,

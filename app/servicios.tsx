@@ -22,7 +22,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -34,6 +33,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import SmartImage from "../components/SmartImage";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -146,7 +146,7 @@ function ServiceCard({ s, onPress, compact }: { s: Service; onPress: () => void;
         }}
       >
         {s.imageUrl ? (
-          <Image source={{ uri: s.imageUrl }} resizeMode="contain" style={{ width: "100%", height: "100%" }} />
+          <SmartImage uri={s.imageUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
         ) : (
           <Ionicons name="construct-outline" size={34} color={COLORS.muted2} />
         )}

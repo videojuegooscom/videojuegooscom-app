@@ -27,7 +27,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -42,6 +41,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import SmartImage from "../../components/SmartImage";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -710,9 +710,9 @@ export default function AdminCategories() {
                     }}
                   >
                     {c.image_url ? (
-                      <Image
-                        source={{ uri: c.image_url }}
-                        resizeMode="cover"
+                      <SmartImage
+                        uri={c.image_url}
+                        contentFit="cover"
                         style={{ width: "100%", height: "100%" }}
                       />
                     ) : (
@@ -978,9 +978,9 @@ export default function AdminCategories() {
                         backgroundColor: "#F8FBFE",
                       }}
                     >
-                      <Image
-                        source={{ uri: imageUrl.trim() }}
-                        resizeMode="cover"
+                      <SmartImage
+                        uri={imageUrl.trim()}
+                        contentFit="cover"
                         style={{ width: "100%", height: "100%" }}
                       />
                     </View>
