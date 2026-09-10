@@ -74,8 +74,14 @@
  * categoría y la de fotos/vídeos del producto ya NO dependen entre sí, así
  * que se lanzan juntas con Promise.all en vez de una detrás de otra.
  *
+ * Analítica: al cargar el producto (sin contar visitas del propio admin) se
+ * registra el paso "Producto {título}" y el scroll dentro de la ficha
+ * dispara "Scroll" (lib/analytics.ts), para el embudo del panel de métricas.
+ *
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
+ * - lib/analytics.ts → registro de "Producto {título}" y "Scroll" para el
+ *   panel de métricas del admin.
  * - sql/product_likes.sql → columna like_count y función adjust_product_like.
  * - sql/product_views.sql → columna view_count y función increment_product_view.
  * - app/catalogo.tsx → de donde se navega hasta aquí.
@@ -102,6 +108,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 
 const COLORS = {
@@ -835,6 +842,15 @@ ${price}
       setSelectedImageUrl(heroImage);
       setLikeCount(mapped.likeCount);
 
+      // Analítica: igual que el contador de visitas, no se cuentan las
+      // aperturas del propio admin revisando su catálogo.
+      if (!adminFlag) {
+        trackEvent("page_view", `Producto ${mapped.title}`, {
+          path: `/producto/${mapped.id}`,
+          metadata: { productId: mapped.id, category: mapped.category?.name ?? null },
+        });
+      }
+
       const likedIds = await getLikedProductIds();
       if (seq !== reqSeqRef.current) return;
       setLiked(likedIds.has(mapped.id));
@@ -1212,6 +1228,14 @@ ${price}
             paddingBottom: isMobile ? 28 : 36,
             alignItems: "center",
           }}
+          onScroll={(e) => {
+            if (e.nativeEvent.contentOffset.y > 40) {
+              trackEventThrottled("producto-scroll", "scroll", "Scroll", {
+                path: `/producto/${productId ?? ""}`,
+              });
+            }
+          }}
+          scrollEventThrottle={16}
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
           <View style={{ width: "100%", alignItems: isMobile ? "center" : "flex-start" }}>

@@ -25,6 +25,9 @@
  * - components/Campanita.tsx → campanita flotante de notificaciones, se
  *   monta aquí UNA sola vez (fuera y por encima del Stack) para que
  *   aparezca en todas las pantallas y no se reinicie al navegar.
+ * - components/CookieConsentBanner.tsx → aviso de analítica/cookies, montado
+ *   igual que la campanita (una sola vez, fuera del Stack); se oculta solo
+ *   en /admin y desaparece en cuanto el visitante contesta.
  * - app/(tabs)/_layout.tsx → navegación por pestañas (inicio, catálogo,
  *   cesta, chat, blue-ia, perfil...).
  * - app/catalogo.tsx, app/servicios.tsx, app/checkout.tsx,
@@ -40,6 +43,7 @@ import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
+import CookieConsentBanner from "../components/CookieConsentBanner";
 
 const MIN_BOOT_MS = 1000;
 
@@ -109,6 +113,9 @@ export default function RootLayout() {
 
       {/* Campanita flotante: por encima de TODO, en todas las pantallas. */}
       <Campanita />
+
+      {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}
+      <CookieConsentBanner />
     </View>
   );
 }

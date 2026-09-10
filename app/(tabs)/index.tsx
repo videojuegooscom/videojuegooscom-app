@@ -34,8 +34,17 @@
  *   el rebote por sí solo ya no las hace reaparecer, hace falta que el
  *   usuario suba de verdad un poco más para volver a verlas.
  *
+ * - Analítica propia (lib/analytics.ts): al entrar se registra el paso
+ *   "Inicio", el scroll dispara "Scroll" (con límite de frecuencia para no
+ *   mandar un evento por pixel) y, la primera vez que el bloque de reseñas
+ *   entra en pantalla, se registra "Reseñas". Todo esto respeta el aviso de
+ *   cookies/analítica: si el visitante rechaza el seguimiento, estas
+ *   llamadas no hacen nada (lo decide trackEvent internamente).
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
+ * - lib/analytics.ts → registro del recorrido del visitante para el panel
+ *   de métricas del admin.
  * - components/Barramagic.tsx → barra de búsqueda (aquí, en modo flotante
  *   vía FloatingBarramagic; app/catalogo.tsx usa el mismo archivo en modo
  *   fijo/editable).
@@ -79,6 +88,7 @@ import PromoBanner from "../../components/PromoBanner";
 import Resenas from "../../components/Resenas";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
+import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -1469,6 +1479,16 @@ export default function HomeScreen() {
   const headerAnim = useRef(new Animated.Value(0)).current;
   const [bannerHeight, setBannerHeight] = useState(0);
 
+  // Analítica: posición del bloque de "Reseñas" (para saber cuándo entra en
+  // pantalla al hacer scroll) y una bandera para registrar ese paso una sola
+  // vez por visita, no cada vez que pasa por ahí.
+  const resenasYRef = useRef(0);
+  const resenasTrackedRef = useRef(false);
+
+  const handleResenasLayout = useCallback((e: LayoutChangeEvent) => {
+    resenasYRef.current = e.nativeEvent.layout.y;
+  }, []);
+
   const HEADER_SCROLL_HIDE_THRESHOLD = 28;
   const HEADER_SCROLL_SHOW_THRESHOLD = 18;
   // Zona de "pie de página": incluye estar ya al final del todo Y el rebote
@@ -1531,6 +1551,22 @@ export default function HomeScreen() {
     // (el pie de página) para que nunca quede montado encima del texto del
     // pie — solo se ve mientras hay contenido normal debajo.
     setShowScrollTop(y > 480 && distanceFromBottom > 280);
+
+    // Analítica: "Scroll" con límite de frecuencia (no queremos un evento
+    // por cada pixel) y "Reseñas" la primera vez que ese bloque entra en la
+    // parte visible de la pantalla.
+    if (y > 40) {
+      trackEventThrottled("home-scroll", "scroll", "Scroll", { path: "/" });
+    }
+
+    if (
+      !resenasTrackedRef.current &&
+      resenasYRef.current > 0 &&
+      y + viewportHeight > resenasYRef.current + 40
+    ) {
+      resenasTrackedRef.current = true;
+      trackEvent("section_view", "Reseñas", { path: "/" });
+    }
 
     lastScrollYRef.current = y;
     },
@@ -1710,6 +1746,11 @@ export default function HomeScreen() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Analítica: registra la visita a "Inicio" en cuanto se monta la pantalla.
+  useEffect(() => {
+    trackEvent("page_view", "Inicio", { path: "/" });
   }, []);
 
   const searchBarHeight = isMobile
@@ -1907,7 +1948,9 @@ export default function HomeScreen() {
 
           <TrustInfoRow isMobile={isMobile} onPressItem={setInfoPop} />
 
-          <Resenas isMobile={isMobile} />
+          <View onLayout={handleResenasLayout}>
+            <Resenas isMobile={isMobile} />
+          </View>
 
           <View
             style={{

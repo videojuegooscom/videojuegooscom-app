@@ -21,9 +21,15 @@
  * hubiera funcionado). fetchProductsSafe() lleva un límite de seguridad
  * (300) para no traer el catálogo entero de golpe si crece mucho.
  *
+ * Analítica: registra el paso "Categoría" (o "Categoría {nombre}" si viene
+ * con ?cat=) en cuanto se resuelve qué categoría es, tanto al entrar como al
+ * cambiar de categoría sin salir de la pantalla (lib/analytics.ts).
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas products, categories,
  *   product_media, profiles).
+ * - lib/analytics.ts → registro del paso "Categoría" para el panel de
+ *   métricas del admin.
  * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
  * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Ir a la cesta" /
  *   "Finalizar compra".
@@ -45,6 +51,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { trackEvent, trackEventThrottled } from "../lib/analytics";
 import Barramagic from "../components/Barramagic";
 
 const COLORS = {
@@ -698,6 +705,25 @@ export default function CatalogoScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawCat, queryFromUrl, effectiveFilter]);
 
+  // Analítica: "Categoría" (genérico) o "Categoría {nombre}" según el
+  // parámetro ?cat= resuelto. Se espera a que termine loading (bootstrap) la
+  // primera vez para tener ya cargada la lista de categorías y así resolver
+  // bien el nombre; después, cada cambio real de categoría dispara un nuevo
+  // evento (analyticsCatKeyRef evita repetir el mismo dos veces seguidas).
+  const analyticsCatKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    const key = rawCat ?? "";
+    if (analyticsCatKeyRef.current === key) return;
+    analyticsCatKeyRef.current = key;
+
+    const label = resolvedCategory?.name ? `Categoría ${resolvedCategory.name}` : "Categoría";
+    trackEvent("page_view", label, {
+      path: "/catalogo",
+      metadata: { cat: rawCat ?? null },
+    });
+  }, [loading, rawCat, resolvedCategory]);
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -705,6 +731,12 @@ export default function CatalogoScreen() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => {
+          if (e.nativeEvent.contentOffset.y > 40) {
+            trackEventThrottled("catalogo-scroll", "scroll", "Scroll", { path: "/catalogo" });
+          }
+        }}
+        scrollEventThrottle={16}
       >
         <View
           style={{
