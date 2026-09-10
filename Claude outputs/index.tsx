@@ -44,12 +44,10 @@
  *   producto destacado.
  * - app/(tabs)/_layout.tsx → define esta pantalla como la pestaña "Inicio".
  */
-import { Ionicons } from "@expo/vector-icons";
-import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import type { ParamListBase } from "@react-navigation/native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router, useNavigation } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import {
   ActivityIndicator,
   Animated,
@@ -65,14 +63,15 @@ import {
   Text,
   View,
   useWindowDimensions,
-  type DimensionValue,
   type LayoutChangeEvent,
+  type DimensionValue,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../../lib/supabase";
+import Resenas from "../../components/Resenas";
 import { FloatingBarramagic } from "../../components/Barramagic";
 import PromoBanner from "../../components/PromoBanner";
-import Resenas from "../../components/Resenas";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
-import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -1381,7 +1380,7 @@ export default function HomeScreen() {
   // Al tocar la pestaña "Inicio" de abajo estando ya en Inicio, la app sube
   // del todo automáticamente (como si se pulsara el botón flotante ⬆️) en
   // vez de no hacer nada, que es lo que pasaba antes.
-  const navigation = useNavigation<BottomTabNavigationProp<ParamListBase>>();
+  const navigation = useNavigation<BottomTabNavigationProp<ReactNavigation.RootParamList>>();
   useEffect(() => {
     const unsubscribe = navigation.addListener("tabPress", () => {
       if (navigation.isFocused()) {
