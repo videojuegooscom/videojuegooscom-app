@@ -5,8 +5,8 @@
  * así que aquí no hay lógica de sesión: solo la cabecera (título + volver a
  * la tienda) y, ocupando el resto de la pantalla, "Gestión principal" con
  * los accesos a Categorías, Productos, Servicios, Inventario, Cotizaciones,
- * Chat y Noticias Flash (7 tarjetas: en móvil la rejilla de 2 columnas
- * queda 2-2-2-1).
+ * Chat, Noticias Flash, Políticas y Blog (9 tarjetas: en móvil la rejilla de
+ * 2 columnas queda 2-2-2-2-1).
  *
  * Cómo funciona: antes la cabecera incluía además un párrafo explicativo,
  * una insignia "Administrador activo · email" y el botón "Cerrar sesión";
@@ -24,7 +24,8 @@
  * Conectado con:
  * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
- *   app/admin/flash-news.tsx → destino de las tarjetas de "Gestión principal".
+ *   app/admin/flash-news.tsx, app/admin/policies.tsx, app/admin/blog.tsx →
+ *   destino de las tarjetas de "Gestión principal".
  * - app/admin/login.tsx → destino cuando el acceso no es válido
  *   (gestionado por app/admin/_layout.tsx).
  */
@@ -265,6 +266,22 @@ export default function AdminHome() {
           "Hasta 5 mensajes rotando en la franja superior: texto, color y segundos en pantalla de cada uno.",
         icon: "flash-outline" as IoniconName,
         onPress: () => router.push("/admin/flash-news"),
+      },
+      {
+        key: "policies",
+        title: "Políticas",
+        subtitle:
+          "Envíos, devoluciones, privacidad y términos: título, texto y secciones de cada página legal.",
+        icon: "document-text-outline" as IoniconName,
+        onPress: () => router.push("/admin/policies"),
+      },
+      {
+        key: "blog",
+        title: "Blog",
+        subtitle:
+          "Crea, edita, publica o pasa a borrador los artículos del Blog de la app.",
+        icon: "newspaper-outline" as IoniconName,
+        onPress: () => router.push("/admin/blog"),
       },
     ],
     []

@@ -1,23 +1,40 @@
 // app/blog/index.tsx
 /**
  * Qué hace: listado del Blog — artículos cortos sobre consolas/electrónica
- * (guías de compra, mantenimiento...). De momento son artículos de arranque
- * (ARTICLES, en este mismo archivo) para que el enlace "Blog" del pie de
- * página lleve a algo real en vez de no hacer nada; Jefe puede pedir que se
- * añadan, editen o quiten artículos, o que esto pase a leer de una tabla de
- * Supabase si el blog crece.
+ * (guías de compra, mantenimiento...). El contenido ahora vive en la tabla
+ * Supabase "blog_posts" y se edita desde app/admin/blog.tsx (crear, editar,
+ * publicar/pasar a borrador, borrar), en vez de estar fijo en este archivo.
  *
- * Cómo funciona: no hay pantalla de detalle por artículo — cada tarjeta se
- * despliega in-situ (acordeón) al tocarla, para no montar routing extra
- * mientras solo hay unos pocos artículos.
+ * Cómo funciona:
+ * - fetchBlogPostsSafe() carga los artículos con status="PUBLISHED" de
+ *   "blog_posts", ordenados por sort_order. Si Supabase falla o todavía no
+ *   hay ningún artículo publicado, cae a FALLBACK_ARTICLES — los mismos 3
+ *   artículos de arranque que tenía esta pantalla antes del panel de
+ *   administración — para que el Blog nunca aparezca vacío.
+ * - No hay pantalla de detalle por artículo — cada tarjeta se despliega
+ *   in-situ (acordeón) al tocarla.
+ * - Lee ?open=<slug> (que pasan los enlaces "Guías de compra" / "Consejos y
+ *   mantenimiento" del pie de página de Inicio) para abrir directamente ese
+ *   artículo al entrar.
  *
  * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para leer "blog_posts".
+ * - app/admin/blog.tsx → editor de administración de estos artículos.
  * - app/(tabs)/index.tsx → el acordeón "Blog" del pie de página enlaza aquí.
  */
-import React, { useState } from "react";
-import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -31,31 +48,67 @@ const COLORS = {
 
 const columnStyle = { width: "100%", maxWidth: 820, alignSelf: "center" } as const;
 
-type Article = { id: string; title: string; excerpt: string; body: string };
+type Article = { slug: string; title: string; excerpt: string; body: string };
 
-const ARTICLES: Article[] = [
+// Mismo contenido que tenía esta pantalla antes del panel de administración:
+// se usa solo si Supabase falla o todavía no hay ningún artículo publicado.
+const FALLBACK_ARTICLES: Article[] = [
   {
-    id: "elegir-consola-segunda-mano",
+    slug: "elegir-consola-segunda-mano",
     title: "Cómo elegir una consola de segunda mano sin sorpresas",
     excerpt: "Qué revisar antes de comprar una PS5, PS4, Switch o Xbox reacondicionada.",
     body:
       "Comprar una consola de segunda mano es una forma estupenda de ahorrar, siempre que sepas qué mirar. Antes de decidirte, comprueba que el vendedor te confirme que el equipo ha sido revisado (en nuestra tienda, todo pasa un control de funcionamiento antes de ponerse a la venta). Pregunta si incluye cables originales, mando y fuente de alimentación, y si tiene garantía. Si es posible, revisa el estado de la carcasa y pide fotos reales del equipo, no solo de catálogo. Y recuerda: un precio muy por debajo del mercado suele ser señal de que algo no cuadra.",
   },
   {
-    id: "mantenimiento-consola",
+    slug: "mantenimiento-consola",
     title: "Mantenimiento básico para que tu consola dure más",
     excerpt: "Limpieza, ventilación y otros hábitos que alargan la vida de tu equipo.",
     body:
       "Las consolas acumulan polvo con el uso, y eso afecta a la refrigeración y, con el tiempo, al rendimiento. Colócala en un sitio con buena ventilación, sin taparla ni dejarla contra la pared, y límpiala por fuera con un paño seco de vez en cuando. Si notas que hace más ruido de lo normal o se calienta en exceso, es buen momento para una limpieza interna profesional — es uno de los servicios que ofrecemos en tienda. Actualizar el software del sistema cuando toca también ayuda a evitar problemas de estabilidad.",
   },
   {
-    id: "vender-consola-que-mirar",
+    slug: "vender-consola-que-mirar",
     title: "Vender tu consola: qué esperar del proceso",
     excerpt: "Cómo tasamos tu equipo y qué necesitas para vendérnoslo.",
     body:
       "Si tienes una consola o electrónica que ya no usas, puedes vendérnosla de forma rápida y sin complicaciones: nos cuentas qué tienes y su estado (por WhatsApp o desde la app), la tasamos, y si aceptas el precio, te pagamos en muy poco tiempo. Ayuda mucho que incluyas los accesorios originales (mando, cables, fuente) y que el equipo esté en buen estado general — eso se refleja directamente en el precio de tasación.",
   },
 ];
+
+async function fetchBlogPostsSafe(): Promise<Article[]> {
+  try {
+    const { data, error } = await supabase
+      .from("blog_posts")
+      .select("slug,title,excerpt,body,status,sort_order")
+      .eq("status", "PUBLISHED")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    const rows = Array.isArray(data) ? data : [];
+
+    const articles: Article[] = rows
+      .map((row): Article | null => {
+        const slug = String((row as any)?.slug ?? "").trim();
+        const title = String((row as any)?.title ?? "").trim();
+        if (!slug || !title) return null;
+
+        return {
+          slug,
+          title,
+          excerpt: String((row as any)?.excerpt ?? "").trim(),
+          body: String((row as any)?.body ?? "").trim(),
+        };
+      })
+      .filter((a): a is Article => a !== null);
+
+    return articles.length > 0 ? articles : FALLBACK_ARTICLES;
+  } catch {
+    return FALLBACK_ARTICLES;
+  }
+}
 
 function ArticleCard({
   article,
@@ -128,11 +181,28 @@ export default function BlogScreen() {
   const pagePadding = isMobile ? 16 : 24;
 
   // El pie de página de Inicio ("Guías de compra", "Consejos y
-  // mantenimiento") enlaza aquí con ?open=<id de artículo> para abrir
+  // mantenimiento") enlaza aquí con ?open=<slug del artículo> para abrir
   // directamente el artículo correspondiente en vez de dejar todo cerrado.
   const params = useLocalSearchParams<{ open?: string }>();
   const initialOpen = typeof params.open === "string" ? params.open : null;
-  const [openId, setOpenId] = useState<string | null>(initialOpen);
+
+  const [loading, setLoading] = useState(true);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [openSlug, setOpenSlug] = useState<string | null>(initialOpen);
+
+  useEffect(() => {
+    let alive = true;
+
+    fetchBlogPostsSafe().then((loaded) => {
+      if (!alive) return;
+      setArticles(loaded);
+      setLoading(false);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -173,25 +243,40 @@ export default function BlogScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: pagePadding,
-          paddingTop: 20,
-          paddingBottom: 40,
-        }}
-      >
-        <View style={{ ...columnStyle, gap: 12 }}>
-          {ARTICLES.map((article) => (
-            <ArticleCard
-              key={article.id}
-              article={article}
-              open={openId === article.id}
-              onToggle={() => setOpenId((current) => (current === article.id ? null : article.id))}
-              isMobile={isMobile}
-            />
-          ))}
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <ActivityIndicator color={COLORS.text} />
+          <Text style={{ color: COLORS.muted }}>Cargando artículos…</Text>
         </View>
-      </ScrollView>
+      ) : (
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: pagePadding,
+            paddingTop: 20,
+            paddingBottom: 40,
+          }}
+        >
+          <View style={{ ...columnStyle, gap: 12 }}>
+            {articles.length === 0 ? (
+              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                Todavía no hay artículos publicados.
+              </Text>
+            ) : (
+              articles.map((article) => (
+                <ArticleCard
+                  key={article.slug}
+                  article={article}
+                  open={openSlug === article.slug}
+                  onToggle={() =>
+                    setOpenSlug((current) => (current === article.slug ? null : article.slug))
+                  }
+                  isMobile={isMobile}
+                />
+              ))
+            )}
+          </View>
+        </ScrollView>
+      )}
     </View>
   );
 }

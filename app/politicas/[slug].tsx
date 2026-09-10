@@ -1,31 +1,51 @@
 // app/politicas/[slug].tsx
 /**
  * Qué hace: página pública de una política legal/comercial (Envíos,
- * Devoluciones, Privacidad o Términos y condiciones). Es UNA sola pantalla
- * dinámica para las 4 — el contenido de cada una vive en el objeto POLICIES
- * de este mismo archivo, así no hay que duplicar la cabecera/estilo en 4
- * archivos distintos.
+ * Devoluciones, Privacidad, Términos y condiciones...). Es UNA sola pantalla
+ * dinámica para todas — el contenido de cada una ahora vive en la tabla
+ * Supabase "policy_pages" y se edita desde app/admin/policies.tsx, así Jefe
+ * puede corregir texto, añadir secciones o publicar/ocultar una política sin
+ * tocar código.
  *
- * IMPORTANTE — texto pendiente de revisar por Jefe antes de publicar:
- * el contenido de cada política está redactado con los datos reales que ya
- * usa el resto de la web (envíos a toda España + recogida en tienda,
- * garantía de tienda, revisión antes de vender...), pero los datos legales
- * de identificación (nombre/razón social, NIF/CIF, dirección fiscal, email
- * de contacto para protección de datos) NO los tengo — están marcados con
- * placeholders entre corchetes (buscar "[" en este archivo) y hay que
- * rellenarlos a mano antes de que esto sea de verdad público. El derecho de
+ * Cómo funciona:
+ * - fetchPolicySafe(slug) busca en "policy_pages" la fila con ese slug y
+ *   is_active=true (RLS ya lo filtra así para el público). Si Supabase falla
+ *   (sin conexión, tabla no disponible...) o la política todavía no se ha
+ *   creado en la base de datos, cae a FALLBACK_POLICIES — el mismo texto que
+ *   tenía esta pantalla antes de tener panel de administración — para que la
+ *   página nunca se quede vacía ni rota.
+ * - "sections" en Supabase es un jsonb con forma [{heading, body}, ...],
+ *   igual que el tipo PolicySection de este archivo.
+ *
+ * IMPORTANTE — texto legal pendiente de revisar por Jefe: las políticas de
+ * privacidad y términos siguen teniendo placeholders entre corchetes
+ * ("[NOMBRE LEGAL / RAZÓN SOCIAL]", "[NIF/CIF]", "[DIRECCIÓN FISCAL]",
+ * "[EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS]") — se editan ahora desde
+ * app/admin/policies.tsx, sin tocar este archivo. El derecho de
  * desistimiento (14 días) y las menciones de RGPD siguen la base legal
  * estándar en España, pero conviene que un gestor/abogado lo revise antes de
  * darlo por definitivo — esto no sustituye asesoría legal real.
  *
  * Conectado con:
+ * - lib/supabase.ts → cliente de Supabase para leer "policy_pages".
+ * - app/admin/policies.tsx → editor de administración de estas políticas
+ *   (crear, editar secciones, publicar/ocultar, borrar).
  * - app/(tabs)/index.tsx → el acordeón "Políticas" del pie de página enlaza
  *   aquí (uno por slug: envios, devoluciones, privacidad, terminos).
  */
-import React from "react";
-import { Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -41,7 +61,10 @@ const columnStyle = { width: "100%", maxWidth: 820, alignSelf: "center" } as con
 type PolicySection = { heading: string; body: string };
 type Policy = { title: string; intro: string; sections: PolicySection[] };
 
-const POLICIES: Record<string, Policy> = {
+// Mismo contenido que tenía esta pantalla antes del panel de administración:
+// se usa solo si Supabase falla o la política aún no existe en la base de
+// datos, para que la página nunca aparezca vacía o rota.
+const FALLBACK_POLICIES: Record<string, Policy> = {
   envios: {
     title: "Política de envíos",
     intro:
@@ -197,6 +220,47 @@ const POLICIES: Record<string, Policy> = {
   },
 };
 
+function normalizeSections(value: unknown): PolicySection[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((row): PolicySection | null => {
+      if (!row || typeof row !== "object") return null;
+      const heading = String((row as any).heading ?? "").trim();
+      const body = String((row as any).body ?? "").trim();
+      if (!heading || !body) return null;
+      return { heading, body };
+    })
+    .filter((s): s is PolicySection => s !== null);
+}
+
+async function fetchPolicySafe(slug: string): Promise<Policy | null> {
+  if (!slug) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("policy_pages")
+      .select("title,intro,sections")
+      .eq("slug", slug)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    const title = String((data as any).title ?? "").trim();
+    if (!title) return null;
+
+    return {
+      title,
+      intro: String((data as any).intro ?? "").trim(),
+      sections: normalizeSections((data as any).sections),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function PoliticaScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
@@ -205,7 +269,24 @@ export default function PoliticaScreen() {
 
   const params = useLocalSearchParams<{ slug?: string }>();
   const slug = typeof params.slug === "string" ? params.slug : "";
-  const policy = POLICIES[slug];
+
+  const [loading, setLoading] = useState(true);
+  const [policy, setPolicy] = useState<Policy | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+
+    fetchPolicySafe(slug).then((fromDb) => {
+      if (!alive) return;
+      setPolicy(fromDb ?? FALLBACK_POLICIES[slug] ?? null);
+      setLoading(false);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [slug]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -241,42 +322,45 @@ export default function PoliticaScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: pagePadding,
-          paddingTop: 20,
-          paddingBottom: 40,
-        }}
-      >
-        <View style={{ ...columnStyle, gap: 18 }}>
-          {!policy ? (
-            <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
-              No hemos encontrado esta política.
-            </Text>
-          ) : (
-            <>
-              <Text style={{ color: COLORS.muted, lineHeight: 22, fontSize: 15 }}>
-                {policy.intro}
-              </Text>
-
-              {policy.sections.map((section) => (
-                <View key={section.heading} style={{ gap: 6 }}>
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                    {section.heading}
-                  </Text>
-                  <Text style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5 }}>
-                    {section.body}
-                  </Text>
-                </View>
-              ))}
-
-              <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 8 }}>
-                Última actualización: [FECHA]
-              </Text>
-            </>
-          )}
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <ActivityIndicator color={COLORS.text} />
+          <Text style={{ color: COLORS.muted }}>Cargando…</Text>
         </View>
-      </ScrollView>
+      ) : (
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: pagePadding,
+            paddingTop: 20,
+            paddingBottom: 40,
+          }}
+        >
+          <View style={{ ...columnStyle, gap: 18 }}>
+            {!policy ? (
+              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                No hemos encontrado esta política.
+              </Text>
+            ) : (
+              <>
+                <Text style={{ color: COLORS.muted, lineHeight: 22, fontSize: 15 }}>
+                  {policy.intro}
+                </Text>
+
+                {policy.sections.map((section) => (
+                  <View key={section.heading} style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                      {section.heading}
+                    </Text>
+                    <Text style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5 }}>
+                      {section.body}
+                    </Text>
+                  </View>
+                ))}
+              </>
+            )}
+          </View>
+        </ScrollView>
+      )}
     </View>
   );
 }

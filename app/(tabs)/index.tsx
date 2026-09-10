@@ -29,7 +29,10 @@
  *   contenido; al deslizar hacia arriba (o volver arriba del todo) vuelven
  *   a aparecer. handleScroll detecta la dirección comparando cada posición
  *   de scroll con la anterior y solo dispara la animación cuando cambia de
- *   sentido, no en cada píxel.
+ *   sentido, no en cada píxel. Cerca del pie de página (o durante su rebote
+ *   elástico al llegar al final) esa comparación se congela a propósito:
+ *   el rebote por sí solo ya no las hace reaparecer, hace falta que el
+ *   usuario suba de verdad un poco más para volver a verlas.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
@@ -1468,6 +1471,12 @@ export default function HomeScreen() {
 
   const HEADER_SCROLL_HIDE_THRESHOLD = 28;
   const HEADER_SCROLL_SHOW_THRESHOLD = 18;
+  // Zona de "pie de página": incluye estar ya al final del todo Y el rebote
+  // elástico que se pasa de ese final (en iOS/web ese rebote hace que
+  // contentOffset.y suba un poco y luego vuelva sola, lo que antes se leía
+  // como "el usuario ha subido" y reaparecían la franja y la búsqueda solo
+  // por el rebote, sin que nadie moviera el dedo hacia arriba de verdad).
+  const HEADER_SCROLL_BOTTOM_GUARD = 32;
 
   const handleScroll = useCallback(
     (e: {
@@ -1481,12 +1490,25 @@ export default function HomeScreen() {
     const delta = y - lastScrollYRef.current;
     const nearTop = y < 20;
 
+    const contentHeight = e.nativeEvent.contentSize?.height ?? 0;
+    const viewportHeight = e.nativeEvent.layoutMeasurement?.height ?? 0;
+    const distanceFromBottom = contentHeight - viewportHeight - y;
+    // true tanto en el final exacto como durante el rebote (ahí
+    // distanceFromBottom se vuelve negativo al pasarse del límite).
+    const nearBottom = distanceFromBottom < HEADER_SCROLL_BOTTOM_GUARD;
+
     if (nearTop) {
       scrollRunRef.current = 0;
       if (headerHiddenRef.current) {
         headerHiddenRef.current = false;
         setHeaderHidden(false);
       }
+    } else if (nearBottom) {
+      // En el pie de página (o en su rebote) no cuenta como "el usuario ha
+      // subido": se congela el recorrido para que, al salir de esta zona
+      // subiendo de verdad, haga falta un recorrido nuevo — ni el rebote ni
+      // los primeros píxeles de salida reaparecen la franja por sí solos.
+      scrollRunRef.current = 0;
     } else if (delta > 0) {
       // Bajando: solo acumula mientras se siga bajando; si el usuario cambia
       // de sentido, el recorrido se reinicia en vez de restar (evita que un
@@ -1508,9 +1530,6 @@ export default function HomeScreen() {
     // El botón "volver arriba" se oculta al acercarse al final de verdad
     // (el pie de página) para que nunca quede montado encima del texto del
     // pie — solo se ve mientras hay contenido normal debajo.
-    const contentHeight = e.nativeEvent.contentSize?.height ?? 0;
-    const viewportHeight = e.nativeEvent.layoutMeasurement?.height ?? 0;
-    const distanceFromBottom = contentHeight - viewportHeight - y;
     setShowScrollTop(y > 480 && distanceFromBottom > 280);
 
     lastScrollYRef.current = y;
