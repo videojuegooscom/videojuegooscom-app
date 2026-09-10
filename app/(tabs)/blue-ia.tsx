@@ -14,12 +14,21 @@
  * - El navegador nunca habla directamente con OpenAI (la clave es secreta):
  *   handleAsk() manda un POST a /api/blue-ia con la pregunta y las últimas
  *   vueltas de la conversación; esa función serverless añade contexto real
- *   del catálogo (Supabase) y devuelve solo el texto de la respuesta. Ver
+ *   del catálogo (Supabase) y devuelve el texto de la respuesta junto con,
+ *   si encaja, una lista de "socialChips" (redes sociales activas a
+ *   mostrar como botones — ver más abajo BlueIASocialChips). Ver
  *   api/blue-ia.ts para el prompt exacto y las variables de entorno que
  *   necesita (sobre todo OPENAI_API_KEY en Vercel).
  * - La conversación vive solo en el estado de esta pantalla (useState): no
  *   se guarda en Supabase ni sobrevive a recargar la página — es un asistente
  *   de sesión, no un historial permanente como el Chat Global.
+ * - Las respuestas de Blue IA nunca traen enlaces ni markdown escrito por el
+ *   modelo (antes se veía feo, tipo "[texto](url)", porque este texto se
+ *   pinta en un <Text> normal sin ningún intérprete de markdown): cuando la
+ *   respuesta habla de seguir a la tienda en redes sociales, el servidor
+ *   manda aparte "socialChips" con los datos limpios de cada red activa que
+ *   encaje, y BlueIABubble los pinta como una fila de botones de verdad con
+ *   su icono — nunca como texto suelto.
  * - Las "sugerencias rápidas" (antes eran 4 tarjetas grandes) ahora son una
  *   fila de chips que se desliza en horizontal justo ENCIMA del compositor,
  *   y solo se ven antes de la primera pregunta (antes de que haya
@@ -40,7 +49,8 @@
  *   que no tiene funciones serverless).
  *
  * Conectado con:
- * - api/blue-ia.ts → el backend real de este asistente.
+ * - api/blue-ia.ts → el backend real de este asistente (prompt + selección
+ *   de qué redes sociales mandar como "socialChips").
  * - app/(tabs)/index.tsx → la sección "Preguntas frecuentes" de Inicio
  *   enlaza aquí con "/blue-ia?q=..." para preguntar directamente.
  * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
@@ -48,12 +58,13 @@
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -120,11 +131,17 @@ type HelpBlock = {
   tone: "accent" | "success" | "gold";
 };
 
+// Un "chip" de red social que puede venir pegado a una respuesta de Blue IA
+// (ver api/blue-ia.ts → pickSocialChips) — datos limpios, nunca texto: el
+// enlace real lo abre BlueIASocialChips, nunca aparece escrito en el mensaje.
+type SocialChip = { platform: string; label: string; href: string };
+
 type BlueIAMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
   isError?: boolean;
+  socialChips?: SocialChip[];
 };
 
 const WELCOME_MESSAGE: BlueIAMessage = {
@@ -133,6 +150,68 @@ const WELCOME_MESSAGE: BlueIAMessage = {
   text:
     "Hola, soy Blue IA. Pregúntame lo que necesites sobre productos, ventas, cambios, reparaciones o pago a plazos — o toca una de las sugerencias de abajo.",
 };
+
+// Icono + color de marca por plataforma, para pintar los "socialChips" que
+// puede traer una respuesta de Blue IA. Deliberadamente duplicado del mapa
+// de components/SocialLinks.tsx (mismo motivo que ya se explica ahí y en
+// api/blue-ia.ts: cada archivo vive en su propio mundo — este es pantalla,
+// aquel es un componente compartido, y api/blue-ia.ts es una función
+// serverless aparte — así que mantenerlo en tres sitios pequeños es más
+// simple que forzar una importación cruzada solo para un mapa de iconos).
+const SOCIAL_CHIP_ICONS: Record<
+  string,
+  { render: (color: string, size: number) => React.ReactNode; color: string }
+> = {
+  instagram: {
+    render: (color, size) => <Ionicons name="logo-instagram" size={size} color={color} />,
+    color: "#C1327A",
+  },
+  tiktok: {
+    render: (color, size) => <MaterialIcons name="tiktok" size={size} color={color} />,
+    color: "#0B2138",
+  },
+  whatsapp: {
+    render: (color, size) => <Ionicons name="logo-whatsapp" size={size} color={color} />,
+    color: "#1F9E52",
+  },
+  youtube: {
+    render: (color, size) => <Ionicons name="logo-youtube" size={size} color={color} />,
+    color: "#D6291D",
+  },
+  gmail: {
+    render: (color, size) => <MaterialCommunityIcons name="gmail" size={size} color={color} />,
+    color: "#C5382B",
+  },
+  apple_maps: {
+    render: (color, size) => <Ionicons name="logo-apple" size={size} color={color} />,
+    color: "#0B2138",
+  },
+  facebook_marketplace: {
+    render: (color, size) => <Ionicons name="logo-facebook" size={size} color={color} />,
+    color: "#1461D2",
+  },
+  wallapop: {
+    render: (color, size) => (
+      <Text style={{ color, fontWeight: "900", fontSize: Math.round(size * 0.75) }}>W</Text>
+    ),
+    color: "#00C298",
+  },
+  vinted: {
+    render: (color, size) => (
+      <Text style={{ color, fontWeight: "900", fontSize: Math.round(size * 0.75) }}>V</Text>
+    ),
+    color: "#09B1BA",
+  },
+};
+
+async function openSocialChip(href: string) {
+  try {
+    const canOpen = await Linking.canOpenURL(href);
+    if (canOpen) await Linking.openURL(href);
+  } catch {
+    // Silencioso: un enlace mal formado no debe romper la conversación.
+  }
+}
 
 export default function BlueIAScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
@@ -262,9 +341,17 @@ export default function BlueIAScreen() {
           throw err;
         }
 
+        // socialChips es opcional: solo viene cuando api/blue-ia.ts decide
+        // que la respuesta encaja con alguna red social activa (ver
+        // pickSocialChips ahí) — se pintan como botones aparte, nunca como
+        // texto dentro de la respuesta.
+        const socialChips: SocialChip[] | undefined = Array.isArray(data.socialChips)
+          ? data.socialChips
+          : undefined;
+
         setMessages((prev) => [
           ...prev,
-          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply) },
+          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips },
         ]);
       } catch (e: any) {
         console.error("Error consultando a Blue IA:", e);
@@ -526,7 +613,10 @@ export default function BlueIAScreen() {
 // Burbuja de conversación: a la derecha y en azul si la escribió el usuario,
 // a la izquierda con un icono si la respondió Blue IA. Un error de red se ve
 // igual que una respuesta normal pero con un aviso en rojo debajo, para no
-// mezclar el tono de "algo falló" con el resto de la conversación.
+// mezclar el tono de "algo falló" con el resto de la conversación. Si la
+// respuesta trae "socialChips" (ver api/blue-ia.ts), se pintan como una fila
+// de botones con icono justo debajo del texto — nunca como enlaces sueltos
+// dentro del mensaje.
 function BlueIABubble({ message }: { message: BlueIAMessage }) {
   const mine = message.role === "user";
 
@@ -573,6 +663,7 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
               : "#F1F6FA",
           paddingVertical: 10,
           paddingHorizontal: 14,
+          gap: 10,
         }}
       >
         <Text
@@ -583,7 +674,55 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
         >
           {message.text}
         </Text>
+
+        {!!message.socialChips?.length && <BlueIASocialChips chips={message.socialChips} />}
       </View>
+    </View>
+  );
+}
+
+// Fila de botones "premium" para las redes sociales que Blue IA recomienda
+// en una respuesta concreta: icono de la red + nombre, en una píldora con
+// borde suave — nada de URLs ni corchetes de markdown a la vista. Cada uno
+// abre el enlace real (el mismo que guarda Daniel en
+// app/admin/redes-sociales.tsx) tal y como lo resuelve el sistema operativo
+// del usuario (ver la nota larga en components/SocialLinks.tsx sobre por
+// qué no hace falta ningún truco extra para "abrir la app o descargarla").
+function BlueIASocialChips({ chips }: { chips: SocialChip[] }) {
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {chips.map((chip) => {
+        const meta = SOCIAL_CHIP_ICONS[chip.platform];
+        return (
+          <Pressable
+            key={chip.platform}
+            onPress={() => openSocialChip(chip.href)}
+            accessibilityRole="link"
+            accessibilityLabel={chip.label}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingVertical: 7,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              opacity: pressed ? 0.82 : 1,
+              shadowColor: "#0B2138",
+              shadowOpacity: 0.06,
+              shadowRadius: 4,
+              shadowOffset: { width: 0, height: 2 },
+            })}
+          >
+            {meta ? meta.render(meta.color, 15) : null}
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+              {chip.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

@@ -1,28 +1,42 @@
 // app/admin/redes-sociales.tsx
 /**
  * Qué hace: pantalla de administración "Redes sociales". Desde aquí Daniel
- * rellena el enlace de cada red (Instagram, TikTok, WhatsApp, YouTube,
- * Gmail) y decide cuáles están activas — sin tocar código ni depender de un
+ * rellena el enlace de cada red/plataforma (Instagram, TikTok, WhatsApp,
+ * YouTube, Gmail, Apple Maps, Facebook Marketplace, Wallapop, Vinted),
+ * decide cuáles están activas, y edita el título que se ve encima de los
+ * iconos ("Síguenos" por defecto) — sin tocar código ni depender de un
  * nuevo despliegue.
  *
  * Cómo funciona:
- * - Las 5 filas ya existen en la tabla "social_links" (ver migración
- *   create_social_links en Supabase) — esta pantalla solo lee y actualiza
- *   sus columnas "url" y "enabled" (lectura pública, escritura solo admin).
+ * - Las filas ya existen en la tabla "social_links" (ver migraciones
+ *   create_social_links y social_links_add_platforms_and_title) — esta
+ *   pantalla solo lee y actualiza sus columnas "url" y "enabled" (lectura
+ *   pública, escritura solo admin).
+ * - El título del bloque vive en site_settings.social_links_title (misma
+ *   fila única que el SEO, ver app/admin/marca-seo.tsx) — se lee y guarda
+ *   igual que el resto de campos de esa tabla.
  * - "Activar" una red la hace aparecer de inmediato en los tres sitios que
  *   la muestran (ver components/SocialLinks.tsx) Y se la menciona a Blue IA
  *   para que la recomiende (ver api/blue-ia.ts). Desactivarla la quita de
  *   los tres sitios sin borrar el enlace guardado — así se puede "quitar" y
  *   volver a "poner" sin tener que escribirlo de nuevo.
  * - No hace falta pegar la URL completa en todos los casos: WhatsApp acepta
- *   un número de teléfono normal (se arma el enlace wa.me solo) y Gmail
- *   acepta solo la dirección de correo (se arma el "mailto:" solo) — el
- *   detalle exacto está en components/SocialLinks.tsx (buildHref).
- * - Un único botón "Guardar cambios" guarda las 5 filas a la vez.
+ *   un número de teléfono normal (se arma el enlace wa.me solo), Gmail
+ *   acepta solo la dirección de correo (se arma el "mailto:" solo), y Apple
+ *   Maps acepta solo una dirección o nombre de sitio (se arma el enlace de
+ *   búsqueda solo) — el detalle exacto está en components/SocialLinks.tsx
+ *   (buildSocialHref).
+ * - Un único botón "Guardar cambios" guarda todas las filas y el título a
+ *   la vez.
+ * - Abrir la app o la web al tocar cada icono ya lo resuelve el propio
+ *   sistema operativo del usuario (enlaces universales de Instagram,
+ *   Facebook, YouTube, WhatsApp, Wallapop, Vinted y Apple Maps) — no hace
+ *   falta ninguna configuración aquí, basta con guardar el enlace real (ver
+ *   la nota larga en components/SocialLinks.tsx).
  *
  * Conectado con:
- * - components/SocialLinks.tsx → quien lee estas mismas filas y pinta los
- *   iconos en el pie de página de Inicio, Perfil y la Cesta.
+ * - components/SocialLinks.tsx → quien lee estas mismas filas y el título,
+ *   y pinta los iconos en el pie de página de Inicio, Perfil y la Cesta.
  * - api/blue-ia.ts → lee las redes activas para que Blue IA las conozca y
  *   las recomiende cuando encaje en la conversación.
  * - app/admin/index.tsx → tarjeta "Redes sociales" que lleva aquí.
@@ -45,7 +59,16 @@ import { router } from "expo-router";
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 
-type SocialPlatform = "instagram" | "tiktok" | "whatsapp" | "youtube" | "gmail";
+type SocialPlatform =
+  | "instagram"
+  | "tiktok"
+  | "whatsapp"
+  | "youtube"
+  | "gmail"
+  | "apple_maps"
+  | "facebook_marketplace"
+  | "wallapop"
+  | "vinted";
 
 type SocialLinkRow = {
   platform: SocialPlatform;
@@ -109,6 +132,34 @@ const PLATFORM_META: Record<
     placeholder: "tienda@gmail.com",
     hint: "Solo la dirección de correo — se arma el enlace para abrir el correo automáticamente.",
   },
+  apple_maps: {
+    // No existe un icono de "Mapas de Apple" en ninguna fuente incluida en
+    // el proyecto — se usa el logo de Apple como referencia visual.
+    icon: (color, size) => <Ionicons name="logo-apple" size={size} color={color} />,
+    placeholder: "Tu dirección o el enlace que da Apple Maps al compartir la ubicación",
+    hint: "Pega el enlace de Apple Maps (botón Compartir → Copiar) o simplemente escribe la dirección de la tienda.",
+  },
+  facebook_marketplace: {
+    // No existe un icono específico de "Marketplace" — se usa el logo de
+    // Facebook.
+    icon: (color, size) => <Ionicons name="logo-facebook" size={size} color={color} />,
+    placeholder: "https://facebook.com/marketplace/profile/tu_perfil",
+    hint: "Pega el enlace a tu perfil o página de Facebook Marketplace.",
+  },
+  wallapop: {
+    icon: (color, size) => (
+      <Text style={{ color, fontWeight: "900", fontSize: Math.round(size * 0.9) }}>W</Text>
+    ),
+    placeholder: "https://wallapop.com/user/tu_usuario",
+    hint: "Pega el enlace a tu perfil de Wallapop.",
+  },
+  vinted: {
+    icon: (color, size) => (
+      <Text style={{ color, fontWeight: "900", fontSize: Math.round(size * 0.9) }}>V</Text>
+    ),
+    placeholder: "https://vinted.es/member/tu_usuario",
+    hint: "Pega el enlace a tu perfil de Vinted.",
+  },
 };
 
 function softShadow() {
@@ -145,6 +196,7 @@ export default function AdminRedesSociales() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [rows, setRows] = useState<SocialLinkRow[]>([]);
+  const [followTitle, setFollowTitle] = useState("Síguenos");
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
@@ -153,13 +205,20 @@ export default function AdminRedesSociales() {
     setLoading(true);
     setLoadErr(null);
     try {
-      const { data, error } = await supabase
-        .from("social_links")
-        .select("platform,label,url,enabled,sort_order")
-        .order("sort_order", { ascending: true });
+      const [linksRes, settingsRes] = await Promise.all([
+        supabase
+          .from("social_links")
+          .select("platform,label,url,enabled,sort_order")
+          .order("sort_order", { ascending: true }),
+        supabase.from("site_settings").select("social_links_title").eq("id", 1).maybeSingle(),
+      ]);
 
-      if (error) throw error;
-      setRows(Array.isArray(data) ? (data as SocialLinkRow[]) : []);
+      if (linksRes.error) throw linksRes.error;
+      setRows(Array.isArray(linksRes.data) ? (linksRes.data as SocialLinkRow[]) : []);
+
+      if (!settingsRes.error && settingsRes.data?.social_links_title) {
+        setFollowTitle(settingsRes.data.social_links_title);
+      }
     } catch (e: any) {
       console.error("Error cargando redes sociales:", e);
       setLoadErr("No se ha podido cargar la configuración. Comprueba tu conexión e inténtalo de nuevo.");
@@ -181,18 +240,22 @@ export default function AdminRedesSociales() {
     setSaving(true);
     setMsg(null);
     try {
-      const results = await Promise.all(
-        rows.map((r) =>
+      const cleanTitle = followTitle.trim() || "Síguenos";
+
+      const results = await Promise.all([
+        ...rows.map((r) =>
           supabase
             .from("social_links")
             .update({ url: r.url?.trim() || null, enabled: r.enabled })
             .eq("platform", r.platform)
-        )
-      );
+        ),
+        supabase.from("site_settings").update({ social_links_title: cleanTitle }).eq("id", 1),
+      ]);
 
       const firstError = results.find((r) => r.error)?.error;
       if (firstError) throw firstError;
 
+      setFollowTitle(cleanTitle);
       setMsg({ type: "ok", text: "Guardado. Ya se ve así en el pie de página, Perfil, la Cesta y Blue IA." });
     } catch (e: any) {
       console.error("Error guardando redes sociales:", e);
@@ -292,8 +355,48 @@ export default function AdminRedesSociales() {
               </View>
             )}
 
+            <View
+              style={{
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: COLORS.card,
+                padding: isMobile ? 14 : 18,
+                gap: 10,
+                ...softShadow(),
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                Título del bloque
+              </Text>
+              <TextInput
+                value={followTitle}
+                onChangeText={setFollowTitle}
+                placeholder="Síguenos"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                autoCapitalize="sentences"
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: COLORS.text,
+                  backgroundColor: COLORS.cardSoft,
+                  // 16px es el mínimo que evita que Safari/iOS haga zoom
+                  // automático al enfocar el campo (mismo motivo que en el
+                  // cuadro de Blue IA, ver app/(tabs)/blue-ia.tsx).
+                  fontSize: 16,
+                }}
+              />
+              <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
+                El texto que aparece encima de los iconos en el pie de página, Perfil y la Cesta.
+              </Text>
+            </View>
+
             {rows.map((r) => {
               const meta = PLATFORM_META[r.platform];
+              if (!meta) return null;
               return (
                 <View
                   key={r.platform}
@@ -347,7 +450,11 @@ export default function AdminRedesSociales() {
                       paddingVertical: 10,
                       color: COLORS.text,
                       backgroundColor: COLORS.cardSoft,
-                      fontSize: 13,
+                      // 16px es el mínimo que evita que Safari/iOS haga zoom
+                      // automático al enfocar el campo — con menos de 16px
+                      // el navegador da por hecho que hay que acercar la
+                      // imagen para poder escribir cómodo.
+                      fontSize: 16,
                     }}
                   />
                   <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>{meta.hint}</Text>
