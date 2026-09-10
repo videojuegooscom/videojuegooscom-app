@@ -94,19 +94,6 @@ type FunnelRow = { step_label: string; sessions: number };
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "all" | "custom";
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
 function smartBackAdminHome() {
   try {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {
@@ -176,8 +163,6 @@ function StatCard({
       style={{
         width: isMobile ? "48.5%" : "23.5%",
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
       }}
@@ -237,12 +222,9 @@ function SectionCard({
     <View
       style={{
         borderRadius: 20,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.card,
         padding: 14,
         gap: 10,
-        ...softShadow(),
       }}
     >
       <View>
@@ -535,8 +517,6 @@ export default function AdminAnalytics() {
           <View
             style={{
               borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 12,
               gap: 10,
@@ -615,8 +595,6 @@ export default function AdminAnalytics() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
                 backgroundColor: COLORS.dangerBg,
                 padding: 10,
               }}
@@ -689,8 +667,6 @@ export default function AdminAnalytics() {
                     style={{
                       marginTop: 4,
                       borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
                       backgroundColor: COLORS.accent2,
                       padding: 10,
                       flexDirection: "row",
@@ -752,8 +728,6 @@ export default function AdminAnalytics() {
             <View
               style={{
                 borderRadius: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.cardSoft,
                 padding: 12,
                 flexDirection: "row",

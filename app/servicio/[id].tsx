@@ -45,6 +45,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { openExternalLink } from "../../lib/openExternalLink";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 
 const COLORS = {
@@ -77,22 +78,11 @@ function openWhatsApp(prefill: string) {
   const text = encodeURIComponent(String(prefill ?? "").trim().slice(0, 500));
   const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
 
-  Linking.openURL(url).catch(() => {
+  try {
+    openExternalLink(url);
+  } catch {
     Linking.openURL(`https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`);
-  });
-}
-
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
+  }
 }
 
 function smartBack() {
@@ -393,12 +383,9 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                 <View
                   style={{
                     borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
                     backgroundColor: COLORS.card,
                     overflow: "hidden",
                     position: "relative",
-                    ...softShadow(),
                   }}
                 >
                   {selectedImageUrl ? (

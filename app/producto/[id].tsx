@@ -108,6 +108,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
+import { openExternalLink } from "../../lib/openExternalLink";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
 
@@ -318,19 +319,6 @@ function labelCondition(c: ProductCondition) {
   return "Para piezas";
 }
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.25,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
 function smartBack() {
   try {
     if (typeof (router as any).canGoBack === "function" && (router as any).canGoBack()) {
@@ -348,11 +336,16 @@ function openWhatsApp(prefill: string) {
   const text = encodeURIComponent(String(prefill ?? "").trim().slice(0, 500));
   const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
 
-  Linking.openURL(url).catch(() => {
+  try {
+    // openExternalLink intenta abrir Chrome primero (ver
+    // lib/openExternalLink.ts) — sin await para no perder el toque del
+    // usuario que ese truco necesita.
+    openExternalLink(url);
+  } catch {
     Linking.openURL(
       `https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`
     );
-  });
+  }
 }
 
 function isMissingColumnError(error: unknown, columnName: string) {
@@ -1280,12 +1273,9 @@ ${price}
               <View
                 style={{
                   borderRadius: 24,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
                   backgroundColor: COLORS.card,
                   overflow: "hidden",
                   position: "relative",
-                  ...softShadow(),
                 }}
               >
                 {selectedImageUrl ? (

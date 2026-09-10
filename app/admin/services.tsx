@@ -212,8 +212,6 @@ function StatCard({ label, value, icon, isMobile }: { label: string; value: stri
       style={{
         width: isMobile ? "48.4%" : "23.4%",
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
         alignItems: "center",
@@ -807,8 +805,6 @@ export default function AdminServices() {
               <View
                 style={{
                   borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
                   padding: 20,
                   alignItems: "center",
@@ -834,11 +830,8 @@ export default function AdminServices() {
                         alignItems: "center",
                         gap: 12,
                         borderRadius: 18,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
                         backgroundColor: COLORS.card,
                         padding: 12,
-                        ...softShadow(),
                       }}
                     >
                       {cover ? (
@@ -916,8 +909,6 @@ export default function AdminServices() {
               <View
                 style={{
                   borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
                   padding: 20,
                   alignItems: "center",
@@ -940,12 +931,9 @@ export default function AdminServices() {
                       key={r.id}
                       style={{
                         borderRadius: 18,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
                         backgroundColor: COLORS.card,
                         padding: 14,
                         gap: 10,
-                        ...softShadow(),
                       }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>

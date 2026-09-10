@@ -172,8 +172,6 @@ function StatCard({
       style={{
         width: isMobile ? "100%" : "31.9%",
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
       }}
@@ -508,8 +506,6 @@ export default function AdminFlashNews() {
           <View
             style={{
               borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 12,
               gap: 10,
@@ -537,8 +533,6 @@ export default function AdminFlashNews() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
                 backgroundColor: COLORS.dangerBg,
                 padding: 10,
               }}
@@ -561,8 +555,6 @@ export default function AdminFlashNews() {
               <View
                 style={{
                   borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
                   padding: isMobile ? 14 : 16,
                   gap: 8,
@@ -580,26 +572,20 @@ export default function AdminFlashNews() {
               items.map((row) => {
                 const rowColor = isValidHex(row.color_hex) ? row.color_hex : DEFAULT_COLOR;
                 const rowBg = hexToRgba(rowColor, 0.14);
-                const rowBorder = hexToRgba(rowColor, 0.45);
 
                 return (
                   <View
                     key={row.id}
                     style={{
                       borderRadius: 20,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
                       backgroundColor: COLORS.card,
                       padding: isMobile ? 12 : 14,
                       gap: 12,
-                      ...softShadow(),
                     }}
                   >
                     <View
                       style={{
                         borderRadius: 14,
-                        borderWidth: 1,
-                        borderColor: rowBorder,
                         backgroundColor: rowBg,
                         paddingVertical: 10,
                         paddingHorizontal: 12,

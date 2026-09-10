@@ -125,19 +125,6 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
 function SectionCard({
   children,
   padding = 18,
@@ -149,12 +136,9 @@ function SectionCard({
     <View
       style={{
         borderRadius: 24,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.card,
         padding,
         gap: 14,
-        ...softShadow(),
       }}
     >
       {children}

@@ -91,6 +91,7 @@ import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
+import { openExternalLink } from "../../lib/openExternalLink";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -292,11 +293,16 @@ function buildWhatsAppUrl(prefill: string) {
 function openWhatsApp() {
   const url = buildWhatsAppUrl(BRAND.whatsappPrefill);
 
-  Linking.openURL(url).catch(() => {
+  try {
+    // openExternalLink intenta abrir Chrome primero (ver
+    // lib/openExternalLink.ts) — se llama sin await para no perder el
+    // "toque del usuario" que ese truco necesita.
+    openExternalLink(url);
+  } catch {
     const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "").replace("+", "");
     const text = encodeURIComponent(clampText(BRAND.whatsappPrefill, 400));
     Linking.openURL(`https://api.whatsapp.com/send?phone=${phone}&text=${text}`);
-  });
+  }
 }
 
 function softShadow() {

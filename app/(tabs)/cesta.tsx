@@ -32,7 +32,6 @@ import {
   ActivityIndicator,
   Animated,
   Image,
-  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -64,19 +63,6 @@ const COLORS = {
   successBorder: "#86EFAC",
   gamingGlow: "#1EA7E8",
 };
-
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
 
 // Envoltorio de Pressable con una pequeña animación "pop" al pulsar (mismo
 // patrón que app/(tabs)/perfil.tsx y components/VenderAhoraModal.tsx): se
@@ -723,13 +709,10 @@ export default function CestaScreen() {
             <View
               style={{
                 borderRadius: 24,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
                 padding: 24,
                 gap: 12,
                 alignItems: "center",
-                ...softShadow(),
               }}
             >
               <View
@@ -766,12 +749,9 @@ export default function CestaScreen() {
                   key={it.id}
                   style={{
                     borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
                     backgroundColor: COLORS.card,
                     padding: 16,
                     gap: 12,
-                    ...softShadow(),
                   }}
                 >
                   <View
@@ -913,12 +893,9 @@ export default function CestaScreen() {
           <View
             style={{
               borderRadius: 24,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.cardSoft,
               padding: 18,
               gap: 12,
-              ...softShadow(),
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
@@ -951,11 +928,8 @@ export default function CestaScreen() {
           <View
             style={{
               borderRadius: 24,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.cardSoft,
               padding: 18,
-              ...softShadow(),
             }}
           >
             <SocialLinks />

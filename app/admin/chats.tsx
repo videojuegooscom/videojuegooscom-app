@@ -258,8 +258,6 @@ export default function AdminChats() {
         <View
           style={{
             borderRadius: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
             backgroundColor: COLORS.card,
             padding: 20,
             alignItems: "center",
@@ -278,8 +276,6 @@ export default function AdminChats() {
             key={group.product_id}
             style={{
               borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 12,
               gap: 8,
@@ -331,8 +327,6 @@ export default function AdminChats() {
                       alignItems: "center",
                       gap: 8,
                       borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: active ? COLORS.accentBorder : COLORS.border,
                       backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
                       padding: 10,
                     })}

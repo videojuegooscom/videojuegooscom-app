@@ -85,19 +85,6 @@ type SiteSettingsRow = {
   logo_url: string | null;
 };
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
 function smartBackAdminHome() {
   try {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {
@@ -424,8 +411,6 @@ export default function AdminMarcaSeo() {
               <View
                 style={{
                   borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: COLORS.dangerBorder,
                   backgroundColor: COLORS.dangerBg,
                   padding: 10,
                 }}
@@ -438,12 +423,9 @@ export default function AdminMarcaSeo() {
             <View
               style={{
                 borderRadius: 20,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
                 padding: isMobile ? 14 : 18,
                 gap: 12,
-                ...softShadow(),
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -483,8 +465,6 @@ export default function AdminMarcaSeo() {
                   <View
                     style={{
                       borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
                       backgroundColor: COLORS.accent2,
                       padding: 12,
                       gap: 4,
@@ -576,12 +556,9 @@ export default function AdminMarcaSeo() {
             <View
               style={{
                 borderRadius: 20,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
                 padding: isMobile ? 14 : 18,
                 gap: 12,
-                ...softShadow(),
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -717,8 +694,6 @@ export default function AdminMarcaSeo() {
             <View
               style={{
                 borderRadius: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.cardSoft,
                 padding: 12,
                 flexDirection: "row",

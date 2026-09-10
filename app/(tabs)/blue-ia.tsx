@@ -64,7 +64,6 @@ import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -77,6 +76,7 @@ import {
 } from "react-native";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
+import { openExternalLink } from "../../lib/openExternalLink";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -204,10 +204,12 @@ const SOCIAL_CHIP_ICONS: Record<
   },
 };
 
-async function openSocialChip(href: string) {
+function openSocialChip(href: string) {
   try {
-    const canOpen = await Linking.canOpenURL(href);
-    if (canOpen) await Linking.openURL(href);
+    // Síncrono a propósito — ver la nota de components/SocialLinks.tsx: el
+    // truco de abrir en Chrome (lib/openExternalLink.ts) necesita ocurrir
+    // dentro del mismo toque del usuario.
+    openExternalLink(href);
   } catch {
     // Silencioso: un enlace mal formado no debe romper la conversación.
   }

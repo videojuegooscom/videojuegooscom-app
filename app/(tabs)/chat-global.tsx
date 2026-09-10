@@ -1596,15 +1596,9 @@ const MessageBubble = React.memo(function MessageBubble({
         <View
           style={{
             borderRadius: 18,
-            borderWidth: 1,
-            borderColor: mine ? "rgba(0,170,228,0.20)" : "#E3EAF2",
             backgroundColor: bubbleBg,
             padding: 14,
             gap: 6,
-            shadowColor: mine ? COLORS.accent : roleTone.accent,
-            shadowOpacity: mine ? 0.12 : 0.06,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 2 },
           }}
         >
           {hasReply ? (

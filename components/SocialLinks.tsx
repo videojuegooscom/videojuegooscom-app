@@ -47,9 +47,16 @@
  * la app; si no la tiene, abre la web tal cual, donde esas mismas empresas
  * suelen mostrar su propio aviso para descargar la app. Es el mismo
  * mecanismo con el que ya funciona wa.me. Por eso basta con abrir siempre el
- * enlace real (Linking.openURL) — no hace falta duplicar esa lógica aquí, y
- * un truco casero (URL con esquema propio + temporizador) sería menos fiable
- * que dejar que el sistema operativo lo resuelva solo.
+ * enlace real — no hace falta duplicar esa lógica aquí, y un truco casero
+ * (URL con esquema propio + temporizador) sería menos fiable que dejar que
+ * el sistema operativo lo resuelva solo.
+ *
+ * Eso sí — EN QUÉ NAVEGADOR se abre ese enlace real es otra cosa: por
+ * defecto se abriría en el mismo navegador que ya está mostrando la tienda
+ * (Safari en iPhone). Daniel pidió que se abra en Chrome cuando esté
+ * instalado — ver lib/openExternalLink.ts, que sí usa el truco documentado
+ * por Google para ESE caso concreto (a diferencia de "abrir la app de
+ * Instagram", aquí sí hay un esquema oficial y estable que probar).
  *
  * Iconos: Instagram/WhatsApp/YouTube/Facebook/Apple usan Ionicons (ya la usa
  * toda la app). TikTok usa MaterialIcons y Gmail usa MaterialCommunityIcons
@@ -77,9 +84,10 @@
  *   MaterialCommunityIcons junto a la de Ionicons.
  */
 import React, { useEffect, useState } from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { openExternalLink } from "../lib/openExternalLink";
 
 export type SocialPlatform =
   | "instagram"
@@ -187,12 +195,13 @@ export function buildSocialHref(platform: SocialPlatform, raw: string): string |
   return `https://${value}`;
 }
 
-async function openSocialLink(href: string) {
+function openSocialLink(href: string) {
   try {
-    const canOpen = await Linking.canOpenURL(href);
-    if (canOpen) {
-      await Linking.openURL(href);
-    }
+    // Síncrono a propósito: el truco de "abrir en Chrome" de
+    // openExternalLink() cambia la ubicación de la pestaña, y eso solo
+    // funciona de forma fiable si ocurre dentro del mismo toque del usuario
+    // (sin ningún `await` de por medio que lo retrase).
+    openExternalLink(href);
   } catch {
     // Silencioso: si el enlace no se puede abrir (dato mal escrito por el
     // admin, o el dispositivo no tiene con qué abrirlo), no rompemos nada.

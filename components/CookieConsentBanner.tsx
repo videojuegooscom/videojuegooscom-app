@@ -6,6 +6,12 @@
  * monta una sola vez en app/_layout.tsx, así que aparece en cualquier
  * pantalla pública mientras el visitante no haya contestado.
  *
+ * Texto: redactado en tono formal/corporativo (trato de "usted") a
+ * propósito — Daniel pidió que este aviso concreto transmita seriedad y
+ * confianza de empresa, aunque el resto de la tienda hable de "tú". Es un
+ * contraste habitual en webs reales: el aviso legal/de privacidad suele ir
+ * más formal que el resto del contenido comercial.
+ *
  * Cómo funciona:
  * - Al montar, comprueba lib/analytics.ts → getAnalyticsConsent(). Si ya
  *   contestó antes ("accepted" o "declined"), el aviso no se muestra nunca
@@ -153,17 +159,19 @@ export default function CookieConsentBanner() {
 
           <View style={{ flex: 1 }}>
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14.5, lineHeight: 19 }}>
-              Usamos tu visita para mejorar la tienda
+              Su privacidad es importante para nosotros
             </Text>
             <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18, fontSize: 13 }}>
-              Analítica propia (sin terceros) para entender cómo navegas: qué categorías miras,
-              qué productos visitas... Puedes rechazarlo cuando quieras.{" "}
+              Utilizamos tecnología de analítica propia, sin ceder datos a terceros, para conocer
+              cómo se navega por la tienda y mejorar de forma continua nuestro servicio. Puede
+              modificar su decisión en cualquier momento desde nuestra{" "}
               <Text
                 style={{ color: COLORS.accentDark, fontWeight: "800" }}
                 onPress={() => router.push("/politicas/privacidad" as never)}
               >
-                Ver política de privacidad
+                Política de Privacidad
               </Text>
+              .
             </Text>
           </View>
         </View>

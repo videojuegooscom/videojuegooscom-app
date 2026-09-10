@@ -153,19 +153,6 @@ const STATUS_COLORS: Record<SellRequestStatus, { bg: string; border: string }> =
   descartado: { bg: COLORS.dangerBg, border: COLORS.dangerBorder },
 };
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
 function smartBackAdminHome() {
   try {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {
@@ -196,8 +183,6 @@ function StatCard({
       style={{
         width: compact ? (isMobile ? "48.4%" : "23.4%") : "100%",
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
       }}
@@ -559,8 +544,6 @@ export default function AdminCotizaciones() {
           <View
             style={{
               borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 12,
               gap: 10,
@@ -596,8 +579,6 @@ export default function AdminCotizaciones() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
                 backgroundColor: COLORS.dangerBg,
                 padding: 10,
               }}
@@ -612,8 +593,6 @@ export default function AdminCotizaciones() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
                 backgroundColor: COLORS.dangerBg,
                 padding: 10,
               }}
@@ -644,8 +623,6 @@ export default function AdminCotizaciones() {
               <View
                 style={{
                   borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
                   padding: isMobile ? 14 : 16,
                   gap: 8,
@@ -668,12 +645,9 @@ export default function AdminCotizaciones() {
                     key={r.id}
                     style={{
                       borderRadius: 20,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
                       backgroundColor: COLORS.card,
                       padding: isMobile ? 12 : 14,
                       gap: 10,
-                      ...softShadow(),
                     }}
                   >
                     <View

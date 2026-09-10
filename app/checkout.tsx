@@ -47,6 +47,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
+import { openExternalLink } from "../lib/openExternalLink";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -175,9 +176,11 @@ function openWhatsApp(prefill: string) {
   const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
   const text = encodeURIComponent((prefill ?? "").trim().slice(0, 900));
   const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
-  Linking.openURL(url).catch(() => {
+  try {
+    openExternalLink(url);
+  } catch {
     Linking.openURL(`https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`);
-  });
+  }
 }
 
 function inputStyle() {

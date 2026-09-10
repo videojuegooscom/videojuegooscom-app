@@ -156,8 +156,6 @@ function StatCard({
       style={{
         width: compact ? (isMobile ? "48%" : "23.5%") : "100%",
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
       }}
@@ -512,8 +510,6 @@ export default function Inventario() {
           <View
             style={{
               borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 12,
               gap: 10,
@@ -555,8 +551,6 @@ export default function Inventario() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
                 backgroundColor: COLORS.dangerBg,
                 padding: 10,
               }}
@@ -569,8 +563,6 @@ export default function Inventario() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.warningBorder,
                 backgroundColor: COLORS.warningBg,
                 padding: 10,
                 gap: 4,
@@ -606,8 +598,6 @@ export default function Inventario() {
               <View
                 style={{
                   borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
                   backgroundColor: COLORS.card,
                   padding: isMobile ? 14 : 16,
                   gap: 8,
@@ -628,12 +618,9 @@ export default function Inventario() {
                     key={i.id}
                     style={{
                       borderRadius: 20,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
                       backgroundColor: COLORS.card,
                       padding: isMobile ? 12 : 14,
                       gap: 10,
-                      ...softShadow(),
                     }}
                   >
                     <View

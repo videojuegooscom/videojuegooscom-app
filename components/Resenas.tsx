@@ -29,7 +29,7 @@
  * - app/(tabs)/index.tsx → lo incluye como sección de la pantalla de inicio.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
 import ReviewModal, { type PublishedReview } from "./ReviewModal";
 import SmartImage from "./SmartImage";
@@ -70,19 +70,6 @@ const COLORS = {
 // cuántas de las más recientes se muestran como tarjetas.
 const STATS_SAMPLE_LIMIT = 300;
 const VISIBLE_REVIEWS = 5;
-
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.25,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
 
 // Siempre la fecha de publicación (día, mes, año) sin relativos tipo "hace
 // X min" ni hora — es lo que pidió Jefe: la fecha da igual que sea exacta al
@@ -259,12 +246,9 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
     <View
       style={{
         borderRadius: 22,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.card,
         padding: isMobile ? 14 : 16,
         gap: 14,
-        ...softShadow(),
       }}
     >
       <View style={{ gap: 8, alignItems: isMobile ? "center" : "flex-start" }}>

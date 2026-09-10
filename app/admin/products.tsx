@@ -530,12 +530,9 @@ const ProductListItem = React.memo(function ProductListItem({
     <View
       style={{
         borderRadius: 20,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.card,
         padding: isMobile ? 12 : 14,
         gap: 12,
-        ...softShadow(),
       }}
     >
       <View
@@ -1607,8 +1604,6 @@ export default function AdminProducts() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
                 backgroundColor: COLORS.dangerBg,
                 padding: 10,
               }}
@@ -1623,8 +1618,6 @@ export default function AdminProducts() {
             <View
               style={{
                 borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.warningBorder,
                 backgroundColor: COLORS.warningBg,
                 padding: 10,
               }}
@@ -1638,8 +1631,6 @@ export default function AdminProducts() {
           <View
             style={{
               borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: 12,
               gap: 10,
@@ -1702,8 +1693,6 @@ export default function AdminProducts() {
             <View
               style={{
                 borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
                 padding: isMobile ? 14 : 16,
                 gap: 8,
