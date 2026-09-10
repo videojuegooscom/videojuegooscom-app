@@ -2,7 +2,9 @@
  * Qué hace: pantalla "Mi cuenta" (pestaña Perfil). Antes de iniciar sesión
  * muestra un formulario de acceso/registro; una vez hay sesión, muestra el
  * email conectado, el botón de cerrar sesión y (si el rol es admin) el acceso
- * al panel de administración.
+ * al panel de administración. Al final, siempre (haya sesión o no), el
+ * bloque "Síguenos" con los logos de las redes sociales activas
+ * (components/SocialLinks.tsx).
  *
  * Cómo funciona:
  * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
@@ -82,6 +84,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import PromoBanner from "../../components/PromoBanner";
+import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 
@@ -1314,6 +1317,10 @@ export default function PerfilScreen() {
                   />
                 </SectionCard>
               ) : null}
+
+              <SectionCard padding={cardPadding}>
+                <SocialLinks />
+              </SectionCard>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

@@ -9,16 +9,18 @@
  *
  * Pantalla de carga: se mantiene hasta que se cumplen DOS condiciones a la
  * vez — un mínimo de 1 segundo (para que la marca se vea, no sea un parpadeo)
- * Y que la fuente de iconos (Ionicons, usada por TODA la app: cabeceras,
- * botones, tarjetas...) haya terminado de descargarse, vía useFonts() de
- * expo-font. Antes solo dependía del segundo fijo: en la primera visita en
- * la web (o con conexión lenta/caché fría), si la fuente tardaba más de 1s
- * en llegar, la pantalla de carga desaparecía igualmente y la app real
- * aparecía con todos los iconos en blanco/invisibles durante un instante —
- * eso es lo que se veía "raro" hasta refrescar la página (momento en el que
- * la fuente ya estaba en la caché del navegador y cargaba al instante). Con
- * este cambio, la pantalla de carga no se quita hasta que los iconos ya
- * están listos para pintarse bien a la primera, sin depender de refrescar.
+ * Y que las fuentes de iconos (Ionicons, usada por TODA la app: cabeceras,
+ * botones, tarjetas...; más MaterialIcons y MaterialCommunityIcons, que solo
+ * usa components/SocialLinks.tsx para los logos de TikTok y Gmail) hayan
+ * terminado de descargarse, vía useFonts() de expo-font. Antes solo dependía
+ * del segundo fijo: en la primera visita en la web (o con conexión lenta/
+ * caché fría), si la fuente tardaba más de 1s en llegar, la pantalla de
+ * carga desaparecía igualmente y la app real aparecía con todos los iconos
+ * en blanco/invisibles durante un instante — eso es lo que se veía "raro"
+ * hasta refrescar la página (momento en el que la fuente ya estaba en la
+ * caché del navegador y cargaba al instante). Con este cambio, la pantalla
+ * de carga no se quita hasta que los iconos ya están listos para pintarse
+ * bien a la primera, sin depender de refrescar.
  *
  * Conectado con:
  * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
@@ -49,7 +51,7 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
@@ -61,6 +63,8 @@ const MIN_BOOT_MS = 1000;
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     ...Ionicons.font,
+    ...MaterialIcons.font,
+    ...MaterialCommunityIcons.font,
   });
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 

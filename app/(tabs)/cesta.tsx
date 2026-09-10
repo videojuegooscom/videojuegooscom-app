@@ -20,6 +20,8 @@
  *   arriba del todo (misma franja que en el resto de pestañas).
  * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
  *   Ya" de esa franja.
+ * - components/SocialLinks.tsx → bloque "Síguenos" debajo del resumen del
+ *   pedido, con los logos de las redes sociales activas.
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -39,6 +41,7 @@ import {
   View,
 } from "react-native";
 import PromoBanner from "../../components/PromoBanner";
+import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 
@@ -943,6 +946,19 @@ export default function CestaScreen() {
                 ← Seguir comprando
               </Text>
             </Pressable>
+          </View>
+
+          <View
+            style={{
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.cardSoft,
+              padding: 18,
+              ...softShadow(),
+            }}
+          >
+            <SocialLinks />
           </View>
           </View>
         </ScrollView>

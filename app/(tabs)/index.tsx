@@ -2,7 +2,8 @@
  * Qué hace: pantalla de inicio (pestaña "Inicio"). Es el escaparate
  * principal: cabecera con marca, barra de búsqueda flotante, accesos
  * rápidos a categorías, productos destacados desde Supabase, bloque de
- * reseñas y footer con enlaces y contacto por WhatsApp.
+ * reseñas y footer con enlaces, redes sociales (components/SocialLinks.tsx)
+ * y contacto por WhatsApp.
  *
  * Cómo funciona:
  * - Carga productos destacados desde la tabla "products" de Supabase
@@ -86,6 +87,7 @@ import { FloatingBarramagic } from "../../components/Barramagic";
 import PromoBanner from "../../components/PromoBanner";
 import Resenas from "../../components/Resenas";
 import SmartImage from "../../components/SmartImage";
+import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
@@ -2068,6 +2070,10 @@ export default function HomeScreen() {
                   onPress={() => pushRoute("/blog?open=mantenimiento-consola" as Href)}
                 />
               </FooterAccordionSection>
+            </View>
+
+            <View style={{ marginTop: 4 }}>
+              <SocialLinks titleColor="#FFFFFF" />
             </View>
 
             <Text
