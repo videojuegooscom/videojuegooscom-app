@@ -1,49 +1,68 @@
-// components/GlobalLoadingBar.tsx
+// components/lineapensadoraefectosiri.tsx
 /**
- * Qué hace: barra multicolor (estilo "Siri": rosa → morado → azul → cian)
- * que aparece SOLA, en toda la app, cada vez que hay una petición real a
- * Supabase en marcha — para que cargar algo nunca se sienta como que la app
- * se ha quedado "congelada". Va pegada justo debajo de la franja de
- * Noticias Flash (a petición de Daniel: antes flotaba en un hueco calculado
- * a ojo; ahora usa la altura REAL de esa franja, medida en
- * components/PromoBanner.tsx). Nunca bloquea nada: es solo decorativa
- * (pointerEvents="none"), así que se puede seguir navegando y tocando la
- * pantalla mientras se ve.
+ * Qué hace: la barra "Pensando" — una línea multicolor (efecto Siri: rosa →
+ * morado → azul → cian) que se enciende SOLA, en TODA la app, para avisar
+ * de que algo está pasando: una petición a Supabase, unas fotos cargando, o
+ * simplemente que se acaba de cambiar de pestaña/sección. Va pegada justo
+ * debajo de la franja de Noticias Flash. Nunca bloquea nada: es solo
+ * decorativa (pointerEvents="none"), así que se puede seguir navegando y
+ * tocando la pantalla mientras se ve.
  *
- * Cómo funciona:
+ * (Este archivo se llamaba components/GlobalLoadingBar.tsx — se renombró a
+ * petición de Daniel. Ese archivo antiguo ya no se usa en ningún sitio;
+ * puede borrarse cuando quieras, esta sesión no tiene forma de borrarlo por
+ * ti.)
+ *
+ * Tres cosas distintas la encienden — las tres suman al MISMO contador
+ * (lib/loadingBus.ts), así que la barra se queda encendida mientras
+ * CUALQUIERA de ellas siga activa:
+ * 1. Una petición real a Supabase en marcha (lib/supabase.ts llama a
+ *    markStart()/markEnd() en cada fetch, salvo las llamadas silenciosas de
+ *    fondo listadas en SILENT_URL_PARTS allí).
+ * 2. Una foto cargando de verdad (components/SmartImage.tsx llama a
+ *    markStart()/markEnd() por cada una) — así la barra no se apaga hasta
+ *    que TODAS las fotos en pantalla han terminado de cargar, no solo
+ *    cuando llegan los datos.
+ * 3. Un cambio de ruta: cada vez que cambia la pantalla (pestaña, sección,
+ *    volver atrás...) este componente llama a pulseLoading() para encender
+ *    la barra un instante fijo — para que el usuario vea SIEMPRE una señal
+ *    de "está cargando" al cambiar de sitio, aunque esa pantalla en
+ *    concreto no necesite pedir nada nuevo (datos ya en caché, sin fotos
+ *    que cargar, etc.) y así nunca parezca que la app "no está haciendo
+ *    nada" o "está rota".
+ *
+ * Cómo se ve:
  * - useGlobalLoading() (lib/loadingBus.ts) dice, en cada instante, si hay
- *   alguna petición real de Supabase en marcha (true/false). lib/supabase.ts
- *   es quien enciende/apaga ese contador en cada fetch real (y deja fuera
- *   las llamadas silenciosas de fondo, ver SILENT_URL_PARTS allí).
+ *   algo de lo anterior en marcha (true/false).
  * - useFlashBannerHeight() (lib/flashBannerBus.ts) da el alto real, ya
- *   pintado, de la Noticia Flash — la barra se coloca justo en ese punto
- *   ("top"), pegada a ella, sin superponerse. En pantallas sin Noticia
- *   Flash (p. ej. admin) se usa un alto de respaldo razonable.
- * - Para que NO parpadee en peticiones rapidísimas (una consulta de 80ms no
- *   debería llegar a verse), solo se hace visible si la carga sigue pasados
- *   SHOW_DELAY_MS. Y para que tampoco parpadee al revés (aparecer y
- *   desaparecer casi a la vez si dos peticiones casi seguidas terminan y
- *   empiezan), una vez visible se queda un mínimo de MIN_VISIBLE_MS antes de
- *   poder ocultarse, aunque la carga real ya haya terminado.
+ *   pintado, de la Noticia Flash — la barra se coloca justo ahí ("top"),
+ *   pegada a ella, sin superponerse. En pantallas sin Noticia Flash (p. ej.
+ *   admin) se usa un alto de respaldo razonable.
+ * - Para que NO parpadee en cargas rapidísimas, solo se hace visible si
+ *   sigue activa pasados SHOW_DELAY_MS. Y para que tampoco parpadee al
+ *   revés, una vez visible se queda un mínimo de MIN_VISIBLE_MS antes de
+ *   poder ocultarse.
  * - Mientras está visible, un LinearGradient más ancho que la pantalla se
- *   desliza de un lado a otro en bucle (Animated.loop), dentro de una tira
- *   de overflow:"hidden" — el efecto de "barrido de color" tipo Siri. Grosor
- *   normal (5px, antes 3.5px) para que se note bien que algo está cargando.
+ *   desliza de un lado a otro en bucle — el efecto de "barrido de color"
+ *   tipo Siri. Grosor normal (5px) para que se note bien.
  * - Se monta UNA sola vez en app/_layout.tsx (como la campanita o el aviso
  *   de cookies), fuera del Stack, con position:"absolute" — así aparece en
  *   cualquier pantalla sin tener que añadirlo pantalla por pantalla.
  *
  * Conectado con:
- * - lib/loadingBus.ts → de dónde saca si está cargando o no.
+ * - lib/loadingBus.ts → de dónde saca si hay algo cargando, y a quién avisa
+ *   en cada cambio de ruta (pulseLoading()).
  * - lib/flashBannerBus.ts → de dónde saca a qué altura pegarse.
- * - lib/supabase.ts → quien realmente enciende/apaga el contador.
+ * - lib/supabase.ts → enciende el contador por cada petición real.
+ * - components/SmartImage.tsx → enciende el contador por cada foto cargando.
  * - components/PromoBanner.tsx → quien mide y publica su altura real.
  * - app/_layout.tsx → la monta una única vez, por encima del Stack.
  */
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useGlobalLoading } from "../lib/loadingBus";
+import { usePathname } from "expo-router";
+import { useGlobalLoading, pulseLoading } from "../lib/loadingBus";
 import { useFlashBannerHeight } from "../lib/flashBannerBus";
 
 const SHOW_DELAY_MS = 180;
@@ -51,9 +70,12 @@ const MIN_VISIBLE_MS = 500;
 const BAR_HEIGHT = 5;
 const SWEEP_MS = 1100;
 
+// Cuánto dura el "pulso" al cambiar de ruta (ver punto 3 de arriba).
+const NAV_PULSE_MS = 450;
+
 const SIRI_COLORS = ["#FF3CAC", "#784BA0", "#2B86C5", "#00C9FF", "#FF3CAC"] as const;
 
-export default function GlobalLoadingBar() {
+export default function LineaPensadoraEfectoSiri() {
   const isLoading = useGlobalLoading();
   const bannerHeight = useFlashBannerHeight();
   const { width } = useWindowDimensions();
@@ -67,6 +89,20 @@ export default function GlobalLoadingBar() {
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownAtRef = useRef<number>(0);
+
+  // Punto 3: un pulso fijo en cada cambio de ruta (pestaña/sección/volver
+  // atrás...). No se pulsa en el primer render (esa pantalla ya tiene su
+  // propia pantalla de carga inicial, BrandLoadingScreen).
+  const pathname = usePathname();
+  const isFirstPathRef = useRef(true);
+
+  useEffect(() => {
+    if (isFirstPathRef.current) {
+      isFirstPathRef.current = false;
+      return;
+    }
+    pulseLoading(NAV_PULSE_MS);
+  }, [pathname]);
 
   // Decide cuándo pasar visible <-> oculto, con el retraso/mínimo de arriba.
   useEffect(() => {

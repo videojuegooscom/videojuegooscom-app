@@ -28,11 +28,11 @@
  * - components/CookieConsentBanner.tsx → aviso de analítica/cookies, montado
  *   igual que la campanita (una sola vez, fuera del Stack); se oculta solo
  *   en /admin y desaparece en cuanto el visitante contesta.
- * - components/GlobalLoadingBar.tsx → barra de colores tipo "Siri" que se
- *   enciende sola, en toda la app, mientras haya algo cargando desde
- *   Supabase (ver lib/loadingBus.ts). Montada igual que la campanita, fuera
- *   del Stack, para que aparezca en cualquier pantalla sin tocarlas una a
- *   una.
+ * - components/lineapensadoraefectosiri.tsx → barra de colores tipo "Siri"
+ *   que se enciende sola, en toda la app, mientras haya algo cargando
+ *   (peticiones a Supabase, fotos, o un simple cambio de pantalla — ver
+ *   lib/loadingBus.ts). Montada igual que la campanita, fuera del Stack,
+ *   para que aparezca en cualquier pantalla sin tocarlas una a una.
  * - components/SiteHead.tsx → aplica el título de pestaña, la descripción
  *   para Google y (si hay) el logo subido desde app/admin/marca-seo.tsx. No
  *   pinta nada en pantalla (return null), solo toca el <head> del documento
@@ -53,7 +53,7 @@ import { Ionicons } from "@expo/vector-icons";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
-import GlobalLoadingBar from "../components/GlobalLoadingBar";
+import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
 import SiteHead from "../components/SiteHead";
 
 const MIN_BOOT_MS = 1000;
@@ -129,7 +129,7 @@ export default function RootLayout() {
       <CookieConsentBanner />
 
       {/* Barra "Pensando": se enciende sola mientras algo carga. */}
-      <GlobalLoadingBar />
+      <LineaPensadoraEfectoSiri />
 
       {/* Título/descripción/logo para Google y el navegador. No pinta nada. */}
       <SiteHead />

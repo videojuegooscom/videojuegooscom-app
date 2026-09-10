@@ -23,15 +23,36 @@
  * Si no hay URL (uri vacío/null/undefined), no pinta nada — igual que antes
  * hacían las pantallas que envolvían su <Image> en `{p.imageUrl ? ... : ...}`.
  *
+ * Barra de carga global ("Pensando"): cada SmartImage avisa a
+ * lib/loadingBus.ts (markStart/markEnd) mientras SU foto está cargando de
+ * verdad, igual que lib/supabase.ts avisa por cada petición — así
+ * components/lineapensadoraefectosiri.tsx se queda encendida hasta que TODAS
+ * las fotos en pantalla han terminado de cargar, no solo mientras llegan
+ * los datos. Dos redes de seguridad para que esto nunca se quede "pegado":
+ * - si la "uri" cambia o el componente desaparece de pantalla mientras
+ *   seguía cargando (el usuario navegó fuera antes de que terminase), se
+ *   cierra esa cuenta en el cleanup del efecto.
+ * - si por lo que sea nunca llega el aviso de "terminé" (fallo raro de red
+ *   en una miniatura que nadie está mirando), un timeout de seguridad
+ *   (LOAD_SAFETY_TIMEOUT_MS) cierra la cuenta igualmente pasados 20s.
+ *
  * Conectado con: app/catalogo.tsx, app/producto/[id].tsx,
  * app/(tabs)/index.tsx, app/servicios.tsx, app/admin/categories.tsx,
  * app/admin/services.tsx, components/ImageLightbox.tsx,
  * components/Resenas.tsx — cualquier sitio que antes usaba <Image> de
  * "react-native" para pintar una foto remota (uri) ahora usa <SmartImage>.
+ * lib/loadingBus.ts → a quien avisa mientras carga.
  */
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Image, type ImageContentFit, type ImageStyle } from "expo-image";
 import type { StyleProp } from "react-native";
+import { markEnd, markStart } from "../lib/loadingBus";
+
+// Si una foto concreta nunca llega a avisar de que terminó (fallo raro de
+// red), se cierra su cuenta igualmente pasado este tiempo — para que la
+// barra de carga global nunca se quede encendida para siempre por una sola
+// foto perdida.
+const LOAD_SAFETY_TIMEOUT_MS = 20000;
 
 export type SmartImageProps = {
   uri: string | null | undefined;
@@ -49,6 +70,41 @@ export default function SmartImage({
   transitionMs = 250,
   accessibilityLabel,
 }: SmartImageProps) {
+  const loadingRef = useRef(false);
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function endTrackedLoad() {
+    if (safetyTimerRef.current) {
+      clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = null;
+    }
+    if (loadingRef.current) {
+      loadingRef.current = false;
+      markEnd();
+    }
+  }
+
+  function handleLoadStart() {
+    loadingRef.current = true;
+    markStart();
+    safetyTimerRef.current = setTimeout(endTrackedLoad, LOAD_SAFETY_TIMEOUT_MS);
+  }
+
+  function handleLoadEnd() {
+    endTrackedLoad();
+  }
+
+  // Cierra la cuenta si la foto cambia o el componente se desmonta a medio
+  // cargar (ver nota de "redes de seguridad" arriba). Se declara antes del
+  // "return null" de abajo porque los hooks de React no pueden ser
+  // condicionales.
+  useEffect(() => {
+    return () => {
+      endTrackedLoad();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uri]);
+
   if (!uri) return null;
 
   return (
@@ -60,6 +116,8 @@ export default function SmartImage({
       transition={transitionMs}
       recyclingKey={uri}
       accessibilityLabel={accessibilityLabel}
+      onLoadStart={handleLoadStart}
+      onLoadEnd={handleLoadEnd}
     />
   );
 }
