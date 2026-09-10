@@ -82,6 +82,10 @@ export default function RootLayout() {
         <Stack.Screen name="checkout" />
         <Stack.Screen name="reset-password" />
 
+        {/* Políticas (envíos, devoluciones, privacidad, términos) y Blog */}
+        <Stack.Screen name="politicas/[slug]" />
+        <Stack.Screen name="blog/index" />
+
         {/* Producto dinámico */}
         <Stack.Screen name="producto/[id]" />
 

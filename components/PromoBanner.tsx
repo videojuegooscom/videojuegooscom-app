@@ -1,18 +1,30 @@
 // components/PromoBanner.tsx
 /**
- * Qué hace: franja promocional "Te compramos tu consola en menos de 24h" con
- * el botón "Vender Ya". Antes solo vivía en app/(tabs)/index.tsx; ahora es un
- * componente aparte para poder mostrarla arriba del todo en las 5 pestañas
- * principales de la app (Inicio, Perfil, Cesta, Chat, Blue IA), no solo en
- * Inicio, así la llamada a vender está siempre a mano.
+ * Qué hace: franja promocional superior (antes texto fijo "Te compramos tu
+ * consola en menos de 24h") con el botón "Vender Ya". Ahora es un rotador de
+ * "Noticias Flash": lee hasta 5 mensajes activos de la tabla Supabase
+ * "flash_news" y los va mostrando uno detrás de otro con un fundido suave,
+ * cada uno con su propio color y sus propios segundos en pantalla — todo
+ * editable desde el panel de administración (app/admin/flash-news.tsx), sin
+ * tener que tocar código para cambiar el mensaje.
  *
- * Cómo funciona: es un componente de presentación sin estado propio de
- * negocio — recibe onPressVender y cada pantalla decide qué hacer (en la
- * práctica, abrir su propio VenderAhoraModal con un estado local "sellModalOpen";
- * mismo patrón de duplicar un poco de estado sencillo por archivo que ya sigue
- * el resto del proyecto, en vez de compartir un store global). Calcula su
- * propio responsive (isMobile) con useWindowDimensions para no depender de
- * que cada pantalla se lo pase.
+ * Cómo funciona:
+ * - fetchFlashNewsSafe() carga las filas is_active=true de "flash_news"
+ *   ordenadas por sort_order; si la tabla no existe todavía, está vacía o
+ *   falla la carga (sin conexión, RLS, etc.), se usa un único mensaje de
+ *   emergencia ("Te compramos tu electrónica hoy mismo") para que la franja
+ *   nunca se quede vacía ni rompa la pantalla.
+ * - Con más de una noticia activa, un temporizador por noticia (su propio
+ *   display_seconds) dispara un fundido de salida/entrada (Animated,
+ *   useNativeDriver) y avanza a la siguiente, en bucle.
+ * - color_hex de cada noticia tiñe el fondo/borde de la franja y el icono de
+ *   rayo (hexToRgba calcula versiones translúcidas); el texto se mantiene
+ *   siempre en el azul marino de marca para que sea legible con cualquier
+ *   color elegido.
+ * - Sigue siendo un componente de presentación sin lógica de negocio propia:
+ *   recibe onPressVender y cada pantalla decide qué hacer (en la práctica,
+ *   abrir su propio VenderAhoraModal con un estado local "sellModalOpen").
+ *   Calcula su propio responsive (isMobile) con useWindowDimensions.
  *
  * Conectado con:
  * - app/(tabs)/index.tsx → la usa dentro de su propio Animated.View que la
@@ -22,16 +34,96 @@
  *   muestran fija arriba del todo, siempre visible.
  * - components/VenderAhoraModal.tsx → el formulario "Vender ahora" que cada
  *   pantalla abre desde onPressVender.
+ * - app/admin/flash-news.tsx → editor de administración para estas noticias
+ *   (añadir hasta 5, reordenar, activar/desactivar, elegir color y segundos).
+ * - lib/supabase.ts → cliente de Supabase para leer "flash_news".
  */
-import React from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../lib/supabase";
 
 const COLORS = {
   text: "#0B2138",
-  warningBg: "rgba(255, 178, 0, 0.14)",
-  warningBorder: "rgba(255, 178, 0, 0.45)",
 };
+
+const FALLBACK_COLOR = "#FFB200";
+
+type FlashNewsItem = {
+  id: string;
+  message: string;
+  colorHex: string;
+  displaySeconds: number;
+};
+
+// Mensaje de emergencia: se usa si "flash_news" no existe todavía, está
+// vacía o falla la carga, para que la franja nunca desaparezca del todo.
+const FALLBACK_ITEMS: FlashNewsItem[] = [
+  {
+    id: "fallback",
+    message: "Te compramos tu electrónica hoy mismo",
+    colorHex: FALLBACK_COLOR,
+    displaySeconds: 6,
+  },
+];
+
+function hexToRgba(hex: string, alpha: number) {
+  const clean = hex.replace("#", "").trim();
+  const full = clean.length === 3
+    ? clean.split("").map((c) => c + c).join("")
+    : clean;
+
+  const r = parseInt(full.substring(0, 2), 16);
+  const g = parseInt(full.substring(2, 4), 16);
+  const b = parseInt(full.substring(4, 6), 16);
+
+  if ([r, g, b].some((n) => Number.isNaN(n))) {
+    return hexToRgba(FALLBACK_COLOR, alpha);
+  }
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+async function fetchFlashNewsSafe(): Promise<FlashNewsItem[]> {
+  try {
+    const { data, error } = await supabase
+      .from("flash_news")
+      .select("id,message,color_hex,display_seconds,sort_order,is_active")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(5);
+
+    if (error) throw error;
+
+    const rows = Array.isArray(data) ? data : [];
+
+    const items: FlashNewsItem[] = rows
+      .map((row): FlashNewsItem | null => {
+        const message = String((row as any)?.message ?? "").trim();
+        if (!message) return null;
+
+        const rawColor = String((row as any)?.color_hex ?? "").trim();
+        const colorHex = /^#[0-9a-fA-F]{6}$/.test(rawColor) ? rawColor : FALLBACK_COLOR;
+
+        const rawSeconds = Number((row as any)?.display_seconds);
+        const displaySeconds =
+          Number.isFinite(rawSeconds) && rawSeconds > 0 ? rawSeconds : 6;
+
+        return {
+          id: String((row as any)?.id ?? message),
+          message,
+          colorHex,
+          displaySeconds,
+        };
+      })
+      .filter((item): item is FlashNewsItem => item !== null);
+
+    return items.length > 0 ? items : FALLBACK_ITEMS;
+  } catch {
+    return FALLBACK_ITEMS;
+  }
+}
 
 export default function PromoBanner({
   onPressVender,
@@ -42,12 +134,58 @@ export default function PromoBanner({
   const widthSafe = width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
 
+  const [items, setItems] = useState<FlashNewsItem[]>(FALLBACK_ITEMS);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let alive = true;
+
+    fetchFlashNewsSafe().then((loaded) => {
+      if (!alive) return;
+      setItems(loaded);
+      setActiveIndex(0);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (items.length <= 1) return undefined;
+
+    const current = items[activeIndex % items.length];
+    const seconds = current?.displaySeconds ?? 6;
+
+    const timer = setTimeout(() => {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start(() => {
+        setActiveIndex((i) => (i + 1) % items.length);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }).start();
+      });
+    }, Math.max(2, seconds) * 1000);
+
+    return () => clearTimeout(timer);
+  }, [items, activeIndex, fadeAnim]);
+
+  const active = items[activeIndex % items.length] ?? FALLBACK_ITEMS[0];
+  const bg = hexToRgba(active.colorHex, 0.14);
+  const border = hexToRgba(active.colorHex, 0.45);
+
   return (
     <View
       style={{
-        backgroundColor: COLORS.warningBg,
+        backgroundColor: bg,
         borderBottomWidth: 1,
-        borderBottomColor: COLORS.warningBorder,
+        borderBottomColor: border,
         paddingVertical: isMobile ? 7 : 10,
         paddingHorizontal: isMobile ? 16 : 24,
       }}
@@ -63,15 +201,17 @@ export default function PromoBanner({
           gap: isMobile ? 6 : 12,
         }}
       >
-        <View
+        <Animated.View
           style={{
+            opacity: fadeAnim,
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
             gap: 5,
+            flexShrink: 1,
           }}
         >
-          <Ionicons name="flash-outline" size={isMobile ? 13 : 16} color={COLORS.text} />
+          <Ionicons name="flash-outline" size={isMobile ? 13 : 16} color={active.colorHex} />
           <Text
             numberOfLines={2}
             style={{
@@ -82,9 +222,9 @@ export default function PromoBanner({
               textAlign: "center",
             }}
           >
-            Te compramos tu consola en menos de 24h
+            {active.message}
           </Text>
-        </View>
+        </Animated.View>
 
         <Pressable
           onPress={onPressVender}
@@ -94,8 +234,8 @@ export default function PromoBanner({
             paddingHorizontal: isMobile ? 11 : 14,
             borderRadius: 999,
             borderWidth: 1,
-            borderColor: COLORS.warningBorder,
-            backgroundColor: COLORS.warningBg,
+            borderColor: border,
+            backgroundColor: bg,
             flexShrink: 0,
           })}
         >

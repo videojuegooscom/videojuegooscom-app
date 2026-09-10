@@ -15,7 +15,8 @@
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
  * - El botón "Vender ahora" y el botón "Vender Ya" de la franja superior
- *   ("Te compramos tu consola en menos de 24h", ahora components/PromoBanner.tsx)
+ *   (rotador de "Noticias Flash", components/PromoBanner.tsx — lee la tabla
+ *   Supabase "flash_news" y se edita desde app/admin/flash-news.tsx)
  *   ya no abren WhatsApp directamente: ambos abren el mismo formulario "pop"
  *   de VenderAhoraModal (comparten el estado sellModalOpen), que guarda la
  *   solicitud en Supabase (tabla "sell_requests") para revisarla luego en
@@ -36,7 +37,7 @@
  *   vía FloatingBarramagic; app/catalogo.tsx usa el mismo archivo en modo
  *   fijo/editable).
  * - components/Resenas.tsx → bloque de reseñas.
- * - components/PromoBanner.tsx → franja "Te compramos tu consola...".
+ * - components/PromoBanner.tsx → franja rotatoria "Noticias Flash".
  * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
  *   (sustituye el envío por email; guarda en la tabla "sell_requests").
  * - app/catalogo.tsx, app/producto/[id].tsx, app/(tabs)/blue-ia.tsx →
@@ -67,6 +68,8 @@ import {
   useWindowDimensions,
   type DimensionValue,
   type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
 import PromoBanner from "../../components/PromoBanner";
@@ -123,9 +126,11 @@ type FeaturedProduct = {
   title: string;
   description: string | null;
   priceEUR: number;
-  imageUrl: string | null;
+  // Todas las fotos del producto (la de portada primero), para poder
+  // deslizar entre ellas directamente desde la tarjeta de Inicio sin
+  // entrar en la ficha de producto.
+  images: string[];
   categoryName: string | null;
-  mediaCount: number;
   hasVideo: boolean;
 };
 
@@ -339,30 +344,6 @@ function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
   const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 99999;
 
   return aOrder - bOrder;
-}
-
-function pickHeroImage(productRow: ProductRow | null | undefined, mediaRows: ProductMediaRow[]) {
-  const sorted = [...mediaRows].sort(sortMediaRows);
-
-  const coverImage =
-    sorted.find(
-      (m) =>
-        Boolean(m.is_cover) &&
-        normalizeMediaKind(m.kind) === "image" &&
-        typeof m.public_url === "string" &&
-        m.public_url.trim()
-    ) ??
-    sorted.find(
-      (m) =>
-        normalizeMediaKind(m.kind) === "image" &&
-        typeof m.public_url === "string" &&
-        m.public_url.trim()
-    ) ??
-    null;
-
-  if (coverImage?.public_url) return coverImage.public_url;
-
-  return firstImageFromAnyRow(productRow);
 }
 
 function pushRoute(route: Href) {
@@ -988,6 +969,23 @@ function FooterAccordionSection({
   onToggle: () => void;
   children: React.ReactNode;
 }) {
+  // Antes el contenido aparecía/desaparecía de golpe (render condicional sin
+  // animar) y la flecha era un carácter "↑"/"↓" que cambiaba en seco. Ahora
+  // la altura y la opacidad del contenido se animan con Animated (sin
+  // librerías nuevas), y la flecha es un chevron que gira 180° en vez de
+  // cambiar de golpe — se ve mucho más suave y cuidado.
+  const [contentHeight, setContentHeight] = useState(0);
+  const openAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(openAnim, {
+      toValue: open ? 1 : 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false, // animamos "height", que no admite el driver nativo
+    }).start();
+  }, [open, openAnim]);
+
   return (
     <View
       style={{
@@ -1014,13 +1012,34 @@ function FooterAccordionSection({
           {title}
         </Text>
 
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-          {open ? "↑" : "↓"}
-        </Text>
+        <Animated.View
+          style={{
+            transform: [
+              {
+                rotate: openAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ["0deg", "180deg"],
+                }),
+              },
+            ],
+          }}
+        >
+          <Ionicons name="chevron-down" size={17} color={COLORS.text} />
+        </Animated.View>
       </Pressable>
 
-      {open ? (
+      <Animated.View
+        style={{
+          height: openAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, contentHeight],
+          }),
+          opacity: openAnim,
+          overflow: "hidden",
+        }}
+      >
         <View
+          onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
           style={{
             paddingHorizontal: 14,
             paddingBottom: 14,
@@ -1029,6 +1048,203 @@ function FooterAccordionSection({
           }}
         >
           <View style={{ paddingTop: 8, gap: 2 }}>{children}</View>
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
+// Carrusel de fotos de la tarjeta de "Oferta de la semana": permite deslizar
+// (o usar las flechas, en escritorio) entre todas las fotos del producto sin
+// salir de Inicio. Muestra puntos de página y, mientras queden fotos por
+// delante, un indicador "…+N" (N = fotos que faltan por ver desde la que se
+// está viendo) que va bajando a medida que se avanza.
+function FeaturedMediaCarousel({
+  images,
+  mediaHeight,
+  hasVideo,
+}: {
+  images: string[];
+  mediaHeight: number;
+  hasVideo: boolean;
+}) {
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+
+  const goToIndex = useCallback(
+    (index: number) => {
+      const clamped = Math.max(0, Math.min(images.length - 1, index));
+      if (containerWidth > 0) {
+        scrollRef.current?.scrollTo({ x: clamped * containerWidth, animated: true });
+      }
+      setActiveIndex(clamped);
+    },
+    [containerWidth, images.length]
+  );
+
+  const handleMomentumEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!containerWidth) return;
+      const index = Math.round(e.nativeEvent.contentOffset.x / containerWidth);
+      setActiveIndex(Math.max(0, Math.min(images.length - 1, index)));
+    },
+    [containerWidth, images.length]
+  );
+
+  if (images.length === 0) {
+    return (
+      <View
+        style={{
+          height: mediaHeight,
+          backgroundColor: COLORS.tile,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+      >
+        <Ionicons name="game-controller-outline" size={40} color={COLORS.muted} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", marginTop: 10 }}>
+          Producto destacado
+        </Text>
+        <Text style={{ color: COLORS.muted, textAlign: "center", marginTop: 6, lineHeight: 18 }}>
+          Sin imagen disponible.
+        </Text>
+      </View>
+    );
+  }
+
+  const remaining = images.length - 1 - activeIndex;
+  const hasMultiple = images.length > 1;
+
+  return (
+    <View
+      style={{ height: mediaHeight, backgroundColor: COLORS.tile, position: "relative" }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        if (w > 0 && Math.round(w) !== Math.round(containerWidth)) setContainerWidth(w);
+      }}
+    >
+      {containerWidth > 0 ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={handleMomentumEnd}
+          scrollEventThrottle={16}
+        >
+          {images.map((uri, index) => (
+            <Image
+              key={`${uri}-${index}`}
+              source={{ uri }}
+              resizeMode="contain"
+              style={{ width: containerWidth, height: mediaHeight }}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+
+      {hasMultiple && activeIndex > 0 ? (
+        <Pressable
+          onPress={() => goToIndex(activeIndex - 1)}
+          hitSlop={10}
+          style={({ pressed }) => ({
+            position: "absolute",
+            left: 8,
+            top: mediaHeight / 2 - 16,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            backgroundColor: pressed ? "rgba(11,33,56,0.65)" : "rgba(11,33,56,0.45)",
+            alignItems: "center",
+            justifyContent: "center",
+          })}
+        >
+          <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+        </Pressable>
+      ) : null}
+
+      {hasMultiple && activeIndex < images.length - 1 ? (
+        <Pressable
+          onPress={() => goToIndex(activeIndex + 1)}
+          hitSlop={10}
+          style={({ pressed }) => ({
+            position: "absolute",
+            right: 8,
+            top: mediaHeight / 2 - 16,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            backgroundColor: pressed ? "rgba(11,33,56,0.65)" : "rgba(11,33,56,0.45)",
+            alignItems: "center",
+            justifyContent: "center",
+          })}
+        >
+          <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+        </Pressable>
+      ) : null}
+
+      {hasMultiple ? (
+        <View
+          style={{
+            position: "absolute",
+            bottom: 12,
+            left: 0,
+            right: 0,
+            flexDirection: "row",
+            justifyContent: "center",
+            gap: 5,
+          }}
+        >
+          {images.map((_, index) => (
+            <View
+              key={index}
+              style={{
+                width: index === activeIndex ? 16 : 6,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: index === activeIndex ? "#FFFFFF" : "rgba(255,255,255,0.55)",
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {remaining > 0 ? (
+        <View style={{ position: "absolute", right: 12, bottom: hasMultiple ? 26 : 12 }}>
+          <Text
+            style={{
+              color: "#FFFFFF",
+              fontWeight: "900",
+              fontSize: 12,
+              textShadowColor: "rgba(0,0,0,0.55)",
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 4,
+            }}
+          >
+            …+{remaining}
+          </Text>
+        </View>
+      ) : null}
+
+      {hasVideo ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 12,
+            top: 12,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            backgroundColor: "rgba(11,33,56,0.55)",
+            borderRadius: 999,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+          }}
+        >
+          <Ionicons name="videocam" size={12} color="#FFFFFF" />
+          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11 }}>Vídeo</Text>
         </View>
       ) : null}
     </View>
@@ -1125,75 +1341,12 @@ function FeaturedOfferCard({
       }}
     >
       <View style={{ flexDirection: isDesktopish ? "row" : "column" }}>
-        <View
-          style={{
-            flex: isDesktopish ? 1.05 : undefined,
-            height: mediaHeight,
-            backgroundColor: COLORS.tile,
-            position: "relative",
-          }}
-        >
-          {item.imageUrl ? (
-            <Image
-              source={{ uri: item.imageUrl }}
-              resizeMode="contain"
-              style={{
-                width: "100%",
-                height: mediaHeight,
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                height: mediaHeight,
-                backgroundColor: COLORS.tile,
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 20,
-              }}
-            >
-              <Ionicons name="game-controller-outline" size={40} color={COLORS.muted} />
-              <Text style={{ color: COLORS.text, fontWeight: "900", marginTop: 10 }}>
-                Producto destacado
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  textAlign: "center",
-                  marginTop: 6,
-                  lineHeight: 18,
-                }}
-              >
-                Sin imagen disponible.
-              </Text>
-            </View>
-          )}
-
-          {item.mediaCount > 0 ? (
-            <View
-              style={{
-                position: "absolute",
-                right: 12,
-                bottom: 12,
-              }}
-            >
-              {/* Sin burbuja: solo texto blanco con sombra para que se lea
-                  bien encima de cualquier foto, sin parecer un botón. */}
-              <Text
-                style={{
-                  color: "#FFFFFF",
-                  fontWeight: "900",
-                  fontSize: 12,
-                  textShadowColor: "rgba(0,0,0,0.55)",
-                  textShadowOffset: { width: 0, height: 1 },
-                  textShadowRadius: 4,
-                }}
-              >
-                {item.mediaCount} foto{item.mediaCount === 1 ? "" : "s"}
-                {item.hasVideo ? " + vídeo" : ""}
-              </Text>
-            </View>
-          ) : null}
+        <View style={{ flex: isDesktopish ? 1.05 : undefined }}>
+          <FeaturedMediaCarousel
+            images={item.images}
+            mediaHeight={mediaHeight}
+            hasVideo={item.hasVideo}
+          />
         </View>
 
         <View
@@ -1495,19 +1648,33 @@ export default function HomeScreen() {
         const mediaRows = await fetchProductMediaRowsSafe(data.id);
         if (!alive) return;
 
+        // mediaRows ya viene ordenado (portada primero, luego por sort_order)
+        // gracias a fetchProductMediaRowsSafe, así que basta con quedarnos
+        // con las de tipo imagen para tener el orden correcto del carrusel.
+        const imagesFromMedia = mediaRows
+          .filter(
+            (m) =>
+              normalizeMediaKind(m.kind) === "image" &&
+              typeof m.public_url === "string" &&
+              m.public_url.trim()
+          )
+          .map((m) => (m.public_url as string).trim());
+
+        const fallbackSingleImage = firstImageFromAnyRow(data);
+        const images =
+          imagesFromMedia.length > 0
+            ? imagesFromMedia
+            : fallbackSingleImage
+            ? [fallbackSingleImage]
+            : [];
+
         setFeatured({
           id: data.id,
           title: data.title,
           description: data.description ?? null,
           priceEUR: Number(data.price_eur ?? 0),
-          imageUrl: pickHeroImage(data, mediaRows),
+          images,
           categoryName: data.category?.name ?? null,
-          mediaCount: mediaRows.filter(
-            (m) =>
-              normalizeMediaKind(m.kind) === "image" &&
-              typeof m.public_url === "string" &&
-              m.public_url.trim()
-          ).length,
           hasVideo: mediaRows.some((m) => normalizeMediaKind(m.kind) === "video"),
         });
       } catch {
@@ -1806,10 +1973,22 @@ export default function HomeScreen() {
                 open={footerPoliciesOpen}
                 onToggle={() => setFooterPoliciesOpen((value) => !value)}
               >
-                <FooterLink label="Política de envíos" onPress={() => {}} />
-                <FooterLink label="Política de devoluciones" onPress={() => {}} />
-                <FooterLink label="Privacidad" onPress={() => {}} />
-                <FooterLink label="Términos y condiciones" onPress={() => {}} />
+                <FooterLink
+                  label="Política de envíos"
+                  onPress={() => pushRoute("/politicas/envios" as Href)}
+                />
+                <FooterLink
+                  label="Política de devoluciones"
+                  onPress={() => pushRoute("/politicas/devoluciones" as Href)}
+                />
+                <FooterLink
+                  label="Privacidad"
+                  onPress={() => pushRoute("/politicas/privacidad" as Href)}
+                />
+                <FooterLink
+                  label="Términos y condiciones"
+                  onPress={() => pushRoute("/politicas/terminos" as Href)}
+                />
               </FooterAccordionSection>
 
               <FooterAccordionSection
@@ -1817,9 +1996,15 @@ export default function HomeScreen() {
                 open={footerBlogOpen}
                 onToggle={() => setFooterBlogOpen((value) => !value)}
               >
-                <FooterLink label="Últimos artículos" onPress={() => {}} />
-                <FooterLink label="Guías de compra" onPress={() => {}} />
-                <FooterLink label="Consejos y mantenimiento" onPress={() => {}} />
+                <FooterLink label="Últimos artículos" onPress={() => pushRoute("/blog" as Href)} />
+                <FooterLink
+                  label="Guías de compra"
+                  onPress={() => pushRoute("/blog?open=elegir-consola-segunda-mano" as Href)}
+                />
+                <FooterLink
+                  label="Consejos y mantenimiento"
+                  onPress={() => pushRoute("/blog?open=mantenimiento-consola" as Href)}
+                />
               </FooterAccordionSection>
             </View>
 

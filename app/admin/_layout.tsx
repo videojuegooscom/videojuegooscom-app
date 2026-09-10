@@ -20,8 +20,8 @@
  * - lib/supabase.ts → cliente de Supabase para sesión y perfil.
  * - app/admin/login, app/admin/index.tsx, app/admin/products.tsx,
  *   app/admin/services.tsx, app/admin/categories.tsx, app/admin/inventario.tsx,
- *   app/admin/cotizaciones.tsx, app/admin/chats.tsx → las rutas hijas que
- *   este layout protege (Stack.Screen).
+ *   app/admin/cotizaciones.tsx, app/admin/chats.tsx, app/admin/flash-news.tsx
+ *   → las rutas hijas que este layout protege (Stack.Screen).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StatusBar, Text, View } from "react-native";
@@ -243,6 +243,7 @@ export default function AdminLayout() {
       <Stack.Screen name="inventario" />
       <Stack.Screen name="cotizaciones" />
       <Stack.Screen name="chats" />
+      <Stack.Screen name="flash-news" />
     </Stack>
   );
 }
