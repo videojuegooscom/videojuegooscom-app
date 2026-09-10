@@ -123,14 +123,14 @@ export default function Barramagic({
   const pillStyle: ViewStyle = {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: isMobile ? 8 : 12,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.bg,
     minHeight: isMobile ? 58 : 64,
-    paddingLeft: isMobile ? 16 : 18,
-    paddingRight: 8,
+    paddingLeft: isMobile ? 14 : 18,
+    paddingRight: isMobile ? 6 : 8,
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -150,8 +150,8 @@ export default function Barramagic({
       hitSlop={8}
       style={({ pressed }) => ({
         opacity: pressed ? 0.82 : 1,
-        width: isMobile ? 44 : 48,
-        height: isMobile ? 44 : 48,
+        width: isMobile ? 40 : 48,
+        height: isMobile ? 40 : 48,
         borderRadius: 999,
         borderWidth: 1,
         borderColor: COLORS.border,
@@ -169,14 +169,20 @@ export default function Barramagic({
     return (
       <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.96 : 1 })}>
         <View style={pillStyle}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 14, flex: 1, minWidth: 0 }}>
-            <Ionicons name="search-outline" size={isMobile ? 24 : 27} color={COLORS.text} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: isMobile ? 8 : 14, flex: 1, minWidth: 0 }}>
+            <Ionicons name="search-outline" size={isMobile ? 20 : 27} color={COLORS.text} />
             <Text
               numberOfLines={1}
+              // adjustsFontSizeToFit + minimumFontScale: en vez de recortar
+              // con "..." cuando el texto no cabe (pantallas móviles
+              // estrechas), encoge la letra lo justo para que quepa entera
+              // en una sola línea.
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
               style={{
                 color: COLORS.muted,
-                fontSize: isMobile ? 15 : 16,
-                lineHeight: isMobile ? 20 : 22,
+                fontSize: isMobile ? 13.5 : 16,
+                lineHeight: isMobile ? 18 : 22,
                 flex: 1,
               }}
             >

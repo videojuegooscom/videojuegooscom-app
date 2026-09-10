@@ -1258,8 +1258,6 @@ function FeaturedOfferCard({
             <View style={{ flex: 1 }}>
               <PrimaryButton
                 title="Ver producto"
-                subtitle="Abrir ficha completa"
-                rightHint="Ir →"
                 onPress={() => pushRoute(`/producto/${item.id}` as Href)}
                 isMobile={isMobile}
               />
@@ -1268,7 +1266,7 @@ function FeaturedOfferCard({
             <View style={{ flex: 1 }}>
               <SecondaryButton
                 title="Consultar por Chat"
-                subtitle={chatBusy ? "Abriendo…" : "Confirmar disponibilidad"}
+                subtitle={chatBusy ? "Abriendo…" : "¿Cómo podemos ayudar?"}
                 icon="chatbubble-ellipses-outline"
                 onPress={onPressChat}
                 isMobile={isMobile}
@@ -1612,8 +1610,9 @@ export default function HomeScreen() {
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 21 : 22,
-                fontWeight: "900",
-                lineHeight: 28,
+                fontWeight: "700",
+                letterSpacing: 0.2,
+                lineHeight: 30,
                 textAlign: "center",
               }}
             >

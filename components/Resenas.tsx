@@ -266,20 +266,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
         ...softShadow(),
       }}
     >
-      <View style={{ gap: 8 }}>
-        <View
-          style={{
-            alignSelf: "flex-start",
-            paddingVertical: 6,
-            paddingHorizontal: 10,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: COLORS.successBorder,
-            backgroundColor: COLORS.successBg,
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Reseñas</Text>
-        </View>
+      <View style={{ gap: 8, alignItems: isMobile ? "center" : "flex-start" }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Reseñas</Text>
 
         <Text
           style={{
@@ -287,6 +275,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
             fontSize: isMobile ? 20 : 22,
             fontWeight: "900",
             lineHeight: isMobile ? 27 : 29,
+            textAlign: isMobile ? "center" : "left",
           }}
         >
           Lo que importa no es lo que decimos nosotros, sino lo que opina la gente.
@@ -297,6 +286,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
             color: COLORS.muted,
             lineHeight: 20,
             fontSize: isMobile ? 14 : 15,
+            textAlign: isMobile ? "center" : "left",
           }}
         >
           Opiniones reales de clientes que ya han comprado o vendido con nosotros.

@@ -71,7 +71,9 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
-  gold: "#D4AF37",
+  // Antes "#D4AF37" (dorado metálico apagado); ahora un dorado más vivo y
+  // luminoso, a petición de Jefe ("un dorado más bonito y no apagado").
+  gold: "#F0B90B",
   danger: "#DC2626",
 };
 
@@ -83,9 +85,12 @@ const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
 
 const BELL_SIZE = 56;
-const EDGE_INSET = 14;
-const TOP_INSET = 60;
-const BOTTOM_INSET = 92;
+// Insets más pequeños: la campanita se pega más a la esquina de verdad (antes
+// 14/60/92) para que no invada contenido como la barra de búsqueda o el
+// texto de la cabecera.
+const EDGE_INSET = 8;
+const TOP_INSET = 40;
+const BOTTOM_INSET = 80;
 const TAP_THRESHOLD = 6; // px: por debajo de esto, es un toque, no un arrastre
 const POLL_MS = 45000;
 
