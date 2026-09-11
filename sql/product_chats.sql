@@ -26,6 +26,15 @@
 --   actividad reciente sin tener que leer todos los mensajes de cada una.
 -- - Se añaden ambas tablas a la publicación "supabase_realtime" para que los
 --   mensajes nuevos aparezcan al instante, igual que el Chat Global.
+-- - Conversaciones GENERALES (sin producto): product_id admite null desde
+--   septiembre, para el botón "Chatear con nosotros" de app/catalogo.tsx
+--   ("¿No encuentras lo que buscas?") y, en el futuro, cualquier chat de
+--   atención al cliente que no parta de la ficha de un producto concreto.
+--   get_or_create_support_chat() crea o reutiliza la conversación general
+--   del cliente logueado — no se puede usar "on conflict" para esto porque
+--   dos valores NULL nunca cuentan como iguales para la restricción de
+--   unicidad de product_chats, así que comprueba a mano si ya existe una
+--   fila con product_id is null para ese cliente antes de insertar.
 -- - Estado de lectura: product_chats guarda quién escribió el último
 --   mensaje (last_sender_role) y cuándo abrió cada lado la conversación por
 --   última vez (customer_last_read_at / admin_last_read_at).
@@ -60,7 +69,11 @@ create extension if not exists "pgcrypto";
 create table if not exists public.product_chats (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
-  product_id uuid not null references public.products(id) on delete cascade,
+  -- Admite null: conversación GENERAL de soporte, sin producto asociado
+  -- (ver get_or_create_support_chat más abajo). Por si product_chats ya
+  -- existía con product_id "not null" (desplegada antes de este cambio),
+  -- el "alter column ... drop not null" de más abajo lo deja como aquí.
+  product_id uuid references public.products(id) on delete cascade,
   customer_user_id uuid not null references auth.users(id) on delete cascade,
   last_message_at timestamptz not null default now(),
   last_message_preview text not null default '',
@@ -83,6 +96,11 @@ alter table public.product_chats
   add column if not exists customer_last_read_at timestamptz not null default now();
 alter table public.product_chats
   add column if not exists admin_last_read_at timestamptz not null default now();
+
+-- Por si product_chats ya existía con product_id "not null" (desplegada
+-- antes de admitir conversaciones generales sin producto): la deja
+-- nullable. Seguro volver a ejecutarlo si ya lo es.
+alter table public.product_chats alter column product_id drop not null;
 
 alter table public.product_chats drop constraint if exists product_chats_unique_thread;
 alter table public.product_chats add constraint product_chats_unique_thread
@@ -149,6 +167,41 @@ end;
 $$;
 
 grant execute on function public.get_or_create_product_chat(uuid) to authenticated;
+
+-- Crea (o reutiliza) la conversación GENERAL del cliente logueado, sin
+-- producto asociado — botón "Chatear con nosotros" de app/catalogo.tsx. No
+-- se puede reutilizar el patrón "on conflict (product_id, customer_user_id)"
+-- de arriba porque dos filas con product_id = null nunca cuentan como
+-- iguales para esa restricción de unicidad; por eso aquí se busca a mano
+-- antes de insertar.
+create or replace function public.get_or_create_support_chat()
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_chat_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión para escribirnos.';
+  end if;
+
+  select id into v_chat_id
+    from public.product_chats
+    where product_id is null and customer_user_id = auth.uid();
+
+  if v_chat_id is null then
+    insert into public.product_chats (product_id, customer_user_id)
+    values (null, auth.uid())
+    returning id into v_chat_id;
+  end if;
+
+  return v_chat_id;
+end;
+$$;
+
+grant execute on function public.get_or_create_support_chat() to authenticated;
 
 -- --- product_chat_messages -----------------------------------------------
 

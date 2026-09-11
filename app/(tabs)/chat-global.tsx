@@ -2478,7 +2478,10 @@ function InfoPanel({
 
 type PrivateChatRow = {
   id: string;
-  product_id: string;
+  // null = conversación general de soporte, sin producto asociado (botón
+  // "Chatear con nosotros" de app/catalogo.tsx, ver
+  // get_or_create_support_chat en sql/product_chats.sql).
+  product_id: string | null;
   last_message_at: string;
   last_message_preview: string;
   product_title: string;
@@ -2529,12 +2532,16 @@ function PrivateChatsInbox({
 
         const chatRows = (chats ?? []) as {
           id: string;
-          product_id: string;
+          product_id: string | null;
           last_message_at: string;
           last_message_preview: string;
         }[];
 
-        const productIds = Array.from(new Set(chatRows.map((c) => c.product_id)));
+        // product_id puede ser null (conversación general de soporte): se
+        // filtra antes de pedir "products"/"product_media" por id.
+        const productIds = Array.from(
+          new Set(chatRows.map((c) => c.product_id).filter((id): id is string => !!id))
+        );
         let titleById: Record<string, string> = {};
         let imageById: Record<string, string | null> = {};
 
@@ -2566,8 +2573,8 @@ function PrivateChatsInbox({
         setRows(
           chatRows.map((c) => ({
             ...c,
-            product_title: titleById[c.product_id] ?? "Producto",
-            product_image: imageById[c.product_id] ?? null,
+            product_title: c.product_id ? titleById[c.product_id] ?? "Producto" : "Consulta general",
+            product_image: c.product_id ? imageById[c.product_id] ?? null : null,
           }))
         );
       } catch (e) {
@@ -2685,7 +2692,11 @@ function PrivateChatsInbox({
                 justifyContent: "center",
               }}
             >
-              <Ionicons name="cube-outline" size={20} color={COLORS.muted} />
+              <Ionicons
+                name={row.product_id ? "cube-outline" : "chatbubble-ellipses-outline"}
+                size={20}
+                color={COLORS.muted}
+              />
             </View>
           )}
 

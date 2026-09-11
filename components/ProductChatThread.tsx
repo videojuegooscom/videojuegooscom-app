@@ -24,6 +24,12 @@
  *   rellena siempre un trigger en la base de datos a partir de la sesión
  *   real (ver sql/product_chats.sql), igual que en Chat Global y en las
  *   reseñas.
+ * - Conversaciones SIN producto ("Consulta general"): desde que
+ *   product_id puede ser null (botón "Chatear con nosotros" de
+ *   app/catalogo.tsx, vía get_or_create_support_chat), este componente
+ *   simplemente no busca ningún producto cuando chatRow.product_id es
+ *   null, y muestra "Consulta general" + un icono de conversación en vez
+ *   del título/foto del producto.
  *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura/envío de mensajes, tiempo real.
@@ -117,6 +123,9 @@ export default function ProductChatThread({
 }) {
   const [meId, setMeId] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductInfo | null>(null);
+  // null mientras carga; false = conversación general (sin producto, ver
+  // sql/product_chats.sql), true = conversación de un producto concreto.
+  const [hasProduct, setHasProduct] = useState<boolean | null>(null);
   const [customerName, setCustomerName] = useState<string>("Cliente");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +144,8 @@ export default function ProductChatThread({
         .select("id,product_id,customer_user_id")
         .eq("id", chatId)
         .maybeSingle<{ id: string; product_id: string; customer_user_id: string }>();
+
+      setHasProduct(!!chatRow?.product_id);
 
       if (chatRow?.product_id) {
         const { data: productRow } = await supabase
@@ -243,7 +254,13 @@ export default function ProductChatThread({
     }
   }
 
-  const headerTitle = useMemo(() => product?.title ?? "Conversación", [product]);
+  // hasProduct === false → conversación general de soporte, sin producto
+  // asociado (ver sql/product_chats.sql, get_or_create_support_chat).
+  const isSupportChat = hasProduct === false;
+  const headerTitle = useMemo(
+    () => (isSupportChat ? "Consulta general" : product?.title ?? "Conversación"),
+    [isSupportChat, product]
+  );
 
   return (
     <KeyboardAvoidingView
@@ -277,7 +294,11 @@ export default function ProductChatThread({
               justifyContent: "center",
             }}
           >
-            <Ionicons name="cube-outline" size={18} color={COLORS.muted} />
+            <Ionicons
+              name={isSupportChat ? "chatbubble-ellipses-outline" : "cube-outline"}
+              size={18}
+              color={COLORS.muted}
+            />
           </View>
         )}
 

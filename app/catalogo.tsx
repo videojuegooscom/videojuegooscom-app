@@ -35,6 +35,28 @@
  *   "Finalizar compra".
  * - app/(tabs)/index.tsx → los accesos por categoría de la home enlazan aquí
  *   con el parámetro ?cat=.
+ *
+ * Septiembre (legibilidad de las tarjetas y contacto por chat):
+ * - Foto de cada tarjeta: contentFit "cover" (recortaba la imagen para
+ *   rellenar el hueco) → "contain" (se ve la foto entera).
+ * - Se quitaron por completo dos elementos que estorbaban: el nombre de la
+ *   categoría repetido en cada tarjeta (sobra dentro de la propia página de
+ *   esa categoría) y la burbuja oscura de "X fotos + Y vídeos" sobre la
+ *   imagen. El estado ("Disponible"/"Publicada"/etc.) ya no flota sobre la
+ *   foto: ahora vive donde antes iba el nombre de categoría.
+ * - El título ya no se recorta a 2 líneas ("numberOfLines"): se ve
+ *   completo aunque la tarjeta crezca un poco más de alto.
+ * - "Ver producto" → "Ver más".
+ * - Botón de volver: ahora es un icono (Ionicons chevron-back) flotando en
+ *   la esquina superior izquierda, en vez de la píldora de texto
+ *   "← Volver" al final de la página.
+ * - Buscador: en móvil se pasa un placeholder más corto ("Buscar
+ *   productos...") para que no se corte (ver components/Barramagic.tsx).
+ * - El panel "¿No encuentras lo que buscas?" ya no manda a WhatsApp/checkout
+ *   (era un enlace que no coincidía con lo que decía el texto): ahora abre
+ *   una conversación de chat real con la tienda (handleContactPress →
+ *   get_or_create_support_chat, ver sql/product_chats.sql), la misma
+ *   bandeja que ve Jefe en app/admin/chats.tsx.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
@@ -422,6 +444,7 @@ export default function CatalogoScreen() {
   }, [isMobile, items.length, widthSafe]);
 
   const [q, setQ] = useState(queryFromUrl);
+  const [contactBusy, setContactBusy] = useState(false);
 
   const bootedRef = useRef(false);
   const reqSeqRef = useRef(0);
@@ -729,9 +752,65 @@ export default function CatalogoScreen() {
     });
   }, [loading, rawCat, resolvedCategory]);
 
+  // Botón "Chatear con nosotros" del panel "¿No encuentras lo que buscas?":
+  // con sesión abre (o reutiliza) una conversación general de soporte
+  // (get_or_create_support_chat, ver sql/product_chats.sql) y lleva al hilo;
+  // sin sesión, manda primero a iniciar sesión — mismo patrón que
+  // handleChatPress en app/producto/[id].tsx, pero sin producto asociado.
+  async function handleContactPress() {
+    if (contactBusy) return;
+    setContactBusy(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user) {
+        pushRoute("/perfil" as Href);
+        return;
+      }
+
+      const { data: chatId, error } = await supabase.rpc("get_or_create_support_chat");
+      if (error) throw error;
+
+      router.push({ pathname: "/chat/[chatId]", params: { chatId: String(chatId) } } as any);
+    } catch (e) {
+      console.error("Error abriendo el chat de soporte:", e);
+    } finally {
+      setContactBusy(false);
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
+
+      {/* Botón de volver: icono bien integrado en la esquina superior
+          izquierda (antes era una píldora de texto "← Volver" al final de
+          la página). Flota sobre el encabezado, siempre visible. */}
+      <Pressable
+        onPress={smartBack}
+        hitSlop={8}
+        style={({ pressed }) => ({
+          position: "absolute",
+          top: 14,
+          left: 16,
+          zIndex: 10,
+          width: 38,
+          height: 38,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#FFFFFF",
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          opacity: pressed ? 0.85 : 1,
+          shadowColor: "#000",
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 3 },
+          elevation: 3,
+        })}
+      >
+        <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+      </Pressable>
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: 28 }}
@@ -749,7 +828,10 @@ export default function CatalogoScreen() {
             borderBottomWidth: 1,
             borderBottomColor: "#F6FAFD",
             paddingHorizontal: pagePadding,
-            paddingTop: isMobile ? 12 : 14,
+            // +40 de hueco arriba para que el título nunca quede debajo del
+            // botón de volver flotante (top:14, 38px de alto) de la esquina
+            // superior izquierda.
+            paddingTop: (isMobile ? 12 : 14) + 40,
             paddingBottom: isMobile ? 14 : 18,
             alignItems: "center",
           }}
@@ -821,7 +903,7 @@ export default function CatalogoScreen() {
               setQ("");
               refresh({ queryOverride: "" });
             }}
-            placeholder="Buscar consola, videojuego, accesorio..."
+            placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
           />
 
           {isAdmin ? (
@@ -991,15 +1073,20 @@ export default function CatalogoScreen() {
                     textAlign: isMobile ? "center" : "left",
                   }}
                 >
-                  Escríbenos por WhatsApp: te confirmamos al momento si podemos conseguirlo,
+                  Escríbenos por chat: te confirmamos al momento si podemos conseguirlo,
                   reservarlo o proponerte una alternativa.
                 </Text>
 
                 <Pressable
-                  onPress={() => pushRoute("/checkout" as Href)}
+                  onPress={handleContactPress}
+                  disabled={contactBusy}
                   style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
+                    opacity: contactBusy ? 0.6 : pressed ? 0.88 : 1,
                     alignSelf: isMobile ? "stretch" : "flex-start",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
                     borderRadius: 999,
                     paddingVertical: 11,
                     paddingHorizontal: 14,
@@ -1008,29 +1095,18 @@ export default function CatalogoScreen() {
                     backgroundColor: COLORS.accent2,
                   })}
                 >
+                  {contactBusy ? (
+                    <ActivityIndicator size="small" color={COLORS.text} />
+                  ) : (
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                  )}
                   <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                    Seguir con la compra
+                    Chatear con nosotros
                   </Text>
                 </Pressable>
               </View>
             ) : null}
 
-            <View style={{ alignItems: "center", paddingTop: 8 }}>
-              <Pressable
-                onPress={smartBack}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: "#F6FAFD",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-              </Pressable>
-            </View>
           </View>
           </View>
         )}
@@ -1161,7 +1237,7 @@ function ProductCard({
         {p.imageUrl ? (
           <SmartImage
             uri={p.imageUrl}
-            contentFit="cover"
+            contentFit="contain"
             style={{ width: "100%", height: "100%" }}
           />
         ) : (
@@ -1195,72 +1271,37 @@ function ProductCard({
             </Text>
           </View>
         )}
-
-        <View
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 12,
-            paddingVertical: 6,
-            paddingHorizontal: 10,
-            borderRadius: 999,
-            backgroundColor: statusBg(p.status),
-            borderWidth: 1,
-            borderColor: statusBorder(p.status),
-          }}
-        >
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>{badgeLabel}</Text>
-        </View>
-
-        {p.mediaCount > 0 ? (
-          <View
-            style={{
-              position: "absolute",
-              right: 12,
-              bottom: 12,
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              backgroundColor: "rgba(7,30,51,0.86)",
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.16)",
-            }}
-          >
-            {/* Chip oscuro sobre la foto: texto blanco fijo, no sigue el tema claro de la página */}
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
-              {p.imageCount} foto{p.imageCount === 1 ? "" : "s"}
-              {p.hasVideo ? ` + ${p.videoCount} vídeo${p.videoCount === 1 ? "" : "s"}` : ""}
-            </Text>
-          </View>
-        ) : null}
       </View>
 
       <View style={{ padding: compact ? 10 : isMobile ? 12 : 14, gap: compact ? 8 : 10 }}>
         <View style={{ gap: 6 }}>
-          {p.category?.name ? (
-            <Text
-              style={{
-                color: COLORS.accent,
-                fontSize: 12,
-                fontWeight: "800",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}
-              numberOfLines={1}
-            >
-              {p.category.name}
-            </Text>
-          ) : null}
+          {/* Antes aquí iba el nombre de la categoría (p. ej. "NINTENDO
+              SWITCH") repetido en cada tarjeta, dentro de la propia página de
+              esa categoría — sobraba. Ahora este hueco lo ocupa el estado
+              (antes era una burbuja flotando sobre la foto). */}
+          <View
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 5,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: statusBg(p.status),
+              borderWidth: 1,
+              borderColor: statusBorder(p.status),
+            }}
+          >
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>{badgeLabel}</Text>
+          </View>
 
+          {/* Sin numberOfLines/minHeight: el título se ve siempre completo,
+              aunque la tarjeta crezca un poco más de alto. */}
           <Text
             style={{
               color: COLORS.text,
               fontSize: compact ? 14 : isMobile ? 16 : 17,
               lineHeight: compact ? 18 : isMobile ? 21 : 22,
               fontWeight: "900",
-              minHeight: compact ? 36 : isMobile ? 42 : 44,
             }}
-            numberOfLines={2}
           >
             {p.title}
           </Text>
@@ -1330,7 +1371,7 @@ function ProductCard({
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                Ver producto
+                Ver más
               </Text>
             </View>
           </View>

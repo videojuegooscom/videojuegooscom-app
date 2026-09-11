@@ -17,6 +17,13 @@
  *   conversación, su hilo completo (components/ProductChatThread.tsx) a la
  *   derecha, con el botón "Marcar como vendido a este cliente" añadido por
  *   fuera del componente compartido (headerRight).
+ * - Consultas generales (sin producto): desde que product_id puede ser
+ *   null (botón "Chatear con nosotros" de app/catalogo.tsx, vía
+ *   get_or_create_support_chat en sql/product_chats.sql), estas
+ *   conversaciones se agrupan aparte, en un bloque fijo "Consultas
+ *   generales" al principio de la lista, en vez de intentar meterlas dentro
+ *   de un grupo por producto (no tienen). No llevan botón "Marcar como
+ *   vendido" al abrirlas, porque no hay producto que marcar.
  * - "Marcar como vendido" hace un INSERT directo en product_sales con
  *   buyer_user_id = el cliente de esa conversación; el trigger de esa tabla
  *   ya sabe que un admin puede elegir libremente a quién marca (a
@@ -80,7 +87,7 @@ const columnStyle = { width: "100%", maxWidth: 1160, alignSelf: "center" } as co
 
 type ChatRow = {
   id: string;
-  product_id: string;
+  product_id: string | null;
   customer_user_id: string;
   last_message_at: string;
   last_message_preview: string;
@@ -108,6 +115,9 @@ export default function AdminChats() {
 
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<ProductGroup[]>([]);
+  // Conversaciones sin producto (botón "Chatear con nosotros" de
+  // app/catalogo.tsx) — aparte de los grupos por producto, no encajan ahí.
+  const [supportChats, setSupportChats] = useState<ChatRow[]>([]);
   const [soldKeys, setSoldKeys] = useState<Set<string>>(new Set());
   const [selectedChat, setSelectedChat] = useState<ChatRow | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ProductGroup | null>(null);
@@ -126,11 +136,17 @@ export default function AdminChats() {
       const chatRows = (chats ?? []) as Omit<ChatRow, "customer_name">[];
       if (chatRows.length === 0) {
         setGroups([]);
+        setSupportChats([]);
         return;
       }
 
       const chatIds = chatRows.map((c) => c.id);
-      const productIds = Array.from(new Set(chatRows.map((c) => c.product_id)));
+      // product_id puede ser null (conversación general, sin producto): se
+      // filtra antes de pedir "products"/"product_media" por id, que no
+      // admiten null en el .in(...).
+      const productIds = Array.from(
+        new Set(chatRows.map((c) => c.product_id).filter((id): id is string => !!id))
+      );
       const customerIds = Array.from(new Set(chatRows.map((c) => c.customer_user_id)));
 
       const [{ data: products }, { data: media }, { data: firstMsgs }, { data: sales }, { data: realUsers }] =
@@ -192,7 +208,16 @@ export default function AdminChats() {
       setSoldKeys(sold);
 
       const byProduct: Record<string, ProductGroup> = {};
+      const support: ChatRow[] = [];
       for (const c of chatRows) {
+        const customerName = nameByCustomer[c.customer_user_id] || nameByChat[c.id] || "Cliente";
+        const chatWithName: ChatRow = { ...c, customer_name: customerName };
+
+        if (!c.product_id) {
+          support.push(chatWithName);
+          continue;
+        }
+
         const group =
           byProduct[c.product_id] ??
           (byProduct[c.product_id] = {
@@ -201,8 +226,7 @@ export default function AdminChats() {
             product_image: imageById[c.product_id] ?? null,
             chats: [],
           });
-        const customerName = nameByCustomer[c.customer_user_id] || nameByChat[c.id] || "Cliente";
-        group.chats.push({ ...c, customer_name: customerName });
+        group.chats.push(chatWithName);
       }
 
       const groupList = Object.values(byProduct).sort((a, b) => {
@@ -211,10 +235,14 @@ export default function AdminChats() {
         return aLatest < bLatest ? 1 : -1;
       });
 
+      support.sort((a, b) => (a.last_message_at < b.last_message_at ? 1 : -1));
+
       setGroups(groupList);
+      setSupportChats(support);
     } catch (e) {
       console.error("Error cargando las conversaciones:", e);
       setGroups([]);
+      setSupportChats([]);
     } finally {
       setLoading(false);
     }
@@ -224,10 +252,13 @@ export default function AdminChats() {
     load();
   }, [load]);
 
-  const totalChats = useMemo(() => groups.reduce((sum, g) => sum + g.chats.length, 0), [groups]);
+  const totalChats = useMemo(
+    () => groups.reduce((sum, g) => sum + g.chats.length, 0) + supportChats.length,
+    [groups, supportChats]
+  );
 
   async function markSold() {
-    if (!selectedChat || !selectedProduct || markingSold) return;
+    if (!selectedChat || !selectedChat.product_id || !selectedProduct || markingSold) return;
 
     setMarkingSold(true);
     try {
@@ -254,7 +285,7 @@ export default function AdminChats() {
         <View style={{ alignItems: "center", paddingVertical: 30 }}>
           <ActivityIndicator color={COLORS.accent} />
         </View>
-      ) : groups.length === 0 ? (
+      ) : groups.length === 0 && supportChats.length === 0 ? (
         <View
           style={{
             borderRadius: 18,
@@ -267,11 +298,79 @@ export default function AdminChats() {
           <Ionicons name="chatbubble-ellipses-outline" size={24} color={COLORS.muted} />
           <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin conversaciones todavía</Text>
           <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-            Aquí aparecerán los clientes que escriban por "Chat" en la ficha de un producto.
+            Aquí aparecerán los clientes que escriban por "Chat" en la ficha de un producto, o por
+            "Chatear con nosotros" en el catálogo.
           </Text>
         </View>
       ) : (
-        groups.map((group) => (
+        <>
+          {supportChats.length > 0 ? (
+            <View
+              style={{
+                borderRadius: 18,
+                backgroundColor: COLORS.card,
+                padding: 12,
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    backgroundColor: COLORS.cardSoft,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.muted} />
+                </View>
+                <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+                  Consultas generales
+                </Text>
+                <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                  {supportChats.length} {supportChats.length === 1 ? "persona" : "personas"}
+                </Text>
+              </View>
+
+              <View style={{ gap: 6 }}>
+                {supportChats.map((chat) => {
+                  const active = selectedChat?.id === chat.id;
+                  return (
+                    <Pressable
+                      key={chat.id}
+                      onPress={() => {
+                        setSelectedChat(chat);
+                        setSelectedProduct(null);
+                      }}
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.9 : 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        borderRadius: 12,
+                        backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
+                        padding: 10,
+                      })}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                          {chat.customer_name}
+                        </Text>
+                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                          {chat.last_message_preview || "Sin mensajes"}
+                        </Text>
+                      </View>
+                      <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
+          {groups.map((group) => (
           <View
             key={group.product_id}
             style={{
@@ -349,7 +448,8 @@ export default function AdminChats() {
               })}
             </View>
           </View>
-        ))
+          ))}
+        </>
       )}
     </ScrollView>
   );
@@ -359,7 +459,9 @@ export default function AdminChats() {
       <ProductChatThread
         chatId={selectedChat.id}
         headerRight={
-          alreadySold ? (
+          // Consulta general (sin producto): no hay nada que "marcar como
+          // vendido" aquí, así que no se muestra ningún botón.
+          !selectedChat.product_id ? undefined : alreadySold ? (
             <View
               style={{
                 flexDirection: "row",

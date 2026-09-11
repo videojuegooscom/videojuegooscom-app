@@ -39,6 +39,14 @@
  * - app/(tabs)/index.tsx → usa FloatingBarramagic sobre la pantalla de
  *   inicio.
  * - app/catalogo.tsx → usa Barramagic (modo "input") dentro del scroll.
+ *
+ * Septiembre (legibilidad en móvil): en pantallas estrechas, el icono de
+ * lupa + los espacios fijos dejaban muy poco ancho real al campo de texto,
+ * y el placeholder largo de app/catalogo.tsx se cortaba en silencio (un
+ * <input> web no pone "..." si no cabe, simplemente recorta). Se redujeron
+ * el icono y los huecos en móvil para dar más aire al campo, y
+ * app/catalogo.tsx pasa ahora un placeholder más corto en móvil — entre los
+ * dos cambios, el texto se lee siempre entero.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
@@ -197,8 +205,15 @@ export default function Barramagic({
 
   return (
     <View style={pillStyle}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 14, flex: 1, minWidth: 0 }}>
-        <Ionicons name="search-outline" size={isMobile ? 24 : 27} color={COLORS.text} />
+      {/* gap más ajustado en móvil (antes 14 fijo): en pantallas estrechas
+          dejaba muy poco ancho real al campo de texto y el placeholder
+          largo ("Buscar consola, videojuego, accesorio...") se cortaba sin
+          avisar (un <input> web recorta en silencio si no cabe, no pone
+          "..."). Con más ancho disponible para el campo, más el placeholder
+          más corto en móvil que se pasa desde cada pantalla, ya se lee
+          entero. */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: isMobile ? 10 : 14, flex: 1, minWidth: 0 }}>
+        <Ionicons name="search-outline" size={isMobile ? 21 : 27} color={COLORS.text} />
 
         <TextInput
           value={value}

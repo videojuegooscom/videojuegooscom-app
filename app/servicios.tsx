@@ -158,7 +158,9 @@ function ServiceCard({ s, onPress, compact }: { s: Service; onPress: () => void;
       </View>
 
       <View style={{ padding: 14, gap: 6 }}>
-        <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 20 }}>
+        {/* Sin numberOfLines: el título se ve siempre completo, igual que en
+            app/catalogo.tsx (antes se recortaba a 2 líneas con "..."). */}
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 20 }}>
           {s.title}
         </Text>
         {!!s.description && (
