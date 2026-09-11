@@ -101,8 +101,20 @@ import {
   smartBackAdminHome,
   softShadow,
   statusVisual,
-  toIntSafe,
+  toPriceSafe,
 } from "./products/products.utils";
+
+// Texto de partida del campo "Descripción" al crear un producto nuevo — la
+// mayoría de artículos llevan siempre este mismo bloque, así que en vez de
+// escribirlo a mano cada vez, aparece ya puesto y Daniel solo lo ajusta si
+// hace falta. Al editar un producto ya existente esto NO se usa: se carga
+// la descripción real guardada, aunque esté vacía.
+const DEFAULT_DESCRIPTION =
+  "Estado Funcional : 10 / 10\n\n" +
+  "1 Año de GARANTÍA.\n\n" +
+  "¡Probado y testeado antes de entregarlo o enviarlo!\n\n" +
+  "Limpieza realizada para un estado impecable.\n\n" +
+  "Envíos y Entregas Rápidas.";
 
 function revokeLocalMedia(items: LocalPickedMedia[]) {
   items.forEach((m) => {
@@ -977,7 +989,7 @@ export default function AdminProducts() {
   const resetForm = useCallback(() => {
     setEditing(null);
     setTitle("");
-    setDesc("");
+    setDesc(DEFAULT_DESCRIPTION);
     setPrice("");
     setStatus("DRAFT");
     setCondition("GOOD");
@@ -1285,7 +1297,10 @@ export default function AdminProducts() {
 
     const cleanTitle = title.trim();
     const cleanDesc = desc.trim();
-    const priceEur = toIntSafe(price, 0);
+    // toPriceSafe (no toIntSafe): conserva los céntimos ("17,97" → 17.97) en
+    // vez de redondear siempre a euro entero — products.price_eur ya admite
+    // decimales en la base de datos.
+    const priceEur = toPriceSafe(price, 0);
 
     if (!cleanTitle) {
       setModalErr("Introduce un título.");
@@ -1649,7 +1664,11 @@ export default function AdminProducts() {
                 paddingVertical: 12,
                 color: COLORS.text,
                 backgroundColor: "#F8FBFE",
-                fontSize: isMobile ? 14 : 15,
+                // 16px, no 14/15: por debajo de 16px, Safari en iPhone hace
+                // zoom automático de toda la pantalla al enfocar el campo —
+                // el "zoom insoportable" que reportó Daniel al escribir en
+                // el panel de administración.
+                fontSize: 16,
               }}
             />
 
@@ -1807,7 +1826,7 @@ export default function AdminProducts() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                 }}
               />
 
@@ -1866,7 +1885,7 @@ export default function AdminProducts() {
                       minHeight: (isMobile ? 88 : 96) * 3,
                       textAlignVertical: "top",
                       backgroundColor: "#F8FBFE",
-                      fontSize: 14,
+                      fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                     }}
                   />
                 )}
@@ -1878,9 +1897,12 @@ export default function AdminProducts() {
                   setPrice(v);
                   setModalErr(null);
                 }}
-                placeholder="Precio en euros"
+                placeholder="Precio en euros (admite decimales: 17,97)"
                 placeholderTextColor="rgba(11,33,56,0.40)"
-                keyboardType="numeric"
+                // decimal-pad, no numeric: numeric a veces no ofrece tecla de
+                // coma/punto en el teclado del móvil, y el precio necesita
+                // poder llevar céntimos (17,97€).
+                keyboardType="decimal-pad"
                 style={{
                   borderWidth: 1,
                   borderColor: COLORS.border,
@@ -1889,7 +1911,7 @@ export default function AdminProducts() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                 }}
               />
 
@@ -1911,7 +1933,7 @@ export default function AdminProducts() {
                     paddingVertical: 12,
                     color: COLORS.text,
                     backgroundColor: "#F8FBFE",
-                    fontSize: 14,
+                    fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                   }}
                 />
               ) : (
@@ -2088,6 +2110,13 @@ export default function AdminProducts() {
                 ) : null}
               </View>
 
+              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 16 }}>
+                "Estado" es la fase del producto en el catálogo (borrador, por
+                revisar o publicado). "Producto activo" es otra cosa: decide
+                si, aun estando publicado, se ve o no en la tienda — apagarlo
+                lo oculta sin borrar la ficha ni perder su historial.
+              </Text>
+
               {!!modalErr && (
                 <View
                   style={{
@@ -2104,35 +2133,16 @@ export default function AdminProducts() {
                 </View>
               )}
 
+              {/* Antes había un botón "Cancelar" aquí al lado de "Guardar".
+                  Se quitó a petición de Daniel: la "X" de arriba del modal ya
+                  cierra sin guardar, así que era un botón redundante. */}
               <View
                 style={{
-                  flexDirection: isMobile ? "column" : "row",
-                  gap: 10,
+                  flexDirection: "row",
                   justifyContent: "flex-end",
                   marginTop: 4,
                 }}
               >
-                <Pressable
-                  onPress={() => {
-                    setOpen(false);
-                    resetForm();
-                  }}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                    width: isMobile ? "100%" : undefined,
-                  })}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                    Cancelar
-                  </Text>
-                </Pressable>
-
                 <Pressable
                   onPress={save}
                   disabled={saving}

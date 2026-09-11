@@ -43,7 +43,14 @@ export function softShadow() {
 
 export function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
-  return `${Math.round(safe)}€`;
+  // Antes se redondeaba siempre a euros enteros (Math.round), así que un
+  // precio con céntimos (17,97€) se veía como "18€" — los decimales se
+  // perdían en la propia pantalla, no solo al guardarlos. Ahora se muestran
+  // decimales solo cuando el precio los tiene de verdad, así que un precio
+  // redondo (25€) se sigue viendo exactamente igual que siempre.
+  const rounded = Math.round(safe * 100) / 100;
+  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
+  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
 }
 
 export function clampText(s: string, max = 180) {
@@ -81,6 +88,41 @@ export function toIntSafe(v: string, fallback = 0) {
   const n = Number(normalized);
   if (!Number.isFinite(n)) return fallback;
   return Math.trunc(n);
+}
+
+// Igual que toIntSafe (mismo parseo de "17,97", "17.97" o "1.234,56"), pero
+// sin el Math.trunc final: conserva hasta 2 decimales en vez de tirarlos.
+// Se usa solo para el precio de producto — products.price_eur ya admite
+// decimales en la base de datos (columna numeric(10,2)), a diferencia de
+// services.price_eur, que sigue en euros enteros y sigue usando toIntSafe.
+export function toPriceSafe(v: string, fallback = 0) {
+  const s = String(v ?? "").trim();
+  if (!s) return fallback;
+
+  const cleaned = s.replace(/[^\d.,-]/g, "");
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+
+  let normalized = cleaned;
+  if (hasComma && hasDot) {
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    const dec = lastComma > lastDot ? "," : ".";
+    const thou = dec === "," ? "." : ",";
+    normalized = cleaned.split(thou).join("").replace(dec, ".");
+  } else if (hasComma && !hasDot) {
+    const parts = cleaned.split(",");
+    if (parts.length === 2 && parts[1].length <= 2) normalized = parts[0] + "." + parts[1];
+    else normalized = cleaned.split(",").join("");
+  } else if (hasDot && !hasComma) {
+    const parts = cleaned.split(".");
+    if (parts.length === 2 && parts[1].length <= 2) normalized = parts[0] + "." + parts[1];
+    else normalized = cleaned.split(".").join("");
+  }
+
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.round(n * 100) / 100;
 }
 
 export function labelStatus(s: ProductStatus) {

@@ -69,7 +69,12 @@ type Service = {
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
-  return `${Math.round(safe)}€`;
+  // Antes se redondeaba siempre a euros enteros (Math.round); se deja igual
+  // de preparado para decimales que el resto de la app, aunque el precio de
+  // los servicios sigue guardándose en euros enteros por ahora.
+  const rounded = Math.round(safe * 100) / 100;
+  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
+  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
 }
 
 function clampText(s: string, max = 110) {

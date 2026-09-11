@@ -243,7 +243,12 @@ function replaceRoute(route: Href) {
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
-  return `${Math.round(safe)}€`;
+  // Antes se redondeaba siempre a euros enteros (Math.round) y se perdían
+  // los céntimos (17,97€ se veía como "18€"); ahora se muestran decimales
+  // solo cuando el precio los tiene de verdad.
+  const rounded = Math.round(safe * 100) / 100;
+  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
+  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
 }
 
 function safeInt(n: unknown, fallback = 1) {
