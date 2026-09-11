@@ -71,9 +71,9 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
-  // Antes "#D4AF37" (dorado metálico apagado); ahora un dorado más vivo y
-  // luminoso, a petición de Jefe ("un dorado más bonito y no apagado").
-  gold: "#F0B90B",
+  // Antes "#D4AF37" (dorado metálico apagado), luego "#F0B90B" (dorado más
+  // vivo). Ahora un amarillo más claro, a petición de Jefe.
+  gold: "#FFD54F",
   danger: "#DC2626",
 };
 

@@ -230,14 +230,9 @@ export default function CategoryProductsShelf() {
 
   return (
     <View style={{ gap: 10 }}>
-      <View>
-        <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900" }}>
-          También te puede interesar
-        </Text>
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19 }}>
-          Novedades en PlayStation 5 y Xbox.
-        </Text>
-      </View>
+      <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
+        También te puede interesar
+      </Text>
 
       <ScrollView
         horizontal
@@ -249,17 +244,22 @@ export default function CategoryProductsShelf() {
             key={p.id}
             onPress={() => router.push(`/producto/${p.id}` as Href)}
             style={({ pressed }) => ({
-              width: 140,
+              width: 156,
               borderRadius: 16,
               backgroundColor: COLORS.tile,
               padding: 10,
+              alignItems: "center",
               opacity: pressed ? 0.9 : 1,
             })}
           >
+            {/* contentFit="contain" (no "cover") a propósito: aquí interesa
+                ver la foto entera del producto, sin recortarla para rellenar
+                el hueco — aunque eso deje una pequeña banda blanca a los
+                lados si la foto no es cuadrada. */}
             <View
               style={{
                 width: "100%",
-                height: 100,
+                height: 108,
                 borderRadius: 12,
                 overflow: "hidden",
                 backgroundColor: "#FFFFFF",
@@ -268,20 +268,36 @@ export default function CategoryProductsShelf() {
               }}
             >
               {p.image ? (
-                <SmartImage uri={p.image} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                <SmartImage uri={p.image} contentFit="contain" style={{ width: "100%", height: "100%" }} />
               ) : (
                 <Ionicons name="game-controller-outline" size={28} color={COLORS.muted} />
               )}
             </View>
 
+            {/* Sin numberOfLines a propósito: el título se ve completo,
+                aunque ocupe dos o tres líneas, en vez de cortarse con "...". */}
             <Text
-              numberOfLines={2}
-              style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, marginTop: 8, lineHeight: 16 }}
+              style={{
+                color: COLORS.text,
+                fontWeight: "800",
+                fontSize: 12.5,
+                marginTop: 8,
+                lineHeight: 16,
+                textAlign: "center",
+              }}
             >
               {p.title}
             </Text>
 
-            <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14, marginTop: 4 }}>
+            <Text
+              style={{
+                color: COLORS.accent,
+                fontWeight: "900",
+                fontSize: 14,
+                marginTop: 4,
+                textAlign: "center",
+              }}
+            >
               {fmtEUR(p.priceEUR)}
             </Text>
           </Pressable>

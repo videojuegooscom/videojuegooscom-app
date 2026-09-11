@@ -30,9 +30,12 @@
  *   librerías nuevas) — con su propio estado, independiente en cada
  *   pantalla que monte este componente.
  * - El difuminado de arriba es un LinearGradient (expo-linear-gradient, ya
- *   era dependencia del proyecto) de una altura fija, de "transparente" al
- *   mismo azul oscuro de la franja — así el tamaño del difuminado no cambia
- *   aunque el contenido de debajo (acordeones abiertos, etc.) sí lo haga.
+ *   era dependencia del proyecto) de una altura fija — así no cambia aunque
+ *   el contenido de debajo (acordeones abiertos, etc.) sí lo haga. Pasa por
+ *   los azules claros de la propia marca (ver FADE_COLORS) antes de llegar
+ *   al azul marino del pie, en vez de simplemente diluir ese azul marino
+ *   con transparencia — eso último da gris, no azul claro (ver el
+ *   comentario junto a FADE_COLORS).
  *
  * Conectado con:
  * - components/SocialLinks.tsx → fila de iconos de redes sociales.
@@ -60,20 +63,24 @@ const BRAND_NAME = "Videojuegoszaragoza.com";
 // de una web con más cuidado en el detalle.
 const FADE_HEIGHT = 120;
 
-// Paradas de color del difuminado: en vez de un simple "transparente →
-// color sólido" (que se ve plano y, con un difuminado corto, como una
-// mancha), se reparten varias paradas intermedias para que el azul entre
-// poco a poco al principio y se cierre del todo solo al final — una curva,
-// no una rampa recta.
+// Paradas de color del difuminado. La primera versión iba de "azul marino
+// transparente" a "azul marino sólido": mezclar un color muy oscuro con muy
+// poca opacidad sobre un fondo blanco no da un azul claro, da un GRIS (la
+// mezcla "diluye" el azul junto con el oscuro, así que a poca opacidad se
+// ve neutra, sin color) — de ahí la pinta de mancha borrosa. Ahora se pasa
+// por los azules claros de verdad que ya usa el resto de la tienda (el
+// celeste muy claro de las insignias, el borde celeste de los inputs, el
+// azul de acento) antes de llegar al azul marino del pie — así se ve un
+// degradado de azul a azul, no de gris a azul.
 const FADE_COLORS = [
-  "rgba(11,33,56,0)",
-  "rgba(11,33,56,0.05)",
-  "rgba(11,33,56,0.22)",
-  "rgba(11,33,56,0.55)",
-  "rgba(11,33,56,0.86)",
-  BAND_BG,
+  "#FFFFFF", // blanco, igual que el fondo de la pantalla
+  "#EAF6FD", // celeste muy claro (mismo tono que las insignias de la app)
+  "#BEE6FA", // celeste (mismo tono que los bordes de acento de la app)
+  "#1EA7E8", // azul de acento de la marca
+  "#123A5C", // azul intermedio, ya cerca del tono del pie
+  BAND_BG, // azul marino del pie de página
 ] as const;
-const FADE_LOCATIONS = [0, 0.22, 0.45, 0.68, 0.87, 1] as const;
+const FADE_LOCATIONS = [0, 0.2, 0.4, 0.58, 0.78, 1] as const;
 
 function pushRoute(route: Href) {
   router.push(route);

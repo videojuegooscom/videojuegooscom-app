@@ -48,9 +48,14 @@ import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  cardSoft: "#F8FBFE",
+  // bg2/card/cardSoft eran tonos grisáceos muy sutiles (#F4F9FD/#F6FAFD/
+  // #F8FBFE) para distinguir tarjetas del fondo. A petición de Daniel, ahora
+  // valen igual que "bg" (blanco puro): toda la pantalla queda de un blanco
+  // limpio y uniforme, sin ese "fondo blanco grisáceo" — los bloques se
+  // siguen distinguiendo por el espaciado, no por un tono de fondo distinto.
+  bg2: "#FFFFFF",
+  card: "#FFFFFF",
+  cardSoft: "#FFFFFF",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",

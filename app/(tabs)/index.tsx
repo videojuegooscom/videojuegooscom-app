@@ -1646,7 +1646,7 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <SafeAreaView style={{ backgroundColor: COLORS.bg2 }}>
+      <SafeAreaView style={{ backgroundColor: COLORS.bg }}>
         <Animated.View
           style={{
             height: bannerHeight
@@ -1658,13 +1658,6 @@ export default function HomeScreen() {
         >
           <View onLayout={(e) => setBannerHeight(e.nativeEvent.layout.height)}>
             <PromoBanner onPressVender={() => setSellModalOpen(true)} />
-
-            <View
-              style={{
-                backgroundColor: COLORS.bg2,
-                height: 10,
-              }}
-            />
           </View>
         </Animated.View>
       </SafeAreaView>
