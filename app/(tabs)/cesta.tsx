@@ -39,7 +39,9 @@ import {
   Text,
   View,
 } from "react-native";
+import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import PromoBanner from "../../components/PromoBanner";
+import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
@@ -934,7 +936,11 @@ export default function CestaScreen() {
           >
             <SocialLinks />
           </View>
+
+          <CategoryProductsShelf />
           </View>
+
+          <SiteFooter sidePadding={16} />
         </ScrollView>
       )}
     </SafeAreaView>

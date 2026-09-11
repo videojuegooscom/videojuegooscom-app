@@ -83,7 +83,9 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import PromoBanner from "../../components/PromoBanner";
+import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
@@ -1305,7 +1307,11 @@ export default function PerfilScreen() {
               <SectionCard padding={cardPadding}>
                 <SocialLinks />
               </SectionCard>
+
+              <CategoryProductsShelf />
             </View>
+
+            <SiteFooter sidePadding={pagePadding} />
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

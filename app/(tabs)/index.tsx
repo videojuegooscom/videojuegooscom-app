@@ -2,8 +2,8 @@
  * Qué hace: pantalla de inicio (pestaña "Inicio"). Es el escaparate
  * principal: cabecera con marca, barra de búsqueda flotante, accesos
  * rápidos a categorías, productos destacados desde Supabase, bloque de
- * reseñas y footer con enlaces, redes sociales (components/SocialLinks.tsx)
- * y contacto por WhatsApp.
+ * reseñas y pie de página (components/SiteFooter.tsx, que a su vez incluye
+ * components/SocialLinks.tsx) y contacto por WhatsApp.
  *
  * Cómo funciona:
  * - Carga productos destacados desde la tabla "products" de Supabase
@@ -53,6 +53,9 @@
  * - components/PromoBanner.tsx → franja rotatoria "Noticias Flash".
  * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
  *   (sustituye el envío por email; guarda en la tabla "sell_requests").
+ * - components/SiteFooter.tsx → pie de página completo (navegación,
+ *   políticas, blog, redes sociales, copyright), reutilizado también en
+ *   app/(tabs)/perfil.tsx y app/(tabs)/cesta.tsx.
  * - app/catalogo.tsx, app/producto/[id].tsx, app/(tabs)/blue-ia.tsx →
  *   pantallas a las que enlazan los accesos rápidos y las tarjetas de
  *   producto destacado.
@@ -86,8 +89,8 @@ import {
 import { FloatingBarramagic } from "../../components/Barramagic";
 import PromoBanner from "../../components/PromoBanner";
 import Resenas from "../../components/Resenas";
+import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
-import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
@@ -951,130 +954,6 @@ function CategoryCard({
   );
 }
 
-function FooterLink({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.85 : 1,
-        paddingVertical: 6,
-      })}
-    >
-      <Text
-        style={{
-          color: "rgba(11,33,56,0.72)",
-          fontWeight: "700",
-          lineHeight: 20,
-        }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function FooterAccordionSection({
-  title,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  // Antes el contenido aparecía/desaparecía de golpe (render condicional sin
-  // animar) y la flecha era un carácter "↑"/"↓" que cambiaba en seco. Ahora
-  // la altura y la opacidad del contenido se animan con Animated (sin
-  // librerías nuevas), y la flecha es un chevron que gira 180° en vez de
-  // cambiar de golpe — se ve mucho más suave y cuidado.
-  const [contentHeight, setContentHeight] = useState(0);
-  const openAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(openAnim, {
-      toValue: open ? 1 : 0,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false, // animamos "height", que no admite el driver nativo
-    }).start();
-  }, [open, openAnim]);
-
-  return (
-    <View
-      style={{
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
-        overflow: "hidden",
-      }}
-    >
-      <Pressable
-        onPress={onToggle}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.9 : 1,
-          paddingVertical: 14,
-          paddingHorizontal: 14,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
-        })}
-      >
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
-          {title}
-        </Text>
-
-        <Animated.View
-          style={{
-            transform: [
-              {
-                rotate: openAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ["0deg", "180deg"],
-                }),
-              },
-            ],
-          }}
-        >
-          <Ionicons name="chevron-down" size={17} color={COLORS.text} />
-        </Animated.View>
-      </Pressable>
-
-      <Animated.View
-        style={{
-          height: openAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, contentHeight],
-          }),
-          opacity: openAnim,
-          overflow: "hidden",
-        }}
-      >
-        <View
-          onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
-          style={{
-            paddingHorizontal: 14,
-            paddingBottom: 14,
-            borderTopWidth: 1,
-            borderTopColor: "rgba(11,33,56,0.08)",
-          }}
-        >
-          <View style={{ paddingTop: 8, gap: 2 }}>{children}</View>
-        </View>
-      </Animated.View>
-    </View>
-  );
-}
-
 // Carrusel de fotos de la tarjeta de "Oferta de la semana": permite deslizar
 // (o usar las flechas, en escritorio) entre todas las fotos del producto sin
 // salir de Inicio. Muestra puntos de página y, mientras queden fotos por
@@ -1299,8 +1178,6 @@ function FeaturedOfferCard({
       <View
         style={{
           borderRadius: 22,
-          borderWidth: 1,
-          borderColor: COLORS.border,
           backgroundColor: COLORS.card,
           padding: isMobile ? 14 : 16,
           gap: 12,
@@ -1354,11 +1231,8 @@ function FeaturedOfferCard({
     <View
       style={{
         borderRadius: 22,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.card,
         overflow: "hidden",
-        ...softShadow(),
       }}
     >
       <View style={{ flexDirection: isDesktopish ? "row" : "column" }}>
@@ -1458,9 +1332,6 @@ export default function HomeScreen() {
   const [featuredLoading, setFeaturedLoading] = useState(true);
   const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
 
-  const [footerNavOpen, setFooterNavOpen] = useState(false);
-  const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
-  const [footerBlogOpen, setFooterBlogOpen] = useState(false);
   const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
   const [sellModalOpen, setSellModalOpen] = useState(false);
   const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
@@ -1791,8 +1662,6 @@ export default function HomeScreen() {
             <View
               style={{
                 backgroundColor: COLORS.bg2,
-                borderBottomWidth: 1,
-                borderBottomColor: "rgba(11,33,56,0.06)",
                 height: 10,
               }}
             />
@@ -1833,12 +1702,9 @@ export default function HomeScreen() {
           <View
             style={{
               borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: isMobile ? 14 : 16,
               gap: 12,
-              ...softShadow(),
             }}
           >
             <Text
@@ -1882,8 +1748,6 @@ export default function HomeScreen() {
             <View
               style={{
                 borderRadius: 22,
-                borderWidth: 1,
-                borderColor: COLORS.border,
                 backgroundColor: COLORS.card,
                 padding: isMobile ? 14 : 16,
                 gap: 10,
@@ -1911,8 +1775,6 @@ export default function HomeScreen() {
             onLayout={handleCategoriesLayout}
             style={{
               borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: isMobile ? 14 : 16,
               gap: 10,
@@ -1963,8 +1825,6 @@ export default function HomeScreen() {
           <View
             style={{
               borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
               backgroundColor: COLORS.card,
               padding: isMobile ? 14 : 16,
               gap: 12,
@@ -1996,104 +1856,11 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Pie de página en banda completa (color oscuro de la paleta, de
-            lado a lado) en vez de ir metido dentro de la columna centrada
-            como el resto de secciones — así se lee de verdad como el pie de
-            una web, no como una tarjeta más. */}
-        <View
-          style={{
-            marginTop: 8,
-            marginHorizontal: -sidePadding,
-            paddingHorizontal: sidePadding,
-            paddingTop: 28,
-            paddingBottom: 34,
-            backgroundColor: COLORS.text,
-          }}
-        >
-          <View style={{ ...containerStyle, gap: 12 }}>
-            <Text
-              style={{
-                color: "#FFFFFF",
-                fontWeight: "900",
-                fontSize: 16,
-                textAlign: "center",
-              }}
-            >
-              Videojuegoszaragoza.com
-            </Text>
-
-            <View style={{ gap: 12 }}>
-              <FooterAccordionSection
-                title="Navegación"
-                open={footerNavOpen}
-                onToggle={() => setFooterNavOpen((value) => !value)}
-              >
-                <FooterLink label="Inicio" onPress={() => pushRoute("/" as Href)} />
-                <FooterLink label="Categorías" onPress={scrollToCategories} />
-                <FooterLink label="Catálogo" onPress={() => pushRoute("/catalogo" as Href)} />
-                <FooterLink label="Cesta" onPress={() => pushRoute("/cesta" as Href)} />
-                <FooterLink label="Checkout" onPress={() => pushRoute("/checkout" as Href)} />
-                <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
-                <FooterLink label="Foro" onPress={() => pushRoute("/chat-global" as Href)} />
-                <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
-              </FooterAccordionSection>
-
-              <FooterAccordionSection
-                title="Políticas"
-                open={footerPoliciesOpen}
-                onToggle={() => setFooterPoliciesOpen((value) => !value)}
-              >
-                <FooterLink
-                  label="Política de envíos"
-                  onPress={() => pushRoute("/politicas/envios" as Href)}
-                />
-                <FooterLink
-                  label="Política de devoluciones"
-                  onPress={() => pushRoute("/politicas/devoluciones" as Href)}
-                />
-                <FooterLink
-                  label="Privacidad"
-                  onPress={() => pushRoute("/politicas/privacidad" as Href)}
-                />
-                <FooterLink
-                  label="Términos y condiciones"
-                  onPress={() => pushRoute("/politicas/terminos" as Href)}
-                />
-              </FooterAccordionSection>
-
-              <FooterAccordionSection
-                title="Blog"
-                open={footerBlogOpen}
-                onToggle={() => setFooterBlogOpen((value) => !value)}
-              >
-                <FooterLink label="Últimos artículos" onPress={() => pushRoute("/blog" as Href)} />
-                <FooterLink
-                  label="Guías de compra"
-                  onPress={() => pushRoute("/blog?open=elegir-consola-segunda-mano" as Href)}
-                />
-                <FooterLink
-                  label="Consejos y mantenimiento"
-                  onPress={() => pushRoute("/blog?open=mantenimiento-consola" as Href)}
-                />
-              </FooterAccordionSection>
-            </View>
-
-            <View style={{ marginTop: 4 }}>
-              <SocialLinks titleColor="#FFFFFF" />
-            </View>
-
-            <Text
-              style={{
-                color: "rgba(255,255,255,0.55)",
-                marginTop: 6,
-                lineHeight: 18,
-                fontSize: 12,
-              }}
-            >
-              © {new Date().getFullYear()} {BRAND.name}. Todos los derechos reservados.
-            </Text>
-          </View>
-        </View>
+        <SiteFooter
+          sidePadding={sidePadding}
+          contentMaxWidth={containerMaxWidth}
+          onPressCategorias={scrollToCategories}
+        />
       </ScrollView>
 
       {/* "Volver arriba": aparece solo tras bajar bastante, en la esquina
