@@ -11,6 +11,15 @@
  *   Storage (bucket MEDIA_BUCKET) usando pickMediaFilesWeb() y
  *   buildMediaPath() de products.utils.ts, validando tamaño, tipo y
  *   duración de vídeo con los límites de products.constants.ts.
+ * - "Crear producto"/"Guardar cambios" YA NO espera a que terminen de
+ *   subirse las fotos/vídeo: la ficha (título, precio, estado...) se guarda,
+ *   el modal se cierra al instante y la subida sigue en segundo plano
+ *   (runBackgroundMediaSync(), estado "bgUploads" de esta pantalla) — así el
+ *   admin puede seguir dando de alta el siguiente producto sin esperar. La
+ *   tarjeta del producto en la lista muestra "Subiendo…" mientras dura, y
+ *   sus botones "Editar"/"Borrar" se deshabilitan hasta que termina (evita
+ *   pisar esa subida a medias). Si falla, la tarjeta se queda con un aviso
+ *   de error — no hay reintento automático, hay que reabrir "Editar".
  * - toggleActive()/toggleFeaturedHome() aplican cambios optimistas en la
  *   lista y los revierten si Supabase devuelve error.
  * - "Marcar vendido" (MarkSoldModal, al final del archivo): busca un
@@ -519,6 +528,7 @@ const ProductListItem = React.memo(function ProductListItem({
   onMarkSold,
   onDelete,
   onToggleActive,
+  uploadStatus,
 }: {
   item: ProductListItemData;
   isMobile: boolean;
@@ -530,6 +540,11 @@ const ProductListItem = React.memo(function ProductListItem({
   onMarkSold: (p: ProductRow) => void;
   onDelete: (p: ProductRow) => void;
   onToggleActive: (p: ProductRow) => void;
+  // Presente mientras las fotos/vídeo de ESTE producto se están subiendo en
+  // segundo plano (ver runBackgroundMediaSync en el componente de pantalla).
+  // "error" solo se rellena si la subida falla — en ese caso ya no está
+  // "en curso", pero se sigue avisando aquí hasta que el admin lo revise.
+  uploadStatus?: { title: string; done: number; total: number; error: string | null };
 }) {
   const statusUi = statusVisual(p.status, COLORS);
   const primaryMedia = getPrimaryMedia(p.media);
@@ -537,6 +552,7 @@ const ProductListItem = React.memo(function ProductListItem({
   const primaryUrl = primaryMedia ? getRowPublicUrl(primaryMedia) : null;
   const imageCount = p.media.filter((m) => getRowKind(m) === "image").length;
   const hasVideo = p.media.some((m) => getRowKind(m) === "video");
+  const isUploading = !!uploadStatus && !uploadStatus.error;
 
   return (
     <View
@@ -688,6 +704,42 @@ const ProductListItem = React.memo(function ProductListItem({
             </View>
           </View>
 
+          {!!uploadStatus && (
+            <View
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: uploadStatus.error ? COLORS.dangerBorder : COLORS.accentBorder,
+                backgroundColor: uploadStatus.error ? COLORS.dangerBg : COLORS.accent2,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              {uploadStatus.error ? (
+                <Ionicons name="alert-circle" size={16} color={COLORS.danger} />
+              ) : (
+                <ActivityIndicator size="small" color={COLORS.accent} />
+              )}
+              <Text
+                style={{
+                  color: uploadStatus.error ? COLORS.danger : COLORS.text,
+                  fontWeight: "800",
+                  fontSize: 13,
+                  flex: 1,
+                }}
+              >
+                {uploadStatus.error
+                  ? `No se han podido subir todas las fotos o el vídeo. ${uploadStatus.error} Vuelve a abrir "Editar" para añadir lo que falte.`
+                  : uploadStatus.total > 0
+                    ? `Subiendo fotos/vídeo en segundo plano… ${uploadStatus.done}/${uploadStatus.total}`
+                    : "Aplicando cambios de fotos/vídeo en segundo plano…"}
+              </Text>
+            </View>
+          )}
+
           {!!p.description && (
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
               {clampText(p.description, isMobile ? 140 : 200)}
@@ -695,7 +747,13 @@ const ProductListItem = React.memo(function ProductListItem({
           )}
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <ChipButton label="Editar" variant="primary" onPress={() => onEdit(p)} isMobile={isMobile} />
+            <ChipButton
+              label="Editar"
+              variant="primary"
+              onPress={() => onEdit(p)}
+              isMobile={isMobile}
+              disabled={isUploading}
+            />
             {p.status !== "PUBLISHED" ? (
               <ChipButton label="Publicar" variant="success" onPress={() => onPublish(p)} isMobile={isMobile} />
             ) : null}
@@ -707,7 +765,13 @@ const ProductListItem = React.memo(function ProductListItem({
               />
             ) : null}
             <ChipButton label="Marcar vendido" onPress={() => onMarkSold(p)} isMobile={isMobile} />
-            <ChipButton label="Borrar" variant="danger" onPress={() => onDelete(p)} isMobile={isMobile} />
+            <ChipButton
+              label="Borrar"
+              variant="danger"
+              onPress={() => onDelete(p)}
+              isMobile={isMobile}
+              disabled={isUploading}
+            />
           </View>
         </View>
       </View>
@@ -765,11 +829,22 @@ export default function AdminProducts() {
   const [existingMedia, setExistingMedia] = useState<ProductMediaRow[]>([]);
   const [removedMedia, setRemovedMedia] = useState<ProductMediaRow[]>([]);
   const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(
-    null
-  );
   const [descExpanded, setDescExpanded] = useState(false);
   const [picking, setPicking] = useState(false);
+
+  // Subidas de fotos/vídeo en curso EN SEGUNDO PLANO, una entrada por
+  // producto (clave = product_id). A petición de Daniel: al pulsar "Crear
+  // producto"/"Guardar cambios", la ficha se crea y el formulario se cierra
+  // al instante, sin esperar a que las fotos terminen de subirse — así puede
+  // seguir rellenando el siguiente producto mientras tanto. Esta lista es lo
+  // que hace visible ese trabajo de fondo: la tarjeta del producto en la
+  // lista muestra "Subiendo…" mientras su entrada existe aquí. Vive en el
+  // componente de pantalla (no en el formulario) a propósito, porque tiene
+  // que sobrevivir a que el formulario se cierre y se reutilice para crear
+  // otro producto distinto.
+  const [bgUploads, setBgUploads] = useState<
+    Record<string, { title: string; done: number; total: number; error: string | null }>
+  >({});
 
   // Se lee desde resetForm()/openEditProduct() vía ref (en vez de como
   // dependencia normal de useCallback) para que esas funciones mantengan
@@ -1001,7 +1076,6 @@ export default function AdminProducts() {
     setRemovedMedia([]);
     revokeLocalMedia(newMediaRef.current);
     setNewMedia([]);
-    setUploadProgress(null);
     setModalErr(null);
     setDescExpanded(false);
     setPicking(false);
@@ -1136,43 +1210,76 @@ export default function AdminProducts() {
     });
   }
 
-  async function uploadNewMedia(productId: string) {
-    if (!newMedia.length) return;
+  // Antes "uploadNewMedia()"/"deleteRemovedMedia()" leían "newMedia" /
+  // "removedMedia" / "existingMedia" directamente del formulario (variables
+  // del propio componente) y avisaban del progreso con "setUploadProgress()"
+  // — también del formulario. Eso obligaba a mantener el formulario abierto
+  // y bloqueado mientras subían las fotos, porque la subida "vivía" dentro
+  // de su estado.
+  //
+  // Ahora la subida ocurre EN SEGUNDO PLANO, después de cerrar el
+  // formulario (ver runBackgroundMediaSync más abajo) — para entonces el
+  // formulario ya se ha reseteado y puede estar rellenándose para OTRO
+  // producto distinto. Por eso estas dos funciones ya no leen ni escriben
+  // nada del estado del formulario: reciben todo lo que necesitan por
+  // parámetro (la media a subir/borrar, en qué producto, desde qué
+  // posición) y avisan del progreso con un callback, en vez de un
+  // "setEstado" fijo que ya no correspondería al producto correcto.
+  async function uploadMediaBatch(
+    productId: string,
+    media: LocalPickedMedia[],
+    startIndex: number,
+    onProgress: (done: number, total: number) => void
+  ) {
+    if (!media.length) return;
 
-    const startIndex = existingMedia.length;
-    // Archivos que SÍ terminan de subirse (Storage + fila en product_media)
-    // en esta pasada. Si algo falla a mitad (por ejemplo la 3ª de 5 fotos),
-    // los quitamos de "pendientes" (newMedia) antes de propagar el error,
-    // para que si el admin pulsa "Guardar cambios" otra vez no se vuelvan a
-    // subir duplicados.
-    const uploadedIds: string[] = [];
-    const total = newMedia.length;
+    const total = media.length;
+    onProgress(0, total);
 
-    setUploadProgress({ done: 0, total });
+    for (let i = 0; i < media.length; i++) {
+      const item = media[i];
+      const storagePath = buildMediaPath(productId, item, startIndex + i);
 
-    try {
-      for (let i = 0; i < newMedia.length; i++) {
-        const item = newMedia[i];
-        const storagePath = buildMediaPath(productId, item, startIndex + i);
+      // Se reintenta un par de veces cada subida antes de rendirse: al
+      // mandar de golpe 10-15 fotos seguidas, un corte de red de un
+      // instante en UNA de ellas ya no aborta el resto ni obliga a
+      // repetir todo desde cero.
+      const uploadRes = await withRetries(() =>
+        supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: item.mimeType || undefined,
+        })
+      );
 
-        // Se reintenta un par de veces cada subida antes de rendirse: al
-        // mandar de golpe 10-15 fotos seguidas, un corte de red de un
-        // instante en UNA de ellas ya no aborta el resto ni obliga a
-        // repetir todo desde cero.
-        const uploadRes = await withRetries(() =>
-          supabase.storage.from(MEDIA_BUCKET).upload(storagePath, item.file, {
-            cacheControl: "3600",
-            upsert: false,
-            contentType: item.mimeType || undefined,
-          })
-        );
+      if (uploadRes.error) throw uploadRes.error;
 
-        if (uploadRes.error) throw uploadRes.error;
+      const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
+      const publicUrl = publicData?.publicUrl ?? "";
 
-        const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
-        const publicUrl = publicData?.publicUrl ?? "";
+      const basePayload: Record<string, any> = {
+        product_id: productId,
+        storage_path: storagePath,
+        public_url: publicUrl,
+        file_name: item.name,
+        mime_type: item.mimeType || null,
+        sort_order: startIndex + i,
+        is_cover: false,
+      };
 
-        const basePayload: Record<string, any> = {
+      if (item.kind === "image" || item.kind === "video") {
+        basePayload.kind = item.kind;
+      }
+
+      if (item.kind === "video") {
+        basePayload.duration_seconds = item.durationSeconds ?? null;
+      }
+
+      const insertRes = await withRetries(() =>
+        supabase.from("product_media").insert(basePayload)
+      );
+      if (insertRes.error) {
+        const fallbackPayload = {
           product_id: productId,
           storage_path: storagePath,
           public_url: publicUrl,
@@ -1182,54 +1289,21 @@ export default function AdminProducts() {
           is_cover: false,
         };
 
-        if (item.kind === "image" || item.kind === "video") {
-          basePayload.kind = item.kind;
-        }
-
-        if (item.kind === "video") {
-          basePayload.duration_seconds = item.durationSeconds ?? null;
-        }
-
-        const insertRes = await withRetries(() =>
-          supabase.from("product_media").insert(basePayload)
+        const retryRes = await withRetries(() =>
+          supabase.from("product_media").insert(fallbackPayload)
         );
-        if (insertRes.error) {
-          const fallbackPayload = {
-            product_id: productId,
-            storage_path: storagePath,
-            public_url: publicUrl,
-            file_name: item.name,
-            mime_type: item.mimeType || null,
-            sort_order: startIndex + i,
-            is_cover: false,
-          };
-
-          const retryRes = await withRetries(() =>
-            supabase.from("product_media").insert(fallbackPayload)
-          );
-          if (retryRes.error) throw retryRes.error;
-        }
-
-        uploadedIds.push(item.id);
-        setUploadProgress({ done: i + 1, total });
+        if (retryRes.error) throw retryRes.error;
       }
-    } catch (err) {
-      if (uploadedIds.length) {
-        const uploadedSet = new Set(uploadedIds);
-        setNewMedia((prev) => {
-          revokeLocalMedia(prev.filter((m) => uploadedSet.has(m.id)));
-          return prev.filter((m) => !uploadedSet.has(m.id));
-        });
-      }
-      throw err;
+
+      onProgress(i + 1, total);
     }
   }
 
-  async function deleteRemovedMedia() {
-    if (!removedMedia.length) return;
+  async function deleteMediaBatch(media: ProductMediaRow[]) {
+    if (!media.length) return;
 
-    const paths = removedMedia.map((m) => m.storage_path).filter(Boolean) as string[];
-    const ids = removedMedia.map((m) => m.id);
+    const paths = media.map((m) => m.storage_path).filter(Boolean) as string[];
+    const ids = media.map((m) => m.id);
 
     if (paths.length) {
       const storageDelete = await supabase.storage.from(MEDIA_BUCKET).remove(paths);
@@ -1238,6 +1312,67 @@ export default function AdminProducts() {
 
     const dbDelete = await supabase.from("product_media").delete().in("id", ids);
     if (dbDelete.error) throw dbDelete.error;
+  }
+
+  // Orquesta la subida/borrado de fotos y vídeo de UN producto en segundo
+  // plano, después de que su formulario ya se haya cerrado. "bgUploads"
+  // (estado de la pantalla, no del formulario) es lo que hace visible este
+  // trabajo: mientras exista una entrada para este product_id, su tarjeta en
+  // la lista muestra "Subiendo…"; si algo falla, la entrada se queda con un
+  // mensaje de error hasta que el admin reabra "Editar" y lo resuelva a
+  // mano (añadiendo nuevamente lo que faltase) — no hay reintento automático.
+  async function runBackgroundMediaSync(
+    productId: string,
+    title: string,
+    mediaToUpload: LocalPickedMedia[],
+    mediaToRemove: ProductMediaRow[],
+    uploadStartIndex: number
+  ) {
+    setBgUploads((prev) => ({
+      ...prev,
+      [productId]: { title, done: 0, total: mediaToUpload.length, error: null },
+    }));
+
+    try {
+      if (mediaToRemove.length) {
+        await deleteMediaBatch(mediaToRemove);
+      }
+
+      if (mediaToUpload.length) {
+        await uploadMediaBatch(productId, mediaToUpload, uploadStartIndex, (done, total) => {
+          setBgUploads((prev) => {
+            const curr = prev[productId];
+            if (!curr) return prev;
+            return { ...prev, [productId]: { ...curr, done, total } };
+          });
+        });
+        await normalizeMediaForProduct(productId);
+      }
+
+      setBgUploads((prev) => {
+        const { [productId]: _done, ...rest } = prev;
+        return rest;
+      });
+
+      await load();
+    } catch (e: any) {
+      console.error(
+        "Error subiendo fotos/vídeo en segundo plano:",
+        e?.message || e?.error_description || e?.details || e
+      );
+      setBgUploads((prev) => ({
+        ...prev,
+        [productId]: {
+          title,
+          done: prev[productId]?.done ?? 0,
+          total: mediaToUpload.length,
+          error: describeSaveError(e, "las fotos o el vídeo"),
+        },
+      }));
+      // Puede que parte de las fotos SÍ se subieran antes del fallo:
+      // refrescamos igualmente para que esas se vean ya en la ficha.
+      await load();
+    }
   }
 
   // Antes, cualquier fallo al guardar (de la ficha del producto o de las
@@ -1369,9 +1504,19 @@ export default function AdminProducts() {
       payload.reference = cleanReference || null;
     }
 
+    // Instantánea de la media pendiente ANTES de tocar el formulario: en
+    // cuanto cerremos y reseteemos, "newMedia"/"removedMedia"/"existingMedia"
+    // dejan de representar a ESTE producto — el mismo formulario puede
+    // reutilizarse de inmediato para crear el siguiente. Lo que necesite la
+    // subida en segundo plano se captura aquí, en variables propias.
+    const mediaToUpload = newMedia.slice();
+    const mediaToRemove = removedMedia.slice();
+    const uploadStartIndex = existingMedia.length;
+    const hasBackgroundMediaWork =
+      supportsProductMedia && (mediaToUpload.length > 0 || mediaToRemove.length > 0);
+
     try {
       let productId = editing?.id ?? null;
-      const wasNewProduct = !editing;
 
       if (editing) {
         const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
@@ -1410,58 +1555,19 @@ export default function AdminProducts() {
         }
       }
 
-      if (wasNewProduct) {
-        // La ficha del producto ya se ha creado en la base de datos. Si la
-        // subida de fotos/vídeo de más abajo falla, necesitamos que un
-        // reintento ACTUALICE este producto en vez de crear uno nuevo
-        // duplicado con el mismo título — por eso lo marcamos como
-        // "editing" ya aquí, antes de intentar subir nada.
-        setEditing({
-          id: productId,
-          title: cleanTitle,
-          description: cleanDesc || null,
-          price_eur: priceEur,
-          status,
-          condition,
-          category_id: categoryId,
-          is_active: isActive,
-          created_at: "",
-          updated_at: "",
-          is_featured_home: !!isFeaturedHome,
-          reference: cleanReference || null,
-          media: [],
-        });
-      }
-
-      if (supportsProductMedia) {
-        try {
-          await deleteRemovedMedia();
-          await uploadNewMedia(productId);
-          await normalizeMediaForProduct(productId);
-        } catch (mediaErr: any) {
-          // El producto (título, precio, estado...) SÍ se ha guardado bien;
-          // el fallo es solo al subir las fotos/vídeo nuevos. Se avisa de
-          // forma distinta para no decir "no se ha guardado" cuando sí se
-          // ha guardado, y se deja el formulario abierto (con el resto de
-          // fotos pendientes que uploadNewMedia() no llegó a subir) para
-          // que el admin pueda reintentar solo esa parte.
-          console.error(
-            "Error subiendo fotos/vídeo del producto:",
-            mediaErr?.message || mediaErr?.error_description || mediaErr?.details || mediaErr
-          );
-          setModalErr(
-            `El producto se ha guardado, pero no se han podido subir las fotos o el vídeo nuevos. ${describeSaveError(
-              mediaErr,
-              "las fotos o el vídeo"
-            )}`
-          );
-          return;
-        }
-      }
-
+      // La ficha (título, precio, estado...) ya está guardada en este punto
+      // — eso es todo lo que hace falta para que "Crear producto"/"Guardar
+      // cambios" se sienta instantáneo. El formulario se cierra YA; las
+      // fotos/vídeo (la parte lenta, con red de por medio) siguen su curso
+      // en segundo plano con runBackgroundMediaSync(), sin retener aquí al
+      // admin — puede abrir "Nuevo producto" otra vez de inmediato.
       setOpen(false);
       resetForm();
       await load();
+
+      if (hasBackgroundMediaWork) {
+        runBackgroundMediaSync(productId, cleanTitle, mediaToUpload, mediaToRemove, uploadStartIndex);
+      }
     } catch (e: any) {
       console.error(
         "Error guardando producto:",
@@ -1470,7 +1576,6 @@ export default function AdminProducts() {
       setModalErr(describeSaveError(e, "el producto"));
     } finally {
       setSaving(false);
-      setUploadProgress(null);
     }
   }
 
@@ -1759,6 +1864,7 @@ export default function AdminProducts() {
                 onMarkSold={setMarkSoldTarget}
                 onDelete={askRemove}
                 onToggleActive={toggleActive}
+                uploadStatus={bgUploads[p.id]}
               />
             ))
           )}
@@ -1980,7 +2086,7 @@ export default function AdminProducts() {
                     variant="primary"
                     onPress={addMediaFromPicker}
                     isMobile={isMobile}
-                    disabled={!!uploadProgress || picking}
+                    disabled={picking}
                   />
                   {picking && <ActivityIndicator size="small" color={COLORS.accent} />}
                 </View>
@@ -1988,27 +2094,6 @@ export default function AdminProducts() {
                 <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
                   Actualmente: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
                 </Text>
-
-                {!!uploadProgress && (
-                  <View
-                    style={{
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
-                      backgroundColor: COLORS.accent2,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <ActivityIndicator size="small" color={COLORS.accent} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                      Subiendo fotos/vídeo… {uploadProgress.done}/{uploadProgress.total}
-                    </Text>
-                  </View>
-                )}
 
                 {!!existingMedia.length && (
                   <View style={{ gap: 8 }}>

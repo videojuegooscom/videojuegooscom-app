@@ -469,6 +469,17 @@ export async function pickMediaFilesWeb(): Promise<PickMediaResult> {
 
       for (const originalFile of originalFiles) {
         try {
+          // Antes de procesar cada archivo se cede el turno al navegador
+          // (requestAnimationFrame) en vez de encadenar la conversión de la
+          // siguiente foto justo detrás de la anterior. La conversión de
+          // HEIC a JPEG (fotos de iPhone) es la parte más pesada de todo
+          // este proceso, y sin este respiro, seleccionar varias fotos HEIC
+          // de golpe podía sentirse como que "se congela la app" mientras se
+          // procesan: con el respiro, el navegador puede repintar la
+          // pantalla y atender lo que el admin siga escribiendo en el resto
+          // del formulario entre una foto y la siguiente.
+          await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
           const file = await normalizePickedFile(originalFile);
           const mimeType =
             String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
