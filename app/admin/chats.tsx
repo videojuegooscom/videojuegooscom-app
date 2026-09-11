@@ -17,13 +17,22 @@
  *   conversación, su hilo completo (components/ProductChatThread.tsx) a la
  *   derecha, con el botón "Marcar como vendido a este cliente" añadido por
  *   fuera del componente compartido (headerRight).
- * - Consultas generales (sin producto): desde que product_id puede ser
- *   null (botón "Chatear con nosotros" de app/catalogo.tsx, vía
- *   get_or_create_support_chat en sql/product_chats.sql), estas
- *   conversaciones se agrupan aparte, en un bloque fijo "Consultas
- *   generales" al principio de la lista, en vez de intentar meterlas dentro
- *   de un grupo por producto (no tienen). No llevan botón "Marcar como
- *   vendido" al abrirlas, porque no hay producto que marcar.
+ * - Consultas generales (sin producto ni solicitud de venta): se agrupan
+ *   aparte, en un bloque fijo "Consultas generales" al principio de la
+ *   lista (botón "Chatear con nosotros" de app/catalogo.tsx, vía
+ *   get_or_create_support_chat). No llevan botón "Marcar como vendido" al
+ *   abrirlas, porque no hay producto que marcar.
+ * - Ventas de clientes (conversaciones con sell_request_id): se abren solas
+ *   al enviar el formulario "Vender ahora" con sesión iniciada (ver
+ *   components/VenderAhoraModal.tsx, get_or_create_sell_request_chat) y se
+ *   agrupan aparte, por solicitud, mostrando el artículo en vez de un
+ *   nombre de producto — tampoco llevan "Marcar como vendido" (eso es para
+ *   cuando LES vendemos algo, no al revés).
+ * - Borrar una conversación (icono de papelera en cada fila y dentro del
+ *   hilo abierto) llama a delete_chat_for_me: solo desaparece de ESTA
+ *   bandeja (admin); si el cliente no la ha borrado también, él la sigue
+ *   viendo. product_chats.admin_deleted_at es lo que se filtra al cargar la
+ *   lista (.is("admin_deleted_at", null)).
  * - "Marcar como vendido" hace un INSERT directo en product_sales con
  *   buyer_user_id = el cliente de esa conversación; el trigger de esa tabla
  *   ya sabe que un admin puede elegir libremente a quién marca (a
@@ -88,6 +97,7 @@ const columnStyle = { width: "100%", maxWidth: 1160, alignSelf: "center" } as co
 type ChatRow = {
   id: string;
   product_id: string | null;
+  sell_request_id: string | null;
   customer_user_id: string;
   last_message_at: string;
   last_message_preview: string;
@@ -98,6 +108,12 @@ type ProductGroup = {
   product_id: string;
   product_title: string;
   product_image: string | null;
+  chats: ChatRow[];
+};
+
+type SellGroup = {
+  sell_request_id: string;
+  articulo: string;
   chats: ChatRow[];
 };
 
@@ -118,17 +134,29 @@ export default function AdminChats() {
   // Conversaciones sin producto (botón "Chatear con nosotros" de
   // app/catalogo.tsx) — aparte de los grupos por producto, no encajan ahí.
   const [supportChats, setSupportChats] = useState<ChatRow[]>([]);
+  // Conversaciones abiertas desde "Vender ahora" (VenderAhoraModal), agrupadas
+  // por solicitud — igual que groups pero mostrando el artículo, no un
+  // producto del catálogo.
+  const [sellGroups, setSellGroups] = useState<SellGroup[]>([]);
   const [soldKeys, setSoldKeys] = useState<Set<string>>(new Set());
   const [selectedChat, setSelectedChat] = useState<ChatRow | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ProductGroup | null>(null);
   const [markingSold, setMarkingSold] = useState(false);
+  // Papelera por fila: primer toque pide confirmación (confirmDeleteId),
+  // segundo toque borra de verdad. Solo un id a la vez.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const { data: chats, error } = await supabase
         .from("product_chats")
-        .select("id,product_id,customer_user_id,last_message_at,last_message_preview")
+        .select("id,product_id,sell_request_id,customer_user_id,last_message_at,last_message_preview")
+        // Solo las que NO he borrado yo (admin) de mi bandeja — ver
+        // delete_chat_for_me. Si el cliente la borró de la suya pero yo no,
+        // aquí sigue apareciendo.
+        .is("admin_deleted_at", null)
         .order("last_message_at", { ascending: false });
 
       if (error) throw error;
@@ -137,44 +165,54 @@ export default function AdminChats() {
       if (chatRows.length === 0) {
         setGroups([]);
         setSupportChats([]);
+        setSellGroups([]);
         return;
       }
 
       const chatIds = chatRows.map((c) => c.id);
-      // product_id puede ser null (conversación general, sin producto): se
-      // filtra antes de pedir "products"/"product_media" por id, que no
-      // admiten null en el .in(...).
+      // product_id/sell_request_id pueden ser null: se filtran antes de
+      // pedir por id, que no admite null en el .in(...).
       const productIds = Array.from(
         new Set(chatRows.map((c) => c.product_id).filter((id): id is string => !!id))
       );
+      const sellRequestIds = Array.from(
+        new Set(chatRows.map((c) => c.sell_request_id).filter((id): id is string => !!id))
+      );
       const customerIds = Array.from(new Set(chatRows.map((c) => c.customer_user_id)));
 
-      const [{ data: products }, { data: media }, { data: firstMsgs }, { data: sales }, { data: realUsers }] =
-        await Promise.all([
-          supabase.from("products").select("id,title,images").in("id", productIds),
-          supabase
-            .from("product_media")
-            .select("product_id,public_url,is_cover,sort_order")
-            .in("product_id", productIds)
-            .eq("kind", "image")
-            .order("is_cover", { ascending: false })
-            .order("sort_order", { ascending: true }),
-          supabase
-            .from("product_chat_messages")
-            .select("chat_id,sender_role,sender_name,created_at")
-            .in("chat_id", chatIds)
-            .eq("sender_role", "customer")
-            .order("created_at", { ascending: true }),
-          supabase.from("product_sales").select("product_id,buyer_user_id").in("product_id", productIds),
-          // Nombre REAL del cliente aunque todavía no haya escrito ningún
-          // mensaje (ver sql/admin_users_by_ids.sql). Si esa función todavía
-          // no existe en el proyecto de Supabase (falta ejecutar el script),
-          // esto falla en silencio y se cae al nombre sacado de los mensajes.
-          supabase.rpc("admin_users_by_ids", { ids: customerIds }).then(
-            (res) => res,
-            () => ({ data: null })
-          ),
-        ]);
+      const [
+        { data: products },
+        { data: media },
+        { data: sellRequests },
+        { data: firstMsgs },
+        { data: sales },
+        { data: realUsers },
+      ] = await Promise.all([
+        supabase.from("products").select("id,title,images").in("id", productIds),
+        supabase
+          .from("product_media")
+          .select("product_id,public_url,is_cover,sort_order")
+          .in("product_id", productIds)
+          .eq("kind", "image")
+          .order("is_cover", { ascending: false })
+          .order("sort_order", { ascending: true }),
+        supabase.from("sell_requests").select("id,articulo").in("id", sellRequestIds),
+        supabase
+          .from("product_chat_messages")
+          .select("chat_id,sender_role,sender_name,created_at")
+          .in("chat_id", chatIds)
+          .eq("sender_role", "customer")
+          .order("created_at", { ascending: true }),
+        supabase.from("product_sales").select("product_id,buyer_user_id").in("product_id", productIds),
+        // Nombre REAL del cliente aunque todavía no haya escrito ningún
+        // mensaje (ver sql/admin_users_by_ids.sql). Si esa función todavía
+        // no existe en el proyecto de Supabase (falta ejecutar el script),
+        // esto falla en silencio y se cae al nombre sacado de los mensajes.
+        supabase.rpc("admin_users_by_ids", { ids: customerIds }).then(
+          (res) => res,
+          () => ({ data: null })
+        ),
+      ]);
 
       const titleById: Record<string, string> = {};
       const imageById: Record<string, string | null> = {};
@@ -184,6 +222,11 @@ export default function AdminChats() {
       }
       for (const row of (media ?? []) as any[]) {
         if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
+      }
+
+      const articuloBySellRequest: Record<string, string> = {};
+      for (const row of (sellRequests ?? []) as any[]) {
+        articuloBySellRequest[row.id] = row.articulo ?? "Artículo";
       }
 
       // Nombre por chat, sacado del primer mensaje del cliente (solo existe
@@ -208,28 +251,47 @@ export default function AdminChats() {
       setSoldKeys(sold);
 
       const byProduct: Record<string, ProductGroup> = {};
+      const bySellRequest: Record<string, SellGroup> = {};
       const support: ChatRow[] = [];
       for (const c of chatRows) {
         const customerName = nameByCustomer[c.customer_user_id] || nameByChat[c.id] || "Cliente";
         const chatWithName: ChatRow = { ...c, customer_name: customerName };
 
-        if (!c.product_id) {
-          support.push(chatWithName);
+        if (c.product_id) {
+          const group =
+            byProduct[c.product_id] ??
+            (byProduct[c.product_id] = {
+              product_id: c.product_id,
+              product_title: titleById[c.product_id] ?? "Producto",
+              product_image: imageById[c.product_id] ?? null,
+              chats: [],
+            });
+          group.chats.push(chatWithName);
           continue;
         }
 
-        const group =
-          byProduct[c.product_id] ??
-          (byProduct[c.product_id] = {
-            product_id: c.product_id,
-            product_title: titleById[c.product_id] ?? "Producto",
-            product_image: imageById[c.product_id] ?? null,
-            chats: [],
-          });
-        group.chats.push(chatWithName);
+        if (c.sell_request_id) {
+          const group =
+            bySellRequest[c.sell_request_id] ??
+            (bySellRequest[c.sell_request_id] = {
+              sell_request_id: c.sell_request_id,
+              articulo: articuloBySellRequest[c.sell_request_id] ?? "Artículo",
+              chats: [],
+            });
+          group.chats.push(chatWithName);
+          continue;
+        }
+
+        support.push(chatWithName);
       }
 
       const groupList = Object.values(byProduct).sort((a, b) => {
+        const aLatest = a.chats[0]?.last_message_at ?? "";
+        const bLatest = b.chats[0]?.last_message_at ?? "";
+        return aLatest < bLatest ? 1 : -1;
+      });
+
+      const sellGroupList = Object.values(bySellRequest).sort((a, b) => {
         const aLatest = a.chats[0]?.last_message_at ?? "";
         const bLatest = b.chats[0]?.last_message_at ?? "";
         return aLatest < bLatest ? 1 : -1;
@@ -239,10 +301,12 @@ export default function AdminChats() {
 
       setGroups(groupList);
       setSupportChats(support);
+      setSellGroups(sellGroupList);
     } catch (e) {
       console.error("Error cargando las conversaciones:", e);
       setGroups([]);
       setSupportChats([]);
+      setSellGroups([]);
     } finally {
       setLoading(false);
     }
@@ -253,9 +317,43 @@ export default function AdminChats() {
   }, [load]);
 
   const totalChats = useMemo(
-    () => groups.reduce((sum, g) => sum + g.chats.length, 0) + supportChats.length,
-    [groups, supportChats]
+    () =>
+      groups.reduce((sum, g) => sum + g.chats.length, 0) +
+      sellGroups.reduce((sum, g) => sum + g.chats.length, 0) +
+      supportChats.length,
+    [groups, sellGroups, supportChats]
   );
+
+  // Borra una conversación SOLO de mi bandeja (admin) — ver
+  // delete_chat_for_me en la migración. Quita la fila de donde esté
+  // (consultas generales, grupo de producto o grupo de venta) sin recargar
+  // toda la lista, y si era la que tenía abierta, cierra el detalle.
+  async function handleDeleteChat(chat: ChatRow) {
+    if (deletingId) return;
+    setDeletingId(chat.id);
+    try {
+      const { error } = await supabase.rpc("delete_chat_for_me", { p_chat_id: chat.id });
+      if (error) throw error;
+
+      setSupportChats((prev) => prev.filter((c) => c.id !== chat.id));
+      setGroups((prev) =>
+        prev.map((g) => ({ ...g, chats: g.chats.filter((c) => c.id !== chat.id) })).filter((g) => g.chats.length > 0)
+      );
+      setSellGroups((prev) =>
+        prev.map((g) => ({ ...g, chats: g.chats.filter((c) => c.id !== chat.id) })).filter((g) => g.chats.length > 0)
+      );
+
+      if (selectedChat?.id === chat.id) {
+        setSelectedChat(null);
+        setSelectedProduct(null);
+      }
+    } catch (e) {
+      console.error("Error borrando la conversación:", e);
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
+  }
 
   async function markSold() {
     if (!selectedChat || !selectedChat.product_id || !selectedProduct || markingSold) return;
@@ -285,7 +383,7 @@ export default function AdminChats() {
         <View style={{ alignItems: "center", paddingVertical: 30 }}>
           <ActivityIndicator color={COLORS.accent} />
         </View>
-      ) : groups.length === 0 && supportChats.length === 0 ? (
+      ) : groups.length === 0 && supportChats.length === 0 && sellGroups.length === 0 ? (
         <View
           style={{
             borderRadius: 18,
@@ -362,10 +460,127 @@ export default function AdminChats() {
                           {chat.last_message_preview || "Sin mensajes"}
                         </Text>
                       </View>
-                      <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
+                      <View style={{ alignItems: "flex-end", gap: 4 }}>
+                        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
+                        {confirmDeleteId === chat.id ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
+                              <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
+                            </Pressable>
+                            <Pressable onPress={() => handleDeleteChat(chat)} disabled={deletingId === chat.id} hitSlop={6}>
+                              <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
+                                {deletingId === chat.id ? "Borrando…" : "Confirmar"}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        ) : (
+                          <Pressable onPress={() => setConfirmDeleteId(chat.id)} hitSlop={6}>
+                            <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
+                          </Pressable>
+                        )}
+                      </View>
                     </Pressable>
                   );
                 })}
+              </View>
+            </View>
+          ) : null}
+
+          {sellGroups.length > 0 ? (
+            <View
+              style={{
+                borderRadius: 18,
+                backgroundColor: COLORS.card,
+                padding: 12,
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    backgroundColor: COLORS.cardSoft,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons name="pricetag-outline" size={18} color={COLORS.muted} />
+                </View>
+                <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+                  Ventas de clientes
+                </Text>
+                <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                  {sellGroups.length} {sellGroups.length === 1 ? "solicitud" : "solicitudes"}
+                </Text>
+              </View>
+
+              <View style={{ gap: 10 }}>
+                {sellGroups.map((group) => (
+                  <View key={group.sell_request_id} style={{ gap: 6 }}>
+                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                      {group.articulo}
+                    </Text>
+                    {group.chats.map((chat) => {
+                      const active = selectedChat?.id === chat.id;
+                      return (
+                        <Pressable
+                          key={chat.id}
+                          onPress={() => {
+                            setSelectedChat(chat);
+                            setSelectedProduct(null);
+                          }}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.9 : 1,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 8,
+                            borderRadius: 12,
+                            backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
+                            padding: 10,
+                          })}
+                        >
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                              {chat.customer_name}
+                            </Text>
+                            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                              {chat.last_message_preview || "Sin mensajes"}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: "flex-end", gap: 4 }}>
+                            <Text style={{ color: COLORS.muted2, fontSize: 11 }}>
+                              {formatDate(chat.last_message_at)}
+                            </Text>
+                            {confirmDeleteId === chat.id ? (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
+                                  <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>
+                                    Cancelar
+                                  </Text>
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => handleDeleteChat(chat)}
+                                  disabled={deletingId === chat.id}
+                                  hitSlop={6}
+                                >
+                                  <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
+                                    {deletingId === chat.id ? "Borrando…" : "Confirmar"}
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            ) : (
+                              <Pressable onPress={() => setConfirmDeleteId(chat.id)} hitSlop={6}>
+                                <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
+                              </Pressable>
+                            )}
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
               </View>
             </View>
           ) : null}
@@ -438,11 +653,29 @@ export default function AdminChats() {
                         {chat.last_message_preview || "Sin mensajes"}
                       </Text>
                     </View>
-                    {sold ? (
-                      <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
-                    ) : (
-                      <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
-                    )}
+                    <View style={{ alignItems: "flex-end", gap: 4 }}>
+                      {sold ? (
+                        <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+                      ) : (
+                        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
+                      )}
+                      {confirmDeleteId === chat.id ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
+                            <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
+                          </Pressable>
+                          <Pressable onPress={() => handleDeleteChat(chat)} disabled={deletingId === chat.id} hitSlop={6}>
+                            <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
+                              {deletingId === chat.id ? "Borrando…" : "Confirmar"}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <Pressable onPress={() => setConfirmDeleteId(chat.id)} hitSlop={6}>
+                          <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
+                        </Pressable>
+                      )}
+                    </View>
                   </Pressable>
                 );
               })}
@@ -458,6 +691,13 @@ export default function AdminChats() {
     <View style={{ flex: 1 }}>
       <ProductChatThread
         chatId={selectedChat.id}
+        onDeleted={() => {
+          // Igual que la papelera de cada fila: solo desaparece de esta
+          // bandeja (admin); recargar trae la lista al día por si acaso.
+          setSelectedChat(null);
+          setSelectedProduct(null);
+          load();
+        }}
         headerRight={
           // Consulta general (sin producto): no hay nada que "marcar como
           // vendido" aquí, así que no se muestra ningún botón.

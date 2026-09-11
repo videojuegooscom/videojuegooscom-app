@@ -10,9 +10,14 @@
  *
  * La pestaña "Chat" (nueva) es distinta: es la bandeja PRIVADA del cliente
  * logueado, con una conversación por cada producto por el que ha escrito
- * (botón "Chat" de app/producto/[id].tsx) — ver sql/product_chats.sql y
- * components/ProductChatThread.tsx. No tiene nada que ver con el Foro
- * público: solo esa persona y los administradores ven esos mensajes.
+ * (botón "Chat" de app/producto/[id].tsx), cada solicitud de "Vender ahora"
+ * que se abrió sola con sesión iniciada (components/VenderAhoraModal.tsx,
+ * get_or_create_sell_request_chat) y cualquier consulta general — ver
+ * sql/product_chats.sql y components/ProductChatThread.tsx. No tiene nada
+ * que ver con el Foro público: solo esa persona y los administradores ven
+ * esos mensajes. Cada fila tiene su propio icono de papelera: borra la
+ * conversación SOLO de esta bandeja (delete_chat_for_me); si el admin no la
+ * ha borrado también, él la sigue viendo.
  *
  * Cómo funciona:
  * - Los mensajes viven en la tabla chat_messages de Supabase (ver
@@ -2482,6 +2487,10 @@ type PrivateChatRow = {
   // "Chatear con nosotros" de app/catalogo.tsx, ver
   // get_or_create_support_chat en sql/product_chats.sql).
   product_id: string | null;
+  // Solo relleno si esta conversación se abrió sola al enviar "Vender
+  // ahora" con sesión iniciada (ver components/VenderAhoraModal.tsx,
+  // get_or_create_sell_request_chat en la migración de Supabase).
+  sell_request_id: string | null;
   last_message_at: string;
   last_message_preview: string;
   product_title: string;
@@ -2506,88 +2515,128 @@ function PrivateChatsInbox({
 }) {
   const [rows, setRows] = useState<PrivateChatRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Papelera por fila: primer toque pide confirmación, segundo la borra de
+  // verdad (delete_chat_for_me) — solo desaparece de MI bandeja; si el
+  // admin no la ha borrado también, él la sigue viendo.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!isLoggedIn) {
       setLoading(false);
       return;
     }
 
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userId = sessionData.session?.user?.id;
-        if (!userId) return;
+    setLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user?.id;
+      if (!userId) return;
 
-        const { data: chats, error } = await supabase
-          .from("product_chats")
-          .select("id,product_id,last_message_at,last_message_preview")
-          .eq("customer_user_id", userId)
-          .order("last_message_at", { ascending: false });
+      const { data: chats, error } = await supabase
+        .from("product_chats")
+        .select("id,product_id,sell_request_id,last_message_at,last_message_preview")
+        .eq("customer_user_id", userId)
+        // Solo las que NO he borrado yo de mi bandeja — ver
+        // delete_chat_for_me. Si el admin la borró de la suya pero yo no,
+        // aquí sigue apareciendo.
+        .is("customer_deleted_at", null)
+        .order("last_message_at", { ascending: false });
 
-        if (error) throw error;
-        if (!alive) return;
+      if (error) throw error;
 
-        const chatRows = (chats ?? []) as {
-          id: string;
-          product_id: string | null;
-          last_message_at: string;
-          last_message_preview: string;
-        }[];
+      const chatRows = (chats ?? []) as {
+        id: string;
+        product_id: string | null;
+        sell_request_id: string | null;
+        last_message_at: string;
+        last_message_preview: string;
+      }[];
 
-        // product_id puede ser null (conversación general de soporte): se
-        // filtra antes de pedir "products"/"product_media" por id.
-        const productIds = Array.from(
-          new Set(chatRows.map((c) => c.product_id).filter((id): id is string => !!id))
-        );
-        let titleById: Record<string, string> = {};
-        let imageById: Record<string, string | null> = {};
+      // product_id/sell_request_id pueden ser null: se filtran antes de
+      // pedir por id, que no admite null en el .in(...).
+      const productIds = Array.from(
+        new Set(chatRows.map((c) => c.product_id).filter((id): id is string => !!id))
+      );
+      const sellRequestIds = Array.from(
+        new Set(chatRows.map((c) => c.sell_request_id).filter((id): id is string => !!id))
+      );
+      let titleById: Record<string, string> = {};
+      let imageById: Record<string, string | null> = {};
+      let articuloBySellRequest: Record<string, string> = {};
 
-        if (productIds.length > 0) {
-          const { data: products } = await supabase
-            .from("products")
-            .select("id,title,images")
-            .in("id", productIds);
+      if (productIds.length > 0) {
+        const { data: products } = await supabase
+          .from("products")
+          .select("id,title,images")
+          .in("id", productIds);
 
-          for (const row of (products ?? []) as any[]) {
-            titleById[row.id] = row.title ?? "Producto";
-            imageById[row.id] = row.images?.[0] ?? null;
-          }
-
-          const { data: media } = await supabase
-            .from("product_media")
-            .select("product_id,public_url,is_cover,sort_order")
-            .in("product_id", productIds)
-            .eq("kind", "image")
-            .order("is_cover", { ascending: false })
-            .order("sort_order", { ascending: true });
-
-          for (const row of (media ?? []) as any[]) {
-            if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
-          }
+        for (const row of (products ?? []) as any[]) {
+          titleById[row.id] = row.title ?? "Producto";
+          imageById[row.id] = row.images?.[0] ?? null;
         }
 
-        if (!alive) return;
-        setRows(
-          chatRows.map((c) => ({
-            ...c,
-            product_title: c.product_id ? titleById[c.product_id] ?? "Producto" : "Consulta general",
-            product_image: c.product_id ? imageById[c.product_id] ?? null : null,
-          }))
-        );
-      } catch (e) {
-        console.error("Error cargando tus conversaciones:", e);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
+        const { data: media } = await supabase
+          .from("product_media")
+          .select("product_id,public_url,is_cover,sort_order")
+          .in("product_id", productIds)
+          .eq("kind", "image")
+          .order("is_cover", { ascending: false })
+          .order("sort_order", { ascending: true });
 
-    return () => {
-      alive = false;
-    };
+        for (const row of (media ?? []) as any[]) {
+          if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
+        }
+      }
+
+      if (sellRequestIds.length > 0) {
+        const { data: sellRequests } = await supabase
+          .from("sell_requests")
+          .select("id,articulo")
+          .in("id", sellRequestIds);
+
+        for (const row of (sellRequests ?? []) as any[]) {
+          articuloBySellRequest[row.id] = row.articulo ?? "Artículo";
+        }
+      }
+
+      setRows(
+        chatRows.map((c) => ({
+          ...c,
+          product_title: c.product_id
+            ? titleById[c.product_id] ?? "Producto"
+            : c.sell_request_id
+              ? `Venta: ${articuloBySellRequest[c.sell_request_id] ?? "Artículo"}`
+              : "Consulta general",
+          product_image: c.product_id ? imageById[c.product_id] ?? null : null,
+        }))
+      );
+    } catch (e) {
+      console.error("Error cargando tus conversaciones:", e);
+    } finally {
+      setLoading(false);
+    }
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Borra una conversación SOLO de mi bandeja (ver delete_chat_for_me).
+  async function handleDeleteChat(chatId: string) {
+    if (deletingId) return;
+    setDeletingId(chatId);
+    try {
+      const { error } = await supabase.rpc("delete_chat_for_me", { p_chat_id: chatId });
+      if (error) throw error;
+      setRows((prev) => prev.filter((r) => r.id !== chatId));
+    } catch (e) {
+      console.error("Error borrando la conversación:", e);
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
+  }
 
   if (!isLoggedIn) {
     return (
@@ -2693,7 +2742,13 @@ function PrivateChatsInbox({
               }}
             >
               <Ionicons
-                name={row.product_id ? "cube-outline" : "chatbubble-ellipses-outline"}
+                name={
+                  row.product_id
+                    ? "cube-outline"
+                    : row.sell_request_id
+                      ? "pricetag-outline"
+                      : "chatbubble-ellipses-outline"
+                }
                 size={20}
                 color={COLORS.muted}
               />
@@ -2709,7 +2764,25 @@ function PrivateChatsInbox({
             </Text>
           </View>
 
-          <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatInboxDate(row.last_message_at)}</Text>
+          <View style={{ alignItems: "flex-end", gap: 4 }}>
+            <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatInboxDate(row.last_message_at)}</Text>
+            {confirmDeleteId === row.id ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
+                  <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
+                </Pressable>
+                <Pressable onPress={() => handleDeleteChat(row.id)} disabled={deletingId === row.id} hitSlop={6}>
+                  <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
+                    {deletingId === row.id ? "Borrando…" : "Confirmar"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable onPress={() => setConfirmDeleteId(row.id)} hitSlop={6}>
+                <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
+              </Pressable>
+            )}
+          </View>
         </Pressable>
       ))}
     </View>

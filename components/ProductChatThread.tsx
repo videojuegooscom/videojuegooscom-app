@@ -24,16 +24,29 @@
  *   rellena siempre un trigger en la base de datos a partir de la sesión
  *   real (ver sql/product_chats.sql), igual que en Chat Global y en las
  *   reseñas.
- * - Conversaciones SIN producto ("Consulta general"): desde que
- *   product_id puede ser null (botón "Chatear con nosotros" de
- *   app/catalogo.tsx, vía get_or_create_support_chat), este componente
- *   simplemente no busca ningún producto cuando chatRow.product_id es
- *   null, y muestra "Consulta general" + un icono de conversación en vez
- *   del título/foto del producto.
+ * - Tres "tipos" de conversación, según qué columna tenga rellena la fila
+ *   de product_chats: product_id → chat de un producto (título/foto real);
+ *   sell_request_id → chat de una solicitud de "Vender ahora" (título
+ *   "Venta: <artículo>", ver components/VenderAhoraModal.tsx y la migración
+ *   get_or_create_sell_request_chat); ninguno de los dos → "Consulta
+ *   general" (botón "Chatear con nosotros" de app/catalogo.tsx, vía
+ *   get_or_create_support_chat). chatKind decide qué título/icono mostrar.
+ * - Borrar conversación (icono de papelera en la cabecera): llama a
+ *   delete_chat_for_me(chat_id), que marca SOLO el lado de quien la borra
+ *   (cliente o admin, la función lo decide sola con is_admin()) — el otro
+ *   lado sigue viéndola hasta que también la borre. Cuando ambos lados la
+ *   han borrado, un trigger en la base de datos la elimina de verdad. Pide
+ *   confirmación con una franja bajo la cabecera antes de llamar a la
+ *   función, y avisa al padre (prop onDeleted) para que salga de la
+ *   pantalla o refresque su lista.
  *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura/envío de mensajes, tiempo real.
- * - sql/product_chats.sql → tablas y función get_or_create_product_chat.
+ * - sql/product_chats.sql → tablas y función get_or_create_product_chat
+ *   (get_or_create_support_chat, get_or_create_sell_request_chat y
+ *   delete_chat_for_me viven ya solo como migración de Supabase, no en
+ *   ningún archivo .sql local — ver sql/README.md).
+ * - components/VenderAhoraModal.tsx → crea chats con sell_request_id.
  * - app/chat/[chatId].tsx, app/admin/chats.tsx → lo incrustan.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -114,23 +127,31 @@ function AnimatedPressable({
   );
 }
 
+type ChatKind = "product" | "sell" | "support";
+
 export default function ProductChatThread({
   chatId,
   headerRight,
+  onDeleted,
 }: {
   chatId: string;
   headerRight?: React.ReactNode;
+  /** Se llama justo después de borrar la conversación (por mi lado) con
+   * éxito, para que la pantalla que incrusta este componente pueda salir o
+   * refrescar su lista (ver app/chat/[chatId].tsx, app/admin/chats.tsx). */
+  onDeleted?: () => void;
 }) {
   const [meId, setMeId] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductInfo | null>(null);
-  // null mientras carga; false = conversación general (sin producto, ver
-  // sql/product_chats.sql), true = conversación de un producto concreto.
-  const [hasProduct, setHasProduct] = useState<boolean | null>(null);
+  const [sellArticulo, setSellArticulo] = useState<string | null>(null);
+  const [chatKind, setChatKind] = useState<ChatKind | null>(null);
   const [customerName, setCustomerName] = useState<string>("Cliente");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const load = useCallback(async () => {
@@ -141,13 +162,18 @@ export default function ProductChatThread({
 
       const { data: chatRow } = await supabase
         .from("product_chats")
-        .select("id,product_id,customer_user_id")
+        .select("id,product_id,sell_request_id,customer_user_id")
         .eq("id", chatId)
-        .maybeSingle<{ id: string; product_id: string; customer_user_id: string }>();
-
-      setHasProduct(!!chatRow?.product_id);
+        .maybeSingle<{
+          id: string;
+          product_id: string | null;
+          sell_request_id: string | null;
+          customer_user_id: string;
+        }>();
 
       if (chatRow?.product_id) {
+        setChatKind("product");
+
         const { data: productRow } = await supabase
           .from("products")
           .select("title,images")
@@ -167,6 +193,17 @@ export default function ProductChatThread({
         if (mediaRow?.public_url) cover = mediaRow.public_url;
 
         setProduct({ title: productRow?.title ?? "Producto", imageUrl: cover });
+      } else if (chatRow?.sell_request_id) {
+        setChatKind("sell");
+
+        const { data: sellRow } = await supabase
+          .from("sell_requests")
+          .select("articulo")
+          .eq("id", chatRow.sell_request_id)
+          .maybeSingle<{ articulo: string }>();
+        setSellArticulo(sellRow?.articulo ?? null);
+      } else {
+        setChatKind("support");
       }
 
       const { data: msgRows, error } = await supabase
@@ -254,13 +291,26 @@ export default function ProductChatThread({
     }
   }
 
-  // hasProduct === false → conversación general de soporte, sin producto
-  // asociado (ver sql/product_chats.sql, get_or_create_support_chat).
-  const isSupportChat = hasProduct === false;
-  const headerTitle = useMemo(
-    () => (isSupportChat ? "Consulta general" : product?.title ?? "Conversación"),
-    [isSupportChat, product]
-  );
+  const headerTitle = useMemo(() => {
+    if (chatKind === "sell") return sellArticulo ? `Venta: ${sellArticulo}` : "Venta de un artículo";
+    if (chatKind === "support") return "Consulta general";
+    return product?.title ?? "Conversación";
+  }, [chatKind, sellArticulo, product]);
+
+  async function handleDeleteChat() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.rpc("delete_chat_for_me", { p_chat_id: chatId });
+      if (error) throw error;
+      onDeleted?.();
+    } catch (e) {
+      console.error("Error borrando la conversación:", e);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
 
   return (
     <KeyboardAvoidingView
@@ -295,7 +345,13 @@ export default function ProductChatThread({
             }}
           >
             <Ionicons
-              name={isSupportChat ? "chatbubble-ellipses-outline" : "cube-outline"}
+              name={
+                chatKind === "sell"
+                  ? "pricetag-outline"
+                  : chatKind === "support"
+                    ? "chatbubble-ellipses-outline"
+                    : "cube-outline"
+              }
               size={18}
               color={COLORS.muted}
             />
@@ -311,8 +367,73 @@ export default function ProductChatThread({
           </Text>
         </View>
 
+        <Pressable
+          onPress={() => setConfirmDelete(true)}
+          hitSlop={8}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.7 : 1,
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            alignItems: "center",
+            justifyContent: "center",
+          })}
+        >
+          <Ionicons name="trash-outline" size={18} color={COLORS.muted} />
+        </Pressable>
+
         {headerRight}
       </View>
+
+      {confirmDelete ? (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            padding: 12,
+            borderBottomWidth: 1,
+            borderBottomColor: COLORS.border,
+            backgroundColor: "#FFF1F0",
+          }}
+        >
+          <Ionicons name="trash-outline" size={16} color="#B91C1C" />
+          <Text style={{ flex: 1, color: "#7A271A", fontSize: 12.5, lineHeight: 17 }}>
+            ¿Borrar esta conversación? Se te dejará de mostrar a ti; si el otro lado no la ha
+            borrado también, seguirá viéndola.
+          </Text>
+          <Pressable
+            onPress={() => setConfirmDelete(false)}
+            disabled={deleting}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.85 : 1,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.border,
+            })}
+          >
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12 }}>Cancelar</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleDeleteChat}
+            disabled={deleting}
+            style={({ pressed }) => ({
+              opacity: deleting ? 0.6 : pressed ? 0.88 : 1,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: "#DC2626",
+            })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
+              {deleting ? "Borrando…" : "Borrar"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>

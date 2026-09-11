@@ -12,6 +12,8 @@
  * hay pero la conversación (chatId de la URL) no le pertenece ni es admin,
  * la propia RLS de sql/product_chats.sql hace que no vea mensajes — aquí
  * solo se comprueba que haya sesión, el resto lo filtra la base de datos.
+ * Si el cliente borra la conversación (icono de papelera dentro de
+ * ProductChatThread), onDeleted vuelve a la pantalla anterior.
  *
  * Conectado con:
  * - components/ProductChatThread.tsx → mensajes, envío, tiempo real.
@@ -94,7 +96,10 @@ export default function ChatScreen() {
           <Text style={{ color: COLORS.muted }}>Cargando…</Text>
         </View>
       ) : allowed ? (
-        <ProductChatThread chatId={chatId} />
+        <ProductChatThread
+          chatId={chatId}
+          onDeleted={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/chat-global" as any))}
+        />
       ) : null}
     </SafeAreaView>
   );

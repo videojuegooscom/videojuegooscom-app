@@ -18,9 +18,11 @@
  *   service role key, y el guardado de la función impide que cualquier otra
  *   persona autenticada la use para sacar la lista de emails.
  * - "Solicitudes de venta" y "Solicitudes de servicio" son recuentos aparte
- *   (sell_requests / service_requests): estas tablas no tienen columna de
- *   usuario porque el formulario se puede enviar sin haber iniciado sesión,
- *   así que no aparecen dentro de la ficha de ningún usuario concreto.
+ *   (sell_requests / service_requests): el formulario se puede enviar sin
+ *   haber iniciado sesión, así que el total de aquí arriba incluye también
+ *   las anónimas. Las que SÍ se enviaron con sesión iniciada quedan
+ *   atribuidas a esa persona (customer_user_id) y aparecen dentro de su
+ *   ficha de cliente (app/admin/cliente/[userId].tsx).
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
  *   cualquiera igual que las reseñas de Inicio).
  * - Buscador: filtra la lista ya cargada por email (no vuelve a pedir nada a
@@ -29,10 +31,17 @@
  *   participación total (suma de los tres contadores), para ver primero a
  *   quien más interactúa con la tienda.
  *
+ * - Cada fila es pulsable: lleva a la "ficha de cliente"
+ *   (app/admin/cliente/[userId].tsx), que junta compras, ventas a la tienda,
+ *   servicios de reparación y un cuadro de notas internas para ese usuario.
+ *   Se le pasan email y fecha de alta como parámetros de navegación para que
+ *   esa pantalla no tenga que volver a pedirlos.
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente para la RPC y las consultas de recuento.
  * - sql (migración) admin_list_users_with_stats → función que agrega todo.
  * - app/admin/index.tsx → tarjeta "Usuarios y participación" que lleva aquí.
+ * - app/admin/cliente/[userId].tsx → ficha de cliente a la que lleva cada fila.
  * - app/admin/_layout.tsx → registra esta ruta ("users") en el Stack.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -433,14 +442,21 @@ export default function AdminUsers() {
               visibleUsers.map((u) => {
                 const isAdmin = (u.role ?? "").toLowerCase() === "admin";
                 return (
-                  <View
+                  <Pressable
                     key={u.user_id}
-                    style={{
+                    onPress={() =>
+                      router.push({
+                        pathname: "/admin/cliente/[userId]",
+                        params: { userId: u.user_id, email: u.email ?? "", createdAt: u.created_at },
+                      } as any)
+                    }
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.92 : 1,
                       borderRadius: 20,
                       backgroundColor: COLORS.card,
                       padding: isMobile ? 12 : 14,
                       gap: 10,
-                    }}
+                    })}
                   >
                     <View
                       style={{
@@ -493,7 +509,14 @@ export default function AdminUsers() {
                       <MetricPill icon="chatbubble-ellipses-outline" label="chats de producto" value={u.product_chats_count} />
                       <MetricPill icon="star-outline" label="reseñas" value={u.store_reviews_count} />
                     </View>
-                  </View>
+
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                      <Text style={{ color: COLORS.accentDark, fontWeight: "800", fontSize: 12 }}>
+                        Ver ficha del cliente
+                      </Text>
+                      <Ionicons name="chevron-forward" size={14} color={COLORS.accentDark} />
+                    </View>
+                  </Pressable>
                 );
               })
             )}
@@ -510,8 +533,9 @@ export default function AdminUsers() {
             >
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
               <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, flex: 1 }}>
-                Las solicitudes de venta y de servicio no piden iniciar sesión, así que se cuentan
-                en total (arriba) pero no aparecen dentro de la ficha de ningún usuario concreto.
+                Las solicitudes de venta y de servicio no piden iniciar sesión, así que el total de
+                arriba incluye también las anónimas. Solo las enviadas CON sesión iniciada aparecen
+                dentro de la ficha del cliente correspondiente (toca una fila para verla).
               </Text>
             </View>
           </View>

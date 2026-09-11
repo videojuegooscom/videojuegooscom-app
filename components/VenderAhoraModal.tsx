@@ -84,6 +84,17 @@
  *   sin rol admin puede leer esas filas.
  * - Tras un envío correcto muestra una pantalla de confirmación dentro del
  *   propio modal y se puede cerrar con "Cerrar".
+ * - Chat automático (septiembre): si quien envía el formulario tiene sesión
+ *   iniciada, justo después de guardar la solicitud se abre (o reutiliza)
+ *   una conversación centrada en ESE artículo
+ *   (get_or_create_sell_request_chat, ver migración en Supabase — no hay ya
+ *   un .sql local por cada cambio, ver sql/README.md) y se manda como
+ *   primer mensaje un resumen del formulario (artículo, funciona o no,
+ *   ciudad, precio esperado), para no repetirlo por chat. La confirmación
+ *   muestra entonces "Ir al chat con nosotros" en vez del "Cerrar" de
+ *   siempre. Sin sesión (el formulario sigue siendo público, no la exige)
+ *   no se puede crear la conversación — se invita a iniciar sesión para
+ *   poder seguir la venta por chat la próxima vez.
  * - Sigue el tema claro global de la app (fondo blanco, texto azul marino,
  *   acentos azul claro). El fondo oscuro semitransparente detrás de la
  *   tarjeta se mantiene oscuro a propósito, igual que en el resto de
@@ -109,6 +120,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import {
@@ -648,6 +660,11 @@ export default function VenderAhoraModal({
   const [sending, setSending] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // Con sesión iniciada, handleSubmit abre automáticamente un chat centrado
+  // en este artículo (get_or_create_sell_request_chat) y guarda aquí su id
+  // para el botón "Ir al chat" de la pantalla de confirmación. Sin sesión
+  // se queda a null: no se puede crear una conversación sin una cuenta real.
+  const [sentChatId, setSentChatId] = useState<string | null>(null);
 
   // Validez "reforzada" (con mínimo de caracteres) para nombre, apellido y
   // dato de contacto — se usan tanto para el check verde/atenuado de cada
@@ -815,6 +832,7 @@ export default function VenderAhoraModal({
 
     setFormErr(null);
     setSent(false);
+    setSentChatId(null);
   }
 
   function handleClose() {
@@ -987,6 +1005,48 @@ export default function VenderAhoraModal({
         }
       }
 
+      // Chat automático: con sesión iniciada, se abre (o reutiliza) ya la
+      // conversación centrada en este artículo y se manda un primer mensaje
+      // con el resumen del formulario, para no repetirlo por chat — así se
+      // puede seguir la venta directamente aquí en vez de por otra red
+      // social. Sin sesión no se puede (product_chats exige un cliente
+      // real): se deja sentChatId a null y la confirmación de abajo invita
+      // a iniciar sesión.
+      let openedChatId: string | null = null;
+      if (insertedRow?.id) {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData.session?.user) {
+            const { data: chatId, error: chatErr } = await supabase.rpc(
+              "get_or_create_sell_request_chat",
+              { p_sell_request_id: insertedRow.id }
+            );
+            if (chatErr) throw chatErr;
+
+            openedChatId = String(chatId);
+
+            const resumen = [
+              `Quiero vender: ${cleanArticulo}`,
+              funcionaBien
+                ? `Funciona bien. Motivo de venta: ${cleanMotivo}`
+                : `No funciona bien: ${cleanProblema}`,
+              `Ciudad: ${cleanCiudad}`,
+              `Precio esperado: ${cleanPrecio}`,
+            ].join("\n");
+
+            await supabase
+              .from("product_chat_messages")
+              .insert({ chat_id: openedChatId, body: resumen });
+          }
+        } catch (chatCreateErr) {
+          // La solicitud ya está guardada de todas formas: si falla abrir
+          // el chat, no se pierde nada, solo no se abre la conversación.
+          console.error("Error abriendo el chat de la solicitud de venta:", chatCreateErr);
+          openedChatId = null;
+        }
+      }
+
+      setSentChatId(openedChatId);
       setSent(true);
     } catch (e: any) {
       setFormErr(
@@ -1063,8 +1123,9 @@ export default function VenderAhoraModal({
                     </Text>
 
                     <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-                      Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se
-                      pondrá en contacto contigo.
+                      {sentChatId
+                        ? "Hemos recibido los datos de tu artículo. Sigamos por chat para continuar con la venta."
+                        : "Hemos recibido los datos de tu artículo. Nuestro equipo lo revisará y se pondrá en contacto contigo."}
                     </Text>
 
                     {mediaUploadFailed && (
@@ -1082,18 +1143,75 @@ export default function VenderAhoraModal({
                       </Text>
                     )}
 
+                    {!sentChatId && (
+                      <Text
+                        style={{
+                          color: COLORS.muted,
+                          textAlign: "center",
+                          lineHeight: 19,
+                          fontSize: 13,
+                        }}
+                      >
+                        Inicia sesión para continuar la conversación por chat con nosotros, en vez de
+                        por otra red social.
+                      </Text>
+                    )}
+
+                    {sentChatId ? (
+                      <AnimatedPressable
+                        onPress={() => {
+                          const targetChatId = sentChatId;
+                          handleClose();
+                          router.push({
+                            pathname: "/chat/[chatId]",
+                            params: { chatId: targetChatId },
+                          } as unknown as Href);
+                        }}
+                        containerStyle={{ marginTop: 4 }}
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.9 : 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                          borderRadius: 999,
+                          paddingVertical: 12,
+                          paddingHorizontal: 20,
+                          backgroundColor: COLORS.accent,
+                        })}
+                      >
+                        <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
+                        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ir al chat con nosotros</Text>
+                      </AnimatedPressable>
+                    ) : (
+                      <AnimatedPressable
+                        onPress={() => {
+                          handleClose();
+                          router.push("/perfil" as Href);
+                        }}
+                        containerStyle={{ marginTop: 4 }}
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.9 : 1,
+                          borderRadius: 999,
+                          paddingVertical: 12,
+                          paddingHorizontal: 20,
+                          backgroundColor: COLORS.accent,
+                        })}
+                      >
+                        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
+                      </AnimatedPressable>
+                    )}
+
                     <AnimatedPressable
                       onPress={handleClose}
-                      containerStyle={{ marginTop: 4 }}
                       style={({ pressed }) => ({
-                        opacity: pressed ? 0.9 : 1,
+                        opacity: pressed ? 0.85 : 1,
                         borderRadius: 999,
-                        paddingVertical: 12,
-                        paddingHorizontal: 20,
-                        backgroundColor: COLORS.accent,
+                        paddingVertical: 10,
+                        paddingHorizontal: 18,
+                        backgroundColor: "transparent",
                       })}
                     >
-                      <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Cerrar</Text>
+                      <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cerrar</Text>
                     </AnimatedPressable>
                   </View>
                 ) : (
