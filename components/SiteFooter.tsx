@@ -53,8 +53,27 @@ const CARD_TEXT = "#0B2138";
 const BRAND_NAME = "Videojuegoszaragoza.com";
 
 // Altura fija del difuminado de entrada, independiente de cuánto ocupe
-// luego el contenido del pie (acordeones abiertos, etc.).
-const FADE_HEIGHT = 56;
+// luego el contenido del pie (acordeones abiertos, etc.). Más alto que un
+// simple degradado de dos colores (que con poca altura se ve como una
+// mancha borrosa, no como una transición cuidada): con más recorrido y más
+// paradas de color de por medio se lee como un fundido intencionado, típico
+// de una web con más cuidado en el detalle.
+const FADE_HEIGHT = 120;
+
+// Paradas de color del difuminado: en vez de un simple "transparente →
+// color sólido" (que se ve plano y, con un difuminado corto, como una
+// mancha), se reparten varias paradas intermedias para que el azul entre
+// poco a poco al principio y se cierre del todo solo al final — una curva,
+// no una rampa recta.
+const FADE_COLORS = [
+  "rgba(11,33,56,0)",
+  "rgba(11,33,56,0.05)",
+  "rgba(11,33,56,0.22)",
+  "rgba(11,33,56,0.55)",
+  "rgba(11,33,56,0.86)",
+  BAND_BG,
+] as const;
+const FADE_LOCATIONS = [0, 0.22, 0.45, 0.68, 0.87, 1] as const;
 
 function pushRoute(route: Href) {
   router.push(route);
@@ -195,10 +214,15 @@ export default function SiteFooter({
     // encogido en vez del ancho real de la pantalla.
     <View style={{ width: "100%", alignSelf: "stretch", marginTop: 8 }}>
       {/* Difuminado de entrada: de transparente (deja ver el fondo blanco
-          de la pantalla) al azul oscuro del pie, en vez de un corte recto. */}
+          de la pantalla) al azul oscuro del pie, en varias paradas de color
+          (no un simple "de A a B") para que se lea como una transición
+          cuidada y no como una mancha borrosa. */}
       <LinearGradient
         pointerEvents="none"
-        colors={["rgba(11,33,56,0)", BAND_BG]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        colors={FADE_COLORS}
+        locations={FADE_LOCATIONS}
         style={{ height: FADE_HEIGHT, marginHorizontal: -sidePadding }}
       />
 
