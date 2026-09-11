@@ -2,24 +2,28 @@
 /**
  * Qué hace: pantalla de inicio del panel admin. La comprobación de sesión y
  * rol "admin" la hace app/admin/_layout.tsx antes de montar esta pantalla,
- * así que aquí no hay lógica de sesión: solo la cabecera (título + volver a
- * la tienda) y, ocupando el resto de la pantalla, "Gestión principal" con
- * los accesos a Categorías, Productos, Servicios, Inventario, Cotizaciones,
+ * así que aquí no hay lógica de sesión: solo la cabecera (título "Panel de
+ * Administración" + subtítulo "Áreas principales de gestión de la tienda" +
+ * volver a la tienda) y, ocupando el resto de la pantalla, la rejilla de
+ * accesos a Categorías, Productos, Servicios, Inventario, Cotizaciones,
  * Chat, Noticias Flash, Políticas, Blog, Visitas y métricas, Usuarios y
  * participación, Marca y SEO, y Redes sociales (13 tarjetas: en móvil la
  * rejilla de 2 columnas queda 2-2-2-2-2-2-1).
  *
  * Cómo funciona: antes la cabecera incluía además un párrafo explicativo,
  * una insignia "Administrador activo · email" y el botón "Cerrar sesión";
- * se quitaron a petición de Jefe para que la cabecera sea mínima y ese
- * espacio lo aproveche directamente "Gestión principal". Las tarjetas de
- * acceso (CardButton) son ahora azulejos de un único color (el acento de la
- * marca) con animación al pulsar (escala + opacidad), sin la burbuja de
- * categoría ("Base"/"Ventas"/"Stock"/"Solicitudes") que tenían antes. En
- * móvil se apilan en rejilla de 2 columnas (igual que "Categorías" en
- * Inicio); en escritorio se quedan en lista de una columna con más detalle
- * (icono + título + subtítulo). Tema claro (fondo blanco, texto azul
- * marino, acentos azul claro) con contenido centrado en pantallas anchas
+ * se quitaron a petición de Jefe para que la cabecera sea mínima. El
+ * antiguo encabezado de sección "Gestión principal" (con su propio
+ * subtítulo repetido) se quitó a petición de Jefe: el título y subtítulo
+ * ahora viven una sola vez, en la cabecera de arriba, y la rejilla de
+ * tarjetas empieza justo debajo. Las tarjetas de acceso (CardButton) son
+ * azulejos de un único color (el acento de la marca) con animación al
+ * pulsar (escala + opacidad), sin la burbuja de categoría
+ * ("Base"/"Ventas"/"Stock"/"Solicitudes") que tenían antes. En móvil se
+ * apilan en rejilla de 2 columnas (igual que "Categorías" en Inicio); en
+ * escritorio se quedan en lista de una columna con más detalle (icono +
+ * título + subtítulo). Tema claro (fondo blanco, texto azul marino,
+ * acentos azul claro) con contenido centrado en pantallas anchas
  * (columnStyle, maxWidth 1040).
  *
  * Conectado con:
@@ -175,37 +179,6 @@ function CardButton({
   );
 }
 
-function SectionTitle({
-  title,
-  subtitle,
-  isMobile,
-}: {
-  title: string;
-  subtitle?: string;
-  isMobile?: boolean;
-}) {
-  return (
-    <View style={{ marginBottom: 10, alignItems: "center" }}>
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          fontSize: isMobile ? 17 : 18,
-          lineHeight: isMobile ? 22 : 24,
-          textAlign: "center",
-        }}
-      >
-        {title}
-      </Text>
-      {!!subtitle && (
-        <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 19, textAlign: "center" }}>
-          {subtitle}
-        </Text>
-      )}
-    </View>
-  );
-}
-
 export default function AdminHome() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -338,7 +311,7 @@ export default function AdminHome() {
             gap: 10,
           }}
         >
-        <View style={{ ...columnStyle, gap: 10 }}>
+        <View style={{ ...columnStyle, gap: 4 }}>
           <Text
             style={{
               color: COLORS.text,
@@ -349,6 +322,15 @@ export default function AdminHome() {
             }}
           >
             Panel de Administración
+          </Text>
+          <Text
+            style={{
+              color: COLORS.muted,
+              lineHeight: 20,
+              textAlign: "center",
+            }}
+          >
+            Áreas principales de gestión de la tienda
           </Text>
         </View>
         </View>
@@ -362,12 +344,6 @@ export default function AdminHome() {
         >
         <View style={{ ...columnStyle, gap: 14 }}>
           <View>
-            <SectionTitle
-              title="Gestión principal"
-              subtitle="Accede a las áreas principales de gestión de la tienda."
-              isMobile={isMobile}
-            />
-
             <View
               style={
                 isMobile

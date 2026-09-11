@@ -36,8 +36,12 @@
  *   algo de lo anterior en marcha (true/false).
  * - useFlashBannerHeight() (lib/flashBannerBus.ts) da el alto real, ya
  *   pintado, de la Noticia Flash — la barra se coloca justo ahí ("top"),
- *   pegada a ella, sin superponerse. En pantallas sin Noticia Flash (p. ej.
- *   admin) se usa un alto de respaldo razonable.
+ *   pegada a ella, sin superponerse. En el panel de administración
+ *   (/admin/...) no existe Noticia Flash, así que la barra se pega
+ *   directamente arriba del todo (top: 0) en vez de usar ese alto — que si
+ *   no, se queda con el último valor real medido en la tienda pública (la
+ *   pantalla de antes de entrar a /admin), colocándose en un sitio
+ *   arbitrario que no tiene nada que ver con la cabecera del panel.
  * - Para que NO parpadee en cargas rapidísimas, solo se hace visible si
  *   sigue activa pasados SHOW_DELAY_MS. Y para que tampoco parpadee al
  *   revés, una vez visible se queda un mínimo de MIN_VISIBLE_MS antes de
@@ -93,7 +97,10 @@ export default function LineaPensadoraEfectoSiri() {
   // Punto 3: un pulso fijo en cada cambio de ruta (pestaña/sección/volver
   // atrás...). No se pulsa en el primer render (esa pantalla ya tiene su
   // propia pantalla de carga inicial, BrandLoadingScreen).
+  // También sirve para saber si estamos en el panel de admin (ver
+  // topPosition más abajo): ahí no hay Noticia Flash.
   const pathname = usePathname();
+  const isAdminScreen = pathname?.startsWith("/admin") ?? false;
   const isFirstPathRef = useRef(true);
 
   useEffect(() => {
@@ -182,8 +189,12 @@ export default function LineaPensadoraEfectoSiri() {
   }, [visible, opacityAnim, sweepAnim]);
 
   // Pegada justo debajo de la Noticia Flash: bannerHeight es su alto real,
-  // medido en components/PromoBanner.tsx (ver lib/flashBannerBus.ts).
-  const topPosition = bannerHeight;
+  // medido en components/PromoBanner.tsx (ver lib/flashBannerBus.ts). En el
+  // panel de admin no hay Noticia Flash (PromoBanner no se monta ahí), así
+  // que bannerHeight se quedaría con el último valor real heredado de la
+  // pantalla pública visitada antes — un sitio arbitrario. Ahí se pega
+  // directamente arriba del todo.
+  const topPosition = isAdminScreen ? 0 : bannerHeight;
   const gradientWidth = widthSafe * 1.6;
 
   const translateX = sweepAnim.interpolate({

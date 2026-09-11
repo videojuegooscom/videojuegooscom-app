@@ -14,7 +14,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "build": "expo export --platform web",
     "build:vercel": "expo export --platform web",
-    "vercel-build": "npm run build:vercel"
+    "vercel-build": "npm run build:vercel && node ./scripts/inject-seo-html.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
