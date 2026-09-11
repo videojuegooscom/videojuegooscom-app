@@ -61,26 +61,44 @@ const BRAND_NAME = "Videojuegoszaragoza.com";
 // mancha borrosa, no como una transición cuidada): con más recorrido y más
 // paradas de color de por medio se lee como un fundido intencionado, típico
 // de una web con más cuidado en el detalle.
-const FADE_HEIGHT = 120;
+const FADE_HEIGHT = 140;
 
 // Paradas de color del difuminado. La primera versión iba de "azul marino
 // transparente" a "azul marino sólido": mezclar un color muy oscuro con muy
 // poca opacidad sobre un fondo blanco no da un azul claro, da un GRIS (la
 // mezcla "diluye" el azul junto con el oscuro, así que a poca opacidad se
-// ve neutra, sin color) — de ahí la pinta de mancha borrosa. Ahora se pasa
-// por los azules claros de verdad que ya usa el resto de la tienda (el
-// celeste muy claro de las insignias, el borde celeste de los inputs, el
-// azul de acento) antes de llegar al azul marino del pie — así se ve un
-// degradado de azul a azul, no de gris a azul.
+// ve neutra, sin color) — de ahí la pinta de mancha borrosa.
+//
+// La segunda versión ya pasaba por azules claros reales de la marca en vez
+// de gris, pero con solo 6 paradas había un salto demasiado grande de
+// luminosidad entre el celeste claro y el azul de acento: el ojo lo lee como
+// una "banda de Mach" — una franja de color sólido bien visible en mitad del
+// difuminado, justo lo contrario de "premium" que pedía Daniel.
+//
+// Esta versión usa 12 paradas calculadas interpolando en espacio HSL (tono/
+// saturación/luminosidad) entre 4 puntos clave — blanco, celeste claro, el
+// azul de acento real de la marca y el azul marino del pie — en vez de elegir
+// los colores intermedios a mano. Al repartir el cambio de luminosidad en
+// pasos mucho más pequeños y regulares, la transición se ve continua y suave,
+// sin ninguna banda sólida a la vista. La última parada es exactamente
+// BAND_BG, para que encaje sin costura con el azul marino sólido del pie.
 const FADE_COLORS = [
-  "#FFFFFF", // blanco, igual que el fondo de la pantalla
-  "#EAF6FD", // celeste muy claro (mismo tono que las insignias de la app)
-  "#BEE6FA", // celeste (mismo tono que los bordes de acento de la app)
-  "#1EA7E8", // azul de acento de la marca
-  "#123A5C", // azul intermedio, ya cerca del tono del pie
-  BAND_BG, // azul marino del pie de página
+  "#FFFFFF",
+  "#F4F7F9",
+  "#DDEDF6",
+  "#B3D9ED",
+  "#85C6E8",
+  "#54B6E6",
+  "#20A8E7", // azul de acento de la marca (punto clave de la interpolación)
+  "#1889C7",
+  "#176AA1",
+  "#144F7D",
+  "#10365A",
+  BAND_BG, // azul marino del pie de página — coincide exacto, sin costura
 ] as const;
-const FADE_LOCATIONS = [0, 0.2, 0.4, 0.58, 0.78, 1] as const;
+const FADE_LOCATIONS = [
+  0, 0.091, 0.182, 0.273, 0.364, 0.455, 0.545, 0.636, 0.727, 0.818, 0.909, 1,
+] as const;
 
 function pushRoute(route: Href) {
   router.push(route);

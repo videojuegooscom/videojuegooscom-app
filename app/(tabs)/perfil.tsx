@@ -1309,11 +1309,11 @@ export default function PerfilScreen() {
                 </SectionCard>
               ) : null}
 
+              <CategoryProductsShelf />
+
               <SectionCard padding={cardPadding}>
                 <SocialLinks />
               </SectionCard>
-
-              <CategoryProductsShelf />
             </View>
 
             <SiteFooter sidePadding={pagePadding} />

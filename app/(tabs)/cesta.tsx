@@ -932,6 +932,8 @@ export default function CestaScreen() {
             </Pressable>
           </View>
 
+          <CategoryProductsShelf />
+
           <View
             style={{
               borderRadius: 24,
@@ -941,8 +943,6 @@ export default function CestaScreen() {
           >
             <SocialLinks />
           </View>
-
-          <CategoryProductsShelf />
           </View>
 
           <SiteFooter sidePadding={16} />

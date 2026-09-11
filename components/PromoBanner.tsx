@@ -44,6 +44,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "../lib/supabase";
 import { setFlashBannerHeight } from "../lib/flashBannerBus";
 
@@ -183,82 +184,98 @@ export default function PromoBanner({
   const active = items[activeIndex % items.length] ?? FALLBACK_ITEMS[0];
   const bg = hexToRgba(active.colorHex, 0.14);
   const border = hexToRgba(active.colorHex, 0.45);
+  // Antes esta franja terminaba en una línea recta (borderBottomWidth de 1px).
+  // A petición de Daniel ("quiero que sea un difuminado"), esa línea dura se
+  // sustituye por una tira de degradado que se pinta a continuación (fuera de
+  // la caja con el color sólido, ocupando su propio espacio en el layout) y
+  // se desvanece desde "bg" hasta transparente, dejando un cierre suave en
+  // vez de un corte abrupto. Su altura entra en la medición de onLayout, así
+  // que GlobalLoadingBar (que se pega justo debajo) sigue posicionándose bien.
+  const fadeHeight = isMobile ? 14 : 20;
 
   function handleLayout(e: LayoutChangeEvent) {
     setFlashBannerHeight(e.nativeEvent.layout.height);
   }
 
   return (
-    <View
-      onLayout={handleLayout}
-      style={{
-        backgroundColor: bg,
-        borderBottomWidth: 1,
-        borderBottomColor: border,
-        paddingVertical: isMobile ? 7 : 10,
-        paddingHorizontal: isMobile ? 16 : 24,
-      }}
-    >
+    <View onLayout={handleLayout}>
       <View
         style={{
-          width: "100%",
-          maxWidth: 920,
-          alignSelf: "center",
-          flexDirection: isMobile ? "column" : "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: isMobile ? 6 : 12,
+          backgroundColor: bg,
+          paddingVertical: isMobile ? 7 : 10,
+          paddingHorizontal: isMobile ? 16 : 24,
         }}
       >
-        <Animated.View
+        <View
           style={{
-            opacity: fadeAnim,
-            flexDirection: "row",
+            width: "100%",
+            maxWidth: 920,
+            alignSelf: "center",
+            flexDirection: isMobile ? "column" : "row",
             alignItems: "center",
             justifyContent: "center",
-            gap: 5,
-            flexShrink: 1,
+            gap: isMobile ? 6 : 12,
           }}
         >
-          <Ionicons name="flash-outline" size={isMobile ? 13 : 16} color={active.colorHex} />
-          <Text
-            numberOfLines={2}
+          <Animated.View
             style={{
-              color: COLORS.text,
-              fontWeight: "900",
-              fontSize: isMobile ? 12 : 15,
-              lineHeight: isMobile ? 16 : 20,
-              textAlign: "center",
+              opacity: fadeAnim,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              flexShrink: 1,
             }}
           >
-            {active.message}
-          </Text>
-        </Animated.View>
+            <Ionicons name="flash-outline" size={isMobile ? 13 : 16} color={active.colorHex} />
+            <Text
+              numberOfLines={2}
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: isMobile ? 12 : 15,
+                lineHeight: isMobile ? 16 : 20,
+                textAlign: "center",
+              }}
+            >
+              {active.message}
+            </Text>
+          </Animated.View>
 
-        <Pressable
-          onPress={onPressVender}
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.85 : 1,
-            paddingVertical: isMobile ? 6 : 8,
-            paddingHorizontal: isMobile ? 11 : 14,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: border,
-            backgroundColor: bg,
-            flexShrink: 0,
-          })}
-        >
-          <Text
-            style={{
-              color: COLORS.text,
-              fontWeight: "900",
-              fontSize: isMobile ? 12 : 14,
-            }}
+          <Pressable
+            onPress={onPressVender}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.85 : 1,
+              paddingVertical: isMobile ? 6 : 8,
+              paddingHorizontal: isMobile ? 11 : 14,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: border,
+              backgroundColor: bg,
+              flexShrink: 0,
+            })}
           >
-            Vender Ya
-          </Text>
-        </Pressable>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: isMobile ? 12 : 14,
+              }}
+            >
+              Vender Ya
+            </Text>
+          </Pressable>
+        </View>
       </View>
+
+      <LinearGradient
+        pointerEvents="none"
+        colors={[bg, "transparent"]}
+        locations={[0, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={{ width: "100%", height: fadeHeight }}
+      />
     </View>
   );
 }
