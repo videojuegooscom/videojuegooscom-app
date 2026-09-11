@@ -1389,6 +1389,27 @@ export default function AdminProducts() {
 
       if (!productId) throw new Error("No se pudo completar la creación del producto.");
 
+      // Solo un producto puede estar "Destacado en portada" a la vez: si se
+      // marca aquí, se desmarca cualquier otro que lo tuviera. El botón
+      // rápido "Destacar en portada" de la lista ya hacía esto; al switch de
+      // este mismo formulario le faltaba, y por eso podía quedar más de un
+      // producto marcado a la vez — Inicio, al no tener un único "destacado"
+      // que mostrar, cogía el más reciente de todos ellos, que es justo el
+      // "aparece siempre el que acabo de publicar" que reportó Daniel.
+      if (supportsFeaturedHome && isFeaturedHome) {
+        const { error: unfeaturedError } = await supabase
+          .from("products")
+          .update({ is_featured_home: false })
+          .eq("is_featured_home", true)
+          .neq("id", productId);
+        if (unfeaturedError) {
+          console.error(
+            "Error desmarcando el destacado anterior:",
+            unfeaturedError.message || unfeaturedError
+          );
+        }
+      }
+
       if (wasNewProduct) {
         // La ficha del producto ya se ha creado en la base de datos. Si la
         // subida de fotos/vídeo de más abajo falla, necesitamos que un
