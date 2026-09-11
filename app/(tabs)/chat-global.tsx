@@ -36,9 +36,9 @@
  *   trigger en la base de datos a partir de la sesión real (auth.uid()) y
  *   del perfil, así nadie puede hacerse pasar por otra persona escribiendo
  *   datos falsos desde el propio navegador.
- * - Noticias, Novedades y Torneos siguen siendo contenido de ejemplo fijo en
- *   este archivo (InfoPanel) — no era la parte pedida en esta ronda de
- *   cambios.
+ * - Noticias, Novedades y Torneos todavía no tienen contenido real: cada una
+ *   muestra solo un mensaje centrado "PRÓXIMAMENTE" (ComingSoonPanel) en vez
+ *   de la vista previa de ejemplo que tenían antes.
  * - El contador "X viendo ahora" de la cabecera es real: cada persona que
  *   tiene esta pantalla abierta (con sesión o sin ella) se cuenta con
  *   Supabase Realtime Presence (canal "chat_global_presence",
@@ -90,6 +90,7 @@ import {
   Text,
   TextInput,
   UIManager,
+  useWindowDimensions,
   View,
 } from "react-native";
 import PromoBanner from "../../components/PromoBanner";
@@ -752,52 +753,8 @@ export default function ChatGlobalScreen() {
   };
 
   const renderActiveTabContent = () => {
-    if (activeTab === "news") {
-      return (
-        <InfoPanel
-          title="Noticias"
-          subtitle="Titulares breves sobre el mundo del videojuego y la comunidad, pensados para leerse en unos segundos."
-          items={[
-            "Así se verán los titulares: novedades de lanzamientos, actualizaciones y grandes eventos del sector.",
-            "Cobertura de la escena competitiva: torneos, resultados y tendencias que marcan la actualidad gamer.",
-            "Un resumen claro y directo, sin relleno, para que estés al día en cada visita.",
-          ]}
-          badge="Vista previa"
-          note="Esta sección está en construcción. El contenido de arriba es un ejemplo de cómo lucirán las noticias reales cuando publiquemos la primera."
-        />
-      );
-    }
-
-    if (activeTab === "novedades") {
-      return (
-        <InfoPanel
-          title="Nuestras Novedades"
-          subtitle="El canal oficial para anunciar lanzamientos de la tienda, restocks y mejoras de la plataforma."
-          items={[
-            "Nuevas incorporaciones al catálogo: consolas, packs y ediciones especiales según vayan llegando.",
-            "Avisos de disponibilidad para artículos reacondicionados y accesorios de alta demanda.",
-            "Mejoras de la web y la app: nuevas funciones, ajustes de rendimiento y novedades del servicio.",
-          ]}
-          badge="Vista previa"
-          note="Esta sección está en construcción. El contenido de arriba es un ejemplo de cómo lucirán nuestros anuncios reales."
-        />
-      );
-    }
-
-    if (activeTab === "torneos") {
-      return (
-        <InfoPanel
-          title="Torneos"
-          subtitle="El espacio dedicado a la competición: torneos, retos y eventos organizados por la comunidad."
-          items={[
-            "Convocatorias de torneos con formato, fechas y premios detallados antes de cada inscripción.",
-            "Retos semanales abiertos a toda la comunidad para ganar visibilidad y recompensas.",
-            "Clasificaciones y rankings locales, organizados por ciudad o por sala de juego.",
-          ]}
-          badge="Vista previa"
-          note="Esta sección está en construcción. El contenido de arriba es un ejemplo de cómo se anunciarán los torneos reales."
-        />
-      );
+    if (activeTab === "news" || activeTab === "novedades" || activeTab === "torneos") {
+      return <ComingSoonPanel />;
     }
 
     if (activeTab === "privados") {
@@ -2373,108 +2330,32 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
   );
 }
 
-function InfoPanel({
-  title,
-  subtitle,
-  items,
-  badge,
-  note,
-}: {
-  title: string;
-  subtitle: string;
-  items: string[];
-  // "Vista previa": deja claro que el contenido de abajo es un ejemplo de
-  // cómo lucirá la sección, no una publicación real todavía.
-  badge?: string;
-  note?: string;
-}) {
+// Pestañas "Noticias Gaming", "Nuestras Novedades" y "Torneos": todavía sin
+// contenido real, así que de momento muestran solo este mensaje centrado en
+// la pantalla en vez de una vista previa de ejemplo (antes era InfoPanel,
+// con títulos y párrafos de muestra — se quitó a petición de Jefe).
+function ComingSoonPanel() {
+  const { height } = useWindowDimensions();
+
   return (
     <View
       style={{
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: COLORS.borderSoft,
-        backgroundColor: COLORS.card,
-        padding: 16,
-        gap: 12,
+        minHeight: Math.max(260, height - 320),
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
-      <View
+      <Text
         style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
+          color: COLORS.text,
+          fontWeight: "900",
+          fontSize: 22,
+          letterSpacing: 1,
+          textAlign: "center",
         }}
       >
-        <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900" }}>
-          {title}
-        </Text>
-
-        {badge ? (
-          <View
-            style={{
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.accentBorder,
-              backgroundColor: COLORS.accentSoft,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-            }}
-          >
-            <Text
-              style={{
-                color: COLORS.accent,
-                fontWeight: "900",
-                fontSize: 11,
-                letterSpacing: 0.3,
-                textTransform: "uppercase",
-              }}
-            >
-              {badge}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>{subtitle}</Text>
-
-      <View style={{ gap: 10 }}>
-        {items.map((item, index) => (
-          <View
-            key={`${title}-${index}`}
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "#E3EAF2",
-              backgroundColor: "#F8FBFE",
-              padding: 12,
-            }}
-          >
-            <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item}</Text>
-          </View>
-        ))}
-      </View>
-
-      {note ? (
-        <View
-          style={{
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: COLORS.borderSoft,
-            backgroundColor: "rgba(11,33,56,0.04)",
-            padding: 10,
-            flexDirection: "row",
-            alignItems: "flex-start",
-            gap: 8,
-          }}
-        >
-          <Ionicons name="information-circle-outline" size={16} color={COLORS.muted} />
-          <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: 12.5, flex: 1 }}>
-            {note}
-          </Text>
-        </View>
-      ) : null}
+        PRÓXIMAMENTE
+      </Text>
     </View>
   );
 }

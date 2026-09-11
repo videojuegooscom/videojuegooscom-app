@@ -1,14 +1,18 @@
 // components/CategoryProductsShelf.tsx
 /**
- * Qué hace: fila horizontal de productos de PlayStation 5 y Xbox ("También
- * te puede interesar"). Daniel pidió mostrar productos de esas categorías en
- * Perfil y Cesta para que esas pantallas no se vean tan vacías por debajo de
- * su propio contenido (formulario de cuenta / resumen del pedido).
+ * Qué hace: carrusel horizontal con TODOS los productos de PlayStation 5 y
+ * Xbox ("También te puede interesar"). Daniel pidió mostrar productos de
+ * esas categorías en Perfil y Cesta para que esas pantallas no se vean tan
+ * vacías por debajo de su propio contenido (formulario de cuenta / resumen
+ * del pedido); después pidió que fuera un carrusel de TODOS los productos de
+ * esas categorías, no solo una muestra de 12.
  *
  * Cómo funciona:
  * - Primero resuelve los ids de las categorías con slug "playstation-5" y
- *   "xbox" (tabla categories), luego trae hasta 12 productos activos y
- *   publicados de esas categorías, los más recientes primero.
+ *   "xbox" (tabla categories), luego trae TODOS los productos activos y
+ *   publicados de esas categorías (hasta SHELF_MAX_PRODUCTS, un tope técnico
+ *   generoso para no pedir un número absurdo de filas si el catálogo creciera
+ *   mucho — en la práctica esto es "todos"), los más recientes primero.
  * - La foto de portada de cada producto NO vive en products.images (ese
  *   campo suele estar vacío/heredado) sino en la tabla product_media, igual
  *   que en app/catalogo.tsx y app/(tabs)/index.tsx: se hace una segunda
@@ -22,18 +26,26 @@
  *   sin esa parte en vez de romper; si al final no hay productos, no se
  *   pinta nada (return null) — es un añadido opcional, nunca debe mostrarle
  *   un error al cliente ni dejar un hueco raro en la pantalla.
+ * - Es un carrusel de verdad, no solo una fila con scroll: las tarjetas
+ *   encajan en "carriles" (snapToInterval, del ancho de una tarjeta + su
+ *   hueco) y aparecen flechas ‹ › a los lados (solo cuando hay más contenido
+ *   hacia ese lado) que avanzan/retroceden una pantalla completa de
+ *   tarjetas — mismo espíritu que el carrusel de fotos de la Oferta de la
+ *   Semana (FeaturedMediaCarousel en app/(tabs)/index.tsx). En pantallas
+ *   táctiles sigue funcionando igual arrastrando con el dedo; las flechas
+ *   son sobre todo para ratón/escritorio.
  * - Cada tarjeta abre la ficha del producto (app/producto/[id].tsx).
  *
  * Rendimiento: este componente se monta por separado en Perfil Y en Cesta —
- * son las MISMAS 12 tarjetas de PS5/Xbox en los dos sitios, así que antes,
- * cada vez que el cliente iba de una pantalla a la otra (algo habitual:
- * revisar el carrito, volver al perfil, volver a la cesta...), se repetían
- * las mismas 3 consultas a Supabase (categorías, productos, fotos de
- * portada) aunque el resultado fuera a ser idéntico. Ahora el resultado se
- * guarda en memoria (shelfCache) durante SHELF_CACHE_TTL_MS (5 minutos): la
- * primera vez sí consulta Supabase, pero mientras el cliente navegue de un
- * lado a otro dentro de esos 5 minutos, ya no vuelve a preguntar. Pasado ese
- * tiempo (o si recarga la página), se refresca solo.
+ * son las MISMAS tarjetas de PS5/Xbox en los dos sitios, así que antes, cada
+ * vez que el cliente iba de una pantalla a la otra (algo habitual: revisar
+ * el carrito, volver al perfil, volver a la cesta...), se repetían las
+ * mismas 3 consultas a Supabase (categorías, productos, fotos de portada)
+ * aunque el resultado fuera a ser idéntico. Ahora el resultado se guarda en
+ * memoria (shelfCache) durante SHELF_CACHE_TTL_MS (5 minutos): la primera
+ * vez sí consulta Supabase, pero mientras el cliente navegue de un lado a
+ * otro dentro de esos 5 minutos, ya no vuelve a preguntar. Pasado ese tiempo
+ * (o si recarga la página), se refresca solo.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas categories, products,
@@ -47,7 +59,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import SmartImage from "./SmartImage";
 import { supabase } from "../lib/supabase";
@@ -60,6 +73,18 @@ const COLORS = {
 };
 
 const SHELF_CATEGORY_SLUGS = ["playstation-5", "xbox"];
+
+// Tope técnico, no un límite de negocio: evita pedir un número absurdo de
+// filas si el catálogo de esas dos categorías creciera muchísimo. Con el
+// catálogo actual esto siempre trae "todos" los productos de PS5 y Xbox.
+const SHELF_MAX_PRODUCTS = 300;
+
+// Ancho de cada tarjeta + su hueco: define tanto el "carril" al que encaja
+// cada tarjeta (snapToInterval) como cuánto avanza el carrusel al pulsar las
+// flechas ‹ ›.
+const CARD_WIDTH = 156;
+const CARD_GAP = 10;
+const CARD_STEP = CARD_WIDTH + CARD_GAP;
 
 // Caché en memoria compartida entre Perfil y Cesta (ver nota de rendimiento
 // arriba): evita repetir las mismas 3 consultas cada vez que se monta este
@@ -153,7 +178,7 @@ async function fetchProductRowsSafe(catIds: string[]): Promise<ShelfProductRow[]
       .eq("is_active", true)
       .eq("status", "PUBLISHED")
       .order("updated_at", { ascending: false })
-      .limit(12);
+      .limit(SHELF_MAX_PRODUCTS);
 
     if (!error && Array.isArray(data)) {
       return data.map(asShelfProductRow).filter((p): p is ShelfProductRow => p !== null);
@@ -177,7 +202,7 @@ async function fetchCoverImageMapSafe(productIds: string[]): Promise<Map<string,
       .from("product_media")
       .select("product_id,kind,public_url,sort_order,is_cover")
       .in("product_id", productIds)
-      .limit(2000);
+      .limit(4000);
 
     if (error || !Array.isArray(data)) return map;
 
@@ -259,6 +284,18 @@ async function getShelfProductsCached(): Promise<ShelfProduct[]> {
 export default function CategoryProductsShelf() {
   const [products, setProducts] = useState<ShelfProduct[] | null>(null);
 
+  // Estado del carrusel: solo hace falta saber cuánto se puede seguir
+  // desplazando hacia cada lado, para mostrar u ocultar las flechas ‹ ›. La
+  // posición y los anchos se guardan en refs (no en estado) porque cambian
+  // en cada frame de scroll y no hace falta volver a renderizar por eso —
+  // solo se usan dentro de scrollByCards, al pulsar una flecha.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollXRef = useRef(0);
+  const layoutWidthRef = useRef(0);
+  const contentWidthRef = useRef(0);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
   useEffect(() => {
     let alive = true;
 
@@ -271,6 +308,40 @@ export default function CategoryProductsShelf() {
     };
   }, []);
 
+  // Recalcula qué flechas tienen sentido mostrar a partir de los refs
+  // (posición actual, ancho visible, ancho total). Se llama tanto al hacer
+  // scroll como al terminar de medir el carrusel (onLayout/onContentSizeChange),
+  // para que la flecha derecha ya aparezca de entrada si hay más tarjetas de
+  // las que caben en pantalla, sin esperar a que el cliente arrastre primero.
+  const recomputeArrows = useCallback(() => {
+    setCanScrollLeft(scrollXRef.current > 4);
+    setCanScrollRight(scrollXRef.current < contentWidthRef.current - layoutWidthRef.current - 4);
+  }, []);
+
+  const updateArrows = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      scrollXRef.current = contentOffset.x;
+      layoutWidthRef.current = layoutMeasurement.width;
+      contentWidthRef.current = contentSize.width;
+      recomputeArrows();
+    },
+    [recomputeArrows]
+  );
+
+  const scrollByCards = useCallback((direction: 1 | -1) => {
+    // Avanza/retrocede "una pantalla" de tarjetas de golpe, no una tarjeta
+    // suelta — así las flechas sirven de verdad para recorrer un carrusel
+    // largo sin tener que pulsarlas decenas de veces. Redondeado al carril
+    // más cercano (CARD_STEP) para que la tarjeta de destino quede encajada,
+    // no cortada a medias.
+    const visibleCards = Math.max(1, Math.floor(layoutWidthRef.current / CARD_STEP));
+    const delta = visibleCards * CARD_STEP * direction;
+    const maxX = Math.max(0, contentWidthRef.current - layoutWidthRef.current);
+    const nextX = Math.min(maxX, Math.max(0, scrollXRef.current + delta));
+    scrollRef.current?.scrollTo({ x: nextX, animated: true });
+  }, []);
+
   // Mientras carga, o si no hay nada que mostrar, no se pinta nada: es un
   // añadido opcional, nunca debe dejar un hueco de "cargando" a la vista.
   if (!products || products.length === 0) return null;
@@ -281,75 +352,126 @@ export default function CategoryProductsShelf() {
         También te puede interesar
       </Text>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 10, paddingRight: 4 }}
-      >
-        {products.map((p) => (
-          <Pressable
-            key={p.id}
-            onPress={() => router.push(`/producto/${p.id}` as Href)}
-            style={({ pressed }) => ({
-              width: 156,
-              borderRadius: 16,
-              backgroundColor: COLORS.tile,
-              padding: 10,
-              alignItems: "center",
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            {/* contentFit="contain" (no "cover") a propósito: aquí interesa
-                ver la foto entera del producto, sin recortarla para rellenar
-                el hueco — aunque eso deje una pequeña banda blanca a los
-                lados si la foto no es cuadrada. */}
-            <View
-              style={{
-                width: "100%",
-                height: 108,
-                borderRadius: 12,
-                overflow: "hidden",
-                backgroundColor: "#FFFFFF",
+      <View style={{ position: "relative" }}>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={CARD_STEP}
+          decelerationRate="fast"
+          onScroll={updateArrows}
+          onLayout={(e) => {
+            layoutWidthRef.current = e.nativeEvent.layout.width;
+            recomputeArrows();
+          }}
+          onContentSizeChange={(w) => {
+            // Al terminar de cargar, comprueba si ya hay más tarjetas de las
+            // que caben en pantalla, para mostrar la flecha derecha desde el
+            // principio en vez de esperar a que el cliente arrastre primero.
+            contentWidthRef.current = w;
+            recomputeArrows();
+          }}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ gap: CARD_GAP, paddingRight: 4 }}
+        >
+          {products.map((p) => (
+            <Pressable
+              key={p.id}
+              onPress={() => router.push(`/producto/${p.id}` as Href)}
+              style={({ pressed }) => ({
+                width: CARD_WIDTH,
+                borderRadius: 16,
+                backgroundColor: COLORS.tile,
+                padding: 10,
                 alignItems: "center",
-                justifyContent: "center",
-              }}
+                opacity: pressed ? 0.9 : 1,
+              })}
             >
-              {p.image ? (
-                <SmartImage uri={p.image} contentFit="contain" style={{ width: "100%", height: "100%" }} />
-              ) : (
-                <Ionicons name="game-controller-outline" size={28} color={COLORS.muted} />
-              )}
-            </View>
+              {/* contentFit="contain" (no "cover") a propósito: aquí interesa
+                  ver la foto entera del producto, sin recortarla para rellenar
+                  el hueco — aunque eso deje una pequeña banda blanca a los
+                  lados si la foto no es cuadrada. */}
+              <View
+                style={{
+                  width: "100%",
+                  height: 108,
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  backgroundColor: "#FFFFFF",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {p.image ? (
+                  <SmartImage uri={p.image} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                ) : (
+                  <Ionicons name="game-controller-outline" size={28} color={COLORS.muted} />
+                )}
+              </View>
 
-            {/* Sin numberOfLines a propósito: el título se ve completo,
-                aunque ocupe dos o tres líneas, en vez de cortarse con "...". */}
-            <Text
-              style={{
-                color: COLORS.text,
-                fontWeight: "800",
-                fontSize: 12.5,
-                marginTop: 8,
-                lineHeight: 16,
-                textAlign: "center",
-              }}
-            >
-              {p.title}
-            </Text>
+              {/* Sin numberOfLines a propósito: el título se ve completo,
+                  aunque ocupe dos o tres líneas, en vez de cortarse con "...". */}
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontWeight: "800",
+                  fontSize: 12.5,
+                  marginTop: 8,
+                  lineHeight: 16,
+                  textAlign: "center",
+                }}
+              >
+                {p.title}
+              </Text>
 
-            <Text
-              style={{
-                color: COLORS.accent,
-                fontWeight: "900",
-                fontSize: 14,
-                marginTop: 4,
-                textAlign: "center",
-              }}
-            >
-              {fmtEUR(p.priceEUR)}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+              <Text
+                style={{
+                  color: COLORS.accent,
+                  fontWeight: "900",
+                  fontSize: 14,
+                  marginTop: 4,
+                  textAlign: "center",
+                }}
+              >
+                {fmtEUR(p.priceEUR)}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        {canScrollLeft ? (
+          <CarouselArrow direction="left" onPress={() => scrollByCards(-1)} />
+        ) : null}
+
+        {canScrollRight ? (
+          <CarouselArrow direction="right" onPress={() => scrollByCards(1)} />
+        ) : null}
+      </View>
     </View>
+  );
+}
+
+// Flecha ‹ › flotante a un lado del carrusel — mismo estilo (círculo oscuro
+// semitransparente) que las del carrusel de fotos de la Oferta de la Semana.
+// Solo aparece cuando de verdad hay más tarjetas hacia ese lado.
+function CarouselArrow({ direction, onPress }: { direction: "left" | "right"; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={10}
+      style={({ pressed }) => ({
+        position: "absolute",
+        [direction]: -6,
+        top: 44,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        backgroundColor: pressed ? "rgba(11,33,56,0.72)" : "rgba(11,33,56,0.52)",
+        alignItems: "center",
+        justifyContent: "center",
+      })}
+    >
+      <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={16} color="#FFFFFF" />
+    </Pressable>
   );
 }
