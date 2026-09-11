@@ -24,6 +24,17 @@
  *   un error al cliente ni dejar un hueco raro en la pantalla.
  * - Cada tarjeta abre la ficha del producto (app/producto/[id].tsx).
  *
+ * Rendimiento: este componente se monta por separado en Perfil Y en Cesta —
+ * son las MISMAS 12 tarjetas de PS5/Xbox en los dos sitios, así que antes,
+ * cada vez que el cliente iba de una pantalla a la otra (algo habitual:
+ * revisar el carrito, volver al perfil, volver a la cesta...), se repetían
+ * las mismas 3 consultas a Supabase (categorías, productos, fotos de
+ * portada) aunque el resultado fuera a ser idéntico. Ahora el resultado se
+ * guarda en memoria (shelfCache) durante SHELF_CACHE_TTL_MS (5 minutos): la
+ * primera vez sí consulta Supabase, pero mientras el cliente navegue de un
+ * lado a otro dentro de esos 5 minutos, ya no vuelve a preguntar. Pasado ese
+ * tiempo (o si recarga la página), se refresca solo.
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas categories, products,
  *   product_media).
@@ -49,6 +60,13 @@ const COLORS = {
 };
 
 const SHELF_CATEGORY_SLUGS = ["playstation-5", "xbox"];
+
+// Caché en memoria compartida entre Perfil y Cesta (ver nota de rendimiento
+// arriba): evita repetir las mismas 3 consultas cada vez que se monta este
+// componente si ya se pidieron hace poco.
+const SHELF_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+let shelfCache: { data: ShelfProduct[]; fetchedAt: number } | null = null;
+let shelfInFlight: Promise<ShelfProduct[]> | null = null;
 
 type ShelfProductRow = {
   id: string;
@@ -214,13 +232,37 @@ async function fetchShelfProductsSafe(): Promise<ShelfProduct[]> {
   }
 }
 
+// Devuelve la lista de productos del estante, usando la caché en memoria si
+// todavía es reciente (SHELF_CACHE_TTL_MS) y compartiendo la misma petición
+// en vuelo si Perfil y Cesta llegan a pedirla casi a la vez (por ejemplo, al
+// recargar la página con las dos montadas).
+async function getShelfProductsCached(): Promise<ShelfProduct[]> {
+  const now = Date.now();
+  if (shelfCache && now - shelfCache.fetchedAt < SHELF_CACHE_TTL_MS) {
+    return shelfCache.data;
+  }
+
+  if (!shelfInFlight) {
+    shelfInFlight = fetchShelfProductsSafe()
+      .then((rows) => {
+        shelfCache = { data: rows, fetchedAt: Date.now() };
+        return rows;
+      })
+      .finally(() => {
+        shelfInFlight = null;
+      });
+  }
+
+  return shelfInFlight;
+}
+
 export default function CategoryProductsShelf() {
   const [products, setProducts] = useState<ShelfProduct[] | null>(null);
 
   useEffect(() => {
     let alive = true;
 
-    fetchShelfProductsSafe().then((rows) => {
+    getShelfProductsCached().then((rows) => {
       if (alive) setProducts(rows);
     });
 

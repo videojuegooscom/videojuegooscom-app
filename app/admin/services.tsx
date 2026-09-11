@@ -25,6 +25,12 @@
  * - Tema claro (fondo blanco, texto azul marino, acentos azul claro) con
  *   contenido centrado en pantallas anchas (columnStyle, maxWidth 1160).
  *
+ * Rendimiento: uploadNewPhotos() sube las fotos a Storage una a una (no se
+ * puede agrupar) pero guarda sus filas en "service_media" con un único
+ * INSERT agrupado al final, en vez de uno por foto; syncCover() agrupa igual
+ * sus cambios en un solo .upsert(). Mismo patrón ya usado en
+ * admin/products.tsx (ver normalizeMediaForProduct allí).
+ *
  * Conectado con:
  * - sql/services.sql, sql/service_media.sql, sql/service_requests.sql →
  *   tablas y políticas RLS que usa esta pantalla.
@@ -523,6 +529,15 @@ export default function AdminServices() {
     if (!newMedia.length) return;
     const startIndex = existingMedia.length;
 
+    // La subida a Storage tiene que ser un archivo detrás de otro (no se
+    // puede agrupar). Pero antes, además, se hacía un INSERT a
+    // "service_media" por cada foto (hasta 15 peticiones de red seguidas
+    // solo para guardar las filas). Ahora se suben los archivos igual, uno a
+    // uno, pero las filas se acumulan en memoria y se mandan en un único
+    // INSERT agrupado al final — mismo patrón que ya usa
+    // admin/products.tsx (ver normalizeMediaForProduct).
+    const rows: Record<string, any>[] = [];
+
     for (let i = 0; i < newMedia.length; i++) {
       const item = newMedia[i];
       const storagePath = `services/${buildMediaPath(serviceId, item, startIndex + i)}`;
@@ -537,7 +552,7 @@ export default function AdminServices() {
       const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
       const publicUrl = publicData?.publicUrl ?? "";
 
-      const insertRes = await supabase.from("service_media").insert({
+      rows.push({
         service_id: serviceId,
         storage_path: storagePath,
         public_url: publicUrl,
@@ -545,6 +560,10 @@ export default function AdminServices() {
         sort_order: startIndex + i,
         is_cover: coverId === item.id,
       });
+    }
+
+    if (rows.length) {
+      const insertRes = await supabase.from("service_media").insert(rows);
       if (insertRes.error) throw insertRes.error;
     }
   }
@@ -564,13 +583,20 @@ export default function AdminServices() {
   async function syncCover(serviceId: string) {
     // Deja como portada únicamente la que coincide con coverId (entre las
     // fotos que ya existían en Supabase; las nuevas ya se insertan con
-    // is_cover correcto en uploadNewPhotos).
-    for (const m of existingMedia) {
-      const shouldBeCover = m.id === coverId;
-      if (Boolean(m.is_cover) !== shouldBeCover) {
-        await supabase.from("service_media").update({ is_cover: shouldBeCover }).eq("id", m.id);
-      }
-    }
+    // is_cover correcto en uploadNewPhotos). Antes esto era un .update() por
+    // foto cuyo estado de portada cambiaba; ahora se agrupan los cambios en
+    // un único .upsert() — mismo patrón, y misma cautela con las columnas
+    // NOT NULL sin valor por defecto (aquí "service_id"), que ya products.tsx
+    // documenta: un .upsert() es un INSERT ... ON CONFLICT DO UPDATE a nivel
+    // de Postgres, así que sin service_id fallaría aunque la fila ya exista.
+    const changedRows = existingMedia
+      .filter((m) => Boolean(m.is_cover) !== (m.id === coverId))
+      .map((m) => ({ id: m.id, service_id: serviceId, is_cover: m.id === coverId }));
+
+    if (changedRows.length === 0) return;
+
+    const { error } = await supabase.from("service_media").upsert(changedRows, { onConflict: "id" });
+    if (error) throw error;
   }
 
   async function save() {

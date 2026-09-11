@@ -34,6 +34,15 @@
  *   Cuando el contenido de esa pestaña cambie de verdad, hay que subir el
  *   número en AMBOS archivos para que la campanita vuelva a avisar.
  *
+ * Rendimiento: refreshChats() se repite cada POLL_MS (45s) MIENTRAS la app
+ * esté abierta, en cualquier pantalla — es la llamada a Supabase más
+ * constante de toda la app. En web, si el visitante deja la pestaña abierta
+ * en segundo plano (cambia de pestaña, minimiza), el sondeo se PAUSA
+ * (document.visibilitychange) en vez de seguir preguntando cada 45s sin que
+ * nadie lo vea; en cuanto vuelve a la pestaña, se refresca al instante y el
+ * sondeo se reanuda. En nativo (iOS/Android) no existe "document", así que
+ * ahí sigue sondeando igual que antes.
+ *
  * Conectado con:
  * - app/_layout.tsx → la monta una sola vez, fuera del Stack.
  * - lib/supabase.ts → sesión, rol de admin y la RPC get_unread_chat_count.
@@ -238,7 +247,24 @@ export default function Campanita() {
     refreshLikes();
     refreshNovedades();
 
-    const interval = setInterval(refreshChats, POLL_MS);
+    // Solo en web: si la pestaña está en segundo plano (el visitante cambió
+    // de pestaña o la minimizó), no tiene sentido seguir preguntando a
+    // Supabase cada 45s sin que nadie lo vea — se pausa el sondeo y se
+    // retoma (con un refresco inmediato) en cuanto vuelve a primer plano.
+    const hasDocument = typeof document !== "undefined";
+    const isPageVisible = () => !hasDocument || document.visibilityState !== "hidden";
+
+    const interval = setInterval(() => {
+      if (isPageVisible()) refreshChats();
+    }, POLL_MS);
+
+    let onVisibilityChange: (() => void) | null = null;
+    if (hasDocument) {
+      onVisibilityChange = () => {
+        if (document.visibilityState === "visible") refreshChats();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
 
     const { data: authSub } = supabase.auth.onAuthStateChange(() => {
       refreshAuth();
@@ -247,6 +273,9 @@ export default function Campanita() {
 
     return () => {
       clearInterval(interval);
+      if (hasDocument && onVisibilityChange) {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
       authSub?.subscription?.unsubscribe?.();
     };
   }, [refreshAuth, refreshChats, refreshLikes, refreshNovedades]);
