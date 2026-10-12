@@ -729,7 +729,11 @@ COMANDOS_VALIDACION = {f"python3 {s}" for s in SCRIPTS_VALIDACION}
 # copia de root que instala vz-instalar-claude (el agente no puede cambiarla), en forma exacta.
 CONTROLADOR = "/usr/local/bin/vz-publicar"
 CONTROLADOR_RE = re.compile(r"^/usr/local/bin/vz-publicar (revisar|publicar) [0-9]{1,6}$")
-INTENTO_CONTROLADOR_RE = re.compile(r"(?<![\w-])(vz-publicar|controlador\.py)\b")
+# Solo cuenta como intento cuando se EJECUTA (al inicio de un comando o tras ;, &&, |, (, `, $( o
+# una asignación), no cuando se menciona en un texto (mensaje de commit, cuerpo de una PR…).
+INTENTO_CONTROLADOR_RE = re.compile(
+    r"(^|[;&|(`]\s*|\$\(\s*|=\S*\s+)(\S*/)?"
+    r"(vz-publicar\b|python[0-9.]*\s+(-\S+\s+)*\S*(?<![\w-])controlador\.py\b)")
 
 # ============================================================== cliente vz-sql =====
 # Única vía de Claude para CAMBIAR el Supabase real (la lectura va por MCP). Forma exacta, sin
@@ -926,13 +930,13 @@ def destinos_de_escritura(t0, args, seg, cwd):
                      if a in ("-o", "--output", "-O", "--output-document") and k + 1 < len(args)]
     return [ruta_abs(d, cwd) for d in destinos if d and not re.search(r"[$`]", d)]
 
-def revisar_controlador(comando, cwd):
+def revisar_controlador(comando, cwd, profundidad=0):
     """True si es una llamada válida al controlador de publicación; deniega cualquier otra forma
-    de invocarlo (con prefijos, variables, otra ruta, compuesto o desde otro directorio)."""
-    if not isinstance(comando, str) or not INTENTO_CONTROLADOR_RE.search(comando):
+    de invocarlo (con prefijos, variables, otra ruta, compuesto, anidado o desde otro directorio)."""
+    if not isinstance(comando, str) or not INTENTO_CONTROLADOR_RE.search(comando.strip()):
         return False
     texto = comando.strip()
-    if not CONTROLADOR_RE.fullmatch(texto) or not controlador_instalado():
+    if profundidad > 0 or not CONTROLADOR_RE.fullmatch(texto) or not controlador_instalado():
         deny("controlador-forma", f"Publica solo con «{CONTROLADOR} revisar|publicar <número>» (la copia de root "
                                   "instalada); nunca el script del repositorio ni gh pr merge.")
     return True
@@ -1047,7 +1051,7 @@ def revisar_bash(comando, cwd, profundidad=0):
         deny("entrada-invalida", "Comando con formato no reconocido.")
     if profundidad > 5:
         deny("anidamiento", "Demasiados niveles de shells anidadas.")
-    if profundidad == 0 and revisar_controlador(comando, cwd):
+    if revisar_controlador(comando, cwd, profundidad):
         return
     if revisar_cliente_sql(comando, cwd):
         return

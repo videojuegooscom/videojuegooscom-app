@@ -251,6 +251,10 @@ PASA = [
     "python3 infraestructura/claude-code/test_guardian.py", "python3 infraestructura/claude-code/test_politica.py",
     "bash -n infraestructura/claude-code/instalar.sh", "python3 -m py_compile infraestructura/claude-code/guardian.py",
     "python3 infraestructura/publicacion/test_controlador.py",
+    # Mencionar el controlador en un texto no es ejecutarlo.
+    "gh pr create --title x --body \"vz-publicar revisar falló y ahora funciona\"",
+    "git commit -m 'Arregla controlador.py y vz-publicar'",
+    "grep -n gh infraestructura/publicacion/controlador.py",
     "git commit -m 'toca CLAUDE.md y .env.example'", "git log --graph --oneline", "git var GIT_COMMITTER_IDENT",
     "git show HEAD:package.json", "git push origin feat:feat",
 ]
