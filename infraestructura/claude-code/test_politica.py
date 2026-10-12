@@ -52,6 +52,14 @@ IMPRESCINDIBLES = [
 for r in IMPRESCINDIBLES:
     comprobar(f"deny imprescindible: {r}", r in P["deny"])
 
+# Ninguna regla deny de la política que había antes desaparece (lo mismo que exige el instalador).
+_anterior = os.path.join(AQUI, "origen", "politica_actual.json")
+if os.path.isfile(_anterior):
+    with open(_anterior, encoding="utf-8") as f:
+        for r in json.load(f)["permissions"]["deny"]:
+            if "claude_ai_" not in r:
+                comprobar(f"deny anterior conservada: {r}", r in P["deny"])
+
 # La lista allow no puede abrir comandos genéricos ni peligrosos.
 PROHIBIDOS_EN_ALLOW = re.compile(
     r"^(Bash|Edit|Read|Write)$|Bash\((sudo|su|rm|mv|curl|wget|ssh|scp|eval|bash -c|sh -c|python3 -c|node -e|"
