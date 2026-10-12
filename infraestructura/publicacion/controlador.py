@@ -82,6 +82,8 @@ def revisar_archivos(archivos):
     fallos = []
     if not archivos:
         fallos.append("la PR no cambia ningún archivo")
+    if len(archivos) >= 100:
+        fallos.append("la PR cambia 100 archivos o más: la revisa una persona")
     for a in archivos:
         ruta, estado = a.get("filename", ""), a.get("status", "")
         if estado in ("removed", "renamed"):
@@ -152,8 +154,9 @@ def gh(*args):
 def datos_pr(numero):
     pr = json.loads(gh("pr", "view", str(numero), "--repo", REPO, "--json",
                        "number,title,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,isCrossRepository"))
-    archivos = json.loads(gh("api", f"repos/{REPO}/pulls/{numero}/files?per_page=100", "--paginate", "--slurp"))
-    archivos = [a for pagina in archivos for a in pagina]
+    # Una sola página de 100 (gh 2.45 del servidor no tiene --slurp). Una PR con 100 archivos o
+    # más no se publica sola: revisar_archivos la rechaza por tamaño.
+    archivos = json.loads(gh("api", f"repos/{REPO}/pulls/{numero}/files?per_page=100"))
     sha = pr["headRefOid"]
     estados = json.loads(gh("api", f"repos/{REPO}/commits/{sha}/status")).get("statuses", [])
     runs = json.loads(gh("api", f"repos/{REPO}/commits/{sha}/check-runs")).get("check_runs", [])
