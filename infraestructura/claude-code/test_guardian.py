@@ -207,7 +207,7 @@ LECTURA = [
     "curl -fsSL https://videojuegoszaragoza.com/robots.txt", "curl -s -m 10 https://videojuegoszaragoza.com/",
     "curl -sI https://videojuegooscom-m7x5v6guz-daniels-projects-771407af.vercel.app",
     "gh pr list | head", "gh pr view 3 && gh pr checks 3",
-    f"tail -4 {H}/.claude/vz-guardian.log", f"cat {H}/.claude/projects/x/memory/MEMORY.md",
+    f"tail -4 {H}/registros/vz-guardian.log", f"cat {H}/.claude/projects/x/memory/MEMORY.md",
     "cat package.json", "git log --oneline -5 app", "grep -n useState app/checkout.tsx",
 ]
 
@@ -277,7 +277,9 @@ CRITICA_OTRAS = [
     mcp("mcp__supabase__execute_sql", query="select mi_funcion_rara()"),
     mcp("mcp__supabase__execute_sql", query="create policy x on products for select using (true)"),
     mcp("mcp__vercel__create_project", name="x"), mcp("mcp__vercel__run_session_command", command="ls"),
-    write("/tmp/fuera.txt"),
+    write("/tmp/fuera.txt"), write(os.path.join(H, "registros/vz-guardian.log")),
+    edit(os.path.join(H, "registros/vz-guardian.log")), bash(f"echo x > {H}/registros/vz-guardian.log"),
+    bash(f"truncate -s 0 {H}/registros/vz-guardian.log"),
 ]
 
 # ----------------------------------------------------------------- LIBRE ---------

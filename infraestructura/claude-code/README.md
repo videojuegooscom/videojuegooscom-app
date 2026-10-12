@@ -17,7 +17,7 @@ monta como `/etc/claude-code`. El `/etc/claude-code` real del sistema (de VeoAur
 ## Modo sin confirmaciones
 
 Se activa con el archivo `modo-autonomo` (de root) junto a la política: `sudo vz-instalar-claude --autonomo`.
-En ese modo las dudas del guardián no muestran ventana: pasan y quedan en `~/.claude/vz-guardian.log`
+En ese modo las dudas del guardián no muestran ventana: pasan y quedan en `~/registros/vz-guardian.log`
 como `"decision": "auto"`. Las reglas deny se mantienen siempre, y las dudas críticas (ejecutar
 código no visible, red, dependencias de origen raro, escrituras en la base de datos o en producción,
 escribir fuera del proyecto, descartar trabajo) se deniegan.
