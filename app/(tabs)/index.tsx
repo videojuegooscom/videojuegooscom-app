@@ -95,6 +95,7 @@ import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { openExternalLink } from "../../lib/openExternalLink";
+import { useTabBarBottomInset } from "../../lib/tabBar";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -1333,6 +1334,11 @@ function FeaturedOfferCard({
 }
 
 export default function HomeScreen() {
+  // La barra de pestañas crece con la zona segura del iPhone (lib/tabBar.ts): lo que flota
+  // justo encima (buscador y "volver arriba") se desplaza lo mismo para no quedar tapado.
+  const tabBarInset = useTabBarBottomInset();
+  const mobileTabBarHeight = SEARCH_LAYOUT.mobileTabBarHeight + tabBarInset;
+  const desktopTabBarHeight = SEARCH_LAYOUT.desktopTabBarHeight + tabBarInset;
   const [featured, setFeatured] = useState<FeaturedProduct | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(true);
   const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
@@ -1869,7 +1875,7 @@ export default function HomeScreen() {
         style={{
           position: "absolute",
           left: 14,
-          bottom: (isMobile ? SEARCH_LAYOUT.mobileTabBarHeight : SEARCH_LAYOUT.desktopTabBarHeight) + 14,
+          bottom: (isMobile ? mobileTabBarHeight : desktopTabBarHeight) + 14,
           opacity: scrollTopAnim,
           transform: [
             {
@@ -1898,8 +1904,8 @@ export default function HomeScreen() {
       <FloatingBarramagic
         isMobile={isMobile}
         topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
-        mobileTabBarHeight={SEARCH_LAYOUT.mobileTabBarHeight}
-        desktopTabBarHeight={SEARCH_LAYOUT.desktopTabBarHeight}
+        mobileTabBarHeight={mobileTabBarHeight}
+        desktopTabBarHeight={desktopTabBarHeight}
         bottomGapMobile={SEARCH_LAYOUT.bottomGapMobile}
         bottomGapDesktop={SEARCH_LAYOUT.bottomGapDesktop}
         widthMobilePercent={SEARCH_LAYOUT.widthMobilePercent}
