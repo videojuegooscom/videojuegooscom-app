@@ -37,6 +37,7 @@ import { Animated, Platform, Pressable, Text, View, useWindowDimensions } from "
 import { router, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { getAnalyticsConsent, setAnalyticsConsent } from "../lib/analytics";
+import { useTabBarBottomInset } from "../lib/tabBar";
 
 const COLORS = {
   card: "#FFFFFF",
@@ -103,6 +104,8 @@ export default function CookieConsentBanner() {
   }, [visible, anim]);
 
   const isAdminRoute = pathname?.startsWith("/admin");
+  // Se coloca encima de la barra de pestañas, que crece con la zona segura del iPhone.
+  const tabBarInset = useTabBarBottomInset();
 
   const handleDecision = async (value: "accepted" | "declined") => {
     setVisible(false);
@@ -121,7 +124,7 @@ export default function CookieConsentBanner() {
         position: "absolute",
         left: 14,
         right: 14,
-        bottom: isMobile ? 96 : 104,
+        bottom: (isMobile ? 96 : 104) + tabBarInset,
         maxWidth: 520,
         alignSelf: "center",
         opacity: anim,

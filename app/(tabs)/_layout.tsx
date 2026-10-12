@@ -26,6 +26,11 @@ import React from "react";
 import { Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import {
+  TAB_BAR_BASE_HEIGHT,
+  TAB_BAR_BASE_PADDING_BOTTOM,
+  useTabBarBottomInset,
+} from "../../lib/tabBar";
 
 const TAB_ICON_SIZE = 20;
 
@@ -39,6 +44,10 @@ const COLORS = {
 };
 
 export default function TabsLayout() {
+  // Zona segura inferior del iPhone en la web (ver lib/tabBar.ts): se suma a la altura y al
+  // margen inferior para que los nombres de las secciones no queden cortados por abajo.
+  const bottomInset = useTabBarBottomInset();
+
   return (
     <Tabs
       screenOptions={{
@@ -54,9 +63,9 @@ export default function TabsLayout() {
           backgroundColor: COLORS.card,
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 68 : 64,
+          height: TAB_BAR_BASE_HEIGHT + bottomInset,
           paddingTop: 4,
-          paddingBottom: Platform.OS === "ios" ? 16 : 10,
+          paddingBottom: TAB_BAR_BASE_PADDING_BOTTOM + bottomInset,
           ...Platform.select({
             web: { boxShadow: "0 -6px 20px rgba(11,33,56,0.06)" },
             default: {},
