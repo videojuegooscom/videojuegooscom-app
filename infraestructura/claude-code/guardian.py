@@ -2138,6 +2138,23 @@ def coincide_alguna(reglas, herramienta, entrada):
     return next((r for r in reglas if coincide_regla(r, herramienta, entrada)), None)
 
 
+def cubierto_por_allow(reglas, herramienta, entrada):
+    """True si la política ya permite la llamada y Claude Code no va a preguntar. Para Bash solo
+    se considera cubierto un comando SIMPLE que coincide con una regla allow: con los compuestos
+    (;, &&, |, $(...), bucles, xargs…) Claude Code pregunta a menudo aunque cada parte esté
+    permitida, así que el guardián decide él mismo (falla del lado de no mostrar ventana solo
+    cuando ninguna regla deny ni duda crítica lo impide)."""
+    if herramienta != "Bash":
+        return bool(coincide_alguna(reglas, herramienta, entrada))
+    comando = entrada.get("command")
+    if not isinstance(comando, str) or re.search(r"[;&|`\n<>(){}]|\$", comando):
+        return False
+    tokens = tokenizar(comando)
+    if not tokens or os.path.basename(tokens[0]) in ENVOLTORIOS or "=" in tokens[0]:
+        return False
+    return any(_patron_bash(r[5:-1]).match(comando.strip()) for r in reglas if r.startswith("Bash("))
+
+
 # ================================================================ salida ======
 
 def decidir(datos, autonomo, reglas_deny=None, reglas_allow=None):
@@ -2186,7 +2203,7 @@ def decidir(datos, autonomo, reglas_deny=None, reglas_allow=None):
         if herramienta == "Bash" and revisar_controlador(entrada.get("command"), cwd):
             return "allow", "controlador", "Llamada exacta al controlador de publicación."
 
-        if autonomo and not sin_politica and not coincide_alguna(reglas_allow or [], herramienta, entrada):
+        if autonomo and not sin_politica and not cubierto_por_allow(reglas_allow or [], herramienta, entrada):
             return "allow", "auto:sin-regla", "Fuera de la lista allow; sin ninguna duda del guardián."
         return None, None, None
     except Denegar as d:

@@ -288,6 +288,11 @@ LIBRE = [
     read(os.path.join(RAIZ, "app/_layout.tsx")), write(f"/tmp/claude-{UID}/notas.txt"),
     bash("python3 --version"), bash("node --version"), bash("npx --no-install expo --version"),
     bash("gh api repos/otro/repo/pulls"), bash("git tag v1.0"), bash("git reflog"),
+    # Compuestos de los agentes de análisis (capturas del 2026-10-12): alguna parte no está en allow.
+    bash("ls && ls app app/admin app/\\(tabs\\) components | head -150 && find app -name \"*.tsx\" | grep -v node_modules | xargs wc -l | sort -n | tail -50"),
+    bash("for f in \"app/(tabs)/index.tsx\" app/catalogo.tsx; do echo \"== $f\"; grep -cE \"supabase\" \"$f\"; done"),
+    bash("git ls-files | grep -v \"Claude outputs\" | grep -E \"\\.(ts|tsx)$\" | xargs wc -l | sort -n | tail -40; ls; cat package.json | head -60"),
+    bash("ls lib hooks constants aPI; S=\"app components\"; grep -rnoE \"any\" $S --include=*.ts | wc -l"),
 ]
 
 
