@@ -5,6 +5,7 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // "Claude outputs/" son copias antiguas de pantallas que ya no se usan (no las importa nadie).
+    ignores: ['dist/*', 'Claude outputs/**'],
   },
 ]);

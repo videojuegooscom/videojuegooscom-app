@@ -2217,8 +2217,8 @@ export default function AdminProducts() {
               </View>
 
               <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 16 }}>
-                "Estado" es la fase del producto en el catálogo (borrador, por
-                revisar o publicado). "Producto activo" es otra cosa: decide
+                «Estado» es la fase del producto en el catálogo (borrador, por
+                revisar o publicado). «Producto activo» es otra cosa: decide
                 si, aun estando publicado, se ve o no en la tienda — apagarlo
                 lo oculta sin borrar la ficha ni perder su historial.
               </Text>

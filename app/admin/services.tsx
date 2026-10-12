@@ -840,8 +840,8 @@ export default function AdminServices() {
                 <Ionicons name="construct-outline" size={24} color={COLORS.muted} />
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>Todavía no hay servicios</Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-                  Crea el primero (por ejemplo "Reparación de pantalla" o "Limpieza interna") para que
-                  aparezca en la categoría "Reparación/Limpieza" de Inicio.
+                  Crea el primero (por ejemplo «Reparación de pantalla» o «Limpieza interna») para que
+                  aparezca en la categoría «Reparación/Limpieza» de Inicio.
                 </Text>
               </View>
             ) : (
@@ -944,7 +944,7 @@ export default function AdminServices() {
                 <Ionicons name="document-text-outline" size={24} color={COLORS.muted} />
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin solicitudes todavía</Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-                  Aquí aparecerán los clientes que pulsen "Contratar servicio ahora" en la ficha de un
+                  Aquí aparecerán los clientes que pulsen «Contratar servicio ahora» en la ficha de un
                   servicio.
                 </Text>
               </View>
@@ -1293,7 +1293,7 @@ export default function AdminServices() {
           <View style={{ ...modalColumnStyle, borderRadius: 20, backgroundColor: COLORS.bg, padding: 18, gap: 14 }}>
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>¿Borrar este servicio?</Text>
             <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
-              Se borrará "{deleteTarget?.title}" y sus fotos. Esta acción no se puede deshacer.
+              Se borrará «{deleteTarget?.title}» y sus fotos. Esta acción no se puede deshacer.
             </Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}>

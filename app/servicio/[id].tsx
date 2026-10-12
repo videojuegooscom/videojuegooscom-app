@@ -223,10 +223,12 @@ export default function ServicioScreen() {
 
       supabase
         .rpc("increment_service_view", { service_id: row.id })
-        .then(({ data, error }) => {
-          if (!error && typeof data === "number") setViewCount(data);
-        })
-        .catch(() => {});
+        .then(
+          ({ data, error }) => {
+            if (!error && typeof data === "number") setViewCount(data);
+          },
+          () => {} // sin red o sin permiso: simplemente no se muestra el número
+        );
     } catch (e) {
       console.error("Error cargando el servicio:", e);
       setErr("No hemos podido cargar este servicio en este momento. Inténtalo de nuevo en unos instantes.");

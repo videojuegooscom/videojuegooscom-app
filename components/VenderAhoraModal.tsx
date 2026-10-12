@@ -184,7 +184,8 @@ function AnimatedPressable({
   onPress?: () => void;
   disabled?: boolean;
   containerStyle?: any;
-  style?: any | ((state: { pressed: boolean }) => any);
+  // Sin "any" en la unión: así TypeScript sabe que la función recibe { pressed }.
+  style?: object | ((state: { pressed: boolean }) => object);
   children?: React.ReactNode | ((state: { pressed: boolean }) => React.ReactNode);
 }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -220,7 +221,7 @@ function AnimatedPressable({
       onPressOut={onPressOut}
       style={containerStyle}
     >
-      <Animated.View style={[resolvedStyle, { transform: [{ scale }] }]}>
+      <Animated.View style={[resolvedStyle as any, { transform: [{ scale }] }]}>
         {typeof children === "function" ? children({ pressed }) : children}
       </Animated.View>
     </Pressable>
