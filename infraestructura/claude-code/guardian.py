@@ -977,6 +977,18 @@ def partir_segmentos(cmd):
     return segmentos
 
 
+def quitar_agrupacion(seg):
+    """Quita los paréntesis y llaves de agrupación que quedan al partir «(a; b)» o «{ a; b; }»."""
+    s = seg.strip()
+    while s.startswith("(") or s.startswith("{ "):
+        s = s[1:].lstrip()
+    while s.endswith(")") and s.count(")") > s.count("("):
+        s = s[:-1].rstrip()
+    if s == "}" or (s.endswith(" }") and s.count("}") > s.count("{")):
+        s = s[:-1].rstrip()
+    return s
+
+
 def tokenizar(seg):
     try:
         return shlex.split(seg, posix=True)
@@ -992,7 +1004,12 @@ def normalizar(tokens):
             i += 1
         elif os.path.basename(t) in ENVOLTORIOS:
             i += 1
+            # Opciones del envoltorio, incluidas las que llevan un valor aparte (nice -n 5,
+            # ionice -c 3, stdbuf -o L, xargs -I {}).
             while i < len(tokens) and tokens[i].startswith("-"):
+                if tokens[i] in ("-n", "-c", "-p", "-t", "-i", "-o", "-e", "-I", "-L", "-P", "-d",
+                                 "--adjustment", "--class", "--classdata") and i + 1 < len(tokens):
+                    i += 1
                 i += 1
         elif t == "timeout":
             i += 1
@@ -1045,6 +1062,7 @@ def revisar_bash(comando, cwd, profundidad=0):
 
     descarga_previa = False
     for seg in partir_segmentos(cmd):
+        seg = quitar_agrupacion(seg)
         if not seg.strip():
             continue
         tokens = normalizar(tokenizar(seg))
@@ -1142,6 +1160,13 @@ def revisar_segmento(tokens, cwd, seg=None, profundidad=0):
             _curl_lectura(args, cwd)
         except NoDemostrable:
             ask("red", f"{t0} fuera de una lectura de nuestra web: podría enviar datos fuera o gastar servicios.")
+    if t0 == "git":
+        # «rev:ruta» (git show HEAD:.env, git cat-file -p main:.env.local): la ruta tras «:» cuenta.
+        for tok in args_eval:
+            if ":" in tok and not tok.startswith("-"):
+                parte = tok.split(":", 1)[1]
+                if parte and (es_secreto(ruta_abs(parte, cwd)) or menciona_env_real(parte)):
+                    deny("secretos", "Prohibido leer archivos con secretos desde el historial de git.")
     solo_nombres = t0 in ("ls", "stat", "test", "[") or (t0 == "git" and sub_git in ("check-ignore", "ls-files", "status"))
     if not solo_nombres:
         for tok in args_eval:
@@ -1172,6 +1197,7 @@ def revisar_segmento(tokens, cwd, seg=None, profundidad=0):
             or (t0 == "git" and sub_git in GIT_LECTURA) \
             or (t0 == "cd" and len(args) == 1) \
             or (t0 in SHELLS and "-n" in args and "-c" not in args and ">" not in seg_eval) \
+            or (INTERPRETE_RE.match(t0) and args[:2] == ["-m", "py_compile"] and ">" not in seg_eval) \
             or (seg.strip() in COMANDOS_VALIDACION and es_script_validacion(t0, args, cwd))
         if not lectura:
             if PROTEGIDO_CRITICO_RE.search(seg_eval):
@@ -1745,7 +1771,8 @@ def lectura_simple_especial(comando, cwd):
     try:
         if not isinstance(comando, str) or len(comando) > 4000:
             return False
-        partes, separador = _partir_crudo(comando)
+        # {owner}/{repo} lo sustituye gh (no la shell, que no expande llaves sin coma).
+        partes, separador = _partir_crudo(comando.replace("{owner}/{repo}", "videojuegooscom/videojuegooscom-app"))
         if separador:
             return False
         tokens = shlex.split(partes[0], posix=True)
@@ -1762,7 +1789,7 @@ def lectura_compuesta_segura(comando, cwd):
     try:
         if not isinstance(comando, str) or len(comando) > 4000 or comando != quitar_heredocs(comando):
             return False
-        partes, separador = _partir_crudo(comando)
+        partes, separador = _partir_crudo(comando.replace("{owner}/{repo}", "videojuegooscom/videojuegooscom-app"))
         if not separador:
             return False  # un comando simple lo deciden las reglas de la política, no el guardián
         for parte in partes:
@@ -2022,7 +2049,7 @@ def _patron_bash(patron):
         patron = patron[:-2] + " *"
     rx = re.escape(patron).replace(r"\*", ".*")
     if patron.endswith(" *"):
-        rx = re.escape(patron[:-2]) + r"( .*)?"
+        rx = re.escape(patron[:-2]).replace(r"\*", ".*") + r"( .*)?"
     return re.compile(rf"^{rx}$", re.S)
 
 
@@ -2060,12 +2087,23 @@ def _patron_ruta(patron):
     return re.compile(rf"^{rx}$")
 
 
-def _candidatos_bash(comando):
+def _candidatos_bash(comando, profundidad=0):
+    """Formas en las que se compara un comando con las reglas Bash(...) de la política: el
+    comando entero, cada segmento normalizado (sin envoltorios ni agrupaciones) y, de forma
+    recursiva, lo que va dentro de $(...), `...` y bash|sh -c '...'."""
     candidatos = [comando.strip()]
-    for seg in partir_segmentos(quitar_heredocs(comando)):
-        tokens = normalizar(tokenizar(seg))
-        if tokens:
-            candidatos.append(" ".join(tokens))
+    if profundidad > 5:
+        return candidatos
+    cmd = quitar_heredocs(comando)
+    for interno in re.findall(r"\$\(([^()]*)\)", cmd) + re.findall(r"`([^`]*)`", cmd):
+        candidatos += _candidatos_bash(interno, profundidad + 1)
+    for seg in partir_segmentos(cmd):
+        tokens = normalizar(tokenizar(quitar_agrupacion(seg)))
+        if not tokens:
+            continue
+        candidatos.append(" ".join(tokens))
+        if os.path.basename(tokens[0]) in SHELLS and "-c" in tokens[1:-1]:
+            candidatos += _candidatos_bash(tokens[tokens.index("-c") + 1], profundidad + 1)
     return candidatos
 
 

@@ -225,7 +225,8 @@ PASA = [
     "systemctl status videojuegoszaragoza-remote.service",
     "python3 infraestructura/claude-code/test_guardian.py", "python3 infraestructura/claude-code/test_politica.py",
     "bash -n infraestructura/claude-code/instalar.sh", "python3 -m py_compile infraestructura/claude-code/guardian.py",
-    "git commit -m 'toca CLAUDE.md y .env.example'",
+    "git commit -m 'toca CLAUDE.md y .env.example'", "git log --graph --oneline", "git var GIT_COMMITTER_IDENT",
+    "git show HEAD:package.json", "git push origin feat:feat",
 ]
 PASA_OTRAS = [
     mcp("mcp__supabase__list_tables", schemas=["public"], verbose=False), mcp("mcp__supabase__get_advisors", type="security"),
@@ -266,7 +267,7 @@ CRITICA_BASH = [
     "gh api -X POST repos/videojuegooscom/videojuegooscom-app/issues -f title=x", "gh workflow run ci.yml",
     "crontab -e", "touch /tmp/fuera.txt", "cp app/x.tsx ~/x.tsx", "mkdir /tmp/fuera",
     "find app -exec chmod 600 {} ;", "find app -exec sed -i s/a/b/ {} ;",
-    "gh api repos/otro/repo/pulls", "gh api graphql -f query=x",
+    "gh api graphql -f query=x",
 ]
 CRITICA_OTRAS = [
     mcp("mcp__supabase__execute_sql", query="update products set price_eur = 1 where false"),
@@ -282,7 +283,7 @@ LIBRE = [
     edit(os.path.join(RAIZ, "app/checkout.tsx")), write(os.path.join(RAIZ, "app/nuevo.tsx"), "export {}"),
     read(os.path.join(RAIZ, "app/_layout.tsx")), write(f"/tmp/claude-{UID}/notas.txt"),
     bash("python3 --version"), bash("node --version"), bash("npx --no-install expo --version"),
-    bash("git log --graph --oneline"), bash("git var GIT_COMMITTER_IDENT"),
+    bash("gh api repos/otro/repo/pulls"), bash("git tag v1.0"), bash("git reflog"),
 ]
 
 
