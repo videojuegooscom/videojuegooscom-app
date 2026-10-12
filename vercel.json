@@ -3,11 +3,11 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/producto/:id", "destination": "/producto/[id].html" },
-    { "source": "/servicio/:id", "destination": "/servicio/[id].html" },
-    { "source": "/politicas/:slug", "destination": "/politicas/[slug].html" },
-    { "source": "/chat/:chatId", "destination": "/chat/[chatId].html" },
-    { "source": "/admin/cliente/:userId", "destination": "/admin/cliente/[userId].html" }
+    { "source": "/producto/:id", "destination": "/producto/[id]" },
+    { "source": "/servicio/:id", "destination": "/servicio/[id]" },
+    { "source": "/politicas/:slug", "destination": "/politicas/[slug]" },
+    { "source": "/chat/:chatId", "destination": "/chat/[chatId]" },
+    { "source": "/admin/cliente/:userId", "destination": "/admin/cliente/[userId]" }
   ],
   "headers": [
     {
