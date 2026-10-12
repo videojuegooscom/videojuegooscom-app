@@ -598,7 +598,23 @@ function contactoEsValido(metodo: MetodoContacto | null, valor: string): boolean
   return raw.replace(/^@+/, "").trim().length >= 2;
 }
 
+/**
+ * Identificador de la solicitud generado en el navegador. Se crea aquí (y no lo devuelve
+ * la base de datos) porque un visitante sin sesión puede INSERTAR en "sell_requests" pero
+ * no LEERLA (RLS: solo el admin y el propio cliente con sesión), y pedir la fila insertada
+ * (`.insert().select()`) hacía fallar el envío entero para quien no tiene cuenta.
+ */
+function newSellRequestId(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0;
+    return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 type SellRequestPayload = {
+  id: string;
   nombre: string;
   apellido: string;
   articulo: string;
@@ -967,7 +983,9 @@ export default function VenderAhoraModal({
     setFormErr(null);
     setSending(true);
 
+    const requestId = newSellRequestId();
     const payload: SellRequestPayload = {
+      id: requestId,
       nombre: cleanNombre,
       apellido: cleanApellido,
       articulo: cleanArticulo,
@@ -987,12 +1005,10 @@ export default function VenderAhoraModal({
     };
 
     try {
-      const { data: insertedRow, error } = await supabase
-        .from("sell_requests")
-        .insert(payload)
-        .select("id")
-        .single();
+      // Sin .select(): sin sesión no se puede leer la fila recién creada (ver newSellRequestId).
+      const { error } = await supabase.from("sell_requests").insert(payload);
       if (error) throw error;
+      const insertedRow = { id: requestId };
 
       // La solicitud ya está guardada. Si hay fotos/vídeo, se suben aparte:
       // un fallo aquí no debe hacer parecer que se perdió toda la solicitud.
