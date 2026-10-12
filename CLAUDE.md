@@ -4,6 +4,20 @@ Tienda web de videojuegos: Expo Router 6 + React Native Web (export estático), 
 Vercel por Git (`main` = producción) y con Supabase (project_ref `rgvyvaineyodyxzwootl`).
 Usuario del servidor: `videojuegoszaragoza`. No tocar nada de otros proyectos (VeoAura, Tradeandoia).
 
+## Centro de Aprendizajes (obligatorio antes de cualquier cambio)
+
+Antes de empezar cualquier cambio que pida el usuario, consulta sus correcciones guardadas y aplícalas:
+
+```sql
+select titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien
+from public.aprendizajes where activa order by prioridad, categoria, updated_at desc
+```
+
+(por MCP de Supabase, solo lectura). Prioridad 1 = imprescindible, 2 = importante, 3 = preferencia.
+Si una lección choca con lo que pide el usuario ahora, avísale antes de seguir. Cuando el usuario
+te corrija algo, al terminar dale la lección ya redactada (título, categoría, prioridad, regla y
+ejemplos) para que la guarde en Panel → Centro De Aprendizajes.
+
 ## Hábitos obligatorios
 
 - **Un comando simple por llamada.** Nada de `cd … &&`, tuberías `|`, `;`, heredocs (`python3 -`, `cat >>`) ni `sed -i`. Si hacen falta varios pasos, varias llamadas.

@@ -291,6 +291,14 @@ export default function AdminHome() {
         icon: "share-social-outline" as IoniconName,
         onPress: () => router.push("/admin/redes-sociales"),
       },
+      {
+        key: "aprendizajes",
+        title: "Centro De Aprendizajes",
+        subtitle:
+          "Lo que le corriges a Claude: reglas de diseño, textos, negocio y código que consulta antes de cada cambio.",
+        icon: "school-outline" as IoniconName,
+        onPress: () => router.push("/admin/aprendizajes"),
+      },
     ],
     []
   );
