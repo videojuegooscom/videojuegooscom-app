@@ -35,9 +35,11 @@ RUTAS_PROTEGIDAS = re.compile(
     r"yarn\.lock$|pnpm-lock\.yaml$|vercel\.json$|app\.json$|app\.config\.|eas\.json$|babel\.config\.|"
     r"metro\.config\.|scripts/|aPI/|api/|sql/)", re.I)
 
+# Los prefijos se escriben con [_] para que el buscador de secretos del instalador no tome
+# estos patrones por claves reales (es la misma expresión regular).
 SECRETO_RE = re.compile(
-    r"(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
-    r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_-]{10,}|service_role|"
+    r"(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github[_]pat[_][A-Za-z0-9_]{20,}|"
+    r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|sb[_]secret[_][A-Za-z0-9_-]{10,}|service_role|"
     r"BEGIN [A-Z ]*PRIVATE KEY|SUPABASE_SERVICE_ROLE|OPENAI_API_KEY\s*[:=]\s*['\"][^'\"]{8,})")
 
 SQL_DESTRUCTIVO = re.compile(
