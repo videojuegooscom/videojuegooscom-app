@@ -47,19 +47,32 @@ IMPRESCINDIBLES = [
     "Bash(supabase link*)", "Read(.env)", "Read(.env.*)", "Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)",
     "Read(~/.config/gh/**)", "Read(//home/veoaura/**)", "Edit(.env.*)", "Edit(//etc/**)", "Edit(.git/**)",
     "Edit(~/.claude/settings.json)", "Edit(.claude/**)", "Edit(//home/veoaura/**)", "WebFetch",
-    "mcp__supabase__apply_migration", "mcp__vercel__get_project_env", "mcp__vercel__request_promote",
+    "mcp__vercel__get_project_env", "mcp__vercel__request_promote", "mcp__supabase__deploy_edge_function",
     "Bash(git stash drop*)", "Bash(git branch -D *)", "Bash(gh auth *)", "Bash(gh secret *)",
 ]
 for r in IMPRESCINDIBLES:
     comprobar(f"deny imprescindible: {r}", r in P["deny"])
 
-# Ninguna regla deny de la política que había antes desaparece (lo mismo que exige el instalador).
+# Ninguna regla deny de la política que había antes desaparece salvo las retiradas documentadas
+# en deny-retiradas.json (lo mismo que exige el instalador).
+with open(os.path.join(AQUI, "deny-retiradas.json"), encoding="utf-8") as f:
+    RETIRADAS = json.load(f)["retiradas"]
+for r in RETIRADAS:
+    comprobar(f"retirada documentada: {r.get('regla')}",
+              all(str(r.get(k, "")).strip() for k in ("regla", "fecha", "motivo", "sustituida_por")))
+    comprobar(f"retirada no sigue en deny: {r.get('regla')}", r.get("regla") not in P["deny"])
+NOMBRES_RETIRADAS = {r.get("regla") for r in RETIRADAS}
 _anterior = os.path.join(AQUI, "origen", "politica_actual.json")
 if os.path.isfile(_anterior):
     with open(_anterior, encoding="utf-8") as f:
         for r in json.load(f)["permissions"]["deny"]:
-            if "claude_ai_" not in r:
+            if "claude_ai_" not in r and r not in NOMBRES_RETIRADAS:
                 comprobar(f"deny anterior conservada: {r}", r in P["deny"])
+comprobar("Supabase sin read_only solo con la migración protegida por el guardián",
+          "mcp__supabase__apply_migration" in NOMBRES_RETIRADAS)
+comprobar("el controlador solo como copia de root",
+          "Bash(/usr/local/bin/vz-publicar publicar *)" in P["allow"]
+          and not any("publicacion/controlador.py" in r for r in P["allow"]))
 
 # La lista allow no puede abrir comandos genéricos ni peligrosos.
 PROHIBIDOS_EN_ALLOW = re.compile(

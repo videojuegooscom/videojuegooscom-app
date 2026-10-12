@@ -644,6 +644,10 @@ SQL_FUNCIONES_SEGURAS = {
     "pg_get_triggerdef", "pg_get_expr", "pg_get_userbyid", "pg_relation_size", "pg_table_size",
     "pg_indexes_size", "to_regclass", "quote_ident", "array_to_string", "regexp_replace", "split_part",
     "left", "right", "position", "starts_with", "jsonb_pretty", "jsonb_object_keys", "date_part",
+    # Palabras clave de SQL seguidas de paréntesis (no son llamadas a funciones): «select (a)…».
+    "select", "when", "then", "else", "interval", "union", "except", "intersect", "join", "lateral",
+    "between", "like", "ilike", "is", "date", "timestamp", "timestamptz", "time", "zone", "at", "array",
+    "row", "by", "order", "group", "having", "limit", "offset", "with", "recursive", "timezone",
     "generate_series", "distinct", "on", "as", "from", "where", "and", "or", "not", "using", "case",
 }
 
@@ -721,9 +725,11 @@ SCRIPTS_VALIDACION = ("infraestructura/claude-code/test_guardian.py",
                       "infraestructura/base-datos/test_vz_sql.py")
 COMANDOS_VALIDACION = {f"python3 {s}" for s in SCRIPTS_VALIDACION}
 
-# Controlador de publicación: única vía para fusionar PRs (nunca gh pr merge). Forma exacta.
-CONTROLADOR = "infraestructura/publicacion/controlador.py"
-CONTROLADOR_RE = re.compile(r"^python3 infraestructura/publicacion/controlador\.py (revisar|publicar) [0-9]{1,6}$")
+# Controlador de publicación: única vía para fusionar PRs (nunca gh pr merge). Se ejecuta la
+# copia de root que instala vz-instalar-claude (el agente no puede cambiarla), en forma exacta.
+CONTROLADOR = "/usr/local/bin/vz-publicar"
+CONTROLADOR_RE = re.compile(r"^/usr/local/bin/vz-publicar (revisar|publicar) [0-9]{1,6}$")
+INTENTO_CONTROLADOR_RE = re.compile(r"(?<![\w-])(vz-publicar|controlador\.py)\b")
 
 # ============================================================== cliente vz-sql =====
 # Única vía de Claude para CAMBIAR el Supabase real (la lectura va por MCP). Forma exacta, sin
@@ -923,15 +929,22 @@ def destinos_de_escritura(t0, args, seg, cwd):
 def revisar_controlador(comando, cwd):
     """True si es una llamada válida al controlador de publicación; deniega cualquier otra forma
     de invocarlo (con prefijos, variables, otra ruta, compuesto o desde otro directorio)."""
-    if "controlador.py" not in comando:
+    if not isinstance(comando, str) or not INTENTO_CONTROLADOR_RE.search(comando):
         return False
     texto = comando.strip()
-    ruta = os.path.join(PROYECTO, CONTROLADOR)
-    if not CONTROLADOR_RE.fullmatch(texto) or os.path.realpath(cwd) != PROYECTO \
-            or not os.path.isfile(ruta) or os.path.islink(ruta):
-        deny("controlador-forma", "Invoca el controlador solo como «python3 infraestructura/publicacion/"
-                                  "controlador.py revisar|publicar <número>» desde la raíz del proyecto.")
+    if not CONTROLADOR_RE.fullmatch(texto) or not controlador_instalado():
+        deny("controlador-forma", f"Publica solo con «{CONTROLADOR} revisar|publicar <número>» (la copia de root "
+                                  "instalada); nunca el script del repositorio ni gh pr merge.")
     return True
+
+
+def controlador_instalado():
+    try:
+        st = os.lstat(CONTROLADOR)
+        import stat as _stat
+        return _stat.S_ISREG(st.st_mode) and st.st_uid == 0 and not st.st_mode & 0o022
+    except OSError:
+        return False
 
 
 VAR_SECRETA_RE = re.compile(
@@ -1913,6 +1926,58 @@ VERCEL_PATRON_NUNCA = re.compile(
     r"secret|firewall|protection_bypass|dns|alias|domain|rolling_release", re.I)
 
 
+# ------------------------------------------------- migraciones versionadas -----
+# Única escritura permitida en el Supabase real: aplicar una migración que ya está en origin/main
+# dentro de supabase/migrations/ (revisada al fusionarse), idéntica al archivo, aditiva y sin
+# cambios de permisos delicados. Cualquier otra cosa se deniega (también en modo autónomo).
+MIGRACIONES_DIR = "supabase/migrations/"
+APROBACIONES = []  # reglas que el guardián aprueba explícitamente en esta llamada
+SQL_PERMISOS_DELICADOS = re.compile(
+    r"\b(grant\b|revoke\b|security\s+definer|alter\s+(role|user|default\s+privileges)|"
+    r"auth\.(users|identities|sessions|refresh_tokens)|vault\.|cron\.|"
+    r"to\s+(anon|public)\b|using\s*\(\s*true\s*\)|with\s+check\s*\(\s*true\s*\))", re.I | re.S)
+
+
+def _normalizar_sql(texto):
+    return re.sub(r"\s+", " ", str(texto or "")).strip().rstrip(";").strip()
+
+
+def migracion_en_main(nombre, query):
+    """Ruta del archivo de supabase/migrations/ en origin/main cuyo nombre contiene `nombre` y cuyo
+    contenido es idéntico a `query` (sin contar espacios); None si no existe."""
+    try:
+        r = subprocess.run(["git", "-C", PROYECTO, "ls-tree", "--name-only", "origin/main", MIGRACIONES_DIR],
+                           capture_output=True, text=True, timeout=5)
+        for ruta in r.stdout.split():
+            base = os.path.basename(ruta)
+            if not base.endswith(".sql") or nombre not in base:
+                continue
+            c = subprocess.run(["git", "-C", PROYECTO, "show", f"origin/main:{ruta}"],
+                               capture_output=True, text=True, timeout=5)
+            if c.returncode == 0 and _normalizar_sql(c.stdout) == _normalizar_sql(query):
+                return ruta
+    except Exception:
+        return None
+    return None
+
+
+def revisar_migracion(entrada):
+    nombre, query = entrada.get("name"), entrada.get("query")
+    if not isinstance(nombre, str) or not re.fullmatch(r"[a-z0-9_]{3,80}", nombre) or not isinstance(query, str):
+        deny("migracion-forma", "apply_migration necesita un nombre en minúsculas_con_guiones_bajos y el SQL.")
+    q = limpiar_sql(query)
+    if SQL_PROHIBIDO.search(q):
+        deny("supabase-borrado", "La migración borra tablas, columnas o datos, o desactiva RLS: prohibido.")
+    if SQL_PERMISOS_DELICADOS.search(q):
+        deny("migracion-permisos", "La migración cambia permisos delicados (grant, security definer, anon, "
+                                   "using (true)…): la aplica una persona en el SQL Editor.")
+    ruta = migracion_en_main(nombre, query)
+    if not ruta:
+        deny("migracion-no-versionada", f"Solo se aplican migraciones idénticas a un archivo de {MIGRACIONES_DIR} "
+                                        "que ya esté en origin/main (fusiona la PR y haz git fetch antes).")
+    APROBACIONES.append(("migracion-versionada", f"Migración versionada en main: {ruta}."))
+
+
 def revisar_supabase_mcp(herramienta, entrada):
     if herramienta in SUPABASE_LECTURA:
         return
@@ -1924,7 +1989,10 @@ def revisar_supabase_mcp(herramienta, entrada):
             deny("mcp-entrada-invalida", f"{herramienta}: faltan campos obligatorios.")
         if set(entrada.keys()) - esperados - {"project_id"}:
             ask("mcp-campos-desconocidos", f"{herramienta}: campos no reconocidos en la entrada.")
-        clasificar_sql(entrada.get("query"), herramienta, es_migracion=(herramienta == "apply_migration"))
+        if herramienta == "apply_migration":
+            revisar_migracion(entrada)
+            return
+        clasificar_sql(entrada.get("query"), herramienta)
         return
     if herramienta == "deploy_edge_function":
         ask("supabase-edge", "Desplegar una Edge Function en Supabase requiere aprobación explícita.")
@@ -2160,6 +2228,7 @@ def cubierto_por_allow(reglas, herramienta, entrada):
 def decidir(datos, autonomo, reglas_deny=None, reglas_allow=None):
     """Decisión pura (sin efectos): devuelve (decision, regla, motivo) o (None, None, None)."""
     del PREGUNTAS[:]
+    del APROBACIONES[:]
     try:
         if not isinstance(datos, dict):
             deny("entrada-invalida", "Entrada del hook no reconocida.")
@@ -2186,6 +2255,9 @@ def decidir(datos, autonomo, reglas_deny=None, reglas_allow=None):
         regla_deny = coincide_alguna(reglas_deny, herramienta, entrada)
         if regla_deny:
             deny("politica-deny", f"Coincide con la regla deny de la política «{regla_deny}».")
+
+        if APROBACIONES and not PREGUNTAS and not sin_politica:
+            return "allow", APROBACIONES[0][0], APROBACIONES[0][1]
 
         if PREGUNTAS:
             regla, motivo = PREGUNTAS[0][0], " | ".join(dict.fromkeys(m for _, m in PREGUNTAS))

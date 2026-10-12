@@ -26,6 +26,9 @@ RESPALDOS="/etc/videojuegoszaragoza/respaldos"
 SERVICIO="videojuegoszaragoza-remote.service"
 ARCHIVOS=("politica.json:managed-settings.json:644" "mcp.json:managed-mcp.json:644"
           "guardian.py:hooks/guardian.py:755" "bloquear-config.py:hooks/bloquear-config.py:755")
+# Controlador de publicación: copia de root fuera del repo (el agente no puede cambiarla).
+CONTROLADOR_SRC="$REPO/infraestructura/publicacion/controlador.py"
+CONTROLADOR_DST="/usr/local/bin/vz-publicar"
 
 rojo() { printf '\033[31m%s\033[0m\n' "$*"; }
 verde() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -52,6 +55,9 @@ verificar_sha() {
       rojo "sha256 distinto en $dst"; ok=1
     fi
   done
+  if [ "$(sha256sum <"$origen_dir/controlador.py" | cut -d' ' -f1)" != "$(sha256sum <"$CONTROLADOR_DST" | cut -d' ' -f1)" ]; then
+    rojo "sha256 distinto en $CONTROLADOR_DST"; ok=1
+  fi
   return $ok
 }
 
@@ -59,6 +65,7 @@ respaldar() {
   local dir="$RESPALDOS/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$RESPALDOS"; chmod 700 "$RESPALDOS"
   cp -a "$DESTINO" "$dir"
+  [ -f "$CONTROLADOR_DST" ] && cp -a "$CONTROLADOR_DST" "$dir/vz-publicar"
   echo "$dir"
 }
 
@@ -82,6 +89,7 @@ if [ "${1:-}" = "--revertir" ]; then
   install -m 755 -o root -g root "$dir/hooks/guardian.py" "$DESTINO/hooks/guardian.py"
   install -m 755 -o root -g root "$dir/hooks/bloquear-config.py" "$DESTINO/hooks/bloquear-config.py"
   if [ -f "$dir/modo-autonomo" ]; then install -m 644 -o root -g root /dev/null "$DESTINO/modo-autonomo"; else rm -f "$DESTINO/modo-autonomo"; fi
+  if [ -f "$dir/vz-publicar" ]; then install -m 755 -o root -g root "$dir/vz-publicar" "$CONTROLADOR_DST"; else rm -f "$CONTROLADOR_DST"; fi
   for f in managed-settings.json hooks/guardian.py hooks/bloquear-config.py; do
     cmp -s "$dir/$f" "$DESTINO/$f" || abortar "la copia de $f no coincide tras revertir."
   done
@@ -104,11 +112,12 @@ como_usuario git -C "$REPO" fetch --quiet origin main || abortar "no se pudo act
 CABEZA=$(como_usuario git -C "$REPO" rev-parse HEAD)
 REMOTO=$(como_usuario git -C "$REPO" rev-parse origin/main)
 [ "$CABEZA" = "$REMOTO" ] || abortar "el repo no está en origin/main (HEAD=$CABEZA, origin/main=$REMOTO). Haz git switch main && git pull --ff-only."
-[ -z "$(como_usuario git -C "$REPO" status --porcelain -- infraestructura/claude-code)" ] || abortar "hay cambios sin confirmar en infraestructura/claude-code."
+[ -z "$(como_usuario git -C "$REPO" status --porcelain -- infraestructura)" ] || abortar "hay cambios sin confirmar en infraestructura/."
 for entrada in "${ARCHIVOS[@]}"; do
   IFS=: read -r src _ _ <<<"$entrada"
   [ -f "$ORIGEN/$src" ] && [ ! -L "$ORIGEN/$src" ] || abortar "falta o es un enlace: $src"
 done
+[ -f "$CONTROLADOR_SRC" ] && [ ! -L "$CONTROLADOR_SRC" ] || abortar "falta o es un enlace: $CONTROLADOR_SRC"
 verde "Repo limpio en origin/main ($CABEZA)."
 
 # ------------------------------------------------------------------ 2. trabajo --
@@ -118,22 +127,31 @@ for entrada in "${ARCHIVOS[@]}"; do
   IFS=: read -r src _ _ <<<"$entrada"
   install -m 644 "$ORIGEN/$src" "$TRABAJO/$src"
 done
-cp "$ORIGEN/test_guardian.py" "$ORIGEN/test_politica.py" "$TRABAJO/"
-chmod 755 "$TRABAJO"; chmod 644 "$TRABAJO"/*
+cp "$ORIGEN/test_guardian.py" "$ORIGEN/test_politica.py" "$ORIGEN/deny-retiradas.json" "$TRABAJO/"
+cp "$CONTROLADOR_SRC" "$REPO/infraestructura/publicacion/test_controlador.py" "$TRABAJO/"
+mkdir -p "$TRABAJO/origen"
+cp "$ORIGEN/origen/politica_actual.json" "$TRABAJO/origen/"
+chmod 755 "$TRABAJO" "$TRABAJO/origen"; chmod 644 "$TRABAJO"/*.* "$TRABAJO/origen"/*
 
 # ------------------------------------------------------------------ 3. deny --
 paso "2/7 Comparando reglas deny con la política instalada"
-python3 - "$DESTINO/managed-settings.json" "$TRABAJO/politica.json" <<'PY' || abortar "la política nueva elimina reglas deny."
+python3 - "$DESTINO/managed-settings.json" "$TRABAJO/politica.json" "$TRABAJO/deny-retiradas.json" <<'PY' || abortar "la política nueva elimina reglas deny sin documentar."
 import json, sys
 viejo = json.load(open(sys.argv[1]))["permissions"]["deny"]
 nuevo = json.load(open(sys.argv[2]))["permissions"]["deny"]
+retiradas = {r["regla"]: r for r in json.load(open(sys.argv[3]))["retiradas"]
+             if all(str(r.get(k, "")).strip() for k in ("regla", "fecha", "motivo", "sustituida_por"))}
 faltan = [r for r in viejo if r not in nuevo and "claude_ai_" not in r]
+sin_documentar = [r for r in faltan if r not in retiradas]
 for r in faltan:
-    print("  desaparece:", r)
-print(f"  deny instaladas: {len(viejo)} · nuevas: {len(nuevo)} · desaparecen: {len(faltan)}")
-sys.exit(1 if faltan else 0)
+    if r in retiradas:
+        print(f"  RETIRADA a propósito: {r}\n      motivo: {retiradas[r]['motivo']}\n      la sustituye: {retiradas[r]['sustituida_por']}")
+    else:
+        print("  desaparece SIN documentar:", r)
+print(f"  deny instaladas: {len(viejo)} · nuevas: {len(nuevo)} · retiradas documentadas: {len(faltan) - len(sin_documentar)} · sin documentar: {len(sin_documentar)}")
+sys.exit(1 if sin_documentar else 0)
 PY
-verde "Ninguna regla deny desaparece (las mcp__claude_ai_* ya no aplican: conectores desactivados)."
+verde "Ninguna regla deny desaparece sin documentar (las mcp__claude_ai_* ya no aplican: conectores desactivados)."
 
 # ------------------------------------------------------------------ 4. pruebas --
 paso "3/7 Ejecutando las baterías de pruebas"
@@ -143,12 +161,14 @@ if ! ( cd "$REPO" && como_usuario env CLAUDE_PROJECT_DIR="$REPO" python3 "$TRABA
   abortar "falla test_guardian (detalles arriba)."
 fi
 tail -1 "$TRABAJO/pruebas.txt"
+como_usuario python3 "$TRABAJO/test_controlador.py" || abortar "falla test_controlador."
 verde "Pruebas superadas."
 
 # ------------------------------------------------------------------ 5. secretos --
 paso "4/7 Buscando secretos en lo que se va a instalar"
 if grep -nE '(sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|eyJ[A-Za-z0-9_-]{30,}\.|sb_secret_|BEGIN [A-Z ]*PRIVATE KEY|password\s*=\s*\S{6,})' \
-     "$TRABAJO/politica.json" "$TRABAJO/mcp.json" "$TRABAJO/guardian.py" "$TRABAJO/bloquear-config.py"; then
+     "$TRABAJO/politica.json" "$TRABAJO/mcp.json" "$TRABAJO/guardian.py" "$TRABAJO/bloquear-config.py" \
+     "$TRABAJO/controlador.py"; then
   abortar "hay algo que parece un secreto."
 fi
 verde "Sin secretos."
@@ -159,6 +179,7 @@ for entrada in "${ARCHIVOS[@]}"; do
   IFS=: read -r src dst _ <<<"$entrada"
   printf '  %-28s %s\n' "$dst" "$(sha256sum <"$TRABAJO/$src" | cut -c1-16)"
 done
+printf '  %-28s %s\n' "$CONTROLADOR_DST" "$(sha256sum <"$TRABAJO/controlador.py" | cut -c1-16)"
 case "$MODO" in
   activar) echo "  Modo sin confirmaciones: SE ACTIVA" ;;
   desactivar) echo "  Modo sin confirmaciones: SE DESACTIVA" ;;
@@ -177,6 +198,8 @@ for entrada in "${ARCHIVOS[@]}"; do
   install -m "$modo" -o root -g root "$TRABAJO/$src" "$DESTINO/$dst.nuevo"
   mv -f "$DESTINO/$dst.nuevo" "$DESTINO/$dst"
 done
+install -m 755 -o root -g root "$TRABAJO/controlador.py" "$CONTROLADOR_DST.nuevo"
+mv -f "$CONTROLADOR_DST.nuevo" "$CONTROLADOR_DST"
 case "$MODO" in
   activar) install -m 644 -o root -g root /dev/null "$DESTINO/modo-autonomo" ;;
   desactivar) rm -f "$DESTINO/modo-autonomo" ;;
@@ -186,6 +209,8 @@ paso "7/7 Verificando"
 if ! verificar_sha "$TRABAJO"; then
   rojo "La verificación falló: vuelvo al respaldo."
   cp -a "$RESPALDO/." "$DESTINO/"
+  rm -f "$DESTINO/vz-publicar"
+  if [ -f "$RESPALDO/vz-publicar" ]; then install -m 755 -o root -g root "$RESPALDO/vz-publicar" "$CONTROLADOR_DST"; else rm -f "$CONTROLADOR_DST"; fi
   abortar "instalación revertida a $(basename "$RESPALDO")."
 fi
 verde "sha256 verificado. Instalado desde $CABEZA."

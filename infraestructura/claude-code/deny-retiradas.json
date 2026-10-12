@@ -1,0 +1,11 @@
+{
+  "_que_es": "Reglas deny que se retiran a propósito. El instalador solo acepta que desaparezca una regla deny si está aquí, con su motivo y la protección que la sustituye.",
+  "retiradas": [
+    {
+      "regla": "mcp__supabase__apply_migration",
+      "fecha": "2026-10-12",
+      "motivo": "El usuario pidió que Claude aplique los cambios de Supabase.",
+      "sustituida_por": "guardian.py revisar_migracion: solo migraciones idénticas a un archivo de supabase/migrations/ ya en origin/main, sin DROP/DELETE/TRUNCATE ni permisos delicados; todo lo demás se deniega."
+    }
+  ]
+}
