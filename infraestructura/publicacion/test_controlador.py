@@ -43,6 +43,8 @@ comprobar("archivos normales pasan", c.revisar_archivos([
     {"filename": "app/catalogo.tsx", "status": "modified"}, {"filename": "lib/tabBar.ts", "status": "added"},
     {"filename": "supabase/migrations/20261012_x.sql", "status": "added"}, {"filename": "CLAUDE.md", "status": "modified"}]) == [])
 comprobar("sin archivos se rechaza", c.revisar_archivos([]))
+comprobar("100 archivos o más se rechaza", c.revisar_archivos(
+    [{"filename": f"app/a{i}.tsx", "status": "modified"} for i in range(100)]))
 for ruta in ("infraestructura/claude-code/guardian.py", ".github/workflows/ci.yml", "package.json",
              "package-lock.json", "vercel.json", "app.json", ".npmrc", "aPI/blue-ia.ts", "api/x.ts",
              "scripts/inject-seo-html.js", "sql/01-catalogo-productos.sql", ".claude/settings.json",
