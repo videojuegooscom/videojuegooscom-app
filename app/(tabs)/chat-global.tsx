@@ -2582,7 +2582,7 @@ function PrivateChatsInbox({
           Todavía no tienes conversaciones
         </Text>
         <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-          Pulsa "Chat" en la ficha de un producto para escribirnos por él.
+          Pulsa «Chat» en la ficha de un producto para escribirnos por él.
         </Text>
       </View>
     );
@@ -2646,11 +2646,11 @@ function PrivateChatsInbox({
           </View>
 
           <View style={{ alignItems: "flex-end", gap: 4 }}>
-            <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatInboxDate(row.last_message_at)}</Text>
+            <Text style={{ color: COLORS.soft, fontSize: 11 }}>{formatInboxDate(row.last_message_at)}</Text>
             {confirmDeleteId === row.id ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
-                  <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
+                  <Text style={{ color: COLORS.soft, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
                 </Pressable>
                 <Pressable onPress={() => handleDeleteChat(row.id)} disabled={deletingId === row.id} hitSlop={6}>
                   <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
@@ -2660,7 +2660,7 @@ function PrivateChatsInbox({
               </View>
             ) : (
               <Pressable onPress={() => setConfirmDeleteId(row.id)} hitSlop={6}>
-                <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
+                <Ionicons name="trash-outline" size={14} color={COLORS.soft} />
               </Pressable>
             )}
           </View>
