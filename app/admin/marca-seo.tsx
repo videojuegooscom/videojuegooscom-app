@@ -618,7 +618,7 @@ export default function AdminMarcaSeo() {
                     fontWeight: "700",
                   }}
                 >
-                  {seoTitle.trim().length}/{SEO_TITLE_MAX} — pasado este largo, Google suele recortarlo con "…"
+                  {seoTitle.trim().length}/{SEO_TITLE_MAX} — pasado este largo, Google suele recortarlo con «…»
                 </Text>
               </View>
 
@@ -654,7 +654,7 @@ export default function AdminMarcaSeo() {
                     fontWeight: "700",
                   }}
                 >
-                  {seoDescription.trim().length}/{SEO_DESC_MAX} — pasado este largo, Google suele recortarla con "…"
+                  {seoDescription.trim().length}/{SEO_DESC_MAX} — pasado este largo, Google suele recortarla con «…»
                 </Text>
               </View>
 

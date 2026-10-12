@@ -396,8 +396,8 @@ export default function AdminChats() {
           <Ionicons name="chatbubble-ellipses-outline" size={24} color={COLORS.muted} />
           <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin conversaciones todavía</Text>
           <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-            Aquí aparecerán los clientes que escriban por "Chat" en la ficha de un producto, o por
-            "Chatear con nosotros" en el catálogo.
+            Aquí aparecerán los clientes que escriban por «Chat» en la ficha de un producto, o por
+            «Chatear con nosotros» en el catálogo.
           </Text>
         </View>
       ) : (

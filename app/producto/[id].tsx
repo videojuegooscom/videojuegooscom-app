@@ -795,11 +795,13 @@ ${price}
       if (!adminFlag) {
         supabase
           .rpc("increment_product_view", { product_id: productRow.id })
-          .then(({ data, error }) => {
-            if (seq !== reqSeqRef.current) return;
-            if (!error && typeof data === "number") setViewCount(data);
-          })
-          .catch(() => {});
+          .then(
+            ({ data, error }) => {
+              if (seq !== reqSeqRef.current) return;
+              if (!error && typeof data === "number") setViewCount(data);
+            },
+            () => {} // sin red o sin permiso: simplemente no se muestra el número
+          );
       } else {
         setViewCount(null);
       }

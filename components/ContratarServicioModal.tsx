@@ -341,8 +341,8 @@ export default function ContratarServicioModal({
                 ¡Solicitud recibida!
               </Text>
               <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-                Nos pondremos en contacto contigo lo antes posible para confirmar los detalles de "
-                {service?.title}".
+                Nos pondremos en contacto contigo lo antes posible para confirmar los detalles de «
+                {service?.title}».
               </Text>
               <AnimatedPressable onPress={handleClose}>
                 <View

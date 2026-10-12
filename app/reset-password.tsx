@@ -305,14 +305,14 @@ export default function ResetPasswordScreen() {
 
                   <AnimatedPressable
                     onPress={submit}
-                    disabled={!canSubmit || phase === "submitting"}
+                    disabled={phase === "submitting" || !canSubmit}
                     style={{
                       borderRadius: 16,
                       paddingVertical: 14,
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: COLORS.accent,
-                      opacity: !canSubmit || phase === "submitting" ? 0.5 : 1,
+                      opacity: phase === "submitting" || !canSubmit ? 0.5 : 1,
                     }}
                   >
                     {phase === "submitting" ? (

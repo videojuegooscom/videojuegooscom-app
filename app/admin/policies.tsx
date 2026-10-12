@@ -471,7 +471,7 @@ export default function AdminPolicies() {
                 }}
               >
                 Envíos, devoluciones, privacidad y términos — el pie de página enlaza a los slugs
-                "envios", "devoluciones", "privacidad" y "terminos".
+                «envios», «devoluciones», «privacidad» y «terminos».
               </Text>
             </View>
 

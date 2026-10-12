@@ -565,7 +565,7 @@ export default function AdminFlashNews() {
                 </Text>
                 <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
                   Mientras no haya ninguna, la franja mostrará el mensaje de emergencia
-                  "Te compramos tu electrónica hoy mismo".
+                  «Te compramos tu electrónica hoy mismo».
                 </Text>
               </View>
             ) : (
@@ -962,7 +962,7 @@ export default function AdminFlashNews() {
             <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
               Vas a borrar{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                "{confirmDelete?.message ?? ""}"
+                «{confirmDelete?.message ?? ""}»
               </Text>
               . Dejará de mostrarse en la franja de la app.
             </Text>

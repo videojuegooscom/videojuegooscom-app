@@ -341,11 +341,7 @@ export async function uploadSellRequestMedia(
     })
   );
 
-  const rows = results
-    .filter(
-      (r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === "fulfilled"
-    )
-    .map((r) => r.value);
+  const rows = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
 
   if (rows.length > 0) {
     const insertRes = await supabase.from("sell_request_media").insert(rows);

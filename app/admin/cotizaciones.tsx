@@ -506,7 +506,7 @@ export default function AdminCotizaciones() {
                 Solicitudes de venta
               </Text>
               <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
-                Solicitudes de "Vender ahora" enviadas por clientes desde la app.
+                Solicitudes de «Vender ahora» enviadas por clientes desde la app.
               </Text>
             </View>
 
@@ -632,7 +632,7 @@ export default function AdminCotizaciones() {
                   No hay solicitudes para este filtro.
                 </Text>
                 <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  En cuanto un cliente envíe el formulario de "Vender ahora" aparecerá aquí.
+                  En cuanto un cliente envíe el formulario de «Vender ahora» aparecerá aquí.
                 </Text>
               </View>
             ) : (
