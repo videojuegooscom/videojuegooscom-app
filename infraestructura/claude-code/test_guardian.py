@@ -27,6 +27,10 @@ _spec.loader.exec_module(g)
 # La rama real no debe cambiar el resultado: se simula una rama de trabajo (y main donde se indica).
 RAMA = {"actual": "feat/pruebas"}
 g.rama_actual = lambda cwd: RAMA["actual"]
+# El controlador instalado (copia de root) y las migraciones en origin/main se simulan.
+g.controlador_instalado = lambda: True
+g.migracion_en_main = lambda nombre, query: (
+    "supabase/migrations/20261012150000_centro_aprendizajes.sql" if nombre == "centro_aprendizajes" else None)
 with open(os.path.join(AQUI, "politica.json"), encoding="utf-8") as _f:
     _pol = json.load(_f)["permissions"]
 DENY, ALLOW = _pol["deny"], _pol["allow"]
@@ -139,6 +143,11 @@ DENY_BASH = [
     "python3 /tmp/controlador.py publicar 1",
     "python3 infraestructura/publicacion/controlador.py publicar abc",
     "python3 infraestructura/publicacion/controlador.py fusionar 1",
+    "python3 infraestructura/publicacion/controlador.py publicar 1",
+    "/usr/local/bin/vz-publicar publicar 7 && rm x", "vz-publicar publicar 7", "/tmp/vz-publicar publicar 7",
+    "/usr/local/bin/vz-publicar fusionar 7", "/usr/local/bin/vz-publicar publicar 7; git push origin main",
+    "bash -c '/usr/local/bin/vz-publicar publicar 7'", "FOO=1 /usr/local/bin/vz-publicar publicar 7",
+    "/usr/local/bin/vz-publicar publicar $(echo 7)",
     # destructivos varios
     ":(){ :|:& };:", "cat /dev/zero > /dev/sda",
 ]
@@ -182,6 +191,14 @@ DENY_OTRAS = [
     mcp("mcp__supabase__execute_sql", query="alter table products disable row level security"),
     mcp("mcp__supabase__execute_sql", query="select pg_read_file('/etc/passwd')"),
     mcp("mcp__supabase__execute_sql", query="copy products to program 'sh'"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="drop table public.products"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="grant all on public.t to anon"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create policy p on t for select to anon using (true)"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="delete from public.aprendizajes"),
+    mcp("mcp__supabase__apply_migration", name="Centro Aprendizajes", query="create table t (id int)"),
+    mcp("mcp__supabase__apply_migration", name="no_esta_en_main", query="create table t (id int)"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes"),
     mcp("mcp__supabase__delete_branch", branch_id="x"), mcp("mcp__supabase__pause_project"),
     mcp("mcp__supabase__deploy_edge_function", name="x"),
     mcp("mcp__vercel__get_project_env", id="x"), mcp("mcp__vercel__request_promote", id="x"),
@@ -209,6 +226,12 @@ LECTURA = [
     "gh pr list | head", "gh pr view 3 && gh pr checks 3",
     f"tail -4 {H}/registros/vz-guardian.log", f"cat {H}/.claude/projects/x/memory/MEMORY.md",
     "cat package.json", "git log --oneline -5 app", "grep -n useState app/checkout.tsx",
+    # Controlador de publicación instalado (copia de root): aprobado por el guardián.
+    "/usr/local/bin/vz-publicar revisar 7", "/usr/local/bin/vz-publicar publicar 7",
+]
+APROBADAS_OTRAS = [
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create table if not exists public.aprendizajes (id uuid primary key)"),
 ]
 
 # ----------------------------------------------------------------- PASA ----------
@@ -227,6 +250,7 @@ PASA = [
     "systemctl status videojuegoszaragoza-remote.service",
     "python3 infraestructura/claude-code/test_guardian.py", "python3 infraestructura/claude-code/test_politica.py",
     "bash -n infraestructura/claude-code/instalar.sh", "python3 -m py_compile infraestructura/claude-code/guardian.py",
+    "python3 infraestructura/publicacion/test_controlador.py",
     "git commit -m 'toca CLAUDE.md y .env.example'", "git log --graph --oneline", "git var GIT_COMMITTER_IDENT",
     "git show HEAD:package.json", "git push origin feat:feat",
 ]
@@ -235,6 +259,8 @@ PASA_OTRAS = [
     mcp("mcp__supabase__execute_sql", query="select count(*) from products"),
     mcp("mcp__supabase__execute_sql", query="select proname, prosrc from pg_proc"),
     mcp("mcp__supabase__execute_sql", query="select pg_get_function_identity_arguments(oid) from pg_proc"),
+    mcp("mcp__supabase__execute_sql", query="select (created_at at time zone 'Europe/Madrid')::date as dia, "
+        "count(*) filter (where event_name = 'page_view') as n from public.analytics_events group by 1"),
     mcp("mcp__vercel__list_deployments", limit=5), mcp("mcp__vercel__get_deployment", idOrUrl="x"),
     mcp("mcp__vercel__get_runtime_logs", id="x"),
 ]
@@ -308,6 +334,8 @@ def casos():
         yield "DENY", c
     for c in LECTURA:
         yield "LECTURA", bash(c)
+    for c in APROBADAS_OTRAS:
+        yield "LECTURA", c
     for c in PASA:
         yield "PASA", bash(c)
     for c in PASA_OTRAS:
