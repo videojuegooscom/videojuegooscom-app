@@ -1409,8 +1409,10 @@ def _partir_crudo(cmd):
 
 
 def en_zona_lectura(ruta):
-    zonas = [PROYECTO, WORKTREES, f"/tmp/claude-{UID}"]
-    return any(dentro(ruta, z) for z in zonas) or bool(re.match(r"^/tmp/vz-", ruta)) or ruta == "/dev/null"
+    # Además del repo: la memoria del agente y el registro del guardián (nunca credenciales).
+    zonas = [PROYECTO, WORKTREES, f"/tmp/claude-{UID}", os.path.join(HOME, ".claude", "projects")]
+    return (any(dentro(ruta, z) for z in zonas) or bool(re.match(r"^/tmp/vz-", ruta))
+            or ruta in ("/dev/null", REGISTRO))
 
 
 def _ruta_leible(token, cwd):
@@ -1766,17 +1768,18 @@ def _curl_lectura(args, cwd):
 
 
 def lectura_simple_especial(comando, cwd):
-    """gh api GET y curl de solo lectura a nuestra web: se aprueban aunque sean comandos simples
-    (la política no los incluye en su lista allow porque su forma general puede escribir)."""
+    """Comando simple de lectura demostrable (cat, tail, grep, git log, gh api GET, curl a
+    nuestra web…): el guardián lo aprueba él mismo, para que Claude Code no pregunte cuando lee
+    algo de las zonas de lectura que está fuera del directorio de trabajo (memoria, registro)."""
     try:
-        if not isinstance(comando, str) or len(comando) > 4000:
+        if not isinstance(comando, str) or len(comando) > 4000 or comando != quitar_heredocs(comando):
             return False
         # {owner}/{repo} lo sustituye gh (no la shell, que no expande llaves sin coma).
         partes, separador = _partir_crudo(comando.replace("{owner}/{repo}", "videojuegooscom/videojuegooscom-app"))
         if separador:
             return False
         tokens = shlex.split(partes[0], posix=True)
-        if not tokens or tokens[0] not in ("gh", "curl") or (tokens[0] == "gh" and tokens[1:2] != ["api"]):
+        if not tokens:
             return False
         _parte_es_lectura(tokens, cwd)
         return True
