@@ -254,6 +254,7 @@ export default function AdminLayout() {
       <Stack.Screen name="cliente/[userId]" />
       <Stack.Screen name="marca-seo" />
       <Stack.Screen name="redes-sociales" />
+      <Stack.Screen name="aprendizajes" />
     </Stack>
   );
 }
