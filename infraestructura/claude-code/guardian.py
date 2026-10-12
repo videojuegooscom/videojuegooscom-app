@@ -14,7 +14,7 @@
 # Modo autónomo:  se activa con el archivo «modo-autonomo» junto a la política (un nivel por
 #                 encima de hooks/), que debe ser de root y no escribible por otros. En ese modo
 #                 las dudas no críticas pasan sin ventana y quedan anotadas como «auto».
-# Registro:       ~/.claude/vz-guardian.log (fecha, decisión, regla, herramienta, sesión,
+# Registro:       ~/registros/vz-guardian.log (fecha, decisión, regla, herramienta, sesión,
 #                 categoría y SHA-256 de la entrada; nunca el contenido).
 # Pruebas:        test_guardian.py y test_politica.py (misma carpeta).
 # Dependencias:   python3 (biblioteca estándar), git.
@@ -34,7 +34,10 @@ import sys
 PROYECTO = os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
 HOME = os.path.realpath(os.path.expanduser("~"))
 UID = os.getuid()
-REGISTRO = os.path.join(HOME, ".claude", "vz-guardian.log")
+# Fuera de ~/.claude (que Claude Code protege por su cuenta y siempre pregunta al leerla) y
+# declarado en additionalDirectories para leerlo sin ventanas. El agente no puede escribir aquí.
+DIR_REGISTROS = os.path.join(HOME, "registros")
+REGISTRO = os.path.join(DIR_REGISTROS, "vz-guardian.log")
 RAMAS_PROTEGIDAS = {"main", "master"}
 # Carpeta de la política instalada (…/claude-code): hooks/guardian.py está un nivel por debajo.
 DIR_POLITICA = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -1410,9 +1413,8 @@ def _partir_crudo(cmd):
 
 def en_zona_lectura(ruta):
     # Además del repo: la memoria del agente y el registro del guardián (nunca credenciales).
-    zonas = [PROYECTO, WORKTREES, f"/tmp/claude-{UID}", os.path.join(HOME, ".claude", "projects")]
-    return (any(dentro(ruta, z) for z in zonas) or bool(re.match(r"^/tmp/vz-", ruta))
-            or ruta in ("/dev/null", REGISTRO))
+    zonas = [PROYECTO, WORKTREES, f"/tmp/claude-{UID}", os.path.join(HOME, ".claude", "projects"), DIR_REGISTROS]
+    return any(dentro(ruta, z) for z in zonas) or bool(re.match(r"^/tmp/vz-", ruta)) or ruta == "/dev/null"
 
 
 def _ruta_leible(token, cwd):

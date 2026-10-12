@@ -33,7 +33,8 @@ comprobar("scripts de npm desactivados", POL.get("env", {}).get("npm_config_igno
 comprobar("defaultMode acceptEdits", P.get("defaultMode") == "acceptEdits")
 comprobar("bypass desactivado", P.get("disableBypassPermissionsMode") == "disable")
 comprobar("lecturas fuera bloqueadas", P.get("blockReadsOutsideWorkingDirectories") is True)
-comprobar("directorios extra solo la política", P.get("additionalDirectories") == ["/etc/claude-code"])
+comprobar("directorios extra solo la política y los registros",
+          P.get("additionalDirectories") == ["/etc/claude-code", "/home/videojuegoszaragoza/registros"])
 comprobar("sin reglas ask", P.get("ask") == [])
 comprobar("sin duplicados en deny", len(P["deny"]) == len(set(P["deny"])))
 comprobar("sin duplicados en allow", len(P["allow"]) == len(set(P["allow"])))

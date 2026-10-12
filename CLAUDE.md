@@ -28,4 +28,5 @@ Usuario del servidor: `videojuegoszaragoza`. No tocar nada de otros proyectos (V
 
 La política, el guardián y el modo sin confirmaciones se describen en `infraestructura/claude-code/README.md`.
 Se instalan con `sudo vz-instalar-claude` (copia de root) desde `main`. El registro de decisiones del
-guardián está en `~/.claude/vz-guardian.log` (las dudas aprobadas en modo autónomo aparecen como `auto`).
+guardián está en `~/registros/vz-guardian.log` (las dudas aprobadas en modo autónomo aparecen como `auto`).
+No leer nada dentro de `~/.claude` desde Bash: Claude Code siempre pregunta. La memoria se lee con Read.

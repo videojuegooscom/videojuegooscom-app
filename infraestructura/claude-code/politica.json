@@ -16,7 +16,7 @@
     "defaultMode": "acceptEdits",
     "disableBypassPermissionsMode": "disable",
     "blockReadsOutsideWorkingDirectories": true,
-    "additionalDirectories": ["/etc/claude-code"],
+    "additionalDirectories": ["/etc/claude-code", "/home/videojuegoszaragoza/registros"],
     "deny": [
       "Bash(git push --force *)",
       "Bash(git push -f *)",
