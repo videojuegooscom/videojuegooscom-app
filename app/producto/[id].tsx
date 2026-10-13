@@ -316,6 +316,13 @@ function asProductCondition(value: unknown): ProductCondition {
 
 // Mismo texto que labelCond() en app/admin/products/products.utils.ts, para
 // que el estado que ve el cliente coincida con el que elige el admin.
+// Mismas promesas que la portada (TRUST_INFO en app/(tabs)/index.tsx), en corto.
+const PRODUCT_TRUST_POINTS: { icon: React.ComponentProps<typeof Ionicons>["name"]; text: string }[] = [
+  { icon: "checkmark-circle-outline", text: "Garantía de tienda: si algo falla, te lo solucionamos" },
+  { icon: "shield-checkmark-outline", text: "Revisado y probado antes de ponerlo a la venta" },
+  { icon: "cube-outline", text: "Envío a toda España con seguimiento o recogida en tienda" },
+];
+
 function labelCondition(c: ProductCondition) {
   if (c === "NEW") return "Nuevo";
   if (c === "LIKE_NEW") return "Como nuevo";
@@ -700,7 +707,8 @@ export default function ProductoScreen() {
   const [likesSupported, setLikesSupported] = useState(true);
   const [viewCount, setViewCount] = useState<number | null>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
-  const [qty, setQty] = useState(1);
+  // Segunda mano: cada ficha es una unidad única, así que siempre se compra 1 (sin selector).
+  const qty = 1;
   const [cartBusy, setCartBusy] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -868,7 +876,6 @@ ${price}
 
   useEffect(() => {
     loadProduct();
-    setQty(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
@@ -977,7 +984,7 @@ ${price}
       const existing = current.find((it) => it.id === p.id);
 
       const next: CartItem[] = existing
-        ? current.map((it) => (it.id === p.id ? { ...it, qty: it.qty + qty } : it))
+        ? current.map((it) => (it.id === p.id ? { ...it, qty } : it)) // ya estaba: sigue siendo 1
         : [
             {
               id: p.id,
@@ -1486,7 +1493,9 @@ ${price}
                         letterSpacing: 0.2,
                       }}
                     >
-                      De segunda mano: {labelCondition(p.condition)}
+                      {p.condition === "NEW"
+                        ? "Nuevo · unidad única"
+                        : `Segunda mano · ${labelCondition(p.condition)} · unidad única`}
                     </Text>
                   </View>
 
@@ -1517,83 +1526,78 @@ ${price}
                   {fmtEUR(p.priceEUR)}
                 </Text>
 
+                {/* Lo que da confianza en segunda mano, a la vista junto al precio (mismos
+                    textos que la portada: garantía de tienda, revisión, envíos y atención). */}
+                <View style={{ gap: 8 }}>
+                  {PRODUCT_TRUST_POINTS.map((t) => (
+                    <View key={t.text} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Ionicons name={t.icon} size={16} color={COLORS.accent} />
+                      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, flex: 1 }}>
+                        {t.text}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
                 <View style={{ gap: 10 }}>
-                  <View
-                    style={{
-                      flexDirection: "row",
+                  {/* Acción principal: una sola, clara. La secundaria, con contorno. */}
+                  <Pressable
+                    onPress={() => addToCart("buyNow")}
+                    disabled={!canBuy || cartBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Comprar ya ${p.title}`}
+                    style={({ pressed }) => ({
+                      opacity: !canBuy ? 0.45 : pressed ? 0.9 : 1,
+                      borderRadius: 999,
+                      minHeight: 52,
+                      justifyContent: "center",
                       alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                    }}
+                      backgroundColor: COLORS.accentDark,
+                    })}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 13 }}>
-                        Cantidad
-                      </Text>
+                    {cartBusy ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Comprar ya</Text>
+                    )}
+                  </Pressable>
 
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: "#F6FAFD",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <Pressable
-                          onPress={() => setQty((n) => Math.max(1, n - 1))}
-                          disabled={qty <= 1}
-                          style={({ pressed }) => ({
-                            opacity: qty <= 1 ? 0.4 : pressed ? 0.85 : 1,
-                            width: 36,
-                            height: 36,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          })}
-                        >
-                          <Ionicons name="remove" size={16} color={COLORS.text} />
-                        </Pressable>
+                  <Pressable
+                    onPress={() => addToCart("cart")}
+                    disabled={!canBuy || cartBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Añadir ${p.title} a la cesta`}
+                    style={({ pressed }) => ({
+                      opacity: !canBuy ? 0.45 : pressed ? 0.9 : 1,
+                      borderRadius: 999,
+                      minHeight: 48,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      borderWidth: 1.5,
+                      borderColor: COLORS.accent,
+                      backgroundColor: "#FFFFFF",
+                    })}
+                  >
+                    <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 15 }}>
+                      Añadir a la cesta
+                    </Text>
+                  </Pressable>
 
-                        <Text
-                          style={{
-                            minWidth: 30,
-                            textAlign: "center",
-                            color: COLORS.text,
-                            fontWeight: "900",
-                          }}
-                      >
-                        {qty}
-                      </Text>
-
-                      <Pressable
-                        onPress={() => setQty((n) => Math.min(20, n + 1))}
-                        disabled={qty >= 20}
-                        style={({ pressed }) => ({
-                          opacity: qty >= 20 ? 0.4 : pressed ? 0.85 : 1,
-                          width: 36,
-                          height: 36,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        })}
-                      >
-                        <Ionicons name="add" size={16} color={COLORS.text} />
-                      </Pressable>
-                    </View>
-                    </View>
-
+                  {/* Dudas, a un toque: chat de la web o WhatsApp (mismo tamaño, fáciles de pulsar). */}
+                  <View style={{ flexDirection: "row", gap: 10 }}>
                     <Pressable
                       onPress={handleChatPress}
                       disabled={chatBusy}
+                      accessibilityRole="button"
+                      accessibilityLabel="Preguntar por el chat de la tienda"
                       style={({ pressed }) => ({
+                        flex: 1,
                         opacity: chatBusy ? 0.6 : pressed ? 0.88 : 1,
                         flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "center",
                         gap: 6,
-                        height: 36,
-                        paddingHorizontal: 14,
+                        minHeight: 44,
                         borderRadius: 999,
                         borderWidth: 1,
                         borderColor: COLORS.border,
@@ -1605,41 +1609,30 @@ ${price}
                       ) : (
                         <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
                       )}
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>Chat</Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Chat</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => openWhatsApp(whatsappText)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Preguntar por WhatsApp"
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        opacity: pressed ? 0.88 : 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        minHeight: 44,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        backgroundColor: "#FFFFFF",
+                      })}
+                    >
+                      <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>WhatsApp</Text>
                     </Pressable>
                   </View>
-
-                  <Pressable
-                    onPress={() => addToCart("cart")}
-                    disabled={!canBuy || cartBusy}
-                    style={({ pressed }) => ({
-                      opacity: !canBuy ? 0.45 : pressed ? 0.9 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 14,
-                      alignItems: "center",
-                      backgroundColor: COLORS.accent,
-                    })}
-                  >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                      Añadir a la cesta
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => addToCart("buyNow")}
-                    disabled={!canBuy || cartBusy}
-                    style={({ pressed }) => ({
-                      opacity: !canBuy ? 0.45 : pressed ? 0.9 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 14,
-                      alignItems: "center",
-                      backgroundColor: COLORS.accentDark,
-                    })}
-                  >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                      Comprar ya
-                    </Text>
-                  </Pressable>
                 </View>
 
                 <View
@@ -1733,53 +1726,14 @@ ${price}
                 </Text>
 
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <Pill text="Producto revisado" isMobile={isMobile} />
-                  <Pill text="Envíos en España" isMobile={isMobile} />
                   <Pill text="Recibo o factura" isMobile={isMobile} />
                   <Pill text="Atención directa" isMobile={isMobile} />
                 </View>
 
-                <View
-                  style={{
-                    borderRadius: 18,
-                    borderWidth: 1,
-                    borderColor: COLORS.borderSoft,
-                    backgroundColor: "#F4F9FD",
-                    padding: 14,
-                    gap: 8,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                    ¿Tienes dudas antes de comprar?
-                  </Text>
-
-                  <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                    Escríbenos y te confirmamos disponibilidad, estado, accesorios incluidos o
-                    cualquier otro detalle que necesites.
-                  </Text>
-
-                  <Pressable
-                    onPress={() => openWhatsApp(whatsappText)}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      marginTop: 2,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
-                      backgroundColor: COLORS.accent2,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      alignSelf: isMobile ? "stretch" : "flex-start",
-                    })}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                      <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-                      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                        Preguntar por WhatsApp
-                      </Text>
-                    </View>
-                  </Pressable>
-                </View>
+                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                  ¿Dudas sobre el estado, los accesorios incluidos o la compatibilidad? Escríbenos por
+                  el chat o por WhatsApp desde los botones de arriba.
+                </Text>
               </View>
             </View>
           </View>

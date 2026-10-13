@@ -130,15 +130,6 @@ const COLORS = {
   overlay: "rgba(3,10,18,0.76)",
 };
 
-type Viewer = {
-  id: string;
-  username: string;
-  mode: "viewer" | "member" | "vip";
-  city: string;
-  country: string;
-  game: string;
-};
-
 type MessageItem = {
   id: string;
   type: "message" | "gif" | "system";
@@ -317,76 +308,6 @@ export default function ChatGlobalScreen() {
   const hasScrolledInitialRef = useRef(false);
 
   const isLoggedIn = !!currentUserId;
-
-  const viewers = useMemo<Viewer[]>(
-    () => [
-      {
-        id: "1",
-        username: "alexzgz",
-        mode: "member",
-        city: "Zaragoza",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "2",
-        username: "mariaps5",
-        mode: "viewer",
-        city: "Madrid",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "3",
-        username: "otakuzone",
-        mode: "vip",
-        city: "Valencia",
-        country: "España",
-        game: "Warzone",
-      },
-      {
-        id: "4",
-        username: "retro_dani",
-        mode: "member",
-        city: "Sevilla",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "5",
-        username: "switchlover",
-        mode: "viewer",
-        city: "Bogotá",
-        country: "Colombia",
-        game: "Fortnite",
-      },
-      {
-        id: "6",
-        username: "capibara_tech",
-        mode: "member",
-        city: "Barcelona",
-        country: "España",
-        game: "EA FC",
-      },
-      {
-        id: "7",
-        username: "nutriafix",
-        mode: "vip",
-        city: "Bilbao",
-        country: "España",
-        game: "Fortnite",
-      },
-      {
-        id: "8",
-        username: "adri_xbox",
-        mode: "viewer",
-        city: "Lisboa",
-        country: "Portugal",
-        game: "Fortnite",
-      },
-    ],
-    []
-  );
 
   const canViewMedia = isLoggedIn && hasCompletedCommunityProfile;
   const trimmedDraftLength = draft.trim().length;
@@ -779,15 +700,13 @@ export default function ChatGlobalScreen() {
               gap: 12,
             }}
           >
+            {/* Solo el dato real (Supabase Presence): antes se mostraba una lista de usuarios
+                de ejemplo que no existían. */}
             <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-              Aquí puedes ver quién está conectado ahora mismo.
+              {viewerCount === 1
+                ? "Ahora mismo hay 1 persona en el chat."
+                : `Ahora mismo hay ${viewerCount} personas en el chat.`}
             </Text>
-
-            <View style={{ gap: 10 }}>
-              {viewers.map((viewer) => (
-                <ViewerRow key={viewer.id} viewer={viewer} />
-              ))}
-            </View>
           </View>
         ) : null}
 
@@ -1263,83 +1182,6 @@ function HubTabButton({
   );
 }
 
-function ViewerRow({ viewer }: { viewer: Viewer }) {
-  const modeMap = {
-    viewer: {
-      label: "Mirando",
-      bg: "#EAF6FD",
-      border: "#E3EAF2",
-      text: "#0B2138",
-    },
-    member: {
-      label: "Miembro",
-      bg: "#EAF6FD",
-      border: "rgba(0,170,228,0.30)",
-      text: "#0F8FCC",
-    },
-    vip: {
-      label: "VIP",
-      bg: "rgba(216,176,74,0.16)",
-      border: "rgba(216,176,74,0.30)",
-      text: "#92660B",
-    },
-  }[viewer.mode];
-
-  return (
-    <View
-      style={{
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: "#E3EAF2",
-        backgroundColor: "#F8FBFE",
-        padding: 12,
-        gap: 8,
-      }}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-          <AvatarCircle username={viewer.username} size={40} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-              @{viewer.username}
-            </Text>
-            <Text style={{ color: COLORS.soft, fontSize: 12, marginTop: 2 }}>
-              {viewer.city}, {viewer.country}
-            </Text>
-          </View>
-        </View>
-
-        <View
-          style={{
-            borderRadius: 999,
-            paddingVertical: 7,
-            paddingHorizontal: 10,
-            backgroundColor: modeMap.bg,
-            borderWidth: 1,
-            borderColor: modeMap.border,
-          }}
-        >
-          <Text style={{ color: modeMap.text, fontWeight: "900", fontSize: 12 }}>
-            {modeMap.label}
-          </Text>
-        </View>
-      </View>
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        <MiniInlineData label="Juego" value={viewer.game} />
-        <MiniInlineData label="Zona" value={viewer.city} />
-      </View>
-    </View>
-  );
-}
-
 function AvatarCircle({
   username,
   size = 42,
@@ -1371,31 +1213,6 @@ function AvatarCircle({
     >
       <Text style={{ color: COLORS.text, fontWeight: "900" }}>
         {username.slice(0, 1).toUpperCase()}
-      </Text>
-    </View>
-  );
-}
-
-function MiniInlineData({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        backgroundColor: "#F6FAFD",
-        borderWidth: 1,
-        borderColor: "#E3EAF2",
-      }}
-    >
-      <Text style={{ color: COLORS.soft, fontSize: 11, fontWeight: "700" }}>
-        {label}: <Text style={{ color: COLORS.text, fontWeight: "900" }}>{value}</Text>
       </Text>
     </View>
   );

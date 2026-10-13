@@ -58,7 +58,9 @@ import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
 import SiteHead from "../components/SiteHead";
 
-const MIN_BOOT_MS = 1000;
+// Pantalla de marca muy breve: lo justo para que no parpadee. Antes era 1 s fijo en cada
+// carga, que en móvil se notaba como lentitud aunque la tienda ya estuviera lista.
+const MIN_BOOT_MS = 300;
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -77,7 +79,7 @@ export default function RootLayout() {
   }, []);
 
   // Si la fuente falla en cargar (fontError), no nos quedamos bloqueados
-  // para siempre: se deja pasar igualmente pasado el segundo mínimo.
+  // para siempre: se deja pasar igualmente pasado el tiempo mínimo.
   const bootLoading = !minTimeElapsed || (!fontsLoaded && !fontError);
 
   if (bootLoading) {

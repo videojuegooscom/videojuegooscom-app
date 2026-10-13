@@ -544,24 +544,6 @@ export default function CestaScreen() {
     await saveCart(next);
   }, []);
 
-  const inc = useCallback(
-    async (id: string) => {
-      const next = items.map((it) => (it.id === id ? { ...it, qty: it.qty + 1 } : it));
-      await persist(next);
-    },
-    [items, persist]
-  );
-
-  const dec = useCallback(
-    async (id: string) => {
-      const next = items.map((it) =>
-        it.id === id ? { ...it, qty: Math.max(1, it.qty - 1) } : it
-      );
-      await persist(next);
-    },
-    [items, persist]
-  );
-
   const remove = useCallback(
     async (id: string) => {
       const next = items.filter((it) => it.id !== id);
@@ -579,8 +561,10 @@ export default function CestaScreen() {
     setLoading(true);
 
     try {
-      const stored = await loadCart();
+      // Cestas guardadas antes de este cambio podían tener más de 1 unidad: se deja en 1.
+      const stored = (await loadCart()).map((it) => ({ ...it, qty: 1 }));
       setItems(stored);
+      await saveCart(stored);
     } catch (e: any) {
       console.error("Error cargando la cesta:", e);
       setErr("No hemos podido cargar tu cesta. Inténtalo de nuevo.");
@@ -601,13 +585,7 @@ export default function CestaScreen() {
       try {
         const existing = items.find((it) => it.id === productId);
 
-        if (existing) {
-          const next = items.map((it) =>
-            it.id === productId ? { ...it, qty: it.qty + 1 } : it
-          );
-          await persist(next);
-          return;
-        }
+        if (existing) return; // unidad única: ya está en la cesta
 
         const fetched = await fetchProductForCart(productId);
 
@@ -824,62 +802,30 @@ export default function CestaScreen() {
                   </View>
 
                   {/*
-                    Mismo patrón que la cesta de Amazon: un único control de
-                    cantidad donde el botón de la izquierda hace de "quitar"
-                    cuando queda 1 unidad (icono de papelera) y de "restar"
-                    cuando hay más de 1 (icono de menos) — así no hace falta
-                    un botón "Quitar" aparte en otro sitio.
+                    Segunda mano: cada artículo es una unidad única, así que no hay
+                    selector de cantidad; solo se puede quitar.
                   */}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5 }}>
+                      Unidad única
+                    </Text>
                     <AnimatedPressable
-                      onPress={() => (it.qty <= 1 ? remove(it.id) : dec(it.id))}
+                      onPress={() => remove(it.id)}
                       style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 19,
+                        minHeight: 44,
+                        paddingHorizontal: 14,
+                        borderRadius: 999,
+                        flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "center",
+                        gap: 6,
                         borderWidth: 1,
-                        borderColor: it.qty <= 1 ? "#F5B5B5" : "#E3EAF2",
-                        backgroundColor: it.qty <= 1 ? "#FDECEC" : "#F6FAFD",
+                        borderColor: "#F5B5B5",
+                        backgroundColor: "#FDECEC",
                       }}
                     >
-                      <Ionicons
-                        name={it.qty <= 1 ? "trash-outline" : "remove-outline"}
-                        size={18}
-                        color={it.qty <= 1 ? "#B91C1C" : COLORS.text}
-                      />
-                    </AnimatedPressable>
-
-                    <View
-                      style={{
-                        minWidth: 40,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        paddingVertical: 9,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: "#E3EAF2",
-                        backgroundColor: "#F4F9FD",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{it.qty}</Text>
-                    </View>
-
-                    <AnimatedPressable
-                      onPress={() => inc(it.id)}
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 19,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderWidth: 1,
-                        borderColor: COLORS.accentBorder,
-                        backgroundColor: COLORS.accent2,
-                      }}
-                    >
-                      <Ionicons name="add-outline" size={18} color={COLORS.text} />
+                      <Ionicons name="trash-outline" size={16} color="#B91C1C" />
+                      <Text style={{ color: "#B91C1C", fontWeight: "900", fontSize: 13 }}>Quitar</Text>
                     </AnimatedPressable>
                   </View>
                 </View>
