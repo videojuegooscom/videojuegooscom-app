@@ -246,7 +246,7 @@ export default function AdminHome() {
         key: "flash-news",
         title: "Noticias Flash",
         subtitle:
-          "Hasta 5 mensajes rotando en la franja superior: texto, color y segundos en pantalla de cada uno.",
+          "Hasta 5 avisos para Blue IA: el asistente flotante los muestra y los usa al responder.",
         icon: "flash-outline" as IoniconName,
         onPress: () => router.push("/admin/flash-news"),
       },

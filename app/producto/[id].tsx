@@ -859,8 +859,11 @@ ${price}
   // una sola vez, se quedaría con los valores del primer render.
   const mainImagePan = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
+    // Solo reclama arrastres sobre todo horizontales: el arrastre vertical sobre la foto
+    // debe desplazar la ficha, no quedarse atrapado en la imagen.
     onMoveShouldSetPanResponder: (_evt, gestureState) =>
-      Math.abs(gestureState.dx) > 6 || Math.abs(gestureState.dy) > 6,
+      Math.abs(gestureState.dx) > 6 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+    onPanResponderTerminationRequest: () => true,
     onPanResponderRelease: (_evt, gestureState) => {
       const movedLittle = Math.abs(gestureState.dx) < 6 && Math.abs(gestureState.dy) < 6;
 
@@ -1164,6 +1167,7 @@ ${price}
         </View>
       ) : (
         <ScrollView
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             padding: pagePadding,
             paddingBottom: isMobile ? 28 : 36,
@@ -1356,6 +1360,9 @@ ${price}
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
+                  // Miniaturas de ancho fijo: el carrusel encaja en cada una (ancho + hueco de 10).
+                  snapToInterval={(isMobile ? 74 : 88) + 10}
+                  decelerationRate="fast"
                   contentContainerStyle={{
                     gap: 10,
                     paddingTop: 10,

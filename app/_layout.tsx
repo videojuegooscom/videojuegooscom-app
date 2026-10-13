@@ -113,7 +113,7 @@ export default function RootLayout() {
         />
       </Stack>
 
-      {/* Campanita flotante: por encima de TODO, en todas las pantallas. */}
+      {/* Blue, asistente flotante (antes campanita): por encima de TODO, en todas las pantallas. */}
       <Campanita />
 
       {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}

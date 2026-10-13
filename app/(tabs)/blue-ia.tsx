@@ -53,10 +53,6 @@
  *   de qué redes sociales mandar como "socialChips").
  * - app/(tabs)/index.tsx → la sección "Preguntas frecuentes" de Inicio
  *   enlaza aquí con "/blue-ia?q=..." para preguntar directamente.
- * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
- *   arriba del todo (misma franja que en el resto de pestañas).
- * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
- *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -75,8 +71,6 @@ import {
   View,
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import PromoBanner from "../../components/PromoBanner";
-import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { openExternalLink } from "../../lib/openExternalLink";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -209,12 +203,12 @@ export default function BlueIAScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
 
   const [draft, setDraft] = useState("");
-  const [sellModalOpen, setSellModalOpen] = useState(false);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [messages, setMessages] = useState<BlueIAMessage[]>([WELCOME_MESSAGE]);
   const [sending, setSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const showScrollToBottomRef = useRef(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const autoAskedRef = useRef(false);
@@ -399,11 +393,17 @@ export default function BlueIAScreen() {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const distanceFromBottom =
       contentSize.height - layoutMeasurement.height - (contentOffset.y as number);
-    setShowScrollToBottom(distanceFromBottom > 260);
+    // Solo se actualiza el estado al cruzar el umbral, no en cada evento de scroll.
+    const next = distanceFromBottom > 260;
+    if (next !== showScrollToBottomRef.current) {
+      showScrollToBottomRef.current = next;
+      setShowScrollToBottom(next);
+    }
   }, []);
 
   const handleScrollToLatest = useCallback(() => {
     scrollRef.current?.scrollToEnd({ animated: true });
+    showScrollToBottomRef.current = false;
     setShowScrollToBottom(false);
   }, []);
 
@@ -411,8 +411,6 @@ export default function BlueIAScreen() {
     <>
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-
-      <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <LinearGradient
@@ -437,6 +435,8 @@ export default function BlueIAScreen() {
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 58,
@@ -533,6 +533,7 @@ export default function BlueIAScreen() {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               // flexGrow + center: centradas si caben; si no, se deslizan.
               contentContainerStyle={{ gap: 8, flexGrow: 1, justifyContent: "center" }}
             >
@@ -587,8 +588,6 @@ export default function BlueIAScreen() {
         </View>
       </View>
     </SafeAreaView>
-
-    <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
 
     <BlueIAInfoModal
       visible={infoModalOpen}

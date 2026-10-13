@@ -16,10 +16,6 @@
  * - app/checkout.tsx → botón "Ir a pagar".
  * - lib/supabase.ts → tabla products, para completar los datos del
  *   artículo añadido.
- * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
- *   arriba del todo (misma franja que en el resto de pestañas).
- * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
- *   Ya" de esa franja.
  * - components/SocialLinks.tsx → bloque "Síguenos" debajo del resumen del
  *   pedido, con los logos de las redes sociales activas.
  */
@@ -27,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Href } from "expo-router";
 import { router, useLocalSearchParams } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -42,10 +39,8 @@ import {
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import PromoBanner from "../../components/PromoBanner";
 import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
-import VenderAhoraModal from "../../components/VenderAhoraModal";
 import {
   formatoCuentaAtras,
   liberarReserva,
@@ -537,10 +532,12 @@ export default function CestaScreen() {
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [items, setItems] = useState<CartItem[]>([]);
-  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const bootedRef = useRef(false);
   const lastAddRef = useRef<string>("");
+  // Al tocar otra vez la pestaña "Cesta" estando en ella, la lista vuelve arriba.
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
 
   const subtotal = useMemo(
     () => items.reduce((acc, it) => acc + it.priceEUR * it.qty, 0),
@@ -672,11 +669,8 @@ export default function CestaScreen() {
   }, [addId, addToCartById]);
 
   return (
-    <>
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-
-      <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
       {/*
         El bloque de título "Cesta" / subtítulo / contador de artículos se
@@ -728,6 +722,7 @@ export default function CestaScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
@@ -893,9 +888,6 @@ export default function CestaScreen() {
         </ScrollView>
       )}
     </SafeAreaView>
-
-    <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
-    </>
   );
 }
 

@@ -12,7 +12,18 @@ import { ScrollViewStyleReset } from "expo-router/html";
 import type { PropsWithChildren } from "react";
 
 const SUPABASE_ORIGIN = "https://rgvyvaineyodyxzwootl.supabase.co";
-const BOOT_CSS = "html,body,#root{background-color:#FFFFFF;}";
+// Scroll en el móvil (se suma a ScrollViewStyleReset, que ya fija html/body/#root al 100 %
+// y deja body con overflow:hidden para que solo se desplacen los ScrollView de la app):
+// - overscroll-behavior-y:none → la página entera no rebota ni hace "tirar para recargar"
+//   al llegar arriba/abajo de una lista; cada ScrollView sigue desplazándose normal.
+// - tap-highlight transparente y touch-action:manipulation → sin destello gris al tocar y
+//   sin la espera del doble toque (los toques responden al momento).
+// No se usa scroll-behavior:smooth global: los ScrollView ya animan scrollTo cuando toca y
+// en los saltos sin animación (animated:false) lo convertiría en un desplazamiento lento.
+const BOOT_CSS =
+  "html,body,#root{background-color:#FFFFFF;}" +
+  "html,body{overscroll-behavior-y:none;}" +
+  "body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}";
 
 export default function Root({ children }: PropsWithChildren) {
   return (

@@ -469,7 +469,7 @@ export default function CheckoutScreen() {
         </View>
       ) : pedidoHecho ? (
         // Confirmación: el pedido ya está registrado (o enviado por WhatsApp si no hubo número).
-        <ScrollView contentContainerStyle={{ padding: 24, alignItems: "center" }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, alignItems: "center" }}>
           <View style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
             <MarcaAnimada cual="pareja" ancho={240} />
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
@@ -540,7 +540,13 @@ export default function CheckoutScreen() {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, alignItems: "center" }}>
+          {/* Formulario: el primer toque fuera del teclado ya pulsa y al arrastrar se cierra. */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={{ padding: 16, paddingBottom: 140, alignItems: "center" }}
+          >
             <View style={{ ...columnStyle, gap: 12 }}>
             {/* Resumen pedido */}
             <View style={{ gap: 10, alignItems: "center" }}>

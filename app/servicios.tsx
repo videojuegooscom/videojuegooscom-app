@@ -295,7 +295,14 @@ export default function ServiciosScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40 }}>
+      {/* 96 abajo: la última tarjeta queda por encima del asistente flotante Blue.
+          Con el buscador abierto, tocar una tarjeta funciona al primer toque y arrastrar cierra el teclado. */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={{ padding: pagePadding, paddingBottom: 96 }}
+      >
         <View style={{ ...columnStyle }}>
           {loading ? (
             <View style={{ alignItems: "center", paddingVertical: 24 }}>

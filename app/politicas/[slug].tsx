@@ -338,10 +338,12 @@ export default function PoliticaScreen() {
         </View>
       ) : (
         <ScrollView
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: pagePadding,
             paddingTop: 20,
-            paddingBottom: 40,
+            // 96: el final del texto queda por encima del asistente flotante Blue.
+            paddingBottom: 96,
           }}
         >
           <View style={{ ...columnStyle, gap: 18 }}>

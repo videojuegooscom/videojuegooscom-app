@@ -1,6 +1,7 @@
 /**
- * Qué hace: logo y mascotas de VideojuegosZaragoza animados. En reposo "respiran"
- * y flotan suavemente; cada toque lanza una de 10 animaciones distintas, en orden
+ * Qué hace: logo y mascotas de VideojuegosZaragoza animados. En reposo "respiran",
+ * flotan y cada pocos segundos hacen un gesto al azar (inclinarse, paseíto, saltito,
+ * asentir, balanceo) para no estar nunca fijos; cada toque lanza una de 10 animaciones distintas, en orden
  * (salto, giro, saludo, latido, gelatina, sacudida, voltereta, rebote, péndulo y
  * doble salto con giro), y vuelve a empezar.
  *
@@ -143,11 +144,70 @@ export default function MarcaAnimada({ cual, ancho, reposo = true, tocable = tru
     const a = animacion(n);
     animando.current = a;
     a.start(() => {
-      if (animando.current === a) reiniciar();
+      if (animando.current === a) {
+        animando.current = null;
+        reiniciar();
+      }
     });
   }, [animacion, reiniciar]);
 
   useEffect(() => () => animando.current?.stop(), []);
+
+  // Vida propia: cada pocos segundos (al azar) hace un gesto pequeño — inclinarse,
+  // dar un paseíto, un saltito, asentir o balancearse — para no estar siempre fija.
+  // Nunca interrumpe una animación de toque.
+  useEffect(() => {
+    if (!reposo) return;
+    let vivo = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const gesto = (): Animated.CompositeAnimation => {
+      const h = Math.max(6, alto * 0.07);
+      const lado = Math.random() < 0.5 ? -1 : 1;
+      const paso = Math.max(6, ancho * 0.06) * lado;
+      switch (Math.floor(Math.random() * 5)) {
+        case 0: // inclinarse a un lado
+          return Animated.sequence([t(giro, 7 * lado, 420, Easing.inOut(Easing.sin)), Animated.delay(500), t(giro, 0, 420, Easing.inOut(Easing.sin))]);
+        case 1: // paseíto
+          return Animated.sequence([
+            Animated.parallel([t(x, paso, 700, Easing.inOut(Easing.sin)), t(giro, 3 * lado, 350)]),
+            t(giro, 0, 300),
+            Animated.delay(400),
+            t(x, 0, 700, Easing.inOut(Easing.sin)),
+          ]);
+        case 2: // saltito
+          return Animated.sequence([t(y, -h, 180), t(y, 0, 320, Easing.bounce)]);
+        case 3: // asentir
+          return Animated.sequence([t(escalaY, 0.94, 140), t(escalaY, 1.02, 140), t(escalaY, 0.96, 140), t(escalaY, 1, 160)]);
+        default: // balanceo suave
+          return Animated.sequence([
+            t(giro, -5, 300, Easing.inOut(Easing.sin)),
+            t(giro, 5, 500, Easing.inOut(Easing.sin)),
+            t(giro, 0, 300, Easing.inOut(Easing.sin)),
+          ]);
+      }
+    };
+    const programar = () => {
+      timer = setTimeout(() => {
+        if (!vivo) return;
+        if (!animando.current) {
+          const a = gesto();
+          animando.current = a;
+          a.start(() => {
+            if (animando.current === a) {
+              animando.current = null;
+              reiniciar();
+            }
+          });
+        }
+        programar();
+      }, 3500 + Math.random() * 4500);
+    };
+    programar();
+    return () => {
+      vivo = false;
+      clearTimeout(timer);
+    };
+  }, [reposo, alto, ancho, t, giro, x, y, escalaY, reiniciar]);
 
   const flotarY = flotar.interpolate({ inputRange: [0, 1], outputRange: [0, -Math.max(3, alto * 0.025)] });
   const respirar = flotar.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] });
