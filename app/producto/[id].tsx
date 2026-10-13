@@ -3,15 +3,13 @@
  *
  * Qué hace: ficha de un producto individual. Carga el producto y su galería
  * de fotos/vídeos desde Supabase a partir del id de la URL, y permite
- * añadirlo a la cesta, ir a checkout, preguntar por WhatsApp, abrir un chat
- * privado sobre este producto, compartir la ficha o darle "me gusta".
+ * añadirlo a la cesta, ir a checkout, preguntar por este producto,
+ * compartir la ficha o darle "me gusta".
  *
- * Chat privado: el botón "Chat" (junto a "Preguntar por WhatsApp") exige
- * sesión iniciada; con sesión, get_or_create_product_chat (ver
- * sql/product_chats.sql) crea o reutiliza la conversación de
- * (este producto, este cliente) y lleva a app/chat/[chatId].tsx. Así Jefe
- * puede ver, desde app/admin/chats.tsx, quién le ha escrito por cada
- * artículo y marcarlo como vendido a la persona correcta.
+ * Dudas: el botón "Preguntar por este producto" abre Blue IA con
+ * ?producto=<id>; desde ahí, "Hablar con el equipo" (abrirChatEquipo en components/ProductChatThread.tsx) crea o
+ * reutiliza el chat privado de (este producto, este cliente) con
+ * get_or_create_product_chat, para que Jefe lo vea en app/admin/chats.tsx.
  *
  * Cómo funciona: fetchProductRow() trae el producto y su categoría en una
  * sola consulta (join categories). pickInitialHeroImage() elige la foto de portada. detectAdmin() decide si
@@ -92,7 +90,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import {
   ActivityIndicator,
-  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -108,7 +105,6 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
-import { openExternalLink } from "../../lib/openExternalLink";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
@@ -194,10 +190,6 @@ type Product = {
   condition: ProductCondition;
   likeCount: number;
   reference: string | null;
-};
-
-const BRAND = {
-  whatsappPhoneE164: "+34627748741",
 };
 
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
@@ -339,23 +331,6 @@ function smartBack() {
     // ignore
   }
   replaceRoute("/catalogo" as Href);
-}
-
-function openWhatsApp(prefill: string) {
-  const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
-  const text = encodeURIComponent(String(prefill ?? "").trim().slice(0, 500));
-  const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
-
-  try {
-    // openExternalLink intenta abrir Chrome primero (ver
-    // lib/openExternalLink.ts) — sin await para no perder el toque del
-    // usuario que ese truco necesita.
-    openExternalLink(url);
-  } catch {
-    Linking.openURL(
-      `https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`
-    );
-  }
 }
 
 function isMissingRelationError(error: unknown, relationName: string) {
@@ -612,7 +587,6 @@ export default function ProductoScreen() {
   const [cartBusy, setCartBusy] = useState(false);
   // Otro cliente lo tiene en su cesta (reserva de 15 minutos activa).
   const [reservadoPorOtro, setReservadoPorOtro] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
@@ -659,18 +633,6 @@ export default function ProductoScreen() {
 
     return parts.join(" · ");
   }, [p, isAdmin]);
-
-  const whatsappText = useMemo(() => {
-    const title = p?.title ? `Producto: ${p.title}` : "Producto de la tienda";
-    const price = p?.priceEUR ? `Precio: ${fmtEUR(p.priceEUR)}` : "";
-
-    return `Hola, vengo desde Videojuegoszaragoza.com.
-
-${title}
-${price}
-
-¿Sigue disponible? Me interesa este producto.`;
-  }, [p?.title, p?.priceEUR]);
 
   async function loadProduct() {
     const seq = ++reqSeqRef.current;
@@ -950,28 +912,11 @@ ${price}
     }
   }
 
-  async function handleChatPress() {
-    if (!p || chatBusy) return;
-
-    setChatBusy(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session?.user) {
-        pushRoute("/perfil" as Href);
-        return;
-      }
-
-      const { data: chatId, error } = await supabase.rpc("get_or_create_product_chat", {
-        p_product_id: p.id,
-      });
-      if (error) throw error;
-
-      pushRoute({ pathname: "/chat/[chatId]", params: { chatId: String(chatId) } });
-    } catch (e) {
-      console.error("Error abriendo el chat del producto:", e);
-    } finally {
-      setChatBusy(false);
-    }
+  // Las dudas van primero a Blue IA con el producto como contexto; desde ahí
+  // el cliente puede pasar al chat con el equipo.
+  function handleAskBlue() {
+    if (!p) return;
+    pushRoute(`/blue-ia?producto=${encodeURIComponent(p.id)}` as Href);
   }
 
   async function toggleLike() {
@@ -1526,56 +1471,29 @@ ${price}
                     </Text>
                   </Pressable>
 
-                  {/* Dudas, a un toque: chat de la web o WhatsApp (mismo tamaño, fáciles de pulsar). */}
-                  <View style={{ flexDirection: "row", gap: 10 }}>
-                    <Pressable
-                      onPress={handleChatPress}
-                      disabled={chatBusy}
-                      accessibilityRole="button"
-                      accessibilityLabel="Preguntar por el chat de la tienda"
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        opacity: chatBusy ? 0.6 : pressed ? 0.88 : 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 6,
-                        minHeight: 44,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#FFFFFF",
-                      })}
-                    >
-                      {chatBusy ? (
-                        <ActivityIndicator size="small" color={COLORS.text} />
-                      ) : (
-                        <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
-                      )}
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Chat</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => openWhatsApp(whatsappText)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Preguntar por WhatsApp"
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        opacity: pressed ? 0.88 : 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 6,
-                        minHeight: 44,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#FFFFFF",
-                      })}
-                    >
-                      <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>WhatsApp</Text>
-                    </Pressable>
-                  </View>
+                  {/* Dudas: primero Blue IA con el producto como contexto; desde ahí, el equipo. */}
+                  <Pressable
+                    onPress={handleAskBlue}
+                    accessibilityRole="button"
+                    accessibilityLabel="Preguntar por este producto"
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.88 : 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 7,
+                      minHeight: 44,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      backgroundColor: "#FFFFFF",
+                    })}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
+                      Preguntar por este producto
+                    </Text>
+                  </Pressable>
                 </View>
 
                 {/* Sin recuadros: secciones separadas solo por una línea fina. */}
@@ -1592,7 +1510,7 @@ ${price}
                     <Text style={{ color: COLORS.muted2, lineHeight: 22, textAlign: "center" }}>
                       Todavía no hay una descripción disponible para este producto. Aun así,
                       puedes preguntarnos por su estado, contenido, compatibilidad o
-                      disponibilidad por WhatsApp.
+                      disponibilidad por el chat.
                     </Text>
                   )}
                 </View>
@@ -1633,8 +1551,8 @@ ${price}
 
               {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto. */}
               <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                ¿Dudas sobre el estado, los accesorios incluidos o la compatibilidad? Escríbenos por
-                el chat o por WhatsApp desde los botones de arriba.
+                ¿Dudas sobre el estado, los accesorios incluidos o la compatibilidad? Pregúntanos por
+                el chat desde el botón de arriba.
               </Text>
             </View>
           </View>

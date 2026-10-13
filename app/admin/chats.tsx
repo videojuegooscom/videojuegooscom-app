@@ -18,7 +18,7 @@
  *   derecha, con el botón "Marcar como vendido a este cliente" añadido por
  *   fuera del componente compartido (headerRight).
  * - Consultas generales (sin producto ni solicitud de venta): se agrupan
- *   aparte, en un bloque fijo "Consultas generales" al principio de la
+ *   aparte, en un bloque fijo "Atención al cliente" al principio de la
  *   lista (botón "Chatear con nosotros" de app/catalogo.tsx, vía
  *   get_or_create_support_chat). No llevan botón "Marcar como vendido" al
  *   abrirlas, porque no hay producto que marcar.
@@ -73,7 +73,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import ProductChatThread from "../../components/ProductChatThread";
+import ProductChatThread, { TITULO_ATENCION_CLIENTE } from "../../components/ProductChatThread";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -425,7 +425,7 @@ export default function AdminChats() {
                   <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.muted} />
                 </View>
                 <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-                  Consultas generales
+                  {TITULO_ATENCION_CLIENTE}
                 </Text>
                 <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
                   {supportChats.length} {supportChats.length === 1 ? "persona" : "personas"}

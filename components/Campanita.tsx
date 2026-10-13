@@ -10,12 +10,13 @@
  *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
  *     descripción menciona la garantía, esa frase; si no, que es unidad única y se
  *     reserva 15 minutos en la cesta) y después cómo se entrega (en persona en
- *     Zaragoza o envío a toda España), con WhatsApp a un toque.
+ *     Zaragoza o envío a toda España); al tocarlos se abre el chat de la tienda
+ *     (Blue IA con el producto ya indicado; desde ahí, si hace falta, el equipo).
  *   · En el resto de la tienda, tras 12 s: una de las "Noticias Flash" activas
  *     (tabla flash_news, se editan en app/admin/flash-news.tsx).
  *   Cada bocadillo sale una sola vez por visita y se cierra con la X.
  * - Al tocar a Blue se abre su panel con 3 pestañas: "Asistente" (hablar con Blue
- *   IA, WhatsApp, "Vender"), "Notificaciones" (lo que antes era la campanita:
+ *   IA, hablar con nuestro equipo —pasando antes por Blue IA—, "Vender"), "Notificaciones" (lo que antes era la campanita:
  *   mensajes sin leer, favoritos que ya no están, novedades; con su número) y
  *   "Noticias" (Noticias Flash). Si hay notificaciones, abre en esa pestaña.
  *
@@ -47,7 +48,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
-import { openExternalLink } from "../lib/openExternalLink";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import VenderAhoraModal from "./VenderAhoraModal";
 
@@ -66,7 +66,6 @@ const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
-const WHATSAPP_E164 = "34627748741";
 
 const BLUE_SIZE = 72;
 const EDGE_INSET = 6;
@@ -81,7 +80,8 @@ const NOTICIA_ESPERA_MS = 12000;
 type Corner = "tl" | "tr" | "bl" | "br";
 const CORNERS: Corner[] = ["tl", "tr", "bl", "br"];
 
-type Bocadillo = { id: string; texto: string; accion?: "whatsapp" | "panel"; whatsappTexto?: string };
+// "chat" lleva al chat de la tienda (Blue IA primero; desde ahí, el equipo).
+type Bocadillo = { id: string; texto: string; accion?: "chat" | "panel"; ruta?: string };
 
 // Lo que ya dijo Blue en esta visita (no se repite al volver a la misma ficha).
 const yaDicho = new Set<string>();
@@ -101,10 +101,6 @@ async function getLikedProductIds(): Promise<string[]> {
   } catch {
     return [];
   }
-}
-
-function abrirWhatsApp(texto: string) {
-  openExternalLink(`https://wa.me/${WHATSAPP_E164}?text=${encodeURIComponent(texto.slice(0, 900))}`);
 }
 
 // Frase de la descripción que habla de la garantía (la escribe la tienda en cada producto).
@@ -322,9 +318,8 @@ export default function Campanita() {
             if (!vivo || !data?.title) return;
             yaDicho.add(`p:${id}`);
             const titulo = data.title.trim();
-            const link = typeof window !== "undefined" ? window.location?.href ?? "" : "";
-            const waTexto = `¡Hola! Me interesa ${titulo}${link ? ` (${link})` : ""}. ¿Me dais más información?`;
-            setBocadillo({ id: `p1:${id}`, texto: mensajeProducto(titulo, data.description), accion: "whatsapp", whatsappTexto: waTexto });
+            const ruta = `/blue-ia?producto=${id}`;
+            setBocadillo({ id: `p1:${id}`, texto: mensajeProducto(titulo, data.description), accion: "chat", ruta });
             timers.push(
               setTimeout(() => {
                 if (!vivo) return;
@@ -332,8 +327,8 @@ export default function Campanita() {
                   id: `p2:${id}`,
                   texto:
                     "Realizamos entregas en persona en la ciudad de Zaragoza o envíos a toda España. Escríbenos tocando aquí mismo.",
-                  accion: "whatsapp",
-                  whatsappTexto: waTexto,
+                  accion: "chat",
+                  ruta,
                 });
               }, SEGUNDO_MENSAJE_MS)
             );
@@ -426,7 +421,7 @@ export default function Campanita() {
     const b = bocadillo;
     setBocadillo(null);
     if (!b) return;
-    if (b.accion === "whatsapp") abrirWhatsApp(b.whatsappTexto ?? "¡Hola! Tengo una pregunta sobre la tienda.");
+    if (b.accion === "chat") router.push((b.ruta ?? "/blue-ia") as Href);
     else openPanel("noticias");
   }, [bocadillo, openPanel]);
 
@@ -498,9 +493,9 @@ export default function Campanita() {
             >
               <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
               <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19 }}>{bocadillo.texto}</Text>
-              {bocadillo.accion === "whatsapp" ? (
+              {bocadillo.accion === "chat" ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
-                  <Ionicons name="logo-whatsapp" size={14} color={COLORS.accentDark} />
+                  <Ionicons name="chatbubble-ellipses-outline" size={14} color={COLORS.accentDark} />
                   <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>Escribir ahora</Text>
                 </View>
               ) : null}
@@ -627,14 +622,8 @@ export default function Campanita() {
 
               <View style={{ width: "100%", gap: 10, maxWidth: 380 }}>
                 <BotonPanel icono="sparkles-outline" texto="Hablar con Blue IA" principal onPress={() => ir("/blue-ia")} />
-                <BotonPanel
-                  icono="logo-whatsapp"
-                  texto="Escribir por WhatsApp"
-                  onPress={() => {
-                    setPanelOpen(false);
-                    abrirWhatsApp("¡Hola! Tengo una pregunta sobre la tienda.");
-                  }}
-                />
+                {/* Primero conversa Blue IA; desde ese chat se puede pasar a nuestro equipo. */}
+                <BotonPanel icono="people-outline" texto="Hablar con nuestro equipo" onPress={() => ir("/blue-ia")} />
                 <BotonPanel
                   icono="cash-outline"
                   texto="Vender mi consola o dispositivo"

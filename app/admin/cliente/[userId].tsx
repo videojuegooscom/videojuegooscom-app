@@ -102,6 +102,17 @@ type ServiceRequestRow = {
   service_title: string;
   status: string;
   ciudad: string;
+  seguimiento?: string | null; // etapa visible para el cliente (si ya existe la columna)
+};
+
+const SEGUIMIENTO_LABEL: Record<string, string> = {
+  solicitado: "Solicitada",
+  recibido: "Recibida",
+  diagnostico: "Diagnóstico",
+  reparando: "En reparación",
+  listo: "Lista para recoger",
+  entregado: "Entregada",
+  cancelado: "Cancelada",
 };
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "warn" | "success" | "danger" }> = {
@@ -232,7 +243,21 @@ export default function ClienteFicha() {
 
       setPurchases((salesRes.data ?? []) as PurchaseRow[]);
       setSellRequests((sellRes.data ?? []) as SellRequestRow[]);
-      setServiceRequests((serviceRes.data ?? []) as ServiceRequestRow[]);
+      // Etapa de seguimiento: consulta aparte para no romper si falta la migración
+      let servicios = (serviceRes.data ?? []) as ServiceRequestRow[];
+      if (servicios.length) {
+        const segRes = await supabase
+          .from("service_requests")
+          .select("id,seguimiento")
+          .eq("customer_user_id", userId);
+        if (!segRes.error) {
+          const porId = new Map(
+            ((segRes.data ?? []) as { id: string; seguimiento: string | null }[]).map((x) => [x.id, x.seguimiento])
+          );
+          servicios = servicios.map((s) => ({ ...s, seguimiento: porId.get(s.id) ?? null }));
+        }
+      }
+      setServiceRequests(servicios);
       setNotes(notesRes.data?.notes ?? "");
       setNotesUpdatedAt(notesRes.data?.updated_at ?? null);
       setNotesLoaded(true);
@@ -413,6 +438,17 @@ export default function ClienteFicha() {
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                           <StatusPill status={s.status} />
                           <Text style={{ color: COLORS.muted, fontSize: 11.5 }}>{s.ciudad}</Text>
+                          {s.seguimiento ? (
+                            <Text
+                              style={{
+                                color: s.seguimiento === "cancelado" ? COLORS.danger : COLORS.accentDark,
+                                fontSize: 11.5,
+                                fontWeight: "800",
+                              }}
+                            >
+                              · {SEGUIMIENTO_LABEL[s.seguimiento] ?? s.seguimiento}
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
                     ))}

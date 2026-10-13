@@ -1,10 +1,11 @@
 /**
  * app/chat/[chatId].tsx
  *
- * Qué hace: pantalla del cliente para una conversación privada de un
- * producto concreto (la que abre el botón "Chat" de app/producto/[id].tsx,
- * o cualquiera de sus conversaciones desde la pestaña "Chat" de
- * app/(tabs)/chat-global.tsx). Solo cabecera + la conversación en sí — toda
+ * Qué hace: pantalla del cliente para una conversación privada con la
+ * tienda: de un producto, de una venta o general ("Atención al cliente").
+ * La abre abrirChatEquipo (components/ProductChatThread.tsx) desde Blue IA
+ * o la confirmación de pedido, o la pestaña "Chat" de
+ * app/(tabs)/chat-global.tsx. Solo cabecera + la conversación en sí — toda
  * la lógica de mensajes vive en components/ProductChatThread.tsx, que
  * también reutiliza app/admin/chats.tsx para la vista de admin.
  *
@@ -17,7 +18,7 @@
  *
  * Conectado con:
  * - components/ProductChatThread.tsx → mensajes, envío, tiempo real.
- * - app/producto/[id].tsx → botón "Chat" que crea/abre esta conversación.
+ * - app/(tabs)/blue-ia.tsx, app/checkout.tsx → "Hablar con el equipo/nosotros".
  * - lib/supabase.ts → comprobación de sesión.
  */
 import React, { useEffect, useState } from "react";
@@ -44,7 +45,7 @@ export default function ChatScreen() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!alive) return;
       if (!session?.user) {
-        router.replace("/perfil" as any);
+        router.replace(`/perfil?aviso=${encodeURIComponent("Inicia sesión para hablar con nuestro equipo")}` as any);
         return;
       }
       setAllowed(true);

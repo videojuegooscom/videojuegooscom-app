@@ -48,7 +48,16 @@
  *   funciona una vez desplegado en Vercel (no en `expo start --web` local,
  *   que no tiene funciones serverless).
  *
+ * - Contexto por URL: ?producto=<id>, ?pedido=<nº>, ?reparacion=<id> o
+ *   ?tema=<texto>. Se muestra "Preguntas por: …" arriba y se antepone al
+ *   primer mensaje que se manda a la API (mismo formato {message, history}).
+ * - "Hablar con el equipo": siempre junto al compositor y destacado bajo la
+ *   respuesta tras 2+ respuestas o si la IA no ha podido ayudar. Abre el
+ *   chat privado con la tienda (abrirChatEquipo) con un resumen de las
+ *   últimas 6 vueltas; sin sesión, lleva a /perfil con un aviso.
+ *
  * Conectado con:
+ * - components/ProductChatThread.tsx → abrirChatEquipo.
  * - api/blue-ia.ts → el backend real de este asistente (prompt + selección
  *   de qué redes sociales mandar como "socialChips").
  * - app/(tabs)/index.tsx → la sección "Preguntas frecuentes" de Inicio
@@ -56,7 +65,7 @@
  */
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -71,7 +80,9 @@ import {
   View,
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
+import { abrirChatEquipo } from "../../components/ProductChatThread";
 import { openExternalLink } from "../../lib/openExternalLink";
+import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -90,6 +101,7 @@ const COLORS = {
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
+  primary: "#0E86C4",
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#22C55E",
@@ -124,9 +136,46 @@ type BlueIAMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  // Texto real enviado a la API (con el contexto antepuesto, si lo hay).
+  apiText?: string;
   isError?: boolean;
   socialChips?: SocialChip[];
 };
+
+// Respuestas en las que la IA reconoce que no puede resolverlo sola.
+const NO_PUEDE_AYUDAR = /no (puedo|sé|se|tengo|dispongo)|equipo|contact|whatsapp|llamar|llámanos/i;
+
+const AVISO_LOGIN = "Inicia sesión para hablar con nuestro equipo";
+
+function paramTexto(v: unknown): string {
+  const s = Array.isArray(v) ? v[0] : v;
+  return typeof s === "string" ? s.trim().slice(0, 140) : "";
+}
+
+function fmtEUR(n: number) {
+  return `${Number.isInteger(n) ? n : n.toFixed(2).replace(".", ",")}€`;
+}
+
+// Resumen para el equipo: contexto + últimas 6 vueltas, recortado a ~1200 caracteres.
+function construirResumen(contexto: string, mensajes: BlueIAMessage[]): string {
+  const cabecera = "Resumen de mi conversación con Blue IA:";
+  const lineas = mensajes
+    .filter((m) => m.id !== "welcome" && !m.isError)
+    .slice(-12)
+    .map((m) => {
+      const t = m.text.replace(/\s+/g, " ").trim();
+      const corto = t.length > 220 ? `${t.slice(0, 219)}…` : t;
+      return `${m.role === "user" ? "Yo" : "Blue IA"}: ${corto}`;
+    });
+  const partes = [cabecera, ...(contexto ? [contexto] : []), ...lineas];
+  let texto = partes.join("\n");
+  // Si no cabe, se quitan las vueltas más antiguas.
+  while (texto.length > 1200 && lineas.length > 1) {
+    lineas.shift();
+    texto = [cabecera, ...(contexto ? [contexto] : []), ...lineas].join("\n");
+  }
+  return texto.slice(0, 1200);
+}
 
 const WELCOME_MESSAGE: BlueIAMessage = {
   id: "welcome",
@@ -200,9 +249,66 @@ function openSocialChip(href: string) {
 }
 
 export default function BlueIAScreen() {
-  const params = useLocalSearchParams<{ q?: string }>();
+  const params = useLocalSearchParams<{
+    q?: string;
+    producto?: string;
+    pedido?: string;
+    reparacion?: string;
+    tema?: string;
+  }>();
+  const productoId = paramTexto(params.producto);
+  const pedido = paramTexto(params.pedido);
+  const reparacion = paramTexto(params.reparacion);
+  const tema = paramTexto(params.tema);
+
+  // Producto por el que se pregunta (si se llega desde su ficha).
+  const [producto, setProducto] = useState<{ title: string; price: number | null } | null>(null);
+  useEffect(() => {
+    if (!productoId) {
+      setProducto(null);
+      return;
+    }
+    let vivo = true;
+    supabase
+      .from("products")
+      .select("title,price_eur")
+      .eq("id", productoId)
+      .maybeSingle<{ title: string; price_eur: number | null }>()
+      .then(
+        ({ data }) => {
+          if (vivo && data) {
+            setProducto({
+              title: data.title,
+              price: data.price_eur == null ? null : Number(data.price_eur),
+            });
+          }
+        },
+        () => {}
+      );
+    return () => {
+      vivo = false;
+    };
+  }, [productoId]);
+
+  // Texto visible ("Preguntas por: …") y prefijo para el primer mensaje a la IA.
+  const contexto = useMemo(() => {
+    if (productoId) {
+      if (!producto) return { visible: "este producto", prefijo: "" };
+      const precio = producto.price != null && producto.price > 0 ? `, ${fmtEUR(producto.price)}` : "";
+      return {
+        visible: `${producto.title}${precio}`,
+        prefijo: `[Sobre el producto: ${producto.title}${precio}]`,
+      };
+    }
+    if (pedido) return { visible: `tu pedido nº ${pedido}`, prefijo: `[Sobre mi pedido nº ${pedido}]` };
+    if (reparacion)
+      return { visible: `tu reparación ${reparacion}`, prefijo: `[Sobre mi reparación: ${reparacion}]` };
+    if (tema) return { visible: tema, prefijo: `[Tema: ${tema}]` };
+    return null;
+  }, [productoId, producto, pedido, reparacion, tema]);
 
   const [draft, setDraft] = useState("");
+  const [abriendoEquipo, setAbriendoEquipo] = useState(false);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [messages, setMessages] = useState<BlueIAMessage[]>([WELCOME_MESSAGE]);
   const [sending, setSending] = useState(false);
@@ -295,12 +401,19 @@ export default function BlueIAScreen() {
 
       const historyForApi = messagesRef.current
         .filter((m) => m.id !== WELCOME_MESSAGE.id && !m.isError)
-        .map((m) => ({ role: m.role, text: m.text }));
+        .map((m) => ({ role: m.role, text: m.apiText ?? m.text }));
+
+      // El contexto (producto, pedido…) va delante del primer mensaje del
+      // usuario; la API sigue recibiendo solo { message, history }.
+      const esPrimero = !messagesRef.current.some((m) => m.role === "user");
+      const apiText =
+        esPrimero && contexto?.prefijo ? `${contexto.prefijo} ${clean}` : clean;
 
       const userMessage: BlueIAMessage = {
         id: `${Date.now()}-u`,
         role: "user",
         text: clean,
+        apiText,
       };
       setMessages((prev) => [...prev, userMessage]);
       setDraft("");
@@ -310,7 +423,7 @@ export default function BlueIAScreen() {
         const response = await fetch(BLUE_IA_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: clean, history: historyForApi }),
+          body: JSON.stringify({ message: apiText, history: historyForApi }),
         });
 
         const data = await response.json().catch(() => null);
@@ -358,8 +471,40 @@ export default function BlueIAScreen() {
         setSending(false);
       }
     },
-    [draft, sending]
+    [draft, sending, contexto]
   );
+
+  // Pasa la conversación al equipo: chat privado de la tienda con un resumen.
+  const handleHablarEquipo = useCallback(async () => {
+    if (abriendoEquipo) return;
+    setAbriendoEquipo(true);
+    setErrorText(null);
+    try {
+      const resumen = construirResumen(
+        contexto ? `Pregunto por: ${contexto.visible}` : "",
+        messagesRef.current
+      );
+      const r = await abrirChatEquipo({ productId: productoId || null, resumen });
+      if (r === "login") {
+        setErrorText(AVISO_LOGIN);
+        router.push(`/perfil?aviso=${encodeURIComponent(AVISO_LOGIN)}` as never);
+      }
+    } catch (e) {
+      console.error("Error abriendo el chat con el equipo:", e);
+      setErrorText("No hemos podido abrir el chat ahora mismo. Inténtalo de nuevo.");
+    } finally {
+      setAbriendoEquipo(false);
+    }
+  }, [abriendoEquipo, contexto, productoId]);
+
+  // Destacar "Hablar con el equipo" tras 2+ respuestas o si la IA no ha podido ayudar.
+  const respuestasIA = messages.filter((m) => m.role === "assistant" && m.id !== WELCOME_MESSAGE.id);
+  const ultimaIA = respuestasIA[respuestasIA.length - 1];
+  const destacarEquipo =
+    !sending &&
+    !!ultimaIA &&
+    messages[messages.length - 1]?.id === ultimaIA.id &&
+    (respuestasIA.length >= 2 || !!ultimaIA.isError || NO_PUEDE_AYUDAR.test(ultimaIA.text));
 
   // Si se llega aquí desde "Preguntas frecuentes" (Inicio → /blue-ia?q=...),
   // manda esa pregunta automáticamente una sola vez al entrar — igual que
@@ -440,12 +585,22 @@ export default function BlueIAScreen() {
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 58,
-            paddingBottom: showQuickSuggestions ? 190 : 120,
+            paddingBottom: showQuickSuggestions ? 230 : 160,
             alignItems: "center",
           }}
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 860, gap: 10 }}>
+            {/* Contexto con el que se ha llegado (producto, pedido, reparación o tema). */}
+            {contexto && (
+              <Text
+                numberOfLines={2}
+                style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", paddingBottom: 4 }}
+              >
+                Preguntas por:{" "}
+                <Text style={{ color: COLORS.text, fontWeight: "800" }}>{contexto.visible}</Text>
+              </Text>
+            )}
             {/* Bienvenida: la mascota de la tienda, solo antes de la primera pregunta. */}
             {showQuickSuggestions && (
               <View style={{ alignItems: "center", paddingBottom: 4 }}>
@@ -456,6 +611,18 @@ export default function BlueIAScreen() {
               <BlueIABubble key={message.id} message={message} />
             ))}
             {sending && <BlueIATypingBubble />}
+            {destacarEquipo && (
+              <View style={{ alignItems: "center", gap: 6, paddingTop: 6 }}>
+                <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>
+                  ¿Prefieres que te atienda una persona?
+                </Text>
+                <HablarEquipoButton
+                  variant="primary"
+                  busy={abriendoEquipo}
+                  onPress={handleHablarEquipo}
+                />
+              </View>
+            )}
           </View>
         </ScrollView>
 
@@ -496,7 +663,7 @@ export default function BlueIAScreen() {
             style={({ pressed }) => ({
               position: "absolute",
               right: 16,
-              bottom: showQuickSuggestions ? 168 : 108,
+              bottom: showQuickSuggestions ? 208 : 148,
               width: 40,
               height: 40,
               borderRadius: 999,
@@ -552,6 +719,11 @@ export default function BlueIAScreen() {
               {errorText}
             </Text>
           )}
+
+          {/* Acceso siempre visible al equipo (además del destacado bajo la respuesta). */}
+          <View style={{ alignItems: "center" }}>
+            <HablarEquipoButton variant="link" busy={abriendoEquipo} onPress={handleHablarEquipo} />
+          </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <TextInput
@@ -791,6 +963,53 @@ function QuickSuggestionChip({
         <Ionicons name={item.icon} size={16} color={COLORS.accent} />
         <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{item.title}</Text>
       </View>
+    </Pressable>
+  );
+}
+
+// "Hablar con el equipo": discreto (enlace) junto al compositor o destacado
+// (píldora azul) bajo la respuesta de la IA.
+function HablarEquipoButton({
+  variant,
+  busy,
+  onPress,
+}: {
+  variant: "link" | "primary";
+  busy?: boolean;
+  onPress: () => void;
+}) {
+  const primary = variant === "primary";
+  const color = primary ? "#FFFFFF" : COLORS.primary;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel="Hablar con el equipo"
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 7,
+        borderRadius: 999,
+        paddingVertical: primary ? 11 : 4,
+        paddingHorizontal: primary ? 20 : 8,
+        backgroundColor: primary ? COLORS.primary : "transparent",
+        opacity: busy ? 0.6 : pressed ? 0.85 : 1,
+        shadowColor: COLORS.primary,
+        shadowOpacity: primary ? 0.22 : 0,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 3 },
+      })}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={color} />
+      ) : (
+        <Ionicons name="headset-outline" size={primary ? 17 : 15} color={color} />
+      )}
+      <Text style={{ color, fontWeight: "900", fontSize: primary ? 14 : 13 }}>
+        Hablar con el equipo
+      </Text>
     </Pressable>
   );
 }

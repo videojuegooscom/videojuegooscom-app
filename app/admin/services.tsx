@@ -162,7 +162,39 @@ type ServiceRequestRow = {
   disponibilidad: Disponibilidad | null;
   comentario: string | null;
   status: RequestStatus;
+  // Seguimiento visible para el cliente (migración 20261013150000; puede no existir aún)
+  seguimiento?: Seguimiento | null;
+  seguimiento_nota?: string | null;
+  seguimiento_actualizado?: string | null;
 };
+
+type Seguimiento = "solicitado" | "recibido" | "diagnostico" | "reparando" | "listo" | "entregado" | "cancelado";
+
+const SEGUIMIENTO_ETAPAS: Seguimiento[] = [
+  "solicitado",
+  "recibido",
+  "diagnostico",
+  "reparando",
+  "listo",
+  "entregado",
+  "cancelado",
+];
+
+const SEGUIMIENTO_LABEL: Record<Seguimiento, string> = {
+  solicitado: "Solicitada",
+  recibido: "Recibida",
+  diagnostico: "Diagnóstico",
+  reparando: "En reparación",
+  listo: "Lista para recoger",
+  entregado: "Entregada",
+  cancelado: "Cancelada",
+};
+
+// Tabla/columna inexistente (migración aún sin aplicar)
+function faltaEsquema(error: any) {
+  const code = String(error?.code ?? "");
+  return ["42P01", "42703", "PGRST204", "PGRST205"].includes(code);
+}
 
 const STATUS_LABEL: Record<ServiceStatus, string> = {
   DRAFT: "Borrador",
@@ -323,6 +355,119 @@ function TextField({
           textAlignVertical: multiline ? "top" : "center",
         }}
       />
+    </View>
+  );
+}
+
+// Etapa de seguimiento + nota para el cliente (se ve en Perfil → Seguimientos).
+function RequestSeguimiento({
+  request,
+  disponible,
+  isMobile,
+  onSaved,
+  onMissingMigration,
+}: {
+  request: ServiceRequestRow;
+  disponible: boolean;
+  isMobile: boolean;
+  onSaved: (patch: Partial<ServiceRequestRow>) => void;
+  onMissingMigration: () => void;
+}) {
+  const [etapa, setEtapa] = useState<Seguimiento>(request.seguimiento ?? "solicitado");
+  const [nota, setNota] = useState(request.seguimiento_nota ?? "");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  if (!disponible) {
+    return (
+      <Text style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+        Falta aplicar la migración de seguimiento
+      </Text>
+    );
+  }
+
+  const cambiado = etapa !== (request.seguimiento ?? "solicitado") || nota.trim() !== (request.seguimiento_nota ?? "");
+
+  async function guardar() {
+    if (saving) return;
+    setSaving(true);
+    setMsg(null);
+    const patch = {
+      seguimiento: etapa,
+      seguimiento_nota: nota.trim() || null,
+      seguimiento_actualizado: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("service_requests").update(patch).eq("id", request.id);
+    setSaving(false);
+    if (error) {
+      if (faltaEsquema(error)) {
+        onMissingMigration();
+        return;
+      }
+      console.error("Error guardando el seguimiento:", error);
+      setMsg({ ok: false, text: "No se pudo guardar el seguimiento." });
+      return;
+    }
+    onSaved(patch);
+    setMsg({ ok: true, text: "Seguimiento guardado ✓" });
+  }
+
+  return (
+    <View style={{ gap: 8, alignItems: "center", paddingTop: 4 }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+        SEGUIMIENTO PARA EL CLIENTE
+        {request.seguimiento_actualizado ? ` · ${formatDate(request.seguimiento_actualizado)}` : ""}
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+        {SEGUIMIENTO_ETAPAS.map((s) => (
+          <ChipButton
+            key={s}
+            label={SEGUIMIENTO_LABEL[s]}
+            variant={etapa === s ? (s === "cancelado" ? "danger" : "primary") : "ghost"}
+            onPress={() => {
+              setEtapa(s);
+              setMsg(null);
+            }}
+            isMobile={isMobile}
+          />
+        ))}
+      </View>
+      <TextInput
+        value={nota}
+        onChangeText={(t) => {
+          setNota(t.slice(0, 500));
+          setMsg(null);
+        }}
+        placeholder="Nota para el cliente (opcional)"
+        placeholderTextColor={COLORS.muted2}
+        maxLength={500}
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          borderRadius: 14,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          fontSize: 15,
+          color: COLORS.text,
+          backgroundColor: COLORS.cardSoft,
+          textAlign: "center",
+        }}
+      />
+      <ChipButton
+        label={saving ? "Guardando…" : "Guardar seguimiento"}
+        variant="primary"
+        icon="checkmark"
+        disabled={saving || !cambiado}
+        onPress={guardar}
+        isMobile={isMobile}
+      />
+      {msg ? (
+        <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+          {msg.text}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -674,16 +819,30 @@ export default function AdminServices() {
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [requestFilter, setRequestFilter] = useState<"ALL" | RequestStatus>("ALL");
 
+  // false = faltan las columnas de seguimiento (migración sin aplicar)
+  const [seguimientoOk, setSeguimientoOk] = useState(true);
+
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
     try {
-      const { data, error } = await supabase
+      const base =
+        "id,created_at,service_id,service_title,nombre,apellido,metodo_contacto,contacto,ciudad,direccion,disponibilidad,comentario,status";
+      let res: { data: any[] | null; error: any } = await supabase
         .from("service_requests")
-        .select(
-          "id,created_at,service_id,service_title,nombre,apellido,metodo_contacto,contacto,ciudad,direccion,disponibilidad,comentario,status"
-        )
+        .select(`${base},seguimiento,seguimiento_nota,seguimiento_actualizado`)
         .order("created_at", { ascending: false })
         .limit(200);
+      if (res.error && faltaEsquema(res.error)) {
+        setSeguimientoOk(false);
+        res = await supabase
+          .from("service_requests")
+          .select(base)
+          .order("created_at", { ascending: false })
+          .limit(200);
+      } else if (!res.error) {
+        setSeguimientoOk(true);
+      }
+      const { data, error } = res;
       if (error) throw error;
       setRequests((data ?? []) as ServiceRequestRow[]);
     } catch (e) {
@@ -1017,6 +1176,16 @@ export default function AdminServices() {
                           </Text>
                         ) : null}
                       </View>
+
+                      <RequestSeguimiento
+                        request={r}
+                        disponible={seguimientoOk}
+                        isMobile={isMobile}
+                        onSaved={(patch) =>
+                          setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))
+                        }
+                        onMissingMigration={() => setSeguimientoOk(false)}
+                      />
 
                       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                         {(["nuevo", "revisado", "contactado", "descartado"] as RequestStatus[])
