@@ -39,8 +39,15 @@
  * - "Noticias Gaming" (NoticiasGamingPanel, al final del archivo) lee la
  *   tabla noticias_gaming y, en segundo plano, llama a api/noticias-gaming.ts
  *   para que busque y resuma noticias nuevas si toca. Cada tarjeta muestra un
- *   carrusel de imágenes sin recortes (CarruselNoticia), el resumen completo
- *   y los botones; "Ver más" despliega el resto del desglose.
+ *   carrusel de imágenes sin recortes (CarruselNoticia, pasa solo cada 5 s),
+ *   el resumen completo y los botones Ver más / Like / Comentarios /
+ *   Compartir. Los comentarios viven en noticias_comentarios; "Compartir en
+ *   el Foro" publica un mensaje con la marca [noticia:<id>], que el Foro pinta
+ *   como mini tarjeta (TarjetaNoticiaForo). Es la pestaña por defecto.
+ * - Campana de Noticias Gaming (AvisosNoticiasModal): avisos de noticias
+ *   nuevas para Blue y consentimiento comercial, en preferencias_usuario (con
+ *   sesión) o en el dispositivo (AsyncStorage) sin ella. Al ver la pestaña se
+ *   guarda "noticias vistas hasta" (ver NOTICIAS_VISTAS_KEY).
  * - Novedades y Torneos todavía no tienen contenido real: muestran solo un
  *   mensaje centrado "PRÓXIMAMENTE" (ComingSoonPanel).
  * - El contador "X viendo ahora" de la cabecera es real: cada persona que
@@ -79,6 +86,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Image,
@@ -90,6 +98,7 @@ import {
   ScrollView,
   Share,
   StatusBar,
+  Switch,
   Text,
   TextInput,
   UIManager,
@@ -99,7 +108,6 @@ import {
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SmartImage from "../../components/SmartImage";
-import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -258,15 +266,95 @@ const HUB_TAB_VALUES: HubTab[] = ["chat", "news", "novedades", "torneos", "priva
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
 
+// Claves del dispositivo que también lee Blue para contar noticias nuevas.
+const NOTICIAS_AVISOS_KEY = "videojuegoszaragoza:noticias_avisos";
+const NOTICIAS_VISTAS_KEY = "videojuegoszaragoza:noticias_vistas_hasta";
+
+// Marca que deja «Compartir en el Foro» dentro del mensaje: [noticia:<uuid>].
+const MARCA_NOTICIA_RE =
+  /\[noticia:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i;
+
+function idNoticiaDeTexto(texto: string): string | null {
+  const m = MARCA_NOTICIA_RE.exec(texto ?? "");
+  return m ? m[1].toLowerCase() : null;
+}
+
+// Texto del mensaje sin la marca (para citas y respuestas).
+function textoSinMarca(texto: string): string {
+  return (texto ?? "").replace(new RegExp(MARCA_NOTICIA_RE.source, "gi"), "").trim();
+}
+
+// Tabla aún no creada (migración pendiente): la función se oculta sin errores.
+function faltaTabla(error: unknown, tabla: string) {
+  const code = String((error as { code?: string } | null)?.code ?? "");
+  return code === "PGRST205" || code === "42P01" || isMissingRelationError(error, tabla);
+}
+
+// Se ponen a false en cuanto se detecta que la tabla no existe.
+let tablaComentariosDisponible = true;
+let tablaPreferenciasDisponible = true;
+
+// Mismo nombre visible que pone el trigger de chat_messages en el Foro:
+// full_name → username → parte del email antes de la @.
+function nombreVisibleForo(
+  user: { email?: string | null; user_metadata?: Record<string, any> } | null | undefined
+) {
+  const meta = user?.user_metadata ?? {};
+  const completo = typeof meta.full_name === "string" ? meta.full_name.trim() : "";
+  const usuario = typeof meta.username === "string" ? meta.username.trim() : "";
+  const correo = (user?.email ?? "").split("@")[0] ?? "";
+  return (completo || usuario || correo || "usuario").slice(0, 60);
+}
+
+async function leerAvisosDispositivo(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(NOTICIAS_AVISOS_KEY)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Guarda (upsert) mi fila de preferencias_usuario. Devuelve si se guardó.
+async function guardarPreferencias(userId: string, cambios: Record<string, unknown>) {
+  if (!tablaPreferenciasDisponible) return false;
+  const { error } = await supabase
+    .from("preferencias_usuario")
+    .upsert(
+      { user_id: userId, ...cambios, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+  if (error) {
+    if (faltaTabla(error, "preferencias_usuario")) tablaPreferenciasDisponible = false;
+    return false;
+  }
+  return true;
+}
+
 export default function ChatGlobalScreen() {
   // Permite llegar directamente a una pestaña concreta, p. ej. desde la
-  // campanita (components/Campanita.tsx) con /chat-global?tab=privados.
-  const params = useLocalSearchParams<{ tab?: string }>();
-  const initialTab: HubTab = HUB_TAB_VALUES.includes(params.tab as HubTab)
-    ? (params.tab as HubTab)
-    : "chat";
+  // campanita (components/Campanita.tsx) con /chat-global?tab=privados, o a
+  // una noticia concreta con ?noticia=<id>. Sin ?tab, se abre Noticias Gaming.
+  const params = useLocalSearchParams<{ tab?: string; noticia?: string }>();
+  const tabParam = typeof params.tab === "string" ? params.tab : "";
+  const noticiaParam =
+    typeof params.noticia === "string" && /^[0-9a-f-]{36}$/i.test(params.noticia)
+      ? params.noticia.toLowerCase()
+      : "";
+  const initialTab: HubTab =
+    !noticiaParam && HUB_TAB_VALUES.includes(tabParam as HubTab) ? (tabParam as HubTab) : "news";
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  // Noticia que hay que abrir y a la que desplazarse (enlace o mini tarjeta del Foro).
+  const [noticiaPedida, setNoticiaPedida] = useState<string | null>(noticiaParam || null);
+  // Cabecera flotante (info, «viendo ahora», campana) fuera del Foro.
+  const [cabeceraVisible, setCabeceraVisible] = useState(true);
+  // Campana de Noticias Gaming.
+  const [showAvisosModal, setShowAvisosModal] = useState(false);
+  const [avisosNoticias, setAvisosNoticias] = useState(false);
+  const [marketing, setMarketing] = useState(false);
+  const [preferenciasEnNube, setPreferenciasEnNube] = useState(tablaPreferenciasDisponible);
+  // Datos de las noticias compartidas en el Foro (null = no disponible).
+  const [noticiasForo, setNoticiasForo] = useState<Record<string, NoticiaMini | null>>({});
   const [hasCompletedCommunityProfile] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -308,6 +396,14 @@ export default function ChatGlobalScreen() {
   const isNearBottomRef = useRef(true);
   const hasScrolledInitialRef = useRef(false);
   const hasLoadedMessagesRef = useRef(false);
+  const activeTabRef = useRef<HubTab>(initialTab);
+  const cabeceraVisibleRef = useRef(true);
+  // Desplazamiento acumulado en la misma dirección (para no ocultar por un tirón).
+  const recorridoRef = useRef(0);
+  // Posición de la columna de contenido dentro del ScrollView.
+  const columnaYRef = useRef(0);
+  const noticiasForoPedidasRef = useRef<Set<string>>(new Set());
+  const cabeceraAnim = useRef(new Animated.Value(1)).current;
 
   const isLoggedIn = !!currentUserId;
 
@@ -369,6 +465,123 @@ export default function ChatGlobalScreen() {
       authListener?.subscription?.unsubscribe?.();
     };
   }, []);
+
+  // Si la URL cambia con la pantalla ya abierta (?tab=… o ?noticia=…), se obedece.
+  useEffect(() => {
+    if (noticiaParam) {
+      setActiveTab("news");
+      setNoticiaPedida(noticiaParam);
+    } else if (HUB_TAB_VALUES.includes(tabParam as HubTab)) {
+      setActiveTab(tabParam as HubTab);
+    }
+  }, [tabParam, noticiaParam]);
+
+  // Preferencias de la campana: con sesión, de preferencias_usuario; sin
+  // sesión (o sin la tabla), del dispositivo.
+  useEffect(() => {
+    let vivo = true;
+
+    (async () => {
+      const local = await leerAvisosDispositivo();
+      if (!vivo) return;
+
+      if (!tablaPreferenciasDisponible) {
+        setPreferenciasEnNube(false);
+        setAvisosNoticias(local);
+        setMarketing(false);
+        return;
+      }
+
+      if (!currentUserId) {
+        setAvisosNoticias(local);
+        setMarketing(false);
+        // Sin sesión solo se comprueba que la tabla exista (RLS devuelve vacío).
+        const { error } = await supabase.from("preferencias_usuario").select("user_id").limit(1);
+        if (vivo && error && faltaTabla(error, "preferencias_usuario")) {
+          tablaPreferenciasDisponible = false;
+          setPreferenciasEnNube(false);
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("preferencias_usuario")
+        .select("avisos_noticias,marketing")
+        .eq("user_id", currentUserId)
+        .maybeSingle();
+      if (!vivo) return;
+
+      if (error) {
+        if (faltaTabla(error, "preferencias_usuario")) {
+          tablaPreferenciasDisponible = false;
+          setPreferenciasEnNube(false);
+        }
+        setAvisosNoticias(local);
+        return;
+      }
+
+      setPreferenciasEnNube(true);
+      if (data) {
+        const fila = data as { avisos_noticias?: boolean; marketing?: boolean };
+        setAvisosNoticias(!!fila.avisos_noticias);
+        setMarketing(!!fila.marketing);
+        // Copia en el dispositivo para que Blue la tenga a mano.
+        AsyncStorage.setItem(NOTICIAS_AVISOS_KEY, fila.avisos_noticias ? "1" : "0").catch(() => {});
+      } else {
+        // Primera vez con sesión: se sube lo que se eligió en el dispositivo.
+        setAvisosNoticias(local);
+        setMarketing(false);
+        if (local) guardarPreferencias(currentUserId, { avisos_noticias: true });
+      }
+    })();
+
+    return () => {
+      vivo = false;
+    };
+  }, [currentUserId]);
+
+  // Mini tarjetas del Foro: carga los datos de las noticias citadas con
+  // [noticia:<id>] que aún no se tengan.
+  useEffect(() => {
+    const pedidas = noticiasForoPedidasRef.current;
+    const nuevas = new Set<string>();
+    for (const m of messages) {
+      const id = idNoticiaDeTexto(m.text);
+      if (id && !pedidas.has(id)) nuevas.add(id);
+    }
+    if (!nuevas.size) return;
+
+    const ids = Array.from(nuevas);
+    ids.forEach((id) => pedidas.add(id));
+    leerNoticiasMini(ids).then((mapa) => {
+      if (!mountedRef.current) return;
+      if (!mapa) {
+        // Fallo de red: se reintentará con el siguiente mensaje.
+        ids.forEach((id) => pedidas.delete(id));
+        return;
+      }
+      setNoticiasForo((prev) => {
+        const next = { ...prev };
+        for (const id of ids) if (!next[id]) next[id] = mapa[id] ?? null;
+        return next;
+      });
+    });
+  }, [messages]);
+
+  // Al cambiar de pestaña: cabecera visible y, fuera del Foro, arriba del todo.
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+    recorridoRef.current = 0;
+    cabeceraVisibleRef.current = true;
+    setCabeceraVisible(true);
+    if (activeTab !== "chat") {
+      composerVisibleRef.current = true;
+      setComposerVisible(true);
+      showScrollToBottomRef.current = false;
+      setShowScrollToBottom(false);
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
+  }, [activeTab]);
 
   // Mensajes reales: carga los últimos 100 al entrar (y sus reacciones) y
   // luego escucha en directo los mensajes y reacciones nuevos de cualquier
@@ -538,6 +751,18 @@ export default function ChatGlobalScreen() {
     if (!composerVisible) setTabsMenuOpen(false);
   }, [composerVisible, uiVisibleAnim]);
 
+  // Cabecera flotante: en el Foro va con el compositor; en las demás
+  // pestañas se oculta al bajar y vuelve al subir un poco (como las apps de
+  // noticias), con un fundido suave.
+  const cabeceraMostrada = activeTab === "chat" ? composerVisible : cabeceraVisible;
+  useEffect(() => {
+    Animated.timing(cabeceraAnim, {
+      toValue: cabeceraMostrada ? 1 : 0,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+  }, [cabeceraMostrada, cabeceraAnim]);
+
   // Detecta hacia dónde se desplaza el chat: subir (leer historial) oculta
   // la interfaz de escritura; bajar (volver a lo reciente), o estar ya
   // cerca del final, la vuelve a mostrar. También decide cuándo mostrar el
@@ -552,6 +777,21 @@ export default function ChatGlobalScreen() {
 
     const delta = y - lastScrollYRef.current;
     lastScrollYRef.current = y;
+
+    // Fuera del Foro: bajar oculta la cabecera; subir ~24 px (o estar arriba) la muestra.
+    if (activeTabRef.current !== "chat") {
+      const mismoSentido = Math.sign(delta) === Math.sign(recorridoRef.current);
+      recorridoRef.current = mismoSentido ? recorridoRef.current + delta : delta;
+      let nextCabecera = cabeceraVisibleRef.current;
+      if (y < 40) nextCabecera = true;
+      else if (recorridoRef.current > 24) nextCabecera = false;
+      else if (recorridoRef.current < -24) nextCabecera = true;
+      if (nextCabecera !== cabeceraVisibleRef.current) {
+        cabeceraVisibleRef.current = nextCabecera;
+        setCabeceraVisible(nextCabecera);
+      }
+      return;
+    }
 
     // Solo se toca el estado cuando cambia de verdad (no en cada evento de scroll),
     // para que el desplazamiento no vaya a tirones.
@@ -696,13 +936,115 @@ export default function ChatGlobalScreen() {
     [isLoggedIn]
   );
 
+  // «Compartir en el Foro»: publica «📰 título + [noticia:id]» como un
+  // mensaje normal del Foro (el remitente lo pone el trigger) y abre el Foro.
+  const handleCompartirEnForo = useCallback(
+    async (n: Noticia): Promise<boolean> => {
+      if (!isLoggedIn) {
+        setShowAuthModal(true);
+        return false;
+      }
+
+      const body = `📰 ${n.titulo.trim().slice(0, 400)}\n[noticia:${n.id}]`;
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .insert({ body })
+        .select("id,created_at,user_id,username,display_name,role,body,reply_to_id")
+        .single();
+      if (error) {
+        console.error("Error compartiendo la noticia en el Foro:", error);
+        return false;
+      }
+      if (!mountedRef.current) return true;
+
+      const id = n.id.toLowerCase();
+      noticiasForoPedidasRef.current.add(id);
+      setNoticiasForo((prev) => ({
+        ...prev,
+        [id]: { id: n.id, titulo: n.titulo, categoria: n.categoria, imagen: n.imagenes[0] ?? null },
+      }));
+      if (data) {
+        const row = data as unknown as ChatMessageRow;
+        setMessages((prev) =>
+          prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessageItem(row)]
+        );
+      }
+      isNearBottomRef.current = true;
+      setActiveTab("chat");
+      return true;
+    },
+    [isLoggedIn]
+  );
+
+  // «Leer noticia» desde la mini tarjeta del Foro.
+  const handleAbrirNoticia = useCallback((id: string) => {
+    setNoticiaPedida(id);
+    setActiveTab("news");
+  }, []);
+
+  const handleNoticiaAtendida = useCallback(() => setNoticiaPedida(null), []);
+
+  // y = posición de la tarjeta dentro del panel de noticias.
+  const handleDesplazarA = useCallback((y: number) => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, columnaYRef.current + y - 16), animated: true });
+  }, []);
+
+  // Interruptor de avisos: siempre en el dispositivo y, con sesión, en la nube.
+  const cambiarAvisos = useCallback(
+    async (valor: boolean) => {
+      setAvisosNoticias(valor);
+      AsyncStorage.setItem(NOTICIAS_AVISOS_KEY, valor ? "1" : "0").catch(() => {});
+      if (!currentUserId || !tablaPreferenciasDisponible) return true;
+
+      const ok = await guardarPreferencias(currentUserId, { avisos_noticias: valor });
+      if (!mountedRef.current) return ok;
+      if (!tablaPreferenciasDisponible) {
+        // Sin la tabla se queda guardado solo en el dispositivo.
+        setPreferenciasEnNube(false);
+        return true;
+      }
+      if (!ok) {
+        setAvisosNoticias(!valor);
+        AsyncStorage.setItem(NOTICIAS_AVISOS_KEY, valor ? "0" : "1").catch(() => {});
+      }
+      return ok;
+    },
+    [currentUserId]
+  );
+
+  // Consentimiento comercial: solo con sesión, con la fecha del cambio.
+  const cambiarMarketing = useCallback(
+    async (valor: boolean) => {
+      if (!currentUserId) return false;
+      setMarketing(valor);
+      const ok = await guardarPreferencias(currentUserId, {
+        marketing: valor,
+        marketing_actualizado: new Date().toISOString(),
+      });
+      if (!ok && mountedRef.current) {
+        setMarketing(!valor);
+        if (!tablaPreferenciasDisponible) setPreferenciasEnNube(false);
+      }
+      return ok;
+    },
+    [currentUserId]
+  );
+
   const handleGoPerfil = () => {
     router.push("/perfil" as Href);
   };
 
   const renderActiveTabContent = () => {
     if (activeTab === "news") {
-      return <NoticiasGamingPanel />;
+      return (
+        <NoticiasGamingPanel
+          userId={currentUserId}
+          noticiaPedida={noticiaPedida}
+          onNoticiaAtendida={handleNoticiaAtendida}
+          onDesplazarA={handleDesplazarA}
+          onCompartirEnForo={handleCompartirEnForo}
+        />
+      );
     }
 
     if (activeTab === "novedades" || activeTab === "torneos") {
@@ -769,11 +1111,15 @@ export default function ChatGlobalScreen() {
               const replyPreview = message.replyToId
                 ? messages.find((m) => m.id === message.replyToId) ?? null
                 : null;
+              const noticiaId = idNoticiaDeTexto(message.text);
 
               return (
                 <MessageBubble
                   key={message.id}
                   item={message}
+                  noticiaId={noticiaId}
+                  noticiaCompartida={noticiaId ? noticiasForo[noticiaId] : undefined}
+                  onAbrirNoticia={handleAbrirNoticia}
                   canViewMedia={canViewMedia}
                   grouped={grouped}
                   mine={message.userId === currentUserId}
@@ -833,7 +1179,12 @@ export default function ChatGlobalScreen() {
           }}
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
+          <View
+            style={{ width: "100%", maxWidth: 1040, gap: 16 }}
+            onLayout={(e) => {
+              columnaYRef.current = e.nativeEvent.layout.y;
+            }}
+          >
           {/*
             Las 4 pestañas (Chat Global, Noticias, Novedades, Torneos) ya no
             están fijas aquí arriba: ahora viven en el menú desplegable "🔼"
@@ -877,67 +1228,89 @@ export default function ChatGlobalScreen() {
           con el compositor al leer historial hacia arriba (mismo uiVisibleAnim).
         */}
         <Animated.View
-          pointerEvents={composerVisible ? "box-none" : "none"}
+          pointerEvents={cabeceraMostrada ? "box-none" : "none"}
           style={{
             position: "absolute",
             top: 14,
             left: 16,
             right: 16,
-            flexDirection: "row",
             alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            opacity: uiVisibleAnim,
+            opacity: cabeceraAnim,
             transform: [
               {
-                translateY: uiVisibleAnim.interpolate({
+                translateY: cabeceraAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [-16, 0],
+                  outputRange: [-18, 0],
                 }),
               },
             ],
           }}
         >
-          {/* Sueltos y pequeños: el contador va como texto, sin pastilla. */}
-          <Pressable
-            onPress={() => setShowInfoModal(true)}
-            style={({ pressed }) => ({
-              width: 26,
-              height: 26,
-              borderRadius: 999,
+          {/* Mismo ancho que las tarjetas de noticias: la campana queda en su esquina derecha. */}
+          <View
+            pointerEvents="box-none"
+            style={{
+              width: "100%",
+              maxWidth: 680,
+              minHeight: 30,
+              flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "#FFFFFF",
-              borderWidth: 1,
-              borderColor: COLORS.accentBorder,
-              opacity: pressed ? 0.85 : 1,
-              shadowColor: COLORS.accent,
-              shadowOpacity: 0.08,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 2 },
-            })}
+              gap: 8,
+            }}
           >
-            <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
-          </Pressable>
-
-          <Pressable
-            onPress={toggleViewers}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            <Text
-              style={{
-                color: "#15803D",
-                fontWeight: "900",
-                fontSize: 11,
-                lineHeight: 14,
-                textAlign: "center",
-              }}
+            {/* Solo el icono, sin burbuja alrededor. */}
+            <Pressable
+              onPress={() => setShowInfoModal(true)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Información del Foro"
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
             >
-              {`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
-            </Text>
-          </Pressable>
+              <Ionicons name="information-circle-outline" size={20} color={COLORS.accent} />
+            </Pressable>
+
+            <Pressable
+              onPress={toggleViewers}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.9 : 1,
+              })}
+            >
+              <Text
+                style={{
+                  color: "#15803D",
+                  fontWeight: "900",
+                  fontSize: 11,
+                  lineHeight: 14,
+                  textAlign: "center",
+                }}
+              >
+                {`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
+              </Text>
+            </Pressable>
+
+            {activeTab === "news" ? (
+              <Pressable
+                onPress={() => setShowAvisosModal(true)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  avisosNoticias ? "Avisos de noticias activados" : "Activar avisos de noticias"
+                }
+                style={({ pressed }) => ({
+                  position: "absolute",
+                  right: 0,
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Ionicons
+                  name={avisosNoticias ? "notifications" : "notifications-outline"}
+                  size={22}
+                  color={COLORS.accent}
+                />
+              </Pressable>
+            ) : null}
+          </View>
         </Animated.View>
 
         {/*
@@ -1010,6 +1383,17 @@ export default function ChatGlobalScreen() {
         />
 
         <InfoModal visible={showInfoModal} onClose={() => setShowInfoModal(false)} />
+
+        <AvisosNoticiasModal
+          visible={showAvisosModal}
+          onClose={() => setShowAvisosModal(false)}
+          isLoggedIn={isLoggedIn}
+          avisos={avisosNoticias}
+          marketing={marketing}
+          marketingDisponible={preferenciasEnNube}
+          onCambiarAvisos={cambiarAvisos}
+          onCambiarMarketing={cambiarMarketing}
+        />
       </View>
     </SafeAreaView>
   );
@@ -1160,8 +1544,15 @@ const MessageBubble = React.memo(function MessageBubble({
   myReaction,
   onReact,
   onReply,
+  noticiaId,
+  noticiaCompartida,
+  onAbrirNoticia,
 }: {
   item: MessageItem;
+  // Mensaje con [noticia:<id>]: se pinta como mini tarjeta de la noticia.
+  noticiaId?: string | null;
+  noticiaCompartida?: NoticiaMini | null;
+  onAbrirNoticia?: (id: string) => void;
   canViewMedia: boolean;
   grouped?: boolean;
   mine?: boolean;
@@ -1287,7 +1678,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 numberOfLines={2}
                 style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}
               >
-                {replyPreview ? replyPreview.text : "No disponible"}
+                {replyPreview ? textoSinMarca(replyPreview.text) : "No disponible"}
               </Text>
             </View>
           ) : null}
@@ -1332,6 +1723,12 @@ const MessageBubble = React.memo(function MessageBubble({
                 </>
               )}
             </View>
+          ) : noticiaId ? (
+            <TarjetaNoticiaForo
+              noticia={noticiaCompartida}
+              texto={textoSinMarca(item.text)}
+              onLeer={() => onAbrirNoticia?.(noticiaId)}
+            />
           ) : (
             <Text style={{ color: COLORS.text, lineHeight: 22 }}>{item.text}</Text>
           )}
@@ -1724,7 +2121,7 @@ function BottomBar({
               numberOfLines={1}
               style={{ color: "rgba(11,33,56,0.6)", fontSize: 12, marginTop: 2 }}
             >
-              {replyTarget.type === "gif" ? "GIF" : replyTarget.text}
+              {replyTarget.type === "gif" ? "GIF" : textoSinMarca(replyTarget.text)}
             </Text>
           </View>
           <Pressable
@@ -2330,13 +2727,12 @@ const NOTICIAS_API_URL =
 const AZUL_NOTICIAS = "#1EA7E8";
 const AZUL_OSCURO_NOTICIAS = "#0E86C4";
 const COLUMNAS_NOTICIA =
-  "id,url,fuente,titulo,imagen_url,categoria,resumen,puntos_clave,datos,por_que_importa,afecta_a,publicada_en,created_at";
+  "id,fuente,titulo,imagen_url,categoria,resumen,puntos_clave,datos,por_que_importa,afecta_a,publicada_en,created_at";
 // Si la columna «imagenes» aún no existe en la base de datos, se deja de pedir.
 let columnaImagenesDisponible = true;
 
 type Noticia = {
   id: string;
-  url: string;
   fuente: string;
   titulo: string;
   imagenes: string[];
@@ -2347,7 +2743,12 @@ type Noticia = {
   porQueImporta: string | null;
   afectaA: string | null;
   publicadaEn: string | null;
+  // created_at real: sirve para «noticias vistas hasta».
+  creadaEn: string | null;
 };
+
+// Lo justo para la mini tarjeta de una noticia compartida en el Foro.
+type NoticiaMini = { id: string; titulo: string; categoria: string; imagen: string | null };
 
 function aListaDeTextos(valor: unknown): string[] {
   return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === "string" && !!v.trim()) : [];
@@ -2366,7 +2767,6 @@ function imagenesDeFila(r: any): string[] {
 function filaANoticia(r: any): Noticia {
   return {
     id: String(r.id),
-    url: String(r.url ?? ""),
     fuente: String(r.fuente ?? ""),
     titulo: String(r.titulo ?? ""),
     imagenes: imagenesDeFila(r),
@@ -2377,7 +2777,34 @@ function filaANoticia(r: any): Noticia {
     porQueImporta: r.por_que_importa ?? null,
     afectaA: r.afecta_a ?? null,
     publicadaEn: r.publicada_en ?? r.created_at ?? null,
+    creadaEn: r.created_at ?? null,
   };
+}
+
+// Datos de varias noticias por id (para las mini tarjetas del Foro).
+// Devuelve null si falla la lectura (se reintenta más tarde).
+async function leerNoticiasMini(ids: string[]): Promise<Record<string, NoticiaMini> | null> {
+  const basicas = "id,titulo,categoria,imagen_url";
+  const consulta = (columnas: string) =>
+    supabase.from("noticias_gaming").select(columnas).in("id", ids).eq("publicada", true);
+
+  let { data, error } = await consulta(columnaImagenesDisponible ? `${basicas},imagenes` : basicas);
+  if (error && columnaImagenesDisponible && /imagenes/i.test(error.message ?? "")) {
+    columnaImagenesDisponible = false;
+    ({ data, error } = await consulta(basicas));
+  }
+  if (error) return null;
+
+  const mapa: Record<string, NoticiaMini> = {};
+  for (const r of (data ?? []) as any[]) {
+    mapa[String(r.id).toLowerCase()] = {
+      id: String(r.id),
+      titulo: String(r.titulo ?? ""),
+      categoria: String(r.categoria ?? "Gaming"),
+      imagen: imagenesDeFila(r)[0] ?? null,
+    };
+  }
+  return mapa;
 }
 
 // "hace 5 min", "hace 3 horas", "hace 2 días" o la fecha si es más antigua.
@@ -2402,24 +2829,85 @@ function fechaLarga(iso: string | null): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
 }
 
-async function compartirNoticia(n: Noticia) {
+// Enlace a la noticia dentro de la tienda (no a la fuente original).
+const URL_NOTICIA_TIENDA = "https://videojuegoszaragoza.com/chat-global?tab=news&noticia=";
+
+// «Compartir fuera»: hoja nativa, navigator.share o, si no hay, copiar el enlace.
+async function compartirFuera(n: Noticia): Promise<"compartido" | "copiado" | "nada"> {
+  const enlace = `${URL_NOTICIA_TIENDA}${n.id}`;
+  const nav: any = typeof navigator !== "undefined" ? navigator : null;
+  const copiar = async () => {
+    if (!nav?.clipboard?.writeText) return "nada" as const;
+    await nav.clipboard.writeText(enlace);
+    return "copiado" as const;
+  };
+
   try {
-    const nav: any = typeof navigator !== "undefined" ? navigator : null;
     if (Platform.OS === "web") {
       if (nav?.share) {
-        await nav.share({ title: n.titulo, url: n.url });
-      } else if (nav?.clipboard?.writeText) {
-        await nav.clipboard.writeText(n.url);
+        try {
+          await nav.share({ title: n.titulo, url: enlace });
+          return "compartido";
+        } catch (e: any) {
+          // Cancelado por el usuario: nada más. Otro fallo: se copia el enlace.
+          if (e?.name === "AbortError") return "nada";
+          return await copiar();
+        }
       }
-      return;
+      return await copiar();
     }
-    await Share.share({ title: n.titulo, message: `${n.titulo}\n${n.url}`, url: n.url });
+    await Share.share({ title: n.titulo, message: `${n.titulo}\n${enlace}`, url: enlace });
+    return "compartido";
   } catch {
-    // El usuario canceló o el navegador no lo permite: no pasa nada.
+    return "nada";
   }
 }
 
-function NoticiasGamingPanel() {
+// Una noticia suelta (p. ej. una antigua que llega por enlace y no está en la primera página).
+async function leerNoticiaPorId(id: string): Promise<Noticia | null> {
+  const consulta = (columnas: string) =>
+    supabase.from("noticias_gaming").select(columnas).eq("id", id).eq("publicada", true).maybeSingle();
+
+  let { data, error } = await consulta(
+    columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes` : COLUMNAS_NOTICIA
+  );
+  if (error && columnaImagenesDisponible && /imagenes/i.test(error.message ?? "")) {
+    columnaImagenesDisponible = false;
+    ({ data, error } = await consulta(COLUMNAS_NOTICIA));
+  }
+  return !error && data ? filaANoticia(data) : null;
+}
+
+// La fecha (created_at, tal cual llega) de la noticia más reciente de la lista.
+function creadaMasReciente(noticias: Noticia[]): string {
+  let mejor = "";
+  let mejorT = -Infinity;
+  for (const n of noticias) {
+    if (!n.creadaEn) continue;
+    const t = Date.parse(n.creadaEn);
+    const valor = Number.isNaN(t) ? -Infinity : t;
+    if (valor > mejorT || (valor === mejorT && n.creadaEn > mejor)) {
+      mejor = n.creadaEn;
+      mejorT = valor;
+    }
+  }
+  return mejor;
+}
+
+function NoticiasGamingPanel({
+  userId,
+  noticiaPedida,
+  onNoticiaAtendida,
+  onDesplazarA,
+  onCompartirEnForo,
+}: {
+  userId: string | null;
+  // Noticia a desplegar y mostrar (enlace ?noticia= o mini tarjeta del Foro).
+  noticiaPedida: string | null;
+  onNoticiaAtendida: () => void;
+  onDesplazarA: (y: number) => void;
+  onCompartirEnForo: (n: Noticia) => Promise<boolean>;
+}) {
   const { height } = useWindowDimensions();
   const [noticias, setNoticias] = useState<Noticia[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -2427,7 +2915,23 @@ function NoticiasGamingPanel() {
   const [hayMas, setHayMas] = useState(false);
   const [abiertaId, setAbiertaId] = useState<string | null>(null);
   const [likes, setLikes] = useState<Record<string, true>>({});
+  // Nº de comentarios por noticia; null = función oculta (tabla aún no creada).
+  const [comentarios, setComentarios] = useState<Record<string, number> | null>(null);
+  const [aCompartir, setACompartir] = useState<Noticia | null>(null);
   const montado = useRef(true);
+  // Posición (y) de cada tarjeta dentro del panel, para desplazarse a ella.
+  const posiciones = useRef<Record<string, number>>({});
+  const temporizadores = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const enfocado = useRef(false);
+  const ultimaVista = useRef("");
+  const abiertaIdRef = useRef<string | null>(null);
+  // Cuántas noticias se han leído por páginas (sin contar una suelta abierta por enlace).
+  const leidas = useRef(0);
+  const isLoggedIn = !!userId;
+
+  useEffect(() => {
+    abiertaIdRef.current = abiertaId;
+  }, [abiertaId]);
 
   // Página "desde" (0 = primera). Devuelve las noticias leídas.
   const leerPagina = useCallback(async (desde: number): Promise<Noticia[] | null> => {
@@ -2452,13 +2956,47 @@ function NoticiasGamingPanel() {
     return ((data ?? []) as any[]).map(filaANoticia);
   }, []);
 
+  // Cuenta los comentarios visibles de las noticias indicadas.
+  const contarComentarios = useCallback(async (ids: string[]) => {
+    if (!ids.length || !tablaComentariosDisponible) return;
+    const { data, error } = await supabase
+      .from("noticias_comentarios")
+      .select("noticia_id")
+      .in("noticia_id", ids)
+      .eq("oculto", false)
+      .limit(5000);
+    if (!montado.current) return;
+    if (error) {
+      if (faltaTabla(error, "noticias_comentarios")) {
+        tablaComentariosDisponible = false;
+        setComentarios(null);
+      }
+      return;
+    }
+    setComentarios((prev) => {
+      const next = { ...(prev ?? {}) };
+      for (const id of ids) next[id] = 0;
+      for (const r of (data ?? []) as { noticia_id: string }[]) {
+        next[r.noticia_id] = (next[r.noticia_id] ?? 0) + 1;
+      }
+      return next;
+    });
+  }, []);
+
   const recargar = useCallback(async () => {
     const primera = await leerPagina(0);
     if (!montado.current) return;
-    setNoticias(primera ?? []);
+    setNoticias((prev) => {
+      const lista = primera ?? [];
+      // Conserva una noticia antigua abierta por enlace que no esté en la primera página.
+      const extra = prev.filter((p) => p.id === abiertaIdRef.current && !lista.some((n) => n.id === p.id));
+      return [...extra, ...lista];
+    });
+    leidas.current = primera?.length ?? 0;
     setHayMas((primera?.length ?? 0) === NOTICIAS_POR_PAGINA);
     setCargando(false);
-  }, [leerPagina]);
+    if (primera?.length) contarComentarios(primera.map((n) => n.id));
+  }, [leerPagina, contarComentarios]);
 
   useEffect(() => {
     montado.current = true;
@@ -2486,27 +3024,104 @@ function NoticiasGamingPanel() {
       })
       .catch(() => {});
 
+    const pendientes = temporizadores.current;
     return () => {
       montado.current = false;
+      pendientes.forEach(clearTimeout);
     };
   }, [recargar]);
 
   const verMasNoticias = async () => {
     if (cargandoMas) return;
     setCargandoMas(true);
-    const siguientes = await leerPagina(noticias.length);
+    const siguientes = await leerPagina(leidas.current);
     if (!montado.current) return;
     if (siguientes) {
+      leidas.current += siguientes.length;
       setNoticias((prev) => {
         const vistos = new Set(prev.map((n) => n.id));
         return [...prev, ...siguientes.filter((n) => !vistos.has(n.id))];
       });
       setHayMas(siguientes.length === NOTICIAS_POR_PAGINA);
+      contarComentarios(siguientes.map((n) => n.id));
     } else {
       setHayMas(false);
     }
     setCargandoMas(false);
   };
+
+  // Despliega una noticia y se desplaza a ella. Dos intentos: el segundo
+  // corrige si las fotos de las tarjetas de arriba cambiaron la altura.
+  const desplegarYMostrar = useCallback(
+    (id: string) => {
+      setAbiertaId(id);
+      temporizadores.current.forEach(clearTimeout);
+      temporizadores.current.length = 0;
+      for (const ms of [350, 1200]) {
+        temporizadores.current.push(
+          setTimeout(() => {
+            const y = posiciones.current[id];
+            if (montado.current && y != null) onDesplazarA(y);
+          }, ms)
+        );
+      }
+    },
+    [onDesplazarA]
+  );
+
+  // Noticia pedida desde un enlace (?noticia=) o desde la mini tarjeta del Foro.
+  useEffect(() => {
+    if (!noticiaPedida || cargando) return;
+    const id = noticiaPedida;
+    onNoticiaAtendida();
+
+    const yaEsta = noticias.find((n) => n.id.toLowerCase() === id);
+    if (yaEsta) {
+      desplegarYMostrar(yaEsta.id);
+      return;
+    }
+    // No está en la primera página: se trae suelta y se pone arriba.
+    leerNoticiaPorId(id).then((n) => {
+      if (!n || !montado.current) return;
+      setNoticias((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
+      contarComentarios([n.id]);
+      desplegarYMostrar(n.id);
+    });
+  }, [noticiaPedida, cargando, noticias, onNoticiaAtendida, desplegarYMostrar, contarComentarios]);
+
+  // «Noticias vistas hasta»: cada vez que se ve esta pestaña se guarda la
+  // fecha (created_at) de la noticia más reciente; siempre en el dispositivo
+  // y, con sesión, también en preferencias_usuario. Blue la usa para contar
+  // las noticias nuevas.
+  const masReciente = useMemo(() => creadaMasReciente(noticias), [noticias]);
+  const guardarVistas = useCallback(() => {
+    if (!masReciente || !enfocado.current) return;
+    const clave = `${userId ?? ""}|${masReciente}`;
+    if (ultimaVista.current === clave) return;
+    ultimaVista.current = clave;
+    AsyncStorage.setItem(NOTICIAS_VISTAS_KEY, masReciente).catch(() => {});
+    if (userId) guardarPreferencias(userId, { noticias_vistas_hasta: masReciente });
+  }, [masReciente, userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      enfocado.current = true;
+      guardarVistas();
+      return () => {
+        enfocado.current = false;
+      };
+    }, [guardarVistas])
+  );
+
+  const guardarPosicion = useCallback((id: string, y: number) => {
+    posiciones.current[id] = y;
+  }, []);
+
+  const sumarComentario = useCallback((id: string) => {
+    setComentarios((prev) => (prev ? { ...prev, [id]: (prev[id] ?? 0) + 1 } : prev));
+  }, []);
+
+  const abrirCompartir = useCallback((n: Noticia) => setACompartir(n), []);
 
   const alternar = useCallback((id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -2557,10 +3172,22 @@ function NoticiasGamingPanel() {
           noticia={n}
           abierta={abiertaId === n.id}
           meGusta={!!likes[n.id]}
+          numComentarios={comentarios ? comentarios[n.id] ?? 0 : undefined}
+          isLoggedIn={isLoggedIn}
           onAlternar={alternar}
           onLike={alternarLike}
+          onCompartir={abrirCompartir}
+          onComentado={sumarComentario}
+          onPosicion={guardarPosicion}
         />
       ))}
+
+      <MenuCompartirNoticia
+        noticia={aCompartir}
+        isLoggedIn={isLoggedIn}
+        onCerrar={() => setACompartir(null)}
+        onCompartirEnForo={onCompartirEnForo}
+      />
 
       {hayMas ? (
         <Pressable
@@ -2589,20 +3216,39 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
   noticia: n,
   abierta,
   meGusta,
+  numComentarios,
+  isLoggedIn,
   onAlternar,
   onLike,
+  onCompartir,
+  onComentado,
+  onPosicion,
 }: {
   noticia: Noticia;
   abierta: boolean;
   meGusta: boolean;
+  // undefined = comentarios no disponibles (se oculta el botón).
+  numComentarios?: number;
+  isLoggedIn: boolean;
   onAlternar: (id: string) => void;
   onLike: (id: string) => void;
+  onCompartir: (n: Noticia) => void;
+  onComentado: (id: string) => void;
+  onPosicion: (id: string, y: number) => void;
 }) {
+  const [verComentarios, setVerComentarios] = useState(false);
   const meta = [n.fuente, haceTiempo(n.publicadaEn)].filter(Boolean).join(" · ");
   const origen = [n.fuente, fechaLarga(n.publicadaEn)].filter(Boolean).join(" · ");
+  const hayComentarios = numComentarios !== undefined;
+
+  const alternarComentarios = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setVerComentarios((v) => !v);
+  };
 
   return (
     <View
+      onLayout={(e) => onPosicion(n.id, e.nativeEvent.layout.y)}
       style={{
         width: "100%",
         maxWidth: 680,
@@ -2705,11 +3351,21 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
           colorIcono={meGusta ? "#E0245E" : undefined}
           accesible={meGusta ? "Quitar me gusta" : "Me gusta"}
         />
-        <BotonNoticia onPress={() => compartirNoticia(n)} icono="share-social-outline" accesible="Compartir" />
-        {n.url ? (
-          <BotonNoticia onPress={() => openExternalLink(n.url)} etiqueta="Ver fuente" icono="open-outline" iconoDetras />
+        {hayComentarios ? (
+          <BotonNoticia
+            onPress={alternarComentarios}
+            etiqueta={String(numComentarios)}
+            icono="chatbubble-outline"
+            accesible={verComentarios ? "Ocultar comentarios" : "Comentarios"}
+            activo={verComentarios}
+          />
         ) : null}
+        <BotonNoticia onPress={() => onCompartir(n)} icono="share-social-outline" accesible="Compartir" />
       </View>
+
+      {hayComentarios && verComentarios ? (
+        <ComentariosNoticia noticiaId={n.id} isLoggedIn={isLoggedIn} onComentado={onComentado} />
+      ) : null}
     </View>
   );
 });
@@ -2718,15 +3374,52 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
 // Paginado en horizontal, cada foto entera (contain, nunca recortada) en una
 // caja con su proporción real y como mucho 320 px de alto. Las fotos que no
 // cargan o son diminutas (iconos, píxeles) se descartan; si no queda ninguna,
-// no se pinta nada (sin huecos).
+// no se pinta nada (sin huecos). Pasa sola a la siguiente foto cada 5 s (en
+// bucle), se pausa mientras se toca o arrastra y, si el sistema pide reducir
+// movimiento, cambia de foto sin animación.
 
 const ALTO_MAX_CARRUSEL = 320;
+const PASO_CARRUSEL_MS = 5000;
+
+// «Reducir movimiento» del sistema. Una sola suscripción para todos los
+// carruseles (en web, varios oyentes con el mismo código se pisan entre sí).
+let reducirMovimientoActual = false;
+let reducirMovimientoIniciado = false;
+const oyentesMovimiento = new Set<(valor: boolean) => void>();
+
+function iniciarReducirMovimiento() {
+  if (reducirMovimientoIniciado) return;
+  reducirMovimientoIniciado = true;
+  const avisar = (valor: boolean) => {
+    reducirMovimientoActual = !!valor;
+    oyentesMovimiento.forEach((f) => f(reducirMovimientoActual));
+  };
+  AccessibilityInfo.isReduceMotionEnabled().then(avisar).catch(() => {});
+  AccessibilityInfo.addEventListener("reduceMotionChanged", avisar);
+}
+
+function useReducirMovimiento() {
+  const [reducir, setReducir] = useState(reducirMovimientoActual);
+  useEffect(() => {
+    iniciarReducirMovimiento();
+    oyentesMovimiento.add(setReducir);
+    setReducir(reducirMovimientoActual);
+    return () => {
+      oyentesMovimiento.delete(setReducir);
+    };
+  }, []);
+  return reducir;
+}
 
 function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: string }) {
   const [ancho, setAncho] = useState(0);
   const [proporciones, setProporciones] = useState<Record<string, number>>({});
   const [pagina, setPagina] = useState(0);
+  // Sube al soltar el carrusel: vuelve a contar los 5 s desde ese momento.
+  const [reinicio, setReinicio] = useState(0);
+  const tocando = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
+  const reducirMovimiento = useReducirMovimiento();
   const clave = imagenes.join("\n");
 
   // Mide cada foto (ancho/alto reales) antes de mostrarla.
@@ -2753,7 +3446,31 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
   }, [clave]);
 
   const listas = imagenes.filter((u) => (proporciones[u] ?? 0) > 0);
-  if (!listas.length) return null;
+  const total = listas.length;
+  const actual = Math.min(pagina, Math.max(0, total - 1));
+
+  // Avance automático: cada 5 s a la siguiente (y de la última a la primera).
+  // Mientras se toca no avanza; al soltar se vuelve a contar desde cero.
+  useEffect(() => {
+    if (total < 2 || !ancho) return;
+    const t = setTimeout(() => {
+      if (tocando.current) return;
+      const siguiente = (actual + 1) % total;
+      scrollRef.current?.scrollTo({ x: siguiente * ancho, animated: !reducirMovimiento });
+      setPagina(siguiente);
+    }, PASO_CARRUSEL_MS);
+    return () => clearTimeout(t);
+  }, [actual, total, ancho, reinicio, reducirMovimiento]);
+
+  const pausar = () => {
+    tocando.current = true;
+  };
+  const reanudar = () => {
+    tocando.current = false;
+    setReinicio((r) => r + 1);
+  };
+
+  if (!total) return null;
 
   // Caja de cada foto: todo el ancho, salvo si pasaría de 320 px de alto.
   const caja = (uri: string) => {
@@ -2767,12 +3484,11 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
     return { w: Math.round(w), h: Math.round(h) };
   };
   const alto = ancho ? Math.max(...listas.map((u) => caja(u).h)) : 0;
-  const actual = Math.min(pagina, listas.length - 1);
-  const varias = listas.length > 1;
+  const varias = total > 1;
 
   const irA = (i: number) => {
-    const destino = Math.max(0, Math.min(listas.length - 1, i));
-    scrollRef.current?.scrollTo({ x: destino * ancho, animated: true });
+    const destino = Math.max(0, Math.min(total - 1, i));
+    scrollRef.current?.scrollTo({ x: destino * ancho, animated: !reducirMovimiento });
     setPagina(destino);
   };
 
@@ -2785,13 +3501,20 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
       }}
     >
       {ancho > 0 ? (
-        <View style={{ width: ancho, height: alto }}>
+        <View
+          style={{ width: ancho, height: alto }}
+          onTouchStart={pausar}
+          onTouchEnd={reanudar}
+          onTouchCancel={reanudar}
+        >
           <ScrollView
             ref={scrollRef}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             scrollEventThrottle={16}
+            onScrollBeginDrag={pausar}
+            onMomentumScrollEnd={reanudar}
             onScroll={(e) => {
               const i = Math.round(e.nativeEvent.contentOffset.x / ancho);
               setPagina((prev) => (prev === i ? prev : i));
@@ -2941,6 +3664,7 @@ function BotonNoticia({
   colorIcono,
   iconoDetras,
   accesible,
+  activo,
 }: {
   onPress: () => void;
   etiqueta?: string;
@@ -2948,6 +3672,8 @@ function BotonNoticia({
   colorIcono?: string;
   iconoDetras?: boolean;
   accesible?: string;
+  // Resaltado suave (p. ej. comentarios abiertos).
+  activo?: boolean;
 }) {
   const icon = <Ionicons name={icono} size={15} color={colorIcono ?? AZUL_OSCURO_NOTICIAS} />;
   return (
@@ -2955,6 +3681,7 @@ function BotonNoticia({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accesible ?? etiqueta}
+      accessibilityState={activo === undefined ? undefined : { expanded: activo }}
       style={({ pressed }) => ({
         opacity: pressed ? 0.7 : 1,
         flexDirection: "row",
@@ -2963,6 +3690,7 @@ function BotonNoticia({
         borderRadius: 999,
         borderWidth: 1,
         borderColor: COLORS.accentBorder,
+        backgroundColor: activo ? COLORS.accentSoft : "transparent",
         paddingVertical: 8,
         paddingHorizontal: 14,
       })}
@@ -2973,5 +3701,693 @@ function BotonNoticia({
       ) : null}
       {iconoDetras ? icon : null}
     </Pressable>
+  );
+}
+
+// --- Comentarios de una noticia ---------------------------------------------
+// Se abren bajo la tarjeta. Leer es público (noticias_comentarios); escribir
+// pide sesión. El autor es el mismo nombre visible que usa el Foro.
+
+type ComentarioNoticia = { id: string; created_at: string; autor: string; texto: string };
+
+const MAX_COMENTARIO = 1000;
+
+function ComentariosNoticia({
+  noticiaId,
+  isLoggedIn,
+  onComentado,
+}: {
+  noticiaId: string;
+  isLoggedIn: boolean;
+  onComentado: (id: string) => void;
+}) {
+  const [lista, setLista] = useState<ComentarioNoticia[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const vivo = useRef(true);
+
+  useEffect(() => {
+    vivo.current = true;
+    (async () => {
+      const { data, error: fallo } = await supabase
+        .from("noticias_comentarios")
+        .select("id,created_at,autor,texto")
+        .eq("noticia_id", noticiaId)
+        .eq("oculto", false)
+        .order("created_at", { ascending: true })
+        .limit(200);
+      if (!vivo.current) return;
+      if (fallo) setError("No se pudieron cargar los comentarios.");
+      else setLista((data ?? []) as ComentarioNoticia[]);
+      setCargando(false);
+    })();
+    return () => {
+      vivo.current = false;
+    };
+  }, [noticiaId]);
+
+  const limpio = texto.trim();
+  const puedeEnviar = limpio.length >= 1 && limpio.length <= MAX_COMENTARIO && !enviando;
+
+  const enviar = async () => {
+    if (!puedeEnviar) return;
+    setEnviando(true);
+    setError(null);
+    try {
+      const { data: sesion } = await supabase.auth.getSession();
+      const user = sesion.session?.user;
+      if (!user) {
+        setError("Inicia sesión para comentar.");
+        return;
+      }
+      const { data, error: fallo } = await supabase
+        .from("noticias_comentarios")
+        .insert({ noticia_id: noticiaId, autor: nombreVisibleForo(user), texto: limpio })
+        .select("id,created_at,autor,texto")
+        .single();
+      if (fallo) throw fallo;
+      if (!vivo.current) return;
+      setLista((prev) => [...prev, data as ComentarioNoticia]);
+      setTexto("");
+      onComentado(noticiaId);
+    } catch (e) {
+      console.error("Error enviando el comentario:", e);
+      if (vivo.current) setError("No se pudo enviar el comentario. Inténtalo de nuevo.");
+    } finally {
+      if (vivo.current) setEnviando(false);
+    }
+  };
+
+  return (
+    <View style={{ width: "100%", maxWidth: 560, gap: 10, marginTop: 4 }}>
+      <Text
+        style={{
+          color: AZUL_NOTICIAS,
+          fontSize: 11,
+          fontWeight: "900",
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          textAlign: "center",
+        }}
+      >
+        Comentarios
+      </Text>
+
+      {cargando ? (
+        <ActivityIndicator color={AZUL_NOTICIAS} style={{ marginVertical: 8 }} />
+      ) : lista.length === 0 && !error ? (
+        <Text style={{ color: COLORS.muted, textAlign: "center", fontSize: 14 }}>
+          Todavía no hay comentarios. ¡Sé el primero!
+        </Text>
+      ) : (
+        lista.map((c) => (
+          <View
+            key={c.id}
+            style={{
+              backgroundColor: COLORS.bg3,
+              borderRadius: 16,
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              gap: 4,
+            }}
+          >
+            <Text numberOfLines={1} style={{ color: COLORS.soft, fontSize: 12 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.autor}</Text>
+              {` · ${haceTiempo(c.created_at)}`}
+            </Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21 }}>{c.texto}</Text>
+          </View>
+        ))
+      )}
+
+      {error ? (
+        <Text style={{ color: "#B91C1C", fontSize: 13, fontWeight: "700", textAlign: "center" }}>
+          {error}
+        </Text>
+      ) : null}
+
+      {isLoggedIn ? (
+        <View style={{ gap: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+            <TextInput
+              value={texto}
+              onChangeText={setTexto}
+              placeholder="Escribe un comentario…"
+              placeholderTextColor="rgba(11,33,56,0.4)"
+              maxLength={MAX_COMENTARIO}
+              multiline
+              editable={!enviando}
+              accessibilityLabel="Escribe un comentario"
+              style={{
+                flex: 1,
+                minHeight: 44,
+                maxHeight: 120,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "#FFFFFF",
+                color: COLORS.text,
+                // 16 px: evita el zoom automático de Safari en iOS.
+                fontSize: 16,
+                paddingHorizontal: 14,
+                paddingVertical: 11,
+              }}
+            />
+            <Pressable
+              onPress={enviar}
+              disabled={!puedeEnviar}
+              accessibilityRole="button"
+              accessibilityLabel="Enviar comentario"
+              style={({ pressed }) => ({
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: puedeEnviar ? AZUL_NOTICIAS : "#DCE6EF",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              {enviando ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Ionicons name="send" size={17} color={puedeEnviar ? "#FFFFFF" : "#8FA3B8"} />
+              )}
+            </Pressable>
+          </View>
+          {texto.length > MAX_COMENTARIO - 100 ? (
+            <Text style={{ color: COLORS.soft, fontSize: 11, textAlign: "right" }}>
+              {`${texto.length}/${MAX_COMENTARIO}`}
+            </Text>
+          ) : null}
+        </View>
+      ) : (
+        <View style={{ alignItems: "center", gap: 10, paddingVertical: 4 }}>
+          <Text style={{ color: COLORS.muted, textAlign: "center", fontSize: 14 }}>
+            Inicia sesión para comentar
+          </Text>
+          <Pressable
+            onPress={() => router.push("/perfil?aviso=Inicia%20sesión%20para%20comentar" as Href)}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.85 : 1,
+              borderRadius: 999,
+              paddingVertical: 10,
+              paddingHorizontal: 20,
+              backgroundColor: AZUL_NOTICIAS,
+            })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// --- Menú «Compartir» de una noticia ----------------------------------------
+// Dos opciones: publicarla en el Foro (con sesión) o compartir el enlace a la
+// noticia dentro de la tienda por otras apps.
+
+function MenuCompartirNoticia({
+  noticia,
+  isLoggedIn,
+  onCerrar,
+  onCompartirEnForo,
+}: {
+  noticia: Noticia | null;
+  isLoggedIn: boolean;
+  onCerrar: () => void;
+  onCompartirEnForo: (n: Noticia) => Promise<boolean>;
+}) {
+  const [enviando, setEnviando] = useState(false);
+  const [nota, setNota] = useState<{ texto: string; bien: boolean } | null>(null);
+  const cierre = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setEnviando(false);
+    setNota(null);
+  }, [noticia]);
+
+  useEffect(
+    () => () => {
+      if (cierre.current) clearTimeout(cierre.current);
+    },
+    []
+  );
+
+  const alForo = async () => {
+    if (!noticia || enviando) return;
+    if (!isLoggedIn) {
+      // Sin sesión: se cierra el menú y se pide iniciar sesión.
+      onCerrar();
+      onCompartirEnForo(noticia);
+      return;
+    }
+    setEnviando(true);
+    setNota(null);
+    const ok = await onCompartirEnForo(noticia);
+    // Si sale bien se abre el Foro y este menú desaparece con la pestaña.
+    if (!ok) {
+      setEnviando(false);
+      setNota({ texto: "No se pudo compartir en el Foro. Inténtalo de nuevo.", bien: false });
+    }
+  };
+
+  const alExterior = async () => {
+    if (!noticia) return;
+    const resultado = await compartirFuera(noticia);
+    if (resultado === "copiado") {
+      setNota({ texto: "Enlace copiado", bien: true });
+      if (cierre.current) clearTimeout(cierre.current);
+      cierre.current = setTimeout(onCerrar, 1200);
+      return;
+    }
+    onCerrar();
+  };
+
+  return (
+    <Modal transparent visible={!!noticia} animationType="fade" onRequestClose={onCerrar}>
+      <Pressable
+        onPress={onCerrar}
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: "100%",
+            maxWidth: 380,
+            backgroundColor: "#FFFFFF",
+            borderRadius: 24,
+            padding: 20,
+            gap: 12,
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900", textAlign: "center" }}>
+            Compartir noticia
+          </Text>
+          {noticia ? (
+            <Text
+              numberOfLines={2}
+              style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18, textAlign: "center" }}
+            >
+              {noticia.titulo}
+            </Text>
+          ) : null}
+
+          <OpcionMenu
+            icono="chatbubbles-outline"
+            texto="Compartir en el Foro"
+            detalle={isLoggedIn ? "Para hablar de ella con la comunidad" : "Necesitas iniciar sesión"}
+            onPress={alForo}
+            cargando={enviando}
+          />
+          <OpcionMenu
+            icono="share-outline"
+            texto="Compartir fuera"
+            detalle="Enviar el enlace por otras apps"
+            onPress={alExterior}
+          />
+
+          {nota ? (
+            <Text
+              style={{
+                color: nota.bien ? "#15803D" : "#B91C1C",
+                fontSize: 13,
+                fontWeight: "800",
+                textAlign: "center",
+              }}
+            >
+              {nota.texto}
+            </Text>
+          ) : null}
+
+          <Pressable
+            onPress={onCerrar}
+            hitSlop={6}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6, paddingHorizontal: 12 })}
+          >
+            <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cancelar</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function OpcionMenu({
+  icono,
+  texto,
+  detalle,
+  onPress,
+  cargando,
+}: {
+  icono: React.ComponentProps<typeof Ionicons>["name"];
+  texto: string;
+  detalle?: string;
+  onPress: () => void;
+  cargando?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={cargando}
+      accessibilityRole="button"
+      accessibilityLabel={texto}
+      style={({ pressed }) => ({
+        width: "100%",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: COLORS.accentBorder,
+        backgroundColor: pressed ? COLORS.accentSoft : "#FFFFFF",
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+      })}
+    >
+      <View
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          backgroundColor: COLORS.accentSoft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {cargando ? (
+          <ActivityIndicator color={AZUL_NOTICIAS} />
+        ) : (
+          <Ionicons name={icono} size={18} color={AZUL_OSCURO_NOTICIAS} />
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>{texto}</Text>
+        {detalle ? (
+          <Text style={{ color: COLORS.soft, fontSize: 12, marginTop: 2 }}>{detalle}</Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+// --- Mini tarjeta de noticia dentro del Foro ---------------------------------
+// Sustituye al texto crudo de los mensajes con [noticia:<id>]. «Leer noticia»
+// abre Noticias Gaming con esa noticia desplegada. Mientras carga (o si ya no
+// existe) se ve el texto del mensaje sin la marca.
+
+function TarjetaNoticiaForo({
+  noticia,
+  texto,
+  onLeer,
+}: {
+  // undefined = cargando; null = ya no está disponible.
+  noticia: NoticiaMini | null | undefined;
+  texto: string;
+  onLeer: () => void;
+}) {
+  const boton = (
+    <Pressable
+      onPress={onLeer}
+      accessibilityRole="button"
+      accessibilityLabel="Leer noticia"
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.85 : 1,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        borderRadius: 999,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        backgroundColor: AZUL_NOTICIAS,
+        alignSelf: "center",
+      })}
+    >
+      <Ionicons name="newspaper-outline" size={14} color="#FFFFFF" />
+      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>Leer noticia</Text>
+    </Pressable>
+  );
+
+  if (!noticia) {
+    return (
+      <View style={{ gap: 8 }}>
+        <Text style={{ color: COLORS.text, lineHeight: 22 }}>{texto || "📰 Noticia"}</Text>
+        {noticia === null ? (
+          <Text style={{ color: COLORS.soft, fontSize: 12 }}>Esta noticia ya no está disponible.</Text>
+        ) : (
+          boton
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: "100%",
+        minWidth: 240,
+        maxWidth: 380,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        overflow: "hidden",
+      }}
+    >
+      {noticia.imagen ? (
+        <View style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#FFFFFF" }}>
+          <SmartImage
+            uri={noticia.imagen}
+            contentFit="contain"
+            style={{ width: "100%", height: "100%" }}
+            priority="low"
+            accessibilityLabel={noticia.titulo}
+          />
+        </View>
+      ) : null}
+      <View style={{ padding: 12, gap: 6, alignItems: "center" }}>
+        <Text
+          style={{
+            color: AZUL_NOTICIAS,
+            fontSize: 10,
+            fontWeight: "900",
+            letterSpacing: 1.1,
+            textTransform: "uppercase",
+            textAlign: "center",
+          }}
+        >
+          {noticia.categoria}
+        </Text>
+        <Text
+          numberOfLines={3}
+          style={{ color: COLORS.text, fontSize: 15, fontWeight: "900", lineHeight: 20, textAlign: "center" }}
+        >
+          {noticia.titulo}
+        </Text>
+        <View style={{ marginTop: 4 }}>{boton}</View>
+      </View>
+    </View>
+  );
+}
+
+// --- Campana de Noticias Gaming: avisos y consentimiento comercial -----------
+// Interruptor de avisos (para las notificaciones de Blue) y, aparte e
+// independiente, la casilla de comunicaciones comerciales. Con sesión se
+// guardan en preferencias_usuario; sin sesión los avisos van al dispositivo y
+// la casilla pide iniciar sesión.
+
+function AvisosNoticiasModal({
+  visible,
+  onClose,
+  isLoggedIn,
+  avisos,
+  marketing,
+  marketingDisponible,
+  onCambiarAvisos,
+  onCambiarMarketing,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  isLoggedIn: boolean;
+  avisos: boolean;
+  marketing: boolean;
+  // false si la tabla preferencias_usuario aún no existe: se oculta la casilla.
+  marketingDisponible: boolean;
+  onCambiarAvisos: (valor: boolean) => Promise<boolean>;
+  onCambiarMarketing: (valor: boolean) => Promise<boolean>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [pideSesion, setPideSesion] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setError(null);
+    setPideSesion(false);
+  }, [visible]);
+
+  const alternarAvisos = async (valor: boolean) => {
+    setError(null);
+    const ok = await onCambiarAvisos(valor);
+    if (!ok) setError("No se pudo guardar. Inténtalo de nuevo.");
+  };
+
+  const alternarMarketing = async () => {
+    if (!isLoggedIn) {
+      setPideSesion(true);
+      return;
+    }
+    if (guardando) return;
+    setGuardando(true);
+    setError(null);
+    const ok = await onCambiarMarketing(!marketing);
+    setGuardando(false);
+    if (!ok) setError("No se pudo guardar. Inténtalo de nuevo.");
+  };
+
+  const irAIniciarSesion = () => {
+    onClose();
+    router.push("/perfil?aviso=Inicia%20sesión%20para%20recibir%20ofertas" as Href);
+  };
+
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            backgroundColor: "#FFFFFF",
+            borderRadius: 24,
+            padding: 22,
+            gap: 16,
+            alignItems: "center",
+          }}
+        >
+          <Ionicons name={avisos ? "notifications" : "notifications-outline"} size={26} color={AZUL_NOTICIAS} />
+          <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
+            Avisos de noticias
+          </Text>
+
+          <View style={{ width: "100%", flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
+                Avisarme de noticias nuevas
+              </Text>
+              <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
+                Aparecerán en las notificaciones de Blue, el asistente flotante.
+              </Text>
+            </View>
+            <Switch
+              value={avisos}
+              onValueChange={alternarAvisos}
+              trackColor={{ false: "#DCE6EF", true: AZUL_NOTICIAS }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#DCE6EF"
+              accessibilityLabel="Avisarme de noticias nuevas"
+            />
+          </View>
+
+          {marketingDisponible ? (
+            <View
+              style={{
+                width: "100%",
+                borderTopWidth: 1,
+                borderTopColor: COLORS.border,
+                paddingTop: 16,
+                gap: 8,
+              }}
+            >
+              <Pressable
+                onPress={alternarMarketing}
+                disabled={guardando}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: marketing, disabled: guardando }}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  opacity: pressed || guardando ? 0.7 : 1,
+                })}
+              >
+                <Ionicons
+                  name={marketing ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={AZUL_NOTICIAS}
+                />
+                <Text style={{ flex: 1, color: COLORS.text, fontSize: 14, lineHeight: 20 }}>
+                  Acepto recibir ofertas y novedades comerciales de VideojuegosZaragoza.com
+                </Text>
+              </Pressable>
+              <Text style={{ color: COLORS.soft, fontSize: 11, marginLeft: 32 }}>
+                Puedes retirarlo cuando quieras desde aquí
+              </Text>
+
+              {pideSesion ? (
+                <View style={{ alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>
+                    Inicia sesión para aceptar las comunicaciones comerciales.
+                  </Text>
+                  <Pressable
+                    onPress={irAIniciarSesion}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.85 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 9,
+                      paddingHorizontal: 18,
+                      backgroundColor: AZUL_NOTICIAS,
+                    })}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {error ? (
+            <Text style={{ color: "#B91C1C", fontSize: 13, fontWeight: "700", textAlign: "center" }}>
+              {error}
+            </Text>
+          ) : null}
+
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.9 : 1,
+              borderRadius: 999,
+              paddingVertical: 10,
+              paddingHorizontal: 26,
+              backgroundColor: AZUL_OSCURO_NOTICIAS,
+            })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Listo</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
