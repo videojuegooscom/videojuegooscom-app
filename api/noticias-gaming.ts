@@ -21,7 +21,7 @@
  * Variables de entorno (Vercel → Settings → Environment Variables):
  * - OPENAI_API_KEY: clave de OpenAI (ya la usa api/blue-ia.ts).
  * - EXPO_PUBLIC_SUPABASE_URL: URL del proyecto de Supabase.
- * - SUPABASE_SERVICE_ROLE_KEY: clave de servicio, SOLO servidor (escribe en
+ * - SUPABASE_CLAVE_SERVIDOR: clave secreta del servidor de Supabase, SOLO servidor (escribe en
  *   las tablas, que no tienen políticas de escritura públicas).
  * - CRON_SECRET: secreto que Vercel manda en las llamadas del cron.
  *
@@ -442,11 +442,11 @@ export default async function handler(req: any, res: any) {
   const esCron = !!cronSecret && auth === `Bearer ${cronSecret}`;
 
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = process.env.SUPABASE_CLAVE_SERVIDOR;
   const openaiKey = process.env.OPENAI_API_KEY;
   const faltan = [
     !supabaseUrl && "EXPO_PUBLIC_SUPABASE_URL",
-    !serviceKey && "SUPABASE_SERVICE_ROLE_KEY",
+    !serviceKey && "SUPABASE_CLAVE_SERVIDOR",
     !openaiKey && "OPENAI_API_KEY",
   ].filter(Boolean);
   if (faltan.length || !supabaseUrl || !serviceKey || !openaiKey) {

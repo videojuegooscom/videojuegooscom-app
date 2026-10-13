@@ -9,7 +9,7 @@
 
 create table if not exists public.blue_ia_conversaciones (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  user_id uuid not null default auth.uid(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   titulo text not null default 'Conversación' check (char_length(titulo) <= 120),
@@ -20,7 +20,7 @@ create table if not exists public.blue_ia_conversaciones (
 create table if not exists public.blue_ia_mensajes (
   id uuid primary key default gen_random_uuid(),
   conversacion_id uuid not null references public.blue_ia_conversaciones(id) on delete cascade,
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  user_id uuid not null default auth.uid(),
   created_at timestamptz not null default now(),
   rol text not null check (rol in ('user', 'assistant')),
   texto text not null check (char_length(texto) <= 4000)
