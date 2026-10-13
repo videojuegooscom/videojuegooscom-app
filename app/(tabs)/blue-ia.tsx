@@ -74,6 +74,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PromoBanner from "../../components/PromoBanner";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { openExternalLink } from "../../lib/openExternalLink";
@@ -445,6 +446,12 @@ export default function BlueIAScreen() {
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 860, gap: 10 }}>
+            {/* Bienvenida: la mascota de la tienda, solo antes de la primera pregunta. */}
+            {showQuickSuggestions && (
+              <View style={{ alignItems: "center", paddingBottom: 4 }}>
+                <MarcaAnimada cual="tienda" ancho={120} />
+              </View>
+            )}
             {messages.map((message) => (
               <BlueIABubble key={message.id} message={message} />
             ))}
@@ -741,7 +748,7 @@ function BlueIATypingBubble() {
           paddingHorizontal: 14,
         }}
       >
-        <ActivityIndicator size="small" color={COLORS.accent} />
+        <MarcaAnimada cual="carga" ancho={48} tocable={false} />
         <Text style={{ color: COLORS.muted, fontSize: 13 }}>Blue IA está escribiendo…</Text>
       </View>
     </View>

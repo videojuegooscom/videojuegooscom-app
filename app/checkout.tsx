@@ -46,6 +46,8 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import CargaMarca from "../components/marca/CargaMarca";
+import MarcaAnimada from "../components/marca/MarcaAnimada";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
@@ -463,14 +465,13 @@ export default function CheckoutScreen() {
 
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator />
-          <Text style={{ color: COLORS.muted }}>Cargando…</Text>
+          <CargaMarca texto="Cargando…" />
         </View>
       ) : pedidoHecho ? (
         // Confirmación: el pedido ya está registrado (o enviado por WhatsApp si no hubo número).
         <ScrollView contentContainerStyle={{ padding: 24, alignItems: "center" }}>
           <View style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
-            <Ionicons name="checkmark-circle" size={56} color={COLORS.accent} />
+            <MarcaAnimada cual="pareja" ancho={240} />
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
               {pedidoHecho.numero ? `Pedido nº ${pedidoHecho.numero} recibido` : "Pedido enviado"}
             </Text>
@@ -512,6 +513,7 @@ export default function CheckoutScreen() {
               alignItems: "center",
             }}
           >
+            <MarcaAnimada cual="tienda" ancho={120} />
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
               Tu carrito está vacío.
             </Text>

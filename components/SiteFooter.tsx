@@ -49,6 +49,7 @@ import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
 import SocialLinks from "./SocialLinks";
+import MarcaAnimada from "./marca/MarcaAnimada";
 
 const BAND_BG = "#0B2138";
 const CARD_BG = "#FFFFFF";
@@ -266,6 +267,11 @@ export default function SiteFooter({
         }}
       >
         <View style={{ width: "100%", maxWidth: contentMaxWidth, alignSelf: "center", gap: 12 }}>
+          {/* Logo pequeño animado encima del nombre (se anima al tocarlo). */}
+          <View style={{ alignItems: "center" }}>
+            <MarcaAnimada cual="logo-mini" ancho={80} />
+          </View>
+
           <Text
             style={{
               color: "#FFFFFF",

@@ -112,6 +112,8 @@ import { openExternalLink } from "../../lib/openExternalLink";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
+import CargaMarca from "../../components/marca/CargaMarca";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -1078,11 +1080,11 @@ ${price}
 
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator />
-          <Text style={{ color: COLORS.muted }}>Cargando producto…</Text>
+          <CargaMarca texto="Cargando producto…" />
         </View>
       ) : err ? (
         <View style={{ padding: pagePadding, gap: 12, alignItems: "center" }}>
+          <MarcaAnimada cual="taller" ancho={130} />
           <View style={{ gap: 6, alignItems: "center", maxWidth: 520 }}>
             <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
               No se ha podido cargar el producto
@@ -1137,6 +1139,7 @@ ${price}
         </View>
       ) : !p ? (
         <View style={{ padding: pagePadding, gap: 10, alignItems: "center" }}>
+          <MarcaAnimada cual="taller" ancho={130} />
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
             Producto no disponible
           </Text>

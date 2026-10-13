@@ -21,7 +21,6 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
@@ -34,6 +33,8 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import SmartImage from "../components/SmartImage";
+import MarcaAnimada from "../components/marca/MarcaAnimada";
+import CargaMarca from "../components/marca/CargaMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -255,6 +256,7 @@ export default function ServiciosScreen() {
               <Ionicons name="chevron-back" size={22} color={COLORS.text} />
             </Pressable>
             <View style={{ flex: 1, alignItems: "center" }}>
+              <MarcaAnimada cual="taller" ancho={isMobile ? 140 : 160} />
               <Text
                 style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900", textAlign: "center" }}
               >
@@ -296,8 +298,8 @@ export default function ServiciosScreen() {
       <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40 }}>
         <View style={{ ...columnStyle }}>
           {loading ? (
-            <View style={{ alignItems: "center", paddingVertical: 40 }}>
-              <ActivityIndicator color={COLORS.accent} />
+            <View style={{ alignItems: "center", paddingVertical: 24 }}>
+              <CargaMarca texto="Cargando servicios…" />
             </View>
           ) : err ? (
             <View style={{ alignItems: "center", gap: 10, paddingVertical: 20 }}>

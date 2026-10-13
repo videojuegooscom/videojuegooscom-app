@@ -30,7 +30,6 @@
  */
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   Linking,
   Platform,
@@ -47,6 +46,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { openExternalLink } from "../../lib/openExternalLink";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -308,12 +309,12 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator />
-          <Text style={{ color: COLORS.muted }}>Cargando servicio…</Text>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <CargaMarca texto="Cargando servicio…" />
         </View>
       ) : err ? (
-        <View style={{ padding: pagePadding, gap: 12, alignItems: "center" }}>
+        <View style={{ padding: pagePadding, paddingTop: 24, gap: 12, alignItems: "center" }}>
+          <MarcaAnimada cual="taller" ancho={120} />
           <View style={{ alignItems: "center", gap: 6 }}>
             <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
               No se ha podido cargar el servicio
