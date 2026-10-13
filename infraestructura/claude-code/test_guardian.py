@@ -192,9 +192,13 @@ DENY_OTRAS = [
     mcp("mcp__supabase__execute_sql", query="select pg_read_file('/etc/passwd')"),
     mcp("mcp__supabase__execute_sql", query="copy products to program 'sh'"),
     mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="drop table public.products"),
-    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="grant all on public.t to anon"),
-    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
-        query="create policy p on t for select to anon using (true)"),
+    # Permisos delicados sin versionar en main, y lo que nunca aplica Claude aunque esté versionado.
+    mcp("mcp__supabase__apply_migration", name="no_esta_en_main", query="grant all on public.t to anon"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="alter role authenticated set x = 1"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="select * from auth.users"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="select cron.schedule('x','* * * * *','select 1')"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="select vault.create_secret('x')"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="alter default privileges grant all on tables to anon"),
     mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="delete from public.aprendizajes"),
     mcp("mcp__supabase__apply_migration", name="Centro Aprendizajes", query="create table t (id int)"),
     mcp("mcp__supabase__apply_migration", name="no_esta_en_main", query="create table t (id int)"),
@@ -232,6 +236,12 @@ LECTURA = [
 APROBADAS_OTRAS = [
     mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
         query="create table if not exists public.aprendizajes (id uuid primary key)"),
+    # Permisos delicados ya revisados y fusionados en main (petición del dueño, 2026-10-13).
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes", query="grant all on public.t to anon"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create policy p on t for select to anon using (true)"),
+    mcp("mcp__supabase__apply_migration", name="centro_aprendizajes",
+        query="create function f() returns void language sql security definer as $$ select 1 $$"),
 ]
 
 # ----------------------------------------------------------------- PASA ----------
