@@ -193,8 +193,11 @@ function paramTexto(v: unknown): string {
   return typeof s === "string" ? s.trim().slice(0, 140) : "";
 }
 
+// Siempre dos decimales y punto de miles, igual que en la tienda: 1.299,00€.
 function fmtEUR(n: number) {
-  return `${Number.isInteger(n) ? n : n.toFixed(2).replace(".", ",")}€`;
+  const safe = Number.isFinite(n) ? n : 0;
+  const [entero, cent] = (Math.round(safe * 100) / 100).toFixed(2).split(".");
+  return `${entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${cent}€`;
 }
 
 // Resumen para el equipo: contexto + últimas 6 vueltas, recortado a ~1200 caracteres.

@@ -68,14 +68,12 @@ const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
-  const safe = Number.isFinite(n) ? n : 0;
-  // Antes se redondeaba siempre a euros enteros (Math.round); se deja igual
-  // de preparado para decimales que el resto de la app, aunque el precio de
-  // los servicios sigue guardándose en euros enteros por ahora.
-  const rounded = Math.round(safe * 100) / 100;
-  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
-  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
+  const v = Number(n);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function openWhatsApp(prefill: string) {

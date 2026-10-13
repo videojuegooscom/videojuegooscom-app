@@ -22,45 +22,158 @@
  *   BrilloIconoSeccion). React Navigation pinta cada icono dos veces (capa
  *   "focused" y capa normal) y solo deja visible la capa "focused" de la
  *   pestaña activa, así que el brillo solo se ve en esa.
+ * - Triple toque = recargar la pestaña: si se toca 3 veces seguidas el icono
+ *   de una pestaña (en menos de TRIPLE_TOQUE_MS, 900 ms), esa pantalla se
+ *   vuelve a montar de verdad y por eso vuelve a pedir sus datos. Se hace con
+ *   un RESET del navegador de pestañas en el que solo esa ruta cambia de
+ *   clave (key): la barra (BottomTabView) pinta cada pantalla con
+ *   key={route.key}, así que React desmonta la vieja y monta una nueva. Se
+ *   conservan el resto de pestañas, los parámetros y el historial (con la
+ *   clave nueva), así que la URL no cambia y el botón atrás sigue igual
+ *   (expo-router hace replaceState, no añade entradas). Si por lo que sea la
+ *   clave no cambia, como último recurso se recarga la página
+ *   (window.location.reload, solo web). Respuesta visual: el icono da una
+ *   vuelta rápida (360°) y se enciende el efecto Siri al momento
+ *   (pulseLoading(…, true) de lib/loadingBus.ts). Los toques sueltos siguen
+ *   igual: cambiar de pestaña o, en la activa, volver arriba.
  *
  * Conectado con:
  * - app/(tabs)/index.tsx, perfil.tsx, cesta.tsx, chat-global.tsx,
  *   blue-ia.tsx → las 5 pantallas que aparecen como pestañas aquí.
  * - app/_layout.tsx → layout raíz que monta este grupo "(tabs)".
- * - lib/loadingBus.ts → useCargando() para saber cuándo brillar.
+ * - lib/loadingBus.ts → useCargando() para saber cuándo brillar y
+ *   pulseLoading() al recargar una pestaña.
  * - components/lineapensadoraefectosiri.tsx → BrilloIconoSeccion (halo).
  */
-import React from "react";
-import { Platform } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Animated, Easing, Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { CommonActions, type ParamListBase, type TabNavigationState } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import {
   TAB_BAR_BASE_HEIGHT,
   TAB_BAR_BASE_PADDING_BOTTOM,
   useTabBarBottomInset,
 } from "../../lib/tabBar";
-import { useCargando } from "../../lib/loadingBus";
+import { pulseLoading, useCargando } from "../../lib/loadingBus";
 import { BrilloIconoSeccion } from "../../components/lineapensadoraefectosiri";
 
 const TAB_ICON_SIZE = 20;
 
+// Triple toque: ventana para los 3 toques, vuelta del icono y efecto Siri.
+const TRIPLE_TOQUE_MS = 900;
+const GIRO_MS = 560;
+const RECARGA_PULSO_MS = 900;
+
 type NombreIcono = React.ComponentProps<typeof Ionicons>["name"];
 
-// Icono de pestaña: brilla mientras hay carga si es la capa "focused".
+// Última recarga por pestaña (nombre de ruta → instante). Vive fuera de React
+// porque el icono también se vuelve a montar al cambiar la clave de la ruta.
+const recargas = new Map<string, number>();
+const oyentesRecarga = new Set<() => void>();
+
+function avisarRecarga(ruta: string) {
+  recargas.set(ruta, Date.now());
+  oyentesRecarga.forEach((oyente) => oyente());
+}
+
+// Toques seguidos sobre el mismo icono.
+let toques = { ruta: "", veces: 0, desde: 0 };
+
+// Cuenta el toque y devuelve true al tercero seguido sobre la misma pestaña.
+function esTripleToque(ruta: string): boolean {
+  const ahora = Date.now();
+  if (toques.ruta !== ruta || ahora - toques.desde > TRIPLE_TOQUE_MS) {
+    toques = { ruta, veces: 1, desde: ahora };
+    return false;
+  }
+  toques.veces += 1;
+  if (toques.veces < 3) return false;
+  toques = { ruta: "", veces: 0, desde: 0 };
+  return true;
+}
+
+function recargarPagina() {
+  if (Platform.OS === "web" && typeof window !== "undefined") window.location.reload();
+}
+
+/**
+ * Vuelve a montar la pantalla de una pestaña: RESET del navegador de pestañas
+ * con la misma estructura y solo esa ruta con una clave nueva (React la
+ * desmonta y la monta de cero). Historial con la clave nueva para que la URL y
+ * el botón atrás no cambien.
+ */
+function recargarPestana(navigation: BottomTabNavigationProp<ParamListBase>, clave: string, ruta: string) {
+  avisarRecarga(ruta);
+  pulseLoading(RECARGA_PULSO_MS, true);
+  try {
+    const estado = navigation.getState();
+    const nuevaClave = `${ruta}-recarga-${Date.now().toString(36)}`;
+    // Mismo estado (stale: false, mismas rutas e índice) con la clave nueva.
+    const nuevo: TabNavigationState<ParamListBase> = {
+      ...estado,
+      routes: estado.routes.map((r) => (r.key === clave ? { ...r, key: nuevaClave } : r)),
+      history: estado.history.map((h) => (h.key === clave ? { ...h, key: nuevaClave } : h)),
+      preloadedRouteKeys: estado.preloadedRouteKeys.filter((k) => k !== clave),
+    };
+    navigation.dispatch({ ...CommonActions.reset(nuevo), target: estado.key });
+    // Comprobación: si la ruta no tiene la clave nueva, no se remontó → página entera.
+    setTimeout(() => {
+      try {
+        if (!navigation.getState().routes.some((r) => r.key === nuevaClave)) recargarPagina();
+      } catch {
+        recargarPagina();
+      }
+    }, 120);
+  } catch {
+    recargarPagina();
+  }
+}
+
+// Icono de pestaña: brilla mientras hay carga si es la capa "focused" y da una
+// vuelta al recargar su pestaña con triple toque.
 function IconoPestana({
+  ruta,
   nombre,
   color,
   focused,
 }: {
+  ruta: string;
   nombre: NombreIcono;
   color: string;
   focused: boolean;
 }) {
   const cargando = useCargando();
+  const giro = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const girar = () => {
+      // También al montarse: tras la recarga el icono es uno nuevo.
+      if (Date.now() - (recargas.get(ruta) ?? 0) > GIRO_MS) return;
+      giro.setValue(0);
+      Animated.timing(giro, {
+        toValue: 1,
+        duration: GIRO_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: Platform.OS !== "web",
+      }).start();
+    };
+    girar();
+    oyentesRecarga.add(girar);
+    return () => {
+      oyentesRecarga.delete(girar);
+    };
+  }, [ruta, giro]);
+
+  const rotacion = giro.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+
   return (
-    <BrilloIconoSeccion brillando={focused && cargando}>
-      <Ionicons name={nombre} size={TAB_ICON_SIZE} color={color} />
-    </BrilloIconoSeccion>
+    <Animated.View style={{ transform: [{ rotate: rotacion }] }}>
+      <BrilloIconoSeccion brillando={focused && cargando}>
+        <Ionicons name={nombre} size={TAB_ICON_SIZE} color={color} />
+      </BrilloIconoSeccion>
+    </Animated.View>
   );
 }
 
@@ -80,6 +193,12 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      // Triple toque en un icono → recargar esa pestaña (el toque normal no cambia).
+      screenListeners={({ navigation, route }) => ({
+        tabPress: () => {
+          if (esTripleToque(route.name)) recargarPestana(navigation, route.key, route.name);
+        },
+      })}
       screenOptions={{
         headerShown: false,
         sceneStyle: {
@@ -116,6 +235,7 @@ export default function TabsLayout() {
           title: "Inicio",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
+              ruta="index"
               nombre={focused ? "home" : "home-outline"}
               color={color}
               focused={focused}
@@ -130,6 +250,7 @@ export default function TabsLayout() {
           title: "Perfil",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
+              ruta="perfil"
               nombre={focused ? "person" : "person-outline"}
               color={color}
               focused={focused}
@@ -144,6 +265,7 @@ export default function TabsLayout() {
           title: "Cesta",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
+              ruta="cesta"
               nombre={focused ? "bag-handle" : "bag-handle-outline"}
               color={color}
               focused={focused}
@@ -158,6 +280,7 @@ export default function TabsLayout() {
           title: "Foro",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
+              ruta="chat-global"
               nombre={focused ? "chatbubbles" : "chatbubbles-outline"}
               color={color}
               focused={focused}
@@ -172,6 +295,7 @@ export default function TabsLayout() {
           title: "Blue IA",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
+              ruta="blue-ia"
               nombre={focused ? "sparkles" : "sparkles-outline"}
               color={color}
               focused={focused}

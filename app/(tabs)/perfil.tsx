@@ -116,8 +116,8 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Bloque de sección sin envoltorio visual (sin borde ni fondo): solo agrupa
-// y separa por espaciado.
+// Bloque de sección sin envoltorio visual (sin borde ni fondo): solo agrupa.
+// La separación vertical entre apartados la pone el contenedor (sectionGap).
 function SectionCard({
   children,
   padding = 18,
@@ -125,7 +125,7 @@ function SectionCard({
   children: React.ReactNode;
   padding?: number;
 }) {
-  return <View style={{ padding, gap: 14 }}>{children}</View>;
+  return <View style={{ paddingHorizontal: padding, gap: 14 }}>{children}</View>;
 }
 
 // Envoltorio de Pressable con una pequeña animación "pop" tipo Apple: al
@@ -550,6 +550,8 @@ export default function PerfilScreen() {
   const cardPadding = isMobile ? 18 : isDesktop ? 26 : 22;
   const heroTitleSize = isMobile ? 24 : isDesktop ? 30 : 27;
   const pagePadding = isMobile ? 16 : 24;
+  // Aire entre apartados: 36px en móvil, 48px en escritorio.
+  const sectionGap = isMobile ? 36 : 48;
 
   // pillAnimSignin/pillAnimSignup: 0 = pestaña neutra pequeña, 1 = CTA
   // grande activo. Solo uno de los dos vale 1 a la vez (o ninguno, si el
@@ -887,9 +889,10 @@ export default function PerfilScreen() {
             contentContainerStyle={{
               flexGrow: 1,
               paddingHorizontal: pagePadding,
-              paddingTop: isMobile ? 18 : 28,
+              paddingTop: isMobile ? 28 : 40,
               paddingBottom: 32,
-              gap: 14,
+              // + 8px de margen del pie = sectionGap.
+              gap: sectionGap - 8,
               alignItems: "center",
               justifyContent: "center",
             }}
@@ -899,9 +902,11 @@ export default function PerfilScreen() {
                 width: "100%",
                 maxWidth: cardMaxWidth,
                 alignSelf: "center",
-                gap: 14,
+                gap: sectionGap,
               }}
             >
+              {/* Las pestañas van pegadas a su contenido (no cuentan como apartado). */}
+              <View style={{ gap: 18 }}>
               {isLogged ? <PerfilTabs value={perfilTab} onChange={setPerfilTab} /> : null}
 
               {showSeguimientos ? (
@@ -909,7 +914,6 @@ export default function PerfilScreen() {
                   <SeguimientosSeccion />
                 </SectionCard>
               ) : (
-              <>
               <SectionCard padding={cardPadding}>
                 <View style={{ gap: 12, alignItems: "center" }}>
                     {sessionRole === "guest" ? <MarcaAnimada cual="logo-mini" ancho={96} /> : null}
@@ -1170,8 +1174,10 @@ export default function PerfilScreen() {
                   </View>
                 )}
               </SectionCard>
+              )}
+              </View>
 
-              {sessionRole === "admin" ? (
+              {!showSeguimientos && sessionRole === "admin" ? (
                 <SectionCard padding={cardPadding}>
                   <View style={{ alignItems: "center", gap: 14 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
@@ -1201,14 +1207,11 @@ export default function PerfilScreen() {
                   />
                 </SectionCard>
               ) : null}
-              </>
-              )}
 
               <CategoryProductsShelf />
 
-              <SectionCard padding={cardPadding}>
-                <SocialLinks />
-              </SectionCard>
+              {/* Sin envoltorio: si no hay redes activas no deja hueco. */}
+              <SocialLinks />
             </View>
 
             <SiteFooter sidePadding={pagePadding} />
@@ -1317,9 +1320,12 @@ function segFecha(iso: string | null) {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function segEuros(n: number | null) {
   if (n == null || !Number.isFinite(Number(n))) return "";
-  return Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+  const cents = Math.round(Number(n) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 // Tabla/columna inexistente (migración aún sin aplicar)
@@ -1532,7 +1538,7 @@ function SeguimientosSeccion() {
   if (!conSesion) return null;
 
   return (
-    <View style={{ gap: 30, alignItems: "center" }}>
+    <View style={{ gap: 40, alignItems: "center" }}>
       {pedidos !== null ? (
         <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
           <SegTitulo>Mis pedidos</SegTitulo>

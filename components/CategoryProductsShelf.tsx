@@ -117,14 +117,12 @@ type ProductMediaRow = {
   is_cover?: boolean | null;
 };
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(value: number) {
-  const safe = Number.isFinite(value) ? value : 0;
-  // Antes se redondeaba siempre a euros enteros (Math.round) y se perdían
-  // los céntimos (17,97€ se veía como "18€"); ahora se muestran decimales
-  // solo cuando el precio los tiene de verdad.
-  const rounded = Math.round(safe * 100) / 100;
-  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
-  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
+  const v = Number(value);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function normalizeMediaKind(value: unknown): ProductMediaKind | null {

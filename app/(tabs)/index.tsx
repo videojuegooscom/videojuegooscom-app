@@ -18,6 +18,8 @@
  *   la oferta destacada. Todos se animan al tocarlos.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
+ * - Cada apartado lleva su título y entre apartados hay una línea fina
+ *   (Separador) con aire; "Oferta de la semana" brilla (TituloOferta).
  * - El botón "Vender ahora" abre el formulario "pop" de VenderAhoraModal,
  *   que guarda la solicitud en Supabase (tabla "sell_requests") para
  *   revisarla luego en el admin. La antigua franja "Noticias Flash" ya no
@@ -65,7 +67,9 @@ import type { Href } from "expo-router";
 import { router, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Animated,
+  Easing,
   Linking,
   Modal,
   Platform,
@@ -281,14 +285,12 @@ function clampText(value: string, max = 400) {
   return `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(value: number) {
-  const safe = Number.isFinite(value) ? value : 0;
-  // Antes se redondeaba siempre a euros enteros (Math.round) y se perdían
-  // los céntimos (17,97€ se veía como "18€"); ahora se muestran decimales
-  // solo cuando el precio los tiene de verdad.
-  const rounded = Math.round(safe * 100) / 100;
-  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
-  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
+  const v = Number(value);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function buildWhatsAppUrl(prefill: string) {
@@ -516,13 +518,14 @@ function SectionTitle({
   isMobile?: boolean;
 }) {
   return (
-    <View style={{ marginBottom: 10, alignItems: "center" }}>
+    <View style={{ marginBottom: 12, alignItems: "center" }}>
       <Text
+        accessibilityRole="header"
         style={{
           color: COLORS.text,
-          fontSize: isMobile ? 17 : 18,
+          fontSize: isMobile ? 19 : 21,
           fontWeight: "900",
-          lineHeight: isMobile ? 22 : 24,
+          lineHeight: isMobile ? 25 : 28,
           textAlign: "center",
         }}
       >
@@ -541,6 +544,138 @@ function SectionTitle({
           {subtitle}
         </Text>
       )}
+    </View>
+  );
+}
+
+// Línea fina entre apartados (sin recuadros): el aire de arriba y abajo
+// suma ~37px en móvil y ~49px en escritorio entre bloque y bloque.
+function Separador({ isMobile }: { isMobile?: boolean }) {
+  return (
+    <View
+      style={{
+        height: 1,
+        width: "100%",
+        maxWidth: 720,
+        alignSelf: "center",
+        backgroundColor: COLORS.border,
+        marginVertical: isMobile ? 18 : 24,
+      }}
+    />
+  );
+}
+
+// Brillo de "Oferta de la semana". Web: un reflejo de luz (azul claro con un
+// punto dorado) recorre el texto de izquierda a derecha cada 2,8 s, con un
+// halo azul suave que crece al pasar. Con "reducir movimiento" queda quieto.
+const CSS_BRILLO_OFERTA = [
+  ".vz-oferta-brillo{display:inline-block;filter:drop-shadow(0 0 4px rgba(30,167,232,.18));animation:vz-oferta-brillo 2.8s ease-in-out infinite;}",
+  // Solo se vuelve transparente el relleno si el navegador sabe recortar el fondo al texto.
+  "@supports (-webkit-background-clip:text) or (background-clip:text){.vz-oferta-brillo{background-image:linear-gradient(105deg,#0E86C4 0%,#0E86C4 40%,#5CCBF7 46%,#F4D58D 50%,#5CCBF7 54%,#0E86C4 60%,#0E86C4 100%);background-size:250% 100%;background-position:100% 0;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}}",
+  "@keyframes vz-oferta-brillo{0%{background-position:100% 0;filter:drop-shadow(0 0 4px rgba(30,167,232,.18))}30%{filter:drop-shadow(0 0 10px rgba(30,167,232,.42))}60%,100%{background-position:0 0;filter:drop-shadow(0 0 4px rgba(30,167,232,.18))}}",
+  "@media (prefers-reduced-motion: reduce){.vz-oferta-brillo{animation:none}}",
+].join("");
+
+const ID_CSS_BRILLO_OFERTA = "vz-oferta-brillo-css";
+
+// Inyecta la hoja de estilos del brillo una sola vez (solo web).
+function asegurarCssBrilloOferta() {
+  if (Platform.OS !== "web" || typeof document === "undefined") return;
+  let el = document.getElementById(ID_CSS_BRILLO_OFERTA);
+  if (!el) {
+    el = document.createElement("style");
+    el.id = ID_CSS_BRILLO_OFERTA;
+    document.head.appendChild(el);
+  }
+  if (el.textContent !== CSS_BRILLO_OFERTA) el.textContent = CSS_BRILLO_OFERTA;
+}
+
+// Título del apartado "Oferta de la semana" con brillo premium.
+function TituloOferta({ isMobile }: { isMobile?: boolean }) {
+  const esWeb = Platform.OS === "web";
+  const halo = useRef(new Animated.Value(0)).current;
+  const [reducir, setReducir] = useState(false);
+
+  // Nativo: respeta "reducir movimiento" del sistema (en web lo hace el CSS).
+  useEffect(() => {
+    if (esWeb) {
+      asegurarCssBrilloOferta();
+      return;
+    }
+    let vivo = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((v) => {
+        if (vivo) setReducir(!!v);
+      })
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", (v) => setReducir(!!v));
+    return () => {
+      vivo = false;
+      sub.remove();
+    };
+  }, [esWeb]);
+
+  // Nativo: halo azul que respira (sin reflejo, que necesita máscaras).
+  useEffect(() => {
+    if (esWeb) return;
+    if (reducir) {
+      halo.setValue(0.6);
+      return;
+    }
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(halo, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(halo, { toValue: 0.25, duration: 1100, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.delay(500),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [esWeb, reducir, halo]);
+
+  const estilo = {
+    color: "#0E86C4",
+    fontSize: isMobile ? 21 : 24,
+    fontWeight: "900" as const,
+    letterSpacing: 0.3,
+    lineHeight: isMobile ? 28 : 32,
+    textAlign: "center" as const,
+  };
+
+  if (esWeb) {
+    return (
+      <View style={{ alignItems: "center", marginBottom: 2 }}>
+        <Text accessibilityRole="header" style={estilo}>
+          <span className="vz-oferta-brillo">Oferta de la semana</span>
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ alignItems: "center", marginBottom: 2 }}>
+      <View>
+        <Animated.Text
+          aria-hidden
+          style={[
+            estilo,
+            {
+              position: "absolute",
+              left: 0,
+              right: 0,
+              opacity: halo,
+              textShadowColor: "rgba(30,167,232,0.55)",
+              textShadowOffset: { width: 0, height: 0 },
+              textShadowRadius: 12,
+            },
+          ]}
+        >
+          Oferta de la semana
+        </Animated.Text>
+        <Text accessibilityRole="header" style={estilo}>
+          Oferta de la semana
+        </Text>
+      </View>
     </View>
   );
 }
@@ -1160,12 +1295,9 @@ function FeaturedOfferCard({
 
   if (!item) {
     // Sin envoltorio de tarjeta: textos y botones directamente, centrados.
+    // El título "Oferta de la semana" (con brillo) lo pone HomeScreen encima.
     return (
       <View style={{ gap: 12, alignItems: "center" }}>
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}>
-          Oferta de la semana
-        </Text>
-
         <Text
           style={{
             color: COLORS.text,
@@ -1233,10 +1365,6 @@ function FeaturedOfferCard({
             alignItems: "center",
           }}
         >
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}>
-            Oferta de la semana
-          </Text>
-
           <View style={{ alignItems: "center" }}>
             <Text
               style={{
@@ -1666,16 +1794,18 @@ export default function HomeScreen() {
           // pasaba" del final. Con un margen fijo pequeño el pie de página
           // queda pegado a la barra de pestañas, como debe ser.
           paddingBottom: isMobile ? 24 : 28,
-          gap: 14,
+          // + 8px de margen del pie = 36px (móvil) / 48px (escritorio).
+          gap: isMobile ? 28 : 40,
         }}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
-        <View style={{ ...containerStyle, gap: 14 }}>
+        {/* Apartados separados por <Separador /> (línea fina + aire), sin recuadros. */}
+        <View style={containerStyle}>
           {/* Logo animado como cabecera de marca: centrado, sin recuadro y con
               poco margen para no empujar el contenido. Al tocarlo, se anima. */}
-          <View style={{ alignItems: "center", marginTop: isMobile ? -4 : 0, marginBottom: -6 }}>
+          <View style={{ alignItems: "center", marginTop: isMobile ? -4 : 0, marginBottom: 8 }}>
             <MarcaAnimada cual="logo" ancho={isMobile ? 150 : isWide ? 190 : 170} />
           </View>
 
@@ -1718,30 +1848,39 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {featuredLoading ? (
-            // Carga con la mascota de la tienda (antes, ruedita gris).
-            <View
-              style={{
-                minHeight: isMobile ? 150 : 180,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <CargaMarca texto="Cargando oferta destacada…" ancho={isMobile ? 84 : 96} />
-            </View>
-          ) : (
-            <FeaturedOfferCard
-              item={featured}
-              isDesktopish={isDesktopish}
-              isWide={isWide}
-              isMobile={isMobile}
-              onPressCategories={scrollToCategories}
-              onPressChat={handleFeaturedChatPress}
-              chatBusy={featuredChatBusy}
-            />
-          )}
+          <Separador isMobile={isMobile} />
 
-          <View onLayout={handleCategoriesLayout} style={{ gap: 10, paddingTop: 6 }}>
+          {/* Oferta de la semana: título con brillo + tarjeta del producto. */}
+          <View style={{ gap: 12 }}>
+            <TituloOferta isMobile={isMobile} />
+
+            {featuredLoading ? (
+              // Carga con la mascota de la tienda (antes, ruedita gris).
+              <View
+                style={{
+                  minHeight: isMobile ? 150 : 180,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CargaMarca texto="Cargando oferta destacada…" ancho={isMobile ? 84 : 96} />
+              </View>
+            ) : (
+              <FeaturedOfferCard
+                item={featured}
+                isDesktopish={isDesktopish}
+                isWide={isWide}
+                isMobile={isMobile}
+                onPressCategories={scrollToCategories}
+                onPressChat={handleFeaturedChatPress}
+                chatBusy={featuredChatBusy}
+              />
+            )}
+          </View>
+
+          <Separador isMobile={isMobile} />
+
+          <View onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
             <SectionTitle
               title="Categorías"
               subtitle="Explora las principales secciones de la tienda."
@@ -1777,13 +1916,26 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <TrustInfoRow isMobile={isMobile} onPressItem={setInfoPop} />
+          <Separador isMobile={isMobile} />
+
+          <View>
+            <SectionTitle
+              title="Compra con confianza"
+              subtitle="Toca cada punto para ver el detalle."
+              isMobile={isMobile}
+            />
+            <TrustInfoRow isMobile={isMobile} onPressItem={setInfoPop} />
+          </View>
+
+          <Separador isMobile={isMobile} />
 
           <View onLayout={handleResenasLayout}>
             <Resenas isMobile={isMobile} />
           </View>
 
-          <View style={{ gap: 12, paddingTop: 6 }}>
+          <Separador isMobile={isMobile} />
+
+          <View style={{ gap: 12 }}>
             {/* Las dos mascotas de la tienda dan paso a las preguntas
                 frecuentes; al tocarlas se animan. */}
             <View style={{ alignItems: "center" }}>

@@ -2756,7 +2756,8 @@ function aListaDeTextos(valor: unknown): string[] {
 
 // Imagen principal + carrusel, sin repetidas y solo https (máx. 6).
 function imagenesDeFila(r: any): string[] {
-  const todas: unknown[] = [r.imagen_url, ...(Array.isArray(r.imagenes) ? r.imagenes : [])];
+  // Solo fotos comprobadas por el servidor (sin la columna imagenes_verificadas, ninguna).
+  const todas: unknown[] = r.imagenes_verificadas === true ? [r.imagen_url, ...(Array.isArray(r.imagenes) ? r.imagenes : [])] : [];
   const salida: string[] = [];
   for (const u of todas) {
     if (typeof u === "string" && /^https:\/\//i.test(u) && !salida.includes(u)) salida.push(u);
@@ -2788,7 +2789,7 @@ async function leerNoticiasMini(ids: string[]): Promise<Record<string, NoticiaMi
   const consulta = (columnas: string) =>
     supabase.from("noticias_gaming").select(columnas).in("id", ids).eq("publicada", true);
 
-  let { data, error } = await consulta(columnaImagenesDisponible ? `${basicas},imagenes` : basicas);
+  let { data, error } = await consulta(columnaImagenesDisponible ? `${basicas},imagenes,imagenes_verificadas` : basicas);
   if (error && columnaImagenesDisponible && /imagenes/i.test(error.message ?? "")) {
     columnaImagenesDisponible = false;
     ({ data, error } = await consulta(basicas));
@@ -2869,7 +2870,7 @@ async function leerNoticiaPorId(id: string): Promise<Noticia | null> {
     supabase.from("noticias_gaming").select(columnas).eq("id", id).eq("publicada", true).maybeSingle();
 
   let { data, error } = await consulta(
-    columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes` : COLUMNAS_NOTICIA
+    columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes,imagenes_verificadas` : COLUMNAS_NOTICIA
   );
   if (error && columnaImagenesDisponible && /imagenes/i.test(error.message ?? "")) {
     columnaImagenesDisponible = false;
@@ -2945,7 +2946,7 @@ function NoticiasGamingPanel({
         .range(desde, desde + NOTICIAS_POR_PAGINA - 1);
 
     let { data, error } = await consulta(
-      columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes` : COLUMNAS_NOTICIA
+      columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes,imagenes_verificadas` : COLUMNAS_NOTICIA
     );
     if (error && columnaImagenesDisponible) {
       // Sin la columna «imagenes» (migración pendiente) se reintenta sin ella.

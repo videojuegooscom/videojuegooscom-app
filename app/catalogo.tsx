@@ -151,12 +151,12 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
-  const safe = Number.isFinite(n) ? n : 0;
-  // Decimales solo cuando el precio los tiene de verdad (17,97€ / 18€).
-  const rounded = Math.round(safe * 100) / 100;
-  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
-  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
+  const v = Number(n);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function mapDbStatusToUi(s: DbStatus): UiStatus {

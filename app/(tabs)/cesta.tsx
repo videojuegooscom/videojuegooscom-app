@@ -35,6 +35,7 @@ import {
   StatusBar,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -246,14 +247,12 @@ function replaceRoute(route: Href) {
   router.replace(route);
 }
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
-  const safe = Number.isFinite(n) ? n : 0;
-  // Antes se redondeaba siempre a euros enteros (Math.round) y se perdían
-  // los céntimos (17,97€ se veía como "18€"); ahora se muestran decimales
-  // solo cuando el precio los tiene de verdad.
-  const rounded = Math.round(safe * 100) / 100;
-  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
-  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
+  const v = Number(n);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function safeInt(n: unknown, fallback = 1) {
@@ -539,6 +538,11 @@ export default function CestaScreen() {
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
 
+  // Aire entre apartados: 36px en móvil, 48px en escritorio.
+  const { width } = useWindowDimensions();
+  const isMobile = (width > 0 ? width : 1024) < 700;
+  const sectionGap = isMobile ? 36 : 48;
+
   const subtotal = useMemo(
     () => items.reduce((acc, it) => acc + it.priceEUR * it.qty, 0),
     [items]
@@ -728,12 +732,17 @@ export default function CestaScreen() {
           contentContainerStyle={{
             flexGrow: 1,
             padding: 16,
+            paddingTop: isMobile ? 24 : 36,
             paddingBottom: 28,
+            // + 8px de margen del pie = sectionGap.
+            gap: sectionGap - 8,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <View style={{ width: "100%", maxWidth: 640, gap: 12 }}>
+          <View style={{ width: "100%", maxWidth: 640, gap: sectionGap }}>
+          {/* Artículos + resumen van juntos, separados por una línea fina. */}
+          <View>
           {items.length === 0 ? (
             <View style={{ paddingVertical: 24, gap: 12, alignItems: "center" }}>
               <MarcaAnimada cual="tienda" ancho={150} />
@@ -752,6 +761,7 @@ export default function CestaScreen() {
             </View>
           ) : (
             <View style={{ gap: 12 }}>
+              {/* Sin título "Tus artículos": el dueño quitó la cabecera de la cesta. */}
               {items.map((it, idx) => (
                 <View
                   key={it.id}
@@ -844,13 +854,14 @@ export default function CestaScreen() {
 
           <View
             style={{
-              paddingTop: 18,
+              marginTop: sectionGap / 2,
+              paddingTop: sectionGap / 2,
               borderTopWidth: 1,
               borderTopColor: COLORS.border,
               gap: 12,
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
               Resumen del pedido
             </Text>
 
@@ -876,12 +887,12 @@ export default function CestaScreen() {
               </Text>
             </Pressable>
           </View>
+          </View>
 
           <CategoryProductsShelf />
 
-          <View style={{ paddingVertical: 12, alignItems: "center" }}>
-            <SocialLinks />
-          </View>
+          {/* Sin envoltorio: si no hay redes activas no deja hueco. */}
+          <SocialLinks />
           </View>
 
           <SiteFooter sidePadding={16} />

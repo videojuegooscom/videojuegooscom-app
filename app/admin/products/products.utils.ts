@@ -43,14 +43,9 @@ export function softShadow() {
 
 export function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
-  // Antes se redondeaba siempre a euros enteros (Math.round), así que un
-  // precio con céntimos (17,97€) se veía como "18€" — los decimales se
-  // perdían en la propia pantalla, no solo al guardarlos. Ahora se muestran
-  // decimales solo cuando el precio los tiene de verdad, así que un precio
-  // redondo (25€) se sigue viendo exactamente igual que siempre.
-  const rounded = Math.round(safe * 100) / 100;
-  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
-  return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
+  // Siempre dos decimales y punto de miles, igual que en la tienda: 1.299,00€.
+  const [entero, cent] = (Math.round(safe * 100) / 100).toFixed(2).split(".");
+  return `${entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${cent}€`;
 }
 
 export function clampText(s: string, max = 180) {
