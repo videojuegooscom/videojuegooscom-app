@@ -1940,6 +1940,11 @@ SQL_PERMISOS_DELICADOS = re.compile(
     r"\b(grant\b|revoke\b|security\s+definer|alter\s+(role|user|default\s+privileges)|"
     r"auth\.(users|identities|sessions|refresh_tokens)|vault\.|cron\.|"
     r"to\s+(anon|public)\b|using\s*\(\s*true\s*\)|with\s+check\s*\(\s*true\s*\))", re.I | re.S)
+# Dentro de los delicados, lo que nunca aplica Claude aunque esté versionado: roles, privilegios
+# por defecto, tablas internas de autenticación, secretos (vault) y tareas programadas (cron).
+SQL_PERMISOS_SOLO_DUENO = re.compile(
+    r"\b(alter\s+(role|user|default\s+privileges)|auth\.(users|identities|sessions|refresh_tokens)|"
+    r"vault\.|cron\.)", re.I | re.S)
 
 
 def _normalizar_sql(texto):
@@ -1972,13 +1977,19 @@ def revisar_migracion(entrada):
     q = limpiar_sql(query)
     if SQL_PROHIBIDO.search(q):
         deny("supabase-borrado", "La migración borra tablas, columnas o datos, o desactiva RLS: prohibido.")
-    if SQL_PERMISOS_DELICADOS.search(q):
-        deny("migracion-permisos", "La migración cambia permisos delicados (grant, security definer, anon, "
-                                   "using (true)…): la aplica una persona en el SQL Editor.")
+    if SQL_PERMISOS_SOLO_DUENO.search(q):
+        deny("migracion-permisos", "La migración toca roles, privilegios por defecto, auth, vault o cron: "
+                                   "la aplica una persona en el SQL Editor.")
     ruta = migracion_en_main(nombre, query)
     if not ruta:
         deny("migracion-no-versionada", f"Solo se aplican migraciones idénticas a un archivo de {MIGRACIONES_DIR} "
                                         "que ya esté en origin/main (fusiona la PR y haz git fetch antes).")
+    # Desde 2026-10-13 (petición del dueño): los permisos delicados (grant, security definer, anon,
+    # using (true)…) se aplican si la migración ya pasó la revisión y está fusionada en main.
+    if SQL_PERMISOS_DELICADOS.search(q):
+        APROBACIONES.append(("migracion-permisos-versionada",
+                             f"Migración con permisos delicados, versionada y revisada en main: {ruta}."))
+        return
     APROBACIONES.append(("migracion-versionada", f"Migración versionada en main: {ruta}."))
 
 
