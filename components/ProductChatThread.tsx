@@ -28,9 +28,10 @@
  *   de product_chats: product_id → chat de un producto (título/foto real);
  *   sell_request_id → chat de una solicitud de "Vender ahora" (título
  *   "Venta: <artículo>", ver components/VenderAhoraModal.tsx y la migración
- *   get_or_create_sell_request_chat); ninguno de los dos → "Consulta
- *   general" (botón "Chatear con nosotros" de app/catalogo.tsx, vía
- *   get_or_create_support_chat). chatKind decide qué título/icono mostrar.
+ *   get_or_create_sell_request_chat); ninguno de los dos → "Atención
+ *   al cliente" (botón "Chatear con nosotros" de app/catalogo.tsx, vía
+ *   get_or_create_support_chat, o "Hablar con el equipo" de Blue IA y la
+ *   confirmación de pedido, vía abrirChatEquipo de este mismo archivo). chatKind decide qué título/icono mostrar.
  * - Borrar conversación (icono de papelera en la cabecera): llama a
  *   delete_chat_for_me(chat_id), que marca SOLO el lado de quien la borra
  *   (cliente o admin, la función lo decide sola con is_admin()) — el otro
@@ -63,7 +64,79 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
+
+// Título de las conversaciones sin producto ni venta (chat general con la tienda).
+export const TITULO_ATENCION_CLIENTE = "Atención al cliente";
+
+const RESUMEN_MAX = 1200;
+
+/**
+ * Abre (o crea) el chat privado del cliente con el equipo y navega a él.
+ * - Con productId: chat de ese producto (get_or_create_product_chat).
+ * - Sin productId: el chat general más reciente del cliente (sin producto ni
+ *   venta, no borrado por él) o uno nuevo.
+ * - Con resumen: lo manda como primer mensaje del cliente (last_message_* lo
+ *   actualiza el trigger de la base de datos).
+ * Devuelve "login" si no hay sesión (quien llama decide a dónde llevarle).
+ */
+export async function abrirChatEquipo({
+  productId,
+  resumen,
+}: {
+  productId?: string | null;
+  resumen?: string;
+} = {}): Promise<"ok" | "login"> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user?.id;
+  if (!userId) return "login";
+
+  let chatId: string | null = null;
+
+  if (productId) {
+    const { data, error } = await supabase.rpc("get_or_create_product_chat", { p_product_id: productId });
+    if (error) throw error;
+    chatId = data ? String(data) : null;
+  } else {
+    const { data: existing, error: findErr } = await supabase
+      .from("product_chats")
+      .select("id")
+      .eq("customer_user_id", userId)
+      .is("product_id", null)
+      .is("sell_request_id", null)
+      .is("customer_deleted_at", null)
+      .order("last_message_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string }>();
+    if (findErr) throw findErr;
+
+    if (existing?.id) {
+      chatId = existing.id;
+    } else {
+      const { data: created, error: insErr } = await supabase
+        .from("product_chats")
+        .insert({ product_id: null, customer_user_id: userId })
+        .select("id")
+        .single<{ id: string }>();
+      if (insErr) throw insErr;
+      chatId = created.id;
+    }
+  }
+
+  if (!chatId) throw new Error("No se ha podido abrir el chat.");
+
+  const texto = (resumen ?? "").trim();
+  if (texto) {
+    const body = texto.length > RESUMEN_MAX ? `${texto.slice(0, RESUMEN_MAX - 1)}…` : texto;
+    const { error: msgErr } = await supabase.from("product_chat_messages").insert({ chat_id: chatId, body });
+    // Si el resumen falla, se abre el chat igualmente.
+    if (msgErr) console.error("Error enviando el resumen al chat:", msgErr);
+  }
+
+  router.push({ pathname: "/chat/[chatId]", params: { chatId } } as never);
+  return "ok";
+}
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -293,7 +366,7 @@ export default function ProductChatThread({
 
   const headerTitle = useMemo(() => {
     if (chatKind === "sell") return sellArticulo ? `Venta: ${sellArticulo}` : "Venta de un artículo";
-    if (chatKind === "support") return "Consulta general";
+    if (chatKind === "support") return TITULO_ATENCION_CLIENTE;
     return product?.title ?? "Conversación";
   }, [chatKind, sellArticulo, product]);
 

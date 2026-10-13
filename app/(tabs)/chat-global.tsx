@@ -2137,7 +2137,7 @@ function PrivateChatsInbox({
             ? titleById[c.product_id] ?? "Producto"
             : c.sell_request_id
               ? `Venta: ${articuloBySellRequest[c.sell_request_id] ?? "Artículo"}`
-              : "Consulta general",
+              : "Atención al cliente",
           product_image: c.product_id ? imageById[c.product_id] ?? null : null,
         }))
       );

@@ -61,7 +61,7 @@
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -105,6 +105,7 @@ const COLORS = {
 type AccessState = "checking" | "idle" | "submitting" | "signingOut" | "resettingPassword";
 type SessionRole = "admin" | "user" | "guest";
 type AuthMode = "signin" | "signup";
+type PerfilTab = "cuenta" | "seguimientos";
 
 function normalizeEmail(value: string) {
   return (value ?? "").trim().toLowerCase();
@@ -520,6 +521,19 @@ export default function PerfilScreen() {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<SessionRole>("guest");
 
+  // Pestañas del perfil con sesión: "Mi cuenta" | "Seguimientos" (?tab=seguimientos)
+  // ?aviso=… lo manda quien trae aquí para iniciar sesión (p. ej. "Hablar con el equipo").
+  const { tab: tabParam, aviso: avisoParam } = useLocalSearchParams<{ tab?: string; aviso?: string }>();
+  const aviso = typeof avisoParam === "string" ? avisoParam.slice(0, 160) : "";
+  const [perfilTab, setPerfilTab] = useState<PerfilTab>(
+    tabParam === "seguimientos" ? "seguimientos" : "cuenta"
+  );
+  useEffect(() => {
+    if (tabParam === "seguimientos") setPerfilTab("seguimientos");
+  }, [tabParam]);
+  const isLogged = sessionRole !== "guest";
+  const showSeguimientos = isLogged && perfilTab === "seguimientos";
+
   const isChecking = state === "checking";
   const isSubmitting = state === "submitting";
   const isSigningOut = state === "signingOut";
@@ -888,9 +902,22 @@ export default function PerfilScreen() {
                 gap: 14,
               }}
             >
+              {isLogged ? <PerfilTabs value={perfilTab} onChange={setPerfilTab} /> : null}
+
+              {showSeguimientos ? (
+                <SectionCard padding={cardPadding}>
+                  <SeguimientosSeccion />
+                </SectionCard>
+              ) : (
+              <>
               <SectionCard padding={cardPadding}>
                 <View style={{ gap: 12, alignItems: "center" }}>
                     {sessionRole === "guest" ? <MarcaAnimada cual="logo-mini" ancho={96} /> : null}
+                    {sessionRole === "guest" && aviso ? (
+                      <Text style={{ color: "#0E86C4", fontWeight: "800", textAlign: "center" }}>
+                        {aviso}
+                      </Text>
+                    ) : null}
                     <Text
                       style={{
                         color: COLORS.text,
@@ -1174,6 +1201,8 @@ export default function PerfilScreen() {
                   />
                 </SectionCard>
               ) : null}
+              </>
+              )}
 
               <CategoryProductsShelf />
 
@@ -1186,6 +1215,399 @@ export default function PerfilScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+    </View>
+  );
+}
+
+// ============================================================================
+// Pestañas del perfil y sección "Seguimientos" (pedidos + reparaciones)
+// ----------------------------------------------------------------------------
+// Lee "pedidos" + "pedido_items" (user_id = cliente): si la tabla aún no existe
+// (migración pendiente) esa parte se oculta sin error. Lee "service_requests"
+// (customer_user_id = cliente): si faltan las columnas de seguimiento, usa solo
+// lo que exista. "Preguntar por esto" abre Blue IA con ?pedido= o ?reparacion=.
+// El panel admin (app/admin/services.tsx) cambia la etapa de cada reparación.
+// ============================================================================
+
+const SEG = {
+  text: "#0B2138",
+  muted: "rgba(11,33,56,0.62)",
+  mutedSoft: "rgba(11,33,56,0.45)",
+  line: "#E3EAF2",
+  accent: "#1EA7E8",
+  accentDark: "#0E86C4",
+  danger: "#DC2626",
+};
+
+// Selector de pestañas centrado con subrayado azul en la activa.
+function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: PerfilTab) => void }) {
+  const tabs: { key: PerfilTab; label: string }[] = [
+    { key: "cuenta", label: "Mi cuenta" },
+    { key: "seguimientos", label: "Seguimientos" },
+  ];
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 4 }}>
+      {tabs.map((t) => {
+        const active = value === t.key;
+        return (
+          <Pressable
+            key={t.key}
+            onPress={() => onChange(t.key)}
+            hitSlop={6}
+            style={({ pressed }) => ({ alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Text style={{ color: active ? SEG.text : SEG.muted, fontWeight: "900", fontSize: 15 }}>{t.label}</Text>
+            <View
+              style={{
+                height: 3,
+                width: 28,
+                borderRadius: 2,
+                backgroundColor: active ? SEG.accent : "transparent",
+              }}
+            />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+type EtapaReparacion = "solicitado" | "recibido" | "diagnostico" | "reparando" | "listo" | "entregado" | "cancelado";
+const ETAPAS_REPARACION: EtapaReparacion[] = ["solicitado", "recibido", "diagnostico", "reparando", "listo", "entregado"];
+const ETIQUETA_REPARACION: Record<EtapaReparacion, string> = {
+  solicitado: "Solicitada",
+  recibido: "Recibida",
+  diagnostico: "Diagnóstico",
+  reparando: "En reparación",
+  listo: "Lista para recoger",
+  entregado: "Entregada",
+  cancelado: "Cancelada",
+};
+
+type EstadoPedido = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
+const ETAPAS_PEDIDO: EstadoPedido[] = ["pendiente", "confirmado", "preparado", "enviado", "entregado"];
+
+function etiquetasPedido(entrega: string | null): string[] {
+  return ["Pendiente", "Confirmado", "Preparando", entrega === "recogida" ? "Listo para recoger" : "Enviado", "Entregado"];
+}
+
+type PedidoSeg = {
+  id: string;
+  numero: number | null;
+  created_at: string;
+  estado: EstadoPedido;
+  entrega: "envio" | "recogida" | null;
+  total_eur: number | null;
+  items: string[];
+};
+
+type ReparacionSeg = {
+  id: string;
+  created_at: string;
+  service_title: string;
+  seguimiento: EtapaReparacion;
+  seguimiento_nota: string | null;
+  seguimiento_actualizado: string | null;
+};
+
+function segFecha(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function segEuros(n: number | null) {
+  if (n == null || !Number.isFinite(Number(n))) return "";
+  return Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+}
+
+// Tabla/columna inexistente (migración aún sin aplicar)
+function faltaEsquema(error: any) {
+  const code = String(error?.code ?? "");
+  return ["42P01", "42703", "PGRST205", "PGRST204"].includes(code);
+}
+
+// Línea de progreso: puntos unidos, etapa actual en azul; cancelado en rojo.
+function LineaProgreso({ etiquetas, actual, cancelado }: { etiquetas: string[]; actual: number; cancelado: boolean }) {
+  if (cancelado) {
+    return (
+      <View style={{ width: "100%", maxWidth: 460, alignItems: "center", gap: 6, paddingVertical: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", width: "100%", paddingHorizontal: 18 }}>
+          {etiquetas.map((_, i) => (
+            <React.Fragment key={i}>
+              {i > 0 ? <View style={{ flex: 1, height: 2, backgroundColor: "rgba(220,38,38,0.25)" }} /> : null}
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: "rgba(220,38,38,0.4)" }} />
+            </React.Fragment>
+          ))}
+        </View>
+        <Text style={{ color: SEG.danger, fontWeight: "900", fontSize: 13 }}>Cancelado</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ width: "100%", maxWidth: 460, gap: 8, paddingVertical: 4 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 18 }}>
+        {etiquetas.map((_, i) => {
+          const esActual = i === actual;
+          return (
+            <React.Fragment key={i}>
+              {i > 0 ? <View style={{ flex: 1, height: 2, backgroundColor: i <= actual ? SEG.accent : SEG.line }} /> : null}
+              <View
+                style={{
+                  width: esActual ? 16 : 10,
+                  height: esActual ? 16 : 10,
+                  borderRadius: 8,
+                  backgroundColor: i <= actual ? SEG.accent : SEG.line,
+                  borderWidth: esActual ? 3 : 0,
+                  borderColor: "rgba(30,167,232,0.25)",
+                }}
+              />
+            </React.Fragment>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: "row" }}>
+        {etiquetas.map((t, i) => (
+          <Text
+            key={i}
+            numberOfLines={2}
+            style={{
+              flex: 1,
+              textAlign: "center",
+              fontSize: 10.5,
+              lineHeight: 13,
+              color: i === actual ? SEG.accent : i < actual ? SEG.text : SEG.mutedSoft,
+              fontWeight: i === actual ? "900" : "700",
+            }}
+          >
+            {t}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function PreguntarBoton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={6} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: 4 })}>
+      <Text style={{ color: SEG.accentDark, fontWeight: "900", fontSize: 13.5 }}>Preguntar por esto</Text>
+    </Pressable>
+  );
+}
+
+function SegVacio({
+  cual,
+  texto,
+  boton,
+  destino,
+}: {
+  cual: "tienda" | "taller";
+  texto: string;
+  boton: string;
+  destino: "/catalogo" | "/servicios";
+}) {
+  return (
+    <View style={{ alignItems: "center", gap: 10, paddingVertical: 6 }}>
+      <MarcaAnimada cual={cual} ancho={110} />
+      <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 20, maxWidth: 360 }}>{texto}</Text>
+      <Pressable
+        onPress={() => router.push(destino)}
+        style={({ pressed }) => ({
+          borderRadius: 999,
+          paddingVertical: 12,
+          paddingHorizontal: 22,
+          backgroundColor: SEG.accentDark,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{boton}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function SegTitulo({ children }: { children: React.ReactNode }) {
+  return <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>{children}</Text>;
+}
+
+function SegSeparador() {
+  return <View style={{ height: 1, backgroundColor: SEG.line, width: "100%", maxWidth: 460 }} />;
+}
+
+function SeguimientosSeccion() {
+  const [cargando, setCargando] = useState(true);
+  const [conSesion, setConSesion] = useState(false);
+  const [pedidos, setPedidos] = useState<PedidoSeg[] | null>(null); // null = tabla aún no disponible
+  const [reparaciones, setReparaciones] = useState<ReparacionSeg[]>([]);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const uid = data.session?.user?.id;
+      if (!uid) {
+        setConSesion(false);
+        return;
+      }
+      setConSesion(true);
+
+      // Pedidos (la tabla puede no existir aún)
+      const pedRes = await supabase
+        .from("pedidos")
+        .select("id,numero,created_at,estado,entrega,total_eur")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (pedRes.error) {
+        if (!faltaEsquema(pedRes.error)) console.error("Error cargando pedidos:", pedRes.error);
+        setPedidos(null);
+      } else {
+        const filas = (pedRes.data ?? []) as Omit<PedidoSeg, "items">[];
+        const porPedido: Record<string, string[]> = {};
+        if (filas.length) {
+          const itRes = await supabase
+            .from("pedido_items")
+            .select("pedido_id,titulo")
+            .in("pedido_id", filas.map((p) => p.id));
+          for (const it of (itRes.data ?? []) as { pedido_id: string; titulo: string }[]) {
+            (porPedido[it.pedido_id] ??= []).push(it.titulo);
+          }
+        }
+        setPedidos(filas.map((p) => ({ ...p, items: porPedido[p.id] ?? [] })));
+      }
+
+      // Reparaciones (las columnas de seguimiento pueden no existir aún)
+      let repRes: { data: any[] | null; error: any } = await supabase
+        .from("service_requests")
+        .select("id,created_at,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado")
+        .eq("customer_user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (repRes.error && faltaEsquema(repRes.error)) {
+        repRes = await supabase
+          .from("service_requests")
+          .select("id,created_at,service_title,status")
+          .eq("customer_user_id", uid)
+          .order("created_at", { ascending: false })
+          .limit(50);
+      }
+
+      if (repRes.error) {
+        console.error("Error cargando reparaciones:", repRes.error);
+        setReparaciones([]);
+      } else {
+        setReparaciones(
+          (repRes.data ?? []).map((r: any) => ({
+            id: r.id,
+            created_at: r.created_at,
+            service_title: r.service_title ?? "Servicio",
+            seguimiento:
+              r.seguimiento && r.seguimiento in ETIQUETA_REPARACION
+                ? r.seguimiento
+                : r.status === "descartado"
+                ? "cancelado"
+                : "solicitado",
+            seguimiento_nota: r.seguimiento_nota ?? null,
+            seguimiento_actualizado: r.seguimiento_actualizado ?? null,
+          }))
+        );
+      }
+    } catch (e) {
+      console.error("Error cargando seguimientos:", e);
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+
+  if (cargando) return <CargaMarca texto="Cargando tus seguimientos…" />;
+  if (!conSesion) return null;
+
+  return (
+    <View style={{ gap: 30, alignItems: "center" }}>
+      {pedidos !== null ? (
+        <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
+          <SegTitulo>Mis pedidos</SegTitulo>
+          {pedidos.length === 0 ? (
+            <SegVacio
+              cual="tienda"
+              texto="Aún no tienes pedidos. Cuando compres algo, podrás seguirlo aquí paso a paso."
+              boton="Ver catálogo"
+              destino="/catalogo"
+            />
+          ) : (
+            pedidos.map((p, i) => (
+              <View key={p.id} style={{ gap: 10, alignItems: "center", width: "100%" }}>
+                {i > 0 ? <SegSeparador /> : null}
+                <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
+                  Pedido nº {p.numero ?? "—"}
+                  {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
+                  {` · ${segFecha(p.created_at)}`}
+                </Text>
+                {p.items.length ? (
+                  <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 19, maxWidth: 460 }}>
+                    {p.items.join(" · ")}
+                  </Text>
+                ) : null}
+                {p.entrega ? (
+                  <Text style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center" }}>
+                    {p.entrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
+                  </Text>
+                ) : null}
+                <LineaProgreso
+                  etiquetas={etiquetasPedido(p.entrega)}
+                  actual={Math.max(0, ETAPAS_PEDIDO.indexOf(p.estado))}
+                  cancelado={p.estado === "cancelado"}
+                />
+                <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${p.numero ?? ""}`)} />
+              </View>
+            ))
+          )}
+        </View>
+      ) : null}
+
+      <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
+        <SegTitulo>Reparaciones con seguimiento</SegTitulo>
+        {reparaciones.length === 0 ? (
+          <SegVacio
+            cual="taller"
+            texto="No tienes reparaciones en curso. Pide un servicio con tu sesión iniciada y verás aquí cada etapa."
+            boton="Ver servicios"
+            destino="/servicios"
+          />
+        ) : (
+          reparaciones.map((r, i) => (
+            <View key={r.id} style={{ gap: 10, alignItems: "center", width: "100%" }}>
+              {i > 0 ? <SegSeparador /> : null}
+              <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
+                {r.service_title} · {segFecha(r.created_at)}
+              </Text>
+              <LineaProgreso
+                etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_REPARACION[e])}
+                actual={Math.max(0, ETAPAS_REPARACION.indexOf(r.seguimiento))}
+                cancelado={r.seguimiento === "cancelado"}
+              />
+              {r.seguimiento_nota ? (
+                <View style={{ alignItems: "center", gap: 2, maxWidth: 460 }}>
+                  <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>
+                    NOTA DEL TALLER{r.seguimiento_actualizado ? ` · ${segFecha(r.seguimiento_actualizado)}` : ""}
+                  </Text>
+                  <Text style={{ color: SEG.text, textAlign: "center", lineHeight: 20 }}>{r.seguimiento_nota}</Text>
+                </View>
+              ) : null}
+              <PreguntarBoton onPress={() => router.push(`/blue-ia?reparacion=${r.id}`)} />
+            </View>
+          ))
+        )}
+      </View>
     </View>
   );
 }

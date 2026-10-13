@@ -3,13 +3,15 @@
  *
  * Qué hace: pantalla de checkout (finalizar compra). Lee el carrito guardado
  * en AsyncStorage, pide los datos de envío (nombre, email, teléfono,
- * dirección) y, al confirmar, arma un mensaje con el pedido y lo abre en
- * WhatsApp (todavía no hay pasarela de pago tipo Stripe conectada).
+ * dirección) y, al confirmar, registra el pedido y muestra la confirmación
+ * (todavía no hay pasarela de pago tipo Stripe conectada).
  *
  * Cómo funciona: guarda el carrito en local con la misma clave que usa
  * cesta.tsx (CART_KEY = "videojuegoos_cart_v1"), valida el formulario campo
- * a campo (formOk), y construye el texto del pedido (whatsText) para
- * enviarlo por WhatsApp con openWhatsApp().
+ * a campo (formOk) y construye el texto del pedido (buildWhatsText). En la
+ * confirmación, "Hablar con nosotros" lo manda al chat de la tienda
+ * (abrirChatEquipo); sin sesión lleva a Blue IA con ?pedido=. WhatsApp queda
+ * solo como enlace secundario ("¿Prefieres WhatsApp?").
  *
  * "Comprar ya" → vendido automático: si el producto se añadió con el botón
  * "Comprar ya" de app/producto/[id].tsx (que ya exige sesión iniciada),
@@ -48,6 +50,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CargaMarca from "../components/marca/CargaMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
+import { abrirChatEquipo } from "../components/ProductChatThread";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
@@ -293,7 +296,27 @@ export default function CheckoutScreen() {
     return lines.join("\n");
   }, [items, total, fullName, email, phone, address1, postalCode, city, notes, entrega]);
 
-  const whatsText = useMemo(() => buildWhatsText(null), [buildWhatsText]);
+  // Abre el chat de la tienda con el pedido; sin sesión, Blue IA con el pedido como contexto.
+  const [abriendoChat, setAbriendoChat] = useState(false);
+  const hablarConNosotros = useCallback(async () => {
+    if (!pedidoHecho || abriendoChat) return;
+    setAbriendoChat(true);
+    try {
+      const r = await abrirChatEquipo({ resumen: pedidoHecho.texto });
+      if (r === "login") {
+        router.push(
+          (pedidoHecho.numero
+            ? `/blue-ia?pedido=${pedidoHecho.numero}`
+            : `/blue-ia?tema=${encodeURIComponent("Mi pedido")}`) as never
+        );
+      }
+    } catch (e) {
+      console.error("Error abriendo el chat del pedido:", e);
+      setErr("No hemos podido abrir el chat ahora mismo. Inténtalo de nuevo.");
+    } finally {
+      setAbriendoChat(false);
+    }
+  }, [pedidoHecho, abriendoChat]);
 
   const bootstrap = useCallback(async () => {
     setErr(null);
@@ -392,10 +415,8 @@ export default function CheckoutScreen() {
         await saveCart([]);
         setItems([]);
       }
+      // 3) Pantalla de confirmación: desde ahí se habla con la tienda por el chat.
       setPedidoHecho({ numero, texto });
-
-      // 3) WhatsApp con el número de pedido para cerrar pago y entrega con la tienda.
-      openWhatsApp(texto);
     } catch (e: any) {
       console.error("Error al finalizar el pedido:", e);
       setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
@@ -468,7 +489,7 @@ export default function CheckoutScreen() {
           <CargaMarca texto="Cargando…" />
         </View>
       ) : pedidoHecho ? (
-        // Confirmación: el pedido ya está registrado (o enviado por WhatsApp si no hubo número).
+        // Confirmación: el pedido ya está registrado (sin número, se completa por el chat).
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, alignItems: "center" }}>
           <View style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
             <MarcaAnimada cual="pareja" ancho={240} />
@@ -477,13 +498,15 @@ export default function CheckoutScreen() {
             </Text>
             <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
               {pedidoHecho.numero
-                ? "Te escribimos por WhatsApp para confirmar la disponibilidad, el pago y la entrega."
-                : "Termina de enviarnos el mensaje por WhatsApp y te confirmamos la disponibilidad, el pago y la entrega."}
+                ? "Te escribimos por el chat de la tienda para confirmar la disponibilidad, el pago y la entrega."
+                : "Escríbenos por el chat de la tienda y te confirmamos la disponibilidad, el pago y la entrega."}
             </Text>
             <Pressable
-              onPress={() => openWhatsApp(pedidoHecho.texto)}
+              onPress={hablarConNosotros}
+              disabled={abriendoChat}
+              accessibilityRole="button"
               style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
+                opacity: abriendoChat ? 0.6 : pressed ? 0.88 : 1,
                 marginTop: 6,
                 minHeight: 50,
                 paddingHorizontal: 22,
@@ -495,8 +518,18 @@ export default function CheckoutScreen() {
                 backgroundColor: COLORS.accentDark,
               })}
             >
-              <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Abrir WhatsApp</Text>
+              {abriendoChat ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="chatbubbles-outline" size={18} color="#FFFFFF" />
+              )}
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Hablar con nosotros</Text>
+            </Pressable>
+            {/* WhatsApp solo como alternativa discreta. */}
+            <Pressable onPress={() => openWhatsApp(pedidoHecho.texto)} hitSlop={6} style={{ paddingVertical: 2 }}>
+              <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center", textDecorationLine: "underline" }}>
+                ¿Prefieres WhatsApp?
+              </Text>
             </Pressable>
             <Pressable onPress={() => router.replace("/catalogo")} style={{ paddingVertical: 10 }}>
               <Text style={{ color: COLORS.accent, fontWeight: "800", textAlign: "center" }}>Seguir viendo productos</Text>
@@ -628,7 +661,7 @@ export default function CheckoutScreen() {
 
               <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                 {entrega === "recogida"
-                  ? "Te avisamos por WhatsApp cuando esté listo para recoger."
+                  ? "Te avisamos por el chat de la tienda cuando esté listo para recoger."
                   : "Esto es lo mínimo que necesitamos para preparar tu envío."}
               </Text>
 
@@ -722,23 +755,6 @@ export default function CheckoutScreen() {
                 <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al carrito</Text>
               </Pressable>
 
-              <Pressable
-                onPress={() => openWhatsApp(whatsText)}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
-                  backgroundColor: "#F6FAFD",
-                })}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }}>Pedir por WhatsApp</Text>
-                </View>
-              </Pressable>
             </View>
             </View>
           </ScrollView>
@@ -789,7 +805,7 @@ export default function CheckoutScreen() {
 
             <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 10, textAlign: "center", fontSize: 12.5 }}>
               {formOk
-                ? "Te confirmamos pago y entrega por WhatsApp. Sin pagos por adelantado en la web."
+                ? "Te confirmamos pago y entrega por el chat de la tienda. Sin pagos por adelantado en la web."
                 : entrega === "recogida"
                   ? "Completa nombre, email y teléfono para confirmar el pedido."
                   : "Completa los datos de envío para confirmar el pedido."}

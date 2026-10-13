@@ -38,9 +38,10 @@
  * - app/admin/services.tsx (pestaña "Solicitudes") → donde Jefe revisa cada
  *   envío.
  */
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
 
 const COLORS = {
@@ -232,6 +233,16 @@ export default function ContratarServicioModal({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Usuario con sesión (si lo hay): la solicitud queda vinculada a su Perfil → Seguimientos
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setUserId(data.session?.user?.id ?? null))
+      .catch(() => setUserId(null));
+  }, [visible]);
 
   const metodoOption = useMemo(() => METODO_OPTIONS.find((m) => m.value === metodo) ?? null, [metodo]);
 
@@ -279,6 +290,8 @@ export default function ContratarServicioModal({
         direccion: direccion.trim() || null,
         disponibilidad,
         comentario: comentario.trim() || null,
+        // El trigger de la BD también lo fija con auth.uid(); invitado → null
+        customer_user_id: userId,
       });
 
       if (insertError) throw insertError;
@@ -344,6 +357,30 @@ export default function ContratarServicioModal({
                 Nos pondremos en contacto contigo lo antes posible para confirmar los detalles de «
                 {service?.title}».
               </Text>
+              {userId ? (
+                <AnimatedPressable
+                  onPress={() => {
+                    handleClose();
+                    router.push("/perfil?tab=seguimientos");
+                  }}
+                >
+                  <View
+                    style={{
+                      marginTop: 4,
+                      borderRadius: 999,
+                      paddingVertical: 12,
+                      paddingHorizontal: 24,
+                      backgroundColor: COLORS.accentDark,
+                    }}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ver en Seguimientos</Text>
+                  </View>
+                </AnimatedPressable>
+              ) : (
+                <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
+                  Inicia sesión para seguir tu reparación en Perfil → Seguimientos
+                </Text>
+              )}
               <AnimatedPressable onPress={handleClose}>
                 <View
                   style={{
@@ -405,6 +442,12 @@ export default function ContratarServicioModal({
                   <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5 }}>{error}</Text>
                 </View>
               )}
+
+              {!userId ? (
+                <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
+                  Inicia sesión para seguir tu reparación en Perfil → Seguimientos
+                </Text>
+              ) : null}
 
               <AnimatedPressable onPress={submit} disabled={!isValid || sending}>
                 <View
