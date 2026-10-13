@@ -19,9 +19,10 @@
  *   una pequeña animación tras tres cuartos de segundo (para no interrumpir
  *   el primer vistazo a la pantalla).
  * - "Aceptar" y "Rechazar" llaman a setAnalyticsConsent() y cierran el
- *   aviso. Jefe decidió "seguimiento completo con aviso de cookies": mientras
- *   el visitante no contesta SÍ se registra su recorrido (trackEvent ya lo
- *   hace así por defecto); "Rechazar" es lo que de verdad lo desactiva.
+ *   aviso. Por RGPD, mientras el visitante no contesta NO se envía nada:
+ *   trackEvent solo guarda en memoria los eventos de esta visita. "Aceptar"
+ *   los envía y activa la analítica; "Rechazar" los descarta y no se envía
+ *   ningún evento.
  * - No se muestra dentro del panel de administración (rutas /admin): ese
  *   aviso es para clientes, no para Jefe gestionando su propia tienda.
  * - Enlace "Política de privacidad" → app/politicas/[slug].tsx (privacidad),

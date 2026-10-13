@@ -2,13 +2,14 @@
 /**
  * Qué hace: layout "guardián" de todas las rutas /admin. Antes de mostrar
  * cualquier pantalla de administración comprueba que hay sesión y que el
- * rol es "admin"; si no, redirige a /admin/login. Mientras comprueba,
- * muestra una pantalla de carga ("Verificando acceso").
+ * rol es "admin"; si no, redirige fuera del panel. Mientras comprueba (o
+ * redirige), muestra una pantalla de carga ("Verificando acceso").
  *
  * Cómo funciona:
  * - validateAccess() usa supabase.auth.getSession() y luego consulta la
- *   tabla "profiles" (columna "role"). Si no hay sesión, el perfil falla o
- *   el rol no es "admin", cierra sesión y hace router.replace("/admin/login").
+ *   tabla "profiles" (columna "role"). Sin sesión → router.replace("/perfil")
+ *   (inicio de sesión de la app). Con sesión pero sin rol "admin" (o si el
+ *   perfil falla) → router.replace("/"). Nunca cierra la sesión del cliente.
  * - Se suscribe a supabase.auth.onAuthStateChange() para revalidar si la
  *   sesión cambia mientras el panel está abierto.
  * - safeNavigate() evita navegaciones duplicadas con un pequeño bloqueo
@@ -18,17 +19,18 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para sesión y perfil.
- * - app/admin/login, app/admin/index.tsx, app/admin/products.tsx,
+ * - app/(tabs)/perfil.tsx → destino sin sesión (inicio de sesión de la app).
+ * - app/admin/index.tsx, app/admin/products.tsx,
  *   app/admin/services.tsx, app/admin/categories.tsx, app/admin/inventario.tsx,
  *   app/admin/cotizaciones.tsx, app/admin/chats.tsx, app/admin/flash-news.tsx,
  *   app/admin/policies.tsx, app/admin/blog.tsx, app/admin/analytics.tsx,
  *   app/admin/users.tsx, app/admin/cliente/[userId].tsx, app/admin/marca-seo.tsx,
- *   app/admin/redes-sociales.tsx
+ *   app/admin/redes-sociales.tsx, app/admin/aprendizajes.tsx, app/admin/pedidos.tsx
  *   → las rutas hijas que este layout protege (Stack.Screen).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StatusBar, Text, View } from "react-native";
-import { Stack, router, usePathname } from "expo-router";
+import { Stack, router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
@@ -46,9 +48,6 @@ type GuardState = {
 };
 
 export default function AdminLayout() {
-  const pathname = usePathname();
-  const isLoginRoute = pathname === "/admin/login";
-
   const [guard, setGuard] = useState<GuardState>({
     ready: false,
     hasSession: false,
@@ -58,7 +57,7 @@ export default function AdminLayout() {
   const mountedRef = useRef(true);
   const navLockRef = useRef(false);
 
-  const safeNavigate = useCallback((target: "/admin/login" | "/admin" | "/") => {
+  const safeNavigate = useCallback((target: "/perfil" | "/") => {
     if (navLockRef.current) return;
     navLockRef.current = true;
     router.replace(target);
@@ -67,7 +66,20 @@ export default function AdminLayout() {
     }, 350);
   }, []);
 
+  // Nunca se cierra la sesión del visitante: un cliente que abre /admin por
+  // error sigue con su sesión iniciada en la tienda y solo se le redirige.
+  const deny = useCallback(
+    (hasSession: boolean) => {
+      if (mountedRef.current) {
+        setGuard({ ready: true, hasSession, isAdmin: false });
+      }
+      safeNavigate(hasSession ? "/" : "/perfil");
+    },
+    [safeNavigate]
+  );
+
   const validateAccess = useCallback(async () => {
+    let hasSession = false;
     try {
       const {
         data: { session },
@@ -79,20 +91,10 @@ export default function AdminLayout() {
       const user = session?.user ?? null;
 
       if (!user) {
-        if (mountedRef.current) {
-          setGuard({
-            ready: true,
-            hasSession: false,
-            isAdmin: false,
-          });
-        }
-
-        if (!isLoginRoute) {
-          safeNavigate("/admin/login");
-        }
-
+        deny(false);
         return;
       }
+      hasSession = true;
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -100,50 +102,9 @@ export default function AdminLayout() {
         .eq("id", user.id)
         .maybeSingle<{ role: string | null }>();
 
-      if (profileError) {
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-
-        if (mountedRef.current) {
-          setGuard({
-            ready: true,
-            hasSession: true,
-            isAdmin: false,
-          });
-        }
-
-        if (!isLoginRoute) {
-          safeNavigate("/admin/login");
-        }
-
-        return;
-      }
-
       const role = String(profile?.role ?? "").trim().toLowerCase();
-      const isAdmin = role === "admin";
-
-      if (!isAdmin) {
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-
-        if (mountedRef.current) {
-          setGuard({
-            ready: true,
-            hasSession: true,
-            isAdmin: false,
-          });
-        }
-
-        if (!isLoginRoute) {
-          safeNavigate("/admin/login");
-        }
-
+      if (profileError || role !== "admin") {
+        deny(true);
         return;
       }
 
@@ -154,30 +115,10 @@ export default function AdminLayout() {
           isAdmin: true,
         });
       }
-
-      if (isLoginRoute) {
-        safeNavigate("/admin");
-      }
     } catch {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        // ignore
-      }
-
-      if (mountedRef.current) {
-        setGuard({
-          ready: true,
-          hasSession: false,
-          isAdmin: false,
-        });
-      }
-
-      if (!isLoginRoute) {
-        safeNavigate("/admin/login");
-      }
+      deny(hasSession);
     }
-  }, [isLoginRoute, safeNavigate]);
+  }, [deny]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -193,7 +134,9 @@ export default function AdminLayout() {
     };
   }, [validateAccess]);
 
-  if (!guard.ready) {
+  // Mientras se comprueba (o mientras se redirige a quien no es admin) no se
+  // monta ninguna pantalla del panel.
+  if (!guard.ready || !guard.isAdmin) {
     return (
       <View
         style={{
@@ -238,7 +181,6 @@ export default function AdminLayout() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="login" />
       <Stack.Screen name="index" />
       <Stack.Screen name="products" />
       <Stack.Screen name="services" />
@@ -255,6 +197,7 @@ export default function AdminLayout() {
       <Stack.Screen name="marca-seo" />
       <Stack.Screen name="redes-sociales" />
       <Stack.Screen name="aprendizajes" />
+      <Stack.Screen name="pedidos" />
     </Stack>
   );
 }

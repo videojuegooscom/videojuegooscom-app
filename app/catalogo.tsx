@@ -3,65 +3,50 @@
  *
  * Qué hace: pantalla de catálogo público (y vista interna para admins).
  * Carga productos y categorías desde Supabase, permite buscar, filtrar por
- * categoría y (si eres admin) por estado (Publicada/Lista/Por revisar), y
- * muestra los resultados en una rejilla de tarjetas de producto.
+ * plataforma/categoría, estado (Nuevo / Segunda mano y condición detallada),
+ * rango de precio, ordenar (Novedades, precio, más vistos) y, si eres admin,
+ * filtrar por estado interno (Publicada/Lista/Por revisar). Los resultados se
+ * muestran en una rejilla de tarjetas de producto.
  *
- * Cómo funciona: detectAdmin() comprueba el rol del usuario logueado en
- * Supabase (tabla profiles). Según sea admin o no, fetchProductsSafe() pide
- * más o menos columnas/estados. pickHeroImage() elige la foto de portada de
- * cada producto a partir de product_media. calcColumns() decide cuántas
- * columnas tiene la rejilla según el ancho de pantalla.
+ * Cómo funciona:
+ * - loadIdentity() (detectAdmin + categorías) se ejecuta UNA sola vez al
+ *   entrar en la pantalla.
+ * - fetchProductsPage() pide SOLO las columnas que pinta la tarjeta y aplica
+ *   todos los filtros y el orden en la consulta a Supabase (no en cliente),
+ *   paginando de 24 en 24 con .range() y pidiendo el total (count) para el
+ *   contador "N productos". Así la paginación es correcta aunque haya
+ *   cientos de productos.
+ * - fetchCoverMap() pide las fotos de product_media solo para los productos
+ *   de la página recién cargada (máx. 24 ids) y solo las de tipo imagen.
+ *   pickHeroImage() elige la portada (is_cover → sort_order → images[0]).
+ * - "Ver más productos" (botón centrado) o llegar al final del scroll carga
+ *   la siguiente página.
+ * - Filtros desde la URL: ?cat= (o ?categoria=) con el slug o el id de la
+ *   categoría, y ?query= con el texto de búsqueda.
  *
- * Rendimiento: detectAdmin() y fetchCategoriesSafe() (loadIdentity) se
- * ejecutan UNA sola vez al entrar en la pantalla — antes se repetían en cada
- * cambio de categoría/búsqueda/filtro (loadAll llamaba a ambas cada vez).
- * fetchCategoryMapByIds() solo se llama ahora como respaldo, cuando el join
- * "category:categories(...)" de fetchProductsSafe no ha podido traer la
- * categoría de algún producto (antes se llamaba siempre, aunque el join ya
- * hubiera funcionado). fetchProductsSafe() lleva un límite de seguridad
- * (300) para no traer el catálogo entero de golpe si crece mucho.
- *
- * Analítica: registra el paso "Categoría" (o "Categoría {nombre}" si viene
- * con ?cat=) en cuanto se resuelve qué categoría es, tanto al entrar como al
- * cambiar de categoría sin salir de la pantalla (lib/analytics.ts).
+ * Analítica: registra el paso "Categoría" (o "Categoría {nombre}") al entrar
+ * y cada vez que cambia la categoría elegida (lib/analytics.ts).
  *
  * Conectado con:
- * - lib/supabase.ts → cliente de Supabase (tablas products, categories,
+ * - lib/supabase.ts → cliente de Supabase (products, categories,
  *   product_media, profiles).
- * - lib/analytics.ts → registro del paso "Categoría" para el panel de
- *   métricas del admin.
+ * - lib/analytics.ts → paso "Categoría" para el panel de métricas.
+ * - components/CatalogFilters.tsx → chips de filtros, orden, contador y
+ *   "Quitar filtros".
+ * - components/Barramagic.tsx → buscador (modo "input").
+ * - components/SmartImage.tsx → fotos de las tarjetas.
  * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
- * - app/(tabs)/cesta.tsx y app/checkout.tsx → botones "Ir a la cesta" /
- *   "Finalizar compra".
  * - app/(tabs)/index.tsx → los accesos por categoría de la home enlazan aquí
  *   con el parámetro ?cat=.
- *
- * Septiembre (legibilidad de las tarjetas y contacto por chat):
- * - Foto de cada tarjeta: contentFit "cover" (recortaba la imagen para
- *   rellenar el hueco) → "contain" (se ve la foto entera).
- * - Se quitaron por completo dos elementos que estorbaban: el nombre de la
- *   categoría repetido en cada tarjeta (sobra dentro de la propia página de
- *   esa categoría) y la burbuja oscura de "X fotos + Y vídeos" sobre la
- *   imagen. El estado ("Disponible"/"Publicada"/etc.) ya no flota sobre la
- *   foto: ahora vive donde antes iba el nombre de categoría.
- * - El título ya no se recorta a 2 líneas ("numberOfLines"): se ve
- *   completo aunque la tarjeta crezca un poco más de alto.
- * - "Ver producto" → "Ver más".
- * - Botón de volver: ahora es un icono (Ionicons chevron-back) flotando en
- *   la esquina superior izquierda, en vez de la píldora de texto
- *   "← Volver" al final de la página.
- * - Buscador: en móvil se pasa un placeholder más corto ("Buscar
- *   productos...") para que no se corte (ver components/Barramagic.tsx).
- * - El panel "¿No encuentras lo que buscas?" ya no manda a WhatsApp/checkout
- *   (era un enlace que no coincidía con lo que decía el texto): ahora abre
- *   una conversación de chat real con la tienda (handleContactPress →
- *   get_or_create_support_chat, ver sql/product_chats.sql), la misma
- *   bandeja que ve Jefe en app/admin/chats.tsx.
+ * - "Chatear con nosotros" abre el chat de soporte (get_or_create_support_chat,
+ *   ver sql/product_chats.sql), la misma bandeja de app/admin/chats.tsx.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import {
   ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StatusBar,
@@ -75,6 +60,14 @@ import { supabase } from "../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../lib/analytics";
 import Barramagic from "../components/Barramagic";
 import SmartImage from "../components/SmartImage";
+import CatalogFilters, {
+  Chip,
+  USED_CONDITIONS,
+  type CatalogCategoryOption,
+  type ConditionFilter,
+  type PriceFilter,
+  type SortKey,
+} from "../components/CatalogFilters";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -91,6 +84,12 @@ const COLORS = {
   accentBorder: "#BEE6FA",
 };
 
+/** Productos por página (consulta con .range()). */
+const PAGE_SIZE = 24;
+
+/** Solo lo que pinta la tarjeta (antes se pedían joins y columnas de más). */
+const PRODUCT_COLUMNS = "id,title,description,price_eur,status,images";
+
 type UiFilter = "ALL" | "PUBLICADA" | "LISTA" | "REVISAR";
 type UiStatus = "PUBLICADA" | "LISTA" | "REVISAR";
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
@@ -103,34 +102,20 @@ type CategoryRow = {
   sort_order: number;
 };
 
-type ProductBaseRow = {
+type ProductDbRow = {
   id: string;
-  title: string;
+  title: string | null;
   description: string | null;
-  price_eur: number | null;
-  status: DbStatus;
-  is_active: boolean;
-  category_id: string | null;
-  updated_at: string | null;
-  created_at: string | null;
-};
-
-type ProductDbRow = ProductBaseRow & {
+  price_eur: number | string | null;
+  status: DbStatus | null;
   images?: string[] | null;
-  category?: { id: string; name: string; slug: string } | null;
 };
-
-type ProductMediaKind = "image" | "video";
 
 type ProductMediaRow = {
-  id: string;
   product_id: string;
-  kind?: ProductMediaKind | null;
   public_url?: string | null;
-  file_name?: string | null;
   sort_order?: number | null;
   is_cover?: boolean | null;
-  duration_seconds?: number | null;
 };
 
 type Product = {
@@ -140,11 +125,16 @@ type Product = {
   status: UiStatus;
   priceEUR: number;
   imageUrl: string | null;
-  imageCount: number;
-  videoCount: number;
-  mediaCount: number;
-  hasVideo: boolean;
-  category?: { id: string; name: string; slug: string } | null;
+};
+
+type ListFilters = {
+  adminFlag: boolean;
+  statusFilter: UiFilter;
+  categoryId: string | null;
+  condition: ConditionFilter;
+  price: PriceFilter;
+  sort: SortKey;
+  queryText: string;
 };
 
 function pushRoute(route: Href) {
@@ -161,9 +151,7 @@ function asArray<T>(value: unknown): T[] {
 
 function fmtEUR(n: number) {
   const safe = Number.isFinite(n) ? n : 0;
-  // Antes se redondeaba siempre a euros enteros (Math.round) y se perdían
-  // los céntimos (17,97€ se veía como "18€"); ahora se muestran decimales
-  // solo cuando el precio los tiene de verdad.
+  // Decimales solo cuando el precio los tiene de verdad (17,97€ / 18€).
   const rounded = Math.round(safe * 100) / 100;
   const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.001;
   return hasCents ? `${rounded.toFixed(2).replace(".", ",")}€` : `${Math.round(rounded)}€`;
@@ -173,6 +161,13 @@ function mapDbStatusToUi(s: DbStatus): UiStatus {
   if (s === "PUBLISHED") return "PUBLICADA";
   if (s === "DRAFT") return "LISTA";
   return "REVISAR";
+}
+
+function uiFilterToDb(f: UiFilter): DbStatus | null {
+  if (f === "PUBLICADA") return "PUBLISHED";
+  if (f === "LISTA") return "DRAFT";
+  if (f === "REVISAR") return "REVIEW";
+  return null;
 }
 
 function publicStatusLabel(s: UiStatus) {
@@ -211,8 +206,6 @@ function smartBack() {
   replaceRoute("/" as Href);
 }
 
-const LEGACY_CAT_TO_SLUG: Record<string, string> = {};
-
 function legacyCatLabel(raw?: string) {
   if (!raw) return undefined;
   const legacyMap: Record<string, string> = {
@@ -239,20 +232,7 @@ function calcColumns(width: number) {
 
 function resolveCategory(rawCat: string | undefined, cats: CategoryRow[]) {
   if (!rawCat) return undefined;
-
-  const mappedSlug = LEGACY_CAT_TO_SLUG[rawCat];
-  if (mappedSlug) {
-    const byMapped = cats.find((c) => c.slug === mappedSlug);
-    if (byMapped) return byMapped;
-  }
-
-  const bySlug = cats.find((c) => c.slug === rawCat);
-  if (bySlug) return bySlug;
-
-  const byId = cats.find((c) => c.id === rawCat);
-  if (byId) return byId;
-
-  return undefined;
+  return cats.find((c) => c.slug === rawCat) ?? cats.find((c) => c.id === rawCat);
 }
 
 function getCategoryHint(name?: string) {
@@ -273,19 +253,10 @@ function getCategoryHint(name?: string) {
 
 function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | null {
   const imgs = row?.images;
-
   if (Array.isArray(imgs) && imgs.length > 0) {
     const first = imgs.find((v: unknown) => typeof v === "string" && v.trim());
     if (typeof first === "string" && first.trim()) return first.trim();
   }
-
-  return null;
-}
-
-function normalizeMediaKind(value: unknown): ProductMediaKind | null {
-  const v = String(value ?? "").trim().toLowerCase();
-  if (v === "image") return "image";
-  if (v === "video") return "video";
   return null;
 }
 
@@ -304,54 +275,9 @@ function sortMediaRows(a: ProductMediaRow, b: ProductMediaRow) {
 
 function pickHeroImage(productRow: ProductDbRow, mediaRows: ProductMediaRow[]) {
   const sorted = [...mediaRows].sort(sortMediaRows);
-
-  const coverImage =
-    sorted.find(
-      (m) =>
-        Boolean(m.is_cover) &&
-        normalizeMediaKind(m.kind) === "image" &&
-        typeof m.public_url === "string" &&
-        m.public_url.trim()
-    ) ??
-    sorted.find(
-      (m) =>
-        normalizeMediaKind(m.kind) === "image" &&
-        typeof m.public_url === "string" &&
-        m.public_url.trim()
-    ) ??
-    null;
-
-  if (coverImage?.public_url) return coverImage.public_url;
-
+  const hero = sorted.find((m) => typeof m.public_url === "string" && m.public_url.trim());
+  if (hero?.public_url) return hero.public_url.trim();
   return firstImageFromAnyRow(productRow);
-}
-
-function countImages(mediaRows: ProductMediaRow[]) {
-  return mediaRows.filter((m) => normalizeMediaKind(m.kind) === "image").length;
-}
-
-function countVideos(mediaRows: ProductMediaRow[]) {
-  return mediaRows.filter((m) => normalizeMediaKind(m.kind) === "video").length;
-}
-
-function isMissingColumnError(error: any, columnName: string) {
-  const msg = String(error?.message ?? "").toLowerCase();
-  const col = columnName.toLowerCase();
-  return (
-    msg.includes(col) &&
-    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
-  );
-}
-
-function isMissingRelationError(error: any, relationName: string) {
-  const msg = String(error?.message ?? "").toLowerCase();
-  const rel = relationName.toLowerCase();
-  return (
-    msg.includes(rel) &&
-    (msg.includes("does not exist") ||
-      msg.includes("relation") ||
-      msg.includes("could not find the table"))
-  );
 }
 
 async function detectAdmin(): Promise<boolean> {
@@ -388,29 +314,104 @@ async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
   return rows.filter((c) => (adminFlag ? true : !!c.is_active));
 }
 
-async function fetchCategoryMapByIds(categoryIds: string[]) {
-  const map = new Map<string, CategoryRow>();
-  const uniqueIds = [...new Set(categoryIds.filter(Boolean))];
+/**
+ * Una página de productos con TODOS los filtros y el orden aplicados en la
+ * consulta (así .range() y el total son correctos).
+ */
+async function fetchProductsPage(
+  f: ListFilters,
+  offset: number
+): Promise<{ rows: ProductDbRow[]; total: number | null }> {
+  let query = supabase.from("products").select(PRODUCT_COLUMNS, { count: "exact" });
 
-  if (!uniqueIds.length) return map;
-
-  const { data, error } = await supabase
-    .from("categories")
-    .select("id,name,slug,is_active,sort_order")
-    .in("id", uniqueIds);
-
-  if (error) {
-    if (isMissingRelationError(error, "categories")) {
-      return map;
-    }
-    throw error;
+  if (!f.adminFlag) {
+    query = query.eq("is_active", true).eq("status", "PUBLISHED");
+  } else {
+    const dbStatus = uiFilterToDb(f.statusFilter);
+    if (dbStatus) query = query.eq("status", dbStatus);
   }
 
-  for (const row of asArray<CategoryRow>(data)) {
-    map.set(row.id, row);
+  if (f.categoryId) query = query.eq("category_id", f.categoryId);
+
+  if (f.condition === "NEW") {
+    query = query.eq("condition", "NEW");
+  } else if (f.condition === "USED") {
+    query = query.in("condition", [...USED_CONDITIONS]);
+  } else if (f.condition !== "ALL") {
+    query = query.eq("condition", f.condition);
+  }
+
+  if (f.price === "UP_25") {
+    query = query.lte("price_eur", 25);
+  } else if (f.price === "25_100") {
+    query = query.gt("price_eur", 25).lte("price_eur", 100);
+  } else if (f.price === "100_300") {
+    query = query.gt("price_eur", 100).lte("price_eur", 300);
+  } else if (f.price === "OVER_300") {
+    query = query.gt("price_eur", 300);
+  }
+
+  if (f.queryText) {
+    const safeQuery = f.queryText.replace(/[%(),*]/g, " ").trim();
+    if (safeQuery) {
+      const pattern = `%${safeQuery}%`;
+      query = query.or(`title.ilike.${pattern},description.ilike.${pattern}`);
+    }
+  }
+
+  if (f.sort === "PRICE_ASC") {
+    query = query.order("price_eur", { ascending: true, nullsFirst: false });
+  } else if (f.sort === "PRICE_DESC") {
+    query = query.order("price_eur", { ascending: false, nullsFirst: false });
+  } else if (f.sort === "MOST_VIEWED") {
+    query = query.order("view_count", { ascending: false, nullsFirst: false });
+  }
+  // Desempate estable para que la paginación no repita ni salte productos.
+  query = query.order("created_at", { ascending: false }).order("id", { ascending: true });
+
+  const { data, error, count } = await query.range(offset, offset + PAGE_SIZE - 1);
+  if (error) throw error;
+
+  return { rows: asArray<ProductDbRow>(data), total: typeof count === "number" ? count : null };
+}
+
+/** Fotos (solo imágenes) de los productos de UNA página (máx. 24 ids). */
+async function fetchCoverMap(productIds: string[]) {
+  const map = new Map<string, ProductMediaRow[]>();
+  if (!productIds.length) return map;
+
+  const { data, error } = await supabase
+    .from("product_media")
+    .select("product_id,public_url,sort_order,is_cover")
+    .eq("kind", "image")
+    .in("product_id", productIds);
+
+  // Si falla, las tarjetas usan products.images como respaldo: no se rompe
+  // la página por las fotos.
+  if (error) {
+    console.warn("No se pudieron cargar las fotos del catálogo:", error.message);
+    return map;
+  }
+
+  for (const row of asArray<ProductMediaRow>(data)) {
+    if (!row?.product_id) continue;
+    const list = map.get(row.product_id) ?? [];
+    list.push(row);
+    map.set(row.product_id, list);
   }
 
   return map;
+}
+
+function mapRows(rows: ProductDbRow[], mediaMap: Map<string, ProductMediaRow[]>): Product[] {
+  return rows.map((row) => ({
+    id: row.id,
+    title: String(row.title ?? ""),
+    description: row.description ?? null,
+    status: mapDbStatusToUi((row.status ?? "DRAFT") as DbStatus),
+    priceEUR: Number(row.price_eur ?? 0),
+    imageUrl: pickHeroImage(row, mediaMap.get(row.id) ?? []),
+  }));
 }
 
 export default function CatalogoScreen() {
@@ -420,63 +421,83 @@ export default function CatalogoScreen() {
   const isTablet = widthSafe >= 700 && widthSafe < 1024;
   const pagePadding = isMobile ? 12 : 16;
 
-  const params = useLocalSearchParams<{ cat?: string; query?: string }>();
-  const rawCat = typeof params.cat === "string" ? params.cat : undefined;
+  const params = useLocalSearchParams<{ cat?: string; categoria?: string; query?: string }>();
+  const rawCat =
+    typeof params.cat === "string" && params.cat
+      ? params.cat
+      : typeof params.categoria === "string" && params.categoria
+        ? params.categoria
+        : undefined;
   const queryFromUrl = typeof params.query === "string" ? params.query.trim() : "";
 
-  const [filter, setFilter] = useState<UiFilter>("ALL");
+  const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [items, setItems] = useState<Product[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
 
-  // En móvil, con un solo producto se ve mejor grande (rejilla de 1
-  // columna); en cuanto hay 2 o más, se agrupan de dos en dos (🟩🟩 / 🟩🟩)
-  // para no obligar a tanto scroll. En pantallas más anchas se mantiene el
-  // número de columnas de siempre según el ancho disponible.
+  // Filtros
+  const [filter, setFilter] = useState<UiFilter>("ALL");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [condition, setCondition] = useState<ConditionFilter>("ALL");
+  const [price, setPrice] = useState<PriceFilter>("ALL");
+  const [sort, setSort] = useState<SortKey>("NEWEST");
+  const [q, setQ] = useState(queryFromUrl);
+  const [appliedQuery, setAppliedQuery] = useState(queryFromUrl);
+
+  const [contactBusy, setContactBusy] = useState(false);
+
+  const bootedRef = useRef(false);
+  const reqSeqRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const prevRawCatRef = useRef(rawCat);
+  const prevQueryRef = useRef(queryFromUrl);
+
+  // Móvil: 1 producto se ve grande; con 2 o más, rejilla de 2 columnas.
   const cols = useMemo(() => {
     if (isMobile) return items.length > 1 ? 2 : 1;
     return calcColumns(widthSafe);
   }, [isMobile, items.length, widthSafe]);
 
-  const [q, setQ] = useState(queryFromUrl);
-  const [contactBusy, setContactBusy] = useState(false);
+  const effectiveFilter: UiFilter = isAdmin ? filter : "PUBLICADA";
 
-  const bootedRef = useRef(false);
-  const reqSeqRef = useRef(0);
+  const selectedCategory = useMemo(
+    () => categories.find((c) => c.id === categoryId),
+    [categories, categoryId]
+  );
 
-  const effectiveFilter: UiFilter = useMemo(() => {
-    return isAdmin ? filter : "PUBLICADA";
-  }, [isAdmin, filter]);
-
-  const resolvedCategory = useMemo(() => {
-    return resolveCategory(rawCat, categories);
-  }, [rawCat, categories]);
+  const categoryOptions: CatalogCategoryOption[] = useMemo(
+    () => categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
+    [categories]
+  );
 
   const pageTitle = useMemo(() => {
-    if (!rawCat) return "Catálogo";
-    if (resolvedCategory?.name) return resolvedCategory.name;
-    return legacyCatLabel(rawCat) ?? "Catálogo";
-  }, [rawCat, resolvedCategory]);
+    if (selectedCategory?.name) return selectedCategory.name;
+    if (!ready && rawCat) return legacyCatLabel(rawCat) ?? "Catálogo";
+    return "Catálogo";
+  }, [selectedCategory, ready, rawCat]);
 
   const pageSubtitle = useMemo(() => {
     if (isAdmin) return "Gestión visual del catálogo y revisión de estado.";
-    if (resolvedCategory?.name) {
-      return `${getCategoryHint(resolvedCategory.name)} · Envíos a toda España`;
+    if (selectedCategory?.name) {
+      return `${getCategoryHint(selectedCategory.name)} · Envíos a toda España`;
     }
     return "Consolas, videojuegos y electrónica de segunda mano, revisados y listos para ti";
-  }, [isAdmin, resolvedCategory]);
+  }, [isAdmin, selectedCategory]);
 
-  // Las tarjetas solo deben recrearse cuando cambian los productos o algo
-  // que afecte a cómo se pintan — no en cada tecla escrita en el buscador
-  // ni en cada cambio de "loading"/"refreshing", que antes recreaba toda la
-  // lista (y la rejilla la volvía a repartir en filas) sin necesidad.
-  // Tarjeta "compacta": móvil + rejilla de 2 columnas, la tarjeta es más
-  // estrecha que antes (cuando siempre iba a ancho completo en móvil), así
-  // que el precio y "Ver producto" necesitan un poco menos de aire.
+  const hasActiveFilters =
+    !!categoryId ||
+    condition !== "ALL" ||
+    price !== "ALL" ||
+    !!appliedQuery ||
+    (isAdmin && filter !== "ALL");
+
   const compactCards = isMobile && cols > 1;
 
   const productCards = useMemo(
@@ -495,267 +516,162 @@ export default function CatalogoScreen() {
     [items, isAdmin, isMobile, isTablet, compactCards]
   );
 
-  async function fetchProductsSafe(
-    adminFlag: boolean,
-    queryText: string,
-    resolvedCat?: CategoryRow
-  ): Promise<ProductDbRow[]> {
-    const selectWithJoinAndImages =
-      "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,category:categories(id,name,slug)";
-    const selectWithJoinBase =
-      "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,category:categories(id,name,slug)";
-    const selectImagesNoJoin =
-      "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at";
-    const selectBaseNoJoin =
-      "id,title,description,price_eur,status,is_active,category_id,updated_at,created_at";
+  const currentFilters: ListFilters = useMemo(
+    () => ({
+      adminFlag: isAdmin,
+      statusFilter: effectiveFilter,
+      categoryId,
+      condition,
+      price,
+      sort,
+      queryText: appliedQuery.trim(),
+    }),
+    [isAdmin, effectiveFilter, categoryId, condition, price, sort, appliedQuery]
+  );
 
-    const buildQuery = (selectStr: string) => {
-      let query = supabase
-        .from("products")
-        .select(selectStr)
-        .order("updated_at", { ascending: false })
-        .order("created_at", { ascending: false });
-
-      if (!adminFlag) {
-        query = query.eq("is_active", true).eq("status", "PUBLISHED");
-      } else if (effectiveFilter !== "ALL") {
-        const dbStatus: DbStatus =
-          effectiveFilter === "PUBLICADA"
-            ? "PUBLISHED"
-            : effectiveFilter === "LISTA"
-              ? "DRAFT"
-              : "REVIEW";
-        query = query.eq("status", dbStatus);
-      }
-
-      if (resolvedCat?.id) {
-        query = query.eq("category_id", resolvedCat.id);
-      }
-
-      if (queryText) {
-        const safeQuery = queryText.replace(/[%(),]/g, " ").trim();
-        const pattern = `%${safeQuery}%`;
-        query = query.or(`title.ilike.${pattern},description.ilike.${pattern}`);
-      }
-
-      // Red de seguridad: sin esto, si el catálogo crece a cientos de
-      // productos, cada visita/búsqueda los traería todos de golpe.
-      return query.limit(300);
-    };
-
-    const attempts = [
-      selectWithJoinAndImages,
-      selectWithJoinBase,
-      selectImagesNoJoin,
-      selectBaseNoJoin,
-    ];
-
-    let lastError: any = null;
-
-    for (const selectStr of attempts) {
-      const res = await buildQuery(selectStr);
-
-      if (!res.error) {
-        return asArray<ProductDbRow>(res.data);
-      }
-
-      lastError = res.error;
-
-      const canFallback =
-        isMissingColumnError(res.error, "images") ||
-        isMissingRelationError(res.error, "categories") ||
-        isMissingColumnError(res.error, "slug") ||
-        isMissingColumnError(res.error, "name");
-
-      if (!canFallback) {
-        throw res.error;
-      }
-    }
-
-    if (lastError) throw lastError;
-    return [];
-  }
-
-  async function fetchProductMediaMap(productIds: string[]) {
-    const empty = new Map<string, ProductMediaRow[]>();
-    if (!productIds.length) return empty;
-
-    const selectStr =
-      "id,product_id,kind,public_url,file_name,sort_order,is_cover,duration_seconds";
-
-    const res = await supabase
-      .from("product_media")
-      .select(selectStr)
-      .in("product_id", productIds)
-      .limit(5000);
-
-    if (res.error) {
-      if (isMissingRelationError(res.error, "product_media")) {
-        return empty;
-      }
-      throw res.error;
-    }
-
-    const rows = asArray<ProductMediaRow>(res.data);
-    const map = new Map<string, ProductMediaRow[]>();
-
-    for (const row of rows) {
-      if (!row?.product_id) continue;
-      const list = map.get(row.product_id) ?? [];
-      list.push(row);
-      map.set(row.product_id, list);
-    }
-
-    for (const [key, list] of map.entries()) {
-      map.set(key, [...list].sort(sortMediaRows));
-    }
-
-    return map;
-  }
-
-  // Se ejecuta UNA sola vez al entrar en la pantalla: quién eres (admin o
-  // no) y la lista de categorías no cambian al cambiar de filtro o buscar,
-  // así que no tiene sentido repetir estas dos consultas en cada cambio.
-  async function loadIdentity(): Promise<{ adminFlag: boolean; cats: CategoryRow[] }> {
-    const adminFlag = await detectAdmin();
-    const cats = await fetchCategoriesSafe(adminFlag);
-    return { adminFlag, cats };
-  }
-
-  async function loadResults(
-    adminFlag: boolean,
-    cats: CategoryRow[],
-    opts?: { queryOverride?: string }
-  ) {
+  // Primera página con los filtros actuales (sustituye la lista).
+  const loadFirstPage = useCallback(async (f: ListFilters) => {
     const seq = ++reqSeqRef.current;
-    const queryText = (opts?.queryOverride ?? q ?? "").trim();
-
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+    setRefreshing(true);
     setErr(null);
-
-    const resolvedCatLocal = resolveCategory(rawCat, cats);
-    const rows = await fetchProductsSafe(adminFlag, queryText, resolvedCatLocal);
-    if (seq !== reqSeqRef.current) return;
-
-    // La consulta de arriba ya intenta traer la categoría de cada producto
-    // con un join (category:categories(...)); solo hace falta esta consulta
-    // de respaldo si ese join no ha podido traerla para algún producto que
-    // sí tiene category_id (p. ej. porque el join falló y se usó una de las
-    // consultas de reserva sin él).
-    const needsCategoryFallback = rows.some((row) => row.category_id && !row.category);
-    const categoryMap = needsCategoryFallback
-      ? await fetchCategoryMapByIds(
-          rows.map((row) => row.category_id).filter((v): v is string => !!v)
-        )
-      : new Map<string, CategoryRow>();
-    if (seq !== reqSeqRef.current) return;
-
-    const productIds = rows.map((row) => row.id);
-    const mediaMap = await fetchProductMediaMap(productIds);
-    if (seq !== reqSeqRef.current) return;
-
-    const mapped: Product[] = rows.map((row) => {
-      const mediaRows = mediaMap.get(row.id) ?? [];
-      const imageUrl = pickHeroImage(row, mediaRows);
-      const imageCount = countImages(mediaRows);
-      const videoCount = countVideos(mediaRows);
-
-      const category =
-        row?.category && typeof row.category === "object"
-          ? row.category
-          : row?.category_id
-            ? categoryMap.get(row.category_id) ?? null
-            : null;
-
-      return {
-        id: row.id,
-        title: String(row.title ?? ""),
-        description: row.description ?? null,
-        status: mapDbStatusToUi((row.status ?? "DRAFT") as DbStatus),
-        priceEUR: Number(row.price_eur ?? 0),
-        imageUrl,
-        imageCount,
-        videoCount,
-        mediaCount: mediaRows.length,
-        hasVideo: videoCount > 0,
-        category,
-      };
-    });
-
-    setItems(mapped);
-  }
-
-  async function bootstrap() {
-    setLoading(true);
     try {
-      const { adminFlag, cats } = await loadIdentity();
-      setIsAdmin(adminFlag);
-      setCategories(cats);
-      await loadResults(adminFlag, cats, { queryOverride: queryFromUrl });
-    } catch (e: any) {
+      const { rows, total: count } = await fetchProductsPage(f, 0);
+      if (seq !== reqSeqRef.current) return;
+      const mediaMap = await fetchCoverMap(rows.map((r) => r.id));
+      if (seq !== reqSeqRef.current) return;
+
+      setItems(mapRows(rows, mediaMap));
+      setTotal(count);
+      setHasMore(count !== null ? rows.length < count : rows.length === PAGE_SIZE);
+    } catch (e) {
+      if (seq !== reqSeqRef.current) return;
       console.error("Error cargando catálogo:", e);
       setErr("No hemos podido cargar el catálogo. Comprueba tu conexión e inténtalo de nuevo.");
       setItems([]);
-      setCategories([]);
-      setIsAdmin(false);
+      setTotal(null);
+      setHasMore(false);
     } finally {
-      setLoading(false);
+      if (seq === reqSeqRef.current) {
+        setRefreshing(false);
+        setLoading(false);
+      }
     }
-  }
+  }, []);
 
-  async function refresh(opts?: { queryOverride?: string }) {
-    setRefreshing(true);
+  // Página siguiente (se añade al final de la lista).
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || refreshing) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const seq = reqSeqRef.current;
     try {
-      // isAdmin/categories ya están cargados (loadIdentity solo corre en
-      // bootstrap): un cambio de filtro/búsqueda/categoría solo necesita
-      // volver a pedir productos, no quién eres ni la lista de categorías.
-      await loadResults(isAdmin, categories, opts);
-    } catch (e: any) {
-      console.error("Error actualizando catálogo:", e);
-      setErr("No hemos podido actualizar el catálogo. Inténtalo de nuevo en unos segundos.");
-    } finally {
-      setRefreshing(false);
-    }
-  }
+      const { rows, total: count } = await fetchProductsPage(currentFilters, items.length);
+      if (seq !== reqSeqRef.current) return;
+      const mediaMap = await fetchCoverMap(rows.map((r) => r.id));
+      if (seq !== reqSeqRef.current) return;
 
+      const seen = new Set(items.map((p) => p.id));
+      const next = [...items, ...mapRows(rows, mediaMap).filter((p) => !seen.has(p.id))];
+      setItems(next);
+      setTotal(count);
+      setHasMore(
+        rows.length > 0 && (count !== null ? next.length < count : rows.length === PAGE_SIZE)
+      );
+    } catch (e) {
+      if (seq !== reqSeqRef.current) return;
+      console.error("Error cargando más productos:", e);
+      setErr("No hemos podido cargar más productos. Inténtalo de nuevo en unos segundos.");
+    } finally {
+      if (seq === reqSeqRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [hasMore, refreshing, currentFilters, items]);
+
+  // Al entrar: quién eres y las categorías (una sola vez). La categoría de la
+  // URL se resuelve aquí para que la primera consulta ya vaya filtrada.
   useEffect(() => {
     if (bootedRef.current) return;
     bootedRef.current = true;
-    bootstrap();
+    (async () => {
+      const adminFlag = await detectAdmin();
+      let cats: CategoryRow[] = [];
+      try {
+        cats = await fetchCategoriesSafe(adminFlag);
+      } catch (e) {
+        console.error("Error cargando categorías:", e);
+      }
+      setIsAdmin(adminFlag);
+      setCategories(cats);
+      setCategoryId(resolveCategory(rawCat, cats)?.id ?? null);
+      setReady(true);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Cualquier cambio de filtro/orden/búsqueda → primera página de nuevo.
   useEffect(() => {
-    setQ(queryFromUrl);
-    if (!bootedRef.current) return;
-    if (loading) return;
-    refresh({ queryOverride: queryFromUrl });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawCat, queryFromUrl, effectiveFilter]);
+    if (!ready) return;
+    loadFirstPage(currentFilters);
+  }, [ready, currentFilters, loadFirstPage]);
 
-  // Analítica: "Categoría" (genérico) o "Categoría {nombre}" según el
-  // parámetro ?cat= resuelto. Se espera a que termine loading (bootstrap) la
-  // primera vez para tener ya cargada la lista de categorías y así resolver
-  // bien el nombre; después, cada cambio real de categoría dispara un nuevo
-  // evento (analyticsCatKeyRef evita repetir el mismo dos veces seguidas).
+  // Si cambia la URL estando ya en la pantalla (?cat= / ?query=), se respeta.
+  useEffect(() => {
+    if (prevRawCatRef.current === rawCat) return;
+    prevRawCatRef.current = rawCat;
+    setCategoryId(resolveCategory(rawCat, categories)?.id ?? null);
+  }, [rawCat, categories]);
+
+  useEffect(() => {
+    if (prevQueryRef.current === queryFromUrl) return;
+    prevQueryRef.current = queryFromUrl;
+    setQ(queryFromUrl);
+    setAppliedQuery(queryFromUrl);
+  }, [queryFromUrl]);
+
+  // Analítica: "Categoría" o "Categoría {nombre}" al entrar y en cada cambio
+  // real de categoría (analyticsCatKeyRef evita repetir el mismo).
   const analyticsCatKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (loading) return;
-    const key = rawCat ?? "";
+    if (!ready) return;
+    const key = categoryId ?? "";
     if (analyticsCatKeyRef.current === key) return;
     analyticsCatKeyRef.current = key;
 
-    const label = resolvedCategory?.name ? `Categoría ${resolvedCategory.name}` : "Categoría";
+    const label = selectedCategory?.name ? `Categoría ${selectedCategory.name}` : "Categoría";
     trackEvent("page_view", label, {
       path: "/catalogo",
-      metadata: { cat: rawCat ?? null },
+      metadata: { cat: selectedCategory?.slug ?? rawCat ?? null },
     });
-  }, [loading, rawCat, resolvedCategory]);
+  }, [ready, categoryId, selectedCategory, rawCat]);
 
-  // Botón "Chatear con nosotros" del panel "¿No encuentras lo que buscas?":
-  // con sesión abre (o reutiliza) una conversación general de soporte
-  // (get_or_create_support_chat, ver sql/product_chats.sql) y lleva al hilo;
-  // sin sesión, manda primero a iniciar sesión — mismo patrón que
-  // handleChatPress en app/producto/[id].tsx, pero sin producto asociado.
+  function clearFilters() {
+    setCategoryId(null);
+    setCondition("ALL");
+    setPrice("ALL");
+    setFilter("ALL");
+    setQ("");
+    setAppliedQuery("");
+    if (rawCat || queryFromUrl) replaceRoute("/catalogo" as Href);
+  }
+
+  function handleScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    if (contentOffset.y > 40) {
+      trackEventThrottled("catalogo-scroll", "scroll", "Scroll", { path: "/catalogo" });
+    }
+    // Carga automática al acercarse al final (además del botón).
+    const distanceToEnd = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    if (distanceToEnd < 600 && hasMore && !loadingMoreRef.current && !refreshing) {
+      loadMore();
+    }
+  }
+
+  // "Chatear con nosotros": con sesión abre (o reutiliza) el chat general de
+  // soporte; sin sesión, manda primero a iniciar sesión.
   async function handleContactPress() {
     if (contactBusy) return;
     setContactBusy(true);
@@ -781,12 +697,11 @@ export default function CatalogoScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Botón de volver: icono bien integrado en la esquina superior
-          izquierda (antes era una píldora de texto "← Volver" al final de
-          la página). Flota sobre el encabezado, siempre visible. */}
+      {/* Botón de volver flotante en la esquina superior izquierda. */}
       <Pressable
         onPress={smartBack}
         hitSlop={8}
+        accessibilityLabel="Volver"
         style={({ pressed }) => ({
           position: "absolute",
           top: 14,
@@ -814,12 +729,8 @@ export default function CatalogoScreen() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
-        onScroll={(e) => {
-          if (e.nativeEvent.contentOffset.y > 40) {
-            trackEventThrottled("catalogo-scroll", "scroll", "Scroll", { path: "/catalogo" });
-          }
-        }}
-        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        scrollEventThrottle={100}
       >
         <View
           style={{
@@ -827,116 +738,114 @@ export default function CatalogoScreen() {
             borderBottomWidth: 1,
             borderBottomColor: "#F6FAFD",
             paddingHorizontal: pagePadding,
-            // +40 de hueco arriba para que el título nunca quede debajo del
-            // botón de volver flotante (top:14, 38px de alto) de la esquina
-            // superior izquierda.
+            // +40 para que el título no quede bajo el botón de volver.
             paddingTop: (isMobile ? 12 : 14) + 40,
             paddingBottom: isMobile ? 14 : 18,
             alignItems: "center",
           }}
         >
-          {/* Columna centrada: en pantallas anchas el contenido no se pega a la izquierda */}
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
-          {/* Cabecera centrada en todos los tamaños */}
-          <View style={{ alignItems: "center" }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: isMobile ? 24 : 28,
-                fontWeight: "900",
-                letterSpacing: -0.5,
-                lineHeight: isMobile ? 30 : 34,
-                textAlign: "center",
-              }}
-            >
-              {pageTitle}
-            </Text>
-
-            <Text
-              style={{
-                color: COLORS.muted,
-                marginTop: 6,
-                fontSize: isMobile ? 13 : 14,
-                lineHeight: 20,
-                maxWidth: 760,
-                textAlign: "center",
-              }}
-            >
-              {pageSubtitle}
-            </Text>
-          </View>
-
-          {/* Aviso de admin: texto limpio, sin burbuja envolvente */}
-          {isAdmin ? (
-            <View style={{ alignItems: "center", gap: 6 }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                Panel de administración
-              </Text>
-              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center", maxWidth: 760 }}>
-                Consulta el estado interno de cada producto: publicado, listo o pendiente de
-                revisión.
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Buscador: componente compartido (mismo diseño y misma
-              funcionalidad que el de "Inicio"). Aquí en modo "input": busca
-              de verdad dentro de esta pantalla al escribir y pulsar intro,
-              o al tocar la "x" para borrar. Cambiar cómo se ve/comporta el
-              buscador en toda la app ahora se hace en un solo sitio:
-              components/Barramagic.tsx. */}
-          <Barramagic
-            isMobile={isMobile}
-            mode="input"
-            value={q}
-            onChangeText={setQ}
-            onSubmit={() => refresh()}
-            onClear={() => {
-              setQ("");
-              refresh({ queryOverride: "" });
-            }}
-            placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
-          />
-
-          {isAdmin ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
-              <Chip
-                active={filter === "ALL"}
-                label="Todos"
-                onPress={() => setFilter("ALL")}
-                isMobile={isMobile}
-              />
-              <Chip
-                active={filter === "PUBLICADA"}
-                label="Publicadas"
-                onPress={() => setFilter("PUBLICADA")}
-                isMobile={isMobile}
-              />
-              <Chip
-                active={filter === "LISTA"}
-                label="Listas"
-                onPress={() => setFilter("LISTA")}
-                isMobile={isMobile}
-              />
-              <Chip
-                active={filter === "REVISAR"}
-                label="Por revisar"
-                onPress={() => setFilter("REVISAR")}
-                isMobile={isMobile}
-              />
-            </View>
-          ) : null}
-
-          {err ? (
             <View style={{ alignItems: "center" }}>
-              <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
-                Error cargando catálogo
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: isMobile ? 24 : 28,
+                  fontWeight: "900",
+                  letterSpacing: -0.5,
+                  lineHeight: isMobile ? 30 : 34,
+                  textAlign: "center",
+                }}
+              >
+                {pageTitle}
               </Text>
-              <Text style={{ color: "#7A271A", marginTop: 4, lineHeight: 20, textAlign: "center" }}>
-                {err}
+
+              <Text
+                style={{
+                  color: COLORS.muted,
+                  marginTop: 6,
+                  fontSize: isMobile ? 13 : 14,
+                  lineHeight: 20,
+                  maxWidth: 760,
+                  textAlign: "center",
+                }}
+              >
+                {pageSubtitle}
               </Text>
             </View>
-          ) : null}
+
+            {isAdmin ? (
+              <View style={{ alignItems: "center", gap: 6 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                  Panel de administración
+                </Text>
+                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center", maxWidth: 760 }}>
+                  Consulta el estado interno de cada producto: publicado, listo o pendiente de
+                  revisión.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Buscador compartido (components/Barramagic.tsx), modo "input":
+                busca al pulsar intro y limpia con la "x". */}
+            <Barramagic
+              isMobile={isMobile}
+              mode="input"
+              value={q}
+              onChangeText={setQ}
+              onSubmit={() => setAppliedQuery(q.trim())}
+              onClear={() => {
+                setQ("");
+                setAppliedQuery("");
+              }}
+              placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
+            />
+
+            {isAdmin ? (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
+                <Chip active={filter === "ALL"} label="Todos" onPress={() => setFilter("ALL")} isMobile={isMobile} />
+                <Chip
+                  active={filter === "PUBLICADA"}
+                  label="Publicadas"
+                  onPress={() => setFilter("PUBLICADA")}
+                  isMobile={isMobile}
+                />
+                <Chip active={filter === "LISTA"} label="Listas" onPress={() => setFilter("LISTA")} isMobile={isMobile} />
+                <Chip
+                  active={filter === "REVISAR"}
+                  label="Por revisar"
+                  onPress={() => setFilter("REVISAR")}
+                  isMobile={isMobile}
+                />
+              </View>
+            ) : null}
+
+            <CatalogFilters
+              isMobile={isMobile}
+              categories={categoryOptions}
+              categoryId={categoryId}
+              onCategoryChange={(c) => setCategoryId(c?.id ?? null)}
+              condition={condition}
+              onConditionChange={setCondition}
+              price={price}
+              onPriceChange={setPrice}
+              sort={sort}
+              onSortChange={setSort}
+              total={loading ? null : total}
+              busy={refreshing && !loading}
+              hasActiveFilters={hasActiveFilters}
+              onClear={clearFilters}
+            />
+
+            {err ? (
+              <View style={{ alignItems: "center" }}>
+                <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
+                  Error cargando catálogo
+                </Text>
+                <Text style={{ color: "#7A271A", marginTop: 4, lineHeight: 20, textAlign: "center" }}>
+                  {err}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -950,176 +859,161 @@ export default function CatalogoScreen() {
               paddingHorizontal: pagePadding,
             }}
           >
-            <ActivityIndicator />
+            <ActivityIndicator color={COLORS.accent} />
             <Text style={{ color: COLORS.muted }}>Cargando catálogo…</Text>
           </View>
         ) : (
           <View style={{ paddingHorizontal: pagePadding, paddingTop: 16, alignItems: "center" }}>
-          <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
-            {items.length === 0 ? (
-              <View style={{ alignItems: "center", gap: 12, paddingVertical: 8 }}>
-                <Text
-                  style={{
-                    color: COLORS.text,
-                    fontWeight: "900",
-                    fontSize: isMobile ? 18 : 20,
-                    textAlign: "center",
-                  }}
-                >
-                  No hay productos que coincidan con tu búsqueda
-                </Text>
-
-                <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", maxWidth: 640 }}>
-                  Prueba a quitar algún filtro, cambiar de categoría o revisar más tarde: renovamos
-                  el catálogo con frecuencia y seguro que encuentras algo que te interese.
-                </Text>
-
-                <View
-                  style={{
-                    flexDirection: isMobile ? "column" : "row",
-                    justifyContent: "center",
-                    alignSelf: isMobile ? "stretch" : "center",
-                    gap: 10,
-                    marginTop: 4,
-                  }}
-                >
-                  <Pressable
-                    onPress={() => {
-                      setQ("");
-                      replaceRoute("/catalogo" as Href);
-                      refresh({ queryOverride: "" });
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 1240,
+                gap: 14,
+                // Mientras se recalcula con otros filtros, la lista anterior se
+                // atenúa en vez de desaparecer de golpe.
+                opacity: refreshing ? 0.55 : 1,
+              }}
+            >
+              {items.length === 0 ? (
+                <View style={{ alignItems: "center", gap: 12, paddingVertical: 24 }}>
+                  <Ionicons name="search-outline" size={34} color={COLORS.accent} />
+                  <Text
+                    style={{
+                      color: COLORS.text,
+                      fontWeight: "900",
+                      fontSize: isMobile ? 18 : 20,
+                      textAlign: "center",
                     }}
+                  >
+                    {hasActiveFilters
+                      ? "No hay productos con estos filtros"
+                      : "Ahora mismo no hay productos publicados"}
+                  </Text>
+
+                  <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", maxWidth: 560 }}>
+                    {hasActiveFilters
+                      ? "Prueba a quitar algún filtro o a buscar con otras palabras."
+                      : "Vuelve a pasarte pronto o escríbenos por chat si buscas algo concreto."}
+                  </Text>
+
+                  {hasActiveFilters ? (
+                    <Pressable
+                      onPress={clearFilters}
+                      accessibilityRole="button"
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.88 : 1,
+                        alignSelf: isMobile ? "stretch" : "center",
+                        borderRadius: 999,
+                        paddingVertical: 12,
+                        paddingHorizontal: 18,
+                        backgroundColor: COLORS.accent,
+                        marginTop: 4,
+                      })}
+                    >
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
+                        Quitar filtros
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : (
+                <Grid columns={cols} gap={14}>
+                  {productCards}
+                </Grid>
+              )}
+
+              {items.length > 0 && hasMore ? (
+                <View style={{ alignItems: "center", paddingTop: 6 }}>
+                  <Pressable
+                    onPress={loadMore}
+                    disabled={loadingMore}
+                    accessibilityRole="button"
                     style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      borderRadius: 16,
+                      opacity: loadingMore ? 0.7 : pressed ? 0.88 : 1,
+                      alignSelf: isMobile ? "stretch" : "center",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      borderRadius: 999,
                       paddingVertical: 12,
+                      paddingHorizontal: 22,
+                      borderWidth: 1,
+                      borderColor: COLORS.accentBorder,
+                      backgroundColor: COLORS.accent2,
+                    })}
+                  >
+                    {loadingMore ? <ActivityIndicator size="small" color={COLORS.text} /> : null}
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      {loadingMore ? "Cargando…" : "Ver más productos"}
+                    </Text>
+                  </Pressable>
+                  {total !== null ? (
+                    <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 8, textAlign: "center" }}>
+                      Mostrando {items.length} de {total}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {items.length > 0 && !isAdmin && !hasMore ? (
+                <View style={{ alignItems: "center", gap: 10, paddingTop: 12 }}>
+                  <Text
+                    style={{
+                      color: COLORS.text,
+                      fontWeight: "900",
+                      fontSize: isMobile ? 17 : 18,
+                      textAlign: "center",
+                    }}
+                  >
+                    ¿No encuentras exactamente lo que buscas?
+                  </Text>
+                  <Text
+                    style={{
+                      color: COLORS.muted,
+                      lineHeight: 20,
+                      textAlign: "center",
+                      maxWidth: 640,
+                    }}
+                  >
+                    Escríbenos por chat: te confirmamos al momento si podemos conseguirlo,
+                    reservarlo o proponerte una alternativa.
+                  </Text>
+
+                  <Pressable
+                    onPress={handleContactPress}
+                    disabled={contactBusy}
+                    style={({ pressed }) => ({
+                      opacity: contactBusy ? 0.6 : pressed ? 0.88 : 1,
+                      alignSelf: isMobile ? "stretch" : "center",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      borderRadius: 999,
+                      paddingVertical: 11,
                       paddingHorizontal: 14,
                       borderWidth: 1,
                       borderColor: COLORS.accentBorder,
                       backgroundColor: COLORS.accent2,
-                      width: isMobile ? "100%" : undefined,
                     })}
                   >
+                    {contactBusy ? (
+                      <ActivityIndicator size="small" color={COLORS.text} />
+                    ) : (
+                      <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                    )}
                     <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                      Ver todo
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={smartBack}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.88 : 1,
-                      borderRadius: 16,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      backgroundColor: "#F6FAFD",
-                      width: isMobile ? "100%" : undefined,
-                    })}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                      Volver
+                      Chatear con nosotros
                     </Text>
                   </Pressable>
                 </View>
-              </View>
-            ) : (
-              <Grid columns={cols} gap={14}>
-                {productCards}
-              </Grid>
-            )}
-
-            {!loading && items.length > 0 && !isAdmin ? (
-              <View style={{ alignItems: "center", gap: 10, paddingTop: 12 }}>
-                <Text
-                  style={{
-                    color: COLORS.text,
-                    fontWeight: "900",
-                    fontSize: isMobile ? 17 : 18,
-                    textAlign: "center",
-                  }}
-                >
-                  ¿No encuentras exactamente lo que buscas?
-                </Text>
-                <Text
-                  style={{
-                    color: COLORS.muted,
-                    lineHeight: 20,
-                    textAlign: "center",
-                    maxWidth: 640,
-                  }}
-                >
-                  Escríbenos por chat: te confirmamos al momento si podemos conseguirlo,
-                  reservarlo o proponerte una alternativa.
-                </Text>
-
-                <Pressable
-                  onPress={handleContactPress}
-                  disabled={contactBusy}
-                  style={({ pressed }) => ({
-                    opacity: contactBusy ? 0.6 : pressed ? 0.88 : 1,
-                    alignSelf: isMobile ? "stretch" : "center",
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                    borderRadius: 999,
-                    paddingVertical: 11,
-                    paddingHorizontal: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.accentBorder,
-                    backgroundColor: COLORS.accent2,
-                  })}
-                >
-                  {contactBusy ? (
-                    <ActivityIndicator size="small" color={COLORS.text} />
-                  ) : (
-                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
-                  )}
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                    Chatear con nosotros
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-          </View>
+              ) : null}
+            </View>
           </View>
         )}
       </ScrollView>
     </View>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  onPress,
-  isMobile,
-}: {
-  label: string;
-  active?: boolean;
-  onPress: () => void;
-  isMobile?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.88 : 1,
-        borderRadius: 999,
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : "#E3EAF2",
-        backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
-      })}
-    >
-      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: isMobile ? 13 : 14 }}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -1132,10 +1026,7 @@ function Grid({
   gap: number;
   children: React.ReactNode;
 }) {
-  // Repartir en filas es barato hoy, pero se recalculaba en CADA render de
-  // la pantalla (por ejemplo, en cada letra escrita en el buscador) aunque
-  // los productos no hubieran cambiado. Con useMemo solo se rehace cuando de
-  // verdad cambian los hijos o el número de columnas.
+  // Reparto en filas memorizado: solo se rehace si cambian hijos o columnas.
   const rows = useMemo(() => {
     const kids = React.Children.toArray(children);
     const chunked: React.ReactNode[][] = [];
@@ -1171,7 +1062,7 @@ function Grid({
   );
 }
 
-function ProductCard({
+const ProductCard = React.memo(function ProductCard({
   p,
   onPress,
   isAdmin,
@@ -1191,6 +1082,8 @@ function ProductCard({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
       style={({ pressed }) => ({
         opacity: pressed ? 0.94 : 1,
         borderRadius: 22,
@@ -1212,11 +1105,7 @@ function ProductCard({
         }}
       >
         {p.imageUrl ? (
-          <SmartImage
-            uri={p.imageUrl}
-            contentFit="contain"
-            style={{ width: "100%", height: "100%" }}
-          />
+          <SmartImage uri={p.imageUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
         ) : (
           <View
             style={{
@@ -1227,23 +1116,8 @@ function ProductCard({
               paddingHorizontal: 18,
             }}
           >
-            <Text
-              style={{
-                color: "rgba(11,33,56,0.15)",
-                fontWeight: "900",
-                fontSize: 40,
-              }}
-            >
-              VG
-            </Text>
-            <Text
-              style={{
-                color: COLORS.muted2,
-                fontSize: 12,
-                marginTop: 6,
-                textAlign: "center",
-              }}
-            >
+            <Text style={{ color: "rgba(11,33,56,0.15)", fontWeight: "900", fontSize: 40 }}>VG</Text>
+            <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 6, textAlign: "center" }}>
               Foto no disponible
             </Text>
           </View>
@@ -1252,11 +1126,6 @@ function ProductCard({
 
       <View style={{ padding: compact ? 10 : isMobile ? 12 : 14, gap: compact ? 8 : 10 }}>
         <View style={{ gap: 6, alignItems: "center" }}>
-          {/* Antes aquí iba el nombre de la categoría (p. ej. "NINTENDO
-              SWITCH") repetido en cada tarjeta, dentro de la propia página de
-              esa categoría — sobraba. Ahora este hueco lo ocupa el estado
-              (antes era una burbuja flotando sobre la foto); se mantiene la
-              etiqueta de color porque indica el estado, ahora centrada. */}
           <View
             style={{
               alignSelf: "center",
@@ -1271,8 +1140,6 @@ function ProductCard({
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>{badgeLabel}</Text>
           </View>
 
-          {/* Sin numberOfLines/minHeight: el título se ve siempre completo,
-              aunque la tarjeta crezca un poco más de alto. */}
           <Text
             style={{
               color: COLORS.text,
@@ -1285,9 +1152,6 @@ function ProductCard({
             {p.title}
           </Text>
 
-          {/* En tarjeta compacta (móvil, 2 columnas) se omite la descripción:
-              con menos ancho no cabía bien y el título + precio ya bastan
-              para decidir si entrar a ver el producto. */}
           {!compact ? (
             <Text
               style={{
@@ -1306,13 +1170,10 @@ function ProductCard({
           ) : null}
         </View>
 
-        {/* Precio y "Ver más" sin caja envolvente, centrados en la tarjeta */}
         <View style={{ alignItems: "center", gap: 8 }}>
           <View style={{ alignItems: "center", gap: compact ? 8 : 10 }}>
             <View style={{ alignItems: "center" }}>
-              <Text
-                style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700", textAlign: "center" }}
-              >
+              <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
                 Precio
               </Text>
               <Text
@@ -1338,25 +1199,19 @@ function ProductCard({
                 alignItems: "center",
               }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                Ver más
-              </Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Ver más</Text>
             </View>
           </View>
 
           {!compact ? (
-            !isAdmin ? (
-              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
-                Compra segura, con atención directa y envío inmediato tras confirmar el pedido.
-              </Text>
-            ) : (
-              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
-                Estado interno visible solo para gestión.
-              </Text>
-            )
+            <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
+              {isAdmin
+                ? "Estado interno visible solo para gestión."
+                : "Compra segura, con atención directa y envío inmediato tras confirmar el pedido."}
+            </Text>
           ) : null}
         </View>
       </View>
     </Pressable>
   );
-}
+});

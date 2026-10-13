@@ -1,9 +1,11 @@
 /**
  * Qué hace: pantalla de carga de marca ("Videojuegos Zaragoza.com") que se
- * muestra 1 segundo al arrancar la app, antes de montar la navegación.
+ * muestra al arrancar la app, solo mientras llega la fuente de iconos (máx.
+ * 1,5 s; ver app/_layout.tsx), antes de montar la navegación.
  *
- * Cómo funciona: es solo presentación (logo en texto, barra de progreso
- * decorativa y un spinner); no depende de datos ni de Supabase. Sigue el
+ * Cómo funciona: es solo presentación, ligera y centrada (logo en texto, barra
+ * decorativa estática y el spinner nativo; sin animaciones propias ni
+ * imágenes); no depende de datos ni de Supabase. Sigue el
  * tema claro global: fondo blanco, azul claro de acento y texto en azul
  * marino oscuro.
  *
@@ -11,12 +13,7 @@
  * - app/_layout.tsx → la muestra mientras bootLoading es true.
  */
 import React from "react";
-import {
-  ActivityIndicator,
-  Platform,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 
 type BrandLoadingScreenProps = {
   message?: string;
@@ -112,26 +109,6 @@ export default function BrandLoadingScreen({
         >
           {message}
         </Text>
-      </View>
-
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          bottom: Platform.OS === "ios" ? 18 : 12,
-          left: 0,
-          right: 0,
-          alignItems: "center",
-        }}
-      >
-        <View
-          style={{
-            width: 120,
-            height: 5,
-            borderRadius: 999,
-            backgroundColor: "rgba(11,33,56,0.20)",
-          }}
-        />
       </View>
     </View>
   );

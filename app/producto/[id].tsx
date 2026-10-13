@@ -13,10 +13,8 @@
  * puede ver, desde app/admin/chats.tsx, quién le ha escrito por cada
  * artículo y marcarlo como vendido a la persona correcta.
  *
- * Cómo funciona: fetchProductSafe() intenta varias variantes de la consulta
- * (con/sin join de categoría, con/sin columna de imágenes, con/sin
- * like_count) para no romperse si falta alguna columna en la base de datos.
- * pickInitialHeroImage() elige la foto de portada. detectAdmin() decide si
+ * Cómo funciona: fetchProductRow() trae el producto y su categoría en una
+ * sola consulta (join categories). pickInitialHeroImage() elige la foto de portada. detectAdmin() decide si
  * se muestra información extra (estado interno) reservada para el panel de
  * admin.
  *
@@ -26,9 +24,7 @@
  * puede sumar o restar 1 a ese contador (no da acceso a modificar el resto
  * de la fila), así que un visitante sin cuenta también puede dar like. Qué
  * productos ha marcado CADA dispositivo se guarda en AsyncStorage (igual que
- * la cesta), no en Supabase, para no exigir inicio de sesión. Si la tabla
- * todavía no tiene la columna like_count, el botón se deshabilita solo
- * (likesSupported=false) en vez de romper la pantalla.
+ * la cesta), no en Supabase, para no exigir inicio de sesión.
  *
  * "Compartir": usa la Web Share API del navegador (navigator.share) en
  * móvil/web, con copiar el enlace al portapapeles como alternativa en
@@ -68,15 +64,19 @@
  * función todavía no existe en Supabase, el número simplemente no se
  * muestra en vez de romper la ficha.
  *
- * Rendimiento: dentro de loadProduct(), la comprobación de admin y la carga
- * del producto siguen siendo secuenciales a propósito (la segunda necesita
- * saber si eres admin antes de decidir qué puede ver), pero la consulta de
- * categoría y la de fotos/vídeos del producto ya NO dependen entre sí, así
- * que se lanzan juntas con Promise.all en vez de una detrás de otra.
+ * Rendimiento: loadProduct() lanza a la vez (Promise.all) el producto con su
+ * categoría (filtrado a "publicado"), sus fotos/vídeos y los "me gusta"
+ * locales, y pinta la ficha en cuanto llegan. La comprobación de admin
+ * arranca en paralelo y no bloquea: al resolverse ajusta la vista, suma la
+ * visita y registra la analítica. Solo si el producto no aparece como
+ * publicado se espera a saber si eres admin y se repite la consulta sin
+ * filtro (borradores/ocultos, que solo ve el admin).
  *
  * Analítica: al cargar el producto (sin contar visitas del propio admin) se
  * registra el paso "Producto {título}" y el scroll dentro de la ficha
  * dispara "Scroll" (lib/analytics.ts), para el embudo del panel de métricas.
+ * "Añadir a la cesta" y "Comprar ya" registran los eventos de conversión
+ * "add_to_cart" y "buy_now" con { productId, price }.
  *
  * Conectado con:
  * - lib/supabase.ts → tablas products, product_media, categories, profiles.
@@ -356,16 +356,6 @@ function openWhatsApp(prefill: string) {
   }
 }
 
-function isMissingColumnError(error: unknown, columnName: string) {
-  const msg = String((error as any)?.message ?? "").toLowerCase();
-  const col = columnName.toLowerCase();
-
-  return (
-    msg.includes(col) &&
-    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
-  );
-}
-
 function isMissingRelationError(error: unknown, relationName: string) {
   const msg = String((error as any)?.message ?? "").toLowerCase();
   const rel = relationName.toLowerCase();
@@ -478,30 +468,6 @@ async function detectAdmin(): Promise<boolean> {
   }
 }
 
-async function fetchCategoryMapByIds(categoryIds: string[]) {
-  const map = new Map<string, Category>();
-  const uniqueIds = [...new Set(categoryIds.filter(Boolean))];
-
-  if (!uniqueIds.length) return map;
-
-  const { data, error } = await supabase
-    .from("categories")
-    .select("id,name,slug")
-    .in("id", uniqueIds);
-
-  if (error) {
-    if (isMissingRelationError(error, "categories")) return map;
-    throw error;
-  }
-
-  for (const row of asArray<unknown>(data)) {
-    const normalized = asCategory(row);
-    if (normalized) map.set(normalized.id, normalized);
-  }
-
-  return map;
-}
-
 function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | null {
   const imgs = row?.images;
 
@@ -598,80 +564,24 @@ async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[
     .filter((row): row is ProductMediaRow => Boolean(row));
 }
 
-function buildProductSelectVariants(includeLikeCount: boolean, includeReference: boolean) {
-  const extraFrag =
-    (includeLikeCount ? ",like_count" : "") + (includeReference ? ",reference" : "");
+// Columnas reales de products (todas existen ya en Supabase) + su categoría
+// con un join, en UNA sola consulta (antes había hasta 16 variantes con
+// reintentos en cadena por si faltaba alguna columna).
+const PRODUCT_SELECT =
+  "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition,like_count,reference,category:categories(id,name,slug)";
 
-  return {
-    withJoinAndImages: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${extraFrag},category:categories(id,name,slug)`,
-    withJoinBase: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${extraFrag},category:categories(id,name,slug)`,
-    imagesNoJoin: `id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition${extraFrag}`,
-    baseNoJoin: `id,title,description,price_eur,status,is_active,category_id,updated_at,created_at,condition${extraFrag}`,
-  };
-}
+// publicOnly=true añade el filtro de "solo publicados y activos" (lo que ve
+// un cliente); el admin puede abrir también borradores y productos ocultos.
+async function fetchProductRow(productId: string, publicOnly: boolean): Promise<ProductDbRow | null> {
+  let query = supabase.from("products").select(PRODUCT_SELECT).eq("id", productId);
 
-// Devuelve la fila y si el "me gusta" y el número de referencia están
-// disponibles: si a la tabla products todavía le falta like_count (falta
-// ejecutar sql/product_likes.sql) o reference (falta sql/product_reference.sql),
-// se reintenta toda la consulta sin la columna que falte en vez de romper
-// la ficha de producto.
-async function fetchProductSafe(
-  productId: string,
-  adminFlag: boolean
-): Promise<{ row: ProductDbRow | null; likesSupported: boolean; referenceSupported: boolean }> {
-  for (const includeLikeCount of [true, false]) {
-    for (const includeReference of [true, false]) {
-      const variants = buildProductSelectVariants(includeLikeCount, includeReference);
-      const attempts = [
-        variants.withJoinAndImages,
-        variants.withJoinBase,
-        variants.imagesNoJoin,
-        variants.baseNoJoin,
-      ];
-
-      let missingOptionalColumn = false;
-
-      for (const selectStr of attempts) {
-        let query = supabase.from("products").select(selectStr).eq("id", productId);
-
-        if (!adminFlag) {
-          query = query.eq("is_active", true).eq("status", "PUBLISHED");
-        }
-
-        const res = await query.maybeSingle();
-
-        if (!res.error) {
-          return {
-            row: asProductDbRow(res.data),
-            likesSupported: includeLikeCount,
-            referenceSupported: includeReference,
-          };
-        }
-
-        if (
-          (includeLikeCount && isMissingColumnError(res.error, "like_count")) ||
-          (includeReference && isMissingColumnError(res.error, "reference"))
-        ) {
-          missingOptionalColumn = true;
-          break;
-        }
-
-        const canFallback =
-          isMissingColumnError(res.error, "images") ||
-          isMissingRelationError(res.error, "categories") ||
-          isMissingColumnError(res.error, "slug") ||
-          isMissingColumnError(res.error, "name");
-
-        if (!canFallback) {
-          throw res.error;
-        }
-      }
-
-      if (!missingOptionalColumn) break;
-    }
+  if (publicOnly) {
+    query = query.eq("is_active", true).eq("status", "PUBLISHED");
   }
 
-  return { row: null, likesSupported: false, referenceSupported: false };
+  const res = await query.maybeSingle();
+  if (res.error) throw res.error;
+  return asProductDbRow(res.data);
 }
 
 export default function ProductoScreen() {
@@ -693,7 +603,6 @@ export default function ProductoScreen() {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [likeBusy, setLikeBusy] = useState(false);
-  const [likesSupported, setLikesSupported] = useState(true);
   const [viewCount, setViewCount] = useState<number | null>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   // Segunda mano: cada ficha es una unidad única, así que siempre se compra 1 (sin selector).
@@ -775,64 +684,48 @@ ${price}
     setLoading(true);
     setErr(null);
 
-    try {
-      const adminFlag = await detectAdmin();
-      if (seq !== reqSeqRef.current) return;
-      setIsAdmin(adminFlag);
+    setViewCount(null);
 
-      const { row: productRow, likesSupported: likesOk } = await fetchProductSafe(
-        productId,
-        adminFlag
-      );
+    // Lo secundario (¿eres admin?) arranca ya, en paralelo, pero no bloquea
+    // el pintado de la ficha.
+    const adminPromise = detectAdmin();
+
+    try {
+      // Lo principal, todo a la vez: producto + categoría (una consulta con
+      // join), sus fotos/vídeos (solo dependen del id de la URL) y los "me
+      // gusta" de este dispositivo (AsyncStorage, local).
+      const [publicRow, mediaRows, likedIds] = await Promise.all([
+        fetchProductRow(productId, true),
+        loadProductMediaRows(productId).catch((e) => {
+          // Sin galería la ficha sigue sirviendo (queda products.images).
+          console.error("Error cargando las fotos del producto:", e);
+          return [] as ProductMediaRow[];
+        }),
+        getLikedProductIds(),
+      ]);
       if (seq !== reqSeqRef.current) return;
-      setLikesSupported(likesOk);
+
+      // Borradores u ocultos: solo los ve el admin, así que únicamente en ese
+      // caso (raro) se espera a saber si eres admin y se repite la consulta
+      // sin el filtro de "publicado".
+      let productRow = publicRow;
+      if (!productRow && (await adminPromise)) {
+        if (seq !== reqSeqRef.current) return;
+        productRow = await fetchProductRow(productId, false);
+      }
+      if (seq !== reqSeqRef.current) return;
 
       if (!productRow) {
         setP(null);
         setSelectedImageUrl(null);
-        setViewCount(null);
         setErr(
           "Este producto no existe o ya no está disponible para la venta. Prueba a volver al catálogo para ver el resto de artículos."
         );
         return;
       }
 
-      // Contador de visitas REAL (ver sql/product_views.sql): se suma 1 en
-      // cada carga real de la ficha, salvo cuando la abre el propio admin
-      // (esas no son visitas de clientes). No bloquea el resto de la
-      // pantalla: si la función todavía no existe en Supabase (falta
-      // ejecutar el script) o falla por lo que sea, simplemente no se
-      // muestra el número, sin romper la ficha.
-      if (!adminFlag) {
-        supabase
-          .rpc("increment_product_view", { product_id: productRow.id })
-          .then(
-            ({ data, error }) => {
-              if (seq !== reqSeqRef.current) return;
-              if (!error && typeof data === "number") setViewCount(data);
-            },
-            () => {} // sin red o sin permiso: simplemente no se muestra el número
-          );
-      } else {
-        setViewCount(null);
-      }
-
-      // Estas dos consultas no dependen entre sí (solo del producto que ya
-      // tenemos), así que se lanzan a la vez en vez de una detrás de otra —
-      // se ahorra una ida y vuelta a la red completa en cada ficha de
-      // producto, algo que se nota sobre todo en móvil con red lenta.
-      const [categoryMap, mediaRows] = await Promise.all([
-        fetchCategoryMapByIds(productRow.category_id ? [productRow.category_id] : []),
-        loadProductMediaRows(productRow.id),
-      ]);
-      if (seq !== reqSeqRef.current) return;
-
       const normalizedMedia = normalizeProductMediaRows(mediaRows);
       const heroImage = pickInitialHeroImage(productRow, normalizedMedia);
-
-      const category =
-        productRow.category ||
-        (productRow.category_id ? categoryMap.get(productRow.category_id) ?? null : null);
 
       const mapped: Product = {
         id: productRow.id,
@@ -842,7 +735,7 @@ ${price}
         status: mapDbStatusToUi(productRow.status),
         isActive: Boolean(productRow.is_active),
         imageUrl: heroImage,
-        category,
+        category: productRow.category,
         media: normalizedMedia,
         condition: asProductCondition(productRow.condition),
         likeCount: Math.max(0, Number(productRow.like_count ?? 0)),
@@ -852,19 +745,37 @@ ${price}
       setP(mapped);
       setSelectedImageUrl(heroImage);
       setLikeCount(mapped.likeCount);
+      setLiked(likedIds.has(mapped.id));
+      // La ficha se pinta ya: lo que sigue (admin, visitas, analítica) llega
+      // después sin bloquear.
+      setLoading(false);
 
-      // Analítica: igual que el contador de visitas, no se cuentan las
-      // aperturas del propio admin revisando su catálogo.
-      if (!adminFlag) {
+      adminPromise.then((adminFlag) => {
+        if (seq !== reqSeqRef.current) return;
+        setIsAdmin(adminFlag);
+        if (adminFlag) return;
+
+        // Contador de visitas REAL (ver sql/product_views.sql): se suma 1 en
+        // cada carga real de la ficha, salvo cuando la abre el propio admin
+        // (esas no son visitas de clientes). Si la función falla, simplemente
+        // no se muestra el número, sin romper la ficha.
+        supabase
+          .rpc("increment_product_view", { product_id: mapped.id })
+          .then(
+            ({ data, error }) => {
+              if (seq !== reqSeqRef.current) return;
+              if (!error && typeof data === "number") setViewCount(data);
+            },
+            () => {} // sin red o sin permiso: simplemente no se muestra el número
+          );
+
+        // Analítica: igual que el contador de visitas, no se cuentan las
+        // aperturas del propio admin revisando su catálogo.
         trackEvent("page_view", `Producto ${mapped.title}`, {
           path: `/producto/${mapped.id}`,
           metadata: { productId: mapped.id, category: mapped.category?.name ?? null },
         });
-      }
-
-      const likedIds = await getLikedProductIds();
-      if (seq !== reqSeqRef.current) return;
-      setLiked(likedIds.has(mapped.id));
+      });
     } catch (e: any) {
       if (seq !== reqSeqRef.current) return;
       console.error("Error cargando el producto:", e);
@@ -1014,6 +925,16 @@ ${price}
 
       await saveCart(next);
 
+      // Conversión: sin await, la analítica nunca retrasa la navegación.
+      trackEvent(
+        mode === "buyNow" ? "buy_now" : "add_to_cart",
+        mode === "buyNow" ? "Comprar ya" : "Añadir a la cesta",
+        {
+          path: `/producto/${p.id}`,
+          metadata: { productId: p.id, price: p.priceEUR },
+        }
+      );
+
       if (mode === "buyNow") {
         replaceRoute("/checkout" as Href);
       } else {
@@ -1049,7 +970,7 @@ ${price}
   }
 
   async function toggleLike() {
-    if (!p || !likesSupported || likeBusy) return;
+    if (!p || likeBusy) return;
 
     const nextLiked = !liked;
     const delta = nextLiked ? 1 : -1;
@@ -1402,9 +1323,9 @@ ${price}
 
                   <Pressable
                     onPress={toggleLike}
-                    disabled={!likesSupported || likeBusy}
+                    disabled={likeBusy}
                     style={({ pressed }) => ({
-                      opacity: !likesSupported ? 0.5 : pressed ? 0.85 : 1,
+                      opacity: pressed ? 0.85 : 1,
                       minWidth: 32,
                       height: 32,
                       borderRadius: 16,

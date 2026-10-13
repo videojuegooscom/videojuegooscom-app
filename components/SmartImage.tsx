@@ -15,7 +15,10 @@
  * - cachePolicy="memory-disk": una foto que ya se vio una vez (por ejemplo
  *   en catálogo) no se vuelve a descargar al verla otra vez en la ficha de
  *   producto o en el carrito — aparece al instante.
- * - transition: fundido de entrada de 250ms en vez de aparición brusca.
+ * - transition: fundido de entrada corto (150ms) en vez de aparición brusca.
+ * - priority: "normal" por defecto; "high" opcional para la foto principal.
+ *   Las fotos se descargan siempre en segundo plano (nunca bloquean pantalla
+ *   ni toques), así que las que quedan fuera de pantalla no frenan nada.
  * - recyclingKey={uri}: si una tarjeta cambia de foto (p. ej. al recorrer
  *   una lista), no se ve un instante la foto anterior antes de la nueva.
  * - contentFit en vez de resizeMode (nombre que usa expo-image), con los
@@ -44,9 +47,11 @@
  * lib/loadingBus.ts → a quien avisa mientras carga.
  */
 import React, { useEffect, useRef } from "react";
-import { Image, type ImageContentFit, type ImageStyle } from "expo-image";
+import { Image, type ImageContentFit, type ImageProps, type ImageStyle } from "expo-image";
 import type { StyleProp } from "react-native";
 import { markEnd, markStart } from "../lib/loadingBus";
+
+type ImagePriority = NonNullable<ImageProps["priority"]>;
 
 // Si una foto concreta nunca llega a avisar de que terminó (fallo raro de
 // red), se cierra su cuenta igualmente pasado este tiempo — para que la
@@ -61,14 +66,17 @@ export type SmartImageProps = {
   /** Duración del fundido de entrada, en ms. */
   transitionMs?: number;
   accessibilityLabel?: string;
+  /** Prioridad de descarga (opcional): "high" para la foto principal visible al entrar. */
+  priority?: ImagePriority;
 };
 
 export default function SmartImage({
   uri,
   style,
   contentFit = "cover",
-  transitionMs = 250,
+  transitionMs = 150,
   accessibilityLabel,
+  priority = "normal",
 }: SmartImageProps) {
   const loadingRef = useRef(false);
   const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,7 +110,6 @@ export default function SmartImage({
     return () => {
       endTrackedLoad();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uri]);
 
   if (!uri) return null;
@@ -114,6 +121,7 @@ export default function SmartImage({
       contentFit={contentFit}
       cachePolicy="memory-disk"
       transition={transitionMs}
+      priority={priority}
       recyclingKey={uri}
       accessibilityLabel={accessibilityLabel}
       onLoadStart={handleLoadStart}

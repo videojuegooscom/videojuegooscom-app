@@ -54,6 +54,9 @@
  *   cada tecla. Para que el memo funcione de verdad, onReact/onReply se le
  *   pasan tal cual (handleReact/handleReply, ya memorizadas con useCallback)
  *   en vez de envolverlas en una función nueva por mensaje en cada render.
+ *   Los canales Realtime (mensajes, reacciones y presencia) solo están
+ *   abiertos mientras la pestaña está enfocada (useFocusEffect) y
+ *   VenderAhoraModal no se monta hasta la primera vez que se abre.
  *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
@@ -74,7 +77,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useLocalSearchParams, type Href } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -278,6 +281,10 @@ export default function ChatGlobalScreen() {
   const [reactionRows, setReactionRows] = useState<ReactionRow[]>([]);
   const [replyTarget, setReplyTarget] = useState<MessageItem | null>(null);
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  // VenderAhoraModal es grande: no se monta hasta la primera vez que se abre
+  // (y luego se queda montado para conservar su animación de cierre).
+  const [sellModalMounted, setSellModalMounted] = useState(false);
+  if (sellModalOpen && !sellModalMounted) setSellModalMounted(true);
   const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
   // Al leer historial hacia arriba se ocultan el compositor, el botón de
   // enviar, el de información y el de "viendo ahora"; al volver a bajar
@@ -294,6 +301,7 @@ export default function ChatGlobalScreen() {
   const lastScrollYRef = useRef(0);
   const isNearBottomRef = useRef(true);
   const hasScrolledInitialRef = useRef(false);
+  const hasLoadedMessagesRef = useRef(false);
 
   const isLoggedIn = !!currentUserId;
 
@@ -359,71 +367,84 @@ export default function ChatGlobalScreen() {
   // Mensajes reales: carga los últimos 100 al entrar (y sus reacciones) y
   // luego escucha en directo los mensajes y reacciones nuevos de cualquier
   // usuario (tiempo real).
-  useEffect(() => {
-    let active = true;
+  //
+  // Rendimiento: los canales en tiempo real solo están abiertos mientras esta
+  // pestaña está enfocada (useFocusEffect). Al irse a otra pantalla se cierran
+  // con supabase.removeChannel (no gastan datos ni batería) y al volver se
+  // reabren y se recargan los mensajes en silencio, para no perder los que
+  // llegaron mientras tanto.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
 
-    (async () => {
-      setLoadError(null);
-      setLoadingMessages(true);
+      (async () => {
+        setLoadError(null);
+        // El indicador de carga solo se muestra la primera vez; al volver a
+        // la pestaña se refresca sin vaciar la lista.
+        if (!hasLoadedMessagesRef.current) setLoadingMessages(true);
 
-      try {
-        const initial = await fetchInitialMessages();
-        if (!active) return;
-        setMessages(initial);
+        try {
+          const initial = await fetchInitialMessages();
+          if (!active) return;
+          setMessages(initial);
+          hasLoadedMessagesRef.current = true;
 
-        const initialReactions = await fetchReactionsForMessages(initial.map((m) => m.id));
-        if (active) setReactionRows(initialReactions);
-      } catch (e: any) {
-        console.error("Error cargando el chat:", e);
-        if (active) setLoadError("No se pudo cargar el chat. Inténtalo de nuevo.");
-      } finally {
-        if (active) setLoadingMessages(false);
-      }
-    })();
-
-    const channel = supabase
-      .channel("chat_messages_live")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "chat_messages" },
-        (payload) => {
-          const row = payload.new as unknown as ChatMessageRow;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === row.id)) return prev;
-            return [...prev, rowToMessageItem(row)];
-          });
+          const initialReactions = await fetchReactionsForMessages(initial.map((m) => m.id));
+          if (active) setReactionRows(initialReactions);
+        } catch (e: any) {
+          console.error("Error cargando el chat:", e);
+          if (active) setLoadError("No se pudo cargar el chat. Inténtalo de nuevo.");
+        } finally {
+          if (active) setLoadingMessages(false);
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "chat_message_reactions" },
-        (payload) => {
-          if (payload.eventType === "DELETE") {
-            const old = payload.old as Partial<ReactionRow>;
-            setReactionRows((prev) =>
-              prev.filter(
-                (r) => !(r.message_id === old.message_id && r.user_id === old.user_id)
-              )
-            );
-            return;
+      })();
+
+      const channel = supabase
+        .channel("chat_messages_live")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "chat_messages" },
+          (payload) => {
+            if (!active) return;
+            const row = payload.new as unknown as ChatMessageRow;
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === row.id)) return prev;
+              return [...prev, rowToMessageItem(row)];
+            });
           }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "chat_message_reactions" },
+          (payload) => {
+            if (!active) return;
+            if (payload.eventType === "DELETE") {
+              const old = payload.old as Partial<ReactionRow>;
+              setReactionRows((prev) =>
+                prev.filter(
+                  (r) => !(r.message_id === old.message_id && r.user_id === old.user_id)
+                )
+              );
+              return;
+            }
 
-          const row = payload.new as unknown as ReactionRow;
-          setReactionRows((prev) => {
-            const withoutOld = prev.filter(
-              (r) => !(r.message_id === row.message_id && r.user_id === row.user_id)
-            );
-            return [...withoutOld, row];
-          });
-        }
-      )
-      .subscribe();
+            const row = payload.new as unknown as ReactionRow;
+            setReactionRows((prev) => {
+              const withoutOld = prev.filter(
+                (r) => !(r.message_id === row.message_id && r.user_id === row.user_id)
+              );
+              return [...withoutOld, row];
+            });
+          }
+        )
+        .subscribe();
 
-    return () => {
-      active = false;
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => {
+        active = false;
+        supabase.removeChannel(channel);
+      };
+    }, [])
+  );
 
   // Cuando llega un mensaje nuevo (o se entra en la pestaña Chat), baja la
   // pantalla para que se vea el mensaje más reciente — pero solo si ya
@@ -444,25 +465,31 @@ export default function ChatGlobalScreen() {
 
   // Contador real de "viendo ahora": Supabase Realtime Presence cuenta a
   // cualquiera que tenga esta pantalla abierta ahora mismo (con sesión o
-  // sin ella), sin tocar ninguna tabla — es solo por socket.
-  useEffect(() => {
-    const channel = supabase.channel("chat_global_presence");
+  // sin ella), sin tocar ninguna tabla — es solo por socket. Igual que los
+  // mensajes, el canal solo está abierto mientras la pestaña está enfocada.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      const channel = supabase.channel("chat_global_presence");
 
-    channel
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        setViewerCount(Object.keys(state).length);
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await channel.track({ online_at: new Date().toISOString() });
-        }
-      });
+      channel
+        .on("presence", { event: "sync" }, () => {
+          if (!active) return;
+          const state = channel.presenceState();
+          setViewerCount(Object.keys(state).length);
+        })
+        .subscribe(async (status) => {
+          if (status === "SUBSCRIBED" && active) {
+            await channel.track({ online_at: new Date().toISOString() });
+          }
+        });
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => {
+        active = false;
+        supabase.removeChannel(channel);
+      };
+    }, [])
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -970,7 +997,9 @@ export default function ChatGlobalScreen() {
       </View>
     </SafeAreaView>
 
-    <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+    {sellModalMounted ? (
+      <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+    ) : null}
     </>
   );
 }
