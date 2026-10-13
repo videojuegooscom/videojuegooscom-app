@@ -44,6 +44,12 @@ import PromoBanner from "../../components/PromoBanner";
 import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
+import {
+  formatoCuentaAtras,
+  liberarReserva,
+  RESERVA_MINUTOS,
+  reservarProducto,
+} from "../../lib/reservas";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
@@ -197,6 +203,8 @@ type CartItem = {
   priceEUR: number;
   qty: number;
   imageUrl?: string | null;
+  // Fin de la reserva de 15 minutos (ms), ver lib/reservas.ts.
+  reservedUntil?: number;
 };
 
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";
@@ -274,6 +282,7 @@ function asCartItem(value: unknown): CartItem | null {
     priceEUR: Number(row.priceEUR ?? 0),
     qty,
     imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : null,
+    reservedUntil: Number.isFinite(Number(row.reservedUntil)) ? Number(row.reservedUntil) : undefined,
   };
 }
 
@@ -548,13 +557,38 @@ export default function CestaScreen() {
     async (id: string) => {
       const next = items.filter((it) => it.id !== id);
       await persist(next);
+      liberarReserva(id);
     },
     [items, persist]
   );
 
   const clear = useCallback(async () => {
+    const ids = items.map((it) => it.id);
     await persist([]);
-  }, [persist]);
+    ids.forEach((id) => liberarReserva(id));
+  }, [items, persist]);
+
+  // Reloj de la cuenta atrás de la reserva (un tic por segundo mientras haya artículos).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!items.length) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [items.length]);
+
+  // Al acabar los 15 minutos el artículo sale de la cesta y queda libre para otros.
+  useEffect(() => {
+    const caducados = items.filter((it) => (it.reservedUntil ?? 0) <= now);
+    if (!caducados.length) return;
+    const next = items.filter((it) => (it.reservedUntil ?? 0) > now);
+    persist(next);
+    caducados.forEach((it) => liberarReserva(it.id));
+    setErr(
+      caducados.length === 1
+        ? `Se acabó la reserva de "${caducados[0].title}". Si sigue disponible, puedes volver a añadirlo.`
+        : "Se acabó la reserva de algunos artículos. Si siguen disponibles, puedes volver a añadirlos."
+    );
+  }, [now, items, persist]);
 
   const bootstrap = useCallback(async () => {
     setErr(null);
@@ -562,7 +596,17 @@ export default function CestaScreen() {
 
     try {
       // Cestas guardadas antes de este cambio podían tener más de 1 unidad: se deja en 1.
-      const stored = (await loadCart()).map((it) => ({ ...it, qty: 1 }));
+      // Las que no tenían reserva (anteriores a esta versión) intentan reservarse ahora.
+      const loaded = (await loadCart()).map((it) => ({ ...it, qty: 1 }));
+      const stored: CartItem[] = [];
+      for (const it of loaded) {
+        if (it.reservedUntil) {
+          stored.push(it);
+          continue;
+        }
+        const reserva = await reservarProducto(it.id);
+        if (reserva.ok) stored.push({ ...it, reservedUntil: reserva.hasta });
+      }
       setItems(stored);
       await saveCart(stored);
     } catch (e: any) {
@@ -594,7 +638,15 @@ export default function CestaScreen() {
           return;
         }
 
-        const next = [fetched, ...items];
+        const reserva = await reservarProducto(productId);
+        if (!reserva.ok) {
+          setErr(
+            `Otro cliente tiene este artículo en su cesta. Se reserva ${RESERVA_MINUTOS} minutos: vuelve a mirar en un rato.`
+          );
+          return;
+        }
+
+        const next = [{ ...fetched, reservedUntil: reserva.hasta }, ...items];
         await persist(next);
       } catch (e: any) {
         console.error("Error añadiendo producto a la cesta:", e);
@@ -645,18 +697,9 @@ export default function CestaScreen() {
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 640, gap: 10 }}>
             {!!err && (
-              <View
-                style={{
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: "#F5B5B5",
-                  backgroundColor: "#FDECEC",
-                  padding: 10,
-                }}
-              >
-                <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>Atención</Text>
-                <Text style={{ color: "#7A271A", marginTop: 4, textAlign: "center" }}>{err}</Text>
-              </View>
+              <Text style={{ color: "#B91C1C", fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                {err}
+              </Text>
             )}
 
             {adding ? (
@@ -696,29 +739,8 @@ export default function CestaScreen() {
         >
           <View style={{ width: "100%", maxWidth: 640, gap: 12 }}>
           {items.length === 0 ? (
-            <View
-              style={{
-                borderRadius: 24,
-                backgroundColor: COLORS.card,
-                padding: 24,
-                gap: 12,
-                alignItems: "center",
-              }}
-            >
-              <View
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 28,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: COLORS.accent2,
-                  borderWidth: 1,
-                  borderColor: COLORS.accentBorder,
-                }}
-              >
-                <Ionicons name="cart-outline" size={26} color={COLORS.accent} />
-              </View>
+            <View style={{ paddingVertical: 24, gap: 12, alignItems: "center" }}>
+              <Ionicons name="cart-outline" size={34} color={COLORS.accent} />
 
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
                 Tu cesta está vacía
@@ -734,79 +756,55 @@ export default function CestaScreen() {
             </View>
           ) : (
             <View style={{ gap: 12 }}>
-              {items.map((it) => (
+              {items.map((it, idx) => (
                 <View
                   key={it.id}
                   style={{
-                    borderRadius: 24,
-                    backgroundColor: COLORS.card,
-                    padding: 16,
-                    gap: 12,
+                    paddingVertical: 16,
+                    gap: 10,
+                    alignItems: "center",
+                    borderTopWidth: idx === 0 ? 0 : 1,
+                    borderTopColor: COLORS.border,
                   }}
                 >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      gap: 12,
-                    }}
-                  >
-                    {/* Miniatura del artículo, misma foto de portada que en
-                        el catálogo y la ficha de producto. Si no hay foto,
-                        mostramos un recuadro con icono a modo de marcador. */}
-                    {it.imageUrl ? (
-                      <Image
-                        source={{ uri: it.imageUrl }}
-                        style={{
-                          width: 64,
-                          height: 64,
-                          borderRadius: 16,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: COLORS.cardSoft,
-                        }}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View
-                        style={{
-                          width: 64,
-                          height: 64,
-                          borderRadius: 16,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: COLORS.cardSoft,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Ionicons name="image-outline" size={24} color={COLORS.mutedSoft} />
-                      </View>
-                    )}
+                  {/* Miniatura del artículo, misma foto de portada que en
+                      el catálogo y la ficha de producto. Si no hay foto,
+                      se muestra un icono a modo de marcador. */}
+                  {it.imageUrl ? (
+                    <Image
+                      source={{ uri: it.imageUrl }}
+                      style={{ width: 88, height: 88, borderRadius: 16 }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Ionicons name="image-outline" size={34} color={COLORS.mutedSoft} />
+                  )}
 
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900" }}>
-                        {it.title}
-                      </Text>
+                  <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900", textAlign: "center" }}>
+                    {it.title}
+                  </Text>
 
-                      {it.subtitle ? (
-                        <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 20 }}>
-                          {it.subtitle}
-                        </Text>
-                      ) : null}
-                    </View>
-
-                    <Text style={{ color: COLORS.gold, fontSize: 16, fontWeight: "900" }}>
-                      {fmtEUR(it.priceEUR * it.qty)}
+                  {it.subtitle ? (
+                    <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+                      {it.subtitle}
                     </Text>
-                  </View>
+                  ) : null}
+
+                  <Text style={{ color: COLORS.gold, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
+                    {fmtEUR(it.priceEUR * it.qty)}
+                  </Text>
+
+                  {/* Reserva de 15 minutos: al llegar a 0 sale de la cesta. */}
+                  <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
+                    Reservado para ti · {formatoCuentaAtras((it.reservedUntil ?? 0) - now)}
+                  </Text>
 
                   {/*
                     Segunda mano: cada artículo es una unidad única, así que no hay
                     selector de cantidad; solo se puede quitar.
                   */}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5 }}>
+                  <View style={{ alignItems: "center", gap: 8 }}>
+                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
                       Unidad única
                     </Text>
                     <AnimatedPressable
@@ -834,7 +832,7 @@ export default function CestaScreen() {
               <AnimatedPressable
                 onPress={clear}
                 style={{
-                  alignSelf: "flex-start",
+                  alignSelf: "center",
                   borderRadius: 999,
                   borderWidth: 1,
                   borderColor: "#E3EAF2",
@@ -850,13 +848,13 @@ export default function CestaScreen() {
 
           <View
             style={{
-              borderRadius: 24,
-              backgroundColor: COLORS.cardSoft,
-              padding: 18,
+              paddingTop: 18,
+              borderTopWidth: 1,
+              borderTopColor: COLORS.border,
               gap: 12,
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
               Resumen del pedido
             </Text>
 
@@ -885,13 +883,7 @@ export default function CestaScreen() {
 
           <CategoryProductsShelf />
 
-          <View
-            style={{
-              borderRadius: 24,
-              backgroundColor: COLORS.cardSoft,
-              padding: 18,
-            }}
-          >
+          <View style={{ paddingVertical: 12, alignItems: "center" }}>
             <SocialLinks />
           </View>
           </View>
@@ -918,11 +910,13 @@ function Row({
   freeBadge?: boolean;
 }) {
   return (
+    // Etiqueta y valor juntos y centrados (nada pegado a los lados).
     <View
       style={{
         flexDirection: "row",
-        justifyContent: "space-between",
+        justifyContent: "center",
         alignItems: "center",
+        gap: 8,
       }}
     >
       <Text
@@ -931,7 +925,7 @@ function Row({
           fontWeight: strong ? "900" : "700",
         }}
       >
-        {label}
+        {label}:
       </Text>
       {freeBadge ? (
         <Badge text="Gratis" tone="success" />

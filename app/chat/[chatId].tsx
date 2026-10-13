@@ -29,11 +29,8 @@ import ProductChatThread from "../../components/ProductChatThread";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  accent: "#1EA7E8",
 };
 
 export default function ChatScreen() {
@@ -62,16 +59,16 @@ export default function ChatScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera limpia: volver a la izquierda, título centrado y un hueco
+          igual a la derecha para que el título quede en el centro exacto. */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
+          justifyContent: "center",
           gap: 10,
           paddingHorizontal: 12,
           paddingVertical: Platform.OS === "web" ? 12 : 8,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-          backgroundColor: COLORS.bg2,
         }}
       >
         <Pressable
@@ -88,7 +85,14 @@ export default function ChatScreen() {
           <Ionicons name="chevron-back" size={22} color={COLORS.text} />
         </Pressable>
 
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Chat con la tienda</Text>
+        <Text
+          numberOfLines={1}
+          style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}
+        >
+          Chat con la tienda
+        </Text>
+
+        <View style={{ width: 36 }} />
       </View>
 
       {checking || !chatId ? (

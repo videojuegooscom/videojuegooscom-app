@@ -157,20 +157,28 @@ function ServiceCard({ s, onPress, compact }: { s: Service; onPress: () => void;
         )}
       </View>
 
-      <View style={{ padding: 14, gap: 6 }}>
+      <View style={{ padding: 14, gap: 6, alignItems: "center" }}>
         {/* Sin numberOfLines: el título se ve siempre completo, igual que en
             app/catalogo.tsx (antes se recortaba a 2 líneas con "..."). */}
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 20 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
           {s.title}
         </Text>
         {!!s.description && (
-          <Text numberOfLines={2} style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 17 }}>
+          <Text
+            numberOfLines={2}
+            style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 17, textAlign: "center" }}
+          >
             {clampText(s.description, 90)}
           </Text>
         )}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16 }}>{fmtEUR(s.priceEUR)}</Text>
-          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12 }}>Ver servicio →</Text>
+        {/* Precio y enlace apilados y centrados */}
+        <View style={{ alignItems: "center", gap: 2, marginTop: 4 }}>
+          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+            {fmtEUR(s.priceEUR)}
+          </Text>
+          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+            Ver servicio →
+          </Text>
         </View>
       </View>
     </Pressable>
@@ -246,14 +254,18 @@ export default function ServiciosScreen() {
             >
               <Ionicons name="chevron-back" size={22} color={COLORS.text} />
             </Pressable>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900" }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text
+                style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900", textAlign: "center" }}
+              >
                 Reparación y limpieza
               </Text>
-              <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2 }}>
+              <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2, textAlign: "center" }}>
                 Servicios profesionales para tus dispositivos: repara, limpia o dales mantenimiento.
               </Text>
             </View>
+            {/* Hueco del mismo ancho que el botón de volver: así el título queda centrado de verdad */}
+            <View style={{ width: 36 }} />
           </View>
 
           <View
@@ -288,17 +300,7 @@ export default function ServiciosScreen() {
               <ActivityIndicator color={COLORS.accent} />
             </View>
           ) : err ? (
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: COLORS.card,
-                padding: 20,
-                alignItems: "center",
-                gap: 10,
-              }}
-            >
+            <View style={{ alignItems: "center", gap: 10, paddingVertical: 20 }}>
               <Ionicons name="alert-circle-outline" size={24} color={COLORS.muted} />
               <Text style={{ color: COLORS.text, textAlign: "center", lineHeight: 20 }}>{err}</Text>
               <Pressable
@@ -317,19 +319,9 @@ export default function ServiciosScreen() {
               </Pressable>
             </View>
           ) : filtered.length === 0 ? (
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: COLORS.card,
-                padding: 24,
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
+            <View style={{ alignItems: "center", gap: 8, paddingVertical: 24 }}>
               <Ionicons name="construct-outline" size={26} color={COLORS.muted} />
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
                 Todavía no hay servicios publicados
               </Text>
               <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
@@ -337,7 +329,7 @@ export default function ServiciosScreen() {
               </Text>
             </View>
           ) : (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14 }}>
               {filtered.map((s) => (
                 <View key={s.id} style={{ width: `${100 / columns - 1.2}%` as any }}>
                   <ServiceCard s={s} compact={columns >= 3} onPress={() => router.push(`/servicio/${s.id}` as any)} />

@@ -54,7 +54,6 @@ const COLORS = {
   bg3: "#F6FAFD",
   card: "#F6FAFD",
   border: "#E3EAF2",
-  borderSoft: "#EEF3F8",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
@@ -116,34 +115,21 @@ type Service = {
   media: ServiceMedia[];
 };
 
+// Punto de confianza: texto limpio, sin burbuja envolvente
 function Pill({ text }: { text: string }) {
   return (
-    <View
-      style={{
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.bg3,
-      }}
-    >
-      <Text style={{ color: "rgba(11,33,56,0.78)", fontWeight: "800", fontSize: 12.5 }}>{text}</Text>
-    </View>
+    <Text style={{ color: "rgba(11,33,56,0.78)", fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+      {text}
+    </Text>
   );
 }
 
-function InfoRow({ label, value, isMobile }: { label: string; value: string; isMobile?: boolean }) {
+// Dato de la ficha: etiqueta y valor apilados y centrados
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View
-      style={{
-        flexDirection: isMobile ? "column" : "row",
-        justifyContent: "space-between",
-        gap: isMobile ? 2 : 10,
-      }}
-    >
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12.5 }}>{label}</Text>
-      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{value}</Text>
+    <View style={{ alignItems: "center", gap: 2 }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>{value}</Text>
     </View>
   );
 }
@@ -327,25 +313,18 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
           <Text style={{ color: COLORS.muted }}>Cargando servicio…</Text>
         </View>
       ) : err ? (
-        <View style={{ padding: pagePadding, gap: 12 }}>
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: "#F5B5B5",
-              backgroundColor: "#FDECEC",
-              padding: 14,
-              gap: 6,
-            }}
-          >
-            <Text style={{ color: "#B91C1C", fontWeight: "900" }}>No se ha podido cargar el servicio</Text>
-            <Text style={{ color: "#7A271A", lineHeight: 20 }}>{err}</Text>
+        <View style={{ padding: pagePadding, gap: 12, alignItems: "center" }}>
+          <View style={{ alignItems: "center", gap: 6 }}>
+            <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
+              No se ha podido cargar el servicio
+            </Text>
+            <Text style={{ color: "#7A271A", lineHeight: 20, textAlign: "center" }}>{err}</Text>
           </View>
           <Pressable
             onPress={load}
             style={({ pressed }) => ({
               opacity: pressed ? 0.88 : 1,
-              alignSelf: "flex-start",
+              alignSelf: "center",
               borderRadius: 999,
               paddingVertical: 10,
               paddingHorizontal: 16,
@@ -360,14 +339,14 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
       ) : s ? (
         <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: "center" }}>
           <View style={{ width: "100%", maxWidth: 1240, gap: 16 }}>
-            <View>
+            <View style={{ alignItems: "center" }}>
               <Text
                 style={{
                   color: COLORS.text,
                   fontSize: isMobile ? 24 : 28,
                   fontWeight: "900",
                   lineHeight: isMobile ? 30 : 32,
-                  textAlign: isMobile ? "center" : "left",
+                  textAlign: "center",
                 }}
                 numberOfLines={isMobile ? 3 : 2}
               >
@@ -378,7 +357,7 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                   color: COLORS.muted,
                   marginTop: 6,
                   lineHeight: 20,
-                  textAlign: isMobile ? "center" : "left",
+                  textAlign: "center",
                 }}
               >
                 Servicio profesional · Reparación y limpieza
@@ -492,24 +471,16 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                 ) : null}
               </View>
 
-              <View style={{ flex: isWide ? 0.92 : undefined, minWidth: 0, gap: 14 }}>
-                <View
-                  style={{
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 14 : 18,
-                    gap: 12,
-                  }}
-                >
+              <View style={{ flex: isWide ? 0.92 : undefined, minWidth: 0, gap: 22 }}>
+                {/* Bloque de compra: sin tarjeta envolvente, todo centrado */}
+                <View style={{ gap: 14 }}>
                   <View
                     style={{
                       flexDirection: "row",
                       flexWrap: "wrap",
                       alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
+                      justifyContent: "center",
+                      gap: 14,
                     }}
                   >
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -529,7 +500,15 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                     )}
                   </View>
 
-                  <Text style={{ color: COLORS.accent, fontSize: isMobile ? 28 : 34, fontWeight: "900", lineHeight: isMobile ? 32 : 38 }}>
+                  <Text
+                    style={{
+                      color: COLORS.accent,
+                      fontSize: isMobile ? 28 : 34,
+                      fontWeight: "900",
+                      lineHeight: isMobile ? 32 : 38,
+                      textAlign: "center",
+                    }}
+                  >
                     {fmtEUR(s.priceEUR)}
                   </Text>
 
@@ -568,88 +547,59 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                     </Pressable>
                   </View>
 
-                  <View
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "#F8FBFE",
-                      padding: 14,
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Descripción</Text>
+                  <View style={{ alignItems: "center", gap: 8, paddingTop: 8 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                      Descripción
+                    </Text>
                     {s.description.trim() ? (
-                      <Text style={{ color: COLORS.muted, lineHeight: 22 }}>{s.description.trim()}</Text>
+                      <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
+                        {s.description.trim()}
+                      </Text>
                     ) : (
-                      <Text style={{ color: COLORS.muted2, lineHeight: 22 }}>
+                      <Text style={{ color: COLORS.muted2, lineHeight: 22, textAlign: "center" }}>
                         Todavía no hay una descripción disponible para este servicio. Aun así, puedes
                         preguntarnos por su alcance, tiempo estimado o garantía por WhatsApp.
                       </Text>
                     )}
                   </View>
 
-                  <View
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "#F8FBFE",
-                      padding: 14,
-                      gap: 10,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                  <View style={{ alignItems: "center", gap: 10, paddingTop: 8 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                       Información del servicio
                     </Text>
-                    <View style={{ gap: 8 }}>
-                      <InfoRow label="Tipo" value="Reparación / Limpieza" isMobile={isMobile} />
-                      <InfoRow label="Precio" value={fmtEUR(s.priceEUR)} isMobile={isMobile} />
-                      <InfoRow label="Contratación" value="Disponible ahora" isMobile={isMobile} />
+                    <View style={{ gap: 10, alignItems: "center" }}>
+                      <InfoRow label="Tipo" value="Reparación / Limpieza" />
+                      <InfoRow label="Precio" value={fmtEUR(s.priceEUR)} />
+                      <InfoRow label="Contratación" value="Disponible ahora" />
                     </View>
                   </View>
                 </View>
 
-                <View
-                  style={{
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.card,
-                    padding: isMobile ? 14 : 18,
-                    gap: 12,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}>
+                {/* Confianza: sin tarjeta envolvente, centrado */}
+                <View style={{ alignItems: "center", gap: 12, paddingTop: 8 }}>
+                  <Text
+                    style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18, textAlign: "center" }}
+                  >
                     Contrata con tranquilidad
                   </Text>
 
-                  <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                  <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
                     Nuestro equipo se encarga del servicio de principio a fin, con atención directa para
                     resolver cualquier duda antes, durante o después.
                   </Text>
 
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14 }}>
                     <Pill text="Servicio profesional" />
                     <Pill text="Presupuesto claro" />
                     <Pill text="Atención directa" />
                     <Pill text="Garantía del trabajo" />
                   </View>
 
-                  <View
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.borderSoft,
-                      backgroundColor: "#F4F9FD",
-                      padding: 14,
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                  <View style={{ alignSelf: "stretch", alignItems: "center", gap: 8, paddingTop: 8 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                       ¿Tienes dudas antes de contratar?
                     </Text>
-                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                    <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                       Escríbenos y te confirmamos alcance, tiempo estimado o cualquier otro detalle que
                       necesites.
                     </Text>
@@ -664,7 +614,7 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                         backgroundColor: COLORS.accent2,
                         paddingVertical: 12,
                         paddingHorizontal: 14,
-                        alignSelf: isMobile ? "stretch" : "flex-start",
+                        alignSelf: isMobile ? "stretch" : "center",
                       })}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>

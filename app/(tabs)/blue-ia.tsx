@@ -91,25 +91,14 @@ const MAX_QUESTION_LENGTH = 500;
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  bg3: "#F6FAFD",
-  card: "#EAF6FD",
-  cardSoft: "#F8FBFE",
   border: "#E3EAF2",
-  borderSoft: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  soft: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#22C55E",
-  successSoft: "#DCFCE7",
-  successBorder: "#86EFAC",
   gold: "#B8860B",
-  goldSoft: "#FBF3E0",
-  goldBorder: "#F0DFB0",
-  danger: "#DC2626",
   dangerSoft: "#FDECEC",
   dangerBorder: "#F5B5B5",
   overlay: "rgba(3,10,18,0.76)",
@@ -464,7 +453,7 @@ export default function BlueIAScreen() {
         </ScrollView>
 
         {/*
-          Icono "ⓘ" flotante arriba a la derecha: abre el modal con qué es
+          Icono "ⓘ" flotante arriba, centrado: abre el modal con qué es
           Blue IA y para qué sirve — el mismo patrón que usa Chat Global en
           vez de tener una tarjeta de bienvenida ocupando espacio siempre.
         */}
@@ -473,7 +462,8 @@ export default function BlueIAScreen() {
           style={({ pressed }) => ({
             position: "absolute",
             top: 14,
-            right: 16,
+            left: "50%",
+            marginLeft: -13,
             width: 26,
             height: 26,
             borderRadius: 999,
@@ -536,7 +526,8 @@ export default function BlueIAScreen() {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+              // flexGrow + center: centradas si caben; si no, se deslizan.
+              contentContainerStyle={{ gap: 8, flexGrow: 1, justifyContent: "center" }}
             >
               {quickActions.map((item) => (
                 <QuickSuggestionChip
@@ -549,20 +540,9 @@ export default function BlueIAScreen() {
           )}
 
           {!!errorText && (
-            <View
-              style={{
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: COLORS.dangerBorder,
-                backgroundColor: COLORS.dangerSoft,
-                paddingVertical: 8,
-                paddingHorizontal: 12,
-              }}
-            >
-              <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>
-                {errorText}
-              </Text>
-            </View>
+            <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>
+              {errorText}
+            </Text>
           )}
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -892,20 +872,7 @@ function BlueIAInfoModal({
             >
               <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
                 <View style={{ alignItems: "center", gap: 14 }}>
-                  <View
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 999,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: COLORS.accentSoft,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
-                    }}
-                  >
-                    <Ionicons name="sparkles-outline" size={22} color={COLORS.accent} />
-                  </View>
+                  <Ionicons name="sparkles-outline" size={26} color={COLORS.accent} />
 
                   <Text
                     style={{
@@ -927,7 +894,7 @@ function BlueIAInfoModal({
                     style={{
                       flexDirection: "row",
                       flexWrap: "wrap",
-                      gap: 8,
+                      gap: 12,
                       justifyContent: "center",
                     }}
                   >
@@ -937,7 +904,7 @@ function BlueIAInfoModal({
                     <MiniPill text="Pago a plazos" tone="accent" />
                   </View>
 
-                  <View style={{ width: "100%", gap: 10, marginTop: 4 }}>
+                  <View style={{ width: "100%", gap: 16, marginTop: 4 }}>
                     {helpBlocks.map((item) => (
                       <HelpCard key={item.id} item={item} />
                     ))}
@@ -976,77 +943,28 @@ function MiniPill({
   text: string;
   tone: "accent" | "success" | "gold";
 }) {
-  const palette =
-    tone === "accent"
-      ? {
-          bg: COLORS.accentSoft,
-          border: COLORS.accentBorder,
-          text: "#0F8FCC",
-        }
-      : tone === "success"
-        ? {
-            bg: COLORS.successSoft,
-            border: COLORS.successBorder,
-            text: "#15803D",
-          }
-        : {
-            bg: COLORS.goldSoft,
-            border: COLORS.goldBorder,
-            text: "#92660B",
-          };
+  // Solo texto de color, sin pastilla alrededor.
+  const color = tone === "accent" ? "#0F8FCC" : tone === "success" ? "#15803D" : "#92660B";
 
   return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        backgroundColor: palette.bg,
-        borderWidth: 1,
-        borderColor: palette.border,
-      }}
-    >
-      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 12 }}>{text}</Text>
-    </View>
+    <Text style={{ color, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{text}</Text>
   );
 }
 
+// Bloque de ayuda sin tarjeta: una rayita de color centrada + título y texto.
 function HelpCard({ item }: { item: HelpBlock }) {
-  const palette =
-    item.tone === "accent"
-      ? {
-          line: COLORS.accent,
-          bg: "rgba(0,170,228,0.08)",
-          border: "rgba(0,170,228,0.20)",
-        }
-      : item.tone === "success"
-        ? {
-            line: COLORS.success,
-            bg: "rgba(34,197,94,0.08)",
-            border: "rgba(34,197,94,0.20)",
-          }
-        : {
-            line: COLORS.gold,
-            bg: "rgba(216,176,74,0.08)",
-            border: "rgba(216,176,74,0.20)",
-          };
+  const line =
+    item.tone === "accent" ? COLORS.accent : item.tone === "success" ? COLORS.success : COLORS.gold;
 
   return (
-    <View
-      style={{
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: palette.border,
-        backgroundColor: palette.bg,
-        overflow: "hidden",
-      }}
-    >
-      <View style={{ height: 3, backgroundColor: palette.line }} />
-
-      <View style={{ padding: 14, gap: 6 }}>
-        <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: "900" }}>{item.title}</Text>
-        <Text style={{ color: COLORS.muted, lineHeight: 20, fontSize: 13 }}>{item.desc}</Text>
-      </View>
+    <View style={{ alignItems: "center", gap: 6 }}>
+      <View style={{ width: 28, height: 3, borderRadius: 2, backgroundColor: line }} />
+      <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: "900", textAlign: "center" }}>
+        {item.title}
+      </Text>
+      <Text style={{ color: COLORS.muted, lineHeight: 20, fontSize: 13, textAlign: "center" }}>
+        {item.desc}
+      </Text>
     </View>
   );
 }

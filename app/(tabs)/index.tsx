@@ -507,27 +507,25 @@ async function fetchProductMediaRowsSafe(productId: string): Promise<ProductMedi
   return [];
 }
 
+// Cabecera de sección: siempre centrada (título y subtítulo).
 function SectionTitle({
   title,
   subtitle,
   isMobile,
-  center,
 }: {
   title: string;
   subtitle?: string;
   isMobile?: boolean;
-  /** Centra título y subtítulo (solo se usa donde se pide explícitamente). */
-  center?: boolean;
 }) {
   return (
-    <View style={{ marginBottom: 10, alignItems: center ? "center" : "flex-start" }}>
+    <View style={{ marginBottom: 10, alignItems: "center" }}>
       <Text
         style={{
           color: COLORS.text,
           fontSize: isMobile ? 17 : 18,
           fontWeight: "900",
           lineHeight: isMobile ? 22 : 24,
-          textAlign: center ? "center" : "left",
+          textAlign: "center",
         }}
       >
         {title}
@@ -539,7 +537,7 @@ function SectionTitle({
             color: COLORS.muted,
             marginTop: 4,
             lineHeight: 19,
-            textAlign: center ? "center" : "left",
+            textAlign: "center",
           }}
         >
           {subtitle}
@@ -568,36 +566,30 @@ function FaqChip({ text, onPress }: { text: string; onPress: () => void }) {
           maxWidth: 420,
         }}
       >
-        <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>{text}</Text>
+        <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+          {text}
+        </Text>
       </View>
     </Pressable>
   );
 }
 
+// Etiqueta informativa: solo icono + texto, sin fondo ni borde (no es un botón).
 function Pill({
   text,
   icon,
   isMobile,
-  plain,
 }: {
   text: string;
   icon?: IoniconName;
   isMobile?: boolean;
-  // plain: sin fondo ni borde (solo icono + texto), para que no parezca un
-  // botón pulsable cuando en realidad es una simple etiqueta informativa.
-  plain?: boolean;
 }) {
   return (
     <View
       style={{
-        paddingVertical: plain ? 0 : isMobile ? 7 : 8,
-        paddingHorizontal: plain ? 0 : isMobile ? 9 : 10,
-        borderRadius: plain ? 0 : 999,
-        borderWidth: plain ? 0 : 1,
-        borderColor: "rgba(11,33,56,0.12)",
-        backgroundColor: plain ? "transparent" : "#F6FAFD",
         flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
         gap: 6,
       }}
     >
@@ -716,30 +708,26 @@ function InfoPopModal({
             borderRadius: 20,
             padding: 20,
             gap: 12,
+            alignItems: "center",
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 14,
-                backgroundColor: COLORS.accent2,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {item ? <Ionicons name={item.icon} size={19} color={COLORS.accentDark} /> : null}
-            </View>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, flex: 1 }}>
-              {item?.title ?? ""}
-            </Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={20} color={COLORS.muted} />
-            </Pressable>
-          </View>
+          {/* Cerrar en la esquina (absoluto) para no descentrar icono y título. */}
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            style={{ position: "absolute", top: 16, right: 16 }}
+          >
+            <Ionicons name="close" size={20} color={COLORS.muted} />
+          </Pressable>
 
-          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{item?.detail ?? ""}</Text>
+          {item ? <Ionicons name={item.icon} size={24} color={COLORS.accentDark} /> : null}
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+            {item?.title ?? ""}
+          </Text>
+
+          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+            {item?.detail ?? ""}
+          </Text>
         </Pressable>
       </Pressable>
     </Modal>
@@ -773,57 +761,47 @@ function PrimaryButton({
         ...softShadow(),
       })}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
+      {/* Todo apilado y centrado; la pista ("Ir →") va como texto simple
+          debajo, sin pastilla ni pegada a la derecha. */}
+      <View style={{ alignItems: "center" }}>
+        <Text
+          style={{
+            color: COLORS.onAccent,
+            fontWeight: "900",
+            fontSize: isMobile ? 15 : 16,
+            lineHeight: isMobile ? 20 : 22,
+            textAlign: "center",
+          }}
+        >
+          {title}
+        </Text>
+
+        {!!subtitle && (
           <Text
             style={{
-              color: COLORS.onAccent,
-              fontWeight: "900",
-              fontSize: isMobile ? 15 : 16,
-              lineHeight: isMobile ? 20 : 22,
+              color: "rgba(255,255,255,0.85)",
+              marginTop: 4,
+              lineHeight: 18,
+              fontSize: isMobile ? 13 : 14,
               textAlign: "center",
             }}
           >
-            {title}
+            {subtitle}
           </Text>
-
-          {!!subtitle && (
-            <Text
-              style={{
-                color: "rgba(255,255,255,0.85)",
-                marginTop: 4,
-                lineHeight: 18,
-                fontSize: isMobile ? 13 : 14,
-                textAlign: "center",
-              }}
-            >
-              {subtitle}
-            </Text>
-          )}
-        </View>
+        )}
 
         {!!rightHint && (
-          <View
+          <Text
             style={{
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.35)",
-              backgroundColor: "rgba(255,255,255,0.16)",
-              alignSelf: "flex-start",
+              color: "#FFFFFF",
+              fontWeight: "900",
+              fontSize: 12,
+              marginTop: 6,
+              textAlign: "center",
             }}
           >
-            <Text
-              style={{
-                color: "#FFFFFF",
-                fontWeight: "900",
-                fontSize: 12,
-              }}
-            >
-              {rightHint}
-            </Text>
-          </View>
+            {rightHint}
+          </Text>
         )}
       </View>
     </Pressable>
@@ -913,10 +891,9 @@ function CategoryCard({
         backgroundColor: COLORS.tile,
         padding: isMobile ? 12 : 14,
         opacity: pressed ? 0.9 : 1,
-        // En móvil, icono/título/enlace centrados (se ve más cuidado en una
-        // rejilla de 2 columnas estrecha); en escritorio se deja como
-        // estaba, alineado a la izquierda.
-        alignItems: isMobile ? "center" : "flex-start",
+        // Icono, título y enlace centrados en todos los tamaños.
+        alignItems: "center",
+        justifyContent: "center",
       })}
     >
       <View
@@ -939,7 +916,7 @@ function CategoryCard({
           marginTop: 6,
           lineHeight: 20,
           fontSize: isMobile ? 14 : 15,
-          textAlign: isMobile ? "center" : "left",
+          textAlign: "center",
         }}
       >
         {title}
@@ -951,7 +928,7 @@ function CategoryCard({
           marginTop: 4,
           fontSize: 12,
           lineHeight: 16,
-          textAlign: isMobile ? "center" : "left",
+          textAlign: "center",
         }}
       >
         {cta ?? "Ver categoría →"}
@@ -1010,7 +987,7 @@ function FeaturedMediaCarousel({
         }}
       >
         <Ionicons name="game-controller-outline" size={40} color={COLORS.muted} />
-        <Text style={{ color: COLORS.text, fontWeight: "900", marginTop: 10 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", marginTop: 10, textAlign: "center" }}>
           Producto destacado
         </Text>
         <Text style={{ color: COLORS.muted, textAlign: "center", marginTop: 6, lineHeight: 18 }}>
@@ -1180,16 +1157,10 @@ function FeaturedOfferCard({
   const mediaHeight = isWide ? 320 : isDesktopish ? 280 : isMobile ? 210 : 240;
 
   if (!item) {
+    // Sin envoltorio de tarjeta: textos y botones directamente, centrados.
     return (
-      <View
-        style={{
-          borderRadius: 22,
-          backgroundColor: COLORS.card,
-          padding: isMobile ? 14 : 16,
-          gap: 12,
-        }}
-      >
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+      <View style={{ gap: 12, alignItems: "center" }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}>
           Oferta de la semana
         </Text>
 
@@ -1199,17 +1170,18 @@ function FeaturedOfferCard({
             fontSize: isMobile ? 19 : 20,
             fontWeight: "900",
             lineHeight: isMobile ? 25 : 28,
+            textAlign: "center",
           }}
         >
           Descubre nuestras categorías destacadas.
         </Text>
 
-        <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+        <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
           Explora las categorías disponibles o escríbenos por WhatsApp y te recomendamos el
           producto que mejor encaja contigo.
         </Text>
 
-        <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
+        <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12, alignSelf: "stretch" }}>
           <View style={{ flex: 1 }}>
             <PrimaryButton
               title="Ver categorías"
@@ -1256,19 +1228,21 @@ function FeaturedOfferCard({
             padding: isMobile ? 14 : 16,
             gap: 12,
             justifyContent: "center",
+            alignItems: "center",
           }}
         >
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}>
             Oferta de la semana
           </Text>
 
-          <View>
+          <View style={{ alignItems: "center" }}>
             <Text
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 20 : 22,
                 fontWeight: "900",
                 lineHeight: isMobile ? 26 : 28,
+                textAlign: "center",
               }}
             >
               {item.title}
@@ -1280,19 +1254,28 @@ function FeaturedOfferCard({
                 fontSize: isMobile ? 22 : 24,
                 fontWeight: "900",
                 marginTop: 8,
+                textAlign: "center",
               }}
             >
               {fmtEUR(item.priceEUR)}
             </Text>
           </View>
 
-          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
             {item.description?.trim()
               ? clampText(item.description, 180)
               : "Producto revisado y seleccionado para destacar esta semana por su excelente relación calidad-precio."}
           </Text>
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 14,
+            }}
+          >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Ionicons name="checkmark-circle-outline" size={isMobile ? 14 : 15} color={COLORS.accentDark} />
               <Text
@@ -1305,10 +1288,10 @@ function FeaturedOfferCard({
                 Revisado
               </Text>
             </View>
-            {item.categoryName ? <Pill icon="cube-outline" text={item.categoryName} isMobile={isMobile} plain /> : null}
+            {item.categoryName ? <Pill icon="cube-outline" text={item.categoryName} isMobile={isMobile} /> : null}
           </View>
 
-          <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12 }}>
+          <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12, alignSelf: "stretch" }}>
             <View style={{ flex: 1 }}>
               <PrimaryButton
                 title="Ver producto"
@@ -1703,14 +1686,8 @@ export default function HomeScreen() {
         scrollEventThrottle={16}
       >
         <View style={{ ...containerStyle, gap: 14 }}>
-          <View
-            style={{
-              borderRadius: 22,
-              backgroundColor: COLORS.card,
-              padding: isMobile ? 14 : 16,
-              gap: 12,
-            }}
-          >
+          {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}
+          <View style={{ gap: 12, alignItems: "center", paddingVertical: 4 }}>
             <Text
               style={{
                 color: COLORS.text,
@@ -1725,7 +1702,7 @@ export default function HomeScreen() {
               electrónicos!
             </Text>
 
-            <View style={{ flexDirection: "row", gap: 12 }}>
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
                 <PrimaryButton
                   title="Ver categorías"
@@ -1751,9 +1728,6 @@ export default function HomeScreen() {
           {featuredLoading ? (
             <View
               style={{
-                borderRadius: 22,
-                backgroundColor: COLORS.card,
-                padding: isMobile ? 14 : 16,
                 gap: 10,
                 minHeight: isMobile ? 150 : 180,
                 alignItems: "center",
@@ -1761,7 +1735,7 @@ export default function HomeScreen() {
               }}
             >
               <ActivityIndicator />
-              <Text style={{ color: COLORS.muted }}>Cargando oferta destacada…</Text>
+              <Text style={{ color: COLORS.muted, textAlign: "center" }}>Cargando oferta destacada…</Text>
             </View>
           ) : (
             <FeaturedOfferCard
@@ -1775,20 +1749,11 @@ export default function HomeScreen() {
             />
           )}
 
-          <View
-            onLayout={handleCategoriesLayout}
-            style={{
-              borderRadius: 22,
-              backgroundColor: COLORS.card,
-              padding: isMobile ? 14 : 16,
-              gap: 10,
-            }}
-          >
+          <View onLayout={handleCategoriesLayout} style={{ gap: 10, paddingTop: 6 }}>
             <SectionTitle
               title="Categorías"
               subtitle="Explora las principales secciones de la tienda."
               isMobile={isMobile}
-              center={isMobile}
             />
 
             <View
@@ -1796,7 +1761,7 @@ export default function HomeScreen() {
                 flexDirection: "row",
                 flexWrap: "wrap",
                 gap: 10,
-                justifyContent: "space-between",
+                justifyContent: "center",
               }}
             >
               {HOME_CATEGORIES.map((category) => {
@@ -1826,19 +1791,11 @@ export default function HomeScreen() {
             <Resenas isMobile={isMobile} />
           </View>
 
-          <View
-            style={{
-              borderRadius: 22,
-              backgroundColor: COLORS.card,
-              padding: isMobile ? 14 : 16,
-              gap: 12,
-            }}
-          >
+          <View style={{ gap: 12, paddingTop: 6 }}>
             <SectionTitle
               title="Preguntas frecuentes"
               subtitle="Toca una y Blue IA te responde al momento."
               isMobile={isMobile}
-              center
             />
 
             <View

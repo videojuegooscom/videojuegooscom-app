@@ -38,9 +38,6 @@ import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
-  border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
@@ -121,54 +118,51 @@ function ArticleCard({
   onToggle: () => void;
   isMobile: boolean;
 }) {
+  // Artículo sin tarjeta envolvente: todo centrado y la flecha del acordeón
+  // debajo del texto, para que nada quede desplazado a un lado.
   return (
-    <View
-      style={{
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
-        overflow: "hidden",
-      }}
-    >
+    <View>
       <Pressable
         onPress={onToggle}
         style={({ pressed }) => ({
           opacity: pressed ? 0.9 : 1,
-          padding: isMobile ? 14 : 16,
+          paddingVertical: isMobile ? 10 : 12,
+          alignItems: "center",
           gap: 4,
         })}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 15 : 16 }}>
-              {article.title}
-            </Text>
-            <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 4, lineHeight: 18 }}>
-              {article.excerpt}
-            </Text>
-          </View>
-          <Ionicons
-            name={open ? "chevron-up" : "chevron-down"}
-            size={18}
-            color={COLORS.text}
-          />
-        </View>
+        <Text
+          style={{
+            color: COLORS.text,
+            fontWeight: "900",
+            fontSize: isMobile ? 15 : 16,
+            textAlign: "center",
+          }}
+        >
+          {article.title}
+        </Text>
+        <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18, textAlign: "center" }}>
+          {article.excerpt}
+        </Text>
+        <Ionicons
+          name={open ? "chevron-up" : "chevron-down"}
+          size={18}
+          color={COLORS.text}
+        />
       </Pressable>
 
       {open ? (
-        <View
+        <Text
           style={{
-            paddingHorizontal: isMobile ? 14 : 16,
-            paddingBottom: isMobile ? 14 : 16,
-            borderTopWidth: 1,
-            borderTopColor: "rgba(11,33,56,0.08)",
+            color: COLORS.muted,
+            lineHeight: 21,
+            fontSize: 14.5,
+            textAlign: "center",
+            paddingBottom: isMobile ? 10 : 12,
           }}
         >
-          <Text style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5, paddingTop: 10 }}>
-            {article.body}
-          </Text>
-        </View>
+          {article.body}
+        </Text>
       ) : null}
     </View>
   );
@@ -208,21 +202,24 @@ export default function BlogScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera limpia (sin franja de fondo): título centrado y el botón
+          de volver fijo a la izquierda sin desplazar el título. */}
       <View
         style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#F6FAFD",
           paddingHorizontal: pagePadding,
           paddingTop: isMobile ? 12 : 14,
           paddingBottom: 14,
         }}
       >
-        <View style={{ ...columnStyle, flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ ...columnStyle, minHeight: 36, alignItems: "center", justifyContent: "center" }}>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
             style={({ pressed }) => ({
               opacity: pressed ? 0.85 : 1,
+              position: "absolute",
+              left: 0,
+              top: 0,
+              zIndex: 1,
               width: 36,
               height: 36,
               borderRadius: 18,
@@ -232,11 +229,18 @@ export default function BlogScreen() {
           >
             <Ionicons name="chevron-back" size={22} color={COLORS.text} />
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900" }}>
+          <View style={{ alignItems: "center", paddingHorizontal: 44 }}>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: isMobile ? 20 : 22,
+                fontWeight: "900",
+                textAlign: "center",
+              }}
+            >
               Blog
             </Text>
-            <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2 }}>
+            <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2, textAlign: "center" }}>
               Guías y consejos sobre consolas y electrónica.
             </Text>
           </View>
@@ -258,7 +262,7 @@ export default function BlogScreen() {
         >
           <View style={{ ...columnStyle, gap: 12 }}>
             {articles.length === 0 ? (
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
                 Todavía no hay artículos publicados.
               </Text>
             ) : (

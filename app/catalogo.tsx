@@ -81,7 +81,6 @@ const COLORS = {
   bg2: "#F4F9FD",
   bg3: "#F6FAFD",
   card: "#F6FAFD",
-  cardStrong: "#EEF3F8",
   border: "#E3EAF2",
   borderSoft: "#EEF3F8",
   text: "#0B2138",
@@ -838,7 +837,8 @@ export default function CatalogoScreen() {
         >
           {/* Columna centrada: en pantallas anchas el contenido no se pega a la izquierda */}
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
-          <View style={{ alignItems: isMobile ? "center" : "flex-start" }}>
+          {/* Cabecera centrada en todos los tamaños */}
+          <View style={{ alignItems: "center" }}>
             <Text
               style={{
                 color: COLORS.text,
@@ -846,7 +846,7 @@ export default function CatalogoScreen() {
                 fontWeight: "900",
                 letterSpacing: -0.5,
                 lineHeight: isMobile ? 30 : 34,
-                textAlign: isMobile ? "center" : "left",
+                textAlign: "center",
               }}
             >
               {pageTitle}
@@ -859,28 +859,20 @@ export default function CatalogoScreen() {
                 fontSize: isMobile ? 13 : 14,
                 lineHeight: 20,
                 maxWidth: 760,
-                textAlign: isMobile ? "center" : "left",
+                textAlign: "center",
               }}
             >
               {pageSubtitle}
             </Text>
           </View>
 
+          {/* Aviso de admin: texto limpio, sin burbuja envolvente */}
           {isAdmin ? (
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                backgroundColor: COLORS.accent2,
-                padding: 14,
-                gap: 8,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+            <View style={{ alignItems: "center", gap: 6 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                 Panel de administración
               </Text>
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center", maxWidth: 760 }}>
                 Consulta el estado interno de cada producto: publicado, listo o pendiente de
                 revisión.
               </Text>
@@ -907,7 +899,7 @@ export default function CatalogoScreen() {
           />
 
           {isAdmin ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
               <Chip
                 active={filter === "ALL"}
                 label="Todos"
@@ -936,17 +928,13 @@ export default function CatalogoScreen() {
           ) : null}
 
           {err ? (
-            <View
-              style={{
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: "#F5B5B5",
-                backgroundColor: "#FDECEC",
-                padding: 12,
-              }}
-            >
-              <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Error cargando catálogo</Text>
-              <Text style={{ color: "#7A271A", marginTop: 4, lineHeight: 20 }}>{err}</Text>
+            <View style={{ alignItems: "center" }}>
+              <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
+                Error cargando catálogo
+              </Text>
+              <Text style={{ color: "#7A271A", marginTop: 4, lineHeight: 20, textAlign: "center" }}>
+                {err}
+              </Text>
             </View>
           ) : null}
           </View>
@@ -969,23 +957,19 @@ export default function CatalogoScreen() {
           <View style={{ paddingHorizontal: pagePadding, paddingTop: 16, alignItems: "center" }}>
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
             {items.length === 0 ? (
-              <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 16 : 18,
-                  gap: 12,
-                }}
-              >
+              <View style={{ alignItems: "center", gap: 12, paddingVertical: 8 }}>
                 <Text
-                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20 }}
+                  style={{
+                    color: COLORS.text,
+                    fontWeight: "900",
+                    fontSize: isMobile ? 18 : 20,
+                    textAlign: "center",
+                  }}
                 >
                   No hay productos que coincidan con tu búsqueda
                 </Text>
 
-                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", maxWidth: 640 }}>
                   Prueba a quitar algún filtro, cambiar de categoría o revisar más tarde: renovamos
                   el catálogo con frecuencia y seguro que encuentras algo que te interese.
                 </Text>
@@ -993,6 +977,8 @@ export default function CatalogoScreen() {
                 <View
                   style={{
                     flexDirection: isMobile ? "column" : "row",
+                    justifyContent: "center",
+                    alignSelf: isMobile ? "stretch" : "center",
                     gap: 10,
                     marginTop: 4,
                   }}
@@ -1045,23 +1031,13 @@ export default function CatalogoScreen() {
             )}
 
             {!loading && items.length > 0 && !isAdmin ? (
-              <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 14 : 16,
-                  gap: 10,
-                  alignItems: isMobile ? "center" : "flex-start",
-                }}
-              >
+              <View style={{ alignItems: "center", gap: 10, paddingTop: 12 }}>
                 <Text
                   style={{
                     color: COLORS.text,
                     fontWeight: "900",
                     fontSize: isMobile ? 17 : 18,
-                    textAlign: isMobile ? "center" : "left",
+                    textAlign: "center",
                   }}
                 >
                   ¿No encuentras exactamente lo que buscas?
@@ -1070,7 +1046,8 @@ export default function CatalogoScreen() {
                   style={{
                     color: COLORS.muted,
                     lineHeight: 20,
-                    textAlign: isMobile ? "center" : "left",
+                    textAlign: "center",
+                    maxWidth: 640,
                   }}
                 >
                   Escríbenos por chat: te confirmamos al momento si podemos conseguirlo,
@@ -1082,7 +1059,7 @@ export default function CatalogoScreen() {
                   disabled={contactBusy}
                   style={({ pressed }) => ({
                     opacity: contactBusy ? 0.6 : pressed ? 0.88 : 1,
-                    alignSelf: isMobile ? "stretch" : "flex-start",
+                    alignSelf: isMobile ? "stretch" : "center",
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "center",
@@ -1274,14 +1251,15 @@ function ProductCard({
       </View>
 
       <View style={{ padding: compact ? 10 : isMobile ? 12 : 14, gap: compact ? 8 : 10 }}>
-        <View style={{ gap: 6 }}>
+        <View style={{ gap: 6, alignItems: "center" }}>
           {/* Antes aquí iba el nombre de la categoría (p. ej. "NINTENDO
               SWITCH") repetido en cada tarjeta, dentro de la propia página de
               esa categoría — sobraba. Ahora este hueco lo ocupa el estado
-              (antes era una burbuja flotando sobre la foto). */}
+              (antes era una burbuja flotando sobre la foto); se mantiene la
+              etiqueta de color porque indica el estado, ahora centrada. */}
           <View
             style={{
-              alignSelf: "flex-start",
+              alignSelf: "center",
               paddingVertical: 5,
               paddingHorizontal: 10,
               borderRadius: 999,
@@ -1301,6 +1279,7 @@ function ProductCard({
               fontSize: compact ? 14 : isMobile ? 16 : 17,
               lineHeight: compact ? 18 : isMobile ? 21 : 22,
               fontWeight: "900",
+              textAlign: "center",
             }}
           >
             {p.title}
@@ -1316,6 +1295,7 @@ function ProductCard({
                 fontSize: 13,
                 lineHeight: 19,
                 minHeight: 38,
+                textAlign: "center",
               }}
               numberOfLines={2}
             >
@@ -1326,26 +1306,13 @@ function ProductCard({
           ) : null}
         </View>
 
-        <View
-          style={{
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: COLORS.borderSoft,
-            backgroundColor: "#F8FBFE",
-            padding: compact ? 10 : 12,
-            gap: 8,
-          }}
-        >
-          <View
-            style={{
-              flexDirection: compact ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: compact ? "stretch" : "flex-end",
-              gap: compact ? 8 : 10,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>
+        {/* Precio y "Ver más" sin caja envolvente, centrados en la tarjeta */}
+        <View style={{ alignItems: "center", gap: 8 }}>
+          <View style={{ alignItems: "center", gap: compact ? 8 : 10 }}>
+            <View style={{ alignItems: "center" }}>
+              <Text
+                style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700", textAlign: "center" }}
+              >
                 Precio
               </Text>
               <Text
@@ -1353,6 +1320,7 @@ function ProductCard({
                   color: COLORS.text,
                   fontSize: compact ? 19 : isMobile ? 22 : 24,
                   fontWeight: "900",
+                  textAlign: "center",
                 }}
               >
                 {fmtEUR(p.priceEUR)}
@@ -1378,11 +1346,11 @@ function ProductCard({
 
           {!compact ? (
             !isAdmin ? (
-              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18 }}>
+              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
                 Compra segura, con atención directa y envío inmediato tras confirmar el pedido.
               </Text>
             ) : (
-              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18 }}>
+              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
                 Estado interno visible solo para gestión.
               </Text>
             )

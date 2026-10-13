@@ -49,8 +49,6 @@ import { supabase } from "../../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
@@ -292,21 +290,24 @@ export default function PoliticaScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera limpia (sin franja de fondo): título centrado y el botón
+          de volver fijo a la izquierda sin desplazar el título. */}
       <View
         style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#F6FAFD",
           paddingHorizontal: pagePadding,
           paddingTop: isMobile ? 12 : 14,
           paddingBottom: 14,
         }}
       >
-        <View style={{ ...columnStyle, flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ ...columnStyle, minHeight: 36, alignItems: "center", justifyContent: "center" }}>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
             style={({ pressed }) => ({
               opacity: pressed ? 0.85 : 1,
+              position: "absolute",
+              left: 0,
+              top: 0,
+              zIndex: 1,
               width: 36,
               height: 36,
               borderRadius: 18,
@@ -316,7 +317,15 @@ export default function PoliticaScreen() {
           >
             <Ionicons name="chevron-back" size={22} color={COLORS.text} />
           </Pressable>
-          <Text style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900" }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontSize: isMobile ? 20 : 22,
+              fontWeight: "900",
+              textAlign: "center",
+              paddingHorizontal: 44,
+            }}
+          >
             {policy?.title ?? "Política"}
           </Text>
         </View>
@@ -337,21 +346,25 @@ export default function PoliticaScreen() {
         >
           <View style={{ ...columnStyle, gap: 18 }}>
             {!policy ? (
-              <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
                 No hemos encontrado esta política.
               </Text>
             ) : (
               <>
-                <Text style={{ color: COLORS.muted, lineHeight: 22, fontSize: 15 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 22, fontSize: 15, textAlign: "center" }}>
                   {policy.intro}
                 </Text>
 
                 {policy.sections.map((section) => (
-                  <View key={section.heading} style={{ gap: 6 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                  <View key={section.heading} style={{ gap: 6, alignItems: "center" }}>
+                    <Text
+                      style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}
+                    >
                       {section.heading}
                     </Text>
-                    <Text style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5 }}>
+                    <Text
+                      style={{ color: COLORS.muted, lineHeight: 21, fontSize: 14.5, textAlign: "center" }}
+                    >
                       {section.body}
                     </Text>
                   </View>

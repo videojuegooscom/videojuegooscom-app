@@ -48,6 +48,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
+import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -70,6 +71,9 @@ type CartItem = {
   subtitle?: string | null;
   priceEUR: number;
   qty: number;
+  imageUrl?: string | null;
+  // Fin de la reserva de 15 minutos (ms), ver lib/reservas.ts.
+  reservedUntil?: number;
 };
 
 const CART_KEY = "videojuegoos_cart_v1";
@@ -162,6 +166,8 @@ async function loadCart(): Promise<CartItem[]> {
         subtitle: it?.subtitle ?? null,
         priceEUR: Number(it?.priceEUR ?? 0),
         qty: Math.max(1, Math.floor(Number(it?.qty ?? 1))),
+        imageUrl: typeof it?.imageUrl === "string" ? it.imageUrl : null,
+        reservedUntil: Number.isFinite(Number(it?.reservedUntil)) ? Number(it.reservedUntil) : undefined,
       }))
       .filter((it: CartItem) => it.id && it.title);
   } catch {
@@ -282,7 +288,20 @@ export default function CheckoutScreen() {
     setErr(null);
     setLoading(true);
     try {
-      const stored = await loadCart();
+      // Cestas anteriores a la reserva de 15 minutos: se reservan ahora.
+      const loaded = await loadCart();
+      const stored: CartItem[] = [];
+      for (const it of loaded) {
+        if (it.reservedUntil) {
+          stored.push(it);
+          continue;
+        }
+        const r = await reservarProducto(it.id);
+        if (r.ok) stored.push({ ...it, reservedUntil: r.hasta });
+      }
+      if (stored.length !== loaded.length || stored.some((it, i) => it !== loaded[i])) {
+        await saveCart(stored);
+      }
       setItems(stored);
     } catch (e: any) {
       console.error("Error cargando el checkout:", e);
@@ -310,18 +329,33 @@ export default function CheckoutScreen() {
       return;
     }
 
+    // Reserva de 15 minutos: si alguna ya caducó, el artículo puede estar en otra cesta.
+    const caducado = items.find((it) => (it.reservedUntil ?? 0) <= Date.now());
+    if (caducado) {
+      setErr(
+        `Se acabó la reserva de "${caducado.title}" (${RESERVA_MINUTOS} minutos). Vuelve a la cesta para revisarla.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       // MVP: todavía NO Stripe. Convertimos por WhatsApp para cerrar ventas YA.
       // Cuando metamos Stripe: aquí llamaremos a /api/stripe/create-checkout-session
       // y redirigiremos al checkout real.
       openWhatsApp(whatsText);
+      // Tras abrir WhatsApp (sin esperas antes, para que el navegador no lo bloquee),
+      // se renueva la reserva mientras se cierra el pedido con la tienda.
+      const renovados = await Promise.all(
+        items.map(async (it) => {
+          const r = await reservarProducto(it.id);
+          return r.ok ? { ...it, reservedUntil: r.hasta } : it;
+        })
+      );
+      setItems(renovados);
+      await saveCart(renovados);
       await markBuyNowSoldIfApplies(items);
 
-      // Opcional: si quieres vaciar carrito al iniciar “pago”
-      // (yo lo haría cuando haya pago confirmado, no aquí)
-      // await saveCart([]);
-      // setItems([]);
     } catch (e: any) {
       console.error("Error al finalizar el pedido:", e);
       setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
@@ -382,19 +416,9 @@ export default function CheckoutScreen() {
           </View>
 
           {err ? (
-            <View
-              style={{
-                marginTop: 10,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: "#F5B5B5",
-                backgroundColor: "#FDECEC",
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>Importante:</Text>
-              <Text style={{ color: "#7A271A", marginTop: 4, textAlign: "center" }}>{err}</Text>
-            </View>
+            <Text style={{ color: "#B91C1C", fontWeight: "800", marginTop: 10, lineHeight: 20, textAlign: "center" }}>
+              {err}
+            </Text>
           ) : null}
         </View>
       </View>
@@ -409,11 +433,7 @@ export default function CheckoutScreen() {
           <View
             style={{
               ...columnStyle,
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: COLORS.card,
-              padding: 16,
+              paddingVertical: 16,
               gap: 10,
               alignItems: "center",
             }}
@@ -447,65 +467,33 @@ export default function CheckoutScreen() {
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, alignItems: "center" }}>
             <View style={{ ...columnStyle, gap: 12 }}>
             {/* Resumen pedido */}
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: COLORS.card,
-                padding: 14,
-                gap: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Resumen</Text>
+            <View style={{ gap: 10, alignItems: "center" }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Resumen</Text>
 
               {items.map((it) => (
-                <View
-                  key={it.id}
-                  style={{
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: "#E3EAF2",
-                    backgroundColor: "#F4F9FD",
-                    padding: 12,
-                    gap: 6,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900" }} numberOfLines={2}>
+                <View key={it.id} style={{ gap: 4, alignItems: "center", paddingVertical: 6 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }} numberOfLines={2}>
                     {it.title}
                   </Text>
                   {it.subtitle ? (
-                    <Text style={{ color: COLORS.muted }}>{it.subtitle}</Text>
+                    <Text style={{ color: COLORS.muted, textAlign: "center" }}>{it.subtitle}</Text>
                   ) : null}
-
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={{ color: "rgba(11,33,56,0.55)" }}>x{it.qty}</Text>
-                    <Text style={{ color: COLORS.gold, fontWeight: "900" }}>
-                      {fmtEUR(it.priceEUR * it.qty)}
-                    </Text>
-                  </View>
+                  <Text style={{ color: COLORS.gold, fontWeight: "900", textAlign: "center" }}>
+                    {fmtEUR(it.priceEUR * it.qty)}
+                  </Text>
                 </View>
               ))}
 
-              <View style={{ height: 1, backgroundColor: "#E3EAF2" }} />
+              <View style={{ height: 1, alignSelf: "stretch", backgroundColor: "#E3EAF2" }} />
               <Row label="Subtotal" value={fmtEUR(subtotal)} />
               <Row label="Envío" value={shipping === 0 ? "Gratis" : fmtEUR(shipping)} />
               <Row label="Total" value={fmtEUR(total)} strong />
             </View>
 
             {/* Datos envío */}
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: COLORS.card,
-                padding: 14,
-                gap: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Datos de envío</Text>
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            <View style={{ gap: 10, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Datos de envío</Text>
+              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                 Esto es lo mínimo que necesitamos para preparar tu envío.
               </Text>
 
@@ -556,18 +544,8 @@ export default function CheckoutScreen() {
               />
 
               {/* Micro trust */}
-              <View
-                style={{
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
-                  backgroundColor: "#F4F9FD",
-                  padding: 12,
-                  gap: 6,
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Confianza</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 2 }}>
+              <View style={{ gap: 6, alignItems: "center", paddingTop: 6 }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
                   {(
                     [
                       { icon: "checkmark-circle-outline", label: "Productos revisados" },
@@ -711,9 +689,9 @@ function Row({
   strong?: boolean;
 }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }}>
       <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: strong ? "900" : "700" }}>
-        {label}
+        {label}:
       </Text>
       <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
     </View>
@@ -733,7 +711,7 @@ function Field(props: {
 
   return (
     <View style={{ gap: 8 }}>
-      <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800" }}>{label}</Text>
+      <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800", textAlign: "center" }}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}

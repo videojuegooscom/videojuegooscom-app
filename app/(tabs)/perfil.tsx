@@ -22,7 +22,7 @@
  * - Ya no hay una cabecera de página separada ("Acceso y registro" en gris
  *   arriba del todo): en su lugar va PromoBanner (misma franja "Te
  *   compramos tu consola..." que en el resto de pestañas), y todo el
- *   contenido de acceso vive centrado dentro de la tarjeta blanca.
+ *   contenido de acceso vive centrado, sin tarjetas ni burbujas envolventes.
  * - Solo hay UN botón de "Iniciar sesión": es el propio selector que está al
  *   lado de "Crear cuenta" (componente AuthPill). El primer toque abre el
  *   panel con los campos Email/Contraseña (formOpen) y, mientras ese modo
@@ -97,26 +97,14 @@ const COLORS = {
   // valen igual que "bg" (blanco puro): toda la pantalla queda de un blanco
   // limpio y uniforme, sin ese "fondo blanco grisáceo" — los bloques se
   // siguen distinguiendo por el espaciado, no por un tono de fondo distinto.
-  bg2: "#FFFFFF",
-  card: "#FFFFFF",
   cardSoft: "#FFFFFF",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   mutedSoft: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentSoft: "#EAF6FD",
-  accentBorder: "#BEE6FA",
   danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-  dangerBorder: "#FDA4AF",
   success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
-  warning: "#92660B",
-  warningBg: "#FEF3C7",
-  warningBorder: "#FDE68A",
-  gamingGlow: "#1EA7E8",
 };
 
 type AccessState = "checking" | "idle" | "submitting" | "signingOut" | "resettingPassword";
@@ -132,6 +120,8 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+// Bloque de sección sin envoltorio visual (sin borde ni fondo): solo agrupa
+// y separa por espaciado.
 function SectionCard({
   children,
   padding = 18,
@@ -139,69 +129,7 @@ function SectionCard({
   children: React.ReactNode;
   padding?: number;
 }) {
-  return (
-    <View
-      style={{
-        borderRadius: 24,
-        backgroundColor: COLORS.card,
-        padding,
-        gap: 14,
-      }}
-    >
-      {children}
-    </View>
-  );
-}
-
-function Badge({
-  text,
-  tone = "default",
-  center = false,
-}: {
-  text: string;
-  tone?: "default" | "accent" | "success" | "warning";
-  center?: boolean;
-}) {
-  const toneStyles =
-    tone === "accent"
-      ? {
-          bg: COLORS.accentSoft,
-          border: COLORS.accentBorder,
-          color: COLORS.text,
-        }
-      : tone === "success"
-      ? {
-          bg: COLORS.successBg,
-          border: COLORS.successBorder,
-          color: COLORS.success,
-        }
-      : tone === "warning"
-      ? {
-          bg: COLORS.warningBg,
-          border: COLORS.warningBorder,
-          color: COLORS.warning,
-        }
-      : {
-          bg: "#F6FAFD",
-          border: "#E3EAF2",
-          color: COLORS.text,
-        };
-
-  return (
-    <View
-      style={{
-        alignSelf: center ? "center" : "flex-start",
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: toneStyles.border,
-        backgroundColor: toneStyles.bg,
-      }}
-    >
-      <Text style={{ color: toneStyles.color, fontWeight: "900" }}>{text}</Text>
-    </View>
-  );
+  return <View style={{ padding, gap: 14 }}>{children}</View>;
 }
 
 // Envoltorio de Pressable con una pequeña animación "pop" tipo Apple: al
@@ -317,31 +245,11 @@ function InfoMessage({
   text: string;
   tone: "error" | "success";
 }) {
-  const styles =
-    tone === "error"
-      ? {
-          borderColor: COLORS.dangerBorder,
-          backgroundColor: COLORS.dangerBg,
-          color: COLORS.danger,
-        }
-      : {
-          borderColor: COLORS.successBorder,
-          backgroundColor: COLORS.successBg,
-          color: COLORS.success,
-        };
+  // Mensaje limpio: solo texto centrado en su color, sin pastilla de fondo.
+  const color = tone === "error" ? COLORS.danger : COLORS.success;
 
   return (
-    <View
-      style={{
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: styles.borderColor,
-        backgroundColor: styles.backgroundColor,
-        padding: 12,
-      }}
-    >
-      <Text style={{ color: styles.color, fontWeight: "800", lineHeight: 20 }}>{text}</Text>
-    </View>
+    <Text style={{ color, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{text}</Text>
   );
 }
 
@@ -985,23 +893,7 @@ export default function PerfilScreen() {
               }}
             >
               <SectionCard padding={cardPadding}>
-                <View
-                  style={{
-                    borderRadius: 22,
-                    borderWidth: 1,
-                    borderColor: "#BEE6FA",
-                    backgroundColor: "#FFFFFF",
-                    overflow: "hidden",
-                  }}
-                >
-                  <View
-                    style={{
-                      padding: cardPadding,
-                      gap: 12,
-                      backgroundColor: COLORS.bg2,
-                      alignItems: "center",
-                    }}
-                  >
+                <View style={{ gap: 12, alignItems: "center" }}>
                     <Text
                       style={{
                         color: COLORS.text,
@@ -1027,14 +919,6 @@ export default function PerfilScreen() {
                         ? "Has iniciado sesión correctamente. Esta cuenta tiene acceso al panel de administración."
                         : "Has iniciado sesión correctamente."}
                     </Text>
-                  </View>
-
-                  <View
-                    style={{
-                      height: 4,
-                      backgroundColor: COLORS.gamingGlow,
-                    }}
-                  />
                 </View>
 
                 {msg ? <InfoMessage text={msg} tone="error" /> : null}
@@ -1045,6 +929,7 @@ export default function PerfilScreen() {
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
+                      justifyContent: "center",
                       gap: 10,
                     }}
                   >
@@ -1057,7 +942,7 @@ export default function PerfilScreen() {
 
                 {sessionRole === "guest" ? (
                   <>
-                    <View style={{ flexDirection: "row", gap: 10 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
                       <AuthPill
                         title="Crear cuenta"
                         anim={pillAnimSignup}
@@ -1245,21 +1130,15 @@ export default function PerfilScreen() {
                   </>
                 ) : (
                   <View style={{ gap: 12 }}>
-                    <View
-                      style={{
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: "#E3EAF2",
-                        backgroundColor: "#F8FBFE",
-                        padding: 14,
-                        gap: 8,
-                        alignItems: "center",
-                      }}
-                    >
-                      <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800" }}>
+                    <View style={{ gap: 8, alignItems: "center" }}>
+                      <Text
+                        style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800", textAlign: "center" }}
+                      >
                         SESIÓN ACTUAL
                       </Text>
-                      <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900" }}>
+                      <Text
+                        style={{ color: COLORS.text, fontSize: 16, fontWeight: "900", textAlign: "center" }}
+                      >
                         {sessionEmail || "No hay sesión iniciada"}
                       </Text>
                       <Text style={{ color: COLORS.mutedSoft, lineHeight: 19, textAlign: "center" }}>
@@ -1283,7 +1162,9 @@ export default function PerfilScreen() {
               {sessionRole === "admin" ? (
                 <SectionCard padding={cardPadding}>
                   <View style={{ alignItems: "center", gap: 14 }}>
-                    <Badge text="Herramientas internas" tone="accent" center />
+                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                      Herramientas internas
+                    </Text>
 
                     <Text
                       style={{
