@@ -1,0 +1,48 @@
+# Revisión automática de cada cambio (PR hacia main y cada publicación en main).
+# Pasa las mismas comprobaciones que se hacen a mano antes de publicar: tipos, normas
+# de estilo y que la tienda se monte. Si algo falla, la PR sale en rojo y el
+# controlador de publicación (infraestructura/publicacion/controlador.py) no la publica.
+# Las variables de Supabase son de relleno: solo hace falta que la tienda compile;
+# la tienda real se monta en Vercel con las de verdad.
+name: revision
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: revision-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  revision:
+    name: revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Tipos (TypeScript)
+        run: npx --no-install tsc --noEmit
+
+      - name: Normas de estilo (lint)
+        run: npm run lint
+
+      - name: Montar la tienda (build)
+        run: npm run build
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://ejemplo.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: relleno-solo-para-compilar

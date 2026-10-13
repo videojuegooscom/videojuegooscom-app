@@ -82,14 +82,21 @@ comprobar("texto entre comillas con DELETE no cuenta",
 comprobar("SQL fuera de migraciones se rechaza", c.revisar_contenido(diff("app/x.sql", "create table t (id int);")))
 
 # Checks
-comprobar("Vercel en verde pasa", c.revisar_checks(VERCEL_OK, []) == [])
-comprobar("sin Vercel se rechaza", c.revisar_checks([], []))
-comprobar("Vercel pendiente se rechaza", c.revisar_checks([{"context": "Vercel", "state": "pending"}], []))
-comprobar("Vercel fallido se rechaza", c.revisar_checks([{"context": "Vercel", "state": "failure"}], []))
-comprobar("otro check fallido se rechaza", c.revisar_checks(VERCEL_OK + [{"context": "ci", "state": "failure"}], []))
-comprobar("CI en curso se rechaza", c.revisar_checks(VERCEL_OK, [{"name": "ci", "status": "in_progress"}]))
-comprobar("CI fallida se rechaza", c.revisar_checks(VERCEL_OK, [{"name": "ci", "status": "completed", "conclusion": "failure"}]))
-comprobar("CI correcta pasa", c.revisar_checks(VERCEL_OK, [{"name": "ci", "status": "completed", "conclusion": "success"}]) == [])
+REVISION_OK = [{"name": c.CI_OBLIGATORIO, "status": "completed", "conclusion": "success"}]
+comprobar("Vercel y revisión en verde pasa", c.revisar_checks(VERCEL_OK, REVISION_OK) == [])
+comprobar("sin revisión automática se rechaza", c.revisar_checks(VERCEL_OK, []))
+comprobar("revisión en curso se rechaza", c.revisar_checks(VERCEL_OK, [{"name": c.CI_OBLIGATORIO, "status": "in_progress"}]))
+comprobar("revisión fallida se rechaza",
+          c.revisar_checks(VERCEL_OK, [{"name": c.CI_OBLIGATORIO, "status": "completed", "conclusion": "failure"}]))
+comprobar("sin Vercel se rechaza", c.revisar_checks([], REVISION_OK))
+comprobar("Vercel pendiente se rechaza", c.revisar_checks([{"context": "Vercel", "state": "pending"}], REVISION_OK))
+comprobar("Vercel fallido se rechaza", c.revisar_checks([{"context": "Vercel", "state": "failure"}], REVISION_OK))
+comprobar("otro check fallido se rechaza", c.revisar_checks(VERCEL_OK + [{"context": "ci", "state": "failure"}], REVISION_OK))
+comprobar("otra CI en curso se rechaza", c.revisar_checks(VERCEL_OK, REVISION_OK + [{"name": "ci", "status": "in_progress"}]))
+comprobar("otra CI fallida se rechaza",
+          c.revisar_checks(VERCEL_OK, REVISION_OK + [{"name": "ci", "status": "completed", "conclusion": "failure"}]))
+comprobar("otra CI correcta pasa",
+          c.revisar_checks(VERCEL_OK, REVISION_OK + [{"name": "ci", "status": "completed", "conclusion": "success"}]) == [])
 
 # Forma de invocación
 comprobar("orden inválida devuelve 2", c.main(["vz-publicar", "fusionar", "3"]) == 2)
