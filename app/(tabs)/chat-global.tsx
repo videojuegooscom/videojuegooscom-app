@@ -38,7 +38,9 @@
  *   datos falsos desde el propio navegador.
  * - "Noticias Gaming" (NoticiasGamingPanel, al final del archivo) lee la
  *   tabla noticias_gaming y, en segundo plano, llama a api/noticias-gaming.ts
- *   para que busque y resuma noticias nuevas si toca.
+ *   para que busque y resuma noticias nuevas si toca. Cada tarjeta muestra un
+ *   carrusel de imágenes sin recortes (CarruselNoticia), el resumen completo
+ *   y los botones; "Ver más" despliega el resto del desglose.
  * - Novedades y Torneos todavía no tienen contenido real: muestran solo un
  *   mensaje centrado "PRÓXIMAMENTE" (ComingSoonPanel).
  * - El contador "X viendo ahora" de la cabecera es real: cada persona que
@@ -96,6 +98,7 @@ import {
 } from "react-native";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
+import SmartImage from "../../components/SmartImage";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 
@@ -2326,13 +2329,17 @@ const NOTICIAS_API_URL =
   Platform.OS === "web" ? "/api/noticias-gaming" : "https://videojuegoszaragoza.com/api/noticias-gaming";
 const AZUL_NOTICIAS = "#1EA7E8";
 const AZUL_OSCURO_NOTICIAS = "#0E86C4";
+const COLUMNAS_NOTICIA =
+  "id,url,fuente,titulo,imagen_url,categoria,resumen,puntos_clave,datos,por_que_importa,afecta_a,publicada_en,created_at";
+// Si la columna «imagenes» aún no existe en la base de datos, se deja de pedir.
+let columnaImagenesDisponible = true;
 
 type Noticia = {
   id: string;
   url: string;
   fuente: string;
   titulo: string;
-  imagenUrl: string | null;
+  imagenes: string[];
   categoria: string;
   resumen: string;
   puntosClave: string[];
@@ -2346,13 +2353,23 @@ function aListaDeTextos(valor: unknown): string[] {
   return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === "string" && !!v.trim()) : [];
 }
 
+// Imagen principal + carrusel, sin repetidas y solo https (máx. 6).
+function imagenesDeFila(r: any): string[] {
+  const todas: unknown[] = [r.imagen_url, ...(Array.isArray(r.imagenes) ? r.imagenes : [])];
+  const salida: string[] = [];
+  for (const u of todas) {
+    if (typeof u === "string" && /^https:\/\//i.test(u) && !salida.includes(u)) salida.push(u);
+  }
+  return salida.slice(0, 6);
+}
+
 function filaANoticia(r: any): Noticia {
   return {
     id: String(r.id),
     url: String(r.url ?? ""),
     fuente: String(r.fuente ?? ""),
     titulo: String(r.titulo ?? ""),
-    imagenUrl: typeof r.imagen_url === "string" && r.imagen_url ? r.imagen_url : null,
+    imagenes: imagenesDeFila(r),
     categoria: String(r.categoria ?? "Gaming"),
     resumen: String(r.resumen ?? ""),
     puntosClave: aListaDeTextos(r.puntos_clave),
@@ -2414,17 +2431,25 @@ function NoticiasGamingPanel() {
 
   // Página "desde" (0 = primera). Devuelve las noticias leídas.
   const leerPagina = useCallback(async (desde: number): Promise<Noticia[] | null> => {
-    const { data, error } = await supabase
-      .from("noticias_gaming")
-      .select(
-        "id,url,fuente,titulo,imagen_url,categoria,resumen,puntos_clave,datos,por_que_importa,afecta_a,publicada_en,created_at"
-      )
-      .eq("publicada", true)
-      .order("publicada_en", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .range(desde, desde + NOTICIAS_POR_PAGINA - 1);
+    const consulta = (columnas: string) =>
+      supabase
+        .from("noticias_gaming")
+        .select(columnas)
+        .eq("publicada", true)
+        .order("publicada_en", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .range(desde, desde + NOTICIAS_POR_PAGINA - 1);
+
+    let { data, error } = await consulta(
+      columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes` : COLUMNAS_NOTICIA
+    );
+    if (error && columnaImagenesDisponible) {
+      // Sin la columna «imagenes» (migración pendiente) se reintenta sin ella.
+      if (/imagenes/i.test(error.message ?? "")) columnaImagenesDisponible = false;
+      ({ data, error } = await consulta(COLUMNAS_NOTICIA));
+    }
     if (error) return null;
-    return (data ?? []).map(filaANoticia);
+    return ((data ?? []) as any[]).map(filaANoticia);
   }, []);
 
   const recargar = useCallback(async () => {
@@ -2439,11 +2464,14 @@ function NoticiasGamingPanel() {
     montado.current = true;
     recargar();
 
-    // En segundo plano: si la función trae noticias nuevas, se recarga la lista.
+    // En segundo plano: si la función trae noticias nuevas o rellena
+    // imágenes de las que ya había, se recarga la lista.
     fetch(NOTICIAS_API_URL)
       .then((r) => r.json())
       .then((json: any) => {
-        if (montado.current && json?.actualizado && Number(json?.nuevas) > 0) recargar();
+        const nuevas = json?.actualizado ? Number(json?.nuevas) || 0 : 0;
+        const rellenadas = Number(json?.rellenadas) || 0;
+        if (montado.current && (nuevas > 0 || rellenadas > 0)) recargar();
       })
       .catch(() => {});
 
@@ -2570,7 +2598,6 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
   onAlternar: (id: string) => void;
   onLike: (id: string) => void;
 }) {
-  const [imagenRota, setImagenRota] = useState(false);
   const meta = [n.fuente, haceTiempo(n.publicadaEn)].filter(Boolean).join(" · ");
   const origen = [n.fuente, fechaLarga(n.publicadaEn)].filter(Boolean).join(" · ");
 
@@ -2591,15 +2618,7 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
         elevation: 2,
       }}
     >
-      {n.imagenUrl && !imagenRota ? (
-        <Image
-          source={{ uri: n.imagenUrl }}
-          onError={() => setImagenRota(true)}
-          style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 16, backgroundColor: COLORS.bg3 }}
-          resizeMode="cover"
-          accessibilityIgnoresInvertColors
-        />
-      ) : null}
+      {n.imagenes.length ? <CarruselNoticia imagenes={n.imagenes} titulo={n.titulo} /> : null}
 
       <Text
         style={{
@@ -2621,29 +2640,14 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
 
       {meta ? <Text style={{ color: COLORS.soft, fontSize: 12, textAlign: "center" }}>{meta}</Text> : null}
 
-      {!abierta ? (
-        <>
-          <Text
-            numberOfLines={2}
-            style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", fontSize: 14 }}
-          >
-            {n.resumen}
-          </Text>
-          <Pressable
-            onPress={() => onAlternar(n.id)}
-            hitSlop={8}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, flexDirection: "row", alignItems: "center", gap: 4 })}
-          >
-            <Text style={{ color: AZUL_OSCURO_NOTICIAS, fontWeight: "800", fontSize: 13 }}>Ver más</Text>
-            <Ionicons name="chevron-down" size={14} color={AZUL_OSCURO_NOTICIAS} />
-          </Pressable>
-        </>
-      ) : (
-        <View style={{ width: "100%", alignItems: "center", gap: 18, marginTop: 6 }}>
-          <SeccionNoticia titulo="Resumen">
-            <Text style={estiloTextoNoticia}>{n.resumen}</Text>
-          </SeccionNoticia>
+      {/* Resumen completo, siempre visible (sin cortar) */}
+      {n.resumen ? (
+        <Text style={[estiloTextoNoticia, { maxWidth: 560, marginTop: 2 }]}>{n.resumen}</Text>
+      ) : null}
 
+      {/* Resto del desglose: solo al pulsar «Ver más» */}
+      {abierta ? (
+        <View style={{ width: "100%", alignItems: "center", gap: 18, marginTop: 8 }}>
           {n.puntosClave.length ? (
             <SeccionNoticia titulo="Puntos clave">
               <ListaVinetas items={n.puntosClave} />
@@ -2671,38 +2675,224 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
               <Text style={estiloTextoNoticia}>{n.afectaA}</Text>
             </SeccionNoticia>
           ) : null}
-
-          {/* Acciones, separadas por una línea fina */}
-          <View
-            style={{
-              width: "100%",
-              borderTopWidth: 1,
-              borderTopColor: COLORS.border,
-              paddingTop: 14,
-              flexDirection: "row",
-              flexWrap: "wrap",
-              justifyContent: "center",
-              gap: 8,
-            }}
-          >
-            <BotonNoticia onPress={() => onAlternar(n.id)} etiqueta="Ver menos" icono="chevron-up" iconoDetras />
-            <BotonNoticia
-              onPress={() => onLike(n.id)}
-              etiqueta={meGusta ? "1" : "0"}
-              icono={meGusta ? "heart" : "heart-outline"}
-              colorIcono={meGusta ? "#E0245E" : undefined}
-              accesible={meGusta ? "Quitar me gusta" : "Me gusta"}
-            />
-            <BotonNoticia onPress={() => compartirNoticia(n)} icono="share-social-outline" accesible="Compartir" />
-            {n.url ? (
-              <BotonNoticia onPress={() => openExternalLink(n.url)} etiqueta="Ver fuente" icono="open-outline" iconoDetras />
-            ) : null}
-          </View>
         </View>
-      )}
+      ) : null}
+
+      {/* Acciones, siempre visibles y separadas por una línea fina */}
+      <View
+        style={{
+          width: "100%",
+          borderTopWidth: 1,
+          borderTopColor: COLORS.border,
+          paddingTop: 14,
+          marginTop: 4,
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          gap: 8,
+        }}
+      >
+        <BotonNoticia
+          onPress={() => onAlternar(n.id)}
+          etiqueta={abierta ? "Ver menos" : "Ver más"}
+          icono={abierta ? "chevron-up" : "chevron-down"}
+          iconoDetras
+        />
+        <BotonNoticia
+          onPress={() => onLike(n.id)}
+          etiqueta={meGusta ? "1" : "0"}
+          icono={meGusta ? "heart" : "heart-outline"}
+          colorIcono={meGusta ? "#E0245E" : undefined}
+          accesible={meGusta ? "Quitar me gusta" : "Me gusta"}
+        />
+        <BotonNoticia onPress={() => compartirNoticia(n)} icono="share-social-outline" accesible="Compartir" />
+        {n.url ? (
+          <BotonNoticia onPress={() => openExternalLink(n.url)} etiqueta="Ver fuente" icono="open-outline" iconoDetras />
+        ) : null}
+      </View>
     </View>
   );
 });
+
+// --- Carrusel de imágenes de una noticia ------------------------------------
+// Paginado en horizontal, cada foto entera (contain, nunca recortada) en una
+// caja con su proporción real y como mucho 320 px de alto. Las fotos que no
+// cargan o son diminutas (iconos, píxeles) se descartan; si no queda ninguna,
+// no se pinta nada (sin huecos).
+
+const ALTO_MAX_CARRUSEL = 320;
+
+function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: string }) {
+  const [ancho, setAncho] = useState(0);
+  const [proporciones, setProporciones] = useState<Record<string, number>>({});
+  const [pagina, setPagina] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const clave = imagenes.join("\n");
+
+  // Mide cada foto (ancho/alto reales) antes de mostrarla.
+  useEffect(() => {
+    let vivo = true;
+    const lista = clave ? clave.split("\n") : [];
+    for (const uri of lista) {
+      Image.getSize(
+        uri,
+        (w, h) => {
+          if (!vivo) return;
+          // Diminuta = icono o píxel de seguimiento: se descarta (proporción 0).
+          const r = w >= 160 && h >= 90 ? w / h : 0;
+          setProporciones((prev) => ({ ...prev, [uri]: r }));
+        },
+        () => {
+          if (vivo) setProporciones((prev) => ({ ...prev, [uri]: 0 }));
+        }
+      );
+    }
+    return () => {
+      vivo = false;
+    };
+  }, [clave]);
+
+  const listas = imagenes.filter((u) => (proporciones[u] ?? 0) > 0);
+  if (!listas.length) return null;
+
+  // Caja de cada foto: todo el ancho, salvo si pasaría de 320 px de alto.
+  const caja = (uri: string) => {
+    const r = proporciones[uri];
+    let w = ancho;
+    let h = ancho / r;
+    if (h > ALTO_MAX_CARRUSEL) {
+      h = ALTO_MAX_CARRUSEL;
+      w = ALTO_MAX_CARRUSEL * r;
+    }
+    return { w: Math.round(w), h: Math.round(h) };
+  };
+  const alto = ancho ? Math.max(...listas.map((u) => caja(u).h)) : 0;
+  const actual = Math.min(pagina, listas.length - 1);
+  const varias = listas.length > 1;
+
+  const irA = (i: number) => {
+    const destino = Math.max(0, Math.min(listas.length - 1, i));
+    scrollRef.current?.scrollTo({ x: destino * ancho, animated: true });
+    setPagina(destino);
+  };
+
+  return (
+    <View
+      style={{ width: "100%", alignItems: "center", gap: 10, marginBottom: 4 }}
+      onLayout={(e) => {
+        const w = Math.round(e.nativeEvent.layout.width);
+        if (w && w !== ancho) setAncho(w);
+      }}
+    >
+      {ancho > 0 ? (
+        <View style={{ width: ancho, height: alto }}>
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              const i = Math.round(e.nativeEvent.contentOffset.x / ancho);
+              setPagina((prev) => (prev === i ? prev : i));
+            }}
+            style={{ width: ancho, height: alto }}
+          >
+            {listas.map((uri, i) => {
+              const { w, h } = caja(uri);
+              return (
+                <View
+                  key={uri}
+                  style={{ width: ancho, height: alto, alignItems: "center", justifyContent: "center" }}
+                >
+                  <View
+                    style={{ width: w, height: h, borderRadius: 16, overflow: "hidden", backgroundColor: "#FFFFFF" }}
+                  >
+                    <SmartImage
+                      uri={uri}
+                      contentFit="contain"
+                      style={{ width: "100%", height: "100%" }}
+                      priority={i === 0 ? "normal" : "low"}
+                      accessibilityLabel={`Imagen ${i + 1} de ${listas.length}: ${titulo}`}
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          {/* En web (ratón) flechas para pasar de foto */}
+          {varias && Platform.OS === "web" ? (
+            <>
+              {actual > 0 ? <FlechaCarrusel lado="izquierda" onPress={() => irA(actual - 1)} /> : null}
+              {actual < listas.length - 1 ? (
+                <FlechaCarrusel lado="derecha" onPress={() => irA(actual + 1)} />
+              ) : null}
+            </>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Puntos indicadores (también sirven para saltar a una foto) */}
+      {varias ? (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          {listas.map((uri, i) => (
+            <Pressable
+              key={uri}
+              onPress={() => irA(i)}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={`Ver imagen ${i + 1}`}
+            >
+              <View
+                style={{
+                  width: i === actual ? 18 : 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: i === actual ? AZUL_NOTICIAS : COLORS.accentBorder,
+                }}
+              />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FlechaCarrusel({ lado, onPress }: { lado: "izquierda" | "derecha"; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={lado === "izquierda" ? "Imagen anterior" : "Imagen siguiente"}
+      style={({ pressed }) => ({
+        position: "absolute",
+        top: "50%",
+        marginTop: -17,
+        left: lado === "izquierda" ? 8 : undefined,
+        right: lado === "derecha" ? 8 : undefined,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(255,255,255,0.92)",
+        opacity: pressed ? 0.7 : 1,
+        shadowColor: "#0B2138",
+        shadowOpacity: 0.12,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+      })}
+    >
+      <Ionicons
+        name={lado === "izquierda" ? "chevron-back" : "chevron-forward"}
+        size={18}
+        color={AZUL_OSCURO_NOTICIAS}
+      />
+    </Pressable>
+  );
+}
 
 const estiloTextoNoticia = {
   color: COLORS.text,
