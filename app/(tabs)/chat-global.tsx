@@ -938,7 +938,8 @@ export default function ChatGlobalScreen() {
             onPress={handleScrollToLatest}
             style={({ pressed }) => ({
               position: "absolute",
-              right: 16,
+              // A la izquierda: a la derecha está ahora el selector de pestañas.
+              left: 16,
               bottom: 118,
               width: 40,
               height: 40,
@@ -1599,10 +1600,11 @@ function BottomBar({
         despliega hacia arriba, animado, justo encima del botón "🔼" — que a
         su vez está justo encima del botón de enviar mensaje.
       */}
+      {/* Selector abajo a la derecha, justo encima del botón de enviar (petición del dueño). */}
       <Animated.View
         pointerEvents={tabsMenuOpen ? "auto" : "none"}
         style={{
-          alignSelf: "center",
+          alignSelf: "flex-end",
           marginBottom: tabsMenuOpen ? 8 : 0,
           opacity: tabsMenuAnim,
           transform: [
@@ -1626,7 +1628,7 @@ function BottomBar({
           de su propia burbuja pequeña (HubTabButton ya trae su propio
           fondo/borde), centradas, una debajo de otra.
         */}
-        <View style={{ alignItems: "center", gap: 8 }}>
+        <View style={{ alignItems: "flex-end", gap: 8 }}>
           {TAB_ITEMS.map((tabItem) => (
             <HubTabButton
               key={tabItem.key}
@@ -1640,8 +1642,11 @@ function BottomBar({
 
       <Pressable
         onPress={onToggleTabsMenu}
+        accessibilityLabel="Cambiar de sección del chat"
         style={({ pressed }) => ({
-          alignSelf: "center",
+          alignSelf: "flex-end",
+          // Centrado sobre el botón de enviar (42 px de ancho).
+          marginRight: 4,
           width: 34,
           height: 34,
           borderRadius: 999,
