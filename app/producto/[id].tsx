@@ -109,6 +109,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { openExternalLink } from "../../lib/openExternalLink";
+import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
 
@@ -233,6 +234,8 @@ type CartItem = {
   priceEUR: number;
   qty: number;
   imageUrl?: string | null;
+  // Fin de la reserva de 15 minutos (ms), ver lib/reservas.ts.
+  reservedUntil?: number;
 };
 
 const CART_KEY = "videojuegoos_cart_v1";
@@ -316,13 +319,6 @@ function asProductCondition(value: unknown): ProductCondition {
 
 // Mismo texto que labelCond() en app/admin/products/products.utils.ts, para
 // que el estado que ve el cliente coincida con el que elige el admin.
-// Mismas promesas que la portada (TRUST_INFO en app/(tabs)/index.tsx), en corto.
-const PRODUCT_TRUST_POINTS: { icon: React.ComponentProps<typeof Ionicons>["name"]; text: string }[] = [
-  { icon: "checkmark-circle-outline", text: "Garantía de tienda: si algo falla, te lo solucionamos" },
-  { icon: "shield-checkmark-outline", text: "Revisado y probado antes de ponerlo a la venta" },
-  { icon: "cube-outline", text: "Envío a toda España con seguimiento o recogida en tienda" },
-];
-
 function labelCondition(c: ProductCondition) {
   if (c === "NEW") return "Nuevo";
   if (c === "LIKE_NEW") return "Como nuevo";
@@ -517,13 +513,6 @@ function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | nu
   return null;
 }
 
-function productTrustCopy(hasDescription: boolean) {
-  if (hasDescription) {
-    return "Toda la información de este producto está verificada, y nuestro equipo está disponible para resolver cualquier duda antes de tu compra.";
-  }
-  return "Ficha de producto sencilla y clara, con atención rápida y directa si necesitas confirmar cualquier detalle antes de comprar.";
-}
-
 function productHintByCategory(name?: string | null) {
   if (!name) return "Producto de segunda mano revisado";
 
@@ -710,6 +699,8 @@ export default function ProductoScreen() {
   // Segunda mano: cada ficha es una unidad única, así que siempre se compra 1 (sin selector).
   const qty = 1;
   const [cartBusy, setCartBusy] = useState(false);
+  // Otro cliente lo tiene en su cesta (reserva de 15 minutos activa).
+  const [reservadoPorOtro, setReservadoPorOtro] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -718,9 +709,21 @@ export default function ProductoScreen() {
 
   const canBuy = useMemo(() => {
     if (!p) return false;
-    if (!isAdmin) return p.status === "PUBLICADA" && p.isActive;
+    if (!isAdmin) return p.status === "PUBLICADA" && p.isActive && !reservadoPorOtro;
     return true;
-  }, [p, isAdmin]);
+  }, [p, isAdmin, reservadoPorOtro]);
+
+  const loadedId = p?.id ?? null;
+  useEffect(() => {
+    if (!loadedId) return;
+    let vivo = true;
+    productosReservadosPorOtros([loadedId]).then((ids) => {
+      if (vivo) setReservadoPorOtro(ids.has(loadedId));
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [loadedId]);
 
   const badgeLabel = useMemo(() => {
     if (!p) return "";
@@ -980,11 +983,22 @@ ${price}
         );
       }
 
+      // Reserva de 15 minutos: si otro cliente ya lo tiene en su cesta, no se añade.
+      const reserva = await reservarProducto(p.id);
+      if (!reserva.ok) {
+        setReservadoPorOtro(true);
+        if (mode === "buyNow") await AsyncStorage.removeItem(BUY_NOW_MARK_KEY);
+        return;
+      }
+      setReservadoPorOtro(false);
+
       const current = await loadCart();
       const existing = current.find((it) => it.id === p.id);
 
       const next: CartItem[] = existing
-        ? current.map((it) => (it.id === p.id ? { ...it, qty } : it)) // ya estaba: sigue siendo 1
+        ? current.map((it) =>
+            it.id === p.id ? { ...it, qty, reservedUntil: reserva.hasta } : it
+          ) // ya estaba: sigue siendo 1 y renueva la reserva
         : [
             {
               id: p.id,
@@ -993,6 +1007,7 @@ ${price}
               priceEUR: p.priceEUR,
               qty,
               imageUrl: p.imageUrl,
+              reservedUntil: reserva.hasta,
             },
             ...current,
           ];
@@ -1146,24 +1161,19 @@ ${price}
           <Text style={{ color: COLORS.muted }}>Cargando producto…</Text>
         </View>
       ) : err ? (
-        <View style={{ padding: pagePadding, gap: 12 }}>
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: "#F5B5B5",
-              backgroundColor: "#FDECEC",
-              padding: 14,
-              gap: 6,
-            }}
-          >
-            <Text style={{ color: "#B91C1C", fontWeight: "900" }}>No se ha podido cargar el producto</Text>
-            <Text style={{ color: "#7A271A", lineHeight: 20 }}>{err}</Text>
+        <View style={{ padding: pagePadding, gap: 12, alignItems: "center" }}>
+          <View style={{ gap: 6, alignItems: "center", maxWidth: 520 }}>
+            <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
+              No se ha podido cargar el producto
+            </Text>
+            <Text style={{ color: "#7A271A", lineHeight: 20, textAlign: "center" }}>{err}</Text>
           </View>
 
           <View
             style={{
               flexDirection: isMobile ? "column" : "row",
+              justifyContent: "center",
+              alignSelf: "stretch",
               gap: 10,
             }}
           >
@@ -1205,8 +1215,8 @@ ${price}
           </View>
         </View>
       ) : !p ? (
-        <View style={{ padding: pagePadding, gap: 10 }}>
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
+        <View style={{ padding: pagePadding, gap: 10, alignItems: "center" }}>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
             Producto no disponible
           </Text>
 
@@ -1220,7 +1230,7 @@ ${price}
               backgroundColor: "#F6FAFD",
               paddingVertical: 14,
               paddingHorizontal: 16,
-              alignSelf: isMobile ? "stretch" : "flex-start",
+              alignSelf: isMobile ? "stretch" : "center",
             })}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
@@ -1245,14 +1255,14 @@ ${price}
           scrollEventThrottle={16}
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
-          <View style={{ width: "100%", alignItems: isMobile ? "center" : "flex-start" }}>
+          <View style={{ width: "100%", alignItems: "center" }}>
             <Text
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 24 : 28,
                 fontWeight: "900",
                 lineHeight: isMobile ? 30 : 32,
-                textAlign: isMobile ? "center" : "left",
+                textAlign: "center",
               }}
               numberOfLines={isMobile ? 3 : 2}
             >
@@ -1264,7 +1274,7 @@ ${price}
                 color: COLORS.muted,
                 marginTop: 6,
                 lineHeight: 20,
-                textAlign: isMobile ? "center" : "left",
+                textAlign: "center",
               }}
             >
               {heroSubcopy}
@@ -1425,6 +1435,8 @@ ${price}
                   contentContainerStyle={{
                     gap: 10,
                     paddingTop: 10,
+                    flexGrow: 1,
+                    justifyContent: "center",
                   }}
                 >
                   {imageGallery.map((media) => {
@@ -1466,12 +1478,9 @@ ${price}
             >
               <View
                 style={{
-                  borderRadius: 24,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.cardStrong,
-                  padding: isMobile ? 14 : 18,
-                  gap: 12,
+                  paddingVertical: isMobile ? 4 : 8,
+                  gap: 14,
+                  alignItems: "center",
                 }}
               >
                 <View
@@ -1479,8 +1488,8 @@ ${price}
                     flexDirection: "row",
                     flexWrap: "wrap",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
+                    justifyContent: "center",
+                    gap: 14,
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -1521,25 +1530,28 @@ ${price}
                     fontSize: isMobile ? 28 : 34,
                     fontWeight: "900",
                     lineHeight: isMobile ? 32 : 38,
+                    textAlign: "center",
                   }}
                 >
                   {fmtEUR(p.priceEUR)}
                 </Text>
 
-                {/* Lo que da confianza en segunda mano, a la vista junto al precio (mismos
-                    textos que la portada: garantía de tienda, revisión, envíos y atención). */}
-                <View style={{ gap: 8 }}>
-                  {PRODUCT_TRUST_POINTS.map((t) => (
-                    <View key={t.text} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Ionicons name={t.icon} size={16} color={COLORS.accent} />
-                      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, flex: 1 }}>
-                        {t.text}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+                {reservadoPorOtro ? (
+                  <Text
+                    style={{
+                      color: COLORS.muted,
+                      fontWeight: "800",
+                      fontSize: 13.5,
+                      lineHeight: 19,
+                      textAlign: "center",
+                    }}
+                  >
+                    Otro cliente lo tiene en su cesta. Se reserva {RESERVA_MINUTOS} minutos:
+                    vuelve a mirar en un rato.
+                  </Text>
+                ) : null}
 
-                <View style={{ gap: 10 }}>
+                <View style={{ gap: 10, width: "100%", maxWidth: 460 }}>
                   {/* Acción principal: una sola, clara. La secundaria, con contorno. */}
                   <Pressable
                     onPress={() => addToCart("buyNow")}
@@ -1635,26 +1647,18 @@ ${price}
                   </View>
                 </View>
 
-                <View
-                  style={{
-                    borderRadius: 18,
-                    borderWidth: 1,
-                    borderColor: COLORS.borderSoft,
-                    backgroundColor: "#F8FBFE",
-                    padding: 14,
-                    gap: 8,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                {/* Sin recuadros: secciones separadas solo por una línea fina. */}
+                <View style={{ width: "100%", gap: 8, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                     Descripción
                   </Text>
 
                   {p.description?.trim() ? (
-                    <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+                    <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
                       {p.description.trim()}
                     </Text>
                   ) : (
-                    <Text style={{ color: COLORS.muted2, lineHeight: 22 }}>
+                    <Text style={{ color: COLORS.muted2, lineHeight: 22, textAlign: "center" }}>
                       Todavía no hay una descripción disponible para este producto. Aun así,
                       puedes preguntarnos por su estado, contenido, compatibilidad o
                       disponibilidad por WhatsApp.
@@ -1662,21 +1666,12 @@ ${price}
                   )}
                 </View>
 
-                <View
-                  style={{
-                    borderRadius: 18,
-                    borderWidth: 1,
-                    borderColor: COLORS.borderSoft,
-                    backgroundColor: "#F8FBFE",
-                    padding: 14,
-                    gap: 10,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                <View style={{ width: "100%", gap: 10, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                     Información del producto
                   </Text>
 
-                  <View style={{ gap: 8 }}>
+                  <View style={{ gap: 10, width: "100%" }}>
                     <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
                     {p.reference ? (
                       <InfoRow
@@ -1705,36 +1700,11 @@ ${price}
                 </View>
               </View>
 
-              <View
-                style={{
-                  borderRadius: 24,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 14 : 18,
-                  gap: 12,
-                }}
-              >
-                <Text
-                  style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18 }}
-                >
-                  Compra con tranquilidad
-                </Text>
-
-                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                  {productTrustCopy(Boolean(p.description?.trim()))}
-                </Text>
-
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  <Pill text="Recibo o factura" isMobile={isMobile} />
-                  <Pill text="Atención directa" isMobile={isMobile} />
-                </View>
-
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  ¿Dudas sobre el estado, los accesorios incluidos o la compatibilidad? Escríbenos por
-                  el chat o por WhatsApp desde los botones de arriba.
-                </Text>
-              </View>
+              {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto. */}
+              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+                ¿Dudas sobre el estado, los accesorios incluidos o la compatibilidad? Escríbenos por
+                el chat o por WhatsApp desde los botones de arriba.
+              </Text>
             </View>
           </View>
 
@@ -1778,53 +1748,20 @@ function InfoRow({
   isMobile?: boolean;
 }) {
   return (
-    <View
-      style={{
-        flexDirection: isMobile ? "column" : "row",
-        justifyContent: "space-between",
-        gap: 6,
-        alignItems: isMobile ? "flex-start" : "center",
-      }}
-    >
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", flex: isMobile ? undefined : 1 }}>
+    // Etiqueta encima y valor debajo, ambos centrados (nada pegado a un lado).
+    <View style={{ gap: 2, alignItems: "center" }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
         {label}
       </Text>
       <Text
         style={{
           color: COLORS.text,
           fontWeight: "800",
-          flex: isMobile ? undefined : 1,
-          textAlign: isMobile ? "left" : "right",
+          textAlign: "center",
         }}
         numberOfLines={isMobile ? 3 : 2}
       >
         {value}
-      </Text>
-    </View>
-  );
-}
-
-function Pill({
-  text,
-  isMobile,
-}: {
-  text: string;
-  isMobile?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: "#E3EAF2",
-        backgroundColor: "#F6FAFD",
-        width: isMobile ? "auto" : undefined,
-      }}
-    >
-      <Text style={{ color: "rgba(11,33,56,0.72)", fontWeight: "800", fontSize: 13 }}>
-        {text}
       </Text>
     </View>
   );

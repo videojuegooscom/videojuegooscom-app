@@ -103,30 +103,18 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
   bg3: "#F6FAFD",
   card: "#EAF6FD",
-  cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   borderSoft: "#E3EAF2",
   text: "#0B2138",
-  textDark: "#0B1726",
   muted: "rgba(11,33,56,0.62)",
   soft: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",
-  accentGlow: "rgba(0,170,228,0.20)",
-  success: "#22C55E",
-  successSoft: "rgba(34,197,94,0.16)",
-  successBorder: "rgba(34,197,94,0.30)",
   bubbleMine: "rgba(0,170,228,0.22)",
   bubbleOther: "#F1F6FA",
-  bubbleSystem: "rgba(216,176,74,0.14)",
-  gold: "#B8860B",
-  danger: "#DC2626",
-  dangerSoft: "rgba(255,107,107,0.14)",
-  dangerBorder: "rgba(255,107,107,0.30)",
   overlay: "rgba(3,10,18,0.76)",
 };
 
@@ -689,39 +677,21 @@ export default function ChatGlobalScreen() {
 
     return (
       <View style={{ gap: 8 }}>
+        {/* Solo el dato real (Supabase Presence), sin caja alrededor. */}
         {showViewers ? (
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: "#E3EAF2",
-              backgroundColor: "#F8FBFE",
-              padding: 12,
-              gap: 12,
-            }}
-          >
-            {/* Solo el dato real (Supabase Presence): antes se mostraba una lista de usuarios
-                de ejemplo que no existían. */}
-            <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-              {viewerCount === 1
-                ? "Ahora mismo hay 1 persona en el chat."
-                : `Ahora mismo hay ${viewerCount} personas en el chat.`}
-            </Text>
-          </View>
+          <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
+            {viewerCount === 1
+              ? "Ahora mismo hay 1 persona en el chat."
+              : `Ahora mismo hay ${viewerCount} personas en el chat.`}
+          </Text>
         ) : null}
 
         {!!loadError && (
-          <View
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "#F5B5B5",
-              backgroundColor: "#FDECEC",
-              padding: 10,
-            }}
-          >
-            <Text style={{ color: "#B91C1C", fontWeight: "900" }}>Atención</Text>
-            <Text style={{ color: "#7A271A", marginTop: 4 }}>{loadError}</Text>
+          <View style={{ alignItems: "center", gap: 4 }}>
+            <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
+              Atención
+            </Text>
+            <Text style={{ color: "#7A271A", textAlign: "center" }}>{loadError}</Text>
           </View>
         )}
 
@@ -731,18 +701,8 @@ export default function ChatGlobalScreen() {
             <Text style={{ color: COLORS.muted }}>Cargando el chat…</Text>
           </View>
         ) : visibleMessages.length === 0 ? (
-          <View
-            style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: COLORS.borderSoft,
-              backgroundColor: COLORS.card,
-              padding: 20,
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+          <View style={{ paddingVertical: 20, alignItems: "center", gap: 6 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
               Todavía no hay mensajes
             </Text>
             <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21 }}>
@@ -870,8 +830,8 @@ export default function ChatGlobalScreen() {
           Antes había aquí una tarjeta grande con el título "Chat Global" y
           el párrafo de bienvenida ocupando espacio siempre. Ahora esa
           información vive en InfoModal (el "Pop" centrado) y aquí solo queda
-          una barra estrecha con el icono de información y el recuadro real
-          de "viendo ahora" — flotando arriba a la derecha, y se oculta junto
+          una barra estrecha con el icono de información y el contador real
+          de "viendo ahora" — flotando arriba, centrada, y se oculta junto
           con el compositor al leer historial hacia arriba (mismo uiVisibleAnim).
         */}
         <Animated.View
@@ -879,10 +839,11 @@ export default function ChatGlobalScreen() {
           style={{
             position: "absolute",
             top: 14,
+            left: 16,
             right: 16,
             flexDirection: "row",
             alignItems: "center",
-            justifyContent: "flex-end",
+            justifyContent: "center",
             gap: 8,
             opacity: uiVisibleAnim,
             transform: [
@@ -895,9 +856,7 @@ export default function ChatGlobalScreen() {
             ],
           }}
         >
-          {/* Sueltos, cada uno con su propia burbuja — ya no comparten
-              una caja blanca común, y los dos son más pequeños para no
-              competir visualmente con el resto de la pantalla. */}
+          {/* Sueltos y pequeños: el contador va como texto, sin pastilla. */}
           <Pressable
             onPress={() => setShowInfoModal(true)}
             style={({ pressed }) => ({
@@ -925,11 +884,17 @@ export default function ChatGlobalScreen() {
               opacity: pressed ? 0.9 : 1,
             })}
           >
-            <GlowPill
-              text={`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
-              tone="success"
-              size="compact"
-            />
+            <Text
+              style={{
+                color: "#15803D",
+                fontWeight: "900",
+                fontSize: 11,
+                lineHeight: 14,
+                textAlign: "center",
+              }}
+            >
+              {`${viewerCount} viendo ahora ${showViewers ? "▲" : "▼"}`}
+            </Text>
           </Pressable>
         </Animated.View>
 
@@ -1017,110 +982,16 @@ function Tag({
   text: string;
   tone?: "neutral" | "success" | "warn" | "danger";
 }) {
-  const palette = {
-    neutral: {
-      bg: "#EEF3F8",
-      border: "#E3EAF2",
-      text: "#0B2138",
-    },
-    success: {
-      bg: "rgba(34,197,94,0.14)",
-      border: "rgba(34,197,94,0.30)",
-      text: "#15803D",
-    },
-    warn: {
-      bg: "rgba(245,158,11,0.14)",
-      border: "rgba(245,158,11,0.30)",
-      text: "#92660B",
-    },
-    danger: {
-      bg: "rgba(255,107,107,0.12)",
-      border: "rgba(255,107,107,0.30)",
-      text: "#B91C1C",
-    },
+  // Solo texto de color, sin pastilla alrededor.
+  const color = {
+    neutral: "#0B2138",
+    success: "#15803D",
+    warn: "#92660B",
+    danger: "#B91C1C",
   }[tone];
 
   return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        backgroundColor: palette.bg,
-        borderWidth: 1,
-        borderColor: palette.border,
-      }}
-    >
-      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 12 }}>
-        {text}
-      </Text>
-    </View>
-  );
-}
-
-function GlowPill({
-  text,
-  tone,
-  size = "default",
-}: {
-  text: string;
-  tone: "accent" | "success";
-  size?: "default" | "hero" | "compact";
-}) {
-  const isHero = size === "hero";
-  // "compact": versión pequeña para cuando el recuadro va suelto (sin caja
-  // blanca alrededor), como el contador "viendo ahora" junto al icono de
-  // información — para no romper el orden visual con algo demasiado grande.
-  const isCompact = size === "compact";
-
-  const style =
-    tone === "success"
-      ? {
-          bg: COLORS.successSoft,
-          border: COLORS.successBorder,
-          text: "#15803D",
-          shadow: COLORS.success,
-        }
-      : {
-          bg: COLORS.accentSoft,
-          border: COLORS.accentBorder,
-          text: COLORS.text,
-          shadow: COLORS.accent,
-        };
-
-  return (
-    <View
-      style={{
-        borderRadius: 999,
-        minHeight: isHero ? 46 : isCompact ? 28 : 34,
-        paddingVertical: isHero ? 11 : isCompact ? 6 : 8,
-        paddingHorizontal: isHero ? 16 : isCompact ? 10 : 12,
-        backgroundColor: style.bg,
-        borderWidth: 1.2,
-        borderColor: style.border,
-        alignItems: "center",
-        justifyContent: "center",
-        shadowColor: style.shadow,
-        shadowOpacity: isHero ? 0.22 : isCompact ? 0.12 : 0.16,
-        shadowRadius: isHero ? 18 : isCompact ? 8 : 12,
-        shadowOffset: { width: 0, height: 0 },
-        elevation: isHero ? 4 : isCompact ? 1 : 2,
-        maxWidth: "100%",
-      }}
-    >
-      <Text
-        style={{
-          color: style.text,
-          fontWeight: "900",
-          fontSize: isHero ? 14 : isCompact ? 11 : 13,
-          lineHeight: isHero ? 18 : isCompact ? 14 : 16,
-          textAlign: "center",
-          flexShrink: 1,
-        }}
-      >
-        {text}
-      </Text>
-    </View>
+    <Text style={{ color, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{text}</Text>
   );
 }
 
@@ -1144,9 +1015,15 @@ function ActionButton({
         backgroundColor: primary ? COLORS.accent : "#F6FAFD",
         borderWidth: 1,
         borderColor: primary ? COLORS.accent : "#E3EAF2",
+        alignItems: "center",
+        justifyContent: "center",
       })}
     >
-      <Text style={{ color: primary ? "#FFFFFF" : COLORS.text, fontWeight: "900" }}>{label}</Text>
+      <Text
+        style={{ color: primary ? "#FFFFFF" : COLORS.text, fontWeight: "900", textAlign: "center" }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -1175,9 +1052,10 @@ function HubTabButton({
         shadowOpacity: active ? 0.18 : 0,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 0 },
+        alignItems: "center",
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -1271,28 +1149,10 @@ const MessageBubble = React.memo(function MessageBubble({
 
   const roleTone =
     item.role === "admin"
-      ? {
-          bg: "rgba(0,170,228,0.18)",
-          text: "#0F8FCC",
-          border: "rgba(0,170,228,0.30)",
-          label: "ADMIN",
-          accent: COLORS.accent,
-        }
+      ? { text: "#0F8FCC", label: "ADMIN" }
       : item.role === "vip"
-        ? {
-            bg: "rgba(216,176,74,0.16)",
-            text: "#92660B",
-            border: "rgba(216,176,74,0.30)",
-            label: "VIP",
-            accent: COLORS.gold,
-          }
-        : {
-            bg: "#EAF6FD",
-            text: "#0B2138",
-            border: "#E3EAF2",
-            label: "MIEMBRO",
-            accent: "rgba(30,167,232,0.14)",
-          };
+        ? { text: "#92660B", label: "VIP" }
+        : { text: "#0B2138", label: "MIEMBRO" };
 
   const bubbleBg = mine ? COLORS.bubbleMine : COLORS.bubbleOther;
   const reactionEntries = Object.entries(reactionCounts ?? {}).filter(
@@ -1350,23 +1210,11 @@ const MessageBubble = React.memo(function MessageBubble({
               El "@usuario" se quitó del chat: es un dato privado, pensado
               solo para que un administrador pueda identificar a alguien si
               hace falta moderar — no para que lo vea todo el mundo. El rol
-              (MIEMBRO/ADMIN) ahora va debajo del nombre en vez de al lado.
+              (MIEMBRO/ADMIN) va debajo del nombre, como texto sin pastilla.
             */}
-            <View
-              style={{
-                alignSelf: "flex-start",
-                borderRadius: 999,
-                paddingVertical: 3,
-                paddingHorizontal: 8,
-                backgroundColor: roleTone.bg,
-                borderWidth: 1,
-                borderColor: roleTone.border,
-              }}
-            >
-              <Text style={{ color: roleTone.text, fontSize: 10, fontWeight: "900" }}>
-                {roleTone.label}
-              </Text>
-            </View>
+            <Text style={{ color: roleTone.text, fontSize: 10, fontWeight: "900" }}>
+              {roleTone.label}
+            </Text>
           </View>
         </View>
       ) : null}
@@ -1419,38 +1267,18 @@ const MessageBubble = React.memo(function MessageBubble({
             >
               {canViewMedia ? (
                 <>
-                  <View
-                    style={{
-                      borderRadius: 999,
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      backgroundColor: "#E3EAF2",
-                      borderWidth: 1,
-                      borderColor: "#E3EAF2",
-                    }}
-                  >
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>GIF</Text>
-                  </View>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    GIF
+                  </Text>
                   <Text style={{ color: COLORS.muted, marginTop: 10, textAlign: "center" }}>
                     {item.text}
                   </Text>
                 </>
               ) : (
                 <>
-                  <View
-                    style={{
-                      borderRadius: 999,
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      backgroundColor: COLORS.dangerSoft,
-                      borderWidth: 1,
-                      borderColor: COLORS.dangerBorder,
-                    }}
-                  >
-                    <Text style={{ color: "#B91C1C", fontWeight: "900" }}>
-                      GIF bloqueado
-                    </Text>
-                  </View>
+                  <Text style={{ color: "#B91C1C", fontWeight: "900", textAlign: "center" }}>
+                    GIF bloqueado
+                  </Text>
                   <Text
                     style={{
                       color: COLORS.muted,
@@ -1748,7 +1576,7 @@ function BottomBar({
       <Animated.View
         pointerEvents={tabsMenuOpen ? "auto" : "none"}
         style={{
-          alignSelf: "flex-end",
+          alignSelf: "center",
           marginBottom: tabsMenuOpen ? 8 : 0,
           opacity: tabsMenuAnim,
           transform: [
@@ -1770,9 +1598,9 @@ function BottomBar({
         {/*
           Sin caja blanca alrededor: solo el título de cada pestaña dentro
           de su propia burbuja pequeña (HubTabButton ya trae su propio
-          fondo/borde), alineadas a la derecha, una debajo de otra.
+          fondo/borde), centradas, una debajo de otra.
         */}
-        <View style={{ alignItems: "flex-end", gap: 8 }}>
+        <View style={{ alignItems: "center", gap: 8 }}>
           {TAB_ITEMS.map((tabItem) => (
             <HubTabButton
               key={tabItem.key}
@@ -1787,7 +1615,7 @@ function BottomBar({
       <Pressable
         onPress={onToggleTabsMenu}
         style={({ pressed }) => ({
-          alignSelf: "flex-end",
+          alignSelf: "center",
           width: 34,
           height: 34,
           borderRadius: 999,
@@ -1814,21 +1642,11 @@ function BottomBar({
       {!isChatTab ? null : (
       <>
       {!!errorText && (
-        <View
-          style={{
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: "#F5B5B5",
-            backgroundColor: "#FDECEC",
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            marginBottom: 8,
-          }}
+        <Text
+          style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center", marginBottom: 8 }}
         >
-          <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>
-            {errorText}
-          </Text>
-        </View>
+          {errorText}
+        </Text>
       )}
 
       {!!replyTarget && (
@@ -1995,40 +1813,41 @@ function AuthRequiredModal({
               backgroundColor: "#FFFFFF",
               padding: 20,
               gap: 14,
+              alignItems: "center",
             }}
           >
-            <View
-              style={{
-                alignSelf: "flex-start",
-                borderRadius: 999,
-                paddingVertical: 6,
-                paddingHorizontal: 10,
-                backgroundColor: COLORS.accentSoft,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-              }}
+            <Text
+              style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                ACCESO NECESARIO
-              </Text>
-            </View>
+              ACCESO NECESARIO
+            </Text>
 
-            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: "900", textAlign: "center" }}>
               Inicia sesión para enviar mensajes
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 22 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
               Puedes explorar la sala libremente, pero para escribir o enviar mensajes
               necesitas iniciar sesión o crear tu cuenta.
             </Text>
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View
+              style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" }}
+            >
               <Tag text="Chat visible" tone="success" />
               <Tag text="Inicio de sesión requerido" tone="warn" />
               <Tag text="Comunidad protegida" tone="neutral" />
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 10,
+                flexWrap: "wrap",
+                justifyContent: "center",
+                marginTop: 4,
+              }}
+            >
               <ActionButton label="Iniciar sesión" onPress={onLogin} primary />
               <ActionButton label="Crear cuenta" onPress={onRegister} />
             </View>
@@ -2091,20 +1910,7 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
                 alignItems: "center",
               }}
             >
-              <View
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 999,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: COLORS.accentSoft,
-                  borderWidth: 1,
-                  borderColor: COLORS.accentBorder,
-                }}
-              >
-                <Ionicons name="chatbubbles-outline" size={22} color={COLORS.accent} />
-              </View>
+              <Ionicons name="chatbubbles-outline" size={26} color={COLORS.accent} />
 
               <Text
                 style={{
@@ -2338,17 +2144,7 @@ function PrivateChatsInbox({
 
   if (!isLoggedIn) {
     return (
-      <View
-        style={{
-          borderRadius: 22,
-          borderWidth: 1,
-          borderColor: COLORS.borderSoft,
-          backgroundColor: COLORS.card,
-          padding: 20,
-          gap: 10,
-          alignItems: "center",
-        }}
-      >
+      <View style={{ paddingVertical: 20, gap: 10, alignItems: "center" }}>
         <Ionicons name="chatbubble-ellipses-outline" size={26} color={COLORS.muted} />
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
           Inicia sesión para ver tus conversaciones
@@ -2383,17 +2179,7 @@ function PrivateChatsInbox({
 
   if (rows.length === 0) {
     return (
-      <View
-        style={{
-          borderRadius: 22,
-          borderWidth: 1,
-          borderColor: COLORS.borderSoft,
-          backgroundColor: COLORS.card,
-          padding: 20,
-          gap: 6,
-          alignItems: "center",
-        }}
-      >
+      <View style={{ paddingVertical: 20, gap: 6, alignItems: "center" }}>
         <Ionicons name="chatbubble-ellipses-outline" size={26} color={COLORS.muted} />
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
           Todavía no tienes conversaciones

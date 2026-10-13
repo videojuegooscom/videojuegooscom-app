@@ -46,19 +46,13 @@ import { supabase } from "../lib/supabase";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  card: "#F6FAFD",
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   danger: "#B91C1C",
-  dangerBg: "#FFE4E6",
-  dangerBorder: "#FDA4AF",
   success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
 };
 
 type Phase = "checking" | "ready" | "invalid" | "submitting" | "done";
@@ -91,37 +85,21 @@ function AnimatedPressable({
   );
 }
 
+// Columna centrada sin tarjeta envolvente (sin borde ni fondo).
 function SectionCard({ children }: { children: React.ReactNode }) {
-  return (
-    <View
-      style={{
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
-        padding: 18,
-        gap: 14,
-        width: "100%",
-        maxWidth: 440,
-      }}
-    >
-      {children}
-    </View>
-  );
+  return <View style={{ gap: 14, width: "100%", maxWidth: 440 }}>{children}</View>;
 }
 
+// Mensaje limpio: solo texto centrado en su color, sin pastilla de fondo.
 function InfoMessage({ text, tone }: { text: string; tone: "error" | "success" }) {
-  const styles =
-    tone === "error"
-      ? { borderColor: COLORS.dangerBorder, backgroundColor: COLORS.dangerBg, color: COLORS.danger }
-      : { borderColor: COLORS.successBorder, backgroundColor: COLORS.successBg, color: COLORS.success };
+  const color = tone === "error" ? COLORS.danger : COLORS.success;
 
   return (
-    <View style={{ borderRadius: 14, borderWidth: 1, borderColor: styles.borderColor, backgroundColor: styles.backgroundColor, padding: 12 }}>
-      <Text style={{ color: styles.color, fontWeight: "800", lineHeight: 20 }}>{text}</Text>
-    </View>
+    <Text style={{ color, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{text}</Text>
   );
 }
+
+const labelStyle = { color: COLORS.text, fontWeight: "800", textAlign: "center" } as const;
 
 export default function ResetPasswordScreen() {
   const [phase, setPhase] = useState<Phase>("checking");
@@ -205,12 +183,14 @@ export default function ResetPasswordScreen() {
             }}
           >
             <SectionCard>
-              <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900" }}>
+              <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
                 Nueva contraseña
               </Text>
 
               {phase === "checking" && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}
+                >
                   <ActivityIndicator color={COLORS.accent} />
                   <Text style={{ color: COLORS.text, fontWeight: "800" }}>
                     Comprobando tu enlace...
@@ -242,14 +222,14 @@ export default function ResetPasswordScreen() {
 
               {(phase === "ready" || phase === "submitting") && (
                 <>
-                  <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                  <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                     Escribe tu contraseña nueva. Mínimo 6 caracteres.
                   </Text>
 
                   {msg ? <InfoMessage tone="error" text={msg} /> : null}
 
                   <View style={{ gap: 8 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "800" }}>Contraseña nueva</Text>
+                    <Text style={labelStyle}>Contraseña nueva</Text>
                     <TextInput
                       value={pass}
                       onChangeText={(t) => {
@@ -275,7 +255,7 @@ export default function ResetPasswordScreen() {
                   </View>
 
                   <View style={{ gap: 8 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "800" }}>Repite la contraseña</Text>
+                    <Text style={labelStyle}>Repite la contraseña</Text>
                     <TextInput
                       value={pass2}
                       onChangeText={(t) => {
