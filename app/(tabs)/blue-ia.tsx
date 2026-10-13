@@ -19,9 +19,16 @@
  *   mostrar como botones — ver más abajo BlueIASocialChips). Ver
  *   api/blue-ia.ts para el prompt exacto y las variables de entorno que
  *   necesita (sobre todo OPENAI_API_KEY en Vercel).
- * - La conversación vive solo en el estado de esta pantalla (useState): no
- *   se guarda en Supabase ni sobrevive a recargar la página — es un asistente
- *   de sesión, no un historial permanente como el Chat Global.
+ * - Historial por cuenta (tablas blue_ia_conversaciones y blue_ia_mensajes,
+ *   ver supabase/migrations/20261013170000_historial_blue_ia.sql; RLS: cada
+ *   usuario solo ve las suyas). Con sesión, al entrar se abre la última
+ *   conversación no archivada; cada pregunta + respuesta se guarda al llegar
+ *   la respuesta (la conversación se crea con el primer mensaje; los errores
+ *   no se guardan). El icono del reloj (junto al ⓘ) abre el panel Historial:
+ *   abrir, archivar o empezar una nueva. Sin sesión no se guarda nada y el
+ *   panel invita a iniciar sesión. Si llegan ?producto/?pedido/?reparacion/
+ *   ?tema o ?q, se empieza una conversación nueva en vez de abrir la última.
+ *   Si las tablas aún no existen, la pantalla funciona igual, sin guardar.
  * - Las respuestas de Blue IA nunca traen enlaces ni markdown escrito por el
  *   modelo (antes se veía feo, tipo "[texto](url)", porque este texto se
  *   pinta en un <Text> normal sin ningún intérprete de markdown): cuando la
@@ -146,6 +153,40 @@ type BlueIAMessage = {
 const NO_PUEDE_AYUDAR = /no (puedo|sé|se|tengo|dispongo)|equipo|contact|whatsapp|llamar|llámanos/i;
 
 const AVISO_LOGIN = "Inicia sesión para hablar con nuestro equipo";
+const AVISO_LOGIN_HISTORIAL = "Inicia sesión para guardar tus conversaciones";
+
+// Conversación guardada (lista del panel Historial).
+type ConversacionGuardada = {
+  id: string;
+  titulo: string;
+  contexto: string | null;
+  updated_at: string;
+};
+
+// La migración del historial aún no aplicada: se sigue sin guardar y sin avisar.
+function tablaNoExiste(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    /does not exist|could not find the table/i.test(error.message ?? "")
+  );
+}
+
+// Fecha en hora de Madrid, corta: "13 oct, 17:05".
+function fechaMadrid(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("es-ES", {
+      timeZone: "Europe/Madrid",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
 
 function paramTexto(v: unknown): string {
   const s = Array.isArray(v) ? v[0] : v;
@@ -328,6 +369,224 @@ export default function BlueIAScreen() {
     messagesRef.current = messages;
   }, [messages]);
 
+  // ---- Historial por cuenta ----
+  // undefined = aún comprobando; null = sin sesión.
+  const [userId, setUserId] = useState<string | null | undefined>(undefined);
+  const [historialOpen, setHistorialOpen] = useState(false);
+  const [conversaciones, setConversaciones] = useState<ConversacionGuardada[]>([]);
+  const [cargandoLista, setCargandoLista] = useState(false);
+  // Contexto de la conversación guardada que está abierta ("Preguntas por: …").
+  const [contextoGuardado, setContextoGuardado] = useState<string | null>(null);
+  // El contexto de la URL solo vale para la conversación con la que se entra.
+  const [usarContextoUrl, setUsarContextoUrl] = useState(true);
+  const conversacionIdRef = useRef<string | null>(null);
+  const historialDisponibleRef = useRef(true);
+  // Cola de guardado: cada vuelta se guarda en orden, y cambiar de conversación espera a que acabe.
+  const guardadoRef = useRef<Promise<void>>(Promise.resolve());
+  const ultimaCargadaRef = useRef(false);
+
+  const contextoActivo = usarContextoUrl ? contexto : null;
+  const entraConContexto = !!(productoId || pedido || reparacion || tema || paramTexto(params.q));
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.auth.getSession().then(
+      ({ data }) => {
+        if (vivo) setUserId(data.session?.user?.id ?? null);
+      },
+      () => {
+        if (vivo) setUserId(null);
+      }
+    );
+    const { data: sub } = supabase.auth.onAuthStateChange((_evento, session) => {
+      setUserId(session?.user?.id ?? null);
+    });
+    return () => {
+      vivo = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Pasa los mensajes guardados al formato de la pantalla.
+  const cargarMensajes = useCallback(async (conv: ConversacionGuardada) => {
+    const { data, error } = await supabase
+      .from("blue_ia_mensajes")
+      .select("id,rol,texto")
+      .eq("conversacion_id", conv.id)
+      .order("created_at", { ascending: true });
+    if (error) {
+      if (tablaNoExiste(error)) historialDisponibleRef.current = false;
+      else console.warn("Blue IA: no se han podido cargar los mensajes", error);
+      return null;
+    }
+    const filas = (data ?? []) as { id: string; rol: "user" | "assistant"; texto: string }[];
+    let primeraUser = true;
+    return filas.map<BlueIAMessage>((f) => {
+      const m: BlueIAMessage = { id: f.id, role: f.rol, text: f.texto };
+      // La primera pregunta vuelve a llevar el contexto delante para la API.
+      if (f.rol === "user" && primeraUser) {
+        primeraUser = false;
+        if (conv.contexto) m.apiText = `[${conv.contexto}] ${f.texto}`;
+      }
+      return m;
+    });
+  }, []);
+
+  // Con sesión y sin contexto de entrada: abre la última conversación no archivada.
+  useEffect(() => {
+    if (!userId || ultimaCargadaRef.current || entraConContexto) return;
+    ultimaCargadaRef.current = true;
+    let vivo = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("blue_ia_conversaciones")
+        .select("id,titulo,contexto,updated_at")
+        .eq("archivada", false)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (error) {
+        if (tablaNoExiste(error)) historialDisponibleRef.current = false;
+        else console.warn("Blue IA: no se ha podido cargar el historial", error);
+        return;
+      }
+      const conv = (data?.[0] ?? null) as ConversacionGuardada | null;
+      if (!conv || !vivo) return;
+      const msgs = await cargarMensajes(conv);
+      // Si la persona ya ha empezado a escribir aquí, no se pisa su conversación.
+      if (!vivo || !msgs || messagesRef.current.some((m) => m.role === "user")) return;
+      conversacionIdRef.current = conv.id;
+      setContextoGuardado(conv.contexto);
+      setMessages([WELCOME_MESSAGE, ...msgs]);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [userId, entraConContexto, cargarMensajes]);
+
+  // Guarda una vuelta (pregunta + respuesta); crea la conversación si es la primera.
+  const guardarVuelta = useCallback(
+    (pregunta: string, respuesta: string, contextoTexto: string | null) => {
+      if (!userId || !historialDisponibleRef.current) return;
+      guardadoRef.current = guardadoRef.current.then(async () => {
+        if (!historialDisponibleRef.current) return;
+        try {
+          if (!conversacionIdRef.current) {
+            const titulo = pregunta.replace(/\s+/g, " ").trim();
+            const { data, error } = await supabase
+              .from("blue_ia_conversaciones")
+              .insert({
+                titulo: titulo.length > 60 ? `${titulo.slice(0, 59)}…` : titulo || "Conversación",
+                contexto: contextoTexto ? contextoTexto.slice(0, 300) : null,
+              })
+              .select("id")
+              .single<{ id: string }>();
+            if (error || !data) {
+              if (tablaNoExiste(error)) historialDisponibleRef.current = false;
+              else console.warn("Blue IA: no se ha podido crear la conversación", error);
+              return;
+            }
+            conversacionIdRef.current = data.id;
+            setContextoGuardado(contextoTexto);
+          }
+          const conversacion_id = conversacionIdRef.current;
+          // Dos inserciones seguidas para que el orden por fecha sea exacto.
+          for (const [rol, texto] of [
+            ["user", pregunta],
+            ["assistant", respuesta],
+          ] as const) {
+            const { error } = await supabase
+              .from("blue_ia_mensajes")
+              .insert({ conversacion_id, rol, texto: texto.slice(0, 4000) });
+            if (error) {
+              if (tablaNoExiste(error)) historialDisponibleRef.current = false;
+              else console.warn("Blue IA: no se ha podido guardar el mensaje", error);
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("Blue IA: error guardando la conversación", e);
+        }
+      });
+    },
+    [userId]
+  );
+
+  const cargarLista = useCallback(async () => {
+    if (!userId || !historialDisponibleRef.current) return;
+    setCargandoLista(true);
+    try {
+      await guardadoRef.current;
+      const { data, error } = await supabase
+        .from("blue_ia_conversaciones")
+        .select("id,titulo,contexto,updated_at")
+        .eq("archivada", false)
+        .order("updated_at", { ascending: false })
+        .limit(50);
+      if (error) {
+        if (tablaNoExiste(error)) historialDisponibleRef.current = false;
+        else console.warn("Blue IA: no se ha podido cargar la lista", error);
+        return;
+      }
+      setConversaciones((data ?? []) as ConversacionGuardada[]);
+    } finally {
+      setCargandoLista(false);
+    }
+  }, [userId]);
+
+  const abrirHistorial = useCallback(() => {
+    setHistorialOpen(true);
+    cargarLista();
+  }, [cargarLista]);
+
+  // Deja la pantalla como recién abierta (sin contexto de URL).
+  const nuevaConversacion = useCallback(async () => {
+    await guardadoRef.current;
+    conversacionIdRef.current = null;
+    setUsarContextoUrl(false);
+    setContextoGuardado(null);
+    setErrorText(null);
+    setMessages([WELCOME_MESSAGE]);
+    setHistorialOpen(false);
+  }, []);
+
+  const abrirConversacion = useCallback(
+    async (conv: ConversacionGuardada) => {
+      await guardadoRef.current;
+      const msgs = await cargarMensajes(conv);
+      if (!msgs) return;
+      conversacionIdRef.current = conv.id;
+      setUsarContextoUrl(false);
+      setContextoGuardado(conv.contexto);
+      setErrorText(null);
+      setMessages([WELCOME_MESSAGE, ...msgs]);
+      setHistorialOpen(false);
+    },
+    [cargarMensajes]
+  );
+
+  // Archivar (no se borra nada); si era la abierta, se empieza una nueva.
+  const archivarConversacion = useCallback(
+    async (conv: ConversacionGuardada) => {
+      await guardadoRef.current;
+      const { error } = await supabase
+        .from("blue_ia_conversaciones")
+        .update({ archivada: true })
+        .eq("id", conv.id);
+      if (error) {
+        console.warn("Blue IA: no se ha podido archivar", error);
+        return;
+      }
+      setConversaciones((prev) => prev.filter((c) => c.id !== conv.id));
+      if (conversacionIdRef.current === conv.id) {
+        conversacionIdRef.current = null;
+        setUsarContextoUrl(false);
+        setContextoGuardado(null);
+        setMessages([WELCOME_MESSAGE]);
+      }
+    },
+    []
+  );
+
   const quickActions = useMemo<QuickAction[]>(
     () => [
       {
@@ -407,7 +666,7 @@ export default function BlueIAScreen() {
       // usuario; la API sigue recibiendo solo { message, history }.
       const esPrimero = !messagesRef.current.some((m) => m.role === "user");
       const apiText =
-        esPrimero && contexto?.prefijo ? `${contexto.prefijo} ${clean}` : clean;
+        esPrimero && contextoActivo?.prefijo ? `${contextoActivo.prefijo} ${clean}` : clean;
 
       const userMessage: BlueIAMessage = {
         id: `${Date.now()}-u`,
@@ -452,6 +711,14 @@ export default function BlueIAScreen() {
           ...prev,
           { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips },
         ]);
+
+        // Con sesión, la vuelta se guarda en su cuenta (los errores no).
+        guardarVuelta(
+          clean,
+          String(data.reply),
+          // Solo se usa al crear la conversación.
+          contextoActivo ? `Preguntas por: ${contextoActivo.visible}` : null
+        );
       } catch (e: any) {
         console.error("Error consultando a Blue IA:", e);
         const friendlyText =
@@ -471,7 +738,7 @@ export default function BlueIAScreen() {
         setSending(false);
       }
     },
-    [draft, sending, contexto]
+    [draft, sending, contextoActivo, guardarVuelta]
   );
 
   // Pasa la conversación al equipo: chat privado de la tienda con un resumen.
@@ -481,10 +748,15 @@ export default function BlueIAScreen() {
     setErrorText(null);
     try {
       const resumen = construirResumen(
-        contexto ? `Pregunto por: ${contexto.visible}` : "",
+        contextoActivo
+          ? `Pregunto por: ${contextoActivo.visible}`
+          : (contextoGuardado ?? "").replace(/^Preguntas por:/, "Pregunto por:"),
         messagesRef.current
       );
-      const r = await abrirChatEquipo({ productId: productoId || null, resumen });
+      const r = await abrirChatEquipo({
+        productId: (usarContextoUrl && productoId) || null,
+        resumen,
+      });
       if (r === "login") {
         setErrorText(AVISO_LOGIN);
         router.push(`/perfil?aviso=${encodeURIComponent(AVISO_LOGIN)}` as never);
@@ -495,7 +767,7 @@ export default function BlueIAScreen() {
     } finally {
       setAbriendoEquipo(false);
     }
-  }, [abriendoEquipo, contexto, productoId]);
+  }, [abriendoEquipo, contextoActivo, contextoGuardado, usarContextoUrl, productoId]);
 
   // Destacar "Hablar con el equipo" tras 2+ respuestas o si la IA no ha podido ayudar.
   const respuestasIA = messages.filter((m) => m.role === "assistant" && m.id !== WELCOME_MESSAGE.id);
@@ -595,34 +867,32 @@ export default function BlueIAScreen() {
               Icono "ⓘ" arriba, centrado: abre el modal con qué es Blue IA. Va dentro de
               la conversación (se desplaza con ella) para no tapar nunca los mensajes.
             */}
-            <Pressable
-              onPress={() => setInfoModalOpen(true)}
-              accessibilityLabel="Qué es Blue IA"
-              style={({ pressed }) => ({
-                alignSelf: "center",
-                width: 26,
-                height: 26,
-                borderRadius: 999,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#FFFFFF",
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                opacity: pressed ? 0.85 : 1,
-              })}
-            >
-              <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
-            </Pressable>
-            {/* Contexto con el que se ha llegado (producto, pedido, reparación o tema). */}
-            {contexto && (
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
+              <IconoCabecera
+                icon="information-circle-outline"
+                label="Qué es Blue IA"
+                onPress={() => setInfoModalOpen(true)}
+              />
+              {/* Historial de conversaciones guardadas en la cuenta. */}
+              <IconoCabecera icon="time-outline" label="Historial" onPress={abrirHistorial} />
+            </View>
+            {/* Contexto: el de la URL (producto, pedido…) o el de la conversación guardada. */}
+            {contextoActivo ? (
               <Text
                 numberOfLines={2}
                 style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", paddingBottom: 4 }}
               >
                 Preguntas por:{" "}
-                <Text style={{ color: COLORS.text, fontWeight: "800" }}>{contexto.visible}</Text>
+                <Text style={{ color: COLORS.text, fontWeight: "800" }}>{contextoActivo.visible}</Text>
               </Text>
-            )}
+            ) : contextoGuardado ? (
+              <Text
+                numberOfLines={2}
+                style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", paddingBottom: 4 }}
+              >
+                {contextoGuardado}
+              </Text>
+            ) : null}
             {/* Bienvenida: la mascota de la tienda, solo antes de la primera pregunta. */}
             {showQuickSuggestions && (
               <View style={{ alignItems: "center", paddingBottom: 4 }}>
@@ -758,7 +1028,249 @@ export default function BlueIAScreen() {
       onClose={() => setInfoModalOpen(false)}
       helpBlocks={helpBlocks}
     />
+
+    <BlueIAHistorialModal
+      visible={historialOpen}
+      onClose={() => setHistorialOpen(false)}
+      conSesion={!!userId}
+      cargando={cargandoLista}
+      conversaciones={conversaciones}
+      abiertaId={conversacionIdRef.current}
+      onNueva={nuevaConversacion}
+      onAbrir={abrirConversacion}
+      onArchivar={archivarConversacion}
+    />
     </>
+  );
+}
+
+// Icono redondo y discreto de la cabecera (ⓘ e Historial).
+function IconoCabecera({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: IoniconName;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => ({
+        width: 26,
+        height: 26,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#FFFFFF",
+        borderWidth: 1,
+        borderColor: COLORS.accentBorder,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Ionicons name={icon} size={15} color={COLORS.accent} />
+    </Pressable>
+  );
+}
+
+// Panel "Historial": conversaciones guardadas del usuario (abrir, archivar o
+// empezar una nueva). Sin sesión, invita a iniciarla.
+function BlueIAHistorialModal({
+  visible,
+  onClose,
+  conSesion,
+  cargando,
+  conversaciones,
+  abiertaId,
+  onNueva,
+  onAbrir,
+  onArchivar,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  conSesion: boolean;
+  cargando: boolean;
+  conversaciones: ConversacionGuardada[];
+  abiertaId: string | null;
+  onNueva: () => void;
+  onAbrir: (c: ConversacionGuardada) => void;
+  onArchivar: (c: ConversacionGuardada) => void;
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.overlay,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: "100%",
+            maxWidth: 480,
+            maxHeight: 600,
+            borderRadius: 24,
+            backgroundColor: "#FFFFFF",
+            paddingVertical: 22,
+            paddingHorizontal: 20,
+            gap: 14,
+          }}
+        >
+          {/* Cerrar */}
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar"
+            hitSlop={10}
+            style={({ pressed }) => ({
+              position: "absolute",
+              top: 14,
+              right: 14,
+              zIndex: 2,
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Ionicons name="close" size={22} color={COLORS.text} />
+          </Pressable>
+
+          <View style={{ alignItems: "center", gap: 6 }}>
+            <Ionicons name="time-outline" size={24} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
+              Historial
+            </Text>
+          </View>
+
+          {!conSesion ? (
+            <View style={{ alignItems: "center", gap: 14, paddingVertical: 6 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
+                Inicia sesión para guardar tus conversaciones con Blue IA
+              </Text>
+              <BotonPrincipal
+                icon="person-circle-outline"
+                texto="Iniciar sesión"
+                onPress={() => {
+                  onClose();
+                  router.push(
+                    `/perfil?aviso=${encodeURIComponent(AVISO_LOGIN_HISTORIAL)}` as never
+                  );
+                }}
+              />
+            </View>
+          ) : (
+            <>
+              <View style={{ alignItems: "center" }}>
+                <BotonPrincipal icon="add" texto="Nueva conversación" onPress={onNueva} />
+              </View>
+
+              {cargando && conversaciones.length === 0 ? (
+                <ActivityIndicator color={COLORS.accent} style={{ paddingVertical: 16 }} />
+              ) : conversaciones.length === 0 ? (
+                <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 10 }}>
+                  Aún no tienes conversaciones guardadas.
+                </Text>
+              ) : (
+                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 400 }}>
+                  {conversaciones.map((c, i) => {
+                    const abierta = c.id === abiertaId;
+                    return (
+                      <View
+                        key={c.id}
+                        style={{
+                          alignItems: "center",
+                          gap: 4,
+                          paddingVertical: 12,
+                          borderTopWidth: i === 0 ? 0 : 1,
+                          borderTopColor: COLORS.border,
+                        }}
+                      >
+                        <Pressable
+                          onPress={() => onAbrir(c)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Abrir: ${c.titulo}`}
+                          style={({ pressed }) => ({ alignItems: "center", opacity: pressed ? 0.7 : 1 })}
+                        >
+                          <Text
+                            numberOfLines={2}
+                            style={{
+                              color: abierta ? COLORS.primary : COLORS.text,
+                              fontWeight: "800",
+                              fontSize: 15,
+                              textAlign: "center",
+                            }}
+                          >
+                            {c.titulo}
+                          </Text>
+                          <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
+                            {abierta ? "Abierta · " : ""}
+                            {fechaMadrid(c.updated_at)}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => onArchivar(c)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Archivar: ${c.titulo}`}
+                          hitSlop={6}
+                          style={({ pressed }) => ({
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            opacity: pressed ? 0.6 : 1,
+                          })}
+                        >
+                          <Ionicons name="archive-outline" size={13} color={COLORS.muted} />
+                          <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
+                            Archivar
+                          </Text>
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// Botón principal en píldora (#0E86C4).
+function BotonPrincipal({
+  icon,
+  texto,
+  onPress,
+}: {
+  icon: IoniconName;
+  texto: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 7,
+        borderRadius: 999,
+        paddingVertical: 11,
+        paddingHorizontal: 20,
+        backgroundColor: COLORS.primary,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Ionicons name={icon} size={17} color="#FFFFFF" />
+      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>{texto}</Text>
+    </Pressable>
   );
 }
 
