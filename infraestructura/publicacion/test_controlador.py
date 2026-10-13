@@ -46,15 +46,21 @@ comprobar("sin archivos se rechaza", c.revisar_archivos([]))
 comprobar("100 archivos o más se rechaza", c.revisar_archivos(
     [{"filename": f"app/a{i}.tsx", "status": "modified"} for i in range(100)]))
 for ruta in ("infraestructura/claude-code/guardian.py", ".github/workflows/ci.yml", "package.json",
-             "package-lock.json", "vercel.json", "app.json", ".npmrc", "aPI/blue-ia.ts", "api/x.ts",
-             "scripts/inject-seo-html.js", "sql/01-catalogo-productos.sql", ".claude/settings.json",
-             "infraestructura/publicacion/controlador.py", "babel.config.js", "metro.config.js"):
+             "package-lock.json", ".npmrc", "scripts/inject-seo-html.js", ".claude/settings.json",
+             "infraestructura/publicacion/controlador.py", ".mcp.json"):
     comprobar(f"ruta protegida {ruta} se rechaza", c.revisar_archivos([{"filename": ruta, "status": "modified"}]))
-comprobar("borrar se rechaza", c.revisar_archivos([{"filename": "app/x.tsx", "status": "removed"}]))
-comprobar("renombrar se rechaza", c.revisar_archivos([{"filename": "app/y.tsx", "status": "renamed",
-                                                       "previous_filename": "app/x.tsx"}]))
+for ruta in ("api/blue-ia.ts", "vercel.json", "app.json", "babel.config.js", "sql/01-catalogo-productos.sql"):
+    comprobar(f"{ruta} ya se publica solo", c.revisar_archivos([{"filename": ruta, "status": "modified"}]) == [])
+comprobar("borrar pocos archivos pasa", c.revisar_archivos([{"filename": "app/x.tsx", "status": "removed"}]) == [])
+comprobar("borrar demasiados se rechaza", c.revisar_archivos(
+    [{"filename": f"app/b{i}.tsx", "status": "removed"} for i in range(c.MAX_BORRADOS + 1)]))
+comprobar("borrar una ruta protegida se rechaza", c.revisar_archivos([{"filename": "package.json", "status": "removed"}]))
+comprobar("renombrar pasa", c.revisar_archivos([{"filename": "api/blue-ia.ts", "status": "renamed",
+                                                 "previous_filename": "aPI/blue-ia.ts"}]) == [])
 comprobar("renombrar desde ruta protegida se rechaza", c.revisar_archivos([
-    {"filename": "app/y.json", "status": "renamed", "previous_filename": "vercel.json"}]))
+    {"filename": "app/y.json", "status": "renamed", "previous_filename": "package.json"}]))
+comprobar("renombrar hacia ruta protegida se rechaza", c.revisar_archivos([
+    {"filename": ".github/workflows/x.yml", "status": "renamed", "previous_filename": "app/x.yml"}]))
 
 # Contenido
 comprobar("código normal pasa", c.revisar_contenido(diff("app/x.tsx", "const a = 1;")) == [])
@@ -75,7 +81,9 @@ for sql in ("grant all on public.t to anon;", "revoke select on t from authentic
             "create function f() returns void language sql security definer as $$ select 1 $$;",
             "create policy p on t for select to anon using (true);", "alter role authenticated set x = 1;",
             "select * from auth.users;", "create policy p on t for insert with check (true);"):
-    comprobar(f"SQL de permisos delicados se rechaza: {sql[:30]}", c.revisar_contenido(diff(MIG, sql)))
+    comprobar(f"SQL de permisos delicados se fusiona: {sql[:30]}", c.revisar_contenido(diff(MIG, sql)) == [])
+    comprobar(f"SQL de permisos delicados se avisa: {sql[:30]}", c.avisos_contenido(diff(MIG, sql)))
+comprobar("migración aditiva no avisa", c.avisos_contenido(diff(MIG, "create table t (id int);")) == [])
 comprobar("comentario con DROP no cuenta", c.revisar_contenido(diff(MIG, "-- aquí no hay drop table", "create table t (id int);")) == [])
 comprobar("texto entre comillas con DELETE no cuenta",
           c.revisar_contenido(diff(MIG, "insert into t (nota) values ('delete from nada');")) == [])

@@ -5,12 +5,15 @@
 # Función:  Controlador de publicación. Fusiona SOLO las PR seguras en main (= producción).
 #           Comprueba, sobre el commit exacto de la PR:
 #             1. PR abierta, no borrador, del propio repo, hacia main y sin conflictos.
-#             2. Vista previa de Vercel en verde y ningún check de CI en rojo o pendiente.
-#             3. No borra ni renombra archivos.
-#             4. No toca rutas protegidas (infraestructura, workflows, dependencias,
-#                configuración de despliegue).
+#             2. Vista previa de Vercel y revisión automática de GitHub en verde.
+#             3. Como mucho MAX_BORRADOS archivos borrados (renombrar sí se permite).
+#             4. No toca rutas protegidas: las propias barreras (infraestructura, workflows,
+#                .claude, .mcp.json), las dependencias y los scripts que se ejecutan al montar.
 #             5. Sin secretos en las líneas añadidas.
-#             6. Sin SQL destructivo ni cambios de permisos delicados en las migraciones.
+#             6. Sin SQL destructivo en las migraciones. Las de permisos delicados se fusionan
+#                pero se avisan: aplicarlas en la base de datos sigue siendo cosa del dueño.
+#           Desde 2026-10-13 (petición del dueño) se publica solo casi todo; antes también se
+#           reservaban api/, sql/, configuración de despliegue, renombrados y permisos delicados.
 #           Si todo pasa, fusiona con --match-head-commit (si la PR cambia entre la revisión y la
 #           fusión, GitHub la rechaza). Si algo falla, no fusiona y explica por qué: esa PR la
 #           fusiona una persona.
@@ -31,11 +34,13 @@ RAMA_BASE = "main"
 CI_OBLIGATORIO = "revision"
 REGISTRO = os.path.join(os.path.expanduser("~"), "registros", "vz-publicacion.log")
 
-# Rutas que nunca se publican solas: cambian las barreras, las dependencias o el despliegue.
+# Rutas que nunca se publican solas: las barreras de seguridad, las dependencias y los scripts
+# que se ejecutan al montar la tienda (si se publicaran solas, las barreras no servirían).
 RUTAS_PROTEGIDAS = re.compile(
     r"^(infraestructura/|\.github/|\.claude/|\.mcp\.json$|\.npmrc$|package\.json$|package-lock\.json$|"
-    r"yarn\.lock$|pnpm-lock\.yaml$|vercel\.json$|app\.json$|app\.config\.|eas\.json$|babel\.config\.|"
-    r"metro\.config\.|scripts/|aPI/|api/|sql/)", re.I)
+    r"yarn\.lock$|pnpm-lock\.yaml$|scripts/)", re.I)
+# Más borrados que esto en una PR: la revisa una persona.
+MAX_BORRADOS = 10
 
 # Los prefijos se escriben con [_] para que el buscador de secretos del instalador no tome
 # estos patrones por claves reales (es la misma expresión regular).
@@ -86,13 +91,23 @@ def revisar_archivos(archivos):
         fallos.append("la PR no cambia ningún archivo")
     if len(archivos) >= 100:
         fallos.append("la PR cambia 100 archivos o más: la revisa una persona")
+    borrados = [a.get("filename", "") for a in archivos if a.get("status") == "removed"]
+    if len(borrados) > MAX_BORRADOS:
+        fallos.append(f"borra {len(borrados)} archivos (máximo {MAX_BORRADOS}): la revisa una persona")
     for a in archivos:
-        ruta, estado = a.get("filename", ""), a.get("status", "")
-        if estado in ("removed", "renamed"):
-            fallos.append(f"{'borra' if estado == 'removed' else 'renombra'} {ruta}")
+        ruta = a.get("filename", "")
         if RUTAS_PROTEGIDAS.search(ruta) or RUTAS_PROTEGIDAS.search(a.get("previous_filename") or ""):
             fallos.append(f"toca una ruta protegida: {ruta}")
     return fallos
+
+
+def avisos_contenido(diff):
+    """Cosas que no impiden publicar pero hay que contar (p. ej. SQL que aplica el dueño)."""
+    avisos = []
+    for ruta, lineas in lineas_anadidas(diff).items():
+        if ruta.lower().endswith(".sql") and SQL_PERMISOS_DELICADOS.search(limpiar_sql("\n".join(lineas))):
+            avisos.append(f"{ruta} cambia permisos delicados: aplicarla en Supabase la hace el dueño")
+    return avisos
 
 
 def lineas_anadidas(diff):
@@ -118,8 +133,6 @@ def revisar_contenido(diff):
             sql = limpiar_sql(texto)
             if SQL_DESTRUCTIVO.search(sql):
                 fallos.append(f"SQL destructivo en {ruta}")
-            if SQL_PERMISOS_DELICADOS.search(sql):
-                fallos.append(f"SQL con permisos delicados en {ruta} (lo revisa una persona)")
             if not ruta.startswith("supabase/migrations/"):
                 fallos.append(f"SQL fuera de supabase/migrations/: {ruta}")
     return fallos
@@ -185,7 +198,7 @@ def evaluar(numero):
     pr, archivos, estados, runs, diff = datos_pr(numero)
     fallos = (revisar_metadatos(pr) + revisar_archivos(archivos) + revisar_contenido(diff)
               + revisar_checks(estados, runs))
-    return pr, fallos
+    return pr, fallos, avisos_contenido(diff)
 
 
 def main(argv):
@@ -194,7 +207,7 @@ def main(argv):
         return 2
     orden, numero = argv[1], int(argv[2])
     try:
-        pr, fallos = evaluar(numero)
+        pr, fallos, avisos = evaluar(numero)
     except Exception as e:  # falla cerrado
         print(f"No se pudo revisar la PR #{numero}: {e}")
         registrar({"pr": numero, "orden": orden, "resultado": "error", "detalle": str(e)[:300]})
@@ -207,6 +220,8 @@ def main(argv):
         print("La fusiona una persona (o se corrige y se vuelve a intentar).")
         registrar({"pr": numero, "orden": orden, "resultado": "rechazada", "fallos": fallos})
         return 1
+    for a in avisos:
+        print(f"Aviso: {a}")
     if orden == "revisar":
         print(f"PR #{numero} «{titulo}»: lista para publicar (todas las comprobaciones en verde).")
         registrar({"pr": numero, "orden": orden, "resultado": "apta", "sha": pr["headRefOid"]})
