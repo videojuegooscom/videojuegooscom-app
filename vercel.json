@@ -2,6 +2,7 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,
+  "crons": [{ "path": "/api/noticias-gaming", "schedule": "0 6 * * *" }],
   "rewrites": [
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },

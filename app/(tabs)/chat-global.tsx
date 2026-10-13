@@ -36,9 +36,11 @@
  *   trigger en la base de datos a partir de la sesión real (auth.uid()) y
  *   del perfil, así nadie puede hacerse pasar por otra persona escribiendo
  *   datos falsos desde el propio navegador.
- * - Noticias, Novedades y Torneos todavía no tienen contenido real: cada una
- *   muestra solo un mensaje centrado "PRÓXIMAMENTE" (ComingSoonPanel) en vez
- *   de la vista previa de ejemplo que tenían antes.
+ * - "Noticias Gaming" (NoticiasGamingPanel, al final del archivo) lee la
+ *   tabla noticias_gaming y, en segundo plano, llama a api/noticias-gaming.ts
+ *   para que busque y resuma noticias nuevas si toca.
+ * - Novedades y Torneos todavía no tienen contenido real: muestran solo un
+ *   mensaje centrado "PRÓXIMAMENTE" (ComingSoonPanel).
  * - El contador "X viendo ahora" de la cabecera es real: cada persona que
  *   tiene esta pantalla abierta (con sesión o sin ella) se cuenta con
  *   Supabase Realtime Presence (canal "chat_global_presence",
@@ -84,6 +86,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  Share,
   StatusBar,
   Text,
   TextInput,
@@ -91,6 +94,9 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import CargaMarca from "../../components/marca/CargaMarca";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
+import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -692,7 +698,11 @@ export default function ChatGlobalScreen() {
   };
 
   const renderActiveTabContent = () => {
-    if (activeTab === "news" || activeTab === "novedades" || activeTab === "torneos") {
+    if (activeTab === "news") {
+      return <NoticiasGamingPanel />;
+    }
+
+    if (activeTab === "novedades" || activeTab === "torneos") {
       return <ComingSoonPanel />;
     }
 
@@ -1984,7 +1994,7 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
   );
 }
 
-// Pestañas "Noticias Gaming", "Nuestras Novedades" y "Torneos": todavía sin
+// Pestañas "Nuestras Novedades" y "Torneos": todavía sin
 // contenido real, así que de momento muestran solo este mensaje centrado en
 // la pantalla en vez de una vista previa de ejemplo (antes era InfoPanel,
 // con títulos y párrafos de muestra — se quitó a petición de Jefe).
@@ -2301,5 +2311,477 @@ function PrivateChatsInbox({
         </Pressable>
       ))}
     </View>
+  );
+}
+
+// --- Pestaña "Noticias Gaming" ----------------------------------------------
+// Lee las noticias ya resumidas de la tabla noticias_gaming (lectura pública)
+// y, en segundo plano, pide a api/noticias-gaming.ts que busque nuevas si
+// toca (la propia función decide si han pasado 3 horas). Si la tabla aún no
+// existe o falla algo, se muestra el estado vacío, nunca un error.
+
+const NOTICIAS_POR_PAGINA = 20;
+const NOTICIAS_LIKES_KEY = "videojuegoszaragoza:noticias_gaming_likes";
+const NOTICIAS_API_URL =
+  Platform.OS === "web" ? "/api/noticias-gaming" : "https://videojuegoszaragoza.com/api/noticias-gaming";
+const AZUL_NOTICIAS = "#1EA7E8";
+const AZUL_OSCURO_NOTICIAS = "#0E86C4";
+
+type Noticia = {
+  id: string;
+  url: string;
+  fuente: string;
+  titulo: string;
+  imagenUrl: string | null;
+  categoria: string;
+  resumen: string;
+  puntosClave: string[];
+  datos: string[];
+  porQueImporta: string | null;
+  afectaA: string | null;
+  publicadaEn: string | null;
+};
+
+function aListaDeTextos(valor: unknown): string[] {
+  return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === "string" && !!v.trim()) : [];
+}
+
+function filaANoticia(r: any): Noticia {
+  return {
+    id: String(r.id),
+    url: String(r.url ?? ""),
+    fuente: String(r.fuente ?? ""),
+    titulo: String(r.titulo ?? ""),
+    imagenUrl: typeof r.imagen_url === "string" && r.imagen_url ? r.imagen_url : null,
+    categoria: String(r.categoria ?? "Gaming"),
+    resumen: String(r.resumen ?? ""),
+    puntosClave: aListaDeTextos(r.puntos_clave),
+    datos: aListaDeTextos(r.datos),
+    porQueImporta: r.por_que_importa ?? null,
+    afectaA: r.afecta_a ?? null,
+    publicadaEn: r.publicada_en ?? r.created_at ?? null,
+  };
+}
+
+// "hace 5 min", "hace 3 horas", "hace 2 días" o la fecha si es más antigua.
+function haceTiempo(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const min = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+  if (min < 1) return "ahora mismo";
+  if (min < 60) return `hace ${min} min`;
+  const horas = Math.floor(min / 60);
+  if (horas < 24) return horas === 1 ? "hace 1 hora" : `hace ${horas} horas`;
+  const dias = Math.floor(horas / 24);
+  if (dias < 7) return dias === 1 ? "hace 1 día" : `hace ${dias} días`;
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+}
+
+function fechaLarga(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
+}
+
+async function compartirNoticia(n: Noticia) {
+  try {
+    const nav: any = typeof navigator !== "undefined" ? navigator : null;
+    if (Platform.OS === "web") {
+      if (nav?.share) {
+        await nav.share({ title: n.titulo, url: n.url });
+      } else if (nav?.clipboard?.writeText) {
+        await nav.clipboard.writeText(n.url);
+      }
+      return;
+    }
+    await Share.share({ title: n.titulo, message: `${n.titulo}\n${n.url}`, url: n.url });
+  } catch {
+    // El usuario canceló o el navegador no lo permite: no pasa nada.
+  }
+}
+
+function NoticiasGamingPanel() {
+  const { height } = useWindowDimensions();
+  const [noticias, setNoticias] = useState<Noticia[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [cargandoMas, setCargandoMas] = useState(false);
+  const [hayMas, setHayMas] = useState(false);
+  const [abiertaId, setAbiertaId] = useState<string | null>(null);
+  const [likes, setLikes] = useState<Record<string, true>>({});
+  const montado = useRef(true);
+
+  // Página "desde" (0 = primera). Devuelve las noticias leídas.
+  const leerPagina = useCallback(async (desde: number): Promise<Noticia[] | null> => {
+    const { data, error } = await supabase
+      .from("noticias_gaming")
+      .select(
+        "id,url,fuente,titulo,imagen_url,categoria,resumen,puntos_clave,datos,por_que_importa,afecta_a,publicada_en,created_at"
+      )
+      .eq("publicada", true)
+      .order("publicada_en", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(desde, desde + NOTICIAS_POR_PAGINA - 1);
+    if (error) return null;
+    return (data ?? []).map(filaANoticia);
+  }, []);
+
+  const recargar = useCallback(async () => {
+    const primera = await leerPagina(0);
+    if (!montado.current) return;
+    setNoticias(primera ?? []);
+    setHayMas((primera?.length ?? 0) === NOTICIAS_POR_PAGINA);
+    setCargando(false);
+  }, [leerPagina]);
+
+  useEffect(() => {
+    montado.current = true;
+    recargar();
+
+    // En segundo plano: si la función trae noticias nuevas, se recarga la lista.
+    fetch(NOTICIAS_API_URL)
+      .then((r) => r.json())
+      .then((json: any) => {
+        if (montado.current && json?.actualizado && Number(json?.nuevas) > 0) recargar();
+      })
+      .catch(() => {});
+
+    // Me gusta guardados solo en este dispositivo.
+    AsyncStorage.getItem(NOTICIAS_LIKES_KEY)
+      .then((raw) => {
+        const ids: unknown = raw ? JSON.parse(raw) : [];
+        if (!montado.current || !Array.isArray(ids)) return;
+        const mapa: Record<string, true> = {};
+        for (const id of ids) if (typeof id === "string") mapa[id] = true;
+        setLikes(mapa);
+      })
+      .catch(() => {});
+
+    return () => {
+      montado.current = false;
+    };
+  }, [recargar]);
+
+  const verMasNoticias = async () => {
+    if (cargandoMas) return;
+    setCargandoMas(true);
+    const siguientes = await leerPagina(noticias.length);
+    if (!montado.current) return;
+    if (siguientes) {
+      setNoticias((prev) => {
+        const vistos = new Set(prev.map((n) => n.id));
+        return [...prev, ...siguientes.filter((n) => !vistos.has(n.id))];
+      });
+      setHayMas(siguientes.length === NOTICIAS_POR_PAGINA);
+    } else {
+      setHayMas(false);
+    }
+    setCargandoMas(false);
+  };
+
+  const alternar = useCallback((id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setAbiertaId((actual) => (actual === id ? null : id));
+  }, []);
+
+  const alternarLike = useCallback((id: string) => {
+    setLikes((prev) => {
+      const nuevo = { ...prev };
+      if (nuevo[id]) delete nuevo[id];
+      else nuevo[id] = true;
+      AsyncStorage.setItem(NOTICIAS_LIKES_KEY, JSON.stringify(Object.keys(nuevo))).catch(() => {});
+      return nuevo;
+    });
+  }, []);
+
+  if (cargando) {
+    return (
+      <View style={{ minHeight: Math.max(260, height - 320), alignItems: "center", justifyContent: "center" }}>
+        <CargaMarca texto="Buscando noticias…" />
+      </View>
+    );
+  }
+
+  if (!noticias.length) {
+    return (
+      <View
+        style={{
+          minHeight: Math.max(260, height - 320),
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 14,
+        }}
+      >
+        <MarcaAnimada cual="tienda" ancho={140} />
+        <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 22, fontSize: 15 }}>
+          Todavía no hay noticias. Vuelve en un rato.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ width: "100%", alignItems: "center", gap: 18 }}>
+      {noticias.map((n) => (
+        <TarjetaNoticia
+          key={n.id}
+          noticia={n}
+          abierta={abiertaId === n.id}
+          meGusta={!!likes[n.id]}
+          onAlternar={alternar}
+          onLike={alternarLike}
+        />
+      ))}
+
+      {hayMas ? (
+        <Pressable
+          onPress={verMasNoticias}
+          disabled={cargandoMas}
+          style={({ pressed }) => ({
+            opacity: pressed || cargandoMas ? 0.7 : 1,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: COLORS.accentBorder,
+            paddingVertical: 10,
+            paddingHorizontal: 22,
+            marginTop: 4,
+          })}
+        >
+          <Text style={{ color: AZUL_OSCURO_NOTICIAS, fontWeight: "800" }}>
+            {cargandoMas ? "Cargando…" : "Ver más noticias"}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+const TarjetaNoticia = React.memo(function TarjetaNoticia({
+  noticia: n,
+  abierta,
+  meGusta,
+  onAlternar,
+  onLike,
+}: {
+  noticia: Noticia;
+  abierta: boolean;
+  meGusta: boolean;
+  onAlternar: (id: string) => void;
+  onLike: (id: string) => void;
+}) {
+  const [imagenRota, setImagenRota] = useState(false);
+  const meta = [n.fuente, haceTiempo(n.publicadaEn)].filter(Boolean).join(" · ");
+  const origen = [n.fuente, fechaLarga(n.publicadaEn)].filter(Boolean).join(" · ");
+
+  return (
+    <View
+      style={{
+        width: "100%",
+        maxWidth: 680,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 22,
+        padding: 16,
+        gap: 10,
+        alignItems: "center",
+        shadowColor: "#0B2138",
+        shadowOpacity: 0.06,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 2,
+      }}
+    >
+      {n.imagenUrl && !imagenRota ? (
+        <Image
+          source={{ uri: n.imagenUrl }}
+          onError={() => setImagenRota(true)}
+          style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 16, backgroundColor: COLORS.bg3 }}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+        />
+      ) : null}
+
+      <Text
+        style={{
+          color: AZUL_NOTICIAS,
+          fontSize: 11,
+          fontWeight: "900",
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          textAlign: "center",
+          marginTop: 2,
+        }}
+      >
+        {n.categoria}
+      </Text>
+
+      <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: "900", lineHeight: 24, textAlign: "center" }}>
+        {n.titulo}
+      </Text>
+
+      {meta ? <Text style={{ color: COLORS.soft, fontSize: 12, textAlign: "center" }}>{meta}</Text> : null}
+
+      {!abierta ? (
+        <>
+          <Text
+            numberOfLines={2}
+            style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center", fontSize: 14 }}
+          >
+            {n.resumen}
+          </Text>
+          <Pressable
+            onPress={() => onAlternar(n.id)}
+            hitSlop={8}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, flexDirection: "row", alignItems: "center", gap: 4 })}
+          >
+            <Text style={{ color: AZUL_OSCURO_NOTICIAS, fontWeight: "800", fontSize: 13 }}>Ver más</Text>
+            <Ionicons name="chevron-down" size={14} color={AZUL_OSCURO_NOTICIAS} />
+          </Pressable>
+        </>
+      ) : (
+        <View style={{ width: "100%", alignItems: "center", gap: 18, marginTop: 6 }}>
+          <SeccionNoticia titulo="Resumen">
+            <Text style={estiloTextoNoticia}>{n.resumen}</Text>
+          </SeccionNoticia>
+
+          {n.puntosClave.length ? (
+            <SeccionNoticia titulo="Puntos clave">
+              <ListaVinetas items={n.puntosClave} />
+            </SeccionNoticia>
+          ) : null}
+
+          {n.datos.length ? (
+            <SeccionNoticia titulo="Datos concretos">
+              <ListaVinetas items={n.datos} />
+            </SeccionNoticia>
+          ) : null}
+
+          {n.porQueImporta ? (
+            <SeccionNoticia titulo="Por qué importa">
+              <Text style={estiloTextoNoticia}>{n.porQueImporta}</Text>
+            </SeccionNoticia>
+          ) : null}
+
+          <Text style={{ color: COLORS.soft, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
+            Redactado a partir del texto del artículo original{origen ? ` (${origen})` : ""}
+          </Text>
+
+          {n.afectaA ? (
+            <SeccionNoticia titulo="Afecta a">
+              <Text style={estiloTextoNoticia}>{n.afectaA}</Text>
+            </SeccionNoticia>
+          ) : null}
+
+          {/* Acciones, separadas por una línea fina */}
+          <View
+            style={{
+              width: "100%",
+              borderTopWidth: 1,
+              borderTopColor: COLORS.border,
+              paddingTop: 14,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            <BotonNoticia onPress={() => onAlternar(n.id)} etiqueta="Ver menos" icono="chevron-up" iconoDetras />
+            <BotonNoticia
+              onPress={() => onLike(n.id)}
+              etiqueta={meGusta ? "1" : "0"}
+              icono={meGusta ? "heart" : "heart-outline"}
+              colorIcono={meGusta ? "#E0245E" : undefined}
+              accesible={meGusta ? "Quitar me gusta" : "Me gusta"}
+            />
+            <BotonNoticia onPress={() => compartirNoticia(n)} icono="share-social-outline" accesible="Compartir" />
+            {n.url ? (
+              <BotonNoticia onPress={() => openExternalLink(n.url)} etiqueta="Ver fuente" icono="open-outline" iconoDetras />
+            ) : null}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+});
+
+const estiloTextoNoticia = {
+  color: COLORS.text,
+  fontSize: 15,
+  lineHeight: 23,
+  textAlign: "center" as const,
+};
+
+function SeccionNoticia({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <View style={{ width: "100%", maxWidth: 560, alignItems: "center", gap: 8 }}>
+      <Text
+        style={{
+          color: AZUL_NOTICIAS,
+          fontSize: 11,
+          fontWeight: "900",
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          textAlign: "center",
+        }}
+      >
+        {titulo}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function ListaVinetas({ items }: { items: string[] }) {
+  return (
+    <View style={{ alignItems: "center", gap: 8, width: "100%" }}>
+      {items.map((t, i) => (
+        <View key={`${i}-${t.slice(0, 12)}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, maxWidth: "100%" }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: AZUL_NOTICIAS, marginTop: 9 }} />
+          <Text style={[estiloTextoNoticia, { flexShrink: 1 }]}>{t}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function BotonNoticia({
+  onPress,
+  etiqueta,
+  icono,
+  colorIcono,
+  iconoDetras,
+  accesible,
+}: {
+  onPress: () => void;
+  etiqueta?: string;
+  icono: React.ComponentProps<typeof Ionicons>["name"];
+  colorIcono?: string;
+  iconoDetras?: boolean;
+  accesible?: string;
+}) {
+  const icon = <Ionicons name={icono} size={15} color={colorIcono ?? AZUL_OSCURO_NOTICIAS} />;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accesible ?? etiqueta}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.7 : 1,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: COLORS.accentBorder,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+      })}
+    >
+      {!iconoDetras ? icon : null}
+      {etiqueta ? (
+        <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{etiqueta}</Text>
+      ) : null}
+      {iconoDetras ? icon : null}
+    </Pressable>
   );
 }
