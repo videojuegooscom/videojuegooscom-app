@@ -27,6 +27,8 @@ import sys
 
 REPO = "videojuegooscom/videojuegooscom-app"
 RAMA_BASE = "main"
+# Nombre del trabajo de .github/workflows/revision.yml que debe estar en verde.
+CI_OBLIGATORIO = "revision"
 REGISTRO = os.path.join(os.path.expanduser("~"), "registros", "vz-publicacion.log")
 
 # Rutas que nunca se publican solas: cambian las barreras, las dependencias o el despliegue.
@@ -134,6 +136,10 @@ def revisar_checks(estados, check_runs):
     for s in estados:
         if s.get("state") in ("failure", "error", "pending") and s not in vercel:
             fallos.append(f"check «{s.get('context')}» en estado {s.get('state')}")
+    # La revisión automática de GitHub (.github/workflows/revision.yml) es obligatoria:
+    # si aún no ha empezado, tampoco se publica.
+    if not any(c.get("name") == CI_OBLIGATORIO for c in check_runs):
+        fallos.append(f"falta la revisión automática «{CI_OBLIGATORIO}» (aún no ha empezado o no existe)")
     for c in check_runs:
         if c.get("status") != "completed":
             fallos.append(f"CI «{c.get('name')}» todavía en curso")
