@@ -867,7 +867,7 @@ export default function BlueIAScreen() {
               Icono "ⓘ" arriba, centrado: abre el modal con qué es Blue IA. Va dentro de
               la conversación (se desplaza con ella) para no tapar nunca los mensajes.
             */}
-            <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 20 }}>
               <IconoCabecera
                 icon="information-circle-outline"
                 label="Qué es Blue IA"
@@ -1044,7 +1044,8 @@ export default function BlueIAScreen() {
   );
 }
 
-// Icono redondo y discreto de la cabecera (ⓘ e Historial).
+// Icono de la cabecera (ⓘ e Historial): solo el icono azul, sin burbuja ni
+// sombra; hitSlop amplio para que sea fácil de tocar.
 function IconoCabecera({
   icon,
   label,
@@ -1059,19 +1060,15 @@ function IconoCabecera({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
+      hitSlop={12}
       style={({ pressed }) => ({
-        width: 26,
-        height: 26,
-        borderRadius: 999,
+        padding: 2,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: COLORS.accentBorder,
-        opacity: pressed ? 0.85 : 1,
+        opacity: pressed ? 0.6 : 1,
       })}
     >
-      <Ionicons name={icon} size={15} color={COLORS.accent} />
+      <Ionicons name={icon} size={20} color={COLORS.accent} />
     </Pressable>
   );
 }

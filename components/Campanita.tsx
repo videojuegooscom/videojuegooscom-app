@@ -19,16 +19,27 @@
  *   IA, hablar con nuestro equipo —pasando antes por Blue IA—, "Vender"), "Notificaciones" (lo que antes era la campanita:
  *   mensajes sin leer, favoritos que ya no están, novedades; con su número) y
  *   "Noticias" (Noticias Flash). Si hay notificaciones, abre en esa pestaña.
+ * - Avisos de Noticias Gaming: si el cliente los activó (con sesión,
+ *   preferencias_usuario.avisos_noticias; sin sesión o si esa tabla falla, la clave
+ *   local NOTICIAS_AVISOS_KEY = "1"), cuenta las noticias publicadas desde la última
+ *   vez que las vio (lo más reciente entre preferencias_usuario.noticias_vistas_hasta
+ *   y NOTICIAS_VISTAS_KEY; si no hay ninguna, las de las últimas 24 h). Se suman al
+ *   número rojo y salen en Notificaciones ("Ver noticias"). Si no están activados,
+ *   ahí mismo se explica cómo activarlos (campana de Noticias Gaming).
  *
- * Rendimiento: el sondeo de mensajes sin leer (45 s) se pausa con la pestaña en
- * segundo plano (web). Las consultas del bocadillo son pequeñas y de una fila.
+ * Rendimiento: el sondeo (45 s) de mensajes sin leer y de noticias nuevas se pausa
+ * con la pestaña en segundo plano (web). El recuento de noticias es head (sin
+ * filas). Las consultas del bocadillo son pequeñas y de una fila.
  *
  * Conectado con:
  * - app/_layout.tsx → la monta una sola vez.
  * - app/(tabs)/blue-ia.tsx → chat completo con Blue IA.
  * - sql/product_chats.sql → get_unread_chat_count().
  * - app/producto/[id].tsx → misma clave de "me gusta" (LIKED_PRODUCTS_KEY).
- * - app/(tabs)/chat-global.tsx → misma clave/versión de "Novedades vistas".
+ * - app/(tabs)/chat-global.tsx → misma clave/versión de "Novedades vistas" y mismas
+ *   claves de avisos de noticias (activar con la campana; marcar como vistas).
+ * - supabase/migrations/20261013200000_noticias_comentarios_preferencias.sql →
+ *   tabla preferencias_usuario (cada usuario lee la suya).
  * - components/VenderAhoraModal.tsx → formulario "Vender" desde el panel.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -66,6 +77,11 @@ const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
+// Avisos de Noticias Gaming sin sesión ("1" = activados) y fecha ISO de la última
+// vez que se vieron las noticias (las escribe app/(tabs)/chat-global.tsx).
+const NOTICIAS_AVISOS_KEY = "videojuegoszaragoza:noticias_avisos";
+const NOTICIAS_VISTAS_KEY = "videojuegoszaragoza:noticias_vistas_hasta";
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 const BLUE_SIZE = 72;
 const EDGE_INSET = 6;
@@ -101,6 +117,12 @@ async function getLikedProductIds(): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+// Fecha ISO → milisegundos (0 si falta o no es válida).
+function isoAMs(iso: string | null | undefined): number {
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 // Frase de la descripción que habla de la garantía (la escribe la tienda en cada producto).
@@ -141,6 +163,9 @@ export default function Campanita() {
   const [likedUnavailable, setLikedUnavailable] = useState<string[]>([]);
   const [novedadesPending, setNovedadesPending] = useState(false);
   const [noticias, setNoticias] = useState<string[]>([]);
+  // Avisos de Noticias Gaming: si están activados y cuántas hay sin ver.
+  const [avisosNoticias, setAvisosNoticias] = useState(false);
+  const [noticiasNuevas, setNoticiasNuevas] = useState(0);
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
   // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
   const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
@@ -259,23 +284,82 @@ export default function Campanita() {
     }
   }, []);
 
+  // Noticias Gaming nuevas desde la última vez que se vieron (solo si hay avisos activados).
+  const refreshNoticiasNuevas = useCallback(async () => {
+    let avisoLocal: string | null = null;
+    let vistasLocal: string | null = null;
+    try {
+      avisoLocal = await AsyncStorage.getItem(NOTICIAS_AVISOS_KEY);
+      vistasLocal = await AsyncStorage.getItem(NOTICIAS_VISTAS_KEY);
+    } catch {
+      // sin almacenamiento local: se sigue con lo de la cuenta
+    }
+
+    let activado = avisoLocal === "1";
+    let vistasCuenta: string | null = null;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
+      if (user) {
+        const { data, error } = await supabase
+          .from("preferencias_usuario")
+          .select("avisos_noticias,noticias_vistas_hasta")
+          .eq("user_id", user.id)
+          .maybeSingle<{ avisos_noticias: boolean | null; noticias_vistas_hasta: string | null }>();
+        if (error) throw error;
+        // Con fila guardada manda la cuenta; sin fila, lo local.
+        if (data) {
+          activado = data.avisos_noticias === true;
+          vistasCuenta = data.noticias_vistas_hasta;
+        }
+      }
+    } catch {
+      // la tabla puede no existir aún: solo lo local
+    }
+
+    setAvisosNoticias(activado);
+    if (!activado) {
+      setNoticiasNuevas(0);
+      return;
+    }
+
+    const vistasMs = Math.max(isoAMs(vistasCuenta), isoAMs(vistasLocal));
+    const desde = new Date(vistasMs || Date.now() - DIA_MS).toISOString();
+    try {
+      const { count, error } = await supabase
+        .from("noticias_gaming")
+        .select("id", { count: "exact", head: true })
+        .eq("publicada", true)
+        .gt("created_at", desde);
+      if (error) throw error;
+      setNoticiasNuevas(count ?? 0);
+    } catch {
+      setNoticiasNuevas(0);
+    }
+  }, []);
+
   useEffect(() => {
     refreshAuth();
     refreshChats();
     refreshLikes();
     refreshNovedades();
     refreshNoticias();
+    // refreshNoticiasNuevas() al montar lo hace el efecto de la ruta (más abajo).
 
     const hasDocument = typeof document !== "undefined";
     const isPageVisible = () => !hasDocument || document.visibilityState !== "hidden";
     const interval = setInterval(() => {
-      if (isPageVisible()) refreshChats();
+      if (!isPageVisible()) return;
+      refreshChats();
+      refreshNoticiasNuevas();
     }, POLL_MS);
 
     let onVisibilityChange: (() => void) | null = null;
     if (hasDocument) {
       onVisibilityChange = () => {
-        if (document.visibilityState === "visible") refreshChats();
+        if (document.visibilityState !== "visible") return;
+        refreshChats();
+        refreshNoticiasNuevas();
       };
       document.addEventListener("visibilitychange", onVisibilityChange);
     }
@@ -283,6 +367,7 @@ export default function Campanita() {
     const { data: authSub } = supabase.auth.onAuthStateChange(() => {
       refreshAuth();
       refreshChats();
+      refreshNoticiasNuevas();
     });
 
     return () => {
@@ -290,9 +375,16 @@ export default function Campanita() {
       if (hasDocument && onVisibilityChange) document.removeEventListener("visibilitychange", onVisibilityChange);
       authSub?.subscription?.unsubscribe?.();
     };
-  }, [refreshAuth, refreshChats, refreshLikes, refreshNovedades, refreshNoticias]);
+  }, [refreshAuth, refreshChats, refreshLikes, refreshNovedades, refreshNoticias, refreshNoticiasNuevas]);
 
-  const totalCount = unreadChats + likedUnavailable.length + (novedadesPending ? 1 : 0);
+  // Cuenta las noticias al montar y otra vez al salir del Foro (donde se ven y se
+  // actualiza la clave local de "vistas"), para que el número rojo no se quede viejo.
+  const enForo = pathname.startsWith("/chat-global");
+  useEffect(() => {
+    if (!enForo) refreshNoticiasNuevas();
+  }, [enForo, refreshNoticiasNuevas]);
+
+  const totalCount = unreadChats + likedUnavailable.length + (novedadesPending ? 1 : 0) + noticiasNuevas;
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
   // --- bocadillos según la pantalla --------------------------------------------
@@ -381,7 +473,8 @@ export default function Campanita() {
     refreshChats();
     refreshLikes();
     refreshNovedades();
-  }, [refreshChats, refreshLikes, refreshNovedades]);
+    refreshNoticiasNuevas();
+  }, [refreshChats, refreshLikes, refreshNovedades, refreshNoticiasNuevas]);
 
   const openPanelRef = useRef(openPanel);
   openPanelRef.current = openPanel;
@@ -698,8 +791,28 @@ export default function Campanita() {
                     {novedadesPending ? (
                       <Aviso titulo="Hay novedades en el Foro" accion="Ver novedades" onPress={() => ir("/chat-global?tab=novedades")} />
                     ) : null}
+                    {noticiasNuevas > 0 ? (
+                      <Aviso
+                        titulo={noticiasNuevas === 1 ? "Hay 1 noticia nueva" : `Hay ${noticiasNuevas} noticias nuevas`}
+                        accion="Ver noticias"
+                        onPress={() => ir("/chat-global?tab=news")}
+                      />
+                    ) : null}
                   </>
                 )}
+                {/* Sin avisos de noticias activados: cómo activarlos. */}
+                {!avisosNoticias ? (
+                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
+                    ¿Quieres avisos de noticias?{" "}
+                    <Text
+                      onPress={() => ir("/chat-global?tab=news")}
+                      accessibilityRole="link"
+                      style={{ color: COLORS.accent, fontWeight: "800" }}
+                    >
+                      Actívalos con la campana de Noticias Gaming.
+                    </Text>
+                  </Text>
+                ) : null}
                 {!isLoggedIn ? (
                   <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
                     Inicia sesión para ver también los avisos de tus conversaciones.
