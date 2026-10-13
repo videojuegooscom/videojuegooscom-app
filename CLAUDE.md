@@ -25,7 +25,8 @@ ejemplos) para que la guarde en Panel → Centro De Aprendizajes.
 - **Leer archivos fuera del repo con la herramienta Read**, no con Bash (la política solo está en `/etc/claude-code`).
 - **Sin bucles de espera** (`sleep`, `while true`, `watch`). Si algo tarda, se vuelve a mirar después.
 - **Todo cambio va en una rama con su PR**, para que siempre haya vuelta atrás. Nunca trabajar ni hacer push en `main`.
-- **Publicar = `/usr/local/bin/vz-publicar publicar <número>`** cuando la vista previa de Vercel esté en verde (antes, `revisar`). Nunca `gh pr merge`. Si el controlador rechaza la PR (rutas protegidas, borrados, permisos delicados…), la fusiona el usuario.
+- **Publicar = `/usr/local/bin/vz-publicar publicar <número>`** cuando la vista previa de Vercel y la revisión automática de GitHub estén en verde (antes, `revisar`). Nunca `gh pr merge`. El controlador publica casi todo; solo rechaza las barreras (infraestructura, `.github`, `.claude`, `.mcp.json`), dependencias, `scripts/`, más de 10 borrados y SQL destructivo: esas las fusiona el usuario. Las migraciones con permisos delicados se fusionan, pero aplicarlas en Supabase sigue siendo del usuario.
+- **Toda rama pasa `tsc --noEmit` antes del push**, aunque solo toque `api/` o un texto.
 - **Textos largos de PR** con `--body-file` (un archivo del repo), para que el comando quepa en una línea.
 - **Secretos:** nunca leer ni mostrar `.env*`, claves ni tokens, ni nombrar archivos `.env` en comandos.
 - **Base de datos:** consultas de lectura por MCP (`execute_sql`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla, `git fetch origin main` y `apply_migration` con `name=<nombre>` y el contenido EXACTO del archivo (el guardián lo compara con origin/main). Nunca `DELETE`, `DROP` ni `TRUNCATE`; los cambios de permisos delicados (grant, security definer, anon, using (true)) los aplica el usuario.
