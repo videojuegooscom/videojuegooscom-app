@@ -5,10 +5,10 @@
  * así que aquí no hay lógica de sesión: solo la cabecera (título "Panel de
  * Administración" + subtítulo "Áreas principales de gestión de la tienda" +
  * volver a la tienda) y, ocupando el resto de la pantalla, la rejilla de
- * accesos a Categorías, Productos, Servicios, Inventario, Cotizaciones,
- * Chat, Noticias Flash, Políticas, Blog, Visitas y métricas, Usuarios y
- * participación, Marca y SEO, y Redes sociales (13 tarjetas: en móvil la
- * rejilla de 2 columnas queda 2-2-2-2-2-2-1).
+ * accesos a Categorías, Productos, Servicios, Pedidos, Inventario,
+ * Cotizaciones, Chat, Noticias Flash, Políticas, Blog, Visitas y métricas,
+ * Usuarios y participación, Marca y SEO, Redes sociales y Centro De
+ * Aprendizajes (15 tarjetas: en móvil la rejilla de 2 columnas).
  *
  * Cómo funciona: antes la cabecera incluía además un párrafo explicativo,
  * una insignia "Administrador activo · email" y el botón "Cerrar sesión";
@@ -31,10 +31,10 @@
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
  *   app/admin/flash-news.tsx, app/admin/policies.tsx, app/admin/blog.tsx,
  *   app/admin/analytics.tsx, app/admin/users.tsx, app/admin/marca-seo.tsx,
- *   app/admin/redes-sociales.tsx → destino de las tarjetas de
- *   "Gestión principal".
- * - app/admin/login.tsx → destino cuando el acceso no es válido
- *   (gestionado por app/admin/_layout.tsx).
+ *   app/admin/redes-sociales.tsx, app/admin/aprendizajes.tsx,
+ *   app/admin/pedidos.tsx → destino de las tarjetas de "Gestión principal".
+ * - app/admin/_layout.tsx → si el acceso no es válido redirige a /perfil
+ *   (sin sesión) o a / (sesión sin rol admin).
  */
 import React, { useMemo } from "react";
 import {
@@ -210,6 +210,13 @@ export default function AdminHome() {
           "Reparación, limpieza y mantenimiento: ficha, precio, fotos y solicitudes de contratación.",
         icon: "construct-outline" as IoniconName,
         onPress: () => router.push("/admin/services"),
+      },
+      {
+        key: "pedidos",
+        title: "Pedidos",
+        subtitle: "Pedidos de la tienda: estado, entrega y datos del cliente",
+        icon: "receipt-outline" as IoniconName,
+        onPress: () => router.push("/admin/pedidos"),
       },
       {
         key: "inventario",

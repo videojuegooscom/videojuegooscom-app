@@ -1328,6 +1328,10 @@ export default function HomeScreen() {
 
   const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  // El formulario de "Vender ahora" es grande: no se monta hasta la primera vez que se abre
+  // (y luego se queda montado para conservar su animación de cierre).
+  const [sellModalMounted, setSellModalMounted] = useState(false);
+  if (sellModalOpen && !sellModalMounted) setSellModalMounted(true);
   const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
   // Botón flotante "volver arriba" ⬆️: aparece tras bajar bastante.
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -1872,7 +1876,9 @@ export default function HomeScreen() {
         hidden={headerHidden}
       />
 
-      <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+      {sellModalMounted ? (
+        <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
+      ) : null}
 
       <InfoPopModal item={infoPop} onClose={() => setInfoPop(null)} />
     </View>

@@ -49,6 +49,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
+import { trackEvent } from "../lib/analytics";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -58,6 +59,8 @@ const COLORS = {
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
+  // Mismo azul oscuro de botón principal que la ficha de producto.
+  accentDark: "#0E86C4",
   gold: "#B8860B",
   danger: "#DC2626",
   accent2: "#EAF6FD",
@@ -194,20 +197,6 @@ function openWhatsApp(prefill: string) {
   }
 }
 
-function inputStyle() {
-  return {
-    width: "100%" as const,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E3EAF2",
-    backgroundColor: COLORS.inputBg,
-    paddingVertical: Platform.select({ web: 12, default: 12 }),
-    paddingHorizontal: 12,
-    color: COLORS.text,
-    fontWeight: "800" as const,
-  };
-}
-
 export default function CheckoutScreen() {
   useWindowDimensions(); // fuerza re-render en cambios de tamaño (web/responsive)
   // Columna centrada: en desktop el checkout no se estira de borde a borde,
@@ -232,6 +221,10 @@ export default function CheckoutScreen() {
   const [postalCode, setPostalCode] = useState("");
   const [city, setCity] = useState("");
   const [notes, setNotes] = useState("");
+  // Envío a casa o recogida en tienda (Zaragoza): con recogida no se pide dirección.
+  const [entrega, setEntrega] = useState<"envio" | "recogida">("envio");
+  // Número del pedido ya registrado (pantalla de confirmación).
+  const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; texto: string } | null>(null);
 
   const bootedRef = useRef(false);
 
@@ -250,16 +243,24 @@ export default function CheckoutScreen() {
     const emailOk = isValidEmail(email);
     const phoneOk = isValidPhone(phone);
 
+    if (entrega === "recogida") return nameOk && emailOk && phoneOk;
+
     const addrOk = safeStr(address1).length >= 6;
     const cpOk = safeStr(postalCode).length >= 4;
     const cityOk = safeStr(city).length >= 2;
 
     return nameOk && emailOk && phoneOk && addrOk && cpOk && cityOk;
-  }, [items.length, fullName, email, phone, address1, postalCode, city]);
+  }, [items.length, fullName, email, phone, address1, postalCode, city, entrega]);
 
-  const whatsText = useMemo(() => {
+  const buildWhatsText = useCallback((numero: number | null) => {
     const lines: string[] = [];
-    lines.push("¡Hola! Quiero hacer un pedido desde Videojuegoszaragoza.com 👇");
+    lines.push(
+      numero
+        ? `¡Hola! Acabo de hacer el pedido nº ${numero} en Videojuegoszaragoza.com 👇`
+        : "¡Hola! Quiero hacer un pedido desde Videojuegoszaragoza.com 👇"
+    );
+    lines.push("");
+    lines.push(entrega === "recogida" ? "🏪 Entrega: recogida en tienda" : "🚚 Entrega: envío a domicilio");
     lines.push("");
     if (items.length > 0) {
       lines.push("🛒 Pedido:");
@@ -273,16 +274,24 @@ export default function CheckoutScreen() {
     if (safeStr(fullName)) lines.push(`Nombre: ${safeStr(fullName)}`);
     if (safeStr(email)) lines.push(`Email: ${safeStr(email)}`);
     if (safeStr(phone)) lines.push(`Tel: ${safeStr(phone)}`);
-    if (safeStr(address1)) lines.push(`Dirección: ${safeStr(address1)}`);
-    if (safeStr(postalCode) || safeStr(city)) lines.push(`CP/Ciudad: ${safeStr(postalCode)} ${safeStr(city)}`.trim());
+    if (entrega === "envio") {
+      if (safeStr(address1)) lines.push(`Dirección: ${safeStr(address1)}`);
+      if (safeStr(postalCode) || safeStr(city)) lines.push(`CP/Ciudad: ${safeStr(postalCode)} ${safeStr(city)}`.trim());
+    }
     if (safeStr(notes)) {
       lines.push("");
       lines.push(`Notas: ${safeStr(notes)}`);
     }
     lines.push("");
-    lines.push("¿Me confirmas disponibilidad y forma de pago/envío?");
+    lines.push(
+      entrega === "recogida"
+        ? "¿Me confirmas disponibilidad, forma de pago y cuándo puedo pasar a recogerlo?"
+        : "¿Me confirmas disponibilidad y forma de pago/envío?"
+    );
     return lines.join("\n");
-  }, [items, total, fullName, email, phone, address1, postalCode, city, notes]);
+  }, [items, total, fullName, email, phone, address1, postalCode, city, notes, entrega]);
+
+  const whatsText = useMemo(() => buildWhatsText(null), [buildWhatsText]);
 
   const bootstrap = useCallback(async () => {
     setErr(null);
@@ -303,6 +312,12 @@ export default function CheckoutScreen() {
         await saveCart(stored);
       }
       setItems(stored);
+      if (stored.length) {
+        trackEvent("begin_checkout", "Inicio de compra", {
+          path: "/checkout",
+          metadata: { items: stored.length, total: stored.reduce((a, it) => a + it.priceEUR * it.qty, 0) },
+        });
+      }
     } catch (e: any) {
       console.error("Error cargando el checkout:", e);
       setErr("No hemos podido cargar el proceso de compra. Inténtalo de nuevo.");
@@ -340,29 +355,52 @@ export default function CheckoutScreen() {
 
     setSubmitting(true);
     try {
-      // MVP: todavía NO Stripe. Convertimos por WhatsApp para cerrar ventas YA.
-      // Cuando metamos Stripe: aquí llamaremos a /api/stripe/create-checkout-session
-      // y redirigiremos al checkout real.
-      openWhatsApp(whatsText);
-      // Tras abrir WhatsApp (sin esperas antes, para que el navegador no lo bloquee),
-      // se renueva la reserva mientras se cierra el pedido con la tienda.
-      const renovados = await Promise.all(
-        items.map(async (it) => {
-          const r = await reservarProducto(it.id);
-          return r.ok ? { ...it, reservedUntil: r.hasta } : it;
-        })
-      );
-      setItems(renovados);
-      await saveCart(renovados);
+      // 1) Se registra el pedido en la tienda (supabase/migrations/20261013120000_pedidos.sql).
+      //    El total lo calcula la base de datos con los precios reales. Si la función aún
+      //    no existe o falla la red, el pedido sigue por WhatsApp como hasta ahora.
+      let numero: number | null = null;
+      try {
+        const { data, error } = await supabase.rpc("crear_pedido", {
+          p_datos: {
+            nombre: safeStr(fullName),
+            email: safeStr(email),
+            telefono: safeStr(phone),
+            entrega,
+            direccion: entrega === "envio" ? safeStr(address1) : "",
+            codigo_postal: entrega === "envio" ? safeStr(postalCode) : "",
+            ciudad: entrega === "envio" ? safeStr(city) : "",
+            notas: safeStr(notes),
+          },
+          p_productos: items.map((it) => it.id),
+        });
+        if (!error && data != null) numero = Number(data);
+      } catch {
+        // sin número: se sigue por WhatsApp
+      }
+
+      trackEvent("order_whatsapp", "Pedido por WhatsApp", {
+        path: "/checkout",
+        metadata: { numero, total, items: items.length, entrega },
+      });
       await markBuyNowSoldIfApplies(items);
 
+      // 2) Con el pedido registrado, la cesta se vacía y se muestra la confirmación.
+      const texto = buildWhatsText(numero);
+      if (numero) {
+        await saveCart([]);
+        setItems([]);
+      }
+      setPedidoHecho({ numero, texto });
+
+      // 3) WhatsApp con el número de pedido para cerrar pago y entrega con la tienda.
+      openWhatsApp(texto);
     } catch (e: any) {
       console.error("Error al finalizar el pedido:", e);
       setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
     } finally {
       setSubmitting(false);
     }
-  }, [items, formOk, whatsText]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, buildWhatsText]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -391,7 +429,7 @@ export default function CheckoutScreen() {
           >
             <View style={{ flex: 1 }}>
               <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
-                Checkout
+                Finalizar compra
               </Text>
               <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>
                 Rápido, claro y sin costes ocultos.
@@ -426,8 +464,44 @@ export default function CheckoutScreen() {
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
           <ActivityIndicator />
-          <Text style={{ color: COLORS.muted }}>Cargando checkout…</Text>
+          <Text style={{ color: COLORS.muted }}>Cargando…</Text>
         </View>
+      ) : pedidoHecho ? (
+        // Confirmación: el pedido ya está registrado (o enviado por WhatsApp si no hubo número).
+        <ScrollView contentContainerStyle={{ padding: 24, alignItems: "center" }}>
+          <View style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
+            <Ionicons name="checkmark-circle" size={56} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
+              {pedidoHecho.numero ? `Pedido nº ${pedidoHecho.numero} recibido` : "Pedido enviado"}
+            </Text>
+            <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
+              {pedidoHecho.numero
+                ? "Te escribimos por WhatsApp para confirmar la disponibilidad, el pago y la entrega."
+                : "Termina de enviarnos el mensaje por WhatsApp y te confirmamos la disponibilidad, el pago y la entrega."}
+            </Text>
+            <Pressable
+              onPress={() => openWhatsApp(pedidoHecho.texto)}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.88 : 1,
+                marginTop: 6,
+                minHeight: 50,
+                paddingHorizontal: 22,
+                borderRadius: 999,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                backgroundColor: COLORS.accentDark,
+              })}
+            >
+              <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Abrir WhatsApp</Text>
+            </Pressable>
+            <Pressable onPress={() => router.replace("/catalogo")} style={{ paddingVertical: 10 }}>
+              <Text style={{ color: COLORS.accent, fontWeight: "800", textAlign: "center" }}>Seguir viendo productos</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       ) : items.length === 0 ? (
         <View style={{ padding: 16, gap: 12, alignItems: "center" }}>
           <View
@@ -486,15 +560,68 @@ export default function CheckoutScreen() {
 
               <View style={{ height: 1, alignSelf: "stretch", backgroundColor: "#E3EAF2" }} />
               <Row label="Subtotal" value={fmtEUR(subtotal)} />
-              <Row label="Envío" value={shipping === 0 ? "Gratis" : fmtEUR(shipping)} />
+              <Row
+                label={entrega === "recogida" ? "Recogida" : "Envío"}
+                value={entrega === "recogida" ? "En tienda" : shipping === 0 ? "Gratis" : fmtEUR(shipping)}
+              />
               <Row label="Total" value={fmtEUR(total)} strong />
             </View>
 
             {/* Datos envío */}
             <View style={{ gap: 10, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Datos de envío</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Entrega</Text>
+
+              {/* Envío a casa o recogida en tienda: dos opciones claras, una pulsada. */}
+              <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
+                {(
+                  [
+                    { key: "envio", label: "Envío a domicilio", icon: "cube-outline" },
+                    { key: "recogida", label: "Recogida en tienda", icon: "storefront-outline" },
+                  ] as const
+                ).map((op) => {
+                  const activa = entrega === op.key;
+                  return (
+                    <Pressable
+                      key={op.key}
+                      onPress={() => setEntrega(op.key)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: activa }}
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        maxWidth: 220,
+                        opacity: pressed ? 0.88 : 1,
+                        minHeight: 48,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        borderWidth: 1.5,
+                        borderColor: activa ? COLORS.accent : COLORS.border,
+                        backgroundColor: activa ? COLORS.accent2 : "#FFFFFF",
+                      })}
+                    >
+                      <Ionicons name={op.icon} size={16} color={activa ? COLORS.accentDark : COLORS.muted} />
+                      <Text
+                        style={{
+                          color: activa ? COLORS.accentDark : COLORS.text,
+                          fontWeight: "900",
+                          fontSize: 13.5,
+                          textAlign: "center",
+                        }}
+                      >
+                        {op.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                Esto es lo mínimo que necesitamos para preparar tu envío.
+                {entrega === "recogida"
+                  ? "Te avisamos por WhatsApp cuando esté listo para recoger."
+                  : "Esto es lo mínimo que necesitamos para preparar tu envío."}
               </Text>
 
               <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />
@@ -513,27 +640,31 @@ export default function CheckoutScreen() {
                 placeholder="627 748 741"
                 keyboardType="phone-pad"
               />
-              <Field
-                label="Dirección"
-                value={address1}
-                onChangeText={setAddress1}
-                placeholder="Calle, número, piso..."
-              />
-
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <View style={{ flex: 1 }}>
+              {entrega === "envio" ? (
+                <>
                   <Field
-                    label="Código postal"
-                    value={postalCode}
-                    onChangeText={setPostalCode}
-                    placeholder="50001"
-                    keyboardType="number-pad"
+                    label="Dirección"
+                    value={address1}
+                    onChangeText={setAddress1}
+                    placeholder="Calle, número, piso..."
                   />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Field label="Ciudad" value={city} onChangeText={setCity} placeholder="Zaragoza" />
-                </View>
-              </View>
+
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Field
+                        label="Código postal"
+                        value={postalCode}
+                        onChangeText={setPostalCode}
+                        placeholder="50001"
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Field label="Ciudad" value={city} onChangeText={setCity} placeholder="Zaragoza" />
+                    </View>
+                  </View>
+                </>
+              ) : null}
 
               <Field
                 label="Notas (opcional)"
@@ -622,56 +753,39 @@ export default function CheckoutScreen() {
               elevation: 12,
             }}
           >
-            <View style={{ ...columnStyle, flexDirection: "row", gap: 10 }}>
+            {/* Una sola acción principal, clara y con el total a la vista. */}
+            <View style={{ ...columnStyle, maxWidth: 460 }}>
               <Pressable
                 disabled={!formOk || submitting}
                 onPress={onPay}
+                accessibilityRole="button"
                 style={({ pressed }) => ({
-                  flex: 1,
-                  opacity: !formOk || submitting ? 0.45 : pressed ? 0.88 : 1,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.accentBorder,
-                  backgroundColor: COLORS.accent2,
-                  paddingVertical: 14,
+                  opacity: !formOk || submitting ? 0.45 : pressed ? 0.9 : 1,
+                  borderRadius: 999,
+                  minHeight: 54,
+                  paddingVertical: 10,
                   alignItems: "center",
                   justifyContent: "center",
+                  backgroundColor: COLORS.accentDark,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                  {submitting ? "Abriendo WhatsApp…" : "Finalizar pedido por WhatsApp"}
-                </Text>
-                <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
-                  Total: {fmtEUR(total)}
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.replace("/catalogo")}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
-                  backgroundColor: "#F6FAFD",
-                  paddingVertical: 14,
-                  alignItems: "center",
-                  justifyContent: "center",
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Seguir viendo</Text>
-                <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 4, fontWeight: "800", fontSize: 12 }}>
-                  Volver al catálogo
-                </Text>
+                {submitting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                    Confirmar pedido · {fmtEUR(total)}
+                  </Text>
+                )}
               </Pressable>
             </View>
 
-            {!formOk ? (
-              <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 10, textAlign: "center" }}>
-                Completa los datos de envío para activar “Finalizar pedido por WhatsApp”.
-              </Text>
-            ) : null}
+            <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 10, textAlign: "center", fontSize: 12.5 }}>
+              {formOk
+                ? "Te confirmamos pago y entrega por WhatsApp. Sin pagos por adelantado en la web."
+                : entrega === "recogida"
+                  ? "Completa nombre, email y teléfono para confirmar el pedido."
+                  : "Completa los datos de envío para confirmar el pedido."}
+            </Text>
           </View>
         </>
       )}

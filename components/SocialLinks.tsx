@@ -58,12 +58,9 @@
  * por Google para ESE caso concreto (a diferencia de "abrir la app de
  * Instagram", aquí sí hay un esquema oficial y estable que probar).
  *
- * Iconos: Instagram/WhatsApp/YouTube/Facebook/Apple usan Ionicons (ya la usa
- * toda la app). TikTok usa MaterialIcons y Gmail usa MaterialCommunityIcons
- * — ambas familias, igual que Ionicons, cargan su fuente solas al montarse
- * (no hace falta nada especial para que se vean bien), y sus fuentes se
- * precargan también en app/_layout.tsx para que no parpadeen invisibles el
- * primer instante. Wallapop y Vinted no tienen un logo en ninguna fuente de
+ * Iconos: todos usan Ionicons (la única fuente de iconos que se precarga al
+ * arrancar en app/_layout.tsx): TikTok es "logo-tiktok" y Gmail "mail-outline".
+ * Así la tienda no descarga dos fuentes extra solo para dos logos. Wallapop y Vinted no tienen un logo en ninguna fuente de
  * iconos incluida en el proyecto, así que se pintan como una insignia con su
  * inicial ("W" / "V") sobre el color de marca — un compromiso honesto,
  * explicado a Daniel, hasta que exista un icono real que añadir. Apple Maps
@@ -80,12 +77,11 @@
  *   y edita el título de este bloque.
  * - app/(tabs)/index.tsx (pie de página), app/(tabs)/perfil.tsx,
  *   app/(tabs)/cesta.tsx → los tres sitios donde se monta.
- * - app/_layout.tsx → precarga las fuentes de MaterialIcons y
- *   MaterialCommunityIcons junto a la de Ionicons.
+ * - app/_layout.tsx → precarga la fuente de Ionicons.
  */
 import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 
@@ -118,7 +114,7 @@ export const SOCIAL_ICONS: Record<
     bg: "#FBEAF3",
   },
   tiktok: {
-    render: (color, size) => <MaterialIcons name="tiktok" size={size} color={color} />,
+    render: (color, size) => <Ionicons name="logo-tiktok" size={size} color={color} />,
     color: "#0B2138",
     bg: "#EAF6FD",
   },
@@ -133,7 +129,7 @@ export const SOCIAL_ICONS: Record<
     bg: "#FCEAE9",
   },
   gmail: {
-    render: (color, size) => <MaterialCommunityIcons name="gmail" size={size} color={color} />,
+    render: (color, size) => <Ionicons name="mail-outline" size={size} color={color} />,
     color: "#C5382B",
     bg: "#FCEAE9",
   },

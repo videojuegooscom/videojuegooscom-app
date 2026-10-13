@@ -7,20 +7,13 @@
  * Cómo funciona: usa expo-router Stack con headerShown:false (cada
  * pantalla dibuja su propia cabecera) y animación "fade" entre rutas.
  *
- * Pantalla de carga: se mantiene hasta que se cumplen DOS condiciones a la
- * vez — un mínimo de 1 segundo (para que la marca se vea, no sea un parpadeo)
- * Y que las fuentes de iconos (Ionicons, usada por TODA la app: cabeceras,
- * botones, tarjetas...; más MaterialIcons y MaterialCommunityIcons, que solo
- * usa components/SocialLinks.tsx para los logos de TikTok y Gmail) hayan
- * terminado de descargarse, vía useFonts() de expo-font. Antes solo dependía
- * del segundo fijo: en la primera visita en la web (o con conexión lenta/
- * caché fría), si la fuente tardaba más de 1s en llegar, la pantalla de
- * carga desaparecía igualmente y la app real aparecía con todos los iconos
- * en blanco/invisibles durante un instante — eso es lo que se veía "raro"
- * hasta refrescar la página (momento en el que la fuente ya estaba en la
- * caché del navegador y cargaba al instante). Con este cambio, la pantalla
- * de carga no se quita hasta que los iconos ya están listos para pintarse
- * bien a la primera, sin depender de refrescar.
+ * Pantalla de carga: solo espera a la fuente de Ionicons (la usa TODA la app),
+ * vía useFonts() de expo-font, para que los iconos no salgan en blanco la
+ * primera vez. Como mucho BOOT_FONT_TIMEOUT_MS (1,5 s): si la fuente tarda más
+ * (conexión lenta), la tienda se muestra igualmente y los iconos aparecen al
+ * llegar. Sin mínimo de tiempo: si la fuente ya está en caché, entra al
+ * instante. MaterialIcons/MaterialCommunityIcons ya no se precargan aquí (solo
+ * las usan pantallas secundarias, que las cargan solas al montarse).
  *
  * Conectado con:
  * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
@@ -51,36 +44,28 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
-import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
 import SiteHead from "../components/SiteHead";
 
-// Pantalla de marca muy breve: lo justo para que no parpadee. Antes era 1 s fijo en cada
-// carga, que en móvil se notaba como lentitud aunque la tienda ya estuviera lista.
-const MIN_BOOT_MS = 300;
+// Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
+const BOOT_FONT_TIMEOUT_MS = 1500;
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    ...Ionicons.font,
-    ...MaterialIcons.font,
-    ...MaterialCommunityIcons.font,
-  });
-  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
+  const [fontTimedOut, setFontTimedOut] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setMinTimeElapsed(true);
-    }, MIN_BOOT_MS);
-
+    if (fontsLoaded || fontError) return;
+    const timer = setTimeout(() => setFontTimedOut(true), BOOT_FONT_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, []);
+  }, [fontsLoaded, fontError]);
 
-  // Si la fuente falla en cargar (fontError), no nos quedamos bloqueados
-  // para siempre: se deja pasar igualmente pasado el tiempo mínimo.
-  const bootLoading = !minTimeElapsed || (!fontsLoaded && !fontError);
+  // Nunca se bloquea: si la fuente falla o tarda más de 1,5 s, se entra igual.
+  const bootLoading = !fontsLoaded && !fontError && !fontTimedOut;
 
   if (bootLoading) {
     return <BrandLoadingScreen message="Cargando tienda..." />;

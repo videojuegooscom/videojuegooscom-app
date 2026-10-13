@@ -15,11 +15,14 @@
  *   varias pantallas cuenta como una sola visita en el embudo); pasado ese
  *   tiempo se genera una sesión nueva, como en cualquier herramienta de
  *   analítica web.
- * - Consentimiento: respeta el aviso de cookies/analítica (ver
- *   components/CookieConsentBanner.tsx). Jefe decidió "seguimiento completo
- *   con aviso de cookies", así que mientras el visitante no haya contestado
- *   el aviso SÍ se registra su recorrido; si pulsa "Rechazar" se deja de
- *   enviar cualquier evento nuevo. La decisión se guarda en AsyncStorage
+ * - Consentimiento (RGPD): respeta el aviso de cookies/analítica (ver
+ *   components/CookieConsentBanner.tsx). NO se envía nada a Supabase (ni se
+ *   crea el session_id en el dispositivo) hasta que el visitante pulsa
+ *   "Aceptar". Mientras no ha contestado, los eventos de esta visita se
+ *   guardan solo en memoria (cola limitada a MAX_PENDING_EVENTS): si acepta,
+ *   se envían en ese momento; si rechaza (o cierra la pestaña sin contestar),
+ *   se descartan y no sale nada. Con "Rechazar" tampoco se envía ningún
+ *   evento posterior. La decisión se guarda en AsyncStorage
  *   (getAnalyticsConsent/setAnalyticsConsent) y se cachea en memoria para no
  *   leer el storage en cada evento.
  * - trackEvent() nunca bloquea la UI ni lanza errores hacia quien la llama:
@@ -58,6 +61,18 @@ export type AnalyticsConsent = "accepted" | "declined" | null;
 
 let sessionIdCache: string | null = null;
 let consentCache: AnalyticsConsent | undefined; // undefined = aún no leído de storage
+
+type QueuedEvent = {
+  eventName: string;
+  stepLabel: string;
+  opts?: { path?: string; metadata?: Record<string, unknown> };
+};
+
+// Eventos de la visita actual a la espera de que el visitante conteste el
+// aviso. Solo en memoria: nunca se guardan en el dispositivo ni se envían
+// sin consentimiento.
+const MAX_PENDING_EVENTS = 50;
+const pendingEvents: QueuedEvent[] = [];
 
 function makeId(): string {
   // UUID v4 sencillo sin dependencias extra: solo hace falta que sea único
@@ -117,9 +132,29 @@ export async function getAnalyticsConsent(): Promise<AnalyticsConsent> {
   return consentCache;
 }
 
-/** Guarda la decisión del aviso de cookies/analítica y actualiza la caché en memoria. */
+/** true solo si el visitante ha aceptado expresamente la analítica. */
+export async function hasAnalyticsConsent(): Promise<boolean> {
+  return (await getAnalyticsConsent()) === "accepted";
+}
+
+/**
+ * Guarda la decisión del aviso de cookies/analítica y actualiza la caché en
+ * memoria. Si acepta, envía los eventos de esta visita que estaban en cola;
+ * si rechaza, los descarta sin enviar nada.
+ */
 export async function setAnalyticsConsent(value: "accepted" | "declined"): Promise<void> {
   consentCache = value;
+
+  const queued = pendingEvents.splice(0, pendingEvents.length);
+  if (value === "accepted") {
+    // En orden y sin bloquear a quien llama (el banner se cierra al momento).
+    (async () => {
+      for (const ev of queued) {
+        await sendEvent(ev);
+      }
+    })();
+  }
+
   try {
     await AsyncStorage.setItem(CONSENT_KEY, value);
   } catch {
@@ -171,6 +206,25 @@ export async function trackEvent(
   try {
     const consent = await getAnalyticsConsent();
     if (consent === "declined") return; // el visitante rechazó el seguimiento
+
+    if (consent !== "accepted") {
+      // Aún no ha contestado: se guarda en memoria y solo se enviará si acepta.
+      if (pendingEvents.length < MAX_PENDING_EVENTS) {
+        pendingEvents.push({ eventName, stepLabel, opts: { path: opts?.path, metadata: opts?.metadata } });
+      }
+      return;
+    }
+
+    await sendEvent({ eventName, stepLabel, opts });
+  } catch {
+    // La analítica nunca debe romper la experiencia de la tienda.
+  }
+}
+
+// Envío real a Supabase. Solo se llama con consentimiento aceptado.
+async function sendEvent({ eventName, stepLabel, opts }: QueuedEvent): Promise<void> {
+  try {
+    if (consentCache !== "accepted") return;
 
     const {
       data: { session },

@@ -16,8 +16,13 @@
  *   RLS de analytics_events ya exige is_admin() para el SELECT).
  * - Rango de fechas: chips rápidos (Hoy/7 días/30 días/90 días/Todo) o un
  *   rango a medida escribiendo dos fechas (AAAA-MM-DD). Por defecto, últimos
- *   30 días. Las fechas se tratan como días completos en UTC (00:00 a 00:00
- *   del día siguiente) para no complicar cada zona horaria de cada visitante.
+ *   30 días. Las fechas se tratan como días completos en hora de España
+ *   (Europe/Madrid, de 00:00 a 00:00 del día siguiente, con horario de
+ *   verano). Ojo: la agrupación por día de "Crecimiento de visitantes" la
+ *   hace la función SQL analytics_daily_visitors en la zona del servidor.
+ * - "Conversiones por día": lee directamente analytics_events (RLS exige
+ *   is_admin()) los eventos add_to_cart, buy_now, begin_checkout y
+ *   order_whatsapp del rango y los cuenta por día de Madrid en el cliente.
  * - "Recorrido principal": agrupa analytics_funnel por prefijo de
  *   step_label ("Categoría ..." → Categoría, "Producto ..." → Producto) para
  *   armar un embudo de 4 pasos (Inicio, Categoría, Producto, Reseñas), con el
@@ -43,7 +48,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -110,13 +114,59 @@ function pad2(n: number) {
   return n < 10 ? `0${n}` : String(n);
 }
 
+// Las fechas del panel son días de calendario de España (Europe/Madrid).
+// Internamente cada día se representa como un Date a las 00:00 UTC de ese
+// día de calendario (solo para sumar/restar días), y al consultar Supabase
+// se convierte al instante real de las 00:00 en Madrid (con su horario de
+// verano/invierno).
+const TZ = "Europe/Madrid";
+
+const madridPartsFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function madridParts(instant: Date) {
+  const out: Record<string, number> = {};
+  for (const p of madridPartsFmt.formatToParts(instant)) {
+    if (p.type !== "literal") out[p.type] = Number(p.value);
+  }
+  return out as { year: number; month: number; day: number; hour: number; minute: number; second: number };
+}
+
+/** "AAAA-MM-DD" del día de calendario en Madrid para un instante dado. */
+function madridDateStr(instant: Date) {
+  const p = madridParts(instant);
+  return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+}
+
+// Diferencia (ms) entre la hora de Madrid y UTC en ese instante (+1h o +2h).
+function madridOffsetMs(instantMs: number) {
+  const p = madridParts(new Date(instantMs));
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return asUtc - Math.floor(instantMs / 1000) * 1000;
+}
+
+/** Instante ISO de las 00:00 (hora de Madrid) del día "AAAA-MM-DD". */
+function madridMidnightIso(dateStr: string) {
+  const wallAsUtc = Date.parse(`${dateStr}T00:00:00.000Z`);
+  let utc = wallAsUtc - madridOffsetMs(wallAsUtc);
+  utc = wallAsUtc - madridOffsetMs(utc);
+  return new Date(utc).toISOString();
+}
+
 function toDateOnly(d: Date) {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
 }
 
-function todayUTC() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+function todayMadrid() {
+  return new Date(`${madridDateStr(new Date())}T00:00:00.000Z`);
 }
 
 function addDaysUTC(d: Date, days: number) {
@@ -133,9 +183,23 @@ function isValidDateStr(v: string) {
 // Supabase): p_from es el inicio del día elegido y p_to es el inicio del día
 // SIGUIENTE al final del rango, para incluir el día final completo.
 function rangeToIso(fromStr: string, toStr: string) {
-  const from = new Date(`${fromStr}T00:00:00.000Z`);
-  const toExclusive = addDaysUTC(new Date(`${toStr}T00:00:00.000Z`), 1);
-  return { pFrom: from.toISOString(), pTo: toExclusive.toISOString() };
+  const toExclusive = toDateOnly(addDaysUTC(new Date(`${toStr}T00:00:00.000Z`), 1));
+  return { pFrom: madridMidnightIso(fromStr), pTo: madridMidnightIso(toExclusive) };
+}
+
+// Eventos de conversión que registran la ficha, la cesta y el checkout.
+const CONVERSION_EVENTS = [
+  { key: "add_to_cart", label: "Añadir a la cesta" },
+  { key: "buy_now", label: "Comprar ya" },
+  { key: "begin_checkout", label: "Inicio de pago" },
+  { key: "order_whatsapp", label: "Pedido por WhatsApp" },
+] as const;
+
+type ConversionKey = (typeof CONVERSION_EVENTS)[number]["key"];
+type ConversionDay = { day: string } & Record<ConversionKey, number>;
+
+function emptyConversionCounts(): Record<ConversionKey, number> {
+  return { add_to_cart: 0, buy_now: 0, begin_checkout: 0, order_whatsapp: 0 };
 }
 
 function fmtDayLabel(dayStr: string) {
@@ -281,7 +345,7 @@ export default function AdminAnalytics() {
   const pagePadding = isMobile ? 12 : 16;
 
   const [preset, setPreset] = useState<DatePreset>("30d");
-  const today = useMemo(() => todayUTC(), []);
+  const today = useMemo(() => todayMadrid(), []);
   const [fromDate, setFromDate] = useState(toDateOnly(addDaysUTC(today, -29)));
   const [toDate, setToDate] = useState(toDateOnly(today));
   const [fromDraft, setFromDraft] = useState(fromDate);
@@ -294,6 +358,7 @@ export default function AdminAnalytics() {
   const [totals, setTotals] = useState<TotalsRow | null>(null);
   const [daily, setDaily] = useState<DailyRow[]>([]);
   const [funnel, setFunnel] = useState<FunnelRow[]>([]);
+  const [conversions, setConversions] = useState<ConversionDay[]>([]);
 
   function applyPreset(p: DatePreset) {
     setDateErr(null);
@@ -337,15 +402,46 @@ export default function AdminAnalytics() {
     try {
       const { pFrom, pTo } = rangeToIso(fromDate, toDate);
 
-      const [totalsRes, dailyRes, funnelRes] = await Promise.all([
+      const [totalsRes, dailyRes, funnelRes, convRes] = await Promise.all([
         supabase.rpc("analytics_totals", { p_from: pFrom, p_to: pTo }),
         supabase.rpc("analytics_daily_visitors", { p_from: pFrom, p_to: pTo }),
         supabase.rpc("analytics_funnel", { p_from: pFrom, p_to: pTo }),
+        supabase
+          .from("analytics_events")
+          .select("event_name, created_at")
+          .in(
+            "event_name",
+            CONVERSION_EVENTS.map((c) => c.key)
+          )
+          .gte("created_at", pFrom)
+          .lt("created_at", pTo)
+          .order("created_at", { ascending: false })
+          .limit(5000),
       ]);
 
       if (totalsRes.error) throw totalsRes.error;
       if (dailyRes.error) throw dailyRes.error;
       if (funnelRes.error) throw funnelRes.error;
+
+      // Conversiones por día (de Madrid). Si la consulta falla, el resto del
+      // panel se muestra igual y este bloque queda vacío.
+      const byDay = new Map<string, Record<ConversionKey, number>>();
+      if (!convRes.error) {
+        for (const r of (convRes.data ?? []) as { event_name: string; created_at: string }[]) {
+          const key = r.event_name as ConversionKey;
+          const day = madridDateStr(new Date(r.created_at));
+          const counts = byDay.get(day) ?? emptyConversionCounts();
+          if (key in counts) counts[key] += 1;
+          byDay.set(day, counts);
+        }
+      } else {
+        console.error("Error cargando conversiones:", convRes.error);
+      }
+      setConversions(
+        Array.from(byDay.entries())
+          .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+          .map(([day, counts]) => ({ day, ...counts }))
+      );
 
       const totalsRow = Array.isArray(totalsRes.data) ? totalsRes.data[0] : totalsRes.data;
       setTotals(
@@ -381,6 +477,7 @@ export default function AdminAnalytics() {
       setTotals(null);
       setDaily([]);
       setFunnel([]);
+      setConversions([]);
     } finally {
       setLoading(false);
     }
@@ -444,9 +541,17 @@ export default function AdminAnalytics() {
     [daily]
   );
 
+  const conversionTotals = useMemo(() => {
+    const totalsAcc = emptyConversionCounts();
+    for (const d of conversions) {
+      for (const c of CONVERSION_EVENTS) totalsAcc[c.key] += d[c.key];
+    }
+    return totalsAcc;
+  }, [conversions]);
+
   const rangeLabel = useMemo(() => {
-    if (fromDate === toDate) return fromDate;
-    return `${fromDate} → ${toDate}`;
+    if (fromDate === toDate) return `${fromDate} (hora de Madrid)`;
+    return `${fromDate} → ${toDate} (hora de Madrid)`;
   }, [fromDate, toDate]);
 
   return (
@@ -679,6 +784,61 @@ export default function AdminAnalytics() {
                       Sesiones con scroll (en cualquier punto del recorrido): {coreFunnel.scroll}
                     </Text>
                   </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Conversiones por día"
+              subtitle="Veces que se pulsó cada acción de compra, por día (hora de Madrid)."
+            >
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {CONVERSION_EVENTS.map((c) => (
+                  <View
+                    key={c.key}
+                    style={{
+                      borderRadius: 12,
+                      backgroundColor: COLORS.accent2,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                    }}
+                  >
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                      {c.label}: {conversionTotals[c.key]}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {conversions.length === 0 ? (
+                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                  Todavía no hay conversiones registradas en este rango de fechas.
+                </Text>
+              ) : (
+                <View style={{ gap: 6 }}>
+                  {conversions.map((d) => (
+                    <View
+                      key={d.day}
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        gap: 10,
+                        paddingVertical: 6,
+                        borderTopWidth: 1,
+                        borderTopColor: COLORS.border,
+                      }}
+                    >
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5, minWidth: 48 }}>
+                        {fmtDayLabel(d.day)}
+                      </Text>
+                      {CONVERSION_EVENTS.map((c) => (
+                        <Text key={c.key} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5 }}>
+                          {c.label}: {d[c.key]}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
                 </View>
               )}
             </SectionCard>
