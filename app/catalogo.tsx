@@ -31,8 +31,8 @@
  * - lib/supabase.ts → cliente de Supabase (products, categories,
  *   product_media, profiles).
  * - lib/analytics.ts → paso "Categoría" para el panel de métricas.
- * - components/CatalogFilters.tsx → chips de filtros, orden, contador y
- *   "Quitar filtros".
+ * - components/CatalogFilters.tsx → botón "Filtros" con contador y panel
+ *   (hoja inferior en móvil) con todos los filtros, orden y "Quitar filtros".
  * - components/Barramagic.tsx → buscador (modo "input").
  * - components/SmartImage.tsx → fotos de las tarjetas.
  * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
@@ -729,10 +729,15 @@ export default function CatalogoScreen() {
       </Pressable>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 28 }}
+        // 96 abajo: la última fila de productos y el botón "cargar más" quedan por encima
+        // del asistente flotante Blue (72 px en la esquina inferior).
+        contentContainerStyle={{ paddingBottom: 96 }}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
-        scrollEventThrottle={100}
+        scrollEventThrottle={16}
+        // Buscador dentro de la lista: el primer toque ya funciona y al arrastrar se cierra el teclado.
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         <View
           style={{
@@ -802,26 +807,31 @@ export default function CatalogoScreen() {
               placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
             />
 
-            {isAdmin ? (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
-                <Chip active={filter === "ALL"} label="Todos" onPress={() => setFilter("ALL")} isMobile={isMobile} />
-                <Chip
-                  active={filter === "PUBLICADA"}
-                  label="Publicadas"
-                  onPress={() => setFilter("PUBLICADA")}
-                  isMobile={isMobile}
-                />
-                <Chip active={filter === "LISTA"} label="Listas" onPress={() => setFilter("LISTA")} isMobile={isMobile} />
-                <Chip
-                  active={filter === "REVISAR"}
-                  label="Por revisar"
-                  onPress={() => setFilter("REVISAR")}
-                  isMobile={isMobile}
-                />
-              </View>
-            ) : null}
-
+            {/* Botón "Filtros" con panel: dentro van todos los filtros (y, para
+                admin, el estado interno de publicación). */}
             <CatalogFilters
+              extraTitle="Estado interno"
+              extraActiveCount={isAdmin && filter !== "ALL" ? 1 : 0}
+              extraContent={
+                isAdmin ? (
+                  <>
+                    <Chip active={filter === "ALL"} label="Todos" onPress={() => setFilter("ALL")} isMobile={isMobile} />
+                    <Chip
+                      active={filter === "PUBLICADA"}
+                      label="Publicadas"
+                      onPress={() => setFilter("PUBLICADA")}
+                      isMobile={isMobile}
+                    />
+                    <Chip active={filter === "LISTA"} label="Listas" onPress={() => setFilter("LISTA")} isMobile={isMobile} />
+                    <Chip
+                      active={filter === "REVISAR"}
+                      label="Por revisar"
+                      onPress={() => setFilter("REVISAR")}
+                      isMobile={isMobile}
+                    />
+                  </>
+                ) : undefined
+              }
               isMobile={isMobile}
               categories={categoryOptions}
               categoryId={categoryId}

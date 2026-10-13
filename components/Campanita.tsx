@@ -1,59 +1,36 @@
 /**
- * components/Campanita.tsx
+ * components/Campanita.tsx — "Blue", la asistente flotante de ventas
  *
- * Qué hace: la campanita flotante de notificaciones que aparece en TODA la
- * app (se monta una sola vez en app/_layout.tsx, por encima del Stack, así
- * que sobrevive a cualquier cambio de pantalla: inicio, catálogo, producto,
- * perfil, admin...). Es un icono de verdad (Ionicons "notifications", en
- * dorado), no un emoji de texto, y solo se ve la forma de la campana — sin
- * ningún círculo ni fondo alrededor. De vez en cuando "suena" con un
- * pequeño balanceo (ver ringAnim) para llamar la atención sin ser
- * ruidosa. Se puede arrastrar a cualquiera de las 4 esquinas de la
- * pantalla — basta con empezar a moverla, no hace falta arrastrarla mucho —
- * y se queda ahí (recordado en AsyncStorage) hasta que se vuelva a mover.
- * Un simple toque (sin arrastre) abre el panel de notificaciones.
+ * Qué hace: antes era una campanita; ahora es Blue, el capibara asistente de la
+ * tienda, flotando en una esquina de TODA la app (se monta una sola vez en
+ * app/_layout.tsx, fuera del Stack, así que no se reinicia al navegar).
+ * - Se mueve sola (components/marca/MarcaAnimada.tsx) y se puede arrastrar a
+ *   cualquiera de las 4 esquinas (se recuerda en AsyncStorage).
+ * - Habla con bocadillos:
+ *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
+ *     descripción menciona la garantía, esa frase; si no, que es unidad única y se
+ *     reserva 15 minutos en la cesta) y después cómo se entrega (en persona en
+ *     Zaragoza o envío a toda España), con WhatsApp a un toque.
+ *   · En el resto de la tienda, tras 12 s: una de las "Noticias Flash" activas
+ *     (tabla flash_news, se editan en app/admin/flash-news.tsx).
+ *   Cada bocadillo sale una sola vez por visita y se cierra con la X.
+ * - Al tocar a Blue se abre su panel con 3 pestañas: "Asistente" (hablar con Blue
+ *   IA, WhatsApp, "Vender"), "Notificaciones" (lo que antes era la campanita:
+ *   mensajes sin leer, favoritos que ya no están, novedades; con su número) y
+ *   "Noticias" (Noticias Flash). Si hay notificaciones, abre en esa pestaña.
  *
- * Qué cuenta como notificación (número en la campanita):
- * - Mensajes sin leer en el chat privado por producto (sql/product_chats.sql
- *   → get_unread_chat_count()): si eres cliente, cuenta las conversaciones
- *   en las que el administrador te ha escrito y no has abierto todavía; si
- *   eres tú (admin), cuenta las conversaciones en las que un cliente te ha
- *   escrito y no has abierto. Al tocar, lleva directo a la bandeja
- *   correspondiente (app/(tabs)/chat-global.tsx pestaña "Chat" para el
- *   cliente, app/admin/chats.tsx para el admin).
- * - Productos con "me gusta" que ya no están disponibles: los likes se
- *   guardan solo en este dispositivo (AsyncStorage, misma clave que
- *   app/producto/[id].tsx), así que se comprueba aquí si esos productos
- *   siguen siendo visibles en Supabase; los que ya no aparecen (borrados,
- *   despublicados o desactivados) se avisan, con un botón para quitarlos de
- *   favoritos y dejar de verlos.
- * - Novedades en la pestaña "Nuestras Novedades": como esa pestaña todavía
- *   es contenido de ejemplo fijo (ver app/(tabs)/chat-global.tsx), se avisa
- *   una vez por dispositivo usando un número de versión de contenido
- *   (NOVEDADES_CONTENT_VERSION) — el mismo número que hay en chat-global.tsx.
- *   Cuando el contenido de esa pestaña cambie de verdad, hay que subir el
- *   número en AMBOS archivos para que la campanita vuelva a avisar.
- *
- * Rendimiento: refreshChats() se repite cada POLL_MS (45s) MIENTRAS la app
- * esté abierta, en cualquier pantalla — es la llamada a Supabase más
- * constante de toda la app. En web, si el visitante deja la pestaña abierta
- * en segundo plano (cambia de pestaña, minimiza), el sondeo se PAUSA
- * (document.visibilitychange) en vez de seguir preguntando cada 45s sin que
- * nadie lo vea; en cuanto vuelve a la pestaña, se refresca al instante y el
- * sondeo se reanuda. En nativo (iOS/Android) no existe "document", así que
- * ahí sigue sondeando igual que antes.
+ * Rendimiento: el sondeo de mensajes sin leer (45 s) se pausa con la pestaña en
+ * segundo plano (web). Las consultas del bocadillo son pequeñas y de una fila.
  *
  * Conectado con:
- * - app/_layout.tsx → la monta una sola vez, fuera del Stack.
- * - lib/supabase.ts → sesión, rol de admin y la RPC get_unread_chat_count.
- * - sql/product_chats.sql → get_unread_chat_count(), mark_chat_read().
- * - app/producto/[id].tsx → misma clave de AsyncStorage para "me gusta"
- *   (LIKED_PRODUCTS_KEY), duplicada aquí igual que el resto del proyecto.
- * - app/(tabs)/chat-global.tsx → misma clave/versión de "Novedades vistas",
- *   y el destino "/chat-global?tab=privados" / "?tab=novedades".
- * - app/admin/chats.tsx → destino cuando quien toca es un admin.
+ * - app/_layout.tsx → la monta una sola vez.
+ * - app/(tabs)/blue-ia.tsx → chat completo con Blue IA.
+ * - sql/product_chats.sql → get_unread_chat_count().
+ * - app/producto/[id].tsx → misma clave de "me gusta" (LIKED_PRODUCTS_KEY).
+ * - app/(tabs)/chat-global.tsx → misma clave/versión de "Novedades vistas".
+ * - components/VenderAhoraModal.tsx → formulario "Vender" desde el panel.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -67,49 +44,52 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router, type Href } from "expo-router";
+import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
+import { openExternalLink } from "../lib/openExternalLink";
+import MarcaAnimada from "./marca/MarcaAnimada";
+import VenderAhoraModal from "./VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
-  card: "#FFFFFF",
-  cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
+  accentDark: "#0E86C4",
   accentSoft: "#EAF6FD",
-  // Antes "#D4AF37" (dorado metálico apagado), luego "#F0B90B" (dorado más
-  // vivo). Ahora un amarillo más claro, a petición de Jefe.
-  gold: "#FFD54F",
   danger: "#DC2626",
 };
 
-// Mismas claves/valores que en otros archivos (ver cabecera) — este
-// proyecto duplica constantes pequeñas por archivo en vez de compartirlas.
 const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
+const WHATSAPP_E164 = "34627748741";
 
-const BELL_SIZE = 56;
-// Insets más pequeños: la campanita se pega más a la esquina de verdad (antes
-// 14/60/92) para que no invada contenido como la barra de búsqueda o el
-// texto de la cabecera.
-const EDGE_INSET = 8;
+const BLUE_SIZE = 72;
+const EDGE_INSET = 6;
 const TOP_INSET = 40;
-const BOTTOM_INSET = 80;
-const TAP_THRESHOLD = 6; // px: por debajo de esto, es un toque, no un arrastre
+const BOTTOM_INSET = 84;
+const TAP_THRESHOLD = 6;
 const POLL_MS = 45000;
+const PRODUCTO_ESPERA_MS = 8000;
+const SEGUNDO_MENSAJE_MS = 7000;
+const NOTICIA_ESPERA_MS = 12000;
 
 type Corner = "tl" | "tr" | "bl" | "br";
 const CORNERS: Corner[] = ["tl", "tr", "bl", "br"];
 
+type Bocadillo = { id: string; texto: string; accion?: "whatsapp" | "panel"; whatsappTexto?: string };
+
+// Lo que ya dijo Blue en esta visita (no se repite al volver a la misma ficha).
+const yaDicho = new Set<string>();
+
 function cornerToXY(corner: Corner) {
   const { width, height } = Dimensions.get("window");
-  const x = corner === "tr" || corner === "br" ? width - BELL_SIZE - EDGE_INSET : EDGE_INSET;
-  const y = corner === "tl" || corner === "tr" ? TOP_INSET : height - BELL_SIZE - BOTTOM_INSET;
+  const x = corner === "tr" || corner === "br" ? width - BLUE_SIZE - EDGE_INSET : EDGE_INSET;
+  const y = corner === "tl" || corner === "tr" ? TOP_INSET : height - BLUE_SIZE - BOTTOM_INSET;
   return { x, y };
 }
 
@@ -117,29 +97,59 @@ async function getLikedProductIds(): Promise<string[]> {
   try {
     const raw = await AsyncStorage.getItem(LIKED_PRODUCTS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((v): v is string => typeof v === "string")
-      : [];
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
   } catch {
     return [];
   }
 }
 
+function abrirWhatsApp(texto: string) {
+  openExternalLink(`https://wa.me/${WHATSAPP_E164}?text=${encodeURIComponent(texto.slice(0, 900))}`);
+}
+
+// Frase de la descripción que habla de la garantía (la escribe la tienda en cada producto).
+function fraseGarantia(descripcion: string | null | undefined): string | null {
+  const texto = String(descripcion ?? "").replace(/\s+/g, " ").trim();
+  if (!texto) return null;
+  const f = texto.match(/[^.!?¡¿]*garant[ií]a[^.!?]*/i)?.[0];
+  if (!f) return null;
+  return f.replace(/^[\s,;:-]+/, "").trim().slice(0, 160);
+}
+
+function mensajeProducto(titulo: string, descripcion: string | null): string {
+  const garantia = fraseGarantia(descripcion);
+  if (garantia) {
+    if (/^(incluye|tiene|viene|cuenta|lleva|está|esta)\b/i.test(garantia)) {
+      return `¿Sabías que ${titulo} ${garantia.charAt(0).toLowerCase()}${garantia.slice(1)}?`;
+    }
+    return `Sobre ${titulo}: ${garantia}.`;
+  }
+  return `¿Te gusta ${titulo}? Es unidad única: si la añades a la cesta te la reservamos 15 minutos.`;
+}
+
 export default function Campanita() {
+  const pathname = usePathname() ?? "";
+  const enAdmin = pathname.startsWith("/admin");
+
   const [ready, setReady] = useState(false);
-  const [corner, setCorner] = useState<Corner>("br");
   const cornerRef = useRef<Corner>("br");
+  const [corner, setCorner] = useState<Corner>("br");
   const posRef = useRef({ x: 0, y: 0 });
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const [venderOpen, setVenderOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
   const [likedUnavailable, setLikedUnavailable] = useState<string[]>([]);
   const [novedadesPending, setNovedadesPending] = useState(false);
+  const [noticias, setNoticias] = useState<string[]>([]);
+  const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
+  // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
+  const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
 
-  // --- posición: cargar esquina guardada y colocar la campanita ----------
+  // --- posición -------------------------------------------------------------
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -148,7 +158,7 @@ export default function Campanita() {
         const raw = await AsyncStorage.getItem(CORNER_KEY);
         if (raw && (CORNERS as string[]).includes(raw)) initial = raw as Corner;
       } catch {
-        // se queda con "br"
+        // se queda en "br"
       }
       if (!alive) return;
       cornerRef.current = initial;
@@ -163,9 +173,6 @@ export default function Campanita() {
     };
   }, [pan]);
 
-  // Si cambia el tamaño de la ventana (redimensionar en web, girar el
-  // móvil), se recoloca en su misma esquina sin animación — si no, podría
-  // quedarse fuera de la pantalla o dejar un hueco raro.
   useEffect(() => {
     const sub = Dimensions.addEventListener("change", () => {
       const xy = cornerToXY(cornerRef.current);
@@ -173,12 +180,12 @@ export default function Campanita() {
       pan.setValue(xy);
     });
     return () => {
-      // @ts-ignore — API antigua (RN<0.65) devuelve undefined, no objeto
+      // @ts-ignore — API antigua (RN<0.65) devuelve undefined
       sub?.remove?.();
     };
   }, [pan]);
 
-  // --- datos: sesión/rol + los 3 tipos de notificación --------------------
+  // --- datos -----------------------------------------------------------------
   const refreshAuth = useCallback(async () => {
     try {
       const { data } = await supabase.auth.getSession();
@@ -224,10 +231,10 @@ export default function Campanita() {
     try {
       const { data, error } = await supabase.from("products").select("id").in("id", ids);
       if (error) throw error;
-      const stillThere = new Set((data ?? []).map((r: any) => r.id as string));
+      const stillThere = new Set((data ?? []).map((r: { id: string }) => r.id));
       setLikedUnavailable(ids.filter((id) => !stillThere.has(id)));
     } catch {
-      // sin conexión: se deja como estaba, no se inventa nada.
+      // sin conexión: se deja como estaba
     }
   }, []);
 
@@ -241,19 +248,30 @@ export default function Campanita() {
     }
   }, []);
 
+  const refreshNoticias = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("flash_news")
+        .select("message,sort_order")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .limit(5);
+      if (error) throw error;
+      setNoticias((data ?? []).map((r: { message: string | null }) => String(r.message ?? "").trim()).filter(Boolean));
+    } catch {
+      setNoticias([]);
+    }
+  }, []);
+
   useEffect(() => {
     refreshAuth();
     refreshChats();
     refreshLikes();
     refreshNovedades();
+    refreshNoticias();
 
-    // Solo en web: si la pestaña está en segundo plano (el visitante cambió
-    // de pestaña o la minimizó), no tiene sentido seguir preguntando a
-    // Supabase cada 45s sin que nadie lo vea — se pausa el sondeo y se
-    // retoma (con un refresco inmediato) en cuanto vuelve a primer plano.
     const hasDocument = typeof document !== "undefined";
     const isPageVisible = () => !hasDocument || document.visibilityState !== "hidden";
-
     const interval = setInterval(() => {
       if (isPageVisible()) refreshChats();
     }, POLL_MS);
@@ -273,73 +291,105 @@ export default function Campanita() {
 
     return () => {
       clearInterval(interval);
-      if (hasDocument && onVisibilityChange) {
-        document.removeEventListener("visibilitychange", onVisibilityChange);
-      }
+      if (hasDocument && onVisibilityChange) document.removeEventListener("visibilitychange", onVisibilityChange);
       authSub?.subscription?.unsubscribe?.();
     };
-  }, [refreshAuth, refreshChats, refreshLikes, refreshNovedades]);
+  }, [refreshAuth, refreshChats, refreshLikes, refreshNovedades, refreshNoticias]);
 
   const totalCount = unreadChats + likedUnavailable.length + (novedadesPending ? 1 : 0);
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
-  // --- animación: la campana "suena" cada pocos segundos, un balanceo
-  // suave que se repite en bucle en vez de un giro constante — llama la
-  // atención sin marear.
-  const ringAnim = useRef(new Animated.Value(0)).current;
-
+  // --- bocadillos según la pantalla --------------------------------------------
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.delay(2600),
-        Animated.timing(ringAnim, {
-          toValue: 1,
-          duration: 120,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(ringAnim, {
-          toValue: -1,
-          duration: 170,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(ringAnim, {
-          toValue: 0.6,
-          duration: 140,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(ringAnim, {
-          toValue: -0.3,
-          duration: 120,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(ringAnim, {
-          toValue: 0,
-          duration: 110,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [ringAnim]);
+    setBocadillo(null);
+    if (enAdmin || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
 
-  const bellRotate = ringAnim.interpolate({
-    inputRange: [-1, 1],
-    outputRange: ["-16deg", "16deg"],
-  });
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let vivo = true;
+    const m = pathname.match(/^\/producto\/([0-9a-f-]{36})/i);
 
-  // --- arrastrar / tocar ---------------------------------------------------
-  const openPanel = useCallback(() => {
+    if (m) {
+      const id = m[1];
+      if (yaDicho.has(`p:${id}`)) return;
+      timers.push(
+        setTimeout(async () => {
+          try {
+            const { data } = await supabase
+              .from("products")
+              .select("title,description")
+              .eq("id", id)
+              .maybeSingle<{ title: string; description: string | null }>();
+            if (!vivo || !data?.title) return;
+            yaDicho.add(`p:${id}`);
+            const titulo = data.title.trim();
+            const link = typeof window !== "undefined" ? window.location?.href ?? "" : "";
+            const waTexto = `¡Hola! Me interesa ${titulo}${link ? ` (${link})` : ""}. ¿Me dais más información?`;
+            setBocadillo({ id: `p1:${id}`, texto: mensajeProducto(titulo, data.description), accion: "whatsapp", whatsappTexto: waTexto });
+            timers.push(
+              setTimeout(() => {
+                if (!vivo) return;
+                setBocadillo({
+                  id: `p2:${id}`,
+                  texto:
+                    "Realizamos entregas en persona en la ciudad de Zaragoza o envíos a toda España. Escríbenos tocando aquí mismo.",
+                  accion: "whatsapp",
+                  whatsappTexto: waTexto,
+                });
+              }, SEGUNDO_MENSAJE_MS)
+            );
+          } catch {
+            // sin bocadillo si falla
+          }
+        }, PRODUCTO_ESPERA_MS)
+      );
+    } else if (noticias.length) {
+      const pendiente = noticias.find((n) => !yaDicho.has(`n:${n}`));
+      if (pendiente) {
+        timers.push(
+          setTimeout(() => {
+            if (!vivo) return;
+            yaDicho.add(`n:${pendiente}`);
+            setBocadillo({ id: `n:${pendiente}`, texto: pendiente, accion: "panel" });
+          }, NOTICIA_ESPERA_MS)
+        );
+      }
+    }
+
+    return () => {
+      vivo = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [pathname, enAdmin, noticias]);
+
+  // Animación de entrada del bocadillo.
+  const bocAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!bocadillo) return;
+    bocAnim.setValue(0);
+    Animated.timing(bocAnim, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.back(1.4)),
+      useNativeDriver: Platform.OS !== "web",
+    }).start();
+  }, [bocadillo, bocAnim]);
+
+  // --- arrastrar / tocar --------------------------------------------------------
+  const totalRef = useRef(0);
+  totalRef.current = totalCount;
+
+  const openPanel = useCallback((tab?: "blue" | "avisos" | "noticias") => {
+    setBocadillo(null);
+    // Si hay notificaciones pendientes, se abre directamente en esa pestaña.
+    setPestana(tab ?? (totalRef.current > 0 ? "avisos" : "blue"));
     setPanelOpen(true);
     refreshChats();
     refreshLikes();
     refreshNovedades();
   }, [refreshChats, refreshLikes, refreshNovedades]);
+
+  const openPanelRef = useRef(openPanel);
+  openPanelRef.current = openPanel;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -349,59 +399,40 @@ export default function Campanita() {
         pan.setOffset(posRef.current);
         pan.setValue({ x: 0, y: 0 });
       },
-      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
-        useNativeDriver: false,
-      }),
-      onPanResponderRelease: (_evt, gestureState) => {
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+      onPanResponderRelease: (_evt, g) => {
         pan.flattenOffset();
-
-        const moved = Math.abs(gestureState.dx) + Math.abs(gestureState.dy);
-        if (moved < TAP_THRESHOLD) {
-          // Toque, no arrastre: se deja exactamente donde estaba y se abre
-          // el panel de notificaciones.
+        if (Math.abs(g.dx) + Math.abs(g.dy) < TAP_THRESHOLD) {
           pan.setValue(posRef.current);
-          openPanel();
+          openPanelRef.current();
           return;
         }
-
         const { width, height } = Dimensions.get("window");
-        const endX = posRef.current.x + gestureState.dx;
-        const endY = posRef.current.y + gestureState.dy;
-        const centerX = endX + BELL_SIZE / 2;
-        const centerY = endY + BELL_SIZE / 2;
-
-        const nextCorner: Corner = ((centerY < height / 2 ? "t" : "b") +
-          (centerX < width / 2 ? "l" : "r")) as Corner;
-
-        const target = cornerToXY(nextCorner);
+        const cx = posRef.current.x + g.dx + BLUE_SIZE / 2;
+        const cy = posRef.current.y + g.dy + BLUE_SIZE / 2;
+        const next = ((cy < height / 2 ? "t" : "b") + (cx < width / 2 ? "l" : "r")) as Corner;
+        const target = cornerToXY(next);
         posRef.current = target;
-        cornerRef.current = nextCorner;
-        setCorner(nextCorner);
-        AsyncStorage.setItem(CORNER_KEY, nextCorner).catch(() => {});
-
-        Animated.spring(pan, {
-          toValue: target,
-          useNativeDriver: false,
-          friction: 7,
-          tension: 60,
-        }).start();
+        cornerRef.current = next;
+        setCorner(next);
+        AsyncStorage.setItem(CORNER_KEY, next).catch(() => {});
+        Animated.spring(pan, { toValue: target, useNativeDriver: false, friction: 7, tension: 60 }).start();
       },
     })
   ).current;
 
-  // --- acciones del panel ---------------------------------------------------
-  const handleOpenChats = useCallback(() => {
-    setPanelOpen(false);
-    if (isAdmin) {
-      router.push("/admin/chats" as Href);
-    } else {
-      router.push("/chat-global?tab=privados" as Href);
-    }
-  }, [isAdmin]);
+  // --- acciones -----------------------------------------------------------------
+  const alTocarBocadillo = useCallback(() => {
+    const b = bocadillo;
+    setBocadillo(null);
+    if (!b) return;
+    if (b.accion === "whatsapp") abrirWhatsApp(b.whatsappTexto ?? "¡Hola! Tengo una pregunta sobre la tienda.");
+    else openPanel("noticias");
+  }, [bocadillo, openPanel]);
 
-  const handleOpenNovedades = useCallback(() => {
+  const ir = useCallback((href: string) => {
     setPanelOpen(false);
-    router.push("/chat-global?tab=novedades" as Href);
+    router.push(href as Href);
   }, []);
 
   const handleDismissLikes = useCallback(async () => {
@@ -409,258 +440,333 @@ export default function Campanita() {
     setLikedUnavailable([]);
     try {
       const current = await getLikedProductIds();
-      const next = current.filter((id) => !removeIds.includes(id));
-      await AsyncStorage.setItem(LIKED_PRODUCTS_KEY, JSON.stringify(next));
+      await AsyncStorage.setItem(LIKED_PRODUCTS_KEY, JSON.stringify(current.filter((id) => !removeIds.includes(id))));
     } catch {
-      // si falla, como mucho se vuelve a avisar la próxima vez.
+      // como mucho se vuelve a avisar
     }
   }, [likedUnavailable]);
 
-  if (!ready) return null;
+  // En las pantallas de chat (y en el propio chat de Blue IA) no se muestra: taparía
+  // el campo de escribir y el botón de enviar.
+  const enChat = pathname.startsWith("/blue-ia") || pathname.startsWith("/chat-global") || pathname.startsWith("/chat/");
+  if (!ready || enChat) return null;
+
+  const derecha = corner === "tr" || corner === "br";
+  const arriba = corner === "tl" || corner === "tr";
 
   return (
     <>
       <Animated.View
-        {...panResponder.panHandlers}
         style={{
           position: "absolute",
           zIndex: 99999,
           elevation: 20,
-          width: BELL_SIZE,
-          height: BELL_SIZE,
-          alignItems: "center",
-          justifyContent: "center",
+          width: BLUE_SIZE,
+          height: BLUE_SIZE,
           transform: pan.getTranslateTransform(),
         }}
       >
-        {/* Solo la forma de la campana — sin círculo ni fondo alrededor. */}
-        <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
-          <Ionicons
-            name="notifications"
-            size={34}
-            color={COLORS.gold}
-            style={{
-              textShadowColor: "rgba(0,0,0,0.28)",
-              textShadowRadius: 6,
-              textShadowOffset: { width: 0, height: 2 },
-            }}
-          />
-        </Animated.View>
-
-        {totalCount > 0 ? (
-          <View
+        {/* Bocadillo de Blue: sale hacia el centro de la pantalla. */}
+        {bocadillo ? (
+          <Animated.View
             style={{
               position: "absolute",
-              top: 0,
-              right: 2,
-              minWidth: 18,
-              height: 18,
-              borderRadius: 9,
-              paddingHorizontal: 4,
-              backgroundColor: COLORS.danger,
-              borderWidth: 2,
-              borderColor: COLORS.bg,
-              alignItems: "center",
-              justifyContent: "center",
+              width: 248,
+              [derecha ? "right" : "left"]: 4,
+              [arriba ? "top" : "bottom"]: BLUE_SIZE + 4,
+              opacity: bocAnim,
+              transform: [{ scale: bocAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
             }}
           >
-            <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "900" }}>
-              {badgeLabel}
-            </Text>
-          </View>
+            <Pressable
+              onPress={alTocarBocadillo}
+              accessibilityRole="button"
+              style={{
+                backgroundColor: COLORS.bg,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                paddingRight: 30,
+                shadowColor: "#0B2138",
+                shadowOpacity: 0.12,
+                shadowRadius: 14,
+                shadowOffset: { width: 0, height: 6 },
+                elevation: 8,
+              }}
+            >
+              <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19 }}>{bocadillo.texto}</Text>
+              {bocadillo.accion === "whatsapp" ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
+                  <Ionicons name="logo-whatsapp" size={14} color={COLORS.accentDark} />
+                  <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>Escribir ahora</Text>
+                </View>
+              ) : null}
+            </Pressable>
+            <Pressable
+              onPress={() => setBocadillo(null)}
+              hitSlop={10}
+              accessibilityLabel="Cerrar mensaje de Blue"
+              style={{ position: "absolute", top: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={16} color={COLORS.muted} />
+            </Pressable>
+          </Animated.View>
         ) : null}
+
+        <View {...panResponder.panHandlers} style={{ width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" }}>
+          <MarcaAnimada cual="carga" ancho={BLUE_SIZE} tocable={false} />
+          {totalCount > 0 ? (
+            <View
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 4,
+                minWidth: 20,
+                height: 20,
+                borderRadius: 10,
+                paddingHorizontal: 4,
+                backgroundColor: COLORS.danger,
+                borderWidth: 2,
+                borderColor: COLORS.bg,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "900" }}>{badgeLabel}</Text>
+            </View>
+          ) : null}
+        </View>
       </Animated.View>
 
-      <Modal
-        visible={panelOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPanelOpen(false)}
-      >
+      <Modal visible={panelOpen} transparent animationType="fade" onRequestClose={() => setPanelOpen(false)}>
         <Pressable
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" }}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", alignItems: "center" }}
           onPress={() => setPanelOpen(false)}
         >
           <Pressable
             onPress={() => {}}
             style={{
+              width: "100%",
+              maxWidth: 560,
               backgroundColor: COLORS.bg,
-              borderTopLeftRadius: 22,
-              borderTopRightRadius: 22,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
               padding: 18,
               paddingBottom: Platform.OS === "ios" ? 34 : 22,
-              maxHeight: "70%",
-              gap: 14,
+              maxHeight: "80%",
             }}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="notifications" size={19} color={COLORS.gold} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18 }}>
-                  Notificaciones
-                </Text>
-              </View>
-              <Pressable onPress={() => setPanelOpen(false)} hitSlop={10}>
-                <Ionicons name="close" size={22} color={COLORS.muted} />
-              </Pressable>
+            <Pressable onPress={() => setPanelOpen(false)} hitSlop={10} style={{ position: "absolute", top: 14, right: 16, zIndex: 2 }}>
+              <Ionicons name="close" size={22} color={COLORS.muted} />
+            </Pressable>
+
+            <View style={{ alignItems: "center", gap: 6, marginBottom: 12 }}>
+              <MarcaAnimada cual="tienda" ancho={pestana === "blue" ? 104 : 64} />
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>Blue</Text>
             </View>
 
-            <ScrollView contentContainerStyle={{ gap: 10 }}>
-              {totalCount === 0 ? (
-                <View
-                  style={{
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: COLORS.cardSoft,
-                    padding: 16,
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={22} color={COLORS.accent} />
-                  <Text style={{ color: COLORS.text, fontWeight: "800" }}>Estás al día</Text>
-                  <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
-                    No tienes notificaciones nuevas por ahora.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  {unreadChats > 0 ? (
-                    <NotifRow
-                      icon="chatbubble-ellipses-outline"
-                      title={
-                        isAdmin
-                          ? unreadChats === 1
-                            ? "Un cliente te ha escrito"
-                            : `${unreadChats} clientes te han escrito`
-                          : unreadChats === 1
-                          ? "Tienes un mensaje nuevo"
-                          : `Tienes ${unreadChats} mensajes nuevos`
-                      }
-                      subtitle={
-                        isAdmin
-                          ? "Conversaciones por producto pendientes de responder."
-                          : "El vendedor te ha respondido en el chat del producto."
-                      }
-                      actionLabel="Ver mensajes"
-                      onPress={handleOpenChats}
-                    />
-                  ) : null}
-
-                  {likedUnavailable.length > 0 ? (
-                    <NotifRow
-                      icon="heart-dislike-outline"
-                      title={
-                        likedUnavailable.length === 1
-                          ? "Un producto que te gustó ya no está disponible"
-                          : `${likedUnavailable.length} productos que te gustaron ya no están disponibles`
-                      }
-                      subtitle="Puede que se haya vendido o retirado del catálogo."
-                      actionLabel="Quitar de favoritos"
-                      onPress={handleDismissLikes}
-                    />
-                  ) : null}
-
-                  {novedadesPending ? (
-                    <NotifRow
-                      icon="sparkles-outline"
-                      title="Hay novedades"
-                      subtitle='Échale un vistazo a "Nuestras Novedades" en el Foro.'
-                      actionLabel="Ver novedades"
-                      onPress={handleOpenNovedades}
-                    />
-                  ) : null}
-
-                  {!isLoggedIn ? (
-                    <Text
-                      style={{
-                        color: COLORS.muted,
-                        fontSize: 11.5,
-                        textAlign: "center",
-                        marginTop: 4,
-                      }}
-                    >
-                      Inicia sesión para ver también los avisos de tus conversaciones.
+            {/* Pestañas: Blue (asistente) · Notificaciones · Noticias */}
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 6, marginBottom: 14 }}>
+              {(
+                [
+                  { key: "blue", label: "Asistente", icono: "sparkles-outline", n: 0 },
+                  { key: "avisos", label: "Notificaciones", icono: "notifications-outline", n: totalCount },
+                  { key: "noticias", label: "Noticias", icono: "megaphone-outline", n: 0 },
+                ] as const
+              ).map((p) => {
+                const activa = pestana === p.key;
+                return (
+                  <Pressable
+                    key={p.key}
+                    onPress={() => setPestana(p.key)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: activa }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      paddingVertical: 8,
+                      paddingHorizontal: 10,
+                      borderBottomWidth: 2,
+                      borderBottomColor: activa ? COLORS.accent : "transparent",
+                    }}
+                  >
+                    <Ionicons name={p.icono} size={15} color={activa ? COLORS.accentDark : COLORS.muted} />
+                    <Text style={{ color: activa ? COLORS.accentDark : COLORS.muted, fontWeight: "900", fontSize: 13 }}>
+                      {p.label}
                     </Text>
-                  ) : null}
-                </>
-              )}
+                    {p.n > 0 ? (
+                      <View
+                        style={{
+                          minWidth: 18,
+                          height: 18,
+                          borderRadius: 9,
+                          paddingHorizontal: 4,
+                          backgroundColor: COLORS.danger,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "900" }}>{badgeLabel}</Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <ScrollView contentContainerStyle={{ gap: 14, alignItems: "center", paddingBottom: 4 }} showsVerticalScrollIndicator={false}>
+              {pestana === "blue" ? (
+              <>
+              <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                Tu asistente de VideojuegosZaragoza.com. ¿En qué te ayudo?
+              </Text>
+
+              <View style={{ width: "100%", gap: 10, maxWidth: 380 }}>
+                <BotonPanel icono="sparkles-outline" texto="Hablar con Blue IA" principal onPress={() => ir("/blue-ia")} />
+                <BotonPanel
+                  icono="logo-whatsapp"
+                  texto="Escribir por WhatsApp"
+                  onPress={() => {
+                    setPanelOpen(false);
+                    abrirWhatsApp("¡Hola! Tengo una pregunta sobre la tienda.");
+                  }}
+                />
+                <BotonPanel
+                  icono="cash-outline"
+                  texto="Vender mi consola o dispositivo"
+                  onPress={() => {
+                    setPanelOpen(false);
+                    setVenderOpen(true);
+                  }}
+                />
+              </View>
+
+              </>
+              ) : null}
+
+              {pestana === "noticias" ? (
+                <View style={{ width: "100%", gap: 12, alignItems: "center" }}>
+                  {noticias.length ? (
+                    noticias.map((n, i) => (
+                      <Text
+                        key={n}
+                        style={{
+                          color: COLORS.text,
+                          fontWeight: "700",
+                          textAlign: "center",
+                          lineHeight: 21,
+                          paddingTop: i ? 12 : 0,
+                          borderTopWidth: i ? 1 : 0,
+                          borderTopColor: COLORS.border,
+                          alignSelf: "stretch",
+                        }}
+                      >
+                        {n}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={{ color: COLORS.muted, textAlign: "center" }}>No hay noticias ahora mismo.</Text>
+                  )}
+                </View>
+              ) : null}
+
+              {pestana === "avisos" ? (
+              <View style={{ width: "100%", gap: 12, alignItems: "center" }}>
+                {totalCount === 0 ? (
+                  <Text style={{ color: COLORS.muted, textAlign: "center" }}>Estás al día: no tienes avisos nuevos.</Text>
+                ) : (
+                  <>
+                    {unreadChats > 0 ? (
+                      <Aviso
+                        titulo={
+                          isAdmin
+                            ? unreadChats === 1
+                              ? "Un cliente te ha escrito"
+                              : `${unreadChats} clientes te han escrito`
+                            : unreadChats === 1
+                              ? "Tienes un mensaje nuevo"
+                              : `Tienes ${unreadChats} mensajes nuevos`
+                        }
+                        accion="Ver mensajes"
+                        onPress={() => ir(isAdmin ? "/admin/chats" : "/chat-global?tab=privados")}
+                      />
+                    ) : null}
+                    {likedUnavailable.length > 0 ? (
+                      <Aviso
+                        titulo={
+                          likedUnavailable.length === 1
+                            ? "Un producto que te gustó ya no está disponible"
+                            : `${likedUnavailable.length} productos que te gustaron ya no están disponibles`
+                        }
+                        accion="Quitar de favoritos"
+                        onPress={handleDismissLikes}
+                      />
+                    ) : null}
+                    {novedadesPending ? (
+                      <Aviso titulo="Hay novedades en el Foro" accion="Ver novedades" onPress={() => ir("/chat-global?tab=novedades")} />
+                    ) : null}
+                  </>
+                )}
+                {!isLoggedIn ? (
+                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
+                    Inicia sesión para ver también los avisos de tus conversaciones.
+                  </Text>
+                ) : null}
+              </View>
+              ) : null}
             </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
+
+      {venderOpen ? <VenderAhoraModal visible={venderOpen} onClose={() => setVenderOpen(false)} /> : null}
     </>
   );
 }
 
-function NotifRow({
-  icon,
-  title,
-  subtitle,
-  actionLabel,
+function BotonPanel({
+  icono,
+  texto,
+  principal,
   onPress,
 }: {
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-  title: string;
-  subtitle: string;
-  actionLabel: string;
+  icono: React.ComponentProps<typeof Ionicons>["name"];
+  texto: string;
+  principal?: boolean;
   onPress: () => void;
 }) {
   return (
-    <View
-      style={{
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.cardSoft,
-        padding: 14,
-        gap: 10,
-      }}
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.88 : 1,
+        minHeight: 48,
+        borderRadius: 999,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        borderWidth: principal ? 0 : 1.5,
+        borderColor: COLORS.accent,
+        backgroundColor: principal ? COLORS.accentDark : COLORS.bg,
+      })}
     >
-      <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
-        <View
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 12,
-            backgroundColor: COLORS.accentSoft,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name={icon} size={17} color={COLORS.accent} />
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, lineHeight: 18 }}>
-            {title}
-          </Text>
-          <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>{subtitle}</Text>
-        </View>
-      </View>
+      <Ionicons name={icono} size={17} color={principal ? "#FFFFFF" : COLORS.accentDark} />
+      <Text style={{ color: principal ? "#FFFFFF" : COLORS.accentDark, fontWeight: "900", fontSize: 14.5 }}>{texto}</Text>
+    </Pressable>
+  );
+}
 
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.85 : 1,
-          alignSelf: "flex-start",
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: COLORS.accentSoft,
-          backgroundColor: COLORS.bg,
-          paddingVertical: 7,
-          paddingHorizontal: 14,
-        })}
-      >
-        <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 12.5 }}>
-          {actionLabel}
-        </Text>
+function Aviso({ titulo, accion, onPress }: { titulo: string; accion: string; onPress: () => void }) {
+  return (
+    <View style={{ alignItems: "center", gap: 4 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{titulo}</Text>
+      <Pressable onPress={onPress} hitSlop={6}>
+        <Text style={{ color: COLORS.accent, fontWeight: "900", textAlign: "center" }}>{accion}</Text>
       </Pressable>
     </View>
   );

@@ -20,9 +20,8 @@
  *   "chat global" o "perfil comunitario"): es lo primero que ve un cliente
  *   real de la tienda.
  * - Ya no hay una cabecera de página separada ("Acceso y registro" en gris
- *   arriba del todo): en su lugar va PromoBanner (misma franja "Te
- *   compramos tu consola..." que en el resto de pestañas), y todo el
- *   contenido de acceso vive centrado, sin tarjetas ni burbujas envolventes.
+ *   arriba del todo): todo el contenido de acceso vive centrado, sin
+ *   tarjetas ni burbujas envolventes.
  * - Solo hay UN botón de "Iniciar sesión": es el propio selector que está al
  *   lado de "Crear cuenta" (componente AuthPill). El primer toque abre el
  *   panel con los campos Email/Contraseña (formOpen) y, mientras ese modo
@@ -60,10 +59,6 @@
  * - app/(tabs)/chat-global.tsx → su modal de "inicia sesión para comentar"
  *   trae al usuario a esta pantalla para autenticarse.
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
- * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
- *   arriba del todo.
- * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
- *   Ya" de esa franja.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -86,10 +81,8 @@ import {
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import PromoBanner from "../../components/PromoBanner";
 import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
-import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
@@ -512,7 +505,6 @@ function RevealPanel({ children }: { children: React.ReactNode }) {
 export default function PerfilScreen() {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [formOpen, setFormOpen] = useState(false);
-  const [sellModalOpen, setSellModalOpen] = useState(false);
 
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -867,8 +859,6 @@ export default function PerfilScreen() {
       <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-        <PromoBanner onPressVender={() => setSellModalOpen(true)} />
-
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -876,6 +866,10 @@ export default function PerfilScreen() {
           <ScrollView
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
+            // Formulario de acceso: el primer toque fuera del teclado ya pulsa el botón
+            // y al arrastrar la página se cierra el teclado.
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             contentContainerStyle={{
               flexGrow: 1,
               paddingHorizontal: pagePadding,
@@ -1192,8 +1186,6 @@ export default function PerfilScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-
-      <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
     </View>
   );
 }

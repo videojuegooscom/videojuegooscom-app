@@ -338,7 +338,10 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
           </Pressable>
         </View>
       ) : s ? (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: "center" }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: "center" }}
+        >
           <View style={{ width: "100%", maxWidth: 1240, gap: 16 }}>
             <View style={{ alignItems: "center" }}>
               <Text
@@ -445,6 +448,9 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
+                    // Miniaturas de ancho fijo: el carrusel encaja en cada una (ancho + hueco de 10).
+                    snapToInterval={(isMobile ? 74 : 88) + 10}
+                    decelerationRate="fast"
                     contentContainerStyle={{ gap: 10, paddingTop: 10 }}
                   >
                     {s.media.map((m) => {

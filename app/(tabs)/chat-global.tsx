@@ -55,8 +55,7 @@
  *   pasan tal cual (handleReact/handleReply, ya memorizadas con useCallback)
  *   en vez de envolverlas en una función nueva por mensaje en cada render.
  *   Los canales Realtime (mensajes, reacciones y presencia) solo están
- *   abiertos mientras la pestaña está enfocada (useFocusEffect) y
- *   VenderAhoraModal no se monta hasta la primera vez que se abre.
+ *   abiertos mientras la pestaña está enfocada (useFocusEffect).
  *
  * Conectado con:
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
@@ -69,10 +68,6 @@
  * - app/(tabs)/perfil.tsx (el modal de "inicia sesión" navega ahí; también
  *   es donde se registran full_name/username que el trigger usa para
  *   mostrar el nombre de cada mensaje).
- * - components/PromoBanner.tsx → franja "Te compramos tu consola..." fija
- *   arriba del todo (misma franja que en el resto de pestañas).
- * - components/VenderAhoraModal.tsx → formulario que abre el botón "Vender
- *   Ya" de esa franja (sí usa lib/supabase.ts, para guardar la solicitud).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
@@ -96,8 +91,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import PromoBanner from "../../components/PromoBanner";
-import VenderAhoraModal from "../../components/VenderAhoraModal";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -280,11 +273,6 @@ export default function ChatGlobalScreen() {
   const [viewerCount, setViewerCount] = useState(0);
   const [reactionRows, setReactionRows] = useState<ReactionRow[]>([]);
   const [replyTarget, setReplyTarget] = useState<MessageItem | null>(null);
-  const [sellModalOpen, setSellModalOpen] = useState(false);
-  // VenderAhoraModal es grande: no se monta hasta la primera vez que se abre
-  // (y luego se queda montado para conservar su animación de cierre).
-  const [sellModalMounted, setSellModalMounted] = useState(false);
-  if (sellModalOpen && !sellModalMounted) setSellModalMounted(true);
   const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
   // Al leer historial hacia arriba se ocultan el compositor, el botón de
   // enviar, el de información y el de "viendo ahora"; al volver a bajar
@@ -292,6 +280,15 @@ export default function ChatGlobalScreen() {
   // bastante del final del chat.
   const [composerVisible, setComposerVisible] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // Copias en ref de los dos estados anteriores para compararlos en handleScroll.
+  const composerVisibleRef = useRef(true);
+  const showScrollToBottomRef = useRef(false);
+  useEffect(() => {
+    composerVisibleRef.current = composerVisible;
+  }, [composerVisible]);
+  useEffect(() => {
+    showScrollToBottomRef.current = showScrollToBottom;
+  }, [showScrollToBottom]);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const mountedRef = useRef(true);
@@ -547,15 +544,21 @@ export default function ChatGlobalScreen() {
     const delta = y - lastScrollYRef.current;
     lastScrollYRef.current = y;
 
-    if (nearBottom) {
-      setComposerVisible(true);
-    } else if (delta < -6) {
-      setComposerVisible(false);
-    } else if (delta > 6) {
-      setComposerVisible(true);
+    // Solo se toca el estado cuando cambia de verdad (no en cada evento de scroll),
+    // para que el desplazamiento no vaya a tirones.
+    let nextComposer = composerVisibleRef.current;
+    if (nearBottom || delta > 6) nextComposer = true;
+    else if (delta < -6) nextComposer = false;
+    if (nextComposer !== composerVisibleRef.current) {
+      composerVisibleRef.current = nextComposer;
+      setComposerVisible(nextComposer);
     }
 
-    setShowScrollToBottom(distanceFromBottom > 400);
+    const nextShowBottom = distanceFromBottom > 400;
+    if (nextShowBottom !== showScrollToBottomRef.current) {
+      showScrollToBottomRef.current = nextShowBottom;
+      setShowScrollToBottom(nextShowBottom);
+    }
   }, []);
 
   const handleScrollToLatest = useCallback(() => {
@@ -785,11 +788,8 @@ export default function ChatGlobalScreen() {
   };
 
   return (
-    <>
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-
-      <PromoBanner onPressVender={() => setSellModalOpen(true)} />
 
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <LinearGradient
@@ -810,6 +810,8 @@ export default function ChatGlobalScreen() {
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 58,
@@ -996,11 +998,6 @@ export default function ChatGlobalScreen() {
         <InfoModal visible={showInfoModal} onClose={() => setShowInfoModal(false)} />
       </View>
     </SafeAreaView>
-
-    {sellModalMounted ? (
-      <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
-    ) : null}
-    </>
   );
 }
 

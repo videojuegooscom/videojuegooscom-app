@@ -1,8 +1,9 @@
 // app/admin/flash-news.tsx
 /**
- * Qué hace: pantalla de administración de "Noticias Flash" — el contenido
- * rotatorio de la franja superior (components/PromoBanner.tsx, visible en
- * Inicio, Perfil, Cesta, Chat y Blue IA). Permite crear hasta 5 noticias,
+ * Qué hace: pantalla de administración de "Noticias Flash · Blue IA". Estos
+ * mensajes ya no van en una franja superior: los usa Blue IA, el asistente
+ * flotante de la tienda, que los muestra como avisos en su bocadillo y los
+ * conoce para responder a los clientes. Permite crear hasta 5 noticias,
  * editarlas, reordenarlas, activarlas/desactivarlas y borrarlas, eligiendo
  * para cada una su mensaje, su color y cuántos segundos se muestra antes de
  * pasar a la siguiente.
@@ -16,8 +17,7 @@
  *   "+ Nueva noticia" se desactiva al llegar al límite, con un aviso.
  * - El modal de creación/edición deja elegir el color con una paleta de
  *   colores rápidos (chips) o escribiendo un código hexadecimal a mano, y
- *   muestra una vista previa en vivo con el mismo tinte que verá el cliente
- *   en la franja real (misma lógica de hexToRgba que PromoBanner.tsx).
+ *   muestra una vista previa sencilla del aviso en forma de bocadillo.
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
  *   Supabase devuelve error, igual que en app/admin/categories.tsx.
  * - Sigue el tema claro global y las mismas convenciones visuales que el
@@ -25,8 +25,8 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
- * - components/PromoBanner.tsx → lee estas mismas noticias (is_active=true)
- *   para pintar la franja rotatoria en la app pública.
+ * - Asistente flotante de Blue IA → lee estas mismas noticias
+ *   (is_active=true) para mostrarlas como avisos y usarlas al responder.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
  *   "Noticias Flash") y a la que se vuelve con smartBackAdminHome().
  * - app/admin/_layout.tsx → registra esta ruta ("flash-news") dentro del
@@ -118,9 +118,8 @@ function isValidHex(value: string) {
   return /^#[0-9a-fA-F]{6}$/.test(String(value ?? "").trim());
 }
 
-// Misma lógica que components/PromoBanner.tsx: convierte un hex a rgba
-// translúcido para la vista previa, con un color de emergencia si el hex no
-// es válido (no debería ocurrir gracias a la validación del formulario).
+// Convierte un hex a rgba translúcido (tinte de cada noticia en la lista y
+// borde del bocadillo), con un color de emergencia si el hex no es válido.
 function hexToRgba(hex: string, alpha: number) {
   const clean = String(hex ?? "").replace("#", "").trim();
   const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
@@ -428,7 +427,6 @@ export default function AdminFlashNews() {
     }
   }
 
-  const previewBg = hexToRgba(colorHex, 0.14);
   const previewBorder = hexToRgba(colorHex, 0.45);
 
   return (
@@ -465,7 +463,7 @@ export default function AdminFlashNews() {
                   textAlign: isMobile ? "center" : "left",
                 }}
               >
-                Noticias Flash
+                Noticias Flash · Blue IA
               </Text>
               <Text
                 style={{
@@ -475,8 +473,8 @@ export default function AdminFlashNews() {
                   textAlign: isMobile ? "center" : "left",
                 }}
               >
-                Hasta {MAX_ITEMS} mensajes rotando en la franja superior de la app, cada uno con
-                su color y sus segundos en pantalla.
+                Hasta {MAX_ITEMS} avisos para Blue IA: el asistente flotante los muestra a los
+                clientes y los tiene en cuenta al responder.
               </Text>
             </View>
 
@@ -564,8 +562,7 @@ export default function AdminFlashNews() {
                   Todavía no hay noticias.
                 </Text>
                 <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  Mientras no haya ninguna, la franja mostrará el mensaje de emergencia
-                  «Te compramos tu electrónica hoy mismo».
+                  Crea la primera para que Blue IA la muestre como aviso y la use al responder.
                 </Text>
               </View>
             ) : (
@@ -697,8 +694,8 @@ export default function AdminFlashNews() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Este mensaje aparecerá en la franja superior de la app durante el tiempo que
-                marques, con el color que elijas.
+                Blue IA mostrará este aviso en su asistente flotante durante el tiempo que
+                marques y lo tendrá en cuenta al responder.
               </Text>
 
               <TextInput
@@ -832,28 +829,35 @@ export default function AdminFlashNews() {
                 }}
               />
 
-              {/* Vista previa: mismo tinte que verá el cliente en la franja real. */}
-              <View
-                style={{
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: previewBorder,
-                  backgroundColor: previewBg,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <Ionicons
-                  name="flash-outline"
-                  size={15}
-                  color={isValidHex(colorHex) ? colorHex : DEFAULT_COLOR}
-                />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13, flex: 1 }} numberOfLines={2}>
-                  {message.trim() || "Vista previa del mensaje…"}
+              {/* Vista previa sencilla del aviso como bocadillo de Blue IA. */}
+              <View style={{ alignItems: "center", gap: 6 }}>
+                <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12 }}>
+                  Vista previa en Blue IA
                 </Text>
+                <View
+                  style={{
+                    maxWidth: 360,
+                    borderRadius: 18,
+                    borderBottomLeftRadius: 6,
+                    borderWidth: 1,
+                    borderColor: previewBorder,
+                    backgroundColor: "#FFFFFF",
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Ionicons
+                    name="flash-outline"
+                    size={15}
+                    color={isValidHex(colorHex) ? colorHex : DEFAULT_COLOR}
+                  />
+                  <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13, flexShrink: 1 }} numberOfLines={3}>
+                    {message.trim() || "Vista previa del aviso…"}
+                  </Text>
+                </View>
               </View>
 
               <View
@@ -877,7 +881,7 @@ export default function AdminFlashNews() {
                   <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900" }}>Noticia activa</Text>
                     <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
-                      Si está activa, entra en la rotación de la franja pública.
+                      Si está activa, Blue IA la muestra y la usa al responder.
                     </Text>
                   </View>
                   <Switch value={isActive} onValueChange={setIsActive} />
@@ -964,7 +968,7 @@ export default function AdminFlashNews() {
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                 «{confirmDelete?.message ?? ""}»
               </Text>
-              . Dejará de mostrarse en la franja de la app.
+              . Blue IA dejará de mostrarla y de usarla.
             </Text>
 
             <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>

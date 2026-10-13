@@ -254,10 +254,12 @@ export default function BlogScreen() {
         </View>
       ) : (
         <ScrollView
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: pagePadding,
             paddingTop: 20,
-            paddingBottom: 40,
+            // 96: el último artículo queda por encima del asistente flotante Blue.
+            paddingBottom: 96,
           }}
         >
           <View style={{ ...columnStyle, gap: 12 }}>

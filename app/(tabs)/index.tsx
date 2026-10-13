@@ -18,20 +18,15 @@
  *   la oferta destacada. Todos se animan al tocarlos.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
- * - El botón "Vender ahora" y el botón "Vender Ya" de la franja superior
- *   (rotador de "Noticias Flash", components/PromoBanner.tsx — lee la tabla
- *   Supabase "flash_news" y se edita desde app/admin/flash-news.tsx)
- *   ya no abren WhatsApp directamente: ambos abren el mismo formulario "pop"
- *   de VenderAhoraModal (comparten el estado sellModalOpen), que guarda la
- *   solicitud en Supabase (tabla "sell_requests") para revisarla luego en
- *   el admin. PromoBanner también se muestra en las otras 4 pestañas
- *   (perfil, cesta, chat-global, blue-ia), pero solo aquí, en Inicio, va
- *   dentro de este Animated.View que la oculta al hacer scroll.
- * - Al deslizar hacia abajo dentro del ScrollView, la franja superior y la
- *   barra de búsqueda flotante se ocultan solas con una animación suave
- *   (fade + colapso de altura / desplazamiento), para dejar ver mejor el
- *   contenido; al deslizar hacia arriba (o volver arriba del todo) vuelven
- *   a aparecer. handleScroll detecta la dirección comparando cada posición
+ * - El botón "Vender ahora" abre el formulario "pop" de VenderAhoraModal,
+ *   que guarda la solicitud en Supabase (tabla "sell_requests") para
+ *   revisarla luego en el admin. La antigua franja "Noticias Flash" ya no
+ *   se muestra: esas noticias las enseña ahora el asistente flotante de
+ *   Blue IA (se editan en app/admin/flash-news.tsx).
+ * - Al deslizar hacia abajo dentro del ScrollView, la barra de búsqueda
+ *   flotante se oculta sola con una animación suave, para dejar ver mejor
+ *   el contenido; al deslizar hacia arriba (o volver arriba del todo)
+ *   vuelve a aparecer. handleScroll detecta la dirección comparando cada posición
  *   de scroll con la anterior y solo dispara la animación cuando cambia de
  *   sentido, no en cada píxel. Cerca del pie de página (o durante su rebote
  *   elástico al llegar al final) esa comparación se congela a propósito:
@@ -53,7 +48,6 @@
  *   vía FloatingBarramagic; app/catalogo.tsx usa el mismo archivo en modo
  *   fijo/editable).
  * - components/Resenas.tsx → bloque de reseñas.
- * - components/PromoBanner.tsx → franja rotatoria "Noticias Flash".
  * - components/VenderAhoraModal.tsx → formulario de "Vender ahora"
  *   (sustituye el envío por email; guarda en la tabla "sell_requests").
  * - components/SiteFooter.tsx → pie de página completo (navegación,
@@ -72,7 +66,6 @@ import { router, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Easing,
   Linking,
   Modal,
   Platform,
@@ -89,7 +82,6 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
-import PromoBanner from "../../components/PromoBanner";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
@@ -218,8 +210,10 @@ const HOME_CATEGORIES: HomeCategory[] = [
 ];
 
 const SEARCH_LAYOUT = {
-  topSnapMobile: 84,
-  topSnapDesktop: 92,
+  // Sin la franja de Noticias Flash, el buscador "arriba" va pegado al borde
+  // superior con el mismo margen que reserva el padding del contenido.
+  topSnapMobile: 12,
+  topSnapDesktop: 16,
   searchBarHeightMobile: 58,
   searchBarHeightDesktop: 64,
   // La tab bar inferior se hizo más compacta (ver app/(tabs)/_layout.tsx)
@@ -1018,7 +1012,11 @@ function FeaturedMediaCarousel({
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
           onMomentumScrollEnd={handleMomentumEnd}
+          // En la web no existe onMomentumScrollEnd: el punto activo se actualiza aquí
+          // (React ignora el setState si el índice no cambia).
+          onScroll={Platform.OS === "web" ? handleMomentumEnd : undefined}
           scrollEventThrottle={16}
         >
           {images.map((uri, index) => (
@@ -1339,26 +1337,25 @@ export default function HomeScreen() {
   const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
   // Botón flotante "volver arriba" ⬆️: aparece tras bajar bastante.
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const showScrollTopRef = useRef(false);
   const scrollTopAnim = useRef(new Animated.Value(0)).current;
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
 
-  // Ocultar/mostrar la franja superior y la barra de búsqueda flotante
+  // Ocultar/mostrar la barra de búsqueda flotante
   // según la dirección del scroll: al bajar se ocultan (más sitio para ver
   // contenido), al subir o al llegar arriba del todo vuelven a aparecer.
   const [headerHidden, setHeaderHidden] = useState(false);
   const headerHiddenRef = useRef(false);
   const lastScrollYRef = useRef(0);
   // Recorrido acumulado en la dirección actual, para no ocultar/mostrar la
-  // franja superior a la primera sacudida del dedo (antes bastaban 6px de un
+  // buscador a la primera sacudida del dedo (antes bastaban 6px de un
   // solo evento de scroll, y con scrollEventThrottle=16 eso disparaba el
   // cambio en cuanto el usuario tocaba la pantalla, dando una sensación
   // "nerviosa"). Ahora hace falta un recorrido sostenido en la misma
   // dirección antes de reaccionar, como en apps con scroll "suave".
   const scrollRunRef = useRef(0);
-  const headerAnim = useRef(new Animated.Value(0)).current;
-  const [bannerHeight, setBannerHeight] = useState(0);
 
   // Analítica: posición del bloque de "Reseñas" (para saber cuándo entra en
   // pantalla al hacer scroll) y una bandera para registrar ese paso una sola
@@ -1375,7 +1372,7 @@ export default function HomeScreen() {
   // Zona de "pie de página": incluye estar ya al final del todo Y el rebote
   // elástico que se pasa de ese final (en iOS/web ese rebote hace que
   // contentOffset.y suba un poco y luego vuelva sola, lo que antes se leía
-  // como "el usuario ha subido" y reaparecían la franja y la búsqueda solo
+  // como "el usuario ha subido" y reaparecía la búsqueda solo
   // por el rebote, sin que nadie moviera el dedo hacia arriba de verdad).
   const HEADER_SCROLL_BOTTOM_GUARD = 32;
 
@@ -1408,7 +1405,7 @@ export default function HomeScreen() {
       // En el pie de página (o en su rebote) no cuenta como "el usuario ha
       // subido": se congela el recorrido para que, al salir de esta zona
       // subiendo de verdad, haga falta un recorrido nuevo — ni el rebote ni
-      // los primeros píxeles de salida reaparecen la franja por sí solos.
+      // los primeros píxeles de salida reaparecen el buscador por sí solos.
       scrollRunRef.current = 0;
     } else if (delta > 0) {
       // Bajando: solo acumula mientras se siga bajando; si el usuario cambia
@@ -1431,7 +1428,12 @@ export default function HomeScreen() {
     // El botón "volver arriba" se oculta al acercarse al final de verdad
     // (el pie de página) para que nunca quede montado encima del texto del
     // pie — solo se ve mientras hay contenido normal debajo.
-    setShowScrollTop(y > 480 && distanceFromBottom > 280);
+    // Solo se actualiza el estado al cruzar el umbral (no en cada evento de scroll).
+    const nextShowScrollTop = y > 480 && distanceFromBottom > 280;
+    if (nextShowScrollTop !== showScrollTopRef.current) {
+      showScrollTopRef.current = nextShowScrollTop;
+      setShowScrollTop(nextShowScrollTop);
+    }
 
     // Analítica: "Scroll" con límite de frecuencia (no queremos un evento
     // por cada pixel) y "Reseñas" la primera vez que ese bloque entra en la
@@ -1478,15 +1480,6 @@ export default function HomeScreen() {
       useNativeDriver: true,
     }).start();
   }, [showScrollTop, scrollTopAnim]);
-
-  useEffect(() => {
-    Animated.timing(headerAnim, {
-      toValue: headerHidden ? 1 : 0,
-      duration: 280,
-      easing: Easing.inOut(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [headerHidden, headerAnim]);
 
   const { width } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
@@ -1648,21 +1641,7 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <SafeAreaView style={{ backgroundColor: COLORS.bg }}>
-        <Animated.View
-          style={{
-            height: bannerHeight
-              ? headerAnim.interpolate({ inputRange: [0, 1], outputRange: [bannerHeight, 0] })
-              : undefined,
-            opacity: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-            overflow: "hidden",
-          }}
-        >
-          <View onLayout={(e) => setBannerHeight(e.nativeEvent.layout.height)}>
-            <PromoBanner onPressVender={() => setSellModalOpen(true)} />
-          </View>
-        </Animated.View>
-      </SafeAreaView>
+      <SafeAreaView style={{ backgroundColor: COLORS.bg }} />
 
       <ScrollView
         ref={scrollRef}
