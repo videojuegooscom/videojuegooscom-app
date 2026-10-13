@@ -60,6 +60,8 @@ import { supabase } from "../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../lib/analytics";
 import Barramagic from "../components/Barramagic";
 import SmartImage from "../components/SmartImage";
+import MarcaAnimada from "../components/marca/MarcaAnimada";
+import CargaMarca from "../components/marca/CargaMarca";
 import CatalogFilters, {
   Chip,
   USED_CONDITIONS,
@@ -859,8 +861,7 @@ export default function CatalogoScreen() {
               paddingHorizontal: pagePadding,
             }}
           >
-            <ActivityIndicator color={COLORS.accent} />
-            <Text style={{ color: COLORS.muted }}>Cargando catálogo…</Text>
+            <CargaMarca texto="Cargando productos…" />
           </View>
         ) : (
           <View style={{ paddingHorizontal: pagePadding, paddingTop: 16, alignItems: "center" }}>
@@ -876,7 +877,7 @@ export default function CatalogoScreen() {
             >
               {items.length === 0 ? (
                 <View style={{ alignItems: "center", gap: 12, paddingVertical: 24 }}>
-                  <Ionicons name="search-outline" size={34} color={COLORS.accent} />
+                  <MarcaAnimada cual="tienda" ancho={130} />
                   <Text
                     style={{
                       color: COLORS.text,

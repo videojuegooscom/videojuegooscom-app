@@ -13,6 +13,9 @@
  * - containerStyle (maxWidth según el ancho de pantalla: 920/1040/1240)
  *   centra todo el contenido en pantallas anchas para que nada quede
  *   pegado a la izquierda.
+ * - Marca (components/marca/): logo animado arriba del todo, la pareja de
+ *   mascotas antes de las preguntas frecuentes y CargaMarca mientras carga
+ *   la oferta destacada. Todos se animan al tocarlos.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
  * - El botón "Vender ahora" y el botón "Vender Ya" de la franja superior
@@ -68,7 +71,6 @@ import type { Href } from "expo-router";
 import { router, useNavigation } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   Linking,
@@ -92,6 +94,8 @@ import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
 import VenderAhoraModal from "../../components/VenderAhoraModal";
+import CargaMarca from "../../components/marca/CargaMarca";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { openExternalLink } from "../../lib/openExternalLink";
@@ -1690,6 +1694,12 @@ export default function HomeScreen() {
         scrollEventThrottle={16}
       >
         <View style={{ ...containerStyle, gap: 14 }}>
+          {/* Logo animado como cabecera de marca: centrado, sin recuadro y con
+              poco margen para no empujar el contenido. Al tocarlo, se anima. */}
+          <View style={{ alignItems: "center", marginTop: isMobile ? -4 : 0, marginBottom: -6 }}>
+            <MarcaAnimada cual="logo" ancho={isMobile ? 150 : isWide ? 190 : 170} />
+          </View>
+
           {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}
           <View style={{ gap: 12, alignItems: "center", paddingVertical: 4 }}>
             <Text
@@ -1730,16 +1740,15 @@ export default function HomeScreen() {
           </View>
 
           {featuredLoading ? (
+            // Carga con la mascota de la tienda (antes, ruedita gris).
             <View
               style={{
-                gap: 10,
                 minHeight: isMobile ? 150 : 180,
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <ActivityIndicator />
-              <Text style={{ color: COLORS.muted, textAlign: "center" }}>Cargando oferta destacada…</Text>
+              <CargaMarca texto="Cargando oferta destacada…" ancho={isMobile ? 84 : 96} />
             </View>
           ) : (
             <FeaturedOfferCard
@@ -1796,6 +1805,12 @@ export default function HomeScreen() {
           </View>
 
           <View style={{ gap: 12, paddingTop: 6 }}>
+            {/* Las dos mascotas de la tienda dan paso a las preguntas
+                frecuentes; al tocarlas se animan. */}
+            <View style={{ alignItems: "center" }}>
+              <MarcaAnimada cual="pareja" ancho={isMobile ? 280 : isWide ? 360 : 320} />
+            </View>
+
             <SectionTitle
               title="Preguntas frecuentes"
               subtitle="Toca una y Blue IA te responde al momento."

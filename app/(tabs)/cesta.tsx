@@ -40,6 +40,8 @@ import {
   View,
 } from "react-native";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import CargaMarca from "../../components/marca/CargaMarca";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PromoBanner from "../../components/PromoBanner";
 import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
@@ -722,8 +724,7 @@ export default function CestaScreen() {
             paddingHorizontal: 24,
           }}
         >
-          <ActivityIndicator />
-          <Text style={{ color: COLORS.muted }}>Cargando cesta…</Text>
+          <CargaMarca texto="Cargando cesta…" />
         </View>
       ) : (
         <ScrollView
@@ -740,7 +741,7 @@ export default function CestaScreen() {
           <View style={{ width: "100%", maxWidth: 640, gap: 12 }}>
           {items.length === 0 ? (
             <View style={{ paddingVertical: 24, gap: 12, alignItems: "center" }}>
-              <Ionicons name="cart-outline" size={34} color={COLORS.accent} />
+              <MarcaAnimada cual="tienda" ancho={150} />
 
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
                 Tu cesta está vacía

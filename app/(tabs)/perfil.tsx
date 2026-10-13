@@ -84,6 +84,8 @@ import {
   useWindowDimensions,
 } from "react-native";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import CargaMarca from "../../components/marca/CargaMarca";
+import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PromoBanner from "../../components/PromoBanner";
 import SiteFooter from "../../components/SiteFooter";
 import SocialLinks from "../../components/SocialLinks";
@@ -894,6 +896,7 @@ export default function PerfilScreen() {
             >
               <SectionCard padding={cardPadding}>
                 <View style={{ gap: 12, alignItems: "center" }}>
+                    {sessionRole === "guest" ? <MarcaAnimada cual="logo-mini" ancho={96} /> : null}
                     <Text
                       style={{
                         color: COLORS.text,
@@ -925,19 +928,7 @@ export default function PerfilScreen() {
                 {okMsg ? <InfoMessage text={okMsg} tone="success" /> : null}
 
                 {isChecking ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <ActivityIndicator color={COLORS.accent} />
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-                      Comprobando sesión...
-                    </Text>
-                  </View>
+                  <CargaMarca texto="Comprobando sesión…" />
                 ) : null}
 
                 {sessionRole === "guest" ? (
