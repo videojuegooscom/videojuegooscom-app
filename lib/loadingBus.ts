@@ -15,6 +15,9 @@
  *   foto está cargando de verdad.
  * - components/lineapensadoraefectosiri.tsx llama a pulseLoading() en cada
  *   cambio de ruta, para avisar siempre al cambiar de pestaña/sección.
+ * - app/(tabs)/_layout.tsx llama a pulseLoading(ms, true) al recargar una
+ *   pestaña con triple toque: "inmediato" se salta la espera de entrada
+ *   (SHOW_DELAY_MS) porque es una acción que el usuario acaba de pedir.
  *
  * Dos hooks:
  * - useCargando() → el que deben usar los efectos visuales. Aplica los
@@ -34,7 +37,8 @@
  * - components/SmartImage.tsx → markStart()/markEnd() por cada foto.
  * - components/lineapensadoraefectosiri.tsx → useCargando() para el marco y
  *   pulseLoading() en cada cambio de ruta.
- * - app/(tabs)/_layout.tsx → useCargando() para el brillo del icono activo.
+ * - app/(tabs)/_layout.tsx → useCargando() para el brillo del icono activo y
+ *   pulseLoading(ms, true) al recargar una pestaña (triple toque).
  */
 import { useSyncExternalStore } from "react";
 
@@ -110,10 +114,31 @@ export function markEnd() {
  * petición ni foto real detrás — se usa en cada cambio de ruta para que el
  * usuario vea SIEMPRE una señal de "algo está pasando" al cambiar de
  * pestaña/sección, incluso cuando esa pantalla no necesita pedir nada nuevo.
+ *
+ * Con inmediato=true se enciende ya, sin la espera de SHOW_DELAY_MS (para
+ * acciones que pide el usuario, como recargar una pestaña con triple toque);
+ * el mínimo visible (MIN_VISIBLE_MS) se respeta igual.
  */
-export function pulseLoading(durationMs = 450) {
+export function pulseLoading(durationMs = 450, inmediato = false) {
   markStart();
+  if (inmediato) mostrarYa();
   setTimeout(markEnd, durationMs);
+}
+
+// Enciende el estado visible al momento (cancela la espera de entrada).
+function mostrarYa() {
+  if (showTimer) {
+    clearTimeout(showTimer);
+    showTimer = null;
+  }
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+  if (!visible) {
+    shownAt = Date.now();
+    setVisible(true);
+  }
 }
 
 function subscribe(listener: () => void) {

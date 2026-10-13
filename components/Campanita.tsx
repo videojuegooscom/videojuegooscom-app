@@ -6,7 +6,18 @@
  * app/_layout.tsx, fuera del Stack, así que no se reinicia al navegar).
  * - Se mueve sola (components/marca/MarcaAnimada.tsx) y se puede arrastrar a
  *   cualquiera de las 4 esquinas (se recuerda en AsyncStorage).
- * - Habla con bocadillos:
+ * - Aparece 10 s después de entrar en la web (APARECER_MS, contados desde que
+ *   se abrió la página con performance.now()): antes no se ve ni se puede tocar.
+ *   Entra con un rebote de escala, saluda moviéndose de lado a lado y enseña un
+ *   mini bocadillo "¡Hola! Soy Blue" unos segundos (al tocarlo abre su panel).
+ * - Scroll (solo web): al bajar se desliza hacia su borde y se desvanece; al
+ *   subir vuelve. Escucha el scroll de CUALQUIER contenedor (listener en
+ *   document con capture) y compara el scrollTop de ese mismo elemento con el
+ *   anterior, con un umbral de 12 px para no parpadear; los carruseles
+ *   horizontales (no cambian scrollTop) no cuentan. Cerca del principio
+ *   (scrollTop < 40) siempre se ve. No se oculta con su panel abierto, con un
+ *   bocadillo o con el saludo a la vista, y vuelve a verse al cambiar de pantalla.
+ * - Habla con bocadillos (solo cuando ya ha aparecido):
  *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
  *     descripción menciona la garantía, esa frase; si no, que es unidad única y se
  *     reserva 15 minutos en la cesta) y después cómo se entrega (en persona en
@@ -92,6 +103,17 @@ const POLL_MS = 45000;
 const PRODUCTO_ESPERA_MS = 8000;
 const SEGUNDO_MENSAJE_MS = 7000;
 const NOTICIA_ESPERA_MS = 12000;
+// Blue aparece 10 s después de entrar en la web; el saludo se ve unos segundos.
+const APARECER_MS = 10000;
+const SALUDO_MS = 2800;
+// Scroll: píxeles mínimos para ocultar/mostrar (sin parpadeos) y zona de arriba
+// en la que siempre se ve.
+const SCROLL_UMBRAL = 12;
+const SCROLL_ARRIBA = 40;
+// Cuánto se desliza hacia su borde al ocultarse.
+const DESLIZ_OCULTO = BLUE_SIZE + EDGE_INSET + 16;
+// Animaciones por el hilo nativo salvo en web (allí no existe).
+const USA_NATIVO = Platform.OS !== "web";
 
 type Corner = "tl" | "tr" | "bl" | "br";
 const CORNERS: Corner[] = ["tl", "tr", "bl", "br"];
@@ -148,6 +170,9 @@ function mensajeProducto(titulo: string, descripcion: string | null): string {
 export default function Campanita() {
   const pathname = usePathname() ?? "";
   const enAdmin = pathname.startsWith("/admin");
+  // En las pantallas de chat (y en el propio chat de Blue IA) no se muestra: taparía
+  // el campo de escribir y el botón de enviar.
+  const enChat = pathname.startsWith("/blue-ia") || pathname.startsWith("/chat-global") || pathname.startsWith("/chat/");
 
   const [ready, setReady] = useState(false);
   const cornerRef = useRef<Corner>("br");
@@ -169,6 +194,10 @@ export default function Campanita() {
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
   // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
   const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
+  // Aparición a los 10 s, mini saludo y oculto por scroll hacia abajo.
+  const [aparecido, setAparecido] = useState(false);
+  const [saludando, setSaludando] = useState(false);
+  const [ocultoScroll, setOcultoScroll] = useState(false);
 
   // --- posición -------------------------------------------------------------
   useEffect(() => {
@@ -461,12 +490,127 @@ export default function Campanita() {
     }).start();
   }, [bocadillo, bocAnim]);
 
+  // --- aparición, saludo y scroll ---------------------------------------------------
+  // 10 s desde que se abrió la página (performance.now() cuenta desde la carga).
+  useEffect(() => {
+    const yaPasado = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+    const timer = setTimeout(() => setAparecido(true), Math.max(0, APARECER_MS - yaPasado));
+    return () => clearTimeout(timer);
+  }, []);
+
+  const entrada = useRef(new Animated.Value(0)).current;
+  const saludo = useRef(new Animated.Value(0)).current;
+  const chipAnim = useRef(new Animated.Value(0)).current;
+  const ocultar = useRef(new Animated.Value(0)).current;
+  const entradaHechaRef = useRef(false);
+  const enPantalla = aparecido && ready && !enChat;
+
+  // Entrada (una sola vez, la primera vez que se ve): rebote de escala y saludo
+  // moviéndose de lado a lado.
+  useEffect(() => {
+    if (!enPantalla || entradaHechaRef.current) return;
+    entradaHechaRef.current = true;
+    entrada.setValue(0);
+    saludo.setValue(0);
+    Animated.spring(entrada, { toValue: 1, friction: 4.2, tension: 70, useNativeDriver: USA_NATIVO }).start();
+    const paso = (toValue: number, duration: number) =>
+      Animated.timing(saludo, { toValue, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO });
+    Animated.sequence([Animated.delay(420), paso(1, 130), paso(-1, 180), paso(0.7, 160), paso(-0.4, 140), paso(0, 130)]).start();
+    setSaludando(true);
+  }, [enPantalla, entrada, saludo]);
+
+  // Mini bocadillo "¡Hola! Soy Blue": entra tras el rebote y se va solo.
+  useEffect(() => {
+    if (!saludando) return;
+    chipAnim.setValue(0);
+    Animated.timing(chipAnim, {
+      toValue: 1,
+      duration: 280,
+      delay: 360,
+      easing: Easing.out(Easing.back(1.4)),
+      useNativeDriver: USA_NATIVO,
+    }).start();
+    const timer = setTimeout(() => {
+      Animated.timing(chipAnim, { toValue: 0, duration: 220, easing: Easing.in(Easing.quad), useNativeDriver: USA_NATIVO }).start(() =>
+        setSaludando(false)
+      );
+    }, SALUDO_MS);
+    return () => clearTimeout(timer);
+  }, [saludando, chipAnim]);
+
+  // Con el panel abierto, un bocadillo o el saludo a la vista no se oculta (lo lee
+  // el listener de scroll, que se registra una sola vez).
+  const bocadilloVisible = aparecido && !!bocadillo;
+  const noOcultarRef = useRef(false);
+  noOcultarRef.current = panelOpen || bocadilloVisible || saludando;
+
+  const ocultoScrollRef = useRef(false);
+  const ponerOcultoScroll = useCallback((oculto: boolean) => {
+    if (ocultoScrollRef.current === oculto) return;
+    ocultoScrollRef.current = oculto;
+    setOcultoScroll(oculto);
+  }, []);
+
+  // Scroll de CUALQUIER contenedor (los ScrollView de la web son divs con su propio
+  // scroll, que no burbujea: por eso capture). Se compara el scrollTop de ese mismo
+  // elemento con el anterior: bajar ≥ 12 px oculta, subir ≥ 12 px muestra.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined" || !aparecido) return;
+    // Último scrollTop de cada contenedor (WeakMap: no retiene los que se desmontan).
+    const ultimos = new WeakMap<object, number>();
+    const alHacerScroll = (ev: Event) => {
+      const t = ev.target;
+      const elemento = t instanceof Element && t !== document.documentElement && t !== document.body ? t : null;
+      const clave: object = elemento ?? document;
+      const y = elemento ? elemento.scrollTop : window.scrollY || document.documentElement.scrollTop || 0;
+      const previo = ultimos.get(clave);
+      if (previo === undefined) {
+        ultimos.set(clave, y);
+        return;
+      }
+      // Scroll horizontal (carruseles): el scrollTop no cambia, no cuenta.
+      if (y === previo) return;
+      if (y < SCROLL_ARRIBA) {
+        ultimos.set(clave, y);
+        ponerOcultoScroll(false);
+        return;
+      }
+      const delta = y - previo;
+      if (Math.abs(delta) < SCROLL_UMBRAL) return;
+      ultimos.set(clave, y);
+      if (delta < 0) ponerOcultoScroll(false);
+      else if (!noOcultarRef.current) ponerOcultoScroll(true);
+    };
+    document.addEventListener("scroll", alHacerScroll, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", alHacerScroll, { capture: true });
+  }, [aparecido, ponerOcultoScroll]);
+
+  // Al cambiar de pantalla vuelve a verse; también si sale un bocadillo.
+  useEffect(() => {
+    ponerOcultoScroll(false);
+  }, [pathname, ponerOcultoScroll]);
+  useEffect(() => {
+    if (bocadilloVisible) ponerOcultoScroll(false);
+  }, [bocadilloVisible, ponerOcultoScroll]);
+
+  // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote.
+  const oculto = ocultoScroll && !panelOpen && !bocadilloVisible && !saludando;
+  useEffect(() => {
+    Animated.timing(ocultar, {
+      toValue: oculto ? 1 : 0,
+      duration: oculto ? 220 : 280,
+      easing: oculto ? Easing.in(Easing.cubic) : Easing.out(Easing.back(1.3)),
+      useNativeDriver: USA_NATIVO,
+    }).start();
+  }, [oculto, ocultar]);
+
   // --- arrastrar / tocar --------------------------------------------------------
   const totalRef = useRef(0);
   totalRef.current = totalCount;
 
   const openPanel = useCallback((tab?: "blue" | "avisos" | "noticias") => {
     setBocadillo(null);
+    setSaludando(false);
     // Si hay notificaciones pendientes, se abre directamente en esa pestaña.
     setPestana(tab ?? (totalRef.current > 0 ? "avisos" : "blue"));
     setPanelOpen(true);
@@ -534,13 +678,21 @@ export default function Campanita() {
     }
   }, [likedUnavailable]);
 
-  // En las pantallas de chat (y en el propio chat de Blue IA) no se muestra: taparía
-  // el campo de escribir y el botón de enviar.
-  const enChat = pathname.startsWith("/blue-ia") || pathname.startsWith("/chat-global") || pathname.startsWith("/chat/");
-  if (!ready || enChat) return null;
+  // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
+  if (!ready || enChat || !aparecido) return null;
 
   const derecha = corner === "tr" || corner === "br";
   const arriba = corner === "tl" || corner === "tr";
+
+  // Capa visible: fundido de entrada × fundido al ocultarse, y deslizamiento
+  // hacia su borde. Cuerpo: rebote de escala y giro del saludo.
+  const opacidadCapa = Animated.multiply(
+    entrada.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 1], extrapolate: "clamp" }),
+    ocultar.interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: "clamp" })
+  );
+  const deslizCapa = ocultar.interpolate({ inputRange: [0, 1], outputRange: [0, derecha ? DESLIZ_OCULTO : -DESLIZ_OCULTO] });
+  const escalaCuerpo = entrada.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
+  const giroSaludo = saludo.interpolate({ inputRange: [-1, 1], outputRange: ["-14deg", "14deg"] });
 
   return (
     <>
@@ -552,81 +704,137 @@ export default function Campanita() {
           width: BLUE_SIZE,
           height: BLUE_SIZE,
           transform: pan.getTranslateTransform(),
+          // Oculto por scroll: no bloquea los toques de lo que haya debajo.
+          pointerEvents: oculto ? "none" : "box-none",
         }}
       >
-        {/* Bocadillo de Blue: sale hacia el centro de la pantalla. */}
-        {bocadillo ? (
-          <Animated.View
-            style={{
-              position: "absolute",
-              width: 248,
-              [derecha ? "right" : "left"]: 4,
-              [arriba ? "top" : "bottom"]: BLUE_SIZE + 4,
-              opacity: bocAnim,
-              transform: [{ scale: bocAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
-            }}
-          >
-            <Pressable
-              onPress={alTocarBocadillo}
-              accessibilityRole="button"
-              style={{
-                backgroundColor: COLORS.bg,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                paddingVertical: 12,
-                paddingHorizontal: 14,
-                paddingRight: 30,
-                shadowColor: "#0B2138",
-                shadowOpacity: 0.12,
-                shadowRadius: 14,
-                shadowOffset: { width: 0, height: 6 },
-                elevation: 8,
-              }}
-            >
-              <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
-              <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19 }}>{bocadillo.texto}</Text>
-              {bocadillo.accion === "chat" ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={14} color={COLORS.accentDark} />
-                  <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>Escribir ahora</Text>
-                </View>
-              ) : null}
-            </Pressable>
-            <Pressable
-              onPress={() => setBocadillo(null)}
-              hitSlop={10}
-              accessibilityLabel="Cerrar mensaje de Blue"
-              style={{ position: "absolute", top: 8, right: 8 }}
-            >
-              <Ionicons name="close" size={16} color={COLORS.muted} />
-            </Pressable>
-          </Animated.View>
-        ) : null}
-
-        <View {...panResponder.panHandlers} style={{ width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" }}>
-          <MarcaAnimada cual="carga" ancho={BLUE_SIZE} tocable={false} />
-          {totalCount > 0 ? (
-            <View
+        <Animated.View
+          style={{
+            width: BLUE_SIZE,
+            height: BLUE_SIZE,
+            opacity: opacidadCapa,
+            transform: [{ translateX: deslizCapa }],
+            pointerEvents: "box-none",
+          }}
+        >
+          {/* Bocadillo de Blue: sale hacia el centro de la pantalla. */}
+          {bocadillo ? (
+            <Animated.View
               style={{
                 position: "absolute",
-                top: 2,
-                right: 4,
-                minWidth: 20,
-                height: 20,
-                borderRadius: 10,
-                paddingHorizontal: 4,
-                backgroundColor: COLORS.danger,
-                borderWidth: 2,
-                borderColor: COLORS.bg,
-                alignItems: "center",
-                justifyContent: "center",
+                width: 248,
+                [derecha ? "right" : "left"]: 4,
+                [arriba ? "top" : "bottom"]: BLUE_SIZE + 4,
+                opacity: bocAnim,
+                transform: [{ scale: bocAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "900" }}>{badgeLabel}</Text>
-            </View>
+              <Pressable
+                onPress={alTocarBocadillo}
+                accessibilityRole="button"
+                style={{
+                  backgroundColor: COLORS.bg,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  paddingRight: 30,
+                  shadowColor: "#0B2138",
+                  shadowOpacity: 0.12,
+                  shadowRadius: 14,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 8,
+                }}
+              >
+                <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
+                <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19 }}>{bocadillo.texto}</Text>
+                {bocadillo.accion === "chat" ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={14} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>Escribir ahora</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+              <Pressable
+                onPress={() => setBocadillo(null)}
+                hitSlop={10}
+                accessibilityLabel="Cerrar mensaje de Blue"
+                style={{ position: "absolute", top: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={16} color={COLORS.muted} />
+              </Pressable>
+            </Animated.View>
+          ) : saludando ? (
+            // Mini saludo al aparecer (al tocarlo, abre el panel de Blue).
+            <Animated.View
+              style={{
+                position: "absolute",
+                width: 176,
+                alignItems: derecha ? "flex-end" : "flex-start",
+                [derecha ? "right" : "left"]: 4,
+                [arriba ? "top" : "bottom"]: BLUE_SIZE + 4,
+                opacity: chipAnim,
+                transform: [{ scale: chipAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
+                pointerEvents: "box-none",
+              }}
+            >
+              <Pressable
+                onPress={() => openPanel()}
+                accessibilityRole="button"
+                accessibilityLabel="Hola, soy Blue. Abrir el asistente"
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: COLORS.bg,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  shadowColor: "#0B2138",
+                  shadowOpacity: 0.12,
+                  shadowRadius: 12,
+                  shadowOffset: { width: 0, height: 5 },
+                  elevation: 8,
+                }}
+              >
+                <Ionicons name="hand-left-outline" size={15} color={COLORS.accent} />
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
+                  ¡Hola! Soy <Text style={{ color: COLORS.accentDark }}>Blue</Text>
+                </Text>
+              </Pressable>
+            </Animated.View>
           ) : null}
-        </View>
+
+          {/* Cuerpo de Blue: se arrastra y se toca como siempre. */}
+          <Animated.View style={{ width: BLUE_SIZE, height: BLUE_SIZE, transform: [{ scale: escalaCuerpo }, { rotate: giroSaludo }] }}>
+            <View {...panResponder.panHandlers} style={{ width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" }}>
+              <MarcaAnimada cual="carga" ancho={BLUE_SIZE} tocable={false} />
+              {totalCount > 0 ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 4,
+                    minWidth: 20,
+                    height: 20,
+                    borderRadius: 10,
+                    paddingHorizontal: 4,
+                    backgroundColor: COLORS.danger,
+                    borderWidth: 2,
+                    borderColor: COLORS.bg,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "900" }}>{badgeLabel}</Text>
+                </View>
+              ) : null}
+            </View>
+          </Animated.View>
+        </Animated.View>
       </Animated.View>
 
       <Modal visible={panelOpen} transparent animationType="fade" onRequestClose={() => setPanelOpen(false)}>

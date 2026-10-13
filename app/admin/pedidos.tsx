@@ -65,9 +65,12 @@ const COLORS = {
   gold: "#B8860B",
 };
 
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
-  const v = Math.round((Number(n) || 0) * 100) / 100;
-  return Number.isInteger(v) ? `${v}€` : `${v.toFixed(2).replace(".", ",")}€`;
+  const v = Number(n);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function fmtFecha(iso: string) {

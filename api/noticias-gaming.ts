@@ -9,14 +9,26 @@
  * concretos, por qué importa y a quién afecta. Solo se guardan las
  * relevantes para el mundo de la electrónica gaming.
  *
- * Imágenes (carrusel de la pestaña): hasta 6 por noticia. Salen del RSS
- * (media:content, media:thumbnail, enclosure, <img> de la descripción) y del
- * HTML del artículo (og:image, twitter:image e <img> grandes de <article> o
- * del cuerpo), sin logos, iconos, avatares, píxeles, svg, data: ni anuncios.
- * Se guardan en imagen_url (la principal) e imagenes (todas). Los enlaces de
- * Google Noticias se traducen a la URL real del medio (id en base64 o, en el
- * formato nuevo, la petición batchexecute de Google) y esa URL también se usa
- * para leer el texto del artículo. Si todo falla, la noticia sigue sin fotos.
+ * Imágenes (carrusel de la pestaña): hasta 6 por noticia, y SOLO si son de la
+ * noticia (más vale sin foto que con una equivocada):
+ * 1) Candidatas (máx. 6): og:image / twitter:image del artículo (la portada que
+ *    elige el medio), las del propio RSS (media:content, enclosure, <img> de la
+ *    descripción) y las <img> que están DENTRO del cuerpo del artículo (el
+ *    <article> con más texto o, si no hay, el bloque con más párrafos). Se
+ *    descartan las de <aside>, <nav>, <footer>, <header>, bloques de
+ *    «relacionadas», «te puede interesar», «más noticias», «lo más leído»,
+ *    carruseles, redes sociales, publicidad y las que van dentro de un enlace
+ *    a otra página (otra noticia). Sin logos, iconos, avatares, píxeles ni svg.
+ * 2) Se descargan (las que no cargan, son diminutas o no son jpg/png/webp se
+ *    descartan) y se hace UNA llamada a gpt-4o-mini con visión (detail «low»)
+ *    con el título, el resumen y las candidatas: solo se guardan las que
+ *    muestran claramente el tema de la noticia. Si la llamada falla o la
+ *    respuesta no es válida, no se guarda ninguna foto.
+ * 3) Se guarda imagenes (las buenas), imagen_url (la primera o null) e
+ *    imagenes_verificadas = true. La app solo enseña fotos verificadas.
+ * Los enlaces de Google Noticias se traducen a la URL real del medio (id en
+ * base64 o, en el formato nuevo, la petición batchexecute de Google) y esa URL
+ * también se usa para leer el texto del artículo.
  *
  * Cuándo actualiza:
  * - Cron diario de Vercel (vercel.json → "crons"), con la cabecera
@@ -25,10 +37,13 @@
  *   (noticias_gaming_control, clave 'ultima') tiene más de 3 horas. Si no,
  *   no recoge noticias nuevas. La marca 'ultima' se reserva ANTES de procesar
  *   para que dos visitas a la vez no dupliquen el trabajo (ni el gasto de IA).
- * - Relleno de imágenes: en cada ejecución, como mucho cada 10 minutos
- *   (clave 'relleno'), busca fotos para hasta 6 noticias guardadas que no
- *   tienen, SIN llamar a OpenAI. La clave 'relleno_cursor' recuerda por qué
- *   fecha va, para recorrerlas todas poco a poco.
+ * - Revisión de fotos: en cada ejecución, como mucho cada 10 minutos (clave
+ *   'relleno'), revisa hasta 6 noticias guardadas con imagenes_verificadas =
+ *   false: vuelve a buscar candidatas con las reglas de arriba y las pasa por
+ *   la comprobación con IA. La clave 'revision_cursor' recuerda por qué fecha
+ *   va, para recorrerlas todas poco a poco.
+ * - Límites por ejecución: 8 resúmenes + 6 comprobaciones de fotos (14
+ *   llamadas a OpenAI como mucho) y menos de 55 s en total.
  *
  * Variables de entorno (Vercel → Settings → Environment Variables):
  * - OPENAI_API_KEY: clave de OpenAI (ya la usa api/blue-ia.ts).
@@ -41,6 +56,9 @@
  * - supabase/migrations/20261013171000_noticias_gaming.sql → tablas.
  * - supabase/migrations/20261013190000_noticias_imagenes.sql → columna
  *   imagenes (si todavía no existe, se guarda solo imagen_url).
+ * - supabase/migrations/20261013210000_noticias_imagenes_verificadas.sql →
+ *   columna imagenes_verificadas (si todavía no existe, se guarda sin ella, no
+ *   hay revisión y la app no enseña fotos).
  * - app/(tabs)/chat-global.tsx → pestaña "Noticias Gaming" (lee la tabla y
  *   llama aquí en segundo plano al abrirse).
  */
@@ -50,20 +68,32 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 60 };
 
 const HORAS_ENTRE_ACTUALIZACIONES = 3;
-const MINUTOS_ENTRE_RELLENOS = 10;
-const MAX_NOTICIAS_POR_EJECUCION = 8;
-const MAX_RELLENO_POR_EJECUCION = 6;
+const MINUTOS_ENTRE_REVISIONES = 10;
+// Llamadas a OpenAI por ejecución: 8 resúmenes + 6 comprobaciones de fotos = 14 como mucho.
+const MAX_RESUMENES_IA = 8;
+const MAX_COMPROBACIONES_IA = 6;
+const MAX_REVISION_POR_EJECUCION = 6;
 const MAX_IMAGENES = 6;
-const CONCURRENCIA = 3;
+const CONCURRENCIA = 4;
+const CONCURRENCIA_REVISION = 3;
+// Tiempo de trabajo (Vercel corta a los 60 s): todo termina antes de 55 s.
 const PRESUPUESTO_TOTAL_MS = 50_000;
-const PRESUPUESTO_RELLENO_MS = 30_000;
+const PRESUPUESTO_REVISION_MS = 30_000;
 const TIMEOUT_FEED_MS = 6_000;
 const TIMEOUT_ARTICULO_MS = 6_000;
 const TIMEOUT_GOOGLE_MS = 5_000;
 const TIMEOUT_OPENAI_MS = 22_000;
+const TIMEOUT_VISION_MS = 15_000;
+const TIMEOUT_IMAGEN_MS = 5_000;
 const MAX_TEXTO_ARTICULO = 6_000;
 const MAX_HTML = 1_500_000;
 const MAX_ANTIGUEDAD_MS = 4 * 24 * 3600 * 1000;
+// Fotos para la IA: las de más de 1,5 MB se le pasan por URL en vez de descargadas.
+const MAX_BYTES_IMAGEN = 1_500_000;
+const MIN_BYTES_IMAGEN = 3_000;
+const MIN_ANCHO_IMAGEN = 300;
+const MIN_ALTO_IMAGEN = 150;
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 const CATEGORIAS = [
   "Consolas",
@@ -403,48 +433,371 @@ function imagenesDeMedios(item: string, base: string): string[] {
   return salida;
 }
 
-// <img> y <source> (también las de carga diferida: data-src, data-srcset…).
+// URL de una etiqueta <img>/<source> ya leída (también las de carga diferida:
+// data-src, data-srcset…), o null si es pequeña, un logo, un avatar…
+function urlDeEtiquetaImagen(a: Record<string, string>, base: string): string | null {
+  if (a.type && !/^image\//i.test(a.type)) return null;
+  if (esPequena(a.width, a.height)) return null;
+  if (CLASE_DESCARTADA.test(`${a.class ?? ""} ${a.id ?? ""}`)) return null;
+  const opciones = [
+    mejorDeSrcset(a["data-srcset"] || a["data-lazy-srcset"] || a.srcset || ""),
+    a["data-src"],
+    a["data-lazy-src"],
+    a["data-original"],
+    a["data-full-url"],
+    a.src,
+  ];
+  for (const opcion of opciones) {
+    const url = opcion ? urlImagenLimpia(opcion, base) : null;
+    if (url) return url;
+  }
+  return null;
+}
+
+// <img> y <source> de un trozo de HTML (la descripción del RSS).
 function imagenesDeEtiquetas(html: string, base: string, max: number): string[] {
   const salida: string[] = [];
   for (const tag of html.match(/<(?:img|source)\b[^>]*>/gi) ?? []) {
     if (salida.length >= max) break;
-    const a = atributosDe(tag);
-    if (a.type && !/^image\//i.test(a.type)) continue;
-    if (esPequena(a.width, a.height)) continue;
-    if (CLASE_DESCARTADA.test(`${a.class ?? ""} ${a.id ?? ""}`)) continue;
-    const opciones = [
-      mejorDeSrcset(a["data-srcset"] || a["data-lazy-srcset"] || a.srcset || ""),
-      a["data-src"],
-      a["data-lazy-src"],
-      a["data-original"],
-      a["data-full-url"],
-      a.src,
-    ];
-    for (const opcion of opciones) {
-      const url = opcion ? urlImagenLimpia(opcion, base) : null;
-      if (url) {
-        salida.push(url);
-        break;
-      }
-    }
+    const url = urlDeEtiquetaImagen(atributosDe(tag), base);
+    if (url) salida.push(url);
   }
   return salida;
 }
 
-// og:image, twitter:image y similares: la foto de portada del artículo.
+// og:image y twitter:image de la cabecera: la portada que elige el propio medio.
 function imagenesDePortada(html: string, base: string): string[] {
+  const cabecera = html.match(/<head\b[\s\S]*?<\/head>/i)?.[0] ?? html.slice(0, 200_000);
   const salida: string[] = [];
-  for (const tag of html.slice(0, 400_000).match(/<(?:meta|link)\b[^>]*>/gi) ?? []) {
+  for (const tag of cabecera.match(/<meta\b[^>]*>/gi) ?? []) {
     const a = atributosDe(tag);
-    const clave = (a.property || a.name || a.itemprop || a.rel || "").toLowerCase();
-    if (!/^(?:og:image(?::url|:secure_url)?|twitter:image(?::src)?|image|image_src|thumbnailurl)$/.test(clave)) {
-      continue;
-    }
-    const valor = /^<link/i.test(tag) ? a.href : a.content;
-    const url = valor ? urlImagenLimpia(valor, base) : null;
+    const clave = (a.property || a.name || "").toLowerCase();
+    if (!/^(?:og:image(?::url|:secure_url)?|twitter:image(?::src)?)$/.test(clave)) continue;
+    const url = a.content ? urlImagenLimpia(a.content, base) : null;
     if (url) salida.push(url);
   }
   return salida;
+}
+
+// --- Cuerpo del artículo: árbol mínimo de etiquetas ---------------------------
+
+type Nodo = {
+  tag: string;
+  crudo: string; // atributos sin leer (se leen solo si hacen falta)
+  inicio: number; // posición de «<» de la etiqueta de apertura
+  finApertura: number; // justo después de su «>»
+  fin: number; // justo después de su cierre (o donde se cierra su padre)
+  padre: number; // índice del padre en la lista, -1 si no tiene
+};
+
+const ETIQUETAS_VACIAS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+// Lista de elementos en orden de aparición (los padres siempre antes que sus hijos).
+// Tolera HTML mal cerrado: un cierre sin apertura se ignora; uno que salta
+// elementos abiertos los cierra también.
+function analizarHtml(html: string): Nodo[] {
+  const nodos: Nodo[] = [];
+  const abiertos: number[] = [];
+  const re = /<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)([^>]*)>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const tag = m[2].toLowerCase();
+    if (m[1]) {
+      for (let k = abiertos.length - 1; k >= 0; k--) {
+        if (nodos[abiertos[k]].tag !== tag) continue;
+        for (let j = abiertos.length - 1; j > k; j--) nodos[abiertos[j]].fin = m.index;
+        nodos[abiertos[k]].fin = re.lastIndex;
+        abiertos.length = k;
+        break;
+      }
+      continue;
+    }
+    nodos.push({
+      tag,
+      crudo: m[3],
+      inicio: m.index,
+      finApertura: re.lastIndex,
+      fin: html.length,
+      padre: abiertos.length ? abiertos[abiertos.length - 1] : -1,
+    });
+    if (!ETIQUETAS_VACIAS.has(tag) && !m[3].trim().endsWith("/")) abiertos.push(nodos.length - 1);
+  }
+  return nodos;
+}
+
+function textoDeNodo(html: string, n: Nodo, max: number): string {
+  return textoPlano(html.slice(n.finApertura, Math.min(n.fin, n.finApertura + max)));
+}
+
+function sinTildes(texto: string): string {
+  return texto.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// Elementos que nunca son el cuerpo de la noticia.
+const ETIQUETAS_AJENAS = new Set([
+  "aside",
+  "nav",
+  "footer",
+  "header",
+  "form",
+  "button",
+  "dialog",
+  "menu",
+  "select",
+  "iframe",
+  "object",
+  "video",
+  "audio",
+  "canvas",
+  "map",
+  "source",
+]);
+// Clases, ids, roles… de bloques que no son la noticia: relacionadas, lo más
+// leído, carruseles, barras laterales, redes sociales, publicidad, autor…
+const BLOQUE_AJENO = new RegExp(
+  [
+    "related",
+    "relacionad",
+    "recomend",
+    "recommend",
+    "interesa",
+    "leid[oa]s?",
+    "most-?read",
+    "most-?viewed",
+    "mas-?vist",
+    "popular",
+    "trending",
+    "tendencia",
+    "sidebar",
+    "lateral",
+    "widget",
+    "newsletter",
+    "suscri",
+    "subscri",
+    "outbrain",
+    "taboola",
+    "carousel",
+    "carrusel",
+    "slider",
+    "swiper",
+    "slick",
+    "splide",
+    "breadcrumb",
+    "comment",
+    "comentario",
+    "yarpp",
+    "tambien",
+    "also-?read",
+    "read-?more",
+    "leer-?mas",
+    "ver-?mas",
+    "more-?(?:news|stories|articles|posts)",
+    "mas-?noticias",
+    "otras-?noticias",
+    "ultimas",
+    "ultima-?hora",
+    "next-?(?:post|article)",
+    "prev(?:ious)?-?(?:post|article)",
+    "post-?nav",
+    "pagination",
+    "paginacion",
+    "social",
+    "share",
+    "compartir",
+    "tweet",
+    "twitter",
+    "instagram",
+    "tiktok",
+    "facebook",
+    "author",
+    "autor",
+    "byline",
+    "advert",
+    "publicidad",
+    "anuncio",
+    "sponsor",
+    "patrocin",
+    "promo",
+    "teaser",
+    "banner",
+    "footer",
+    "header",
+    "masthead",
+    "cookie",
+    "modal",
+    "popup",
+    "menu",
+    "navigation",
+    "navegacion",
+    "complementary",
+    "contentinfo",
+    "playlist",
+    "listado",
+    "listing",
+    "feed",
+  ].join("|") + "|(?:^|[\\s_-])(?:ad|ads|nav|tags?|etiquetas|cards?|aside|list|more)(?=$|[\\s_-])"
+);
+// Títulos de secciones que no son la noticia («Te puede interesar», «Lo más leído»…).
+const TITULO_AJENO =
+  /^[^a-z0-9]*(?:tambien )?(?:te puede interesar|puede interesarte|te interesa|quiza te interese|te recomendamos|recomendad[oa]s|noticias relacionadas|articulos relacionados|contenido relacionado|relacionad[oa]s|mas noticias|otras noticias|ultimas noticias|lo mas leido|mas leid[oa]s|lo mas visto|mas vist[oa]s|tendencias|lo ultimo|sigue leyendo|lee tambien|leer tambien|ver tambien|no te pierdas|mas sobre|related|more news|read more|you may also like|most read|trending)\b/;
+const TITULOS_POSIBLES = new Set(["h2", "h3", "h4", "h5", "h6", "p", "div", "span", "strong", "b", "section"]);
+
+// Señas de un elemento (clase, id, rol…) sin tildes y en minúsculas.
+function senasDe(a: Record<string, string>): string {
+  return sinTildes(
+    [
+      a.class,
+      a.id,
+      a.role,
+      a["aria-label"],
+      a.itemtype,
+      a["data-component"],
+      a["data-module"],
+      a["data-section"],
+      a["data-type"],
+      a["data-testid"],
+      a["data-block"],
+      a["data-name"],
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
+function rutaDe(url: URL): string {
+  return `${url.hostname.replace(/^www\./, "")}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+// Enlace que lleva a otra página (otra noticia, otra sección, otra web):
+// lo que va dentro no es de esta noticia. Sí valen anclas, la misma página o
+// el enlace a la propia foto en grande.
+function llevaAOtraPagina(href: string | undefined, base: string): boolean {
+  const destino = (href ?? "").trim();
+  if (!destino || destino.startsWith("#") || /^(?:javascript|mailto|tel):/i.test(destino)) return false;
+  try {
+    const u = new URL(destino, base);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    if (/\.(?:jpe?g|png|webp|avif|gif)$/i.test(u.pathname)) return false;
+    return rutaDe(u) !== rutaDe(new URL(base));
+  } catch {
+    return false;
+  }
+}
+
+type CuerpoArticulo = { texto: string; imagenes: string[] };
+
+// Cuerpo de la noticia: el <article> con más texto en párrafos o, si no hay,
+// el bloque con más párrafos. De él salen el texto (para la IA) y las fotos
+// que están DENTRO, sin las de bloques ajenos ni las enlazadas a otra página.
+function cuerpoDelArticulo(htmlOriginal: string, base: string): CuerpoArticulo | null {
+  const html = htmlOriginal
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|template|svg)\b[\s\S]*?<\/\1>/gi, " ");
+  const nodos = analizarHtml(html);
+
+  // Texto en párrafos: total dentro de cada <article> y puntos por bloque
+  // (el padre de cada párrafo suma su largo y el abuelo, la mitad).
+  const enArticulo = new Map<number, number>();
+  const puntos = new Map<number, number>();
+  for (const n of nodos) {
+    if (n.tag !== "p") continue;
+    const largo = textoDeNodo(html, n, 20_000).length;
+    if (largo <= 40 || n.padre < 0) continue;
+    puntos.set(n.padre, (puntos.get(n.padre) ?? 0) + largo);
+    const abuelo = nodos[n.padre].padre;
+    if (abuelo >= 0) puntos.set(abuelo, (puntos.get(abuelo) ?? 0) + largo / 2);
+    for (let a = n.padre; a >= 0; a = nodos[a].padre) {
+      if (nodos[a].tag === "article") enArticulo.set(a, (enArticulo.get(a) ?? 0) + largo);
+    }
+  }
+
+  const tamano = (i: number) => nodos[i].fin - nodos[i].inicio;
+  let zona = -1;
+  let mejor = 0;
+  for (const [i, t] of enArticulo) {
+    if (t > mejor || (t === mejor && zona >= 0 && tamano(i) < tamano(zona))) {
+      zona = i;
+      mejor = t;
+    }
+  }
+  if (mejor < 300) {
+    zona = -1;
+    mejor = 0;
+    for (const [i, p] of puntos) {
+      if (p > mejor && !["body", "html"].includes(nodos[i].tag)) {
+        zona = i;
+        mejor = p;
+      }
+    }
+    if (mejor < 200) return null;
+  }
+
+  const z = nodos[zona];
+  const textoZona = enArticulo.get(zona) ?? 0;
+  const fuera = new Uint8Array(nodos.length);
+  const cortes: [number, number][] = [];
+  const imagenes: string[] = [];
+
+  for (let i = zona + 1; i < nodos.length; i++) {
+    const n = nodos[i];
+    if (n.inicio >= z.fin) break;
+    if (fuera[n.padre] || cortes.some(([desde, hasta]) => n.inicio >= desde && n.inicio < hasta)) {
+      fuera[i] = 1;
+      continue;
+    }
+    const a = atributosDe(n.crudo);
+    if (
+      ETIQUETAS_AJENAS.has(n.tag) ||
+      BLOQUE_AJENO.test(senasDe(a)) ||
+      (n.tag === "a" && llevaAOtraPagina(a.href, base)) ||
+      // Otro <article> dentro: tarjeta de otra noticia.
+      (n.tag === "article" && (enArticulo.get(i) ?? 0) < textoZona / 2)
+    ) {
+      fuera[i] = 1;
+      continue;
+    }
+    if (n.tag === "img") {
+      const url = urlDeEtiquetaImagen(a, base);
+      if (url && imagenes.length < MAX_IMAGENES * 2) imagenes.push(url);
+      continue;
+    }
+    // Título de una sección ajena: fuera desde él hasta el final de su sección
+    // (subiendo por los envoltorios que solo contienen ese título).
+    if (TITULOS_POSIBLES.has(n.tag) && n.fin - n.finApertura < 2_000) {
+      const titulo = sinTildes(textoDeNodo(html, n, 2_000));
+      if (titulo.length >= 4 && titulo.length <= 80 && TITULO_AJENO.test(titulo)) {
+        let envoltorio = i;
+        while (nodos[envoltorio].padre > zona) {
+          const padre = nodos[nodos[envoltorio].padre];
+          if (padre.fin - padre.finApertura > 3_000 || textoDeNodo(html, padre, 3_000).length > 120) break;
+          envoltorio = nodos[envoltorio].padre;
+        }
+        const seccion = nodos[envoltorio].padre;
+        cortes.push([n.inicio, seccion >= 0 ? nodos[seccion].fin : z.fin]);
+        fuera[i] = 1;
+      }
+    }
+  }
+
+  const zonaHtml = html
+    .slice(z.inicio, z.fin)
+    .replace(/<(aside|nav|footer|form|iframe)\b[\s\S]*?<\/\1>/gi, " ");
+  return { texto: parrafosDe(zonaHtml), imagenes };
 }
 
 // --- Lectura de RSS ---------------------------------------------------------
@@ -678,8 +1031,9 @@ async function urlRealDe(url: string, ms: number): Promise<string> {
 
 // --- Artículo original: texto e imágenes --------------------------------------
 
-type PaginaArticulo = { texto: string; portada: string[]; cuerpo: string[] };
-const PAGINA_VACIA: PaginaArticulo = { texto: "", portada: [], cuerpo: [] };
+// leida: se pudo descargar la página (si no, no se sabe qué fotos tiene).
+type PaginaArticulo = { leida: boolean; texto: string; portada: string[]; cuerpo: string[] };
+const PAGINA_VACIA: PaginaArticulo = { leida: false, texto: "", portada: [], cuerpo: [] };
 
 function parrafosDe(html: string): string {
   return (html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) ?? [])
@@ -698,26 +1052,21 @@ async function leerPaginaArticulo(url: string, ms: number): Promise<PaginaArticu
   const html = r.texto;
   const base = r.url || url;
 
-  // Zona principal: el <article> más largo; si no hay, <main> o el cuerpo entero.
-  const articulos = html.match(/<article\b[\s\S]*?<\/article>/gi) ?? [];
-  let zona = articulos.reduce((a, b) => (b.length > a.length ? b : a), "");
-  let esCuerpo = false;
-  if (zona.length < 800) zona = html.match(/<main\b[\s\S]*?<\/main>/i)?.[0] ?? "";
-  if (zona.length < 800) {
-    zona = html.match(/<body\b[\s\S]*<\/body>/i)?.[0] ?? html;
-    esCuerpo = true;
+  let cuerpo: CuerpoArticulo | null = null;
+  try {
+    cuerpo = cuerpoDelArticulo(html, base);
+  } catch (e) {
+    console.warn("Noticias: no se pudo analizar el artículo:", e instanceof Error ? e.message : e);
   }
-  zona = zona.replace(/<(script|style|aside|nav|footer|form|svg|iframe)\b[\s\S]*?<\/\1>/gi, " ");
-  if (esCuerpo) zona = zona.replace(/<header\b[\s\S]*?<\/header>/gi, " ");
-
-  let texto = parrafosDe(zona);
-  if (texto.length < 400) texto = parrafosDe(html);
+  let texto = cuerpo?.texto ?? "";
+  if (texto.length < 400) texto = parrafosDe(html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " "));
 
   return {
+    leida: true,
     texto: texto.slice(0, MAX_TEXTO_ARTICULO),
     portada: imagenesDePortada(html, base),
-    // Sin <article> ni <main>, del cuerpo solo se cogen las primeras.
-    cuerpo: imagenesDeEtiquetas(zona, base, esCuerpo ? 3 : MAX_IMAGENES * 2),
+    // Sin cuerpo claro de la noticia, solo vale la portada (og:image).
+    cuerpo: cuerpo?.imagenes ?? [],
   };
 }
 
@@ -766,7 +1115,7 @@ async function desglosarConIA(
   ].join("\n");
 
   try {
-    const r = await fetchConTimeout("https://api.openai.com/v1/chat/completions", ms, {
+    const r = await fetchConTimeout(OPENAI_URL, ms, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
       body: JSON.stringify({
@@ -807,6 +1156,261 @@ async function desglosarConIA(
     console.error("Noticias: fallo al desglosar con IA:", e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+// --- Comprobación de fotos con IA (visión) --------------------------------------
+
+// Cupo de llamadas a OpenAI de esta ejecución (compartido por todo el proceso).
+type CupoIA = { resumenes: number; comprobaciones: number };
+
+// url: la de la foto (la que se guarda); dato: lo que se manda a la IA
+// (la foto descargada en base64 o, si pesa mucho, la propia URL).
+type ImagenParaIA = { url: string; dato: string };
+
+function textoAscii(b: Uint8Array, desde: number, hasta: number): string {
+  return String.fromCharCode(...b.subarray(desde, hasta));
+}
+
+// Tipo real por los primeros bytes (la IA acepta jpeg, png y webp; gif, avif o
+// svg se descartan).
+function tipoDeImagen(b: Uint8Array): "image/jpeg" | "image/png" | "image/webp" | null {
+  if (b.length > 12 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length > 24 && b[0] === 0x89 && textoAscii(b, 1, 4) === "PNG") return "image/png";
+  if (b.length > 30 && textoAscii(b, 0, 4) === "RIFF" && textoAscii(b, 8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+// Ancho y alto leídos de la cabecera del archivo (null si no se encuentran).
+function medidasDeImagen(b: Uint8Array, tipo: string): { ancho: number; alto: number } | null {
+  if (tipo === "image/png") {
+    return {
+      ancho: ((b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19]) >>> 0,
+      alto: ((b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23]) >>> 0,
+    };
+  }
+  if (tipo === "image/webp") {
+    const trozo = textoAscii(b, 12, 16);
+    if (trozo === "VP8X") {
+      return { ancho: 1 + (b[24] | (b[25] << 8) | (b[26] << 16)), alto: 1 + (b[27] | (b[28] << 8) | (b[29] << 16)) };
+    }
+    if (trozo === "VP8L") {
+      return {
+        ancho: 1 + (((b[22] & 0x3f) << 8) | b[21]),
+        alto: 1 + (((b[24] & 0x0f) << 10) | (b[23] << 2) | ((b[22] & 0xc0) >> 6)),
+      };
+    }
+    if (trozo === "VP8 ") return { ancho: (b[26] | (b[27] << 8)) & 0x3fff, alto: (b[28] | (b[29] << 8)) & 0x3fff };
+    return null;
+  }
+  // JPEG: se recorren los segmentos hasta el marcador SOF, que lleva las medidas.
+  let i = 2;
+  while (i + 9 < b.length) {
+    if (b[i] !== 0xff) return null;
+    const marca = b[i + 1];
+    if (marca === 0xff) {
+      i++;
+      continue;
+    }
+    if (marca === 0xd8 || marca === 0x01 || (marca >= 0xd0 && marca <= 0xd7)) {
+      i += 2;
+      continue;
+    }
+    if (marca >= 0xc0 && marca <= 0xcf && marca !== 0xc4 && marca !== 0xc8 && marca !== 0xcc) {
+      return { alto: (b[i + 5] << 8) | b[i + 6], ancho: (b[i + 7] << 8) | b[i + 8] };
+    }
+    i += 2 + ((b[i + 2] << 8) | b[i + 3]);
+  }
+  return null;
+}
+
+function aBase64(b: Uint8Array): string {
+  let binario = "";
+  for (let i = 0; i < b.length; i += 0x8000) binario += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(binario);
+}
+
+// Descarga una foto candidata como la vería un visitante de la tienda. Devuelve
+// lo que se manda a la IA, o null si no carga, no es jpg/png/webp o es diminuta.
+async function imagenParaIA(url: string, ms: number): Promise<string | null> {
+  const control = new AbortController();
+  const t = setTimeout(() => control.abort(), ms);
+  try {
+    const r = await fetch(url, {
+      redirect: "follow",
+      signal: control.signal,
+      headers: {
+        "User-Agent": UA,
+        Accept: "image/webp,image/jpeg,image/png;q=0.9,*/*;q=0.5",
+        Referer: "https://videojuegoszaragoza.com/",
+      },
+    });
+    if (!r.ok || !r.body) return null;
+    const lector = r.body.getReader();
+    const trozos: Uint8Array[] = [];
+    let total = 0;
+    let completa = true;
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      trozos.push(value);
+      total += value.length;
+      if (total > MAX_BYTES_IMAGEN) {
+        completa = false;
+        lector.cancel().catch(() => {});
+        break;
+      }
+    }
+    const bytes = new Uint8Array(total);
+    let pos = 0;
+    for (const trozo of trozos) {
+      bytes.set(trozo, pos);
+      pos += trozo.length;
+    }
+    if (completa && bytes.length < MIN_BYTES_IMAGEN) return null;
+    const tipo = tipoDeImagen(bytes);
+    if (!tipo) return null;
+    const medidas = medidasDeImagen(bytes, tipo);
+    if (medidas && (medidas.ancho < MIN_ANCHO_IMAGEN || medidas.alto < MIN_ALTO_IMAGEN)) return null;
+    // Muy pesada: la IA la descarga ella misma (ya se ha visto que carga).
+    return completa ? `data:${tipo};base64,${aBase64(bytes)}` : url;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Prepara las candidatas en paralelo (en su orden). null si no hay tiempo.
+async function prepararImagenes(urls: string[], ms: number): Promise<ImagenParaIA[] | null> {
+  if (!urls.length) return [];
+  if (!(ms >= 2_500)) return null;
+  const datos = await Promise.all(urls.map((u) => imagenParaIA(u, ms)));
+  const salida: ImagenParaIA[] = [];
+  datos.forEach((dato, i) => {
+    if (dato) salida.push({ url: urls[i], dato });
+  });
+  return salida;
+}
+
+const PROMPT_IMAGENES = `Revisas las fotos de una noticia de VideojuegosZaragoza.com antes de publicarla.
+Recibes el título y el resumen de la noticia y varias imágenes numeradas (Imagen 1, Imagen 2…). Devuelve SOLO un objeto JSON con esta forma exacta:
+{"relevantes": number[]}
+con los números de las imágenes que muestran CLARAMENTE el tema de ESTA noticia: el juego, la consola, el producto, la persona o el evento de los que habla; carátulas, capturas o arte oficial del juego, y logotipos del juego o de la marca de la noticia.
+
+Descarta:
+- Fotos genéricas o de archivo sin relación clara con la noticia.
+- Imágenes que parecen de otra noticia (otro juego, otro producto, otro tema).
+- Personas o lugares que no aparecen en la noticia.
+- Anuncios, banners, logotipos o portadas del propio medio, iconos y gráficos sin relación.
+Si varias imágenes son la misma foto (aunque cambie el tamaño o el recorte), incluye solo la primera.
+Ante la duda, descártala. Si ninguna vale, devuelve {"relevantes": []}.`;
+
+// Una llamada a gpt-4o-mini con visión. Devuelve las URLs de las fotos que
+// muestran el tema de la noticia (puede ser []), o null si la llamada falla o
+// la respuesta no es válida (entonces no se guarda ninguna foto).
+async function comprobarImagenesConIA(
+  openaiKey: string,
+  titulo: string,
+  resumen: string,
+  imagenes: ImagenParaIA[],
+  ms: number
+): Promise<string[] | null> {
+  const contenido: unknown[] = [
+    { type: "text", text: `Título: ${titulo}\nResumen: ${resumen}\nNúmero de imágenes: ${imagenes.length}` },
+  ];
+  imagenes.forEach((img, i) => {
+    contenido.push({ type: "text", text: `Imagen ${i + 1}:` });
+    contenido.push({ type: "image_url", image_url: { url: img.dato, detail: "low" } });
+  });
+
+  try {
+    const r = await fetchConTimeout(OPENAI_URL, ms, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        max_tokens: 120,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: PROMPT_IMAGENES },
+          { role: "user", content: contenido },
+        ],
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.text().catch(() => "");
+      console.error("Noticias: error de OpenAI comprobando fotos:", r.status, err.slice(0, 300));
+      return null;
+    }
+    const data = (await r.json()) as any;
+    const json: unknown = JSON.parse(data?.choices?.[0]?.message?.content ?? "");
+    const lista = json && typeof json === "object" ? (json as { relevantes?: unknown }).relevantes : undefined;
+    if (!Array.isArray(lista)) return null;
+    const elegidas = new Set<number>();
+    for (const v of lista) {
+      const n = typeof v === "number" ? v : typeof v === "string" && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN;
+      if (!Number.isInteger(n) || n < 1 || n > imagenes.length) return null;
+      elegidas.add(n - 1);
+    }
+    return imagenes.filter((_, i) => elegidas.has(i)).map((img) => img.url);
+  } catch (e) {
+    console.error("Noticias: fallo al comprobar fotos con IA:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+// Fotos comprobadas de una noticia: [] si no hay ninguna que comprobar, las
+// buenas si la IA responde bien, o null si no se pudo comprobar (sin tiempo,
+// sin cupo de llamadas o fallo de la IA).
+async function fotosComprobadas(
+  openaiKey: string,
+  cupo: CupoIA,
+  titulo: string,
+  resumen: string,
+  listas: ImagenParaIA[] | null,
+  ms: number
+): Promise<string[] | null> {
+  if (!listas) return null;
+  if (!listas.length) return [];
+  if (ms < 4_000 || cupo.comprobaciones >= MAX_COMPROBACIONES_IA) return null;
+  cupo.comprobaciones++;
+  return comprobarImagenesConIA(openaiKey, titulo, resumen, listas, ms);
+}
+
+// --- Columnas que quizá aún no existen (migraciones pendientes) -----------------
+
+const COLUMNAS_OPCIONALES = ["imagenes_verificadas", "imagenes"] as const;
+// Se vacía al empezar cada ejecución (por si la migración se aplica entre medias).
+const columnasQueFaltan = new Set<string>();
+
+function sinColumnasQueFaltan(fila: Record<string, unknown>): Record<string, unknown> {
+  const copia = { ...fila };
+  for (const c of columnasQueFaltan) delete copia[c];
+  return copia;
+}
+
+// Si el error dice que falta una de esas columnas, la apunta y devuelve true.
+function apuntarColumnaQueFalta(error: { message?: string } | null): boolean {
+  const mensaje = error?.message ?? "";
+  for (const c of COLUMNAS_OPCIONALES) {
+    if (!columnasQueFaltan.has(c) && new RegExp(`\\b${c}\\b`).test(mensaje)) {
+      columnasQueFaltan.add(c);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Repite una escritura quitando las columnas que aún no existen.
+async function conColumnasOpcionales<R extends { error: { message: string } | null }>(
+  escribir: (limpiar: (fila: Record<string, unknown>) => Record<string, unknown>) => PromiseLike<R>
+): Promise<R> {
+  let r = await escribir(sinColumnasQueFaltan);
+  for (let i = 0; i < COLUMNAS_OPCIONALES.length && r.error && apuntarColumnaQueFalta(r.error); i++) {
+    r = await escribir(sinColumnasQueFaltan);
+  }
+  return r;
 }
 
 // --- Control de frecuencia ----------------------------------------------------
@@ -860,6 +1464,7 @@ type Resultado = { candidatas: number; analizadas: number; nuevas: number };
 async function recogerNuevas(
   supabase: SupabaseClient,
   openaiKey: string,
+  cupo: CupoIA,
   restante: () => number
 ): Promise<Resultado> {
   // 1) Recopilar de todas las fuentes en paralelo (las que fallen, se saltan)
@@ -882,7 +1487,7 @@ async function recogerNuevas(
   // 3) Quitar duplicados entre fuentes y quedarse con las más recientes
   const elegidas: Candidata[] = [];
   for (const n of todas) {
-    if (elegidas.length >= MAX_NOTICIAS_POR_EJECUCION) break;
+    if (elegidas.length >= MAX_RESUMENES_IA) break;
     if (urlsVistas.has(n.url)) continue;
     const palabras = palabrasTitulo(n.titulo);
     if (titulosVistos.some((t) => titulosParecidos(t, palabras))) continue;
@@ -891,31 +1496,48 @@ async function recogerNuevas(
     elegidas.push(n);
   }
 
-  // 4) Por cada una: URL real, artículo (texto + fotos) y desglose con IA,
-  //    de 3 en 3, sin pasarse del tiempo total
+  // 4) Por cada una: URL real, artículo (texto + fotos), desglose con IA y
+  //    comprobación de las fotos con IA, de 4 en 4, sin pasarse del tiempo total
   const filas: Record<string, unknown>[] = [];
-  let llamadasIA = 0;
+  const resumenesAntes = cupo.resumenes;
   let siguiente = 0;
 
   const trabajador = async () => {
     while (siguiente < elegidas.length) {
-      if (restante() < 15_000 || llamadasIA >= MAX_NOTICIAS_POR_EJECUCION) return;
+      if (restante() < 15_000 || cupo.resumenes >= MAX_RESUMENES_IA) return;
       const n = elegidas[siguiente++];
       const urlReal = await urlRealDe(n.url, Math.min(2 * TIMEOUT_GOOGLE_MS, restante() - 14_000));
       const pagina = await leerPaginaArticulo(urlReal, Math.min(TIMEOUT_ARTICULO_MS, restante() - 10_000));
-      const ms = Math.min(TIMEOUT_OPENAI_MS, restante() - 2_000);
+      const ms = Math.min(TIMEOUT_OPENAI_MS, restante() - 4_000);
       if (ms < 5_000) return;
-      llamadasIA++;
+      cupo.resumenes++;
+      // Candidatas: portada del artículo, las del RSS y las del cuerpo (máx. 6).
+      // Se descargan mientras la IA hace el resumen.
+      const candidatas = unirImagenes(pagina.portada, n.imagenes, pagina.cuerpo);
+      const descargas = prepararImagenes(candidatas, Math.min(TIMEOUT_IMAGEN_MS, restante() - 8_000));
       const d = await desglosarConIA(openaiKey, n, pagina.texto, ms);
+      const listas = await descargas;
       if (!d || !d.relevante) continue;
-      // Portada del artículo primero, luego las del RSS y las del cuerpo.
-      const imagenes = unirImagenes(pagina.portada, n.imagenes, pagina.cuerpo);
+      const fotos = await fotosComprobadas(
+        openaiKey,
+        cupo,
+        d.titulo,
+        d.resumen,
+        listas,
+        Math.min(TIMEOUT_VISION_MS, restante() - 1_500)
+      );
+      // Sin comprobar (fallo, sin cupo o sin tiempo) se guarda sin fotos y la
+      // revisión lo vuelve a intentar. Si no se pudo leer la página y el RSS no
+      // traía fotos, también queda pendiente.
+      const imagenes = fotos ?? [];
+      const verificadas = fotos !== null && (pagina.leida || candidatas.length > 0);
       filas.push({
         url: n.url,
         fuente: n.fuente.slice(0, 120),
         titulo: d.titulo,
         imagen_url: imagenes[0] ?? null,
         imagenes,
+        imagenes_verificadas: verificadas,
         categoria: d.categoria,
         resumen: d.resumen,
         puntos_clave: d.puntos_clave,
@@ -932,18 +1554,14 @@ async function recogerNuevas(
   // 5) Guardar (si otra ejecución ya guardó la misma url, se ignora)
   let nuevas = 0;
   if (filas.length) {
-    const guardar = (lista: Record<string, unknown>[]) =>
-      supabase.from("noticias_gaming").upsert(lista, { onConflict: "url", ignoreDuplicates: true }).select("id");
-    let { data, error } = await guardar(filas);
-    // Si la columna imagenes aún no existe (migración pendiente), se guarda sin ella.
-    if (error && /imagenes/i.test(error.message)) {
-      const sinColumna = filas.map((f) => {
-        const copia = { ...f };
-        delete copia.imagenes;
-        return copia;
-      });
-      ({ data, error } = await guardar(sinColumna));
-    }
+    // Si imagenes o imagenes_verificadas aún no existen (migración pendiente),
+    // se guarda sin ellas. Las fotos que se guardan ya están comprobadas.
+    const { data, error } = await conColumnasOpcionales((limpiar) =>
+      supabase
+        .from("noticias_gaming")
+        .upsert(filas.map(limpiar), { onConflict: "url", ignoreDuplicates: true })
+        .select("id")
+    );
     if (error) {
       console.error("Noticias: error guardando en Supabase:", error.message);
     } else {
@@ -951,78 +1569,123 @@ async function recogerNuevas(
     }
   }
 
-  return { candidatas: todas.length, analizadas: llamadasIA, nuevas };
+  return { candidatas: todas.length, analizadas: cupo.resumenes - resumenesAntes, nuevas };
 }
 
-// --- Relleno de imágenes de noticias ya guardadas (sin IA) ----------------------
+// --- Revisión de fotos de noticias ya guardadas (con IA) ------------------------
 
-type FilaRelleno = { id: string; url: string; imagen_url: string | null; publicada_en: string | null };
+type FilaRevision = {
+  id: string;
+  url: string;
+  titulo: string;
+  resumen: string;
+  imagen_url: string | null;
+  imagenes?: unknown;
+  publicada_en: string | null;
+};
 
-async function rellenarImagenes(supabase: SupabaseClient, fin: number): Promise<number> {
+// Revisa hasta 6 noticias con imagenes_verificadas = false: busca candidatas
+// con las reglas nuevas (si no se puede leer la página, usa las que ya tenía)
+// y las pasa por la comprobación con IA. Devuelve cuántas se han actualizado.
+async function revisarImagenes(
+  supabase: SupabaseClient,
+  openaiKey: string,
+  cupo: CupoIA,
+  fin: number
+): Promise<number> {
   const quedan = () => fin - Date.now();
+  const maxFilas = Math.min(MAX_REVISION_POR_EJECUCION, MAX_COMPROBACIONES_IA - cupo.comprobaciones);
+  if (maxFilas <= 0 || columnasQueFaltan.has("imagenes_verificadas")) return 0;
   try {
-    if (!(await reservarTurno(supabase, "relleno", MINUTOS_ENTRE_RELLENOS * 60_000, false))) return 0;
+    if (!(await reservarTurno(supabase, "relleno", MINUTOS_ENTRE_REVISIONES * 60_000, false))) return 0;
 
     // Por dónde va el recorrido (fecha de la última noticia revisada).
     const { data: control } = await supabase
       .from("noticias_gaming_control")
       .select("valor")
-      .eq("clave", "relleno_cursor")
+      .eq("clave", "revision_cursor")
       .maybeSingle();
     const cursor: string | null = typeof control?.valor === "string" ? control.valor : null;
 
-    // Con la columna imagenes: las que la tienen vacía. Si aún no existe: las que no tienen imagen_url.
-    let conColumna = true;
-    const buscar = async (antesDe: string | null): Promise<FilaRelleno[]> => {
-      for (let intento = 0; intento < 2; intento++) {
+    // null: falta la columna imagenes_verificadas (migración pendiente) → no hay revisión.
+    const buscar = async (antesDe: string | null): Promise<FilaRevision[] | null> => {
+      for (let intento = 0; intento <= COLUMNAS_OPCIONALES.length; intento++) {
+        const columnas = `id,url,titulo,resumen,imagen_url,publicada_en${columnasQueFaltan.has("imagenes") ? "" : ",imagenes"}`;
         let q = supabase
           .from("noticias_gaming")
-          .select("id,url,imagen_url,publicada_en")
+          .select(columnas)
+          .eq("imagenes_verificadas", false)
+          .eq("publicada", true)
           .not("publicada_en", "is", null)
           .order("publicada_en", { ascending: false })
-          .limit(MAX_RELLENO_POR_EJECUCION);
-        q = conColumna ? q.eq("imagenes", "[]") : q.is("imagen_url", null);
+          .limit(maxFilas);
         if (antesDe) q = q.lt("publicada_en", antesDe);
         const { data, error } = await q;
-        if (!error) return (data ?? []) as FilaRelleno[];
-        if (!conColumna) throw error;
-        conColumna = false;
+        if (!error) return (data ?? []) as unknown as FilaRevision[];
+        if (!apuntarColumnaQueFalta(error)) throw error;
+        if (columnasQueFaltan.has("imagenes_verificadas")) return null;
       }
-      return [];
+      return null;
     };
 
     let filas = await buscar(cursor);
     // Se llegó al final: vuelve a empezar por las más recientes.
-    if (!filas.length && cursor) filas = await buscar(null);
+    if (filas && !filas.length && cursor) filas = await buscar(null);
+    if (!filas) {
+      console.warn("Noticias: falta la columna imagenes_verificadas; revisión de fotos saltada.");
+      return 0;
+    }
     if (!filas.length) return 0;
+    const lista = filas;
 
-    let rellenadas = 0;
+    let revisadas = 0;
     let siguiente = 0;
     const trabajador = async () => {
-      while (siguiente < filas.length && quedan() > 4_000) {
-        const fila = filas[siguiente++];
-        const urlReal = await urlRealDe(fila.url, Math.min(2 * TIMEOUT_GOOGLE_MS, quedan() - 3_000));
-        const pagina = await leerPaginaArticulo(urlReal, Math.min(TIMEOUT_ARTICULO_MS, quedan() - 500));
-        const imagenes = unirImagenes([fila.imagen_url], pagina.portada, pagina.cuerpo);
-        if (!imagenes.length) continue;
-        const cambios = conColumna ? { imagen_url: imagenes[0], imagenes } : { imagen_url: imagenes[0] };
-        const { error } = await supabase.from("noticias_gaming").update(cambios).eq("id", fila.id);
-        if (error) console.warn("Noticias: no se pudo guardar el relleno:", error.message);
-        else rellenadas++;
+      while (siguiente < lista.length && quedan() > 15_000 && cupo.comprobaciones < MAX_COMPROBACIONES_IA) {
+        const fila = lista[siguiente++];
+        const urlReal = await urlRealDe(fila.url, Math.min(2 * TIMEOUT_GOOGLE_MS, quedan() - 11_000));
+        const pagina = await leerPaginaArticulo(urlReal, Math.min(TIMEOUT_ARTICULO_MS, quedan() - 9_000));
+        const guardadas = Array.isArray(fila.imagenes)
+          ? fila.imagenes.filter((u): u is string => typeof u === "string")
+          : [];
+        const candidatas = pagina.leida
+          ? unirImagenes(pagina.portada, pagina.cuerpo)
+          : unirImagenes([fila.imagen_url], guardadas);
+        // Sin página y sin fotos guardadas: nada que comprobar todavía (otra vuelta).
+        if (!pagina.leida && !candidatas.length) continue;
+        const listas = await prepararImagenes(candidatas, Math.min(TIMEOUT_IMAGEN_MS, quedan() - 6_000));
+        const fotos = await fotosComprobadas(
+          openaiKey,
+          cupo,
+          String(fila.titulo ?? ""),
+          String(fila.resumen ?? ""),
+          listas,
+          Math.min(TIMEOUT_VISION_MS, quedan() - 1_000)
+        );
+        // Sin comprobar: sigue sin enseñar fotos y se reintenta en otra vuelta.
+        if (fotos === null) continue;
+        const { error } = await conColumnasOpcionales((limpiar) =>
+          supabase
+            .from("noticias_gaming")
+            .update(limpiar({ imagen_url: fotos[0] ?? null, imagenes: fotos, imagenes_verificadas: true }))
+            .eq("id", fila.id)
+        );
+        if (error) console.warn("Noticias: no se pudo guardar la revisión de fotos:", error.message);
+        else revisadas++;
       }
     };
-    await Promise.all(Array.from({ length: CONCURRENCIA }, trabajador));
+    await Promise.all(Array.from({ length: CONCURRENCIA_REVISION }, trabajador));
 
     // La próxima vez sigue por debajo de la última revisada.
-    const ultima = siguiente > 0 ? filas[siguiente - 1]?.publicada_en : null;
+    const ultima = siguiente > 0 ? lista[siguiente - 1]?.publicada_en : null;
     if (ultima) {
       await supabase
         .from("noticias_gaming_control")
-        .upsert({ clave: "relleno_cursor", valor: ultima }, { onConflict: "clave" });
+        .upsert({ clave: "revision_cursor", valor: ultima }, { onConflict: "clave" });
     }
-    return rellenadas;
+    return revisadas;
   } catch (e: any) {
-    console.warn("Noticias: relleno de imágenes saltado:", e?.message ?? e);
+    console.warn("Noticias: revisión de fotos saltada:", e?.message ?? e);
     return 0;
   }
 }
@@ -1058,6 +1721,9 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  // Se vuelve a comprobar en cada ejecución qué columnas existen.
+  columnasQueFaltan.clear();
+
   try {
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -1076,13 +1742,16 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const resultado = toca ? await recogerNuevas(supabase, openaiKey, restante) : null;
+    // Cupo de llamadas a OpenAI de esta ejecución: 8 resúmenes + 6 comprobaciones.
+    const cupo: CupoIA = { resumenes: 0, comprobaciones: 0 };
+    const resultado = toca ? await recogerNuevas(supabase, openaiKey, cupo, restante) : null;
 
-    // 2) Relleno de imágenes de las ya guardadas (sin IA), si queda tiempo.
+    // 2) Revisión de fotos de las ya guardadas sin verificar, si queda tiempo y cupo.
+    //    («rellenadas»: noticias actualizadas; la app recarga si hay alguna.)
     let rellenadas = 0;
-    if (restante() > 12_000) {
-      const fin = Date.now() + Math.min(PRESUPUESTO_RELLENO_MS, restante() - 2_000);
-      rellenadas = await rellenarImagenes(supabase, fin);
+    if (restante() > 20_000 && cupo.comprobaciones < MAX_COMPROBACIONES_IA) {
+      const fin = Date.now() + Math.min(PRESUPUESTO_REVISION_MS, restante() - 2_000);
+      rellenadas = await revisarImagenes(supabase, openaiKey, cupo, fin);
     }
 
     res.status(200).json(
