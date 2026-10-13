@@ -584,13 +584,35 @@ export default function BlueIAScreen() {
           keyboardDismissMode="on-drag"
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingTop: 58,
+            paddingTop: 14,
             paddingBottom: showQuickSuggestions ? 230 : 160,
             alignItems: "center",
           }}
         >
           {/* Columna centrada: no se pega a la izquierda en pantallas anchas */}
           <View style={{ width: "100%", maxWidth: 860, gap: 10 }}>
+            {/*
+              Icono "ⓘ" arriba, centrado: abre el modal con qué es Blue IA. Va dentro de
+              la conversación (se desplaza con ella) para no tapar nunca los mensajes.
+            */}
+            <Pressable
+              onPress={() => setInfoModalOpen(true)}
+              accessibilityLabel="Qué es Blue IA"
+              style={({ pressed }) => ({
+                alignSelf: "center",
+                width: 26,
+                height: 26,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#FFFFFF",
+                borderWidth: 1,
+                borderColor: COLORS.accentBorder,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
+            </Pressable>
             {/* Contexto con el que se ha llegado (producto, pedido, reparación o tema). */}
             {contexto && (
               <Text
@@ -625,36 +647,6 @@ export default function BlueIAScreen() {
             )}
           </View>
         </ScrollView>
-
-        {/*
-          Icono "ⓘ" flotante arriba, centrado: abre el modal con qué es
-          Blue IA y para qué sirve — el mismo patrón que usa Chat Global en
-          vez de tener una tarjeta de bienvenida ocupando espacio siempre.
-        */}
-        <Pressable
-          onPress={() => setInfoModalOpen(true)}
-          style={({ pressed }) => ({
-            position: "absolute",
-            top: 14,
-            left: "50%",
-            marginLeft: -13,
-            width: 26,
-            height: 26,
-            borderRadius: 999,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: COLORS.accentBorder,
-            opacity: pressed ? 0.85 : 1,
-            shadowColor: COLORS.accent,
-            shadowOpacity: 0.08,
-            shadowRadius: 6,
-            shadowOffset: { width: 0, height: 2 },
-          })}
-        >
-          <Ionicons name="information-circle-outline" size={15} color={COLORS.accent} />
-        </Pressable>
 
         {/* "⬇️" para volver al último mensaje, igual que en Chat Global. */}
         {showScrollToBottom && (
