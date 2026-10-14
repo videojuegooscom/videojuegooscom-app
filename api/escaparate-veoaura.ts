@@ -10,7 +10,7 @@
  *      (sha256=64 hex); si faltan o no tienen formato → 401.
  *   3. |ahora − fecha| ≤ 300 s; si no → 401.
  *   4. HMAC-SHA256 de «fecha.nonce.cuerpo» con el secreto, comparado en tiempo constante → 401.
- *   5. Nonce no usado en los últimos 10 minutos (public.escaparate_usar_nonce) → 401.
+ *   5. Nonce no usado en los últimos 10 minutos (tabla public.escaparate_nonces) → 401.
  *   6. version = 1 y evento «publicar» o «vendido» → 400.
  *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// (texto guardado como texto
  *      plano: la app lo muestra con <Text>, nunca como HTML).
@@ -190,6 +190,21 @@ function validarProducto(p: any): Producto {
     precio: Math.round(precio * 100) / 100,
     fotos,
   };
+}
+
+async function usarNonce(supabase: SupabaseClient, nonce: string): Promise<boolean> {
+  const { error } = await supabase.from("escaparate_nonces").insert({ nonce });
+  if (!error) return true;
+  if (error.code !== "23505") throw new Rechazo(503, "no se pudo comprobar el nonce");
+  const haceDiez = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data, error: errRenovar } = await supabase
+    .from("escaparate_nonces")
+    .update({ usado_en: new Date().toISOString() })
+    .eq("nonce", nonce)
+    .lt("usado_en", haceDiez)
+    .select("nonce");
+  if (errRenovar) throw new Rechazo(503, "no se pudo comprobar el nonce");
+  return (data ?? []).length > 0;
 }
 
 // --- traducción a la tienda ----------------------------------------------------------
@@ -397,10 +412,9 @@ export default async function handler(req: any, res: any) {
       throw new Rechazo(401, "firma no válida");
     }
 
-    // 5. Nonce de un solo uso (10 minutos).
-    const { data: nonceLibre, error: errNonce } = await supabase.rpc("escaparate_usar_nonce", { p_nonce: nonce });
-    if (errNonce) throw new Rechazo(503, "no se pudo comprobar el nonce");
-    if (nonceLibre !== true) throw new Rechazo(401, "mensaje repetido");
+    // 5. Nonce de un solo uso (10 minutos): se intenta apuntar; si ya existía, solo vale
+    //    si se usó hace más de 10 minutos (y entonces se renueva).
+    if (!(await usarNonce(supabase, nonce))) throw new Rechazo(401, "mensaje repetido");
 
     // 6. Versión y evento.
     let mensaje: any;
