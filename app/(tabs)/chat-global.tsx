@@ -41,7 +41,8 @@
  *   para que busque y resuma noticias nuevas si toca. Cada tarjeta muestra un
  *   carrusel de imágenes sin recortes (CarruselNoticia, pasa solo cada 5 s),
  *   el resumen completo y los botones Ver más / Like / Comentarios /
- *   Compartir. Los comentarios viven en noticias_comentarios; "Compartir en
+ *   Compartir. Los «me gusta» van en noticias_likes (1 por noticia y cuenta;
+ *   el total, en noticias_gaming.me_gusta). Los comentarios viven en noticias_comentarios; "Compartir en
  *   el Foro" publica un mensaje con la marca [noticia:<id>], que el Foro pinta
  *   como mini tarjeta (TarjetaNoticiaForo). Es la pestaña por defecto.
  *   Fotos rápidas (FotoNoticia): las del bucket «noticias» se piden en web a
@@ -2731,7 +2732,6 @@ function PrivateChatsInbox({
 // existe o falla algo, se muestra el estado vacío, nunca un error.
 
 const NOTICIAS_POR_PAGINA = 20;
-const NOTICIAS_LIKES_KEY = "videojuegoszaragoza:noticias_gaming_likes";
 const NOTICIAS_API_URL =
   Platform.OS === "web" ? "/api/noticias-gaming" : "https://videojuegoszaragoza.com/api/noticias-gaming";
 const AZUL_NOTICIAS = "#1EA7E8";
@@ -2742,22 +2742,32 @@ const COLUMNAS_NOTICIA =
 let columnaImagenesDisponible = true;
 // Igual con «imagenes_meta» (sin ella, las fotos se miden con Image.getSize).
 let columnaMetaDisponible = true;
+// Igual con «me_gusta» (total de me gusta; sin ella el corazón no cuenta).
+let columnaMeGustaDisponible = true;
+// Tabla noticias_likes (migración 20261014110000); false si aún no existe.
+let tablaLikesDisponible = true;
 
 // Columnas de una noticia, con las opcionales que existan.
 function columnasNoticia(): string {
-  if (!columnaImagenesDisponible) return COLUMNAS_NOTICIA;
-  return `${COLUMNAS_NOTICIA},imagenes,imagenes_verificadas${columnaMetaDisponible ? ",imagenes_meta" : ""}`;
+  let columnas = COLUMNAS_NOTICIA;
+  if (columnaImagenesDisponible) {
+    columnas += `,imagenes,imagenes_verificadas${columnaMetaDisponible ? ",imagenes_meta" : ""}`;
+  }
+  if (columnaMeGustaDisponible) columnas += ",me_gusta";
+  return columnas;
 }
 
 // Lee con las columnas opcionales; si el error dice que falta alguna, la deja
-// de pedir y lo reintenta (primero imagenes_meta, luego imagenes).
+// de pedir y lo reintenta (me_gusta, imagenes_meta y luego imagenes).
 async function leerConColumnasOpcionales<R extends { error: { message?: string } | null }>(
   consulta: (columnas: string) => PromiseLike<R>
 ): Promise<R> {
   let r = await consulta(columnasNoticia());
-  for (let i = 0; i < 2 && r.error; i++) {
+  for (let i = 0; i < 3 && r.error; i++) {
     const mensaje = r.error.message ?? "";
-    if (columnaImagenesDisponible && columnaMetaDisponible && /imagenes_meta/i.test(mensaje)) {
+    if (columnaMeGustaDisponible && /me_gusta/i.test(mensaje)) {
+      columnaMeGustaDisponible = false;
+    } else if (columnaImagenesDisponible && columnaMetaDisponible && /imagenes_meta/i.test(mensaje)) {
       columnaMetaDisponible = false;
     } else if (columnaImagenesDisponible && /imagenes/i.test(mensaje)) {
       columnaImagenesDisponible = false;
@@ -2788,6 +2798,8 @@ type Noticia = {
   publicadaEn: string | null;
   // created_at real: sirve para «noticias vistas hasta».
   creadaEn: string | null;
+  // Total de me gusta (noticias_gaming.me_gusta); null = columna aún no disponible.
+  meGusta: number | null;
 };
 
 // Lo justo para la mini tarjeta de una noticia compartida en el Foro.
@@ -2835,6 +2847,7 @@ function filaANoticia(r: any): Noticia {
     afectaA: r.afecta_a ?? null,
     publicadaEn: r.publicada_en ?? r.created_at ?? null,
     creadaEn: r.created_at ?? null,
+    meGusta: Number.isFinite(Number(r.me_gusta)) && r.me_gusta != null ? Math.max(0, Number(r.me_gusta)) : null,
   };
 }
 
@@ -2966,7 +2979,16 @@ function NoticiasGamingPanel({
   const [cargandoMas, setCargandoMas] = useState(false);
   const [hayMas, setHayMas] = useState(false);
   const [abiertaId, setAbiertaId] = useState<string | null>(null);
-  const [likes, setLikes] = useState<Record<string, true>>({});
+  // Noticias con «me gusta» del usuario con sesión (de noticias_likes).
+  const [misLikes, setMisLikes] = useState<Record<string, true>>({});
+  const misLikesRef = useRef<Record<string, true>>({});
+  // Noticias cuyo «me gusta» se está guardando (evita el doble toque).
+  const guardandoLike = useRef<Set<string>>(new Set());
+  // Noticias ya consultadas para este usuario (no se repite la consulta).
+  const likesComprobados = useRef<{ usuario: string | null; ids: Set<string> }>({
+    usuario: null,
+    ids: new Set(),
+  });
   // Nº de comentarios por noticia; null = función oculta (tabla aún no creada).
   const [comentarios, setComentarios] = useState<Record<string, number> | null>(null);
   const [aCompartir, setACompartir] = useState<Noticia | null>(null);
@@ -3060,17 +3082,6 @@ function NoticiasGamingPanel({
         const nuevas = json?.actualizado ? Number(json?.nuevas) || 0 : 0;
         const rellenadas = Number(json?.rellenadas) || 0;
         if (montado.current && (nuevas > 0 || rellenadas > 0)) recargar();
-      })
-      .catch(() => {});
-
-    // Me gusta guardados solo en este dispositivo.
-    AsyncStorage.getItem(NOTICIAS_LIKES_KEY)
-      .then((raw) => {
-        const ids: unknown = raw ? JSON.parse(raw) : [];
-        if (!montado.current || !Array.isArray(ids)) return;
-        const mapa: Record<string, true> = {};
-        for (const id of ids) if (typeof id === "string") mapa[id] = true;
-        setLikes(mapa);
       })
       .catch(() => {});
 
@@ -3183,15 +3194,92 @@ function NoticiasGamingPanel({
     setAbiertaId((actual) => (actual === id ? null : id));
   }, []);
 
-  const alternarLike = useCallback((id: string) => {
-    setLikes((prev) => {
-      const nuevo = { ...prev };
-      if (nuevo[id]) delete nuevo[id];
-      else nuevo[id] = true;
-      AsyncStorage.setItem(NOTICIAS_LIKES_KEY, JSON.stringify(Object.keys(nuevo))).catch(() => {});
-      return nuevo;
-    });
+  // Cambia mis «me gusta» (ref al momento, estado para pintar).
+  const fijarMisLikes = useCallback((mapa: Record<string, true>) => {
+    misLikesRef.current = mapa;
+    setMisLikes(mapa);
   }, []);
+
+  // Marca/desmarca mi «me gusta» y mueve el contador «delta».
+  const aplicarLike = useCallback(
+    (id: string, conLike: boolean, delta: number) => {
+      const mapa = { ...misLikesRef.current };
+      if (conLike) mapa[id] = true;
+      else delete mapa[id];
+      fijarMisLikes(mapa);
+      if (!delta) return;
+      setNoticias((prev) =>
+        prev.map((n) =>
+          n.id === id && n.meGusta !== null ? { ...n, meGusta: Math.max(0, n.meGusta + delta) } : n
+        )
+      );
+    },
+    [fijarMisLikes]
+  );
+
+  // Con sesión: qué noticias cargadas tienen ya mi «me gusta».
+  useEffect(() => {
+    const comprobados = likesComprobados.current;
+    if (comprobados.usuario !== userId) {
+      likesComprobados.current = { usuario: userId, ids: new Set() };
+      guardandoLike.current.clear();
+      if (Object.keys(misLikesRef.current).length) fijarMisLikes({});
+    }
+    if (!userId || !tablaLikesDisponible) return;
+
+    const vistos = likesComprobados.current.ids;
+    const ids = noticias.map((n) => n.id).filter((id) => !vistos.has(id));
+    if (!ids.length) return;
+    ids.forEach((id) => vistos.add(id));
+
+    const usuario = userId;
+    supabase
+      .from("noticias_likes")
+      .select("noticia_id")
+      .eq("user_id", usuario)
+      .in("noticia_id", ids)
+      .then(({ data, error }) => {
+        if (!montado.current || likesComprobados.current.usuario !== usuario) return;
+        if (error) {
+          if (faltaTabla(error, "noticias_likes")) tablaLikesDisponible = false;
+          // Otro fallo: se reintentará en la próxima carga.
+          else ids.forEach((id) => vistos.delete(id));
+          return;
+        }
+        const filas = (data ?? []) as { noticia_id: string }[];
+        if (!filas.length) return;
+        const mapa = { ...misLikesRef.current };
+        for (const f of filas) mapa[f.noticia_id] = true;
+        fijarMisLikes(mapa);
+      });
+  }, [userId, noticias, fijarMisLikes]);
+
+  // Toque en el corazón (solo con sesión; sin ella la tarjeta muestra el aviso).
+  const alternarLike = useCallback(
+    async (id: string) => {
+      if (!userId || !tablaLikesDisponible || guardandoLike.current.has(id)) return;
+      guardandoLike.current.add(id);
+      const teniaLike = !!misLikesRef.current[id];
+      const usuario = userId;
+
+      // Optimista: se pinta ya y se revierte si falla.
+      aplicarLike(id, !teniaLike, teniaLike ? -1 : 1);
+      const { error } = teniaLike
+        ? await supabase.from("noticias_likes").delete().eq("noticia_id", id).eq("user_id", usuario)
+        : await supabase.from("noticias_likes").insert({ noticia_id: id });
+      guardandoLike.current.delete(id);
+      if (!montado.current || likesComprobados.current.usuario !== usuario || !error) return;
+
+      if (!teniaLike && error.code === "23505") {
+        // Ya tenía «me gusta» (p. ej. desde otro dispositivo): ya estaba contado.
+        aplicarLike(id, true, -1);
+        return;
+      }
+      if (faltaTabla(error, "noticias_likes")) tablaLikesDisponible = false;
+      aplicarLike(id, teniaLike, teniaLike ? 1 : -1);
+    },
+    [userId, aplicarLike]
+  );
 
   if (cargando) {
     return (
@@ -3227,7 +3315,7 @@ function NoticiasGamingPanel({
           noticia={n}
           prioritaria={prioritarias.has(n.id)}
           abierta={abiertaId === n.id}
-          meGusta={!!likes[n.id]}
+          meGusta={!!misLikes[n.id]}
           numComentarios={comentarios ? comentarios[n.id] ?? 0 : undefined}
           isLoggedIn={isLoggedIn}
           onAlternar={alternar}
@@ -3296,13 +3384,25 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
   onPosicion: (id: string, y: number) => void;
 }) {
   const [verComentarios, setVerComentarios] = useState(false);
-  const meta = [n.fuente, haceTiempo(n.publicadaEn)].filter(Boolean).join(" · ");
+  // Aviso «Inicia sesión para dar me gusta» (solo sin sesión).
+  const [avisoLike, setAvisoLike] = useState(false);
+  const meta =[n.fuente, haceTiempo(n.publicadaEn)].filter(Boolean).join(" · ");
   const origen = [n.fuente, fechaLarga(n.publicadaEn)].filter(Boolean).join(" · ");
   const hayComentarios = numComentarios !== undefined;
 
   const alternarComentarios = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setVerComentarios((v) => !v);
+  };
+
+  // Sin sesión no cuenta: se muestra (u oculta) el aviso para iniciar sesión.
+  const pulsarLike = () => {
+    if (!isLoggedIn) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setAvisoLike((v) => !v);
+      return;
+    }
+    onLike(n.id);
   };
 
   return (
@@ -3406,8 +3506,8 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
           iconoDetras
         />
         <BotonNoticia
-          onPress={() => onLike(n.id)}
-          etiqueta={meGusta ? "1" : "0"}
+          onPress={pulsarLike}
+          etiqueta={String(n.meGusta ?? 0)}
           icono={meGusta ? "heart" : "heart-outline"}
           colorIcono={meGusta ? "#E0245E" : undefined}
           accesible={meGusta ? "Quitar me gusta" : "Me gusta"}
@@ -3423,6 +3523,27 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
         ) : null}
         <BotonNoticia onPress={() => onCompartir(n)} icono="share-social-outline" accesible="Compartir" />
       </View>
+
+      {!isLoggedIn && avisoLike ? (
+        <View style={{ alignItems: "center", gap: 10, paddingVertical: 4 }}>
+          <Text style={{ color: COLORS.muted, textAlign: "center", fontSize: 14 }}>
+            Inicia sesión para dar me gusta
+          </Text>
+          <Pressable
+            onPress={() => router.push("/perfil?aviso=Inicia%20sesión%20para%20dar%20me%20gusta" as Href)}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.85 : 1,
+              borderRadius: 999,
+              paddingVertical: 10,
+              paddingHorizontal: 20,
+              backgroundColor: AZUL_NOTICIAS,
+            })}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {hayComentarios && verComentarios ? (
         <ComentariosNoticia noticiaId={n.id} isLoggedIn={isLoggedIn} onComentado={onComentado} />
