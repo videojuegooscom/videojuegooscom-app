@@ -623,10 +623,18 @@ export default function Campanita() {
   const openPanelRef = useRef(openPanel);
   openPanelRef.current = openPanel;
 
+  // El toque lo gestiona un Pressable (clic normal, fiable en Safari del iPhone). El
+  // arrastre solo se activa cuando el dedo ya se ha movido unos píxeles: antes el
+  // PanResponder se quedaba con todos los toques y en el móvil el navegador los
+  // cancelaba, así que tocar a Blue no hacía nada.
+  const empiezaArrastre = (_e: unknown, g: { dx: number; dy: number }) =>
+    Math.abs(g.dx) + Math.abs(g.dy) >= TAP_THRESHOLD;
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: empiezaArrastre,
+      onMoveShouldSetPanResponderCapture: empiezaArrastre,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         pan.setOffset(posRef.current);
         pan.setValue({ x: 0, y: 0 });
@@ -811,8 +819,23 @@ export default function Campanita() {
 
           {/* Cuerpo de Blue: se arrastra y se toca como siempre. */}
           <Animated.View style={{ width: BLUE_SIZE, height: BLUE_SIZE, transform: [{ scale: escalaCuerpo }, { rotate: giroSaludo }] }}>
-            <View {...panResponder.panHandlers} style={{ width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" }}>
-              <MarcaAnimada cual="carga" ancho={BLUE_SIZE} tocable={false} />
+            <View
+              {...panResponder.panHandlers}
+              style={[
+                { width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" },
+                // En web: que el navegador no se quede el gesto (desplazar la página) al arrastrar.
+                Platform.OS === "web" ? ({ touchAction: "none", cursor: "pointer" } as object) : null,
+              ]}
+            >
+              <Pressable
+                onPress={() => openPanelRef.current()}
+                accessibilityRole="button"
+                accessibilityLabel="Abrir Blue, el asistente de la tienda"
+                hitSlop={6}
+                style={{ width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" }}
+              >
+                <MarcaAnimada cual="carga" ancho={BLUE_SIZE} tocable={false} />
+              </Pressable>
               {totalCount > 0 ? (
                 <View
                   style={{
