@@ -95,14 +95,14 @@ import {
   MediaThumb,
   PrimaryButton,
   StatCard,
-} from "./products/products.components";
+} from "../../lib/admin/products.components";
 import {
   COLORS,
   MAX_FILE_SIZE_MB,
   MAX_IMAGES,
   MAX_VIDEO_SECONDS,
   MEDIA_BUCKET,
-} from "./products/products.constants";
+} from "../../lib/admin/products.constants";
 import type {
   CategoryRow,
   LocalPickedMedia,
@@ -112,7 +112,7 @@ import type {
   ProductStatus,
   StatusFilter,
   VisibilityFilter,
-} from "./products/products.types";
+} from "../../lib/admin/products.types";
 import {
   CIERRE_TECLADO,
   buildMediaPath,
@@ -124,7 +124,7 @@ import {
   pickMediaFilesWeb,
   statusVisual,
   toPriceSafe,
-} from "./products/products.utils";
+} from "../../lib/admin/products.utils";
 
 // Texto de partida del campo "Descripción" al crear un producto nuevo — la
 // mayoría de artículos llevan siempre este mismo bloque, así que en vez de

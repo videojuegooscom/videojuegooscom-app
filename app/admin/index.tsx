@@ -55,7 +55,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { AdminHeader, AdminIntro } from "./products/products.components";
+import { AdminHeader, AdminIntro } from "../../lib/admin/products.components";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 

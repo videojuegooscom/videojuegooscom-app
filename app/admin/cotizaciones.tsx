@@ -74,8 +74,8 @@ import {
   AdminNotice,
   EmptyState,
   StatCard,
-} from "./products/products.components";
-import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "./products/products.utils";
+} from "../../lib/admin/products.components";
+import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -432,6 +432,16 @@ export default function AdminCotizaciones() {
     setScreenErr(null);
 
     try {
+      // Antes de borrar la solicitud, se quitan sus fotos/vídeos del almacenamiento para
+      // que no queden archivos huérfanos (las filas de sell_request_media caen en cascada).
+      const rutas = (mediaByRequest[row.id] ?? [])
+        .map((m) => m.storage_path)
+        .filter((p): p is string => typeof p === "string" && p.length > 0);
+      if (rutas.length) {
+        const { error: errArchivos } = await supabase.storage.from("sell-request-media").remove(rutas);
+        if (errArchivos) console.error("No se pudieron borrar los adjuntos de la solicitud:", errArchivos);
+      }
+
       const { error } = await supabase.from("sell_requests").delete().eq("id", row.id);
       if (error) throw error;
       await load();

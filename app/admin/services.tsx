@@ -74,16 +74,16 @@ import {
   EmptyState,
   PrimaryButton,
   StatCard,
-} from "./products/products.components";
-import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "./products/products.constants";
-import type { LocalPickedMedia } from "./products/products.types";
+} from "../../lib/admin/products.components";
+import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/products.constants";
+import type { LocalPickedMedia } from "../../lib/admin/products.types";
 import {
   CIERRE_TECLADO,
   buildMediaPath,
   fmtEUR,
   pickMediaFilesWeb,
   toIntSafe,
-} from "./products/products.utils";
+} from "../../lib/admin/products.utils";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
