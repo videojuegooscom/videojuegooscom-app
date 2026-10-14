@@ -44,6 +44,12 @@
  *   Compartir. Los comentarios viven en noticias_comentarios; "Compartir en
  *   el Foro" publica un mensaje con la marca [noticia:<id>], que el Foro pinta
  *   como mini tarjeta (TarjetaNoticiaForo). Es la pestaña por defecto.
+ *   Fotos rápidas (FotoNoticia): las del bucket «noticias» se piden en web a
+ *   la optimización de Vercel (/_vercel/image, vercel.json → "images") con el
+ *   ancho justo; el hueco se reserva con imagenes_meta (sin descargar antes la
+ *   foto) y se ve un brillo suave mientras carga. En el carrusel solo se
+ *   descarga la primera; las demás, al llegar a ellas (la siguiente se precarga
+ *   justo antes de pasar).
  * - Campana de Noticias Gaming (AvisosNoticiasModal): avisos de noticias
  *   nuevas para Blue y consentimiento comercial, en preferencias_usuario (con
  *   sesión) o en el dispositivo (AsyncStorage) sin ella. Al ver la pestaña se
@@ -82,6 +88,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -89,9 +96,11 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Easing,
   Image,
   LayoutAnimation,
   Modal,
+  PixelRatio,
   Platform,
   Pressable,
   SafeAreaView,
@@ -104,10 +113,11 @@ import {
   UIManager,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from "react-native";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
-import SmartImage from "../../components/SmartImage";
+import { markEnd, markStart } from "../../lib/loadingBus";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -1580,7 +1590,7 @@ const MessageBubble = React.memo(function MessageBubble({
 
   const roleTone =
     item.role === "admin"
-      ? { text: "#0F8FCC", label: "ADMIN" }
+      ? { text: "#1EA7E8", label: "ADMIN" }
       : item.role === "vip"
         ? { text: "#92660B", label: "VIP" }
         : { text: "#0B2138", label: "MIEMBRO" };
@@ -2725,17 +2735,50 @@ const NOTICIAS_LIKES_KEY = "videojuegoszaragoza:noticias_gaming_likes";
 const NOTICIAS_API_URL =
   Platform.OS === "web" ? "/api/noticias-gaming" : "https://videojuegoszaragoza.com/api/noticias-gaming";
 const AZUL_NOTICIAS = "#1EA7E8";
-const AZUL_OSCURO_NOTICIAS = "#0E86C4";
+const AZUL_OSCURO_NOTICIAS = "#1EA7E8";
 const COLUMNAS_NOTICIA =
   "id,fuente,titulo,imagen_url,categoria,resumen,puntos_clave,datos,por_que_importa,afecta_a,publicada_en,created_at";
 // Si la columna «imagenes» aún no existe en la base de datos, se deja de pedir.
 let columnaImagenesDisponible = true;
+// Igual con «imagenes_meta» (sin ella, las fotos se miden con Image.getSize).
+let columnaMetaDisponible = true;
+
+// Columnas de una noticia, con las opcionales que existan.
+function columnasNoticia(): string {
+  if (!columnaImagenesDisponible) return COLUMNAS_NOTICIA;
+  return `${COLUMNAS_NOTICIA},imagenes,imagenes_verificadas${columnaMetaDisponible ? ",imagenes_meta" : ""}`;
+}
+
+// Lee con las columnas opcionales; si el error dice que falta alguna, la deja
+// de pedir y lo reintenta (primero imagenes_meta, luego imagenes).
+async function leerConColumnasOpcionales<R extends { error: { message?: string } | null }>(
+  consulta: (columnas: string) => PromiseLike<R>
+): Promise<R> {
+  let r = await consulta(columnasNoticia());
+  for (let i = 0; i < 2 && r.error; i++) {
+    const mensaje = r.error.message ?? "";
+    if (columnaImagenesDisponible && columnaMetaDisponible && /imagenes_meta/i.test(mensaje)) {
+      columnaMetaDisponible = false;
+    } else if (columnaImagenesDisponible && /imagenes/i.test(mensaje)) {
+      columnaImagenesDisponible = false;
+    } else {
+      break;
+    }
+    r = await consulta(columnasNoticia());
+  }
+  return r;
+}
+
+// Ancho y alto reales de una foto (de imagenes_meta).
+type MedidaFoto = { w: number; h: number };
 
 type Noticia = {
   id: string;
   fuente: string;
   titulo: string;
   imagenes: string[];
+  // Medidas de cada foto por URL (imagenes_meta); las que faltan se miden con getSize.
+  medidas: Record<string, MedidaFoto>;
   categoria: string;
   resumen: string;
   puntosClave: string[];
@@ -2765,12 +2808,25 @@ function imagenesDeFila(r: any): string[] {
   return salida.slice(0, 6);
 }
 
+// Medidas válidas de imagenes_meta ([{url, w, h}]), por URL.
+function medidasDeFila(r: any): Record<string, MedidaFoto> {
+  const salida: Record<string, MedidaFoto> = {};
+  if (!Array.isArray(r.imagenes_meta)) return salida;
+  for (const m of r.imagenes_meta) {
+    const w = Number(m?.w);
+    const h = Number(m?.h);
+    if (typeof m?.url === "string" && w > 0 && h > 0) salida[m.url] = { w, h };
+  }
+  return salida;
+}
+
 function filaANoticia(r: any): Noticia {
   return {
     id: String(r.id),
     fuente: String(r.fuente ?? ""),
     titulo: String(r.titulo ?? ""),
     imagenes: imagenesDeFila(r),
+    medidas: medidasDeFila(r),
     categoria: String(r.categoria ?? "Gaming"),
     resumen: String(r.resumen ?? ""),
     puntosClave: aListaDeTextos(r.puntos_clave),
@@ -2869,13 +2925,8 @@ async function leerNoticiaPorId(id: string): Promise<Noticia | null> {
   const consulta = (columnas: string) =>
     supabase.from("noticias_gaming").select(columnas).eq("id", id).eq("publicada", true).maybeSingle();
 
-  let { data, error } = await consulta(
-    columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes,imagenes_verificadas` : COLUMNAS_NOTICIA
-  );
-  if (error && columnaImagenesDisponible && /imagenes/i.test(error.message ?? "")) {
-    columnaImagenesDisponible = false;
-    ({ data, error } = await consulta(COLUMNAS_NOTICIA));
-  }
+  // Sin imagenes_meta o sin imagenes (migraciones pendientes) se reintenta sin ellas.
+  const { data, error } = await leerConColumnasOpcionales(consulta);
   return !error && data ? filaANoticia(data) : null;
 }
 
@@ -2945,12 +2996,10 @@ function NoticiasGamingPanel({
         .order("created_at", { ascending: false })
         .range(desde, desde + NOTICIAS_POR_PAGINA - 1);
 
-    let { data, error } = await consulta(
-      columnaImagenesDisponible ? `${COLUMNAS_NOTICIA},imagenes,imagenes_verificadas` : COLUMNAS_NOTICIA
-    );
+    // Sin imagenes_meta o sin imagenes (migraciones pendientes) se reintenta sin ellas.
+    let { data, error } = await leerConColumnasOpcionales(consulta);
     if (error && columnaImagenesDisponible) {
-      // Sin la columna «imagenes» (migración pendiente) se reintenta sin ella.
-      if (/imagenes/i.test(error.message ?? "")) columnaImagenesDisponible = false;
+      // Otro fallo: un último intento solo con las columnas básicas.
       ({ data, error } = await consulta(COLUMNAS_NOTICIA));
     }
     if (error) return null;
@@ -3095,6 +3144,11 @@ function NoticiasGamingPanel({
   // y, con sesión, también en preferencias_usuario. Blue la usa para contar
   // las noticias nuevas.
   const masReciente = useMemo(() => creadaMasReciente(noticias), [noticias]);
+  // Las 2 primeras noticias con foto: su primera foto se descarga con prioridad alta.
+  const prioritarias = useMemo(
+    () => new Set(noticias.filter((n) => n.imagenes.length).slice(0, 2).map((n) => n.id)),
+    [noticias]
+  );
   const guardarVistas = useCallback(() => {
     if (!masReciente || !enfocado.current) return;
     const clave = `${userId ?? ""}|${masReciente}`;
@@ -3171,6 +3225,7 @@ function NoticiasGamingPanel({
         <TarjetaNoticia
           key={n.id}
           noticia={n}
+          prioritaria={prioritarias.has(n.id)}
           abierta={abiertaId === n.id}
           meGusta={!!likes[n.id]}
           numComentarios={comentarios ? comentarios[n.id] ?? 0 : undefined}
@@ -3215,6 +3270,7 @@ function NoticiasGamingPanel({
 
 const TarjetaNoticia = React.memo(function TarjetaNoticia({
   noticia: n,
+  prioritaria,
   abierta,
   meGusta,
   numComentarios,
@@ -3226,6 +3282,8 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
   onPosicion,
 }: {
   noticia: Noticia;
+  // Una de las 2 primeras con foto: su primera foto va con prioridad alta.
+  prioritaria: boolean;
   abierta: boolean;
   meGusta: boolean;
   // undefined = comentarios no disponibles (se oculta el botón).
@@ -3265,7 +3323,9 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
         elevation: 2,
       }}
     >
-      {n.imagenes.length ? <CarruselNoticia imagenes={n.imagenes} titulo={n.titulo} /> : null}
+      {n.imagenes.length ? (
+        <CarruselNoticia imagenes={n.imagenes} medidas={n.medidas} titulo={n.titulo} prioritaria={prioritaria} />
+      ) : null}
 
       <Text
         style={{
@@ -3373,14 +3433,18 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
 
 // --- Carrusel de imágenes de una noticia ------------------------------------
 // Paginado en horizontal, cada foto entera (contain, nunca recortada) en una
-// caja con su proporción real y como mucho 320 px de alto. Las fotos que no
-// cargan o son diminutas (iconos, píxeles) se descartan; si no queda ninguna,
-// no se pinta nada (sin huecos). Pasa sola a la siguiente foto cada 5 s (en
-// bucle), se pausa mientras se toca o arrastra y, si el sistema pide reducir
-// movimiento, cambia de foto sin animación.
+// caja con su proporción real y como mucho 320 px de alto. La proporción sale
+// de imagenes_meta (al instante, sin descargar la foto); solo si falta se mide
+// con Image.getSize, como antes. Las fotos que no cargan o son diminutas
+// (iconos, píxeles) se descartan; si no queda ninguna, no se pinta nada (sin
+// huecos). Solo se descarga la primera foto; las demás, cuando el carrusel
+// llega a ellas (la siguiente se precarga 1,5 s antes de pasar). Pasa sola a
+// la siguiente foto cada 5 s (en bucle), se pausa mientras se toca o arrastra
+// y, si el sistema pide reducir movimiento, cambia de foto sin animación.
 
 const ALTO_MAX_CARRUSEL = 320;
 const PASO_CARRUSEL_MS = 5000;
+const PRECARGA_ANTES_MS = 1500;
 
 // «Reducir movimiento» del sistema. Una sola suscripción para todos los
 // carruseles (en web, varios oyentes con el mismo código se pisan entre sí).
@@ -3412,29 +3476,67 @@ function useReducirMovimiento() {
   return reducir;
 }
 
-function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: string }) {
+// Proporción (ancho/alto) de una foto; 0 = diminuta (icono o píxel de
+// seguimiento): se descarta.
+function proporcionDe(w: number, h: number): number {
+  return w >= 160 && h >= 90 ? w / h : 0;
+}
+
+// Proporciones ya conocidas por imagenes_meta. claveMedidas lleva «WxH» (o
+// nada) por cada URL de clave, en el mismo orden.
+function proporcionesConocidas(clave: string, claveMedidas: string): Record<string, number> {
+  const salida: Record<string, number> = {};
+  if (!clave) return salida;
+  const tamanos = claveMedidas.split("\n");
+  clave.split("\n").forEach((uri, i) => {
+    const m = /^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/.exec(tamanos[i] ?? "");
+    if (m) salida[uri] = proporcionDe(Number(m[1]), Number(m[2]));
+  });
+  return salida;
+}
+
+function CarruselNoticia({
+  imagenes,
+  medidas,
+  titulo,
+  prioritaria,
+}: {
+  imagenes: string[];
+  medidas: Record<string, MedidaFoto>;
+  titulo: string;
+  prioritaria: boolean;
+}) {
+  const clave = imagenes.join("\n");
+  const claveMedidas = imagenes.map((u) => (medidas[u] ? `${medidas[u].w}x${medidas[u].h}` : "")).join("\n");
   const [ancho, setAncho] = useState(0);
-  const [proporciones, setProporciones] = useState<Record<string, number>>({});
+  const [proporciones, setProporciones] = useState<Record<string, number>>(() =>
+    proporcionesConocidas(clave, claveMedidas)
+  );
   const [pagina, setPagina] = useState(0);
+  // Hasta qué foto ha llegado el carrusel: las de después aún no se descargan.
+  const [alcanzada, setAlcanzada] = useState(0);
   // Sube al soltar el carrusel: vuelve a contar los 5 s desde ese momento.
   const [reinicio, setReinicio] = useState(0);
   const tocando = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const reducirMovimiento = useReducirMovimiento();
-  const clave = imagenes.join("\n");
 
-  // Mide cada foto (ancho/alto reales) antes de mostrarla.
+  // Proporción de cada foto: la de imagenes_meta y, solo si falta, Image.getSize.
   useEffect(() => {
     let vivo = true;
     const lista = clave ? clave.split("\n") : [];
+    const conocidas = proporcionesConocidas(clave, claveMedidas);
+    setProporciones((prev) => {
+      const next = { ...conocidas };
+      for (const uri of lista) if (!(uri in next) && uri in prev) next[uri] = prev[uri];
+      return next;
+    });
     for (const uri of lista) {
+      if (uri in conocidas) continue;
       Image.getSize(
         uri,
         (w, h) => {
-          if (!vivo) return;
-          // Diminuta = icono o píxel de seguimiento: se descarta (proporción 0).
-          const r = w >= 160 && h >= 90 ? w / h : 0;
-          setProporciones((prev) => ({ ...prev, [uri]: r }));
+          if (vivo) setProporciones((prev) => ({ ...prev, [uri]: proporcionDe(w, h) }));
         },
         () => {
           if (vivo) setProporciones((prev) => ({ ...prev, [uri]: 0 }));
@@ -3444,34 +3546,16 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
     return () => {
       vivo = false;
     };
-  }, [clave]);
+  }, [clave, claveMedidas]);
+
+  // Una foto que no carga (ni la optimizada ni la original) se quita del carrusel.
+  const descartar = useCallback((uri: string) => {
+    setProporciones((prev) => ({ ...prev, [uri]: 0 }));
+  }, []);
 
   const listas = imagenes.filter((u) => (proporciones[u] ?? 0) > 0);
   const total = listas.length;
   const actual = Math.min(pagina, Math.max(0, total - 1));
-
-  // Avance automático: cada 5 s a la siguiente (y de la última a la primera).
-  // Mientras se toca no avanza; al soltar se vuelve a contar desde cero.
-  useEffect(() => {
-    if (total < 2 || !ancho) return;
-    const t = setTimeout(() => {
-      if (tocando.current) return;
-      const siguiente = (actual + 1) % total;
-      scrollRef.current?.scrollTo({ x: siguiente * ancho, animated: !reducirMovimiento });
-      setPagina(siguiente);
-    }, PASO_CARRUSEL_MS);
-    return () => clearTimeout(t);
-  }, [actual, total, ancho, reinicio, reducirMovimiento]);
-
-  const pausar = () => {
-    tocando.current = true;
-  };
-  const reanudar = () => {
-    tocando.current = false;
-    setReinicio((r) => r + 1);
-  };
-
-  if (!total) return null;
 
   // Caja de cada foto: todo el ancho, salvo si pasaría de 320 px de alto.
   const caja = (uri: string) => {
@@ -3484,11 +3568,52 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
     }
     return { w: Math.round(w), h: Math.round(h) };
   };
+
+  // Foto que toca después, si aún no se ha descargado: se precarga antes de pasar.
+  const siguienteIndice = total > 1 ? (actual + 1) % total : -1;
+  const precargar =
+    ancho > 0 && siguienteIndice > alcanzada
+      ? urlFotoNoticia(listas[siguienteIndice], anchoOptimizado(caja(listas[siguienteIndice]).w))
+      : "";
+
+  // Avance automático: cada 5 s a la siguiente (y de la última a la primera).
+  // Mientras se toca no avanza; al soltar se vuelve a contar desde cero.
+  useEffect(() => {
+    if (total < 2 || !ancho) return;
+    const tPrecarga = precargar
+      ? setTimeout(() => {
+          ExpoImage.prefetch(precargar, "memory-disk").catch(() => {});
+        }, PASO_CARRUSEL_MS - PRECARGA_ANTES_MS)
+      : undefined;
+    const t = setTimeout(() => {
+      if (tocando.current) return;
+      const siguiente = (actual + 1) % total;
+      setAlcanzada((a) => Math.max(a, siguiente));
+      scrollRef.current?.scrollTo({ x: siguiente * ancho, animated: !reducirMovimiento });
+      setPagina(siguiente);
+    }, PASO_CARRUSEL_MS);
+    return () => {
+      clearTimeout(t);
+      if (tPrecarga) clearTimeout(tPrecarga);
+    };
+  }, [actual, total, ancho, reinicio, reducirMovimiento, precargar]);
+
+  const pausar = () => {
+    tocando.current = true;
+  };
+  const reanudar = () => {
+    tocando.current = false;
+    setReinicio((r) => r + 1);
+  };
+
+  if (!total) return null;
+
   const alto = ancho ? Math.max(...listas.map((u) => caja(u).h)) : 0;
   const varias = total > 1;
 
   const irA = (i: number) => {
     const destino = Math.max(0, Math.min(total - 1, i));
+    setAlcanzada((a) => Math.max(a, destino));
     scrollRef.current?.scrollTo({ x: destino * ancho, animated: !reducirMovimiento });
     setPagina(destino);
   };
@@ -3517,8 +3642,12 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
             onScrollBeginDrag={pausar}
             onMomentumScrollEnd={reanudar}
             onScroll={(e) => {
-              const i = Math.round(e.nativeEvent.contentOffset.x / ancho);
+              const x = e.nativeEvent.contentOffset.x;
+              const i = Math.round(x / ancho);
               setPagina((prev) => (prev === i ? prev : i));
+              // Al empezar a arrastrar hacia una foto, se empieza a descargar.
+              const hasta = Math.min(total - 1, Math.ceil(x / ancho - 0.01));
+              setAlcanzada((a) => (hasta > a ? hasta : a));
             }}
             style={{ width: ancho, height: alto }}
           >
@@ -3529,17 +3658,15 @@ function CarruselNoticia({ imagenes, titulo }: { imagenes: string[]; titulo: str
                   key={uri}
                   style={{ width: ancho, height: alto, alignItems: "center", justifyContent: "center" }}
                 >
-                  <View
-                    style={{ width: w, height: h, borderRadius: 16, overflow: "hidden", backgroundColor: "#FFFFFF" }}
-                  >
-                    <SmartImage
-                      uri={uri}
-                      contentFit="contain"
-                      style={{ width: "100%", height: "100%" }}
-                      priority={i === 0 ? "normal" : "low"}
-                      accessibilityLabel={`Imagen ${i + 1} de ${listas.length}: ${titulo}`}
-                    />
-                  </View>
+                  <FotoNoticia
+                    uri={uri}
+                    anchoPedido={anchoOptimizado(w)}
+                    estiloCaja={{ width: w, height: h, borderRadius: 16 }}
+                    cargar={i <= alcanzada}
+                    prioridad={i === 0 ? (prioritaria ? "high" : "normal") : "low"}
+                    etiqueta={`Imagen ${i + 1} de ${listas.length}: ${titulo}`}
+                    onFallo={descartar}
+                  />
                 </View>
               );
             })}
@@ -3615,6 +3742,199 @@ function FlechaCarrusel({ lado, onPress }: { lado: "izquierda" | "derecha"; onPr
         color={AZUL_OSCURO_NOTICIAS}
       />
     </Pressable>
+  );
+}
+
+// --- Fotos de noticias: versión optimizada, hueco exacto y brillo de carga ---
+// Las fotos del bucket «noticias» (las copia api/noticias-gaming.ts) se piden
+// en web a la optimización de imágenes de Vercel (vercel.json → "images"):
+// /_vercel/image?url=…&w=…&q=72, con el ancho de la lista más cercano al de la
+// caja × densidad de píxeles (máx. 1280), en avif/webp si el navegador puede.
+// Si falla (p. ej. en local, sin Vercel), se usa la URL original. Las fotos
+// antiguas (web del periódico) y las de la app nativa se piden tal cual.
+
+const RE_BUCKET_NOTICIAS =
+  /^https:\/\/rgvyvaineyodyxzwootl\.supabase\.co\/storage\/v1\/object\/public\/noticias\//;
+const ANCHOS_OPTIMIZADOS = [320, 480, 640, 960, 1280];
+const FONDO_CARGA_FOTO = "#F1F6FB";
+const FUNDIDO_FOTO_MS = 200;
+// Si una foto nunca avisa de que terminó, la barra de carga global se cierra igual.
+const AVISO_CARGA_MAX_MS = 20000;
+
+// Ancho de la lista más cercano al de la caja en píxeles reales (máx. 1280).
+function anchoOptimizado(anchoCaja: number): number {
+  const objetivo = Math.min(1280, anchoCaja * (PixelRatio.get() || 1));
+  let mejor = ANCHOS_OPTIMIZADOS[0];
+  for (const a of ANCHOS_OPTIMIZADOS) {
+    if (Math.abs(a - objetivo) <= Math.abs(mejor - objetivo)) mejor = a;
+  }
+  return mejor;
+}
+
+// URL que se pinta: la optimizada (solo en web y solo fotos de nuestro bucket) o la original.
+function urlFotoNoticia(url: string, ancho: number): string {
+  if (Platform.OS !== "web" || !RE_BUCKET_NOTICIAS.test(url)) return url;
+  return `/_vercel/image?url=${encodeURIComponent(url)}&w=${ancho}&q=72`;
+}
+
+// Brillo de carga: una sola animación compartida por todos los huecos.
+const brilloCarga = new Animated.Value(0);
+let usosBrillo = 0;
+let animacionBrillo: Animated.CompositeAnimation | null = null;
+
+function useBrilloCarga(activo: boolean) {
+  useEffect(() => {
+    if (!activo) return;
+    usosBrillo++;
+    if (!animacionBrillo) {
+      brilloCarga.setValue(0);
+      animacionBrillo = Animated.loop(
+        Animated.timing(brilloCarga, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: Platform.OS !== "web",
+        })
+      );
+      animacionBrillo.start();
+    }
+    return () => {
+      usosBrillo = Math.max(0, usosBrillo - 1);
+      if (!usosBrillo && animacionBrillo) {
+        animacionBrillo.stop();
+        animacionBrillo = null;
+      }
+    };
+  }, [activo]);
+}
+
+// Hueco gris azulado muy claro del tamaño exacto de la foto, con un brillo
+// suave que lo cruza mientras carga (sin brillo si se pide reducir movimiento).
+function HuecoFoto({ brillo }: { brillo: boolean }) {
+  const [ancho, setAncho] = useState(0);
+  useBrilloCarga(brillo && ancho > 0);
+  const franja = Math.max(60, Math.round(ancho * 0.45));
+  return (
+    <View
+      pointerEvents="none"
+      onLayout={(e) => setAncho(Math.round(e.nativeEvent.layout.width))}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: FONDO_CARGA_FOTO,
+        overflow: "hidden",
+      }}
+    >
+      {brillo && ancho > 0 ? (
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: franja,
+            transform: [
+              { translateX: brilloCarga.interpolate({ inputRange: [0, 1], outputRange: [-franja, ancho] }) },
+            ],
+          }}
+        >
+          <LinearGradient
+            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.7)", "rgba(255,255,255,0)"]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={{ flex: 1 }}
+          />
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+// Avisa a la barra de carga global (lib/loadingBus) mientras la foto se
+// descarga, igual que SmartImage.
+function useAvisoCargaFoto(activo: boolean, clave: string) {
+  useEffect(() => {
+    if (!activo) return;
+    let abierto = true;
+    markStart();
+    const cerrar = () => {
+      if (!abierto) return;
+      abierto = false;
+      markEnd();
+    };
+    const t = setTimeout(cerrar, AVISO_CARGA_MAX_MS);
+    return () => {
+      clearTimeout(t);
+      cerrar();
+    };
+  }, [activo, clave]);
+}
+
+// Una foto de noticia (entera, sin recortar) en una caja de tamaño fijo: hueco
+// con brillo mientras carga, fundido corto al aparecer, caché en memoria y
+// disco, versión optimizada en web y, si falla, la URL original; si también
+// falla, avisa con onFallo. cargar = false: solo el hueco (aún no se descarga).
+function FotoNoticia({
+  uri,
+  anchoPedido,
+  estiloCaja,
+  cargar = true,
+  prioridad = "normal",
+  etiqueta,
+  onFallo,
+}: {
+  uri: string;
+  // Ancho que se pide a la optimización (uno de ANCHOS_OPTIMIZADOS).
+  anchoPedido: number;
+  estiloCaja: ViewStyle;
+  cargar?: boolean;
+  prioridad?: "low" | "normal" | "high";
+  etiqueta: string;
+  onFallo?: (uri: string) => void;
+}) {
+  const reducirMovimiento = useReducirMovimiento();
+  const [original, setOriginal] = useState(false);
+  const [estado, setEstado] = useState<"cargando" | "fundido" | "lista" | "fallida">("cargando");
+  const fuente = original ? uri : urlFotoNoticia(uri, anchoPedido);
+  const cargando = cargar && estado === "cargando";
+  useAvisoCargaFoto(cargando, fuente);
+
+  // Tras el fundido se quita el hueco (por si la foto tiene transparencias).
+  useEffect(() => {
+    if (estado !== "fundido") return;
+    const t = setTimeout(() => setEstado("lista"), FUNDIDO_FOTO_MS + 80);
+    return () => clearTimeout(t);
+  }, [estado]);
+
+  return (
+    <View style={[{ overflow: "hidden", backgroundColor: "#FFFFFF" }, estiloCaja]}>
+      {estado !== "lista" ? <HuecoFoto brillo={cargando && !reducirMovimiento} /> : null}
+      {cargar && estado !== "fallida" ? (
+        <ExpoImage
+          source={{ uri: fuente }}
+          style={{ width: "100%", height: "100%" }}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+          transition={reducirMovimiento ? 0 : FUNDIDO_FOTO_MS}
+          priority={prioridad}
+          recyclingKey={fuente}
+          accessibilityLabel={etiqueta}
+          onLoad={() => setEstado((e) => (e === "cargando" ? "fundido" : e))}
+          onError={() => {
+            // La optimizada falla: se prueba con la original.
+            if (!original && fuente !== uri) {
+              setOriginal(true);
+              return;
+            }
+            setEstado("fallida");
+            onFallo?.(uri);
+          }}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -4118,6 +4438,8 @@ function TarjetaNoticiaForo({
   texto: string;
   onLeer: () => void;
 }) {
+  // Foto que no carga (ni la pequeña optimizada ni la original): se quita.
+  const [fotoFallida, setFotoFallida] = useState<string | null>(null);
   const boton = (
     <Pressable
       onPress={onLeer}
@@ -4166,16 +4488,17 @@ function TarjetaNoticiaForo({
         overflow: "hidden",
       }}
     >
-      {noticia.imagen ? (
-        <View style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#FFFFFF" }}>
-          <SmartImage
-            uri={noticia.imagen}
-            contentFit="contain"
-            style={{ width: "100%", height: "100%" }}
-            priority="low"
-            accessibilityLabel={noticia.titulo}
-          />
-        </View>
+      {noticia.imagen && noticia.imagen !== fotoFallida ? (
+        // Versión pequeña (w=320): la tarjeta mide como mucho 380 px.
+        <FotoNoticia
+          key={noticia.imagen}
+          uri={noticia.imagen}
+          anchoPedido={320}
+          estiloCaja={{ width: "100%", aspectRatio: 16 / 9 }}
+          prioridad="low"
+          etiqueta={noticia.titulo}
+          onFallo={setFotoFallida}
+        />
       ) : null}
       <View style={{ padding: 12, gap: 6, alignItems: "center" }}>
         <Text

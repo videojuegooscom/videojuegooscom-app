@@ -79,7 +79,7 @@ const COLORS = {
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
-  accentDark: "#0E86C4",
+  accentDark: "#1EA7E8",
   accentSoft: "#EAF6FD",
   danger: "#DC2626",
 };
@@ -679,7 +679,8 @@ export default function Campanita() {
   }, [likedUnavailable]);
 
   // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
-  if (!ready || enChat || !aparecido) return null;
+  // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
+  if (!ready || enChat || enAdmin || !aparecido) return null;
 
   const derecha = corner === "tr" || corner === "br";
   const arriba = corner === "tl" || corner === "tr";

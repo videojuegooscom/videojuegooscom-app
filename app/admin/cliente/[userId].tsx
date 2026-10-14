@@ -40,11 +40,10 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   Text,
@@ -53,7 +52,13 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../../lib/supabase";
+import CargaMarca from "../../../components/marca/CargaMarca";
+
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
+// propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
+const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -65,7 +70,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -125,7 +131,7 @@ const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "warn" | "
 function fmtDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "short", year: "numeric" });
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -190,7 +196,9 @@ function SectionCard({
 
 function EmptyRow({ text }: { text: string }) {
   return (
-    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontStyle: "italic", paddingVertical: 4 }}>{text}</Text>
+    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontStyle: "italic", paddingVertical: 4, textAlign: "center" }}>
+      {text}
+    </Text>
   );
 }
 
@@ -199,6 +207,7 @@ export default function ClienteFicha() {
   const userId = String(params.userId ?? "").trim();
   const email = typeof params.email === "string" ? params.email : "";
   const createdAt = typeof params.createdAt === "string" ? params.createdAt : "";
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
@@ -300,51 +309,67 @@ export default function ClienteFicha() {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      {/* Antes iba dentro de SafeAreaView (solo hace algo en iOS nativo): ahora la cabecera y
+          el final del scroll suman la zona segura real (también en el iPhone desde la web). */}
+      <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+        {/* Cabecera fija y compacta (volver + título centrado), igual en todo el panel. */}
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
             paddingHorizontal: 16,
-            paddingVertical: Platform.OS === "web" ? 12 : 8,
+            paddingTop: 10 + insets.top,
+            paddingBottom: 10,
             borderBottomWidth: 1,
             borderBottomColor: COLORS.border,
             backgroundColor: COLORS.bg2,
           }}
         >
-          <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/admin/users"))}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.85 : 1,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              alignItems: "center",
-              justifyContent: "center",
-            })}
-          >
-            <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-          </Pressable>
+          <View style={{ width: "100%", maxWidth: 720, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+            <Pressable
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/admin/users"))}
+              accessibilityRole="button"
+              accessibilityLabel="Volver a usuarios"
+              hitSlop={8}
+              style={({ pressed }) => ({
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 40,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+            </Pressable>
 
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-              {email || "Ficha de cliente"}
-            </Text>
-            {createdAt ? (
-              <Text style={{ color: COLORS.muted2, fontSize: 12 }}>Cliente desde {fmtDate(createdAt)}</Text>
-            ) : null}
+            <View style={{ paddingHorizontal: 44, alignItems: "center" }}>
+              <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
+                {email || "Ficha de cliente"}
+              </Text>
+              {createdAt ? (
+                <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>
+                  Cliente desde {fmtDate(createdAt)}
+                </Text>
+              ) : null}
+            </View>
           </View>
         </View>
 
         {loading ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-            <ActivityIndicator color={COLORS.text} />
-            <Text style={{ color: COLORS.muted }}>Cargando ficha…</Text>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+            <CargaMarca texto="Cargando ficha…" />
           </View>
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, alignItems: "center" }}>
-            <View style={{ width: "100%", maxWidth: 720, gap: 12 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
+            <View style={{ width: "100%", maxWidth: 720, gap: 16 }}>
               <SectionCard icon="bag-check-outline" title="Compras a la tienda" count={purchases.length}>
                 {purchases.length === 0 ? (
                   <EmptyRow text="Todavía no le hemos vendido nada." />
@@ -496,32 +521,37 @@ export default function ClienteFicha() {
                     paddingVertical: 10,
                     color: COLORS.text,
                     backgroundColor: COLORS.cardSoft,
-                    fontSize: 14,
+                    // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
+                    // se queda ampliada y "descuadrada".
+                    fontSize: 16,
                     textAlignVertical: "top",
                   }}
                 />
 
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={{ alignItems: "center", gap: 8 }}>
                   <Pressable
                     onPress={handleSaveNotes}
                     disabled={savingNotes || !notesLoaded}
+                    accessibilityRole="button"
                     style={({ pressed }) => ({
                       opacity: savingNotes || !notesLoaded ? 0.6 : pressed ? 0.88 : 1,
                       borderRadius: 999,
-                      paddingVertical: 10,
-                      paddingHorizontal: 16,
-                      backgroundColor: COLORS.accent,
+                      paddingVertical: 11,
+                      paddingHorizontal: 22,
+                      backgroundColor: COLORS.accentDark,
                     })}
                   >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14, textAlign: "center" }}>
                       {savingNotes ? "Guardando…" : "Guardar nota"}
                     </Text>
                   </Pressable>
 
                   {notesSaved ? (
-                    <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5 }}>Guardado ✓</Text>
+                    <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                      Guardado ✓
+                    </Text>
                   ) : notesUpdatedAt ? (
-                    <Text style={{ color: COLORS.muted2, fontSize: 11.5 }}>
+                    <Text style={{ color: COLORS.muted2, fontSize: 11.5, textAlign: "center" }}>
                       Última actualización: {fmtDate(notesUpdatedAt)}
                     </Text>
                   ) : null}
@@ -529,8 +559,9 @@ export default function ClienteFicha() {
               </View>
             </View>
           </ScrollView>
+          </KeyboardAvoidingView>
         )}
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

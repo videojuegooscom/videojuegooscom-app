@@ -24,8 +24,15 @@
  *    con el título, el resumen y las candidatas: solo se guardan las que
  *    muestran claramente el tema de la noticia. Si la llamada falla o la
  *    respuesta no es válida, no se guarda ninguna foto.
- * 3) Se guarda imagenes (las buenas), imagen_url (la primera o null) e
- *    imagenes_verificadas = true. La app solo enseña fotos verificadas.
+ * 3) Las buenas se copian al bucket público «noticias» de Supabase Storage
+ *    (ruta <id de la noticia>/<n>.<jpg|png|webp>, caché de 1 año) para
+ *    servirlas desde nuestro CDN y no desde la web del periódico. Se guarda
+ *    imagenes (URLs públicas del bucket), imagen_url (la primera o null),
+ *    imagenes_meta ([{url, w, h}], medidas leídas de la cabecera del archivo,
+ *    para que la app reserve el hueco sin descargarla antes) e
+ *    imagenes_verificadas = true. La app solo enseña fotos verificadas. Si una
+ *    subida falla, esa foto se queda con su URL original (nunca se pierde) e
+ *    imagenes_meta se deja vacío: la revisión periódica lo reintenta.
  * Los enlaces de Google Noticias se traducen a la URL real del medio (id en
  * base64 o, en el formato nuevo, la petición batchexecute de Google) y esa URL
  * también se usa para leer el texto del artículo.
@@ -42,6 +49,10 @@
  *   false: vuelve a buscar candidatas con las reglas de arriba y las pasa por
  *   la comprobación con IA. La clave 'revision_cursor' recuerda por qué fecha
  *   va, para recorrerlas todas poco a poco.
+ *   En esa misma revisión (sin IA) se copian al bucket las fotos de hasta 8
+ *   noticias ya verificadas que aún no tienen imagenes_meta (las de antes del
+ *   bucket o las que no se pudieron subir); la clave 'bucket_cursor' recuerda
+ *   por dónde va.
  * - Límites por ejecución: 8 resúmenes + 6 comprobaciones de fotos (14
  *   llamadas a OpenAI como mucho) y menos de 55 s en total.
  *
@@ -59,6 +70,11 @@
  * - supabase/migrations/20261013210000_noticias_imagenes_verificadas.sql →
  *   columna imagenes_verificadas (si todavía no existe, se guarda sin ella, no
  *   hay revisión y la app no enseña fotos).
+ * - supabase/migrations/20261013220000_noticias_imagenes_rapidas.sql → bucket
+ *   «noticias» y columna imagenes_meta (si todavía no existe, se guarda sin
+ *   ella y no se copian fotos antiguas).
+ * - vercel.json → "images": la app pide en web la versión optimizada
+ *   (/_vercel/image) de las fotos del bucket.
  * - app/(tabs)/chat-global.tsx → pestaña "Noticias Gaming" (lee la tabla y
  *   llama aquí en segundo plano al abrirse).
  */
@@ -93,6 +109,13 @@ const MAX_BYTES_IMAGEN = 1_500_000;
 const MIN_BYTES_IMAGEN = 3_000;
 const MIN_ANCHO_IMAGEN = 300;
 const MIN_ALTO_IMAGEN = 150;
+// Copia de las fotos en nuestro Storage (bucket público, máx. 5 MB por foto).
+const BUCKET_NOTICIAS = "noticias";
+const MAX_BYTES_BUCKET = 5 * 1024 * 1024;
+const MAX_BUCKET_POR_EJECUCION = 8;
+const CONCURRENCIA_BUCKET = 2;
+const TIMEOUT_SUBIDA_MS = 8_000;
+const TIMEOUT_DESCARGA_BUCKET_MS = 8_000;
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 const CATEGORIAS = [
@@ -1163,9 +1186,23 @@ async function desglosarConIA(
 // Cupo de llamadas a OpenAI de esta ejecución (compartido por todo el proceso).
 type CupoIA = { resumenes: number; comprobaciones: number };
 
+type TipoImagen = "image/jpeg" | "image/png" | "image/webp";
+const EXTENSION_DE_TIPO: Record<TipoImagen, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+
+// Foto descargada. archivo: los bytes completos (null si pasa de 5 MB o no
+// terminó de bajar a tiempo); grande: pasa de 5 MB (no cabe en el bucket);
+// medidas: ancho y alto de la cabecera (null si no se encuentran).
+type FotoDescargada = {
+  tipo: TipoImagen;
+  archivo: Uint8Array | null;
+  grande: boolean;
+  medidas: { ancho: number; alto: number } | null;
+};
+
 // url: la de la foto (la que se guarda); dato: lo que se manda a la IA
-// (la foto descargada en base64 o, si pesa mucho, la propia URL).
-type ImagenParaIA = { url: string; dato: string };
+// (la foto descargada en base64 o, si pesa mucho, la propia URL); foto: la
+// descarga, para copiarla al bucket si la IA la da por buena.
+type ImagenParaIA = { url: string; dato: string; foto: FotoDescargada };
 
 function textoAscii(b: Uint8Array, desde: number, hasta: number): string {
   return String.fromCharCode(...b.subarray(desde, hasta));
@@ -1173,7 +1210,7 @@ function textoAscii(b: Uint8Array, desde: number, hasta: number): string {
 
 // Tipo real por los primeros bytes (la IA acepta jpeg, png y webp; gif, avif o
 // svg se descartan).
-function tipoDeImagen(b: Uint8Array): "image/jpeg" | "image/png" | "image/webp" | null {
+function tipoDeImagen(b: Uint8Array): TipoImagen | null {
   if (b.length > 12 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
   if (b.length > 24 && b[0] === 0x89 && textoAscii(b, 1, 4) === "PNG") return "image/png";
   if (b.length > 30 && textoAscii(b, 0, 4) === "RIFF" && textoAscii(b, 8, 12) === "WEBP") return "image/webp";
@@ -1229,9 +1266,12 @@ function aBase64(b: Uint8Array): string {
   return btoa(binario);
 }
 
-// Descarga una foto candidata como la vería un visitante de la tienda. Devuelve
-// lo que se manda a la IA, o null si no carga, no es jpg/png/webp o es diminuta.
-async function imagenParaIA(url: string, ms: number): Promise<string | null> {
+// Descarga una foto como la vería un visitante de la tienda (hasta 5 MB, lo
+// que cabe en el bucket). null si no carga, no es jpg/png/webp o es diminuta.
+// Si el tiempo se acaba a medias y ya llevaba más de 1,5 MB, vale igual (sin
+// archivo: la IA la descarga ella misma), como cuando solo se bajaba 1,5 MB.
+async function descargarFoto(url: string, ms: number): Promise<FotoDescargada | null> {
+  if (!(ms >= 500)) return null;
   const control = new AbortController();
   const t = setTimeout(() => control.abort(), ms);
   try {
@@ -1249,16 +1289,24 @@ async function imagenParaIA(url: string, ms: number): Promise<string | null> {
     const trozos: Uint8Array[] = [];
     let total = 0;
     let completa = true;
-    for (;;) {
-      const { done, value } = await lector.read();
-      if (done) break;
-      trozos.push(value);
-      total += value.length;
-      if (total > MAX_BYTES_IMAGEN) {
-        completa = false;
-        lector.cancel().catch(() => {});
-        break;
+    let grande = false;
+    try {
+      for (;;) {
+        const { done, value } = await lector.read();
+        if (done) break;
+        trozos.push(value);
+        total += value.length;
+        if (total > MAX_BYTES_BUCKET) {
+          completa = false;
+          grande = true;
+          lector.cancel().catch(() => {});
+          break;
+        }
       }
+    } catch {
+      // Cortada por tiempo: solo vale si ya pasaba de 1,5 MB.
+      if (total <= MAX_BYTES_IMAGEN) return null;
+      completa = false;
     }
     const bytes = new Uint8Array(total);
     let pos = 0;
@@ -1271,8 +1319,8 @@ async function imagenParaIA(url: string, ms: number): Promise<string | null> {
     if (!tipo) return null;
     const medidas = medidasDeImagen(bytes, tipo);
     if (medidas && (medidas.ancho < MIN_ANCHO_IMAGEN || medidas.alto < MIN_ALTO_IMAGEN)) return null;
-    // Muy pesada: la IA la descarga ella misma (ya se ha visto que carga).
-    return completa ? `data:${tipo};base64,${aBase64(bytes)}` : url;
+    const conMedidas = medidas && medidas.ancho > 0 && medidas.alto > 0 ? medidas : null;
+    return { tipo, archivo: completa ? bytes : null, grande, medidas: conMedidas };
   } catch {
     return null;
   } finally {
@@ -1280,16 +1328,24 @@ async function imagenParaIA(url: string, ms: number): Promise<string | null> {
   }
 }
 
+// Descarga una foto candidata y prepara lo que se manda a la IA, o null si no vale.
+async function imagenParaIA(url: string, ms: number): Promise<ImagenParaIA | null> {
+  const foto = await descargarFoto(url, ms);
+  if (!foto) return null;
+  // Muy pesada (más de 1,5 MB): la IA la descarga ella misma (ya se ha visto que carga).
+  const dato =
+    foto.archivo && foto.archivo.length <= MAX_BYTES_IMAGEN
+      ? `data:${foto.tipo};base64,${aBase64(foto.archivo)}`
+      : url;
+  return { url, dato, foto };
+}
+
 // Prepara las candidatas en paralelo (en su orden). null si no hay tiempo.
 async function prepararImagenes(urls: string[], ms: number): Promise<ImagenParaIA[] | null> {
   if (!urls.length) return [];
   if (!(ms >= 2_500)) return null;
   const datos = await Promise.all(urls.map((u) => imagenParaIA(u, ms)));
-  const salida: ImagenParaIA[] = [];
-  datos.forEach((dato, i) => {
-    if (dato) salida.push({ url: urls[i], dato });
-  });
-  return salida;
+  return datos.filter((d): d is ImagenParaIA => d !== null);
 }
 
 const PROMPT_IMAGENES = `Revisas las fotos de una noticia de VideojuegosZaragoza.com antes de publicarla.
@@ -1305,16 +1361,16 @@ Descarta:
 Si varias imágenes son la misma foto (aunque cambie el tamaño o el recorte), incluye solo la primera.
 Ante la duda, descártala. Si ninguna vale, devuelve {"relevantes": []}.`;
 
-// Una llamada a gpt-4o-mini con visión. Devuelve las URLs de las fotos que
-// muestran el tema de la noticia (puede ser []), o null si la llamada falla o
-// la respuesta no es válida (entonces no se guarda ninguna foto).
+// Una llamada a gpt-4o-mini con visión. Devuelve las fotos que muestran el
+// tema de la noticia (puede ser []), o null si la llamada falla o la respuesta
+// no es válida (entonces no se guarda ninguna foto).
 async function comprobarImagenesConIA(
   openaiKey: string,
   titulo: string,
   resumen: string,
   imagenes: ImagenParaIA[],
   ms: number
-): Promise<string[] | null> {
+): Promise<ImagenParaIA[] | null> {
   const contenido: unknown[] = [
     { type: "text", text: `Título: ${titulo}\nResumen: ${resumen}\nNúmero de imágenes: ${imagenes.length}` },
   ];
@@ -1353,7 +1409,7 @@ async function comprobarImagenesConIA(
       if (!Number.isInteger(n) || n < 1 || n > imagenes.length) return null;
       elegidas.add(n - 1);
     }
-    return imagenes.filter((_, i) => elegidas.has(i)).map((img) => img.url);
+    return imagenes.filter((_, i) => elegidas.has(i));
   } catch (e) {
     console.error("Noticias: fallo al comprobar fotos con IA:", e instanceof Error ? e.message : e);
     return null;
@@ -1370,7 +1426,7 @@ async function fotosComprobadas(
   resumen: string,
   listas: ImagenParaIA[] | null,
   ms: number
-): Promise<string[] | null> {
+): Promise<ImagenParaIA[] | null> {
   if (!listas) return null;
   if (!listas.length) return [];
   if (ms < 4_000 || cupo.comprobaciones >= MAX_COMPROBACIONES_IA) return null;
@@ -1378,9 +1434,94 @@ async function fotosComprobadas(
   return comprobarImagenesConIA(openaiKey, titulo, resumen, listas, ms);
 }
 
+// --- Copia de las fotos en nuestro Storage (bucket «noticias») -----------------
+
+type MetaFoto = { url: string; w: number; h: number };
+// imagenes: URLs finales (del bucket o, si no se pudo subir, la original);
+// meta: [{url, w, h}] en el mismo orden (w/h = 0 si no se conocen);
+// completas: todas están en el bucket (o pesan más de 5 MB y no caben). Si no,
+// imagenes_meta se guarda vacío y la revisión periódica lo reintenta.
+type FotosGuardadas = { imagenes: string[]; meta: MetaFoto[]; completas: boolean };
+
+const SIN_FOTOS: FotosGuardadas = { imagenes: [], meta: [], completas: true };
+
+// Id nuevo para una noticia (hace falta antes de guardarla: es la carpeta de sus fotos).
+function nuevoId(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof c?.randomUUID === "function") return c.randomUUID();
+  const b = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = b.map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// Espera una promesa como mucho «ms» (null si no llega a tiempo).
+async function conLimiteDeTiempo<T>(promesa: PromiseLike<T>, ms: number): Promise<T | null> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(promesa),
+      new Promise<null>((resolver) => {
+        t = setTimeout(() => resolver(null), ms);
+      }),
+    ]);
+  } finally {
+    if (t) clearTimeout(t);
+  }
+}
+
+// Sube una foto al bucket y devuelve su URL pública, o null si falla.
+async function subirFoto(supabase: SupabaseClient, ruta: string, foto: FotoDescargada, ms: number): Promise<string | null> {
+  if (!foto.archivo || !(ms >= 1_000)) return null;
+  try {
+    const subida = supabase.storage.from(BUCKET_NOTICIAS).upload(ruta, foto.archivo, {
+      contentType: foto.tipo,
+      cacheControl: "31536000",
+      upsert: true,
+    });
+    const r = await conLimiteDeTiempo(subida, ms);
+    if (!r || r.error) {
+      console.warn("Noticias: no se pudo subir la foto al bucket:", ruta, r ? r.error?.message : "sin tiempo");
+      return null;
+    }
+    return supabase.storage.from(BUCKET_NOTICIAS).getPublicUrl(ruta).data.publicUrl;
+  } catch (e) {
+    console.warn("Noticias: fallo subiendo la foto al bucket:", ruta, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+// Copia al bucket las fotos (ya comprobadas) de una noticia, en paralelo, en
+// la ruta <id>/<n>.<ext>. Las que ya están en el bucket solo aportan medidas;
+// foto = null (no se pudo descargar ahora) o de más de 5 MB: se queda la URL
+// original (nunca se pierde una foto).
+async function guardarFotosEnBucket(
+  supabase: SupabaseClient,
+  prefijoBucket: string,
+  noticiaId: string,
+  fotos: { url: string; foto: FotoDescargada | null }[],
+  ms: number
+): Promise<FotosGuardadas> {
+  if (!fotos.length) return SIN_FOTOS;
+  const fin = Date.now() + ms;
+  const resultado = await Promise.all(
+    fotos.map(async ({ url, foto }, i) => {
+      if (url.startsWith(prefijoBucket) || !foto || foto.grande) return { url, foto, ok: true };
+      const subida = await subirFoto(supabase, `${noticiaId}/${i}.${EXTENSION_DE_TIPO[foto.tipo]}`, foto, fin - Date.now());
+      return { url: subida ?? url, foto, ok: subida !== null };
+    })
+  );
+  return {
+    imagenes: resultado.map((r) => r.url),
+    meta: resultado.map((r) => ({ url: r.url, w: r.foto?.medidas?.ancho ?? 0, h: r.foto?.medidas?.alto ?? 0 })),
+    completas: resultado.every((r) => r.ok),
+  };
+}
+
 // --- Columnas que quizá aún no existen (migraciones pendientes) -----------------
 
-const COLUMNAS_OPCIONALES = ["imagenes_verificadas", "imagenes"] as const;
+const COLUMNAS_OPCIONALES = ["imagenes_verificadas", "imagenes", "imagenes_meta"] as const;
 // Se vacía al empezar cada ejecución (por si la migración se aplica entre medias).
 const columnasQueFaltan = new Set<string>();
 
@@ -1465,6 +1606,7 @@ async function recogerNuevas(
   supabase: SupabaseClient,
   openaiKey: string,
   cupo: CupoIA,
+  prefijoBucket: string,
   restante: () => number
 ): Promise<Resultado> {
   // 1) Recopilar de todas las fuentes en paralelo (las que fallen, se saltan)
@@ -1529,14 +1671,27 @@ async function recogerNuevas(
       // Sin comprobar (fallo, sin cupo o sin tiempo) se guarda sin fotos y la
       // revisión lo vuelve a intentar. Si no se pudo leer la página y el RSS no
       // traía fotos, también queda pendiente.
-      const imagenes = fotos ?? [];
       const verificadas = fotos !== null && (pagina.leida || candidatas.length > 0);
+      // Las buenas se copian al bucket (ya están descargadas). Sin tiempo, se
+      // guardan con su URL original y la revisión periódica las copia después.
+      const id = nuevoId();
+      const guardadas = fotos?.length
+        ? await guardarFotosEnBucket(
+            supabase,
+            prefijoBucket,
+            id,
+            fotos.map((f) => ({ url: f.url, foto: f.foto })),
+            Math.min(TIMEOUT_SUBIDA_MS, restante() - 3_000)
+          )
+        : SIN_FOTOS;
       filas.push({
+        id,
         url: n.url,
         fuente: n.fuente.slice(0, 120),
         titulo: d.titulo,
-        imagen_url: imagenes[0] ?? null,
-        imagenes,
+        imagen_url: guardadas.imagenes[0] ?? null,
+        imagenes: guardadas.imagenes,
+        imagenes_meta: guardadas.completas ? guardadas.meta : [],
         imagenes_verificadas: verificadas,
         categoria: d.categoria,
         resumen: d.resumen,
@@ -1551,11 +1706,12 @@ async function recogerNuevas(
   };
   await Promise.all(Array.from({ length: CONCURRENCIA }, trabajador));
 
-  // 5) Guardar (si otra ejecución ya guardó la misma url, se ignora)
+  // 5) Guardar (si otra ejecución ya guardó la misma url, se ignora; sus fotos
+  //    copiadas al bucket se quedan sin usar, no molestan)
   let nuevas = 0;
   if (filas.length) {
-    // Si imagenes o imagenes_verificadas aún no existen (migración pendiente),
-    // se guarda sin ellas. Las fotos que se guardan ya están comprobadas.
+    // Si imagenes, imagenes_verificadas o imagenes_meta aún no existen
+    // (migración pendiente), se guarda sin ellas. Las fotos ya están comprobadas.
     const { data, error } = await conColumnasOpcionales((limpiar) =>
       supabase
         .from("noticias_gaming")
@@ -1584,21 +1740,45 @@ type FilaRevision = {
   publicada_en: string | null;
 };
 
-// Revisa hasta 6 noticias con imagenes_verificadas = false: busca candidatas
-// con las reglas nuevas (si no se puede leer la página, usa las que ya tenía)
-// y las pasa por la comprobación con IA. Devuelve cuántas se han actualizado.
+// Revisión periódica (como mucho cada 10 minutos, clave 'relleno'): a la vez,
+// la comprobación con IA de las fotos sin verificar y la copia al bucket de
+// las ya verificadas (sin IA). Devuelve cuántas noticias se han actualizado.
 async function revisarImagenes(
   supabase: SupabaseClient,
   openaiKey: string,
   cupo: CupoIA,
+  prefijoBucket: string,
+  fin: number
+): Promise<number> {
+  if (columnasQueFaltan.has("imagenes_verificadas")) return 0;
+  try {
+    if (!(await reservarTurno(supabase, "relleno", MINUTOS_ENTRE_REVISIONES * 60_000, false))) return 0;
+  } catch (e: any) {
+    console.warn("Noticias: revisión de fotos saltada:", e?.message ?? e);
+    return 0;
+  }
+  const [revisadas, copiadas] = await Promise.all([
+    revisarSinVerificar(supabase, openaiKey, cupo, prefijoBucket, fin),
+    pasarFotosAlBucket(supabase, prefijoBucket, fin),
+  ]);
+  return revisadas + copiadas;
+}
+
+// Revisa hasta 6 noticias con imagenes_verificadas = false: busca candidatas
+// con las reglas nuevas (si no se puede leer la página, usa las que ya tenía)
+// y las pasa por la comprobación con IA; las buenas se copian al bucket.
+// Devuelve cuántas se han actualizado.
+async function revisarSinVerificar(
+  supabase: SupabaseClient,
+  openaiKey: string,
+  cupo: CupoIA,
+  prefijoBucket: string,
   fin: number
 ): Promise<number> {
   const quedan = () => fin - Date.now();
   const maxFilas = Math.min(MAX_REVISION_POR_EJECUCION, MAX_COMPROBACIONES_IA - cupo.comprobaciones);
   if (maxFilas <= 0 || columnasQueFaltan.has("imagenes_verificadas")) return 0;
   try {
-    if (!(await reservarTurno(supabase, "relleno", MINUTOS_ENTRE_REVISIONES * 60_000, false))) return 0;
-
     // Por dónde va el recorrido (fecha de la última noticia revisada).
     const { data: control } = await supabase
       .from("noticias_gaming_control")
@@ -1664,10 +1844,25 @@ async function revisarImagenes(
         );
         // Sin comprobar: sigue sin enseñar fotos y se reintenta en otra vuelta.
         if (fotos === null) continue;
+        // Las buenas se copian al bucket (ya están descargadas).
+        const copia = await guardarFotosEnBucket(
+          supabase,
+          prefijoBucket,
+          fila.id,
+          fotos.map((f) => ({ url: f.url, foto: f.foto })),
+          Math.min(TIMEOUT_SUBIDA_MS, quedan() - 1_000)
+        );
         const { error } = await conColumnasOpcionales((limpiar) =>
           supabase
             .from("noticias_gaming")
-            .update(limpiar({ imagen_url: fotos[0] ?? null, imagenes: fotos, imagenes_verificadas: true }))
+            .update(
+              limpiar({
+                imagen_url: copia.imagenes[0] ?? null,
+                imagenes: copia.imagenes,
+                imagenes_meta: copia.completas ? copia.meta : [],
+                imagenes_verificadas: true,
+              })
+            )
             .eq("id", fila.id)
         );
         if (error) console.warn("Noticias: no se pudo guardar la revisión de fotos:", error.message);
@@ -1686,6 +1881,116 @@ async function revisarImagenes(
     return revisadas;
   } catch (e: any) {
     console.warn("Noticias: revisión de fotos saltada:", e?.message ?? e);
+    return 0;
+  }
+}
+
+// --- Copia al bucket de las fotos ya verificadas (sin IA) ------------------------
+
+type FilaBucket = { id: string; imagen_url: string | null; imagenes?: unknown; publicada_en: string | null };
+
+// Fotos guardadas de una noticia: la principal + las del carrusel, sin
+// repetidas y solo https (máx. 6), en el mismo orden que las enseña la app.
+function fotosDeFila(fila: { imagen_url: string | null; imagenes?: unknown }): string[] {
+  const todas: unknown[] = [fila.imagen_url, ...(Array.isArray(fila.imagenes) ? fila.imagenes : [])];
+  const salida: string[] = [];
+  for (const u of todas) {
+    if (typeof u === "string" && /^https:\/\//i.test(u) && !salida.includes(u)) salida.push(u);
+  }
+  return salida.slice(0, MAX_IMAGENES);
+}
+
+// Copia al bucket las fotos de hasta 8 noticias ya verificadas que aún no
+// tienen imagenes_meta (anteriores al bucket o con alguna subida pendiente) y
+// rellena imagenes_meta. No llama a la IA: las fotos ya están comprobadas. Una
+// foto que ahora no se puede descargar se queda con su URL original. La clave
+// 'bucket_cursor' recuerda por qué fecha va, para que una noticia que no se
+// deja copiar no bloquee a las demás. Devuelve cuántas se han actualizado.
+async function pasarFotosAlBucket(supabase: SupabaseClient, prefijoBucket: string, fin: number): Promise<number> {
+  const quedan = () => fin - Date.now();
+  if (["imagenes", "imagenes_meta", "imagenes_verificadas"].some((c) => columnasQueFaltan.has(c))) return 0;
+  try {
+    const { data: control } = await supabase
+      .from("noticias_gaming_control")
+      .select("valor")
+      .eq("clave", "bucket_cursor")
+      .maybeSingle();
+    const cursor: string | null = typeof control?.valor === "string" ? control.valor : null;
+
+    // null: falta la columna imagenes_meta (migración pendiente) → no se copia nada.
+    const buscar = async (antesDe: string | null): Promise<FilaBucket[] | null> => {
+      let q = supabase
+        .from("noticias_gaming")
+        .select("id,imagen_url,imagenes,publicada_en")
+        .eq("imagenes_verificadas", true)
+        .eq("imagenes_meta", "[]")
+        .eq("publicada", true)
+        .not("imagen_url", "is", null)
+        .not("publicada_en", "is", null)
+        .order("publicada_en", { ascending: false })
+        .limit(MAX_BUCKET_POR_EJECUCION);
+      if (antesDe) q = q.lt("publicada_en", antesDe);
+      const { data, error } = await q;
+      if (!error) return (data ?? []) as unknown as FilaBucket[];
+      if (apuntarColumnaQueFalta(error)) return null;
+      throw error;
+    };
+
+    let filas = await buscar(cursor);
+    // Se llegó al final: vuelve a empezar por las más recientes.
+    if (filas && !filas.length && cursor) filas = await buscar(null);
+    if (!filas || !filas.length) return 0;
+    const lista = filas;
+
+    let copiadas = 0;
+    let siguiente = 0;
+    const trabajador = async () => {
+      // Cada noticia: descarga (máx. 8 s) y subida (máx. 8 s), siempre con margen.
+      while (siguiente < lista.length && quedan() > TIMEOUT_DESCARGA_BUCKET_MS + 4_000) {
+        const fila = lista[siguiente++];
+        const urls = fotosDeFila(fila);
+        if (!urls.length) continue;
+        // También las que ya están en el bucket: de ellas solo se leen las medidas.
+        const descargas = await Promise.all(
+          urls.map(async (url) => ({
+            url,
+            foto: await descargarFoto(url, Math.min(TIMEOUT_DESCARGA_BUCKET_MS, quedan() - 3_000)),
+          }))
+        );
+        const guardadas = await guardarFotosEnBucket(
+          supabase,
+          prefijoBucket,
+          fila.id,
+          descargas,
+          Math.min(TIMEOUT_SUBIDA_MS, quedan() - 1_000)
+        );
+        const cambian = guardadas.imagenes.some((u, i) => u !== urls[i]);
+        // Nada copiado y todavía pendiente: se reintenta en otra vuelta.
+        if (!guardadas.completas && !cambian) continue;
+        const { error } = await supabase
+          .from("noticias_gaming")
+          .update({
+            imagen_url: guardadas.imagenes[0] ?? null,
+            imagenes: guardadas.imagenes,
+            imagenes_meta: guardadas.completas ? guardadas.meta : [],
+          })
+          .eq("id", fila.id);
+        if (error) console.warn("Noticias: no se pudo guardar la copia de fotos:", error.message);
+        else copiadas++;
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCIA_BUCKET }, trabajador));
+
+    // La próxima vez sigue por debajo de la última tratada.
+    const ultima = siguiente > 0 ? lista[siguiente - 1]?.publicada_en : null;
+    if (ultima) {
+      await supabase
+        .from("noticias_gaming_control")
+        .upsert({ clave: "bucket_cursor", valor: ultima }, { onConflict: "clave" });
+    }
+    return copiadas;
+  } catch (e: any) {
+    console.warn("Noticias: copia de fotos al bucket saltada:", e?.message ?? e);
     return 0;
   }
 }
@@ -1728,6 +2033,8 @@ export default async function handler(req: any, res: any) {
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    // Principio de las URLs públicas del bucket (…/storage/v1/object/public/noticias/).
+    const prefijoBucket = supabase.storage.from(BUCKET_NOTICIAS).getPublicUrl("x").data.publicUrl.slice(0, -1);
 
     // 1) ¿Toca recoger noticias nuevas? (se marca 'ultima' antes de procesar)
     let toca: boolean;
@@ -1744,14 +2051,15 @@ export default async function handler(req: any, res: any) {
 
     // Cupo de llamadas a OpenAI de esta ejecución: 8 resúmenes + 6 comprobaciones.
     const cupo: CupoIA = { resumenes: 0, comprobaciones: 0 };
-    const resultado = toca ? await recogerNuevas(supabase, openaiKey, cupo, restante) : null;
+    const resultado = toca ? await recogerNuevas(supabase, openaiKey, cupo, prefijoBucket, restante) : null;
 
-    // 2) Revisión de fotos de las ya guardadas sin verificar, si queda tiempo y cupo.
+    // 2) Revisión de fotos de las ya guardadas, si queda tiempo: las sin verificar
+    //    (con IA, si queda cupo) y la copia al bucket de las verificadas (sin IA).
     //    («rellenadas»: noticias actualizadas; la app recarga si hay alguna.)
     let rellenadas = 0;
-    if (restante() > 20_000 && cupo.comprobaciones < MAX_COMPROBACIONES_IA) {
+    if (restante() > 20_000) {
       const fin = Date.now() + Math.min(PRESUPUESTO_REVISION_MS, restante() - 2_000);
-      rellenadas = await revisarImagenes(supabase, openaiKey, cupo, fin);
+      rellenadas = await revisarImagenes(supabase, openaiKey, cupo, prefijoBucket, fin);
     }
 
     res.status(200).json(

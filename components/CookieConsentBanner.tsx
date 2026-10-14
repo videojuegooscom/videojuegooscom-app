@@ -46,7 +46,7 @@ const COLORS = {
   text: "#0B2138",
   muted: "rgba(11,33,56,0.66)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
 };

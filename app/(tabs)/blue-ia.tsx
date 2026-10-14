@@ -108,7 +108,7 @@ const COLORS = {
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
-  primary: "#0E86C4",
+  primary: "#1EA7E8",
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#22C55E",
@@ -1243,7 +1243,7 @@ function BlueIAHistorialModal({
   );
 }
 
-// Botón principal en píldora (#0E86C4).
+// Botón principal en píldora (#1EA7E8).
 function BotonPrincipal({
   icon,
   texto,
@@ -1673,7 +1673,7 @@ function MiniPill({
   tone: "accent" | "success" | "gold";
 }) {
   // Solo texto de color, sin pastilla alrededor.
-  const color = tone === "accent" ? "#0F8FCC" : tone === "success" ? "#15803D" : "#92660B";
+  const color = tone === "accent" ? "#1EA7E8" : tone === "success" ? "#15803D" : "#92660B";
 
   return (
     <Text style={{ color, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{text}</Text>

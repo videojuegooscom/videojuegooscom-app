@@ -111,7 +111,7 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   onAccent: "#FFFFFF",
@@ -571,7 +571,7 @@ function Separador({ isMobile }: { isMobile?: boolean }) {
 const CSS_BRILLO_OFERTA = [
   ".vz-oferta-brillo{display:inline-block;filter:drop-shadow(0 0 4px rgba(30,167,232,.18));animation:vz-oferta-brillo 2.8s ease-in-out infinite;}",
   // Solo se vuelve transparente el relleno si el navegador sabe recortar el fondo al texto.
-  "@supports (-webkit-background-clip:text) or (background-clip:text){.vz-oferta-brillo{background-image:linear-gradient(105deg,#0E86C4 0%,#0E86C4 40%,#5CCBF7 46%,#F4D58D 50%,#5CCBF7 54%,#0E86C4 60%,#0E86C4 100%);background-size:250% 100%;background-position:100% 0;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}}",
+  "@supports (-webkit-background-clip:text) or (background-clip:text){.vz-oferta-brillo{background-image:linear-gradient(105deg,#1EA7E8 0%,#1EA7E8 40%,#5CCBF7 46%,#F4D58D 50%,#5CCBF7 54%,#1EA7E8 60%,#1EA7E8 100%);background-size:250% 100%;background-position:100% 0;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}}",
   "@keyframes vz-oferta-brillo{0%{background-position:100% 0;filter:drop-shadow(0 0 4px rgba(30,167,232,.18))}30%{filter:drop-shadow(0 0 10px rgba(30,167,232,.42))}60%,100%{background-position:0 0;filter:drop-shadow(0 0 4px rgba(30,167,232,.18))}}",
   "@media (prefers-reduced-motion: reduce){.vz-oferta-brillo{animation:none}}",
 ].join("");
@@ -634,7 +634,7 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
   }, [esWeb, reducir, halo]);
 
   const estilo = {
-    color: "#0E86C4",
+    color: "#1EA7E8",
     fontSize: isMobile ? 21 : 24,
     fontWeight: "900" as const,
     letterSpacing: 0.3,

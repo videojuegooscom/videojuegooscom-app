@@ -24,6 +24,10 @@
  *   solo si status='PUBLISHED' y is_active=true, igual que un producto.
  * - Tema claro (fondo blanco, texto azul marino, acentos azul claro) con
  *   contenido centrado en pantallas anchas (columnStyle, maxWidth 1160).
+ * - Scroll: cabecera fija y compacta (volver + título centrado) y, debajo,
+ *   pestañas y contenido de la pestaña activa en un único ScrollView (flex 1,
+ *   margen final 48 px + zona segura). El modal de alta/edición se desplaza
+ *   entero y, en iOS, deja sitio al teclado.
  *
  * Rendimiento: uploadNewPhotos() sube las fotos a Storage una a una (no se
  * puede agrupar) pero guarda sus filas en "service_media" con un único
@@ -36,6 +40,8 @@
  *   tablas y políticas RLS que usa esta pantalla.
  * - app/admin/products/products.utils.ts, products.constants.ts → selector
  *   y subida de fotos, formateo de precio/texto (reutilizados, no duplicados).
+ * - app/admin/products/products.components.tsx → AdminHeader, StatCard,
+ *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
  * - app/servicios.tsx, app/servicio/[id].tsx → lo que ve el público.
  * - components/ContratarServicioModal.tsx → origen de cada fila de
  *   service_requests.
@@ -44,10 +50,10 @@
  *   Stack protegido del panel admin.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -58,11 +64,26 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
+import CargaMarca from "../../components/marca/CargaMarca";
+import {
+  AdminHeader,
+  AdminNotice,
+  EmptyState,
+  PrimaryButton,
+  StatCard,
+} from "./products/products.components";
 import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "./products/products.constants";
 import type { LocalPickedMedia } from "./products/products.types";
-import { buildMediaPath, fmtEUR, pickMediaFilesWeb, toIntSafe } from "./products/products.utils";
+import {
+  CIERRE_TECLADO,
+  buildMediaPath,
+  fmtEUR,
+  pickMediaFilesWeb,
+  toIntSafe,
+} from "./products/products.utils";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -91,31 +112,6 @@ const COLORS = {
 
 const columnStyle = { width: "100%", maxWidth: 1160, alignSelf: "center" } as const;
 const modalColumnStyle = { width: "100%", maxWidth: 560, alignSelf: "center" } as const;
-
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
 
 // --- Tipos -------------------------------------------------------------
 
@@ -244,28 +240,6 @@ function coverUrl(media: ServiceMediaRow[]): string | null {
 
 // --- Piezas visuales compartidas ----------------------------------------
 
-function StatCard({ label, value, icon, isMobile }: { label: string; value: string; icon?: IoniconName; isMobile?: boolean }) {
-  return (
-    <View
-      style={{
-        width: isMobile ? "48.4%" : "23.4%",
-        borderRadius: 18,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, textAlign: "center" }}>{label}</Text>
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 function ChipButton({
   label,
   onPress,
@@ -347,7 +321,8 @@ function TextField({
           borderRadius: 14,
           paddingHorizontal: 14,
           paddingVertical: multiline ? 12 : 10,
-          fontSize: 15,
+          // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
+          fontSize: 16,
           color: COLORS.text,
           backgroundColor: COLORS.cardSoft,
           minHeight: multiline ? 90 : undefined,
@@ -449,7 +424,7 @@ function RequestSeguimiento({
           borderRadius: 14,
           paddingHorizontal: 14,
           paddingVertical: 10,
-          fontSize: 15,
+          fontSize: 16,
           color: COLORS.text,
           backgroundColor: COLORS.cardSoft,
           textAlign: "center",
@@ -479,6 +454,8 @@ export default function AdminServices() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 760;
   const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 20 : 24;
+  const insets = useSafeAreaInsets();
 
   const [tab, setTab] = useState<"catalogo" | "solicitudes">("catalogo");
 
@@ -888,70 +865,47 @@ export default function AdminServices() {
   // --- Render ---
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    // En iOS deja sitio al teclado (las notas de seguimiento pueden estar al final de la lista).
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={{ flex: 1, backgroundColor: COLORS.bg }}
+    >
       <StatusBar barStyle="dark-content" />
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#F6FAFD",
-          paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 14,
-          gap: 10,
-        }}
-      >
-        <View style={{ ...columnStyle, gap: 10 }}>
-          <View style={{ position: "relative", justifyContent: "center", minHeight: 36 }}>
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                position: "absolute",
-                left: 0,
-                top: 0,
-                opacity: pressed ? 0.85 : 1,
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                alignItems: "center",
-                justifyContent: "center",
-              })}
-            >
-              <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-            </Pressable>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: isMobile ? 20 : 22,
-                fontWeight: "900",
-                textAlign: "center",
-                paddingHorizontal: 44,
-              }}
-            >
-              Servicios
-            </Text>
-          </View>
 
-          <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
-            <ChipButton
-              label="Catálogo"
-              onPress={() => setTab("catalogo")}
-              variant={tab === "catalogo" ? "primary" : "ghost"}
-              isMobile={isMobile}
-            />
-            <ChipButton
-              label="Solicitudes"
-              onPress={() => setTab("solicitudes")}
-              variant={tab === "solicitudes" ? "primary" : "ghost"}
-              isMobile={isMobile}
-            />
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual
+          en todo el panel. Pestañas y contenido van en un solo scroll. */}
+      <AdminHeader title="Servicios" isMobile={isMobile} maxWidth={1160} />
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: pagePadding,
+          paddingBottom: 48 + insets.bottom,
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={CIERRE_TECLADO}
+      >
+        <View style={{ ...columnStyle, gap: sectionGap }}>
+          <View>
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
+              <ChipButton
+                label="Catálogo"
+                onPress={() => setTab("catalogo")}
+                variant={tab === "catalogo" ? "primary" : "ghost"}
+                isMobile={isMobile}
+              />
+              <ChipButton
+                label="Solicitudes"
+                onPress={() => setTab("solicitudes")}
+                variant={tab === "solicitudes" ? "primary" : "ghost"}
+                isMobile={isMobile}
+              />
+            </View>
           </View>
-        </View>
-      </View>
 
       {tab === "catalogo" ? (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40 }}>
-          <View style={{ ...columnStyle, gap: 14 }}>
+          <>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               <StatCard label="Servicios" value={String(stats.total)} icon="construct-outline" isMobile={isMobile} />
               <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
@@ -959,50 +913,36 @@ export default function AdminServices() {
               <StatCard label="Visitas totales" value={String(stats.views)} icon="trending-up-outline" isMobile={isMobile} />
             </View>
 
-            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <TextInput
-                  value={search}
-                  onChangeText={setSearch}
-                  placeholder="Buscar por título o descripción…"
-                  placeholderTextColor={COLORS.muted2}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    borderRadius: 999,
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
-                    fontSize: 14,
-                    color: COLORS.text,
-                    backgroundColor: COLORS.cardSoft,
-                    textAlign: "center",
-                  }}
-                />
-              </View>
-              <ChipButton label="+ Nuevo servicio" onPress={openCreate} variant="primary" isMobile={isMobile} fullWidth={isMobile} />
+            <View style={{ gap: 14 }}>
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Buscar por título o descripción…"
+                placeholderTextColor={COLORS.muted2}
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 999,
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
+                  fontSize: 16,
+                  color: COLORS.text,
+                  backgroundColor: COLORS.cardSoft,
+                  textAlign: "center",
+                }}
+              />
+              <PrimaryButton label="+ Nuevo servicio" onPress={openCreate} />
             </View>
 
             {loading ? (
-              <View style={{ alignItems: "center", paddingVertical: 30 }}>
-                <ActivityIndicator color={COLORS.accent} />
-              </View>
+              <CargaMarca texto="Cargando servicios…" />
             ) : filteredServices.length === 0 ? (
-              <View
-                style={{
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: 20,
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <Ionicons name="construct-outline" size={24} color={COLORS.muted} />
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Todavía no hay servicios</Text>
-                <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-                  Crea el primero (por ejemplo «Reparación de pantalla» o «Limpieza interna») para que
-                  aparezca en la categoría «Reparación/Limpieza» de Inicio.
-                </Text>
-              </View>
+              <EmptyState
+                icon="construct-outline"
+                title="Todavía no hay servicios"
+                text="Crea el primero (por ejemplo «Reparación de pantalla» o «Limpieza interna») para que aparezca en la categoría «Reparación/Limpieza» de Inicio."
+              />
             ) : (
               <View style={{ gap: 10 }}>
                 {filteredServices.map((s) => {
@@ -1069,11 +1009,9 @@ export default function AdminServices() {
                 })}
               </View>
             )}
-          </View>
-        </ScrollView>
+          </>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40 }}>
-          <View style={{ ...columnStyle, gap: 14 }}>
+          <>
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
               {(["ALL", "nuevo", "revisado", "contactado", "descartado"] as const).map((f) => (
                 <ChipButton
@@ -1087,26 +1025,13 @@ export default function AdminServices() {
             </View>
 
             {requestsLoading ? (
-              <View style={{ alignItems: "center", paddingVertical: 30 }}>
-                <ActivityIndicator color={COLORS.accent} />
-              </View>
+              <CargaMarca texto="Cargando solicitudes…" />
             ) : filteredRequests.length === 0 ? (
-              <View
-                style={{
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: 20,
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <Ionicons name="document-text-outline" size={24} color={COLORS.muted} />
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin solicitudes todavía</Text>
-                <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
-                  Aquí aparecerán los clientes que pulsen «Contratar servicio ahora» en la ficha de un
-                  servicio.
-                </Text>
-              </View>
+              <EmptyState
+                icon="document-text-outline"
+                title="Sin solicitudes todavía"
+                text="Aquí aparecerán los clientes que pulsen «Contratar servicio ahora» en la ficha de un servicio."
+              />
             ) : (
               <View style={{ gap: 10 }}>
                 {filteredRequests.map((r) => {
@@ -1210,21 +1135,33 @@ export default function AdminServices() {
                 })}
               </View>
             )}
-          </View>
-        </ScrollView>
+          </>
       )}
+        </View>
+      </ScrollView>
 
-      {/* Modal crear/editar servicio */}
+      {/* Modal crear/editar servicio: cabecera fija con la X y el
+          formulario desplazable dentro (maxHeight), con sitio para el
+          teclado en iOS. */}
       <Modal visible={modalOpen} transparent animationType="fade" onRequestClose={closeModal}>
-        <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", padding: 16, justifyContent: "center" }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(11,33,56,0.55)",
+            paddingHorizontal: 16,
+            paddingTop: insets.top + 16,
+            paddingBottom: insets.bottom + 16,
+            justifyContent: "center",
+          }}
+        >
           <View
             style={{
               ...modalColumnStyle,
-              maxHeight: "88%",
+              maxHeight: "92%",
               borderRadius: 22,
               backgroundColor: COLORS.bg,
               overflow: "hidden",
-              ...softShadow(),
             }}
           >
             <View
@@ -1261,7 +1198,13 @@ export default function AdminServices() {
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 14 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={CIERRE_TECLADO}
+            >
               <TextField label="Título" value={title} onChangeText={setTitle} placeholder="Reparación de pantalla" />
               <TextField
                 label="Descripción"
@@ -1418,50 +1361,25 @@ export default function AdminServices() {
                 )}
               </View>
 
-              {!!modalErr && (
-                <View
-                  style={{
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: COLORS.dangerBorder,
-                    backgroundColor: COLORS.dangerBg,
-                    padding: 10,
-                  }}
-                >
-                  <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>{modalErr}</Text>
-                </View>
-              )}
+              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
-              <Pressable
+              <PrimaryButton
+                label={saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear servicio"}
                 onPress={save}
                 disabled={saving}
-                style={({ pressed }) => ({
-                  opacity: saving ? 0.6 : pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 13,
-                  backgroundColor: COLORS.accent,
-                  alignItems: "center",
-                })}
-              >
-                {saving ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                    {editing ? "Guardar cambios" : "Crear servicio"}
-                  </Text>
-                )}
-              </Pressable>
+                fullWidth
+              />
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Confirmar borrado de servicio */}
       <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
         <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", padding: 16, justifyContent: "center" }}>
           <View style={{ ...modalColumnStyle, borderRadius: 20, backgroundColor: COLORS.bg, padding: 18, gap: 14 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>¿Borrar este servicio?</Text>
-            <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>¿Borrar este servicio?</Text>
+            <Text style={{ color: COLORS.muted, lineHeight: 19, textAlign: "center" }}>
               Se borrará «{deleteTarget?.title}» y sus fotos. Esta acción no se puede deshacer.
             </Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
@@ -1480,8 +1398,8 @@ export default function AdminServices() {
       <Modal visible={!!deleteRequestTarget} transparent animationType="fade" onRequestClose={() => setDeleteRequestTarget(null)}>
         <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", padding: 16, justifyContent: "center" }}>
           <View style={{ ...modalColumnStyle, borderRadius: 20, backgroundColor: COLORS.bg, padding: 18, gap: 14 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>¿Borrar esta solicitud?</Text>
-            <Text style={{ color: COLORS.muted, lineHeight: 19 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>¿Borrar esta solicitud?</Text>
+            <Text style={{ color: COLORS.muted, lineHeight: 19, textAlign: "center" }}>
               Se borrará la solicitud de {deleteRequestTarget?.nombre}. Esta acción no se puede deshacer.
             </Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
@@ -1495,6 +1413,6 @@ export default function AdminServices() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

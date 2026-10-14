@@ -20,16 +20,22 @@
  *   aviso claro en vez de romperse o quedarse cargando para siempre.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
  *   en azul marino oscuro.
+ * - Scroll: cabecera fija y compacta (volver + título centrado) y, debajo,
+ *   subtítulo, estadísticas, buscador y lista en un único ScrollView (flex 1,
+ *   margen final 48 px + zona segura). Antes todo lo de arriba era fijo y en
+ *   el móvil dejaba la lista en una franja mínima.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - sql/inventory_items.sql → crea la tabla y sus políticas (solo admin).
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
- *   "Inventario") y a la que se vuelve con smartBackAdminHome().
+ *   "Inventario") y a la que se vuelve con el botón de la cabecera.
+ * - app/admin/products/products.components.tsx → AdminHeader, StatCard,
+ *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -40,11 +46,18 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import {
+  AdminHeader,
+  AdminIntro,
+  AdminLoading,
+  AdminNotice,
+  EmptyState,
+  PrimaryButton,
+  StatCard,
+} from "./products/products.components";
+import { CIERRE_TECLADO } from "./products/products.utils";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -108,74 +121,22 @@ function nextStatus(status: InventoryStatus): InventoryStatus {
   return STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
 }
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
+// Campo de texto del formulario: 16 px para que Safari en iPhone no haga
+// zoom automático de toda la pantalla al enfocarlo.
+const inputStyle = {
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  borderRadius: 14,
+  paddingHorizontal: 12,
+  paddingVertical: 12,
+  color: COLORS.text,
+  backgroundColor: "#F8FBFE",
+  fontSize: 16,
+} as const;
 
 function isMissingTableError(e: any): boolean {
   const msg = String(e?.message ?? "").toLowerCase();
   return msg.includes("inventory_items") && (msg.includes("does not exist") || msg.includes("schema cache"));
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-  compact,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: compact ? (isMobile ? "48%" : "23.5%") : "100%",
-        borderRadius: 18,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>{label}</Text>
-      </View>
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          fontSize: isMobile ? 17 : 18,
-          marginTop: 6,
-        }}
-      >
-        {value}
-      </Text>
-    </View>
-  );
 }
 
 function ChipButton({
@@ -233,6 +194,8 @@ export default function Inventario() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 20 : 24;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -439,179 +402,65 @@ export default function Inventario() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
-          paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: isMobile ? 12 : 12,
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual
+          en todo el panel. Lo demás va en un solo scroll. */}
+      <AdminHeader title="Inventario" isMobile={isMobile} />
+
+      {loading ? (
+        <AdminLoading texto="Cargando inventario…" />
+      ) : (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: pagePadding,
+          paddingBottom: 48 + insets.bottom,
           alignItems: "center",
         }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={CIERRE_TECLADO}
       >
-        <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-          <View
-            style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "center",
-              gap: 10,
-            }}
-          >
-            <View style={{ flex: isMobile ? undefined : 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  lineHeight: isMobile ? 28 : 30,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Inventario
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 4,
-                  lineHeight: 20,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Controla el código interno y el estado de cada unidad física en gestión.
-              </Text>
-            </View>
+        <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
+          <AdminIntro text="Controla el código interno y el estado de cada unidad física en gestión." />
 
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-                alignSelf: isMobile ? "flex-start" : "auto",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-            </Pressable>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} />
+            <StatCard label="Por revisar" value={String(stats.toReview)} icon="time-outline" isMobile={isMobile} />
+            <StatCard label="Listos" value={String(stats.ready)} icon="checkmark-circle-outline" isMobile={isMobile} />
+            <StatCard label="En reparación" value={String(stats.inRepair)} icon="build-outline" isMobile={isMobile} />
           </View>
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
-            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} compact />
-            <StatCard label="Por revisar" value={String(stats.toReview)} icon="time-outline" isMobile={isMobile} compact />
-            <StatCard label="Listos" value={String(stats.ready)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
-            <StatCard label="En reparación" value={String(stats.inRepair)} icon="build-outline" isMobile={isMobile} compact />
-          </View>
-
-          <View
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 10,
-            }}
-          >
+          <View style={{ gap: 14 }}>
             <TextInput
               value={search}
               onChangeText={(v) => setSearch(v)}
               placeholder="Buscar por código o título"
               placeholderTextColor="rgba(11,33,56,0.40)"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-                backgroundColor: "#F8FBFE",
-                fontSize: isMobile ? 14 : 15,
-              }}
+              style={inputStyle}
             />
 
-            <Pressable
-              onPress={openCreate}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.9 : 1,
-                borderRadius: 14,
-                paddingVertical: 13,
-                alignItems: "center",
-                backgroundColor: COLORS.accent,
-                ...softShadow(),
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>+ Nuevo artículo</Text>
-            </Pressable>
+            <PrimaryButton label="+ Nuevo artículo" onPress={openCreate} />
           </View>
 
-          {!!screenErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{screenErr}</Text>
-            </View>
-          )}
+          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
           {tableMissing && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.warningBg,
-                padding: 10,
-                gap: 4,
-              }}
-            >
-              <Text style={{ color: COLORS.warning, fontWeight: "900", lineHeight: 20 }}>
-                Falta crear la tabla de inventario en Supabase.
-              </Text>
-              <Text style={{ color: COLORS.warning, lineHeight: 19 }}>
-                Ejecuta el archivo sql/inventory_items.sql una vez en el SQL Editor de tu
-                proyecto de Supabase y recarga esta pantalla.
-              </Text>
-            </View>
+            <AdminNotice
+              tone="warning"
+              title="Falta crear la tabla de inventario en Supabase."
+              text="Ejecuta el archivo sql/inventory_items.sql una vez en el SQL Editor de tu proyecto de Supabase y recarga esta pantalla."
+            />
           )}
-        </View>
-      </View>
 
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando inventario…</Text>
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={{
-            padding: pagePadding,
-            paddingBottom: 30,
-            alignItems: "center",
-          }}
-        >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-            {!tableMissing && filteredItems.length === 0 ? (
-              <View
-                style={{
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 14 : 16,
-                  gap: 8,
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                  No hay artículos para este filtro.
-                </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  Crea tu primer artículo de inventario para empezar a llevar el control.
-                </Text>
-              </View>
-            ) : (
-              filteredItems.map((i) => {
+          {!tableMissing && filteredItems.length === 0 ? (
+            <EmptyState
+              icon="cube-outline"
+              title="No hay artículos para este filtro."
+              text="Crea tu primer artículo de inventario para empezar a llevar el control."
+            />
+          ) : (
+            <View style={{ gap: 12 }}>
+            {filteredItems.map((i) => {
                 const sc = statusColors(i.status);
                 return (
                   <View
@@ -641,7 +490,7 @@ export default function Inventario() {
                         )}
 
                         <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 8, lineHeight: 17 }}>
-                          Actualizado: {i.updated_at ? new Date(i.updated_at).toLocaleString() : "-"}
+                          Actualizado: {i.updated_at ? new Date(i.updated_at).toLocaleString("es-ES") : "-"}
                         </Text>
                       </View>
 
@@ -664,28 +513,47 @@ export default function Inventario() {
                       </Pressable>
                     </View>
 
-                    <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 10,
+                        flexWrap: "wrap",
+                        justifyContent: isMobile ? "center" : "flex-start",
+                      }}
+                    >
                       <ChipButton label="Editar" variant="primary" onPress={() => openEdit(i)} isMobile={isMobile} />
                       <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(i)} isMobile={isMobile} />
                     </View>
                   </View>
                 );
-              })
-            )}
-          </View>
-        </ScrollView>
+            })}
+            </View>
+          )}
+        </View>
+      </ScrollView>
       )}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.60)",
-            padding: isMobile ? 10 : 16,
-            justifyContent: "center",
+            paddingHorizontal: isMobile ? 10 : 16,
           }}
         >
-          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: "center",
+              paddingTop: insets.top + 16,
+              paddingBottom: insets.bottom + 32,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
             <View
               style={{
                 width: "100%",
@@ -694,17 +562,16 @@ export default function Inventario() {
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: COLORS.bg2,
+                backgroundColor: COLORS.bg,
                 padding: isMobile ? 14 : 16,
                 gap: 12,
-                ...softShadow(),
               }}
             >
-              <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900" }}>
+              <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900", textAlign: "center" }}>
                 {modalTitle}
               </Text>
 
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                 Define el código interno, el título y el estado actual del artículo.
               </Text>
 
@@ -717,16 +584,7 @@ export default function Inventario() {
                 placeholder="Código (ej. 001)"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 autoCapitalize="none"
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                }}
+                style={inputStyle}
               />
 
               <TextInput
@@ -737,16 +595,7 @@ export default function Inventario() {
                 }}
                 placeholder="Título (ej. PS5 Slim 1TB)"
                 placeholderTextColor="rgba(11,33,56,0.40)"
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                }}
+                style={inputStyle}
               />
 
               <TextInput
@@ -759,32 +608,12 @@ export default function Inventario() {
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 multiline
                 numberOfLines={3}
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                  minHeight: 72,
-                  textAlignVertical: "top",
-                }}
+                style={{ ...inputStyle, minHeight: 72, textAlignVertical: "top" }}
               />
 
-              <View
-                style={{
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.cardSoft,
-                  padding: 12,
-                  gap: 10,
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Estado</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <View style={{ gap: 10, alignItems: "center" }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Estado</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                   {STATUS_ORDER.map((s) => {
                     const active = status === s;
                     const sc = statusColors(s);
@@ -811,28 +640,16 @@ export default function Inventario() {
                 </View>
               </View>
 
-              {!!modalErr && (
-                <View
-                  style={{
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.dangerBorder,
-                    backgroundColor: COLORS.dangerBg,
-                    padding: 10,
-                  }}
-                >
-                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{modalErr}</Text>
-                </View>
-              )}
+              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
-              <View
-                style={{
-                  flexDirection: isMobile ? "column" : "row",
-                  gap: 10,
-                  justifyContent: "flex-end",
-                  marginTop: 4,
-                }}
-              >
+              {/* Botones centrados: primero la acción principal, debajo "Cancelar". */}
+              <View style={{ gap: 10, marginTop: 4, alignItems: "center" }}>
+                <PrimaryButton
+                  label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear artículo"}
+                  onPress={save}
+                  disabled={saving}
+                />
+
                 <Pressable
                   onPress={() => {
                     setOpen(false);
@@ -846,32 +663,16 @@ export default function Inventario() {
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: "#F6FAFD",
-                    width: isMobile ? "100%" : undefined,
+                    width: "100%",
+                    maxWidth: 420,
                   })}
                 >
                   <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cancelar</Text>
                 </Pressable>
-
-                <Pressable
-                  onPress={save}
-                  disabled={saving}
-                  style={({ pressed }) => ({
-                    opacity: saving ? 0.6 : pressed ? 0.9 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    backgroundColor: COLORS.accent,
-                    width: isMobile ? "100%" : undefined,
-                  })}
-                >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
-                    {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear artículo"}
-                  </Text>
-                </Pressable>
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}>
@@ -890,17 +691,17 @@ export default function Inventario() {
               alignSelf: "center",
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.bg2,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.bg,
               padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900", textAlign: "center" }}>
               Borrar artículo
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               Vas a borrar{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                 {confirmDelete ? `${confirmDelete.code} · ${confirmDelete.title}` : ""}
@@ -908,7 +709,7 @@ export default function Inventario() {
               . Esta acción no se puede deshacer.
             </Text>
 
-            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "center", marginTop: 6 }}>
               <ChipButton label="Cancelar" variant="ghost" onPress={() => setConfirmDelete(null)} isMobile={isMobile} fullWidth={isMobile} />
               <ChipButton label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth={isMobile} />
             </View>

@@ -36,6 +36,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -47,10 +48,14 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
+import CargaMarca from "../../components/marca/CargaMarca";
 
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
+// propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
+const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -62,7 +67,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -153,6 +159,7 @@ export default function AdminMarcaSeo() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -336,77 +343,68 @@ export default function AdminMarcaSeo() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
+          borderBottomColor: COLORS.border,
           paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 12,
-          alignItems: "center",
+          paddingTop: (isMobile ? 10 : 12) + insets.top,
+          paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, gap: 10 }}>
-          <View
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+          <Pressable
+            onPress={smartBackAdminHome}
+            accessibilityRole="button"
+            accessibilityLabel="Volver al panel"
+            hitSlop={8}
+            style={({ pressed }) => ({
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+          </Pressable>
+          <Text
             style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "center",
-              gap: 10,
+              color: COLORS.text,
+              fontSize: isMobile ? 19 : 22,
+              fontWeight: "900",
+              textAlign: "center",
+              paddingHorizontal: 44,
             }}
           >
-            <View style={{ flex: isMobile ? undefined : 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  lineHeight: isMobile ? 28 : 30,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Marca y SEO
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 4,
-                  lineHeight: 20,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                El logo y el texto que se ven al buscar la tienda en Google, y en la pestaña del navegador.
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-                alignSelf: isMobile ? "flex-start" : "auto",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-            </Pressable>
-          </View>
+            Marca y SEO
+          </Text>
         </View>
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando…</Text>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <CargaMarca texto="Cargando…" />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: "center" }}>
-          <View style={{ width: "100%", maxWidth: 860, gap: 14 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
+          <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+              El logo y el texto que se ven al buscar la tienda en Google, y en la pestaña del navegador.
+            </Text>
+
             {!!loadErr && (
               <View
                 style={{
@@ -415,7 +413,9 @@ export default function AdminMarcaSeo() {
                   padding: 10,
                 }}
               >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{loadErr}</Text>
+                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                  {loadErr}
+                </Text>
               </View>
             )}
 
@@ -428,7 +428,7 @@ export default function AdminMarcaSeo() {
                 gap: 12,
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Ionicons name="image-outline" size={18} color={COLORS.accentDark} />
                 <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Logo de la tienda</Text>
               </View>
@@ -491,22 +491,24 @@ export default function AdminMarcaSeo() {
                         color: logoMsg.type === "ok" ? COLORS.success : COLORS.danger,
                         fontWeight: "800",
                         fontSize: 12.5,
+                        textAlign: "center",
                       }}
                     >
                       {logoMsg.text}
                     </Text>
                   )}
 
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
                     <Pressable
                       onPress={handlePickLogo}
                       disabled={uploadingLogo}
+                      accessibilityRole="button"
                       style={({ pressed }) => ({
                         opacity: pressed || uploadingLogo ? 0.75 : 1,
                         paddingVertical: 10,
-                        paddingHorizontal: 14,
+                        paddingHorizontal: 16,
                         borderRadius: 999,
-                        backgroundColor: COLORS.accent,
+                        backgroundColor: COLORS.accentDark,
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 6,
@@ -561,7 +563,7 @@ export default function AdminMarcaSeo() {
                 gap: 12,
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Ionicons name="search-outline" size={18} color={COLORS.accentDark} />
                 <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
                   Cómo aparece en Google
@@ -608,7 +610,9 @@ export default function AdminMarcaSeo() {
                     paddingVertical: 10,
                     color: COLORS.text,
                     backgroundColor: COLORS.cardSoft,
-                    fontSize: 13,
+                    // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
+                    // se queda ampliada y "descuadrada".
+                    fontSize: 16,
                   }}
                 />
                 <Text
@@ -642,7 +646,7 @@ export default function AdminMarcaSeo() {
                     paddingVertical: 10,
                     color: COLORS.text,
                     backgroundColor: COLORS.cardSoft,
-                    fontSize: 13,
+                    fontSize: 16,
                     minHeight: 76,
                     textAlignVertical: "top",
                   }}
@@ -664,6 +668,7 @@ export default function AdminMarcaSeo() {
                     color: seoMsg.type === "ok" ? COLORS.success : COLORS.danger,
                     fontWeight: "800",
                     fontSize: 12.5,
+                    textAlign: "center",
                   }}
                 >
                   {seoMsg.text}
@@ -673,15 +678,20 @@ export default function AdminMarcaSeo() {
               <Pressable
                 onPress={handleSaveSeo}
                 disabled={savingSeo}
+                accessibilityRole="button"
                 style={({ pressed }) => ({
                   opacity: pressed || savingSeo ? 0.75 : 1,
                   paddingVertical: 12,
-                  borderRadius: 14,
-                  backgroundColor: COLORS.accent,
+                  paddingHorizontal: 20,
+                  borderRadius: 999,
+                  backgroundColor: COLORS.accentDark,
                   alignItems: "center",
                   justifyContent: "center",
                   flexDirection: "row",
                   gap: 8,
+                  width: "100%",
+                  maxWidth: 420,
+                  alignSelf: "center",
                 })}
               >
                 {savingSeo ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
@@ -691,24 +701,17 @@ export default function AdminMarcaSeo() {
               </Pressable>
             </View>
 
-            <View
-              style={{
-                borderRadius: 16,
-                backgroundColor: COLORS.cardSoft,
-                padding: 12,
-                flexDirection: "row",
-                gap: 10,
-                alignItems: "flex-start",
-              }}
-            >
+            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
+            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, flex: 1 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
                 Los cambios se aplican al momento, sin esperar a un nuevo despliegue: Google los
                 recogerá la próxima vez que visite la tienda (normalmente, en pocos días).
               </Text>
             </View>
           </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       )}
     </View>
   );

@@ -125,7 +125,7 @@ const COLORS = {
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
-  accentDark: "#0E86C4",
+  accentDark: "#1EA7E8",
 };
 
 type DbStatus = "DRAFT" | "PUBLISHED" | "REVIEW";

@@ -1,8 +1,13 @@
 /**
- * Qué hace: componentes visuales reutilizables del panel de administración
- * de productos: título de sección (SectionTitle), tarjeta de estadística
- * (StatCard), botones tipo chip (ChipButton), filtros tipo píldora
- * (FilterPill) y la miniatura de foto/vídeo de un producto (MediaThumb).
+ * Qué hace: componentes visuales reutilizables del panel de administración:
+ * cabecera de pantalla (AdminHeader: franja fija con volver al panel +
+ * título centrado), texto de presentación (AdminIntro), carga a pantalla
+ * completa con la mascota (AdminLoading → components/marca/CargaMarca),
+ * botón principal (PrimaryButton), aviso de error/éxito (AdminNotice),
+ * estado vacío (EmptyState), título de sección (SectionTitle), tarjeta de
+ * estadística (StatCard), botones tipo chip (ChipButton), filtros tipo
+ * píldora (FilterPill) y la miniatura de foto/vídeo de un producto
+ * (MediaThumb).
  *
  * Cómo funciona: son componentes de presentación puros (sin llamadas a
  * Supabase); reciben props y pintan según la paleta COLORS del tema claro
@@ -15,16 +20,194 @@
  * - app/admin/products/products.constants.ts → de donde viene COLORS.
  * - app/admin/products/products.types.ts → tipos LocalPickedMedia,
  *   ProductMediaRow, ProductMediaKind usados por MediaThumb.
+ * - app/admin/products/products.utils.ts → smartBackAdminHome (botón volver).
  * - app/admin/products.tsx → pantalla principal que usa todos estos
  *   componentes para construir la lista y el formulario de productos.
+ * - app/admin/services.tsx, categories.tsx, inventario.tsx,
+ *   cotizaciones.tsx e index.tsx → usan AdminHeader, PrimaryButton,
+ *   AdminNotice, EmptyState y StatCard para que todas las pestañas del
+ *   panel se vean iguales.
  */
 import React from "react";
 import { Image, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import CargaMarca from "../../../components/marca/CargaMarca";
 import { COLORS } from "./products.constants";
+import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
+import { smartBackAdminHome } from "./products.utils";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
-import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
+
+// Azul de los botones principales: el mismo de "Comprar ya" en la ficha y
+// del botón de pago. El azul de marca (#1EA7E8) sigue en acentos y chips.
+export const PRIMARY_BUTTON = "#1EA7E8";
+
+// Cabecera común de cada pestaña del panel, igual que en el resto de
+// pantallas de app/admin: franja fija y compacta con la flecha para volver
+// (a la izquierda) y el título centrado. Va FUERA del ScrollView; lo demás
+// (subtítulo, contadores, buscador, lista) va dentro del scroll.
+export function AdminHeader({
+  title,
+  isMobile,
+  maxWidth = 1040,
+  onBack = smartBackAdminHome,
+  backLabel = "Volver al panel",
+}: {
+  title: string;
+  isMobile?: boolean;
+  maxWidth?: number;
+  onBack?: () => void;
+  backLabel?: string;
+}) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View
+      style={{
+        backgroundColor: COLORS.bg2,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.border,
+        paddingHorizontal: isMobile ? 12 : 16,
+        paddingTop: (isMobile ? 10 : 12) + insets.top,
+        paddingBottom: isMobile ? 10 : 12,
+      }}
+    >
+      <View style={{ width: "100%", maxWidth, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel={backLabel}
+          hitSlop={8}
+          style={({ pressed }) => ({
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 40,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.7 : 1,
+            zIndex: 1,
+          })}
+        >
+          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+        </Pressable>
+        <Text
+          numberOfLines={2}
+          style={{
+            color: COLORS.text,
+            fontSize: isMobile ? 19 : 22,
+            fontWeight: "900",
+            textAlign: "center",
+            paddingHorizontal: 44,
+          }}
+        >
+          {title}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// Texto de presentación bajo la cabecera (primera línea dentro del scroll).
+export function AdminIntro({ text }: { text: string }) {
+  return <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>{text}</Text>;
+}
+
+// Estado de carga a pantalla completa bajo la cabecera: la mascota centrada.
+export function AdminLoading({ texto }: { texto: string }) {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <CargaMarca texto={texto} />
+    </View>
+  );
+}
+
+// Botón principal (crear, guardar...): azul de botón, texto blanco centrado.
+export function PrimaryButton({
+  label,
+  onPress,
+  disabled,
+  fullWidth,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  fullWidth?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!!disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        width: "100%",
+        maxWidth: fullWidth ? undefined : 420,
+        alignSelf: "center",
+        minHeight: 48,
+        borderRadius: 999,
+        paddingVertical: 12,
+        paddingHorizontal: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: PRIMARY_BUTTON,
+        opacity: disabled ? 0.6 : pressed ? 0.9 : 1,
+      })}
+    >
+      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+// Aviso de error / advertencia / éxito, con el texto centrado.
+export function AdminNotice({
+  tone,
+  title,
+  text,
+}: {
+  tone: "danger" | "warning" | "success";
+  title?: string;
+  text: string;
+}) {
+  const color = tone === "danger" ? COLORS.danger : tone === "warning" ? COLORS.warning : COLORS.success;
+  const backgroundColor =
+    tone === "danger" ? COLORS.dangerBg : tone === "warning" ? COLORS.warningBg : COLORS.successBg;
+
+  return (
+    <View style={{ borderRadius: 14, backgroundColor, paddingVertical: 10, paddingHorizontal: 12, gap: 4 }}>
+      {!!title && (
+        <Text style={{ color, fontWeight: "900", lineHeight: 20, textAlign: "center" }}>{title}</Text>
+      )}
+      <Text style={{ color, fontWeight: title ? "600" : "800", lineHeight: 20, textAlign: "center" }}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+// Estado vacío de una lista: icono, título y explicación, todo centrado.
+export function EmptyState({
+  icon,
+  title,
+  text,
+}: {
+  icon?: IoniconName;
+  title: string;
+  text?: string;
+}) {
+  return (
+    <View style={{ alignItems: "center", gap: 8, paddingVertical: 28, paddingHorizontal: 16 }}>
+      {icon ? <Ionicons name={icon} size={28} color={COLORS.muted2} /> : null}
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>{title}</Text>
+      {!!text && (
+        <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center", maxWidth: 520 }}>{text}</Text>
+      )}
+    </View>
+  );
+}
 
 type MediaLike = ProductMediaRow | LocalPickedMedia;
 
@@ -115,34 +298,37 @@ export function StatCard({
   value,
   icon,
   isMobile,
-  compact,
+  columns,
 }: {
   label: string;
   value: string;
   icon?: IoniconName;
   isMobile?: boolean;
-  compact?: boolean;
+  // Tarjetas por fila: por defecto 2 en móvil y 4 en pantallas anchas.
+  columns?: 2 | 3 | 4;
 }) {
+  const cols = columns ?? (isMobile ? 2 : 4);
+  // flexBasis + flexGrow (en vez de anchos fijos en %) para que la rejilla
+  // nunca se desborde por el hueco entre tarjetas en móviles estrechos.
+  const basis = cols === 2 ? "40%" : cols === 3 ? "28%" : "20%";
+
   return (
     <View
       style={{
-        // En móvil antes ocupaba el 100% del ancho: con 4 tarjetas (Total,
-        // Publicados, Visibles, Destacados portada) eso eran 4 filas enteras
-        // solo de estadísticas antes de llegar al buscador. Ahora van en
-        // rejilla de 2 columnas también en móvil, igual que en el resto del
-        // panel (categorías, inventario), para que ocupen la mitad de alto.
-        width: compact ? (isMobile ? "48%" : "48.6%") : "100%",
+        flexGrow: 1,
+        flexBasis: basis,
+        minWidth: 0,
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
         backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 10 : 14,
+        paddingVertical: isMobile ? 10 : 14,
+        paddingHorizontal: 10,
+        alignItems: "center",
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
         <Text
-          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}
+          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, textAlign: "center", flexShrink: 1 }}
           numberOfLines={1}
         >
           {label}
@@ -155,6 +341,7 @@ export function StatCard({
           fontWeight: "900",
           fontSize: isMobile ? 18 : 20,
           marginTop: 6,
+          textAlign: "center",
         }}
       >
         {value}
@@ -256,6 +443,7 @@ export function FilterPill({
           color: COLORS.text,
           fontWeight: "900",
           fontSize: isMobile ? 13 : 14,
+          textAlign: "center",
         }}
       >
         {label}

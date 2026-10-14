@@ -17,11 +17,13 @@
  * - app/checkout.tsx → crea los pedidos con la función crear_pedido.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StatusBar, Text, View } from "react-native";
+import { Pressable, ScrollView, StatusBar, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
 
@@ -55,11 +57,12 @@ const ESTADOS: { value: Estado; label: string }[] = [
 
 const COLORS = {
   bg: "#FFFFFF",
+  bg2: "#F4F9FD",
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
-  accentDark: "#0E86C4",
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   danger: "#B91C1C",
   gold: "#B8860B",
@@ -88,6 +91,7 @@ function fmtFecha(iso: string) {
 }
 
 export default function PedidosAdmin() {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -156,17 +160,52 @@ export default function PedidosAdmin() {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, alignItems: "center" }}>
+
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
+      <View
+        style={{
+          backgroundColor: COLORS.bg2,
+          borderBottomWidth: 1,
+          borderBottomColor: COLORS.border,
+          paddingHorizontal: 16,
+          paddingTop: 10 + insets.top,
+          paddingBottom: 10,
+        }}
+      >
+        <View style={{ width: "100%", maxWidth: 760, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+          <Pressable
+            onPress={() => router.replace("/admin")}
+            accessibilityRole="button"
+            accessibilityLabel="Volver al panel"
+            hitSlop={8}
+            style={({ pressed }) => ({
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+          </Pressable>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 20, textAlign: "center", paddingHorizontal: 44 }}>
+            Pedidos
+          </Text>
+        </View>
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={{ width: "100%", maxWidth: 760, gap: 14 }}>
-          <View style={{ alignItems: "center", gap: 4 }}>
-            <Pressable onPress={() => router.replace("/admin")} style={{ paddingVertical: 6 }}>
-              <Text style={{ color: COLORS.accent, fontWeight: "800", textAlign: "center" }}>← Panel</Text>
-            </Pressable>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 24, textAlign: "center" }}>Pedidos</Text>
-            <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-              {loading ? "Cargando…" : `${visibles.length} de ${pedidos.length} pedidos`}
-            </Text>
-          </View>
+          <Text style={{ color: COLORS.muted, textAlign: "center" }}>
+            {loading ? "Cargando…" : `${visibles.length} de ${pedidos.length} pedidos`}
+          </Text>
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
             {chips.map((c) => {
@@ -197,7 +236,9 @@ export default function PedidosAdmin() {
           ) : null}
 
           {loading ? (
-            <ActivityIndicator style={{ marginTop: 20 }} />
+            <View style={{ alignItems: "center", paddingVertical: 24 }}>
+              <CargaMarca texto="Cargando pedidos…" />
+            </View>
           ) : visibles.length === 0 && !err ? (
             <Text style={{ color: COLORS.muted, textAlign: "center", marginTop: 20 }}>
               No hay pedidos en esta lista.
