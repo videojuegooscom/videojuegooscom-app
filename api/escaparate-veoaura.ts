@@ -231,13 +231,14 @@ async function categoriaTienda(supabase: SupabaseClient, p: Producto): Promise<s
   return porNombre ?? buscar("electronica");
 }
 
-function descripcion(p: Producto): string {
-  const lineas: string[] = [];
-  if (p.modelo) lineas.push(`Modelo: ${p.modelo}`);
-  if (p.estado) lineas.push(`Estado: ${p.estado}`);
-  if (p.accesorios.length) lineas.push(`Incluye: ${p.accesorios.join(", ")}`);
-  return lineas.join("\n");
-}
+// Texto del dueño: todos los artículos que llegan de VeoAura llevan esta misma descripción.
+const DESCRIPCION_VEOAURA = [
+  "Estado Funcional : 10 / 10",
+  "1 Año de GARANTÍA.",
+  "¡Probado y testeado antes de entregarlo o enviarlo!",
+  "Limpieza realizada para un estado impecable.",
+  "Envíos y Entregas Rápidas.",
+].join("\n\n");
 
 type FotoDescargada = { datos: Uint8Array; tipo: string; ext: string };
 
@@ -274,7 +275,7 @@ async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto
 
   const campos = {
     title: p.titulo,
-    description: descripcion(p),
+    description: DESCRIPCION_VEOAURA,
     price_eur: p.precio,
     condition: condicionTienda(p.estado),
     category_id: await categoriaTienda(supabase, p),
