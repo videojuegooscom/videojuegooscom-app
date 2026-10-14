@@ -32,6 +32,24 @@ ejemplos) para que la guarde en Panel → Centro De Aprendizajes.
 - **Base de datos:** consultas de lectura por MCP (`execute_sql`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla, `git fetch origin main` y `apply_migration` con `name=<nombre>` y el contenido EXACTO del archivo (el guardián lo compara con origin/main). Nunca `DELETE`, `DROP` ni `TRUNCATE`; los cambios de permisos delicados (grant, security definer, anon, using (true)) los aplica el usuario.
 - Si algo se bloquea, no se rodea: se explica qué hace falta y se da al usuario el comando para Termius (como `veoaura`, con `python3`, nunca `jq`).
 
+## Asesor de modelos (en cada respuesta)
+
+Para gastar menos tokens, cada respuesta termina con "Modelo recomendado": qué modelo y esfuerzo
+conviene para lo siguiente. Si el usuario manda varias tareas, se clasifican una por una con esta tabla
+(se elige el más barato que la resuelva bien; Claude no puede cambiar de modelo solo: lo cambia el
+usuario con `/model` y el esfuerzo con `/effort`, o en el selector de la app).
+
+| Modelo · esfuerzo | Para qué |
+|---|---|
+| Haiku 5.5 | Preguntas rápidas, consultar estado (PR, Vercel, datos), explicar algo, textos cortos, publicar una PR ya hecha. |
+| Sonnet 5.5 · medio | Cambios pequeños en 1-2 pantallas: textos, colores, espaciados, iconos, arreglos de un fallo localizado. |
+| Opus 5.5 · medio | Funciones nuevas que tocan varias pantallas o la base de datos (tablas, migraciones normales), rediseños de una sección. |
+| Opus 5.5 · alto | Varias funciones a la vez con ayudantes en paralelo, revisiones completas de la tienda o del panel, fallos difíciles de encontrar, rendimiento. |
+| Opus 5.5 · extra | Seguridad, permisos y migraciones delicadas, infraestructura (guardián, política, controlador), pagos y datos de clientes. |
+
+Criterios para bajar de nivel: tarea clara y acotada, sin base de datos ni seguridad, y que no requiera
+investigar el código. Criterios para subir: afecta a dinero, datos de clientes, permisos o a muchas pantallas.
+
 ## Validaciones
 
 - `npx --no-install tsc --noEmit`
