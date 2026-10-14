@@ -4,9 +4,9 @@ Tienda web de videojuegos: Expo Router 6 + React Native Web (export estático), 
 Vercel por Git (`main` = producción) y con Supabase (project_ref `rgvyvaineyodyxzwootl`).
 Usuario del servidor: `videojuegoszaragoza`. No tocar nada de otros proyectos (VeoAura, Tradeandoia).
 
-## Centro de Aprendizajes (obligatorio antes de cualquier cambio)
+## Centro de Aprendizajes (obligatorio antes de CADA respuesta)
 
-Antes de empezar cualquier cambio que pida el usuario, consulta sus correcciones guardadas y aplícalas:
+Antes de cada respuesta (no solo antes de un cambio), consulta las lecciones guardadas y aplícalas:
 
 ```sql
 select titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien
@@ -15,8 +15,11 @@ from public.aprendizajes where activa order by prioridad, categoria, updated_at 
 
 (por MCP de Supabase, solo lectura). Prioridad 1 = imprescindible, 2 = importante, 3 = preferencia.
 Si una lección choca con lo que pide el usuario ahora, avísale antes de seguir. Cuando el usuario
-te corrija algo, al terminar dale la lección ya redactada (título, categoría, prioridad, regla y
-ejemplos) para que la guarde en Panel → Centro De Aprendizajes.
+te corrija algo, te pida aprender algo o tú detectes algo que debes aprender, **apúntalo tú** en la
+tabla (no se lo pidas al usuario): añade un insert idempotente (`where not exists` por título) en una
+migración `supabase/migrations/<fecha>_aprendizajes_<tema>.sql`, publícala con su PR y aplícala con
+`apply_migration` (execute_sql no puede escribir). En el apartado 5 de la respuesta di qué lección
+has apuntado.
 
 ## Hábitos obligatorios
 
