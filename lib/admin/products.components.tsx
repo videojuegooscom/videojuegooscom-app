@@ -32,7 +32,7 @@ import React from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import CargaMarca from "../../../components/marca/CargaMarca";
+import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORS } from "./products.constants";
 import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
 import { smartBackAdminHome } from "./products.utils";

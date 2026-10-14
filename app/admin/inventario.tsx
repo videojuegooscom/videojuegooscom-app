@@ -56,8 +56,8 @@ import {
   EmptyState,
   PrimaryButton,
   StatCard,
-} from "./products/products.components";
-import { CIERRE_TECLADO } from "./products/products.utils";
+} from "../../lib/admin/products.components";
+import { CIERRE_TECLADO } from "../../lib/admin/products.utils";
 
 const COLORS = {
   bg: "#FFFFFF",
