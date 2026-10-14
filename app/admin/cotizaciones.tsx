@@ -44,12 +44,18 @@
  * Rendimiento: load() limita "sell_requests" a 200 filas y pide los
  * adjuntos de "sell_request_media" solo de esas solicitudes (.in) con su
  * propio límite de 200, para no crecer sin control con el tiempo.
+ *
+ * Scroll y diseño: cabecera fija y compacta (volver + título centrado) y,
+ * debajo, subtítulo, estadísticas, buscador, filtros y lista en un único
+ * ScrollView (flex 1, margen final 48 px + zona segura); antes todo lo de
+ * arriba era fijo y en el móvil dejaba la lista en una franja mínima. Los datos de cada solicitud
+ * van en líneas de texto (no en "burbujas") y el precio esperado, si el
+ * cliente escribió solo un número, se muestra como el resto de precios
+ * (150,00€). Componentes comunes en app/admin/products/products.components.tsx.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -58,12 +64,18 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { downloadSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import {
+  AdminHeader,
+  AdminIntro,
+  AdminLoading,
+  AdminNotice,
+  EmptyState,
+  StatCard,
+} from "./products/products.components";
+import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "./products/products.utils";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -153,56 +165,14 @@ const STATUS_COLORS: Record<SellRequestStatus, { bg: string; border: string }> =
   descartado: { bg: COLORS.dangerBg, border: COLORS.dangerBorder },
 };
 
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-  compact,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: compact ? (isMobile ? "48.4%" : "23.4%") : "100%",
-        borderRadius: 18,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>{label}</Text>
-      </View>
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          fontSize: isMobile ? 18 : 20,
-          marginTop: 6,
-        }}
-      >
-        {value}
-      </Text>
-    </View>
-  );
+// El precio esperado lo escribe el cliente a mano ("150€", "1.200",
+// "unos 100"...). Si es solo un número, se muestra con dos decimales y coma
+// como el resto de precios (150,00€); si no, tal cual lo escribió.
+function formatPrecioEstimado(raw: string | null | undefined) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "-";
+  if (/^\d+(?:[.\s]\d{3})*(?:[.,]\d{1,2})?\s*€?$/.test(s)) return fmtEUR(toPriceSafe(s));
+  return s;
 }
 
 function ChipButton({
@@ -286,7 +256,7 @@ function FilterPill({
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -295,8 +265,9 @@ export default function AdminCotizaciones() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const isDesktopish = widthSafe >= 1024;
   const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 20 : 24;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -474,81 +445,35 @@ export default function AdminCotizaciones() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
-          paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: isMobile ? 12 : 12,
-          gap: 12,
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual
+          en todo el panel. Lo demás va en un solo scroll. */}
+      <AdminHeader title="Solicitudes de venta" isMobile={isMobile} maxWidth={1160} />
+
+      {loading ? (
+        <AdminLoading texto="Cargando solicitudes…" />
+      ) : (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: pagePadding,
+          paddingBottom: 48 + insets.bottom,
+          alignItems: "center",
         }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={CIERRE_TECLADO}
       >
-        <View style={{ ...columnStyle, gap: 12 }}>
-          <View
-            style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "center",
-              gap: 10,
-            }}
-          >
-            <View style={{ flex: isMobile ? undefined : 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  lineHeight: isMobile ? 28 : 30,
-                }}
-              >
-                Solicitudes de venta
-              </Text>
-              <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20 }}>
-                Solicitudes de «Vender ahora» enviadas por clientes desde la app.
-              </Text>
-            </View>
+        <View style={{ ...columnStyle, gap: sectionGap }}>
+          <AdminIntro text="Solicitudes de «Vender ahora» enviadas por clientes desde la app." />
 
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-                alignSelf: isMobile ? "flex-start" : "auto",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-            </Pressable>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <StatCard label="Total" value={String(stats.total)} icon="document-text-outline" isMobile={isMobile} />
+            <StatCard label="Nuevas" value={String(stats.nuevo)} icon="sparkles-outline" isMobile={isMobile} />
+            <StatCard label="Revisadas" value={String(stats.revisado)} icon="eye-outline" isMobile={isMobile} />
+            <StatCard label="Contactadas" value={String(stats.contactado)} icon="chatbubbles-outline" isMobile={isMobile} />
           </View>
 
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 10,
-              justifyContent: "space-between",
-            }}
-          >
-            <StatCard label="Total" value={String(stats.total)} icon="document-text-outline" isMobile={isMobile} compact />
-            <StatCard label="Nuevas" value={String(stats.nuevo)} icon="sparkles-outline" isMobile={isMobile} compact />
-            <StatCard label="Revisadas" value={String(stats.revisado)} icon="eye-outline" isMobile={isMobile} compact />
-            <StatCard label="Contactadas" value={String(stats.contactado)} icon="chatbubbles-outline" isMobile={isMobile} compact />
-          </View>
-
-          <View
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 10,
-            }}
-          >
+          <View style={{ gap: 12 }}>
             <TextInput
               value={search}
               onChangeText={setSearch}
@@ -562,11 +487,12 @@ export default function AdminCotizaciones() {
                 paddingVertical: 12,
                 color: COLORS.text,
                 backgroundColor: "#F8FBFE",
-                fontSize: isMobile ? 14 : 15,
+                // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
+                fontSize: 16,
               }}
             />
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
               <FilterPill label="Todas" active={statusFilter === "todas"} onPress={() => setStatusFilter("todas")} />
               <FilterPill label="Nuevas" active={statusFilter === "nuevo"} onPress={() => setStatusFilter("nuevo")} />
               <FilterPill label="Revisadas" active={statusFilter === "revisado"} onPress={() => setStatusFilter("revisado")} />
@@ -575,68 +501,18 @@ export default function AdminCotizaciones() {
             </View>
           </View>
 
-          {!!screenErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                {screenErr}
-              </Text>
-            </View>
-          )}
+          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+          {!!mediaErr && <AdminNotice tone="danger" text={mediaErr} />}
 
-          {!!mediaErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                {mediaErr}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando solicitudes…</Text>
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={{
-            padding: pagePadding,
-            paddingBottom: 30,
-            alignItems: "center",
-          }}
-        >
-          <View style={{ ...columnStyle, gap: 12 }}>
-            {filteredItems.length === 0 ? (
-              <View
-                style={{
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 14 : 16,
-                  gap: 8,
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                  No hay solicitudes para este filtro.
-                </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                  En cuanto un cliente envíe el formulario de «Vender ahora» aparecerá aquí.
-                </Text>
-              </View>
-            ) : (
-              filteredItems.map((r) => {
+          {filteredItems.length === 0 ? (
+            <EmptyState
+              icon="document-text-outline"
+              title="No hay solicitudes para este filtro."
+              text="En cuanto un cliente envíe el formulario de «Vender ahora» aparecerá aquí."
+            />
+          ) : (
+            <View style={{ gap: 12 }}>
+            {filteredItems.map((r) => {
                 const st = STATUS_COLORS[r.status];
                 const isBusy = busyId === r.id;
 
@@ -673,7 +549,7 @@ export default function AdminCotizaciones() {
                           {r.nombre} {r.apellido}
                         </Text>
                         <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 4 }}>
-                          {r.created_at ? new Date(r.created_at).toLocaleString() : "-"}
+                          {r.created_at ? new Date(r.created_at).toLocaleString("es-ES") : "-"}
                         </Text>
                       </View>
 
@@ -694,89 +570,34 @@ export default function AdminCotizaciones() {
                       </View>
                     </View>
 
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      <View
+                    {/* Datos de la solicitud en líneas de texto (antes, cinco
+                        "burbujas"). Lo que conviene revisar (avería, mayoría
+                        de edad sin confirmar) va en color de aviso. */}
+                    <View style={{ gap: 4 }}>
+                      <Text
                         style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: r.funciona_bien ? COLORS.successBorder : COLORS.warningBorder,
-                          backgroundColor: r.funciona_bien ? COLORS.successBg : COLORS.warningBg,
+                          color: r.funciona_bien ? COLORS.success : COLORS.warning,
+                          fontWeight: "900",
+                          fontSize: 13,
+                          lineHeight: 19,
                         }}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {r.funciona_bien ? "Funciona bien" : "Presenta una avería"}
-                        </Text>
-                      </View>
-
-                      <View
+                        {r.funciona_bien ? "Funciona bien" : "Presenta una avería"}
+                      </Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13, lineHeight: 19 }}>
+                        {r.ciudad} · Precio esperado: {formatPrecioEstimado(r.precio_estimado)} ·{" "}
+                        {GENERO_LABEL[r.genero]}
+                      </Text>
+                      <Text
                         style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: "#F6FAFD",
+                          color: r.mayor_edad ? COLORS.muted : COLORS.warning,
+                          fontWeight: "700",
+                          fontSize: 13,
+                          lineHeight: 19,
                         }}
                       >
-                        <Ionicons name="location-outline" size={13} color={COLORS.text} />
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {r.ciudad}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: "#F6FAFD",
-                        }}
-                      >
-                        <Ionicons name="cash-outline" size={13} color={COLORS.text} />
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {r.precio_estimado}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: "#F6FAFD",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {GENERO_LABEL[r.genero]}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: r.mayor_edad ? COLORS.successBorder : COLORS.warningBorder,
-                          backgroundColor: r.mayor_edad ? COLORS.successBg : COLORS.warningBg,
-                        }}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                          {r.mayor_edad ? "Mayoría de edad confirmada" : "Mayoría de edad sin confirmar"}
-                        </Text>
-                      </View>
+                        {r.mayor_edad ? "Mayoría de edad confirmada" : "Mayoría de edad sin confirmar"}
+                      </Text>
                     </View>
 
                     <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
@@ -806,7 +627,14 @@ export default function AdminCotizaciones() {
                           <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
                             Fotos y vídeo adjuntos ({media.length})
                           </Text>
-                          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              gap: 8,
+                              flexWrap: "wrap",
+                              justifyContent: isMobile ? "center" : "flex-start",
+                            }}
+                          >
                             {media.map((m) => {
                               const label =
                                 m.kind === "video" ? "Descargar vídeo" : `Descargar foto ${++imgCount}`;
@@ -826,7 +654,14 @@ export default function AdminCotizaciones() {
                       );
                     })()}
 
-                    <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 10,
+                        flexWrap: "wrap",
+                        justifyContent: isMobile ? "center" : "flex-start",
+                      }}
+                    >
                       {r.status !== "revisado" && (
                         <ChipButton
                           label="Marcar revisada"
@@ -864,10 +699,11 @@ export default function AdminCotizaciones() {
                     </View>
                   </View>
                 );
-              })
-            )}
-          </View>
-        </ScrollView>
+            })}
+            </View>
+          )}
+        </View>
+      </ScrollView>
       )}
 
       <Modal
@@ -889,17 +725,17 @@ export default function AdminCotizaciones() {
               ...modalColumnStyle,
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.bg2,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.bg,
               padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900", textAlign: "center" }}>
               Borrar solicitud
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               Vas a borrar la solicitud de{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                 {confirmDelete?.articulo ?? ""}
@@ -911,7 +747,7 @@ export default function AdminCotizaciones() {
               style={{
                 flexDirection: isMobile ? "column" : "row",
                 gap: 10,
-                justifyContent: "flex-end",
+                justifyContent: "center",
                 marginTop: 6,
               }}
             >

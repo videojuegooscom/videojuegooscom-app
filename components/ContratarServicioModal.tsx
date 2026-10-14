@@ -55,7 +55,7 @@ const COLORS = {
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
-  accentDark: "#0E86C4",
+  accentDark: "#1EA7E8",
   success: "#15803D",
   successBg: "#DCFCE7",
   successBorder: "#86EFAC",

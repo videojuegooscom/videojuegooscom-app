@@ -28,7 +28,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -42,7 +42,9 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -56,6 +58,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
+  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -68,6 +72,10 @@ const COLORS = {
   dangerBg: "#FFE4E6",
   dangerBorder: "#FDA4AF",
 };
+
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
+// propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
+const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 type BlogStatus = "DRAFT" | "PUBLISHED";
 
@@ -138,20 +146,26 @@ function StatCard({
   icon?: IoniconName;
   isMobile?: boolean;
 }) {
+  // Tres por fila también en el móvil (antes, una debajo de otra ocupaban media pantalla).
   return (
     <View
       style={{
-        width: isMobile ? "100%" : "31.9%",
-        borderRadius: 18,
+        flex: 1,
+        minWidth: 0,
+        borderRadius: 16,
         backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
+        paddingVertical: isMobile ? 10 : 14,
+        paddingHorizontal: isMobile ? 8 : 14,
+        alignItems: "center",
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>{label}</Text>
+        <Text numberOfLines={1} style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+          {label}
+        </Text>
       </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
         {value}
       </Text>
     </View>
@@ -206,6 +220,7 @@ export default function AdminBlog() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -410,81 +425,76 @@ export default function AdminBlog() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera fija y compacta (volver al panel + título centrado). El resumen, los
+          contadores, el buscador y el botón van dentro del scroll: fijos arriba se comían
+          media pantalla del móvil y la lista apenas tenía sitio para desplazarse. */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
+          borderBottomColor: COLORS.border,
           paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 12,
-          alignItems: "center",
+          paddingTop: (isMobile ? 10 : 12) + insets.top,
+          paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-          <View
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+          <Pressable
+            onPress={smartBackAdminHome}
+            accessibilityRole="button"
+            accessibilityLabel="Volver al panel"
+            hitSlop={8}
+            style={({ pressed }) => ({
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+          </Pressable>
+          <Text
             style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "center",
-              gap: 10,
+              color: COLORS.text,
+              fontSize: isMobile ? 19 : 22,
+              fontWeight: "900",
+              textAlign: "center",
+              paddingHorizontal: 44,
             }}
           >
-            <View style={{ flex: isMobile ? undefined : 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  lineHeight: isMobile ? 28 : 30,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Blog
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 4,
-                  lineHeight: 20,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Crea, edita y publica los artículos que se muestran en el Blog de la app.
-              </Text>
+            Blog
+          </Text>
+        </View>
+      </View>
+
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <CargaMarca texto="Cargando artículos…" />
+        </View>
+      ) : (
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
+          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+              Crea, edita y publica los artículos que se muestran en el Blog de la app.
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <StatCard label="Total" value={String(stats.total)} icon="newspaper-outline" isMobile={isMobile} />
+              <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
+              <StatCard label="Borradores" value={String(stats.drafts)} icon="create-outline" isMobile={isMobile} />
             </View>
 
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-                alignSelf: isMobile ? "flex-start" : "auto",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-            </Pressable>
-          </View>
-
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
-            <StatCard label="Total" value={String(stats.total)} icon="newspaper-outline" isMobile={isMobile} />
-            <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
-            <StatCard label="Borradores" value={String(stats.drafts)} icon="create-outline" isMobile={isMobile} />
-          </View>
-
-          <View
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 10,
-            }}
-          >
             <TextInput
               value={search}
               onChangeText={setSearch}
@@ -498,57 +508,50 @@ export default function AdminBlog() {
                 paddingVertical: 12,
                 color: COLORS.text,
                 backgroundColor: "#F8FBFE",
-                fontSize: isMobile ? 14 : 15,
+                // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
+                // se queda ampliada y "descuadrada".
+                fontSize: 16,
               }}
             />
 
             <Pressable
               onPress={openCreate}
+              accessibilityRole="button"
               style={({ pressed }) => ({
                 opacity: pressed ? 0.9 : 1,
-                borderRadius: 14,
+                borderRadius: 999,
                 paddingVertical: 13,
+                paddingHorizontal: 20,
                 alignItems: "center",
-                backgroundColor: COLORS.accent,
-                ...softShadow(),
+                backgroundColor: COLORS.accentDark,
+                width: "100%",
+                maxWidth: 420,
+                alignSelf: "center",
               })}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>+ Nuevo artículo</Text>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+                + Nuevo artículo
+              </Text>
             </Pressable>
-          </View>
 
-          {!!screenErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{screenErr}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando artículos…</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
-          <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-            {filteredItems.length === 0 ? (
+            {!!screenErr && (
               <View
                 style={{
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 14 : 16,
-                  gap: 8,
+                  borderRadius: 14,
+                  backgroundColor: COLORS.dangerBg,
+                  padding: 10,
                 }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                  {screenErr}
+                </Text>
+              </View>
+            )}
+
+            {filteredItems.length === 0 ? (
+              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
+                <Ionicons name="newspaper-outline" size={24} color={COLORS.muted2} />
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                   No hay artículos para este filtro.
                 </Text>
               </View>
@@ -630,12 +633,30 @@ export default function AdminBlog() {
               ))
             )}
           </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)", padding: isMobile ? 10 : 16, justifyContent: "center" }}>
-          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+        {/* El formulario (con el texto largo del artículo) se desplaza dentro del modal y,
+            en iPhone, sube por encima del teclado. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)" }}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: "center",
+              paddingHorizontal: isMobile ? 10 : 16,
+              paddingTop: (isMobile ? 16 : 24) + insets.top,
+              paddingBottom: (isMobile ? 24 : 32) + insets.bottom,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
             <View
               style={{
                 width: "100%",
@@ -644,13 +665,13 @@ export default function AdminBlog() {
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: COLORS.bg2,
+                backgroundColor: COLORS.bg,
                 padding: isMobile ? 14 : 16,
                 gap: 12,
                 ...softShadow(),
               }}
             >
-              <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900" }}>
+              <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900", textAlign: "center" }}>
                 {modalTitle}
               </Text>
 
@@ -671,7 +692,7 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16,
                 }}
               />
 
@@ -692,7 +713,7 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16,
                 }}
               />
 
@@ -713,7 +734,7 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16,
                   minHeight: 50,
                   textAlignVertical: "top",
                 }}
@@ -736,7 +757,7 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16,
                   minHeight: 140,
                   textAlignVertical: "top",
                 }}
@@ -759,7 +780,7 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 14,
+                  fontSize: 16,
                 }}
               />
 
@@ -802,11 +823,13 @@ export default function AdminBlog() {
                     padding: 10,
                   }}
                 >
-                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{modalErr}</Text>
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                    {modalErr}
+                  </Text>
                 </View>
               )}
 
-              <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "center", marginTop: 4 }}>
                 <Pressable
                   onPress={() => {
                     setOpen(false);
@@ -833,8 +856,8 @@ export default function AdminBlog() {
                     opacity: saving ? 0.6 : pressed ? 0.9 : 1,
                     borderRadius: 999,
                     paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    backgroundColor: COLORS.accent,
+                    paddingHorizontal: 18,
+                    backgroundColor: COLORS.accentDark,
                     width: isMobile ? "100%" : undefined,
                   })}
                 >
@@ -845,7 +868,7 @@ export default function AdminBlog() {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}>
@@ -858,16 +881,16 @@ export default function AdminBlog() {
               borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.bg2,
+              backgroundColor: COLORS.bg,
               padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900", textAlign: "center" }}>
               Borrar artículo
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               Vas a borrar{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                 {confirmDelete?.title ?? ""}
@@ -875,7 +898,7 @@ export default function AdminBlog() {
               . Dejará de mostrarse en el Blog.
             </Text>
 
-            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "center", marginTop: 6 }}>
               <ChipButton
                 label="Cancelar"
                 variant="ghost"

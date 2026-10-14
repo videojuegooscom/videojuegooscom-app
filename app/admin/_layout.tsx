@@ -14,11 +14,13 @@
  *   sesión cambia mientras el panel está abierto.
  * - safeNavigate() evita navegaciones duplicadas con un pequeño bloqueo
  *   temporal (navLockRef).
- * - Sigue el tema claro global en su pantalla de carga: fondo blanco, azul
- *   claro de acento y texto en azul marino oscuro.
+ * - Sigue el tema claro global en su pantalla de carga: fondo blanco, la
+ *   mascota de "cargando" (CargaMarca, como en el resto de la tienda) y el
+ *   texto centrado, sin recuadro alrededor.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para sesión y perfil.
+ * - components/marca/CargaMarca.tsx → animación de carga de la marca.
  * - app/(tabs)/perfil.tsx → destino sin sesión (inicio de sesión de la app).
  * - app/admin/index.tsx, app/admin/products.tsx,
  *   app/admin/services.tsx, app/admin/categories.tsx, app/admin/inventario.tsx,
@@ -29,16 +31,14 @@
  *   → las rutas hijas que este layout protege (Stack.Screen).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StatusBar, Text, View } from "react-native";
+import { StatusBar, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
-  bg2: "#F4F9FD",
-  text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  border: "#E3EAF2",
 };
 
 type GuardState = {
@@ -148,33 +148,17 @@ export default function AdminLayout() {
         }}
       >
         <StatusBar barStyle="dark-content" />
-        <View
+        <CargaMarca texto="Verificando acceso" />
+        <Text
           style={{
-            minWidth: 240,
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: COLORS.bg2,
-            paddingHorizontal: 20,
-            paddingVertical: 18,
-            alignItems: "center",
-            gap: 10,
+            color: COLORS.muted,
+            textAlign: "center",
+            lineHeight: 20,
+            maxWidth: 320,
           }}
         >
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-            Verificando acceso
-          </Text>
-          <Text
-            style={{
-              color: COLORS.muted,
-              textAlign: "center",
-              lineHeight: 20,
-            }}
-          >
-            Comprobando sesión y permisos del panel de administración…
-          </Text>
-        </View>
+          Comprobando sesión y permisos del panel de administración…
+        </Text>
       </View>
     );
   }

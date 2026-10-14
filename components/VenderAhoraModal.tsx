@@ -138,7 +138,7 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",

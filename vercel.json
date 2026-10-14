@@ -3,6 +3,18 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "crons": [{ "path": "/api/noticias-gaming", "schedule": "0 6 * * *" }],
+  "images": {
+    "sizes": [320, 480, 640, 960, 1280],
+    "formats": ["image/avif", "image/webp"],
+    "minimumCacheTTL": 2592000,
+    "remotePatterns": [
+      {
+        "protocol": "https",
+        "hostname": "rgvyvaineyodyxzwootl.supabase.co",
+        "pathname": "/storage/v1/object/public/noticias/**"
+      }
+    ]
+  },
   "rewrites": [
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },

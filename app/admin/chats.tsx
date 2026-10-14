@@ -59,11 +59,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
-  Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   Text,
@@ -72,8 +69,10 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import ProductChatThread, { TITULO_ATENCION_CLIENTE } from "../../components/ProductChatThread";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -85,6 +84,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
+  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   successBg: "#DCFCE7",
@@ -120,7 +121,7 @@ type SellGroup = {
 function formatDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "short", year: "numeric" });
 }
 
 export default function AdminChats() {
@@ -128,6 +129,7 @@ export default function AdminChats() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 900;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<ProductGroup[]>([]);
@@ -377,24 +379,23 @@ export default function AdminChats() {
   const selectedKey = selectedChat ? `${selectedChat.product_id}:${selectedChat.customer_user_id}` : "";
   const alreadySold = selectedKey ? soldKeys.has(selectedKey) : false;
 
+  // Lista de conversaciones: llega hasta el final aunque haya muchas (margen inferior + zona
+  // segura del iPhone) y el primer toque en una fila ya la abre aunque hubiera teclado.
   const list = (
-    <ScrollView contentContainerStyle={{ padding: pagePadding, gap: 12 }}>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, gap: 12 }}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
       {loading ? (
-        <View style={{ alignItems: "center", paddingVertical: 30 }}>
-          <ActivityIndicator color={COLORS.accent} />
+        <View style={{ alignItems: "center", paddingVertical: 24 }}>
+          <CargaMarca texto="Cargando conversaciones…" />
         </View>
       ) : groups.length === 0 && supportChats.length === 0 && sellGroups.length === 0 ? (
-        <View
-          style={{
-            borderRadius: 18,
-            backgroundColor: COLORS.card,
-            padding: 20,
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
+        <View style={{ paddingVertical: 24, paddingHorizontal: 12, alignItems: "center", gap: 6 }}>
           <Ionicons name="chatbubble-ellipses-outline" size={24} color={COLORS.muted} />
-          <Text style={{ color: COLORS.text, fontWeight: "900" }}>Sin conversaciones todavía</Text>
+          <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Sin conversaciones todavía</Text>
           <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 19 }}>
             Aquí aparecerán los clientes que escriban por «Chat» en la ficha de un producto, o por
             «Chatear con nosotros» en el catálogo.
@@ -687,8 +688,10 @@ export default function AdminChats() {
     </ScrollView>
   );
 
+  // Hilo abierto: ocupa todo el alto disponible (la caja de escribir queda abajo, a la vista)
+  // y deja libre la zona segura inferior del iPhone para que no la tape la barra de inicio.
   const detail = selectedChat ? (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, minHeight: 0, paddingBottom: insets.bottom, backgroundColor: COLORS.bg }}>
       <ProductChatThread
         chatId={selectedChat.id}
         onDeleted={() => {
@@ -727,7 +730,7 @@ export default function AdminChats() {
                 borderRadius: 999,
                 paddingVertical: 8,
                 paddingHorizontal: 12,
-                backgroundColor: COLORS.accent,
+                backgroundColor: COLORS.accentDark,
               })}
             >
               <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
@@ -749,57 +752,67 @@ export default function AdminChats() {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      {/* Antes iba dentro de SafeAreaView (solo hace algo en iOS nativo): ahora la cabecera,
+          la lista y el hilo suman la zona segura real (también en el iPhone desde la web). */}
+      <View style={{ flex: 1, minHeight: 0, backgroundColor: COLORS.bg }}>
+        {/* Cabecera fija y compacta (volver + título centrado), igual en todo el panel. */}
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
             paddingHorizontal: pagePadding,
-            paddingVertical: Platform.OS === "web" ? 12 : 8,
+            paddingTop: 10 + insets.top,
+            paddingBottom: 10,
             borderBottomWidth: 1,
             borderBottomColor: COLORS.border,
             backgroundColor: COLORS.bg2,
           }}
         >
-          <Pressable
-            onPress={() => {
-              if (isMobile && selectedChat) {
-                setSelectedChat(null);
-                setSelectedProduct(null);
-                return;
-              }
-              router.push("/admin");
-            }}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.85 : 1,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              alignItems: "center",
-              justifyContent: "center",
-            })}
-          >
-            <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-          </Pressable>
+          <View style={{ ...columnStyle, minHeight: 40, justifyContent: "center" }}>
+            <Pressable
+              onPress={() => {
+                if (isMobile && selectedChat) {
+                  setSelectedChat(null);
+                  setSelectedProduct(null);
+                  return;
+                }
+                router.push("/admin");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={isMobile && selectedChat ? "Volver a las conversaciones" : "Volver al panel"}
+              hitSlop={8}
+              style={({ pressed }) => ({
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 40,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+            </Pressable>
 
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>Chat</Text>
-            <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
-              {totalChats} conversación{totalChats === 1 ? "" : "es"}
-            </Text>
+            <View style={{ paddingHorizontal: 44, alignItems: "center" }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 19 : 22, textAlign: "center" }}>
+                Chat
+              </Text>
+              <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>
+                {totalChats} conversación{totalChats === 1 ? "" : "es"}
+              </Text>
+            </View>
           </View>
         </View>
 
         {isMobile ? (
           selectedChat ? detail : list
         ) : (
-          <View style={{ ...columnStyle, flex: 1, flexDirection: "row" }}>
+          <View style={{ ...columnStyle, flex: 1, minHeight: 0, flexDirection: "row" }}>
             <View style={{ width: 360, borderRightWidth: 1, borderRightColor: COLORS.border }}>{list}</View>
             {detail}
           </View>
         )}
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

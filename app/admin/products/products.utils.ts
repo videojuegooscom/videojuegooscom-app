@@ -28,6 +28,11 @@ import type {
   ProductStatus,
 } from "./products.types";
 
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el
+// que hace el propio navegador al enfocar un campo (el campo se cerraba solo):
+// solo se usa en nativo. Mismo criterio que el resto de pantallas del panel.
+export const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
+
 export function softShadow() {
   return Platform.select<any>({
     ios: {

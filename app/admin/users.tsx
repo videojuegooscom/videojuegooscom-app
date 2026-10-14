@@ -46,7 +46,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -57,7 +58,9 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -71,7 +74,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  // Azul oscuro de la tienda (el mismo del botón "Comprar"/"Confirmar pedido").
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -94,6 +98,10 @@ type UserRow = {
 
 type SortMode = "recent" | "participation";
 
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
+// propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
+const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
+
 function smartBackAdminHome() {
   try {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {
@@ -109,7 +117,7 @@ function smartBackAdminHome() {
 function fmtDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function totalParticipation(u: UserRow) {
@@ -131,18 +139,19 @@ function StatCard({
     <View
       style={{
         width: isMobile ? "48.5%" : "23.5%",
-        borderRadius: 18,
+        borderRadius: 16,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
+        alignItems: "center",
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }} numberOfLines={1}>
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, flexShrink: 1 }} numberOfLines={1}>
           {label}
         </Text>
       </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
         {value}
       </Text>
     </View>
@@ -206,6 +215,7 @@ export default function AdminUsers() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -294,146 +304,130 @@ export default function AdminUsers() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera fija y compacta (volver al panel + título centrado). Contadores, buscador y
+          orden van dentro del scroll: fijos arriba ocupaban media pantalla del móvil y la lista
+          de usuarios apenas tenía sitio para desplazarse. */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
+          borderBottomColor: COLORS.border,
           paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 12,
-          alignItems: "center",
+          paddingTop: (isMobile ? 10 : 12) + insets.top,
+          paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-          <View
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+          <Pressable
+            onPress={smartBackAdminHome}
+            accessibilityRole="button"
+            accessibilityLabel="Volver al panel"
+            hitSlop={8}
+            style={({ pressed }) => ({
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+          </Pressable>
+          <Text
             style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "center",
-              gap: 10,
+              color: COLORS.text,
+              fontSize: isMobile ? 19 : 22,
+              fontWeight: "900",
+              textAlign: "center",
+              paddingHorizontal: 44,
             }}
           >
-            <View style={{ flex: isMobile ? undefined : 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  lineHeight: isMobile ? 28 : 30,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Usuarios y participación
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 4,
-                  lineHeight: 20,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Quién está registrado y cuánto participa: foro, chats de producto y reseñas.
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-                alignSelf: isMobile ? "flex-start" : "auto",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-            </Pressable>
-          </View>
-
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
-            <StatCard label="Registrados" value={String(stats.total)} icon="people-outline" isMobile={isMobile} />
-            <StatCard label="Con actividad" value={String(stats.active)} icon="flame-outline" isMobile={isMobile} />
-            <StatCard label="Solicitudes venta" value={String(sellRequestsCount)} icon="pricetags-outline" isMobile={isMobile} />
-            <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
-          </View>
-
-          <View
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 10,
-            }}
-          >
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar por email…"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              autoCapitalize="none"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 12,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                color: COLORS.text,
-                backgroundColor: "#F8FBFE",
-                fontSize: 13,
-              }}
-            />
-
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <ChipButton label="Más recientes" active={sortMode === "recent"} onPress={() => setSortMode("recent")} isMobile={isMobile} />
-              <ChipButton label="Más participación" active={sortMode === "participation"} onPress={() => setSortMode("participation")} isMobile={isMobile} />
-            </View>
-
-            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
-              Valoración media de la tienda:{" "}
-              {avgRating != null ? `${avgRating.toFixed(1)} / 5 (${reviewsCount} reseñas)` : "sin reseñas todavía"}
-            </Text>
-          </View>
-
-          {!!screenErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{screenErr}</Text>
-            </View>
-          )}
+            Usuarios y participación
+          </Text>
         </View>
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando usuarios…</Text>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <CargaMarca texto="Cargando usuarios…" />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
-          <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-            {visibleUsers.length === 0 ? (
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
+          >
+          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+              Quién está registrado y cuánto participa: foro, chats de producto y reseñas.
+            </Text>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
+              <StatCard label="Registrados" value={String(stats.total)} icon="people-outline" isMobile={isMobile} />
+              <StatCard label="Con actividad" value={String(stats.active)} icon="flame-outline" isMobile={isMobile} />
+              <StatCard label="Solicitudes venta" value={String(sellRequestsCount)} icon="pricetags-outline" isMobile={isMobile} />
+              <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
+            </View>
+
+            <View style={{ gap: 10 }}>
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Buscar por email…"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                autoCapitalize="none"
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: COLORS.text,
+                  backgroundColor: "#F8FBFE",
+                  // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
+                  // se queda ampliada y "descuadrada".
+                  fontSize: 16,
+                }}
+              />
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                <ChipButton label="Más recientes" active={sortMode === "recent"} onPress={() => setSortMode("recent")} isMobile={isMobile} />
+                <ChipButton label="Más participación" active={sortMode === "participation"} onPress={() => setSortMode("participation")} isMobile={isMobile} />
+              </View>
+
+              <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
+                Valoración media de la tienda:{" "}
+                {avgRating != null ? `${avgRating.toFixed(1)} / 5 (${reviewsCount} reseñas)` : "sin reseñas todavía"}
+              </Text>
+            </View>
+
+            {!!screenErr && (
               <View
                 style={{
-                  borderRadius: 18,
-                  backgroundColor: COLORS.card,
-                  padding: isMobile ? 14 : 16,
-                  gap: 8,
+                  borderRadius: 14,
+                  backgroundColor: COLORS.dangerBg,
+                  padding: 10,
                 }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                  {screenErr}
+                </Text>
+              </View>
+            )}
+
+            {visibleUsers.length === 0 ? (
+              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
+                <Ionicons name="people-outline" size={24} color={COLORS.muted2} />
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
                   No hay usuarios que coincidan.
                 </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                   Prueba a borrar el buscador o comprueba que haya usuarios registrados.
                 </Text>
               </View>
@@ -520,25 +514,18 @@ export default function AdminUsers() {
               })
             )}
 
-            <View
-              style={{
-                borderRadius: 16,
-                backgroundColor: COLORS.cardSoft,
-                padding: 12,
-                flexDirection: "row",
-                gap: 10,
-                alignItems: "flex-start",
-              }}
-            >
+            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
+            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, flex: 1 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
                 Las solicitudes de venta y de servicio no piden iniciar sesión, así que el total de
                 arriba incluye también las anónimas. Solo las enviadas CON sesión iniciada aparecen
                 dentro de la ficha del cliente correspondiente (toca una fila para verla).
               </Text>
             </View>
           </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       )}
     </View>
   );

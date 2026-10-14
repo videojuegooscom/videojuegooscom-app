@@ -40,10 +40,12 @@
  * - app/admin/products/products.types.ts → tipos de producto y media.
  * - app/admin/products/products.utils.ts → formateo, validación y subida
  *   de archivos.
- * - app/admin/products/products.components.tsx → StatCard, ChipButton,
- *   FilterPill, SectionTitle, MediaThumb usados en esta pantalla.
+ * - app/admin/products/products.components.tsx → AdminHeader, PrimaryButton,
+ *   AdminNotice, EmptyState, StatCard, ChipButton, FilterPill y MediaThumb
+ *   usados en esta pantalla.
+ * - components/marca/CargaMarca.tsx → estado de "cargando" con la mascota.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí y a la que
- *   se vuelve con smartBackAdminHome().
+ *   se vuelve con el botón de la cabecera (smartBackAdminHome()).
  * - app/admin/categories.tsx → los productos se clasifican con las
  *   categorías creadas allí (category_id).
  * - app/catalogo.tsx y app/producto/[id].tsx → lo que se publica aquí es
@@ -59,13 +61,19 @@
  * pequeñas (antes ocupaban el 100% del ancho cada una, es decir 4 filas
  * completas solo de estadísticas antes de llegar al buscador y a "+ Nuevo
  * producto"). Ver StatCard en products.components.tsx.
+ *
+ * Scroll: cabecera fija y compacta (AdminHeader) y, debajo, un único
+ * ScrollView (flex 1) con margen final de 48 px + zona segura. El modal de
+ * alta/edición se desplaza entero (también con el teclado abierto en iOS).
  */
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -75,11 +83,17 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import {
+  AdminHeader,
+  AdminLoading,
+  AdminNotice,
   ChipButton,
+  EmptyState,
   FilterPill,
   MediaThumb,
+  PrimaryButton,
   StatCard,
 } from "./products/products.components";
 import {
@@ -100,6 +114,7 @@ import type {
   VisibilityFilter,
 } from "./products/products.types";
 import {
+  CIERRE_TECLADO,
   buildMediaPath,
   clampText,
   fmtEUR,
@@ -107,8 +122,6 @@ import {
   labelCond,
   labelStatus,
   pickMediaFilesWeb,
-  smartBackAdminHome,
-  softShadow,
   statusVisual,
   toPriceSafe,
 } from "./products/products.utils";
@@ -180,15 +193,6 @@ function getRowSortOrder(row: Partial<ProductMediaRow>) {
 function getRowPublicUrl(row: Partial<ProductMediaRow>) {
   const url = String(row.public_url ?? "").trim();
   return url || null;
-}
-
-function isMissingColumnError(error: unknown, columnName: string) {
-  const msg = String((error as any)?.message ?? "").toLowerCase();
-  const col = columnName.toLowerCase();
-  return (
-    msg.includes(col) &&
-    (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("column"))
-  );
 }
 
 function isMissingRelationError(error: unknown, relationName: string) {
@@ -620,10 +624,20 @@ const ProductListItem = React.memo(function ProductListItem({
                 {p.title}
               </Text>
 
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {/* Estado (con su color) + el resto de datos en una línea de
+                  texto, en vez de cuatro "burbujas" seguidas. */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
                 <View
                   style={{
-                    paddingVertical: 6,
+                    paddingVertical: 4,
                     paddingHorizontal: 10,
                     borderRadius: 999,
                     borderWidth: 1,
@@ -636,60 +650,19 @@ const ProductListItem = React.memo(function ProductListItem({
                   </Text>
                 </View>
 
-                <View
-                  style={{
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                    {labelCond(p.condition)}
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                    {p.catName}
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                    {imageCount} foto{imageCount === 1 ? "" : "s"}
-                    {hasVideo ? " + vídeo" : ""}
-                  </Text>
-                </View>
+                <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, lineHeight: 18, flexShrink: 1 }}>
+                  {labelCond(p.condition)} · {p.catName} · {imageCount} foto{imageCount === 1 ? "" : "s"}
+                  {hasVideo ? " + vídeo" : ""}
+                </Text>
               </View>
             </View>
 
             <View style={{ alignItems: isMobile ? "flex-start" : "flex-end", gap: 10 }}>
               <Text
                 style={{
-                  color: COLORS.gold,
+                  color: COLORS.text,
                   fontWeight: "900",
-                  fontSize: isMobile ? 17 : 18,
+                  fontSize: isMobile ? 18 : 19,
                 }}
               >
                 {fmtEUR(Number(p.price_eur ?? 0))}
@@ -746,7 +719,14 @@ const ProductListItem = React.memo(function ProductListItem({
             </Text>
           )}
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 10,
+              justifyContent: isDesktopish ? "flex-start" : "center",
+            }}
+          >
             <ChipButton
               label="Editar"
               variant="primary"
@@ -785,6 +765,9 @@ export default function AdminProducts() {
   const isMobile = widthSafe < 700;
   const isDesktopish = widthSafe >= 1024;
   const pagePadding = isMobile ? 12 : 16;
+  // Aire entre apartados (cabecera, estadísticas, filtros, lista).
+  const sectionGap = isMobile ? 20 : 24;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -945,12 +928,12 @@ export default function AdminProducts() {
     // alguna) fallaba con "null value in column product_id violates
     // not-null constraint". Se soluciona incluyendo también product_id en
     // cada fila enviada.
-    const changedRows: Array<{
+    const changedRows: {
       id: string;
       product_id: string;
       sort_order: number;
       is_cover: boolean;
-    }> = [];
+    }[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -1696,87 +1679,49 @@ export default function AdminProducts() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando productos…</Text>
-        </View>
-      ) : (
-        // Todo el contenido (volver, estadísticas, buscador, filtros, botón
-        // de crear y la lista de productos) vive dentro de este único
-        // ScrollView. Antes el título "Productos" y ese bloque de arriba
-        // estaban fuera del scroll (una cabecera fija aparte de la lista);
-        // ahora todo se desplaza junto, como un solo scroll de la pestaña,
-        // y se quitó el título/subtítulo para aprovechar ese espacio.
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
-          {/* Columna centrada: mismo ancho máximo en toda la pantalla */}
-          <View style={{ width: "100%", maxWidth: 1160, gap: 12 }}>
-          <Pressable
-            onPress={smartBackAdminHome}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: "#F6FAFD",
-              alignSelf: "flex-start",
-            })}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-          </Pressable>
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual
+          en todo el panel. Todo lo demás (estadísticas, buscador, filtros,
+          botón de crear y la lista de productos) vive dentro de un único
+          ScrollView y se desplaza junto. */}
+      <AdminHeader title="Productos" isMobile={isMobile} maxWidth={1160} />
 
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 10,
-              justifyContent: "space-between",
-            }}
-          >
-            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} compact />
-            <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
-            <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} compact />
-            <StatCard label="Destacados portada" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} compact />
+      {loading ? (
+        <AdminLoading texto="Cargando productos…" />
+      ) : (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: pagePadding,
+          // Margen final + zona segura: el último producto nunca queda pegado o tapado abajo.
+          paddingBottom: 48 + insets.bottom,
+          alignItems: "center",
+        }}
+        showsVerticalScrollIndicator={false}
+        // Buscador dentro del scroll: el primer toque ya funciona; en el móvil
+        // nativo el teclado se cierra al arrastrar (en web no, ver CIERRE_TECLADO).
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={CIERRE_TECLADO}
+      >
+        {/* Columna centrada: mismo ancho máximo en toda la pantalla */}
+        <View style={{ width: "100%", maxWidth: 1160, gap: sectionGap }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} />
+            <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
+            <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} />
+            <StatCard label="Destacados portada" value={String(stats.featured)} icon="flame-outline" isMobile={isMobile} />
           </View>
 
-          {!!screenErr && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.dangerBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                {screenErr}
-              </Text>
-            </View>
-          )}
+          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
 
           {!supportsProductMedia && (
-            <View
-              style={{
-                borderRadius: 14,
-                backgroundColor: COLORS.warningBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-                {mediaDebugErr || "No se han podido cargar las fotos y vídeos de los productos."}
-              </Text>
-            </View>
+            <AdminNotice
+              tone="warning"
+              text={mediaDebugErr || "No se han podido cargar las fotos y vídeos de los productos."}
+            />
           )}
 
-          <View
-            style={{
-              borderRadius: 18,
-              backgroundColor: COLORS.card,
-              padding: 12,
-              gap: 10,
-            }}
-          >
+          {/* Buscador, filtros y "Nuevo producto" (sin recuadro alrededor). */}
+          <View style={{ gap: 14 }}>
             <TextInput
               value={search}
               onChangeText={setSearch}
@@ -1798,9 +1743,9 @@ export default function AdminProducts() {
               }}
             />
 
-            <View style={{ gap: 8 }}>
-              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Estado</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View style={{ gap: 8, alignItems: "center" }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Estado</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
                 <FilterPill label="Todos" active={statusFilter === "ALL"} onPress={() => setStatusFilter("ALL")} isMobile={isMobile} />
                 <FilterPill label="Borrador" active={statusFilter === "DRAFT"} onPress={() => setStatusFilter("DRAFT")} isMobile={isMobile} />
                 <FilterPill label="Por revisar" active={statusFilter === "REVIEW"} onPress={() => setStatusFilter("REVIEW")} isMobile={isMobile} />
@@ -1808,82 +1753,70 @@ export default function AdminProducts() {
               </View>
             </View>
 
-            <View style={{ gap: 8 }}>
-              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Visibilidad</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View style={{ gap: 8, alignItems: "center" }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Visibilidad</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
                 <FilterPill label="Todos" active={visibilityFilter === "ALL"} onPress={() => setVisibilityFilter("ALL")} isMobile={isMobile} />
                 <FilterPill label="Visibles" active={visibilityFilter === "VISIBLE"} onPress={() => setVisibilityFilter("VISIBLE")} isMobile={isMobile} />
                 <FilterPill label="Ocultos" active={visibilityFilter === "HIDDEN"} onPress={() => setVisibilityFilter("HIDDEN")} isMobile={isMobile} />
               </View>
             </View>
 
-            <Pressable
-              onPress={openCreate}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.9 : 1,
-                borderRadius: 14,
-                paddingVertical: 13,
-                alignItems: "center",
-                backgroundColor: COLORS.accent,
-                ...softShadow(),
-              })}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-                + Nuevo producto
-              </Text>
-            </Pressable>
+            <PrimaryButton label="+ Nuevo producto" onPress={openCreate} />
           </View>
 
           {filteredItems.length === 0 ? (
-            <View
-              style={{
-                borderRadius: 18,
-                backgroundColor: COLORS.card,
-                padding: isMobile ? 14 : 16,
-                gap: 8,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                No hay productos para este filtro.
-              </Text>
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas.
-              </Text>
-            </View>
+            <EmptyState
+              icon="game-controller-outline"
+              title="No hay productos para este filtro."
+              text="Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas."
+            />
           ) : (
-            listData.map((p) => (
-              <ProductListItem
-                key={p.id}
-                item={p}
-                isMobile={isMobile}
-                isDesktopish={isDesktopish}
-                supportsFeaturedHome={supportsFeaturedHome}
-                onEdit={openEditProduct}
-                onPublish={quickPublish}
-                onToggleFeatured={toggleFeaturedHome}
-                onMarkSold={setMarkSoldTarget}
-                onDelete={askRemove}
-                onToggleActive={toggleActive}
-                uploadStatus={bgUploads[p.id]}
-              />
-            ))
+            <View style={{ gap: 12 }}>
+              {listData.map((p) => (
+                <ProductListItem
+                  key={p.id}
+                  item={p}
+                  isMobile={isMobile}
+                  isDesktopish={isDesktopish}
+                  supportsFeaturedHome={supportsFeaturedHome}
+                  onEdit={openEditProduct}
+                  onPublish={quickPublish}
+                  onToggleFeatured={toggleFeaturedHome}
+                  onMarkSold={setMarkSoldTarget}
+                  onDelete={askRemove}
+                  onToggleActive={toggleActive}
+                  uploadStatus={bgUploads[p.id]}
+                />
+              ))}
+            </View>
           )}
-          </View>
-        </ScrollView>
+        </View>
+      </ScrollView>
       )}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.60)",
-            padding: isMobile ? 10 : 16,
-            justifyContent: "center",
+            paddingHorizontal: isMobile ? 10 : 16,
           }}
         >
+          {/* El formulario es largo: se desplaza entero dentro del modal y
+              siempre se llega al botón de guardar, también con el teclado abierto. */}
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: "center",
+              paddingTop: insets.top + 16,
+              paddingBottom: insets.bottom + 32,
+            }}
+            showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
           >
             <View
               style={{
@@ -1893,10 +1826,9 @@ export default function AdminProducts() {
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: COLORS.bg2,
+                backgroundColor: COLORS.bg,
                 padding: isMobile ? 14 : 16,
                 gap: 12,
-                ...softShadow(),
               }}
             >
               <View style={{ position: "relative", justifyContent: "center" }}>
@@ -2216,59 +2148,28 @@ export default function AdminProducts() {
                 ) : null}
               </View>
 
-              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 16 }}>
+              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 16, textAlign: "center" }}>
                 «Estado» es la fase del producto en el catálogo (borrador, por
                 revisar o publicado). «Producto activo» es otra cosa: decide
                 si, aun estando publicado, se ve o no en la tienda — apagarlo
                 lo oculta sin borrar la ficha ni perder su historial.
               </Text>
 
-              {!!modalErr && (
-                <View
-                  style={{
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.dangerBorder,
-                    backgroundColor: COLORS.dangerBg,
-                    padding: 10,
-                  }}
-                >
-                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                    {modalErr}
-                  </Text>
-                </View>
-              )}
+              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
               {/* Antes había un botón "Cancelar" aquí al lado de "Guardar".
                   Se quitó a petición de Daniel: la "X" de arriba del modal ya
                   cierra sin guardar, así que era un botón redundante. */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "flex-end",
-                  marginTop: 4,
-                }}
-              >
-                <Pressable
+              <View style={{ marginTop: 4 }}>
+                <PrimaryButton
+                  label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
                   onPress={save}
                   disabled={saving}
-                  style={({ pressed }) => ({
-                    opacity: saving ? 0.6 : pressed ? 0.9 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    backgroundColor: COLORS.accent,
-                    width: isMobile ? "100%" : undefined,
-                  })}
-                >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
-                    {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
-                  </Text>
-                </Pressable>
+                />
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -2292,17 +2193,17 @@ export default function AdminProducts() {
               alignSelf: "center",
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.bg2,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.bg,
               padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900", textAlign: "center" }}>
               Borrar producto
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               Vas a borrar{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                 {confirmDelete?.title ?? ""}
@@ -2314,7 +2215,7 @@ export default function AdminProducts() {
               style={{
                 flexDirection: isMobile ? "column" : "row",
                 gap: 10,
-                justifyContent: "flex-end",
+                justifyContent: "center",
                 marginTop: 6,
               }}
             >
@@ -2372,9 +2273,11 @@ function MarkSoldModal({
   const [markedName, setMarkedName] = useState<string | null>(null);
   const [existingSale, setExistingSale] = useState<ExistingSale | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Solo importa el id: así los efectos no se repiten si cambia otro dato del producto.
+  const productId = product?.id ?? null;
 
   useEffect(() => {
-    if (!product) {
+    if (!productId) {
       setQuery("");
       setResults([]);
       setMarkedName(null);
@@ -2385,15 +2288,15 @@ function MarkSoldModal({
     supabase
       .from("product_sales")
       .select("buyer_user_id,created_at")
-      .eq("product_id", product.id)
+      .eq("product_id", productId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
       .then(({ data }) => setExistingSale((data as ExistingSale) ?? null));
-  }, [product?.id]);
+  }, [productId]);
 
   useEffect(() => {
-    if (!product) return;
+    if (!productId) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -2413,8 +2316,7 @@ function MarkSoldModal({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, product?.id]);
+  }, [query, productId]);
 
   async function markSoldTo(user: AdminUserResult) {
     if (!product || marking) return;
@@ -2437,7 +2339,8 @@ function MarkSoldModal({
 
   return (
     <Modal visible={!!product} transparent animationType="fade" onRequestClose={onClose}>
-      <View
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{
           flex: 1,
           backgroundColor: "rgba(0,0,0,0.55)",
@@ -2449,38 +2352,30 @@ function MarkSoldModal({
           style={{
             width: "100%",
             maxWidth: 480,
+            maxHeight: "92%",
             alignSelf: "center",
             borderRadius: 18,
             borderWidth: 1,
             borderColor: COLORS.border,
-            backgroundColor: COLORS.bg2,
+            backgroundColor: COLORS.bg,
             padding: isMobile ? 14 : 16,
             gap: 12,
           }}
         >
-          <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+          <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900", textAlign: "center" }}>
             Marcar como vendido
           </Text>
 
-          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
             Busca al cliente registrado (nombre, usuario o email) al que le has vendido{" "}
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>{product?.title ?? ""}</Text>.
           </Text>
 
           {existingSale ? (
-            <View
-              style={{
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: COLORS.successBorder,
-                backgroundColor: COLORS.successBg,
-                padding: 10,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
-                {markedName ? `Marcado como vendido a ${markedName}.` : "Este producto ya tiene una venta registrada."}
-              </Text>
-            </View>
+            <AdminNotice
+              tone="success"
+              text={markedName ? `Marcado como vendido a ${markedName}.` : "Este producto ya tiene una venta registrada."}
+            />
           ) : null}
 
           <TextInput
@@ -2500,7 +2395,9 @@ function MarkSoldModal({
             }}
           />
 
-          <View style={{ gap: 8, maxHeight: 260 }}>
+          {/* flexShrink: si la pantalla es baja (o el teclado está abierto),
+              la lista de resultados encoge y se desplaza; el resto del modal no se corta. */}
+          <View style={{ gap: 8, maxHeight: 260, flexShrink: 1 }}>
             {searching ? (
               <View style={{ alignItems: "center", paddingVertical: 12 }}>
                 <ActivityIndicator color={COLORS.accent} />
@@ -2510,7 +2407,12 @@ function MarkSoldModal({
                 {query.trim() ? "Sin resultados." : "Escribe para buscar entre los usuarios registrados."}
               </Text>
             ) : (
-              <ScrollView style={{ maxHeight: 260 }}>
+              <ScrollView
+                style={{ maxHeight: 260 }}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
                 <View style={{ gap: 6 }}>
                   {results.map((u) => {
                     const isSoldToThis = existingSale?.buyer_user_id === u.id;
@@ -2550,11 +2452,11 @@ function MarkSoldModal({
             )}
           </View>
 
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 4 }}>
+          <View style={{ flexDirection: "row", justifyContent: "center", marginTop: 4 }}>
             <ChipButton label="Cerrar" variant="ghost" onPress={onClose} isMobile={isMobile} />
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -26,6 +26,11 @@
  * acentos azul claro) con contenido centrado en pantallas anchas
  * (columnStyle, maxWidth 1040).
  *
+ * Cabecera y scroll: la cabecera es la misma franja fija y compacta que en
+ * el resto de pestañas del panel (AdminHeader: flecha para volver —aquí, a
+ * la tienda— y título centrado); el subtítulo y la rejilla van debajo, en
+ * un único ScrollView (flex 1, margen final 48 px + zona segura).
+ *
  * Conectado con:
  * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
@@ -35,11 +40,11 @@
  *   app/admin/pedidos.tsx → destino de las tarjetas de "Gestión principal".
  * - app/admin/_layout.tsx → si el acceso no es válido redirige a /perfil
  *   (sin sesión) o a / (sesión sin rol admin).
+ * - app/admin/products/products.components.tsx → AdminHeader (cabecera común).
  */
 import React, { useMemo } from "react";
 import {
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   Text,
@@ -47,8 +52,10 @@ import {
   Platform,
   useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { AdminHeader, AdminIntro } from "./products/products.components";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -184,6 +191,7 @@ export default function AdminHome() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const actions = useMemo(
     () => [
@@ -314,50 +322,28 @@ export default function AdminHome() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-        <View
-          style={{
-            backgroundColor: COLORS.bg2,
-            borderBottomWidth: 1,
-            borderBottomColor: "#F6FAFD",
-            paddingHorizontal: pagePadding,
-            paddingTop: isMobile ? 12 : 14,
-            paddingBottom: 14,
-            gap: 10,
-          }}
-        >
-        <View style={{ ...columnStyle, gap: 4 }}>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 22 : 24,
-              fontWeight: "900",
-              lineHeight: isMobile ? 28 : 30,
-              textAlign: "center",
-            }}
-          >
-            Panel de Administración
-          </Text>
-          <Text
-            style={{
-              color: COLORS.muted,
-              lineHeight: 20,
-              textAlign: "center",
-            }}
-          >
-            Áreas principales de gestión de la tienda
-          </Text>
-        </View>
-        </View>
+        {/* Misma cabecera fija y compacta que el resto del panel; aquí la
+            flecha vuelve a la tienda. */}
+        <AdminHeader
+          title="Panel de Administración"
+          isMobile={isMobile}
+          onBack={() => router.replace("/")}
+          backLabel="Volver a la tienda"
+        />
 
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={{
             padding: pagePadding,
-            paddingBottom: 28,
+            // Margen final + zona segura: el botón "Volver a la tienda" nunca queda pegado abajo.
+            paddingBottom: 48 + insets.bottom,
             alignItems: "center",
           }}
+          showsVerticalScrollIndicator={false}
         >
-        <View style={{ ...columnStyle, gap: 14 }}>
+        <View style={{ ...columnStyle, gap: isMobile ? 16 : 20 }}>
+          <AdminIntro text="Áreas principales de gestión de la tienda" />
+
           <View>
             <View
               style={
@@ -385,15 +371,17 @@ export default function AdminHome() {
             <Pressable
               onPress={() => router.replace("/")}
               style={({ pressed }) => ({
-                alignSelf: isMobile ? "stretch" : "flex-start",
+                alignSelf: "center",
+                width: "100%",
+                maxWidth: 420,
                 opacity: pressed ? 0.85 : 1,
-                paddingVertical: 10,
+                paddingVertical: 12,
                 paddingHorizontal: 12,
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: "#E3EAF2",
                 backgroundColor: "#F6FAFD",
-                marginTop: 16,
+                marginTop: 24,
               })}
             >
               <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
@@ -403,7 +391,6 @@ export default function AdminHome() {
           </View>
         </View>
         </ScrollView>
-      </SafeAreaView>
     </View>
   );
 }

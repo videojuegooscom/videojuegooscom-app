@@ -65,7 +65,7 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   // Mismo azul oscuro de botón principal que la ficha de producto.
-  accentDark: "#0E86C4",
+  accentDark: "#1EA7E8",
   gold: "#B8860B",
   danger: "#DC2626",
   accent2: "#EAF6FD",

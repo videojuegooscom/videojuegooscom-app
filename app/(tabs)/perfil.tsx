@@ -918,7 +918,7 @@ export default function PerfilScreen() {
                 <View style={{ gap: 12, alignItems: "center" }}>
                     {sessionRole === "guest" ? <MarcaAnimada cual="logo-mini" ancho={96} /> : null}
                     {sessionRole === "guest" && aviso ? (
-                      <Text style={{ color: "#0E86C4", fontWeight: "800", textAlign: "center" }}>
+                      <Text style={{ color: "#1EA7E8", fontWeight: "800", textAlign: "center" }}>
                         {aviso}
                       </Text>
                     ) : null}
@@ -1238,7 +1238,7 @@ const SEG = {
   mutedSoft: "rgba(11,33,56,0.45)",
   line: "#E3EAF2",
   accent: "#1EA7E8",
-  accentDark: "#0E86C4",
+  accentDark: "#1EA7E8",
   danger: "#DC2626",
 };
 

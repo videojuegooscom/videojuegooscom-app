@@ -16,17 +16,23 @@
  *   Supabase devuelve error.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
  *   en azul marino oscuro.
+ * - Scroll: cabecera fija y compacta (volver + título centrado) y, debajo,
+ *   subtítulo, estadísticas, buscador y lista en un único ScrollView (flex 1,
+ *   margen final 48 px + zona segura). Antes todo lo de arriba era fijo y en
+ *   el móvil dejaba la lista en una franja mínima.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/admin/index.tsx → pantalla desde la que se entra aquí (tarjeta
- *   "Categorías") y a la que se vuelve con smartBackAdminHome().
+ *   "Categorías") y a la que se vuelve con el botón de la cabecera.
+ * - app/admin/products/products.components.tsx → AdminHeader, StatCard,
+ *   PrimaryButton, AdminNotice y EmptyState (mismo diseño en todo el panel).
  * - app/admin/products.tsx → los productos usan estas categorías
  *   (category_id) para clasificarse en el catálogo público.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -38,12 +44,20 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+import {
+  AdminHeader,
+  AdminIntro,
+  AdminLoading,
+  AdminNotice,
+  EmptyState,
+  PrimaryButton,
+  StatCard,
+} from "./products/products.components";
+import { CIERRE_TECLADO } from "./products/products.utils";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -79,18 +93,18 @@ type CategoryRow = {
   updated_at: string;
 };
 
-function softShadow() {
-  return Platform.select<any>({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.24,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 3 },
-    default: {},
-  });
-}
+// Campo de texto del formulario: 16 px para que Safari en iPhone no haga
+// zoom automático de toda la pantalla al enfocarlo.
+const inputStyle = {
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  borderRadius: 14,
+  paddingHorizontal: 12,
+  paddingVertical: 12,
+  color: COLORS.text,
+  backgroundColor: "#F8FBFE",
+  fontSize: 16,
+} as const;
 
 function slugify(input: string) {
   return (input ?? "")
@@ -115,60 +129,6 @@ function isValidHttpUrl(value: string) {
   const url = String(value ?? "").trim();
   if (!url) return false;
   return /^https?:\/\/\S+$/i.test(url);
-}
-
-function smartBackAdminHome() {
-  try {
-    if (typeof router.canGoBack === "function" && router.canGoBack()) {
-      router.back();
-      return;
-    }
-  } catch {
-    // ignore
-  }
-  router.replace("/admin");
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-  compact,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: compact ? (isMobile ? "100%" : "31.9%") : "100%",
-        borderRadius: 18,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
-          {label}
-        </Text>
-      </View>
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          fontSize: isMobile ? 18 : 20,
-          marginTop: 6,
-        }}
-      >
-        {value}
-      </Text>
-    </View>
-  );
 }
 
 function ChipButton({
@@ -234,9 +194,10 @@ export default function AdminCategories() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const isTablet = widthSafe >= 700 && widthSafe < 1024;
   const isDesktopish = widthSafe >= 1024;
   const pagePadding = isMobile ? 12 : 16;
+  const sectionGap = isMobile ? 20 : 24;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -486,187 +447,66 @@ export default function AdminCategories() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
-          paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: isMobile ? 12 : 12,
-          alignItems: "center",
-        }}
-      >
-        {/* Columna centrada: mismo ancho máximo que la lista de abajo */}
-        <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-        <View
-          style={{
-            flexDirection: isMobile ? "column" : "row",
-            justifyContent: "space-between",
-            alignItems: isMobile ? "stretch" : "center",
-            gap: 10,
-          }}
-        >
-          <View style={{ flex: isMobile ? undefined : 1 }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: isMobile ? 22 : 24,
-                fontWeight: "900",
-                lineHeight: isMobile ? 28 : 30,
-                textAlign: isMobile ? "center" : "left",
-              }}
-            >
-              Categorías
-            </Text>
-            <Text
-              style={{
-                color: COLORS.muted,
-                marginTop: 4,
-                lineHeight: 20,
-                textAlign: isMobile ? "center" : "left",
-              }}
-            >
-              Crea, ordena y activa las secciones que estructuran la navegación comercial.
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={smartBackAdminHome}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: "#F6FAFD",
-              alignSelf: isMobile ? "flex-start" : "auto",
-            })}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-          </Pressable>
-        </View>
-
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 10,
-            justifyContent: "space-between",
-          }}
-        >
-          <StatCard label="Total" value={String(stats.total)} icon="folder-outline" isMobile={isMobile} compact />
-          <StatCard label="Activas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} compact />
-          <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} compact />
-        </View>
-
-        <View
-          style={{
-            borderRadius: 18,
-            backgroundColor: COLORS.card,
-            padding: 12,
-            gap: 10,
-          }}
-        >
-          <TextInput
-            value={search}
-            onChangeText={(v) => setSearch(v)}
-            placeholder="Buscar por nombre o slug"
-            placeholderTextColor="rgba(11,33,56,0.40)"
-            style={{
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 12,
-              paddingVertical: 12,
-              color: COLORS.text,
-              backgroundColor: "#F8FBFE",
-              fontSize: isMobile ? 14 : 15,
-            }}
-          />
-
-          <Pressable
-            onPress={openCreate}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.9 : 1,
-              borderRadius: 14,
-              paddingVertical: 13,
-              alignItems: "center",
-              backgroundColor: COLORS.accent,
-              ...softShadow(),
-            })}
-          >
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
-              + Nueva categoría
-            </Text>
-          </Pressable>
-        </View>
-
-        {!!screenErr && (
-          <View
-            style={{
-              borderRadius: 14,
-              backgroundColor: COLORS.dangerBg,
-              padding: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-              {screenErr}
-            </Text>
-          </View>
-        )}
-
-        {!supportsImageUrl && (
-          <View
-            style={{
-              borderRadius: 14,
-              backgroundColor: COLORS.warningBg,
-              padding: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.warning, fontWeight: "800", lineHeight: 20 }}>
-              La imagen por URL no está disponible todavía para las categorías. El resto del
-              panel sigue funcionando con normalidad.
-            </Text>
-          </View>
-        )}
-        </View>
-      </View>
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual
+          en todo el panel. Subtítulo, estadísticas, buscador y lista van en
+          un solo scroll (antes eran fijos arriba y en el móvil dejaban la
+          lista en una franja mínima). */}
+      <AdminHeader title="Categorías" isMobile={isMobile} />
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando categorías…</Text>
-        </View>
+        <AdminLoading texto="Cargando categorías…" />
       ) : (
-        <ScrollView
-          contentContainerStyle={{
-            padding: pagePadding,
-            paddingBottom: 30,
-            alignItems: "center",
-          }}
-        >
-          {/* Columna centrada: mismo ancho máximo que la cabecera */}
-          <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: pagePadding,
+          paddingBottom: 48 + insets.bottom,
+          alignItems: "center",
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={CIERRE_TECLADO}
+      >
+        {/* Columna centrada con el mismo ancho máximo para todo */}
+        <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
+          <AdminIntro text="Crea, ordena y activa las secciones que estructuran la navegación comercial." />
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <StatCard label="Total" value={String(stats.total)} icon="folder-outline" isMobile={isMobile} columns={3} />
+            <StatCard label="Activas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} columns={3} />
+            <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} columns={3} />
+          </View>
+
+          <View style={{ gap: 14 }}>
+            <TextInput
+              value={search}
+              onChangeText={(v) => setSearch(v)}
+              placeholder="Buscar por nombre o slug"
+              placeholderTextColor="rgba(11,33,56,0.40)"
+              style={inputStyle}
+            />
+
+            <PrimaryButton label="+ Nueva categoría" onPress={openCreate} />
+          </View>
+
+          {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
+
+          {!supportsImageUrl && (
+            <AdminNotice
+              tone="warning"
+              text="La imagen por URL no está disponible todavía para las categorías. El resto del panel sigue funcionando con normalidad."
+            />
+          )}
+
           {filteredItems.length === 0 ? (
-            <View
-              style={{
-                borderRadius: 18,
-                backgroundColor: COLORS.card,
-                padding: isMobile ? 14 : 16,
-                gap: 8,
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
-                No hay categorías para este filtro.
-              </Text>
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-                Crea tu primera categoría para empezar a organizar el catálogo.
-              </Text>
-            </View>
+            <EmptyState
+              icon="folder-open-outline"
+              title="No hay categorías para este filtro."
+              text="Crea tu primera categoría para empezar a organizar el catálogo."
+            />
           ) : (
-            filteredItems.map((c) => (
+            <View style={{ gap: 12 }}>
+            {filteredItems.map((c) => (
               <View
                 key={c.id}
                 style={{
@@ -728,59 +568,11 @@ export default function AdminCategories() {
                           {c.name}
                         </Text>
 
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            flexWrap: "wrap",
-                            gap: 8,
-                            marginTop: 8,
-                          }}
-                        >
-                          <View
-                            style={{
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: COLORS.border,
-                              backgroundColor: "#F6FAFD",
-                            }}
-                          >
-                            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              Slug: {c.slug}
-                            </Text>
-                          </View>
-
-                          <View
-                            style={{
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: COLORS.border,
-                              backgroundColor: "#F6FAFD",
-                            }}
-                          >
-                            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              Orden: {c.sort_order}
-                            </Text>
-                          </View>
-
-                          <View
-                            style={{
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: c.is_active ? COLORS.successBorder : COLORS.warningBorder,
-                              backgroundColor: c.is_active ? COLORS.successBg : COLORS.warningBg,
-                            }}
-                          >
-                            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                              {c.is_active ? "Visible" : "Oculta"}
-                            </Text>
-                          </View>
-                        </View>
+                        {/* Datos en una línea de texto (antes, tres "burbujas";
+                            la de Visible/Oculta repetía lo que ya dice el interruptor). */}
+                        <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, lineHeight: 18, marginTop: 6 }}>
+                          Slug: {c.slug} · Orden: {c.sort_order}
+                        </Text>
                       </View>
 
                       <View
@@ -790,7 +582,7 @@ export default function AdminCategories() {
                         }}
                       >
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                          <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+                          <Text style={{ color: c.is_active ? COLORS.success : COLORS.warning, fontWeight: "800" }}>
                             {c.is_active ? "Visible" : "Oculta"}
                           </Text>
                           <Switch value={c.is_active} onValueChange={() => toggleActive(c)} />
@@ -799,11 +591,18 @@ export default function AdminCategories() {
                     </View>
 
                     <Text style={{ color: COLORS.muted2, fontSize: 12, lineHeight: 17 }}>
-                      Creada: {c.created_at ? new Date(c.created_at).toLocaleString() : "-"} ·
-                      Actualizada: {c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}
+                      Creada: {c.created_at ? new Date(c.created_at).toLocaleString("es-ES") : "-"} ·
+                      Actualizada: {c.updated_at ? new Date(c.updated_at).toLocaleString("es-ES") : "-"}
                     </Text>
 
-                    <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 10,
+                        flexWrap: "wrap",
+                        justifyContent: isDesktopish ? "flex-start" : "center",
+                      }}
+                    >
                       <ChipButton
                         label="Editar"
                         variant="primary"
@@ -820,24 +619,33 @@ export default function AdminCategories() {
                   </View>
                 </View>
               </View>
-            ))
+            ))}
+            </View>
           )}
-          </View>
-        </ScrollView>
+        </View>
+      </ScrollView>
       )}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.60)",
-            padding: isMobile ? 10 : 16,
-            justifyContent: "center",
+            paddingHorizontal: isMobile ? 10 : 16,
           }}
         >
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: "center",
+              paddingTop: insets.top + 16,
+              paddingBottom: insets.bottom + 32,
+            }}
+            showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={CIERRE_TECLADO}
           >
             <View
               style={{
@@ -847,10 +655,9 @@ export default function AdminCategories() {
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                backgroundColor: COLORS.bg2,
+                backgroundColor: COLORS.bg,
                 padding: isMobile ? 14 : 16,
                 gap: 12,
-                ...softShadow(),
               }}
             >
               <Text
@@ -858,12 +665,13 @@ export default function AdminCategories() {
                   color: COLORS.text,
                   fontSize: isMobile ? 19 : 20,
                   fontWeight: "900",
+                  textAlign: "center",
                 }}
               >
                 {modalTitle}
               </Text>
 
-              <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                 Define el nombre, el orden y la visibilidad de la categoría en la navegación pública.
               </Text>
 
@@ -876,16 +684,7 @@ export default function AdminCategories() {
                 }}
                 placeholder="Nombre de la categoría"
                 placeholderTextColor="rgba(11,33,56,0.40)"
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                }}
+                style={inputStyle}
               />
 
               <TextInput
@@ -897,16 +696,7 @@ export default function AdminCategories() {
                 placeholder="Identificador para la URL"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 autoCapitalize="none"
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                }}
+                style={inputStyle}
               />
 
               <TextInput
@@ -918,16 +708,7 @@ export default function AdminCategories() {
                 placeholder="Orden (0, 10, 20...)"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 keyboardType="numeric"
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  fontSize: 14,
-                }}
+                style={inputStyle}
               />
 
               {supportsImageUrl ? (
@@ -941,16 +722,7 @@ export default function AdminCategories() {
                     placeholder="Imagen URL (https://...)"
                     placeholderTextColor="rgba(11,33,56,0.40)"
                     autoCapitalize="none"
-                    style={{
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      borderRadius: 14,
-                      paddingHorizontal: 12,
-                      paddingVertical: 12,
-                      color: COLORS.text,
-                      backgroundColor: "#F8FBFE",
-                      fontSize: 14,
-                    }}
+                    style={inputStyle}
                   />
 
                   {isValidHttpUrl(imageUrl) ? (
@@ -1003,30 +775,16 @@ export default function AdminCategories() {
                 </View>
               </View>
 
-              {!!modalErr && (
-                <View
-                  style={{
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.dangerBorder,
-                    backgroundColor: COLORS.dangerBg,
-                    padding: 10,
-                  }}
-                >
-                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>
-                    {modalErr}
-                  </Text>
-                </View>
-              )}
+              {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
-              <View
-                style={{
-                  flexDirection: isMobile ? "column" : "row",
-                  gap: 10,
-                  justifyContent: "flex-end",
-                  marginTop: 4,
-                }}
-              >
+              {/* Botones centrados: primero la acción principal, debajo "Cancelar". */}
+              <View style={{ gap: 10, marginTop: 4, alignItems: "center" }}>
+                <PrimaryButton
+                  label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear categoría"}
+                  onPress={save}
+                  disabled={saving}
+                />
+
                 <Pressable
                   onPress={() => {
                     setOpen(false);
@@ -1040,34 +798,18 @@ export default function AdminCategories() {
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     backgroundColor: "#F6FAFD",
-                    width: isMobile ? "100%" : undefined,
+                    width: "100%",
+                    maxWidth: 420,
                   })}
                 >
                   <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
                     Cancelar
                   </Text>
                 </Pressable>
-
-                <Pressable
-                  onPress={save}
-                  disabled={saving}
-                  style={({ pressed }) => ({
-                    opacity: saving ? 0.6 : pressed ? 0.9 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    backgroundColor: COLORS.accent,
-                    width: isMobile ? "100%" : undefined,
-                  })}
-                >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
-                    {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear categoría"}
-                  </Text>
-                </Pressable>
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1091,17 +833,17 @@ export default function AdminCategories() {
               alignSelf: "center",
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.bg2,
+              borderColor: COLORS.border,
+              backgroundColor: COLORS.bg,
               padding: isMobile ? 14 : 16,
               gap: 10,
             }}
           >
-            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900" }}>
+            <Text style={{ color: COLORS.text, fontSize: isMobile ? 17 : 18, fontWeight: "900", textAlign: "center" }}>
               Borrar categoría
             </Text>
 
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               Vas a borrar{" "}
               <Text style={{ color: COLORS.text, fontWeight: "900" }}>
                 {confirmDelete?.name ?? ""}
@@ -1114,7 +856,7 @@ export default function AdminCategories() {
               style={{
                 flexDirection: isMobile ? "column" : "row",
                 gap: 10,
-                justifyContent: "flex-end",
+                justifyContent: "center",
                 marginTop: 6,
               }}
             >

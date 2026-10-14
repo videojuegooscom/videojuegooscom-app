@@ -22,6 +22,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -34,7 +35,14 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import CargaMarca from "../../components/marca/CargaMarca";
+
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
+// scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo. Por eso solo
+// se usa en nativo.
+const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 type Categoria = "general" | "diseno" | "textos" | "negocio" | "codigo" | "seguridad" | "seo" | "panel";
 type Prioridad = 1 | 2 | 3;
@@ -99,7 +107,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -198,6 +207,7 @@ export default function AdminAprendizajes() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -310,68 +320,67 @@ export default function AdminAprendizajes() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera fija y compacta (volver al panel + título centrado), igual en todo el panel. */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
           borderBottomColor: COLORS.border,
           paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 12,
-          alignItems: "center",
+          paddingTop: (isMobile ? 10 : 12) + insets.top,
+          paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View
-          style={{
-            width: "100%",
-            maxWidth: 860,
-            flexDirection: isMobile ? "column" : "row",
-            justifyContent: "space-between",
-            alignItems: isMobile ? "stretch" : "center",
-            gap: 10,
-          }}
-        >
-          <View style={{ flex: isMobile ? undefined : 1 }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: isMobile ? 22 : 24,
-                fontWeight: "900",
-                lineHeight: isMobile ? 28 : 30,
-                textAlign: isMobile ? "center" : "left",
-              }}
-            >
-              Centro De Aprendizajes
-            </Text>
-            <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20, textAlign: isMobile ? "center" : "left" }}>
-              Lo que le corriges a Claude. Lo consulta antes de cada cambio que le pidas · {totalActivas} activas
-            </Text>
-          </View>
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
+            accessibilityLabel="Volver al panel"
+            hitSlop={8}
             style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 999,
-              backgroundColor: "#F6FAFD",
-              alignSelf: isMobile ? "flex-start" : "auto",
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
             })}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
+            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontSize: isMobile ? 19 : 22,
+              fontWeight: "900",
+              textAlign: "center",
+              paddingHorizontal: 44,
+            }}
+          >
+            Centro De Aprendizajes
+          </Text>
         </View>
       </View>
 
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: "center" }}
-      >
-        <View style={{ width: "100%", maxWidth: 860, gap: 14 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={CIERRE_TECLADO}
+        >
+        <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
+          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+            Lo que le corriges a Claude. Lo consulta antes de cada cambio que le pidas · {totalActivas} activas
+          </Text>
+
           {/* Formulario: nueva lección o edición de una existente. */}
           <View style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 14 : 18, gap: 10 }}>
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
               {borrador.id ? "Editar lección" : "Nueva lección"}
             </Text>
 
@@ -502,7 +511,7 @@ export default function AdminAprendizajes() {
 
           {/* Filtros. */}
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
               <Chip label="Todas" active={filtroCategoria === "todas"} onPress={() => setFiltroCategoria("todas")} />
               {CATEGORIAS.map((c) => (
                 <Chip
@@ -513,7 +522,7 @@ export default function AdminAprendizajes() {
                 />
               ))}
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <Switch
                 value={verDesactivadas}
                 onValueChange={setVerDesactivadas}
@@ -525,21 +534,20 @@ export default function AdminAprendizajes() {
           </View>
 
           {loading ? (
-            <View style={{ alignItems: "center", paddingVertical: 30, gap: 10 }}>
-              <ActivityIndicator color={COLORS.text} />
-              <Text style={{ color: COLORS.muted }}>Cargando…</Text>
+            <View style={{ alignItems: "center", paddingVertical: 24 }}>
+              <CargaMarca texto="Cargando lecciones…" />
             </View>
           ) : loadErr ? (
-            <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 12, gap: 8 }}>
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{loadErr}</Text>
+            <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 12, gap: 8, alignItems: "center" }}>
+              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{loadErr}</Text>
               <Pressable onPress={load} accessibilityRole="button">
-                <Text style={{ color: COLORS.danger, fontWeight: "900", textDecorationLine: "underline" }}>
+                <Text style={{ color: COLORS.danger, fontWeight: "900", textDecorationLine: "underline", textAlign: "center" }}>
                   Reintentar
                 </Text>
               </Pressable>
             </View>
           ) : visibles.length === 0 ? (
-            <View style={{ borderRadius: 16, backgroundColor: COLORS.cardSoft, padding: 16, alignItems: "center", gap: 6 }}>
+            <View style={{ paddingVertical: 24, paddingHorizontal: 12, alignItems: "center", gap: 6 }}>
               <Ionicons name="school-outline" size={22} color={COLORS.muted2} />
               <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
                 Aún no hay lecciones aquí. Cada vez que corrijas algo a Claude, guárdalo arriba para que no vuelva a
@@ -604,7 +612,8 @@ export default function AdminAprendizajes() {
             })
           )}
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

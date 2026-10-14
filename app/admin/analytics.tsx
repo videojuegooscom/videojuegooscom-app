@@ -47,7 +47,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -58,7 +59,9 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import CargaMarca from "../../components/marca/CargaMarca";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -72,7 +75,8 @@ const COLORS = {
   muted: "rgba(11,33,56,0.62)",
   muted2: "rgba(11,33,56,0.48)",
   accent: "#1EA7E8",
-  accentDark: "#0F8FCC",
+  // Azul oscuro de la tienda (botón principal, mismo que "Comprar"/"Confirmar pedido").
+  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -97,6 +101,10 @@ type DailyRow = { day: string; visitors: number; pageviews: number };
 type FunnelRow = { step_label: string; sessions: number };
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "all" | "custom";
+
+// "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
+// propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
+const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
 function smartBackAdminHome() {
   try {
@@ -226,18 +234,19 @@ function StatCard({
     <View
       style={{
         width: isMobile ? "48.5%" : "23.5%",
-        borderRadius: 18,
+        borderRadius: 16,
         backgroundColor: COLORS.cardSoft,
         padding: isMobile ? 12 : 14,
+        alignItems: "center",
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }} numberOfLines={1}>
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, flexShrink: 1 }} numberOfLines={1}>
           {label}
         </Text>
       </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
         {value}
       </Text>
     </View>
@@ -291,10 +300,10 @@ function SectionCard({
         gap: 10,
       }}
     >
-      <View>
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{title}</Text>
+      <View style={{ alignItems: "center" }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>{title}</Text>
         {!!subtitle && (
-          <Text style={{ color: COLORS.muted, marginTop: 3, lineHeight: 18, fontSize: 12.5 }}>
+          <Text style={{ color: COLORS.muted, marginTop: 3, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
             {subtitle}
           </Text>
         )}
@@ -343,6 +352,7 @@ export default function AdminAnalytics() {
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
+  const insets = useSafeAreaInsets();
 
   const [preset, setPreset] = useState<DatePreset>("30d");
   const today = useMemo(() => todayMadrid(), []);
@@ -558,66 +568,63 @@ export default function AdminAnalytics() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Cabecera fija y compacta (volver al panel + título centrado). El filtro de fechas
+          va dentro del scroll: fijo arriba ocupaba casi media pantalla del móvil. */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
-          borderBottomColor: "#E3EAF2",
+          borderBottomColor: COLORS.border,
           paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 12,
-          alignItems: "center",
+          paddingTop: (isMobile ? 10 : 12) + insets.top,
+          paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, gap: 12 }}>
-          <View
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+          <Pressable
+            onPress={smartBackAdminHome}
+            accessibilityRole="button"
+            accessibilityLabel="Volver al panel"
+            hitSlop={8}
+            style={({ pressed }) => ({
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 40,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+          </Pressable>
+          <Text
             style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "center",
-              gap: 10,
+              color: COLORS.text,
+              fontSize: isMobile ? 19 : 22,
+              fontWeight: "900",
+              textAlign: "center",
+              paddingHorizontal: 44,
             }}
           >
-            <View style={{ flex: isMobile ? undefined : 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  lineHeight: isMobile ? 28 : 30,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Visitas y métricas
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 4,
-                  lineHeight: 20,
-                  textAlign: isMobile ? "center" : "left",
-                }}
-              >
-                Visitantes, recorrido por la tienda y crecimiento en el rango de fechas elegido.
-              </Text>
-            </View>
+            Visitas y métricas
+          </Text>
+        </View>
+      </View>
 
-            <Pressable
-              onPress={smartBackAdminHome}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-                alignSelf: isMobile ? "flex-start" : "auto",
-              })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver</Text>
-            </Pressable>
-          </View>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={CIERRE_TECLADO}
+        >
+        <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
+          <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+            Visitantes, recorrido por la tienda y crecimiento en el rango de fechas elegido.
+          </Text>
 
           <View
             style={{
@@ -627,7 +634,7 @@ export default function AdminAnalytics() {
               gap: 10,
             }}
           >
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
               <ChipButton label="Hoy" active={preset === "today"} onPress={() => applyPreset("today")} isMobile={isMobile} />
               <ChipButton label="7 días" active={preset === "7d"} onPress={() => applyPreset("7d")} isMobile={isMobile} />
               <ChipButton label="30 días" active={preset === "30d"} onPress={() => applyPreset("30d")} isMobile={isMobile} />
@@ -651,7 +658,9 @@ export default function AdminAnalytics() {
                   paddingVertical: 10,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 13,
+                  // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
+                  // se queda ampliada y "descuadrada".
+                  fontSize: 16,
                 }}
               />
               <TextInput
@@ -669,29 +678,32 @@ export default function AdminAnalytics() {
                   paddingVertical: 10,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 13,
+                  fontSize: 16,
                 }}
               />
               <Pressable
                 onPress={applyCustomRange}
+                accessibilityRole="button"
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.9 : 1,
-                  borderRadius: 12,
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                  backgroundColor: COLORS.accent,
+                  borderRadius: 999,
+                  paddingVertical: 11,
+                  paddingHorizontal: 18,
+                  backgroundColor: COLORS.accentDark,
                   alignItems: "center",
                 })}
               >
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 }}>Aplicar</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>Aplicar</Text>
               </Pressable>
             </View>
 
             {!!dateErr && (
-              <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5 }}>{dateErr}</Text>
+              <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+                {dateErr}
+              </Text>
             )}
 
-            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
+            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
               Rango actual: {rangeLabel}
             </Text>
           </View>
@@ -704,20 +716,19 @@ export default function AdminAnalytics() {
                 padding: 10,
               }}
             >
-              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20 }}>{screenErr}</Text>
+              <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                {screenErr}
+              </Text>
             </View>
           )}
-        </View>
-      </View>
 
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <ActivityIndicator color={COLORS.text} />
-          <Text style={{ color: COLORS.muted }}>Cargando métricas…</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={{ padding: pagePadding, paddingBottom: 30, alignItems: "center" }}>
-          <View style={{ width: "100%", maxWidth: 1040, gap: 14 }}>
+          {/* Al cambiar el rango solo se recargan los datos: el filtro sigue a la vista. */}
+          {loading ? (
+            <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 32 }}>
+              <CargaMarca texto="Cargando métricas…" />
+            </View>
+          ) : (
+          <>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
               <StatCard label="Visitantes" value={String(totals?.total_sessions ?? 0)} icon="people-outline" isMobile={isMobile} />
               <StatCard label="Páginas vistas" value={String(totals?.total_pageviews ?? 0)} icon="eye-outline" isMobile={isMobile} />
@@ -730,7 +741,7 @@ export default function AdminAnalytics() {
               subtitle="Visitantes distintos por día en el rango elegido."
             >
               {daily.length === 0 ? (
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                   Todavía no hay visitas registradas en este rango de fechas.
                 </Text>
               ) : (
@@ -753,7 +764,7 @@ export default function AdminAnalytics() {
               subtitle="Sesiones que llegan a cada paso del recorrido (Inicio → Categoría → Producto → Reseñas). El % es la caída respecto a Inicio."
             >
               {coreFunnel.steps[0].sessions === 0 ? (
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                   Todavía no hay recorrido registrado en este rango de fechas.
                 </Text>
               ) : (
@@ -792,7 +803,7 @@ export default function AdminAnalytics() {
               title="Conversiones por día"
               subtitle="Veces que se pulsó cada acción de compra, por día (hora de Madrid)."
             >
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
                 {CONVERSION_EVENTS.map((c) => (
                   <View
                     key={c.key}
@@ -811,7 +822,7 @@ export default function AdminAnalytics() {
               </View>
 
               {conversions.length === 0 ? (
-                <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                   Todavía no hay conversiones registradas en este rango de fechas.
                 </Text>
               ) : (
@@ -847,7 +858,7 @@ export default function AdminAnalytics() {
               <View style={{ flex: 1 }}>
                 <SectionCard title="Categorías más vistas" subtitle="Sesiones que entraron en cada categoría.">
                   {topCategories.length === 0 ? (
-                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>Sin datos en este rango.</Text>
+                    <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>Sin datos en este rango.</Text>
                   ) : (
                     <View style={{ gap: 8 }}>
                       {topCategories.map((c) => (
@@ -867,7 +878,7 @@ export default function AdminAnalytics() {
               <View style={{ flex: 1 }}>
                 <SectionCard title="Productos más vistos" subtitle="Sesiones que abrieron la ficha de cada producto.">
                   {topProducts.length === 0 ? (
-                    <Text style={{ color: COLORS.muted, lineHeight: 20 }}>Sin datos en este rango.</Text>
+                    <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>Sin datos en este rango.</Text>
                   ) : (
                     <View style={{ gap: 8 }}>
                       {topProducts.map((p) => (
@@ -885,18 +896,10 @@ export default function AdminAnalytics() {
               </View>
             </View>
 
-            <View
-              style={{
-                borderRadius: 16,
-                backgroundColor: COLORS.cardSoft,
-                padding: 12,
-                flexDirection: "row",
-                gap: 10,
-                alignItems: "flex-start",
-              }}
-            >
+            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
+            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, flex: 1 }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
                 Estos datos son de analítica propia (tabla analytics_events en Supabase), no de
                 Vercel: Vercel Web Analytics no está activado en este proyecto y, aunque lo
                 estuviera, solo vería la URL de cada página (por ejemplo /catalogo), no el
@@ -904,9 +907,11 @@ export default function AdminAnalytics() {
                 administrador no se cuentan en estas cifras.
               </Text>
             </View>
-          </View>
+          </>
+          )}
+        </View>
         </ScrollView>
-      )}
+      </KeyboardAvoidingView>
     </View>
   );
 }
