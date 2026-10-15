@@ -9,7 +9,7 @@
  * - Se aparta sola (web): si debajo de ella hay texto, un botón, un campo o una foto
  *   (document.elementsFromPoint en 9 puntos de su caja), busca el hueco libre más
  *   cercano en su lado (o en el otro) y vuelve a su sitio cuando queda libre. Lo mira
- *   al cambiar de pantalla, al dejar de desplazarse y cada 2,5 s.
+ *   al cambiar de pantalla, al dejar de desplazarse y cada 4 s.
  * - Guía de bienvenida (GuiaBlue): a los 15 s, una vez por dispositivo y solo sin
  *   sesión. 12 pasos con datos reales de la tienda que SEÑALAN cada botón (se oscurece
  *   todo menos él, aro azul que late y flecha): las 5 secciones de abajo, el buscador y
@@ -220,7 +220,7 @@ const SITIO_INICIAL: Sitio = { lado: "r", fy: 1 };
 // Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
 const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
 // Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse.
-const APARTARSE_CADA_MS = 2500;
+const APARTARSE_CADA_MS = 4000;
 const APARTARSE_TRAS_SCROLL_MS = 450;
 // id del contenedor de Blue en la web (para no confundirse a sí mismo con el contenido).
 const BLUE_DOM_ID = "blue-flotante";
@@ -1330,8 +1330,14 @@ export default function Campanita() {
   return (
     <>
       {/* Capa del tamaño exacto de la pantalla que recorta: Blue y sus mensajes nunca se
-          salen por un lado (en el iPhone eso ensanchaba toda la página). No bloquea toques. */}
+          salen por un lado (en el iPhone eso ensanchaba toda la página).
+          OJO: pointerEvents SIEMPRE como propiedad, nunca dentro de style. En la web,
+          react-native-web descarta «box-none» en los estilos en línea y esta capa de pantalla
+          completa se quedaba con todos los toques: la tienda parecía congelada al aparecer Blue.
+          Durante la guía Blue no se pinta (no tapa su tarjeta), salvo en el paso que le señala. */}
+      {guiaAbierta && !guiaSenalaBlue ? null : (
       <View
+        pointerEvents="box-none"
         style={{
           position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute",
           top: 0,
@@ -1341,12 +1347,12 @@ export default function Campanita() {
           overflow: "hidden",
           zIndex: 99999,
           elevation: 20,
-          pointerEvents: guiaAbierta ? "none" : "box-none",
-          opacity: guiaAbierta && !guiaSenalaBlue ? 0 : 1,
         }}
       >
       <Animated.View
         nativeID={BLUE_DOM_ID}
+        // Oculto por scroll o durante la guía: no recibe toques.
+        pointerEvents={oculto || guiaAbierta ? "none" : "box-none"}
         style={{
           position: "absolute",
           zIndex: 99999,
@@ -1354,17 +1360,15 @@ export default function Campanita() {
           width: BLUE_SIZE,
           height: BLUE_SIZE,
           transform: pan.getTranslateTransform(),
-          // Oculto por scroll: no bloquea los toques de lo que haya debajo.
-          pointerEvents: oculto ? "none" : "box-none",
         }}
       >
         <Animated.View
+          pointerEvents={oculto || guiaAbierta ? "none" : "box-none"}
           style={{
             width: BLUE_SIZE,
             height: BLUE_SIZE,
             opacity: opacidadCapa,
             transform: [{ translateX: deslizCapa }],
-            pointerEvents: "box-none",
           }}
         >
           {/* Mensaje de Blue: a su lado, en cristal transparente que se lee bien. Al tocarlo
@@ -1406,6 +1410,7 @@ export default function Campanita() {
           ) : saludando ? (
             // Mini saludo al aparecer (al tocarlo, abre el panel de Blue).
             <Animated.View
+              pointerEvents="box-none"
               style={{
                 position: "absolute",
                 width: 176,
@@ -1414,7 +1419,6 @@ export default function Campanita() {
                 top: BLUE_SIZE / 2 - 18,
                 opacity: chipAnim,
                 transform: [{ scale: chipAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
-                pointerEvents: "box-none",
               }}
             >
               <Pressable
@@ -1443,6 +1447,8 @@ export default function Campanita() {
             >
               <Pressable
                 onPress={() => openPanelRef.current()}
+                // En el paso de la guía que le señala, solo se mira: no abre el panel.
+                disabled={guiaAbierta}
                 accessibilityRole="button"
                 accessibilityLabel="Abrir Blue, el asistente de la tienda"
                 hitSlop={6}
@@ -1475,6 +1481,7 @@ export default function Campanita() {
         </Animated.View>
       </Animated.View>
       </View>
+      )}
 
       <Modal visible={panelOpen} transparent animationType="fade" onRequestClose={() => setPanelOpen(false)}>
         <Pressable
