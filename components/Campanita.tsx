@@ -11,8 +11,12 @@
  *   cercano en su lado (o en el otro) y vuelve a su sitio cuando queda libre. Lo mira
  *   al cambiar de pantalla, al dejar de desplazarse y cada 2,5 s.
  * - Guía de bienvenida (GuiaBlue): a los 15 s, una vez por dispositivo y solo sin
- *   sesión. 8 pasos con datos reales de la tienda, con un dedo (deslizar o «Siguiente»
- *   abajo a la derecha) y al final ayuda a crear cuenta o a iniciar sesión
+ *   sesión. 12 pasos con datos reales de la tienda que SEÑALAN cada botón (se oscurece
+ *   todo menos él, aro azul que late y flecha): las 5 secciones de abajo, el buscador y
+ *   el propio Blue (data-testid "pestana-*" en app/(tabs)/_layout.tsx, id
+ *   "buscador-flotante" en components/Barramagic.tsx). Va a Inicio al empezar, se usa con
+ *   un dedo (deslizar o «Siguiente» abajo a la derecha; si el botón está abajo, la tarjeta
+ *   se pone justo encima) y al final ayuda a crear cuenta o a iniciar sesión
  *   (/perfil?acceso=registro|entrar). Se puede repetir desde el panel de Blue.
  * - Aparece 10 s después de entrar en la web (APARECER_MS, contados desde que
  *   se abrió la página con performance.now()): antes no se ve ni se puede tocar.
@@ -392,6 +396,9 @@ export default function Campanita() {
   // Guía de bienvenida (GuiaBlue, al final de este archivo).
   const [guiaAbierta, setGuiaAbierta] = useState(false);
   const guiaPendienteRef = useRef(false);
+  // Durante la guía Blue se esconde (no tapa la tarjeta ni sus botones) salvo en el paso
+  // que le señala a él.
+  const [guiaSenalaBlue, setGuiaSenalaBlue] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
@@ -1058,7 +1065,7 @@ export default function Campanita() {
   // cercano; y vuelve a su sitio en cuanto ese sitio queda libre. Se mira al cambiar de
   // pantalla, al dejar de desplazarse y cada pocos segundos (solo web).
   const enPantallaRef = useRef(false);
-  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !enAdmin;
+  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !enAdmin && !guiaAbierta;
   const comprobarSitio = useCallback(() => {
     if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
     const libre = buscarSitioLibre(preferidoRef.current, sitioRef.current);
@@ -1125,8 +1132,14 @@ export default function Campanita() {
 
   const cerrarGuia = useCallback(() => {
     setGuiaAbierta(false);
+    setGuiaSenalaBlue(false);
     AsyncStorage.setItem(GUIA_VISTA_KEY, "1").catch(() => {});
   }, []);
+
+  // Con la guía abierta Blue tiene que verse en su sitio (no escondido por el scroll).
+  useEffect(() => {
+    if (guiaAbierta) ponerOcultoScroll(false);
+  }, [guiaAbierta, ponerOcultoScroll]);
 
   // El toque lo gestiona un Pressable (clic normal, fiable en Safari del iPhone). El
   // arrastre solo se activa cuando el dedo ya se ha movido unos píxeles: antes el
@@ -1328,7 +1341,8 @@ export default function Campanita() {
           overflow: "hidden",
           zIndex: 99999,
           elevation: 20,
-          pointerEvents: "box-none",
+          pointerEvents: guiaAbierta ? "none" : "box-none",
+          opacity: guiaAbierta && !guiaSenalaBlue ? 0 : 1,
         }}
       >
       <Animated.View
@@ -1802,6 +1816,7 @@ export default function Campanita() {
             cerrarGuia();
             setVenderOpen(true);
           }}
+          onSenalaBlue={setGuiaSenalaBlue}
         />
       ) : null}
     </>
@@ -1844,35 +1859,74 @@ function BotonPanel({
 // --- Guía de bienvenida de Blue ----------------------------------------------------------
 // Pasos cortos, cercanos y con datos reales de la tienda. Se usa con un solo dedo: deslizar
 // la tarjeta o tocar «Siguiente» (abajo a la derecha, donde llega el pulgar derecho).
+// En la web, cada paso puede SEÑALAR el botón del que habla: se oscurece todo menos ese
+// botón, que queda dentro de un aro azul que late, con una flecha que lo apunta.
+// «objetivo» son selectores CSS (si hay varios, se señala el conjunto); si no se encuentran
+// en pantalla, el paso se explica sin señalar.
 type PasoGuia = {
   icono: React.ComponentProps<typeof Ionicons>["name"];
   titulo: string;
   texto: string;
+  objetivo?: string[];
   accion?: { texto: string; ruta?: string; vender?: boolean };
   cuenta?: boolean;
 };
+
+const PESTANAS = ["index", "perfil", "cesta", "foro", "blue-ia"].map((p) => `[data-testid="pestana-${p}"]`);
 
 const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "hand-left-outline",
     titulo: "¡Hola! Soy Blue",
-    texto: "Te enseño la tienda en un minuto. Desliza la tarjeta o toca «Siguiente» con el pulgar.",
+    texto: "Te enseño dónde está todo en un minuto. Toca «Siguiente» con el pulgar o desliza la tarjeta.",
+  },
+  {
+    icono: "apps-outline",
+    titulo: "Las 5 secciones",
+    texto: "Abajo del todo están las secciones de la tienda. Toca una para ir a ella. Si la tocas 3 veces seguidas, se recarga.",
+    objetivo: PESTANAS,
   },
   {
     icono: "home-outline",
     titulo: "Inicio",
-    texto: "Aquí tienes la Oferta de la semana, lo Recién llegado y las categorías: PlayStation, Nintendo Switch, Xbox y más.",
+    texto: "La Oferta de la semana, lo Recién llegado y las categorías: PlayStation, Nintendo Switch, Xbox y más. Desliza hacia abajo para verlo todo.",
+    objetivo: [PESTANAS[0]],
   },
   {
     icono: "search-outline",
-    titulo: "Busca y filtra",
-    texto: "En el catálogo filtras por categoría, estado y precio. ¿No está lo que buscas? Toca «Avísame cuando llegue» y te aviso.",
-    accion: { texto: "Abrir el catálogo", ruta: "/catalogo" },
+    titulo: "El buscador",
+    texto: "Escribe aquí lo que buscas. En el catálogo filtras por categoría, estado y precio. Puedes arrastrar el buscador arriba o abajo.",
+    objetivo: ["#buscador-flotante"],
+  },
+  {
+    icono: "person-outline",
+    titulo: "Perfil",
+    texto: "Tu cuenta. Dentro hay dos pestañas: «Mi cuenta» y «Seguimientos», donde ves tus pedidos y reparaciones.",
+    objetivo: [PESTANAS[1]],
   },
   {
     icono: "bag-handle-outline",
-    titulo: "Cesta y pedido",
-    texto: "Cada artículo es unidad única: al añadirlo a la Cesta te lo reservamos 15 minutos. Después eliges envío a toda España o entrega en persona en Zaragoza.",
+    titulo: "Cesta",
+    texto: "Cada artículo es unidad única: al añadirlo te lo reservamos 15 minutos. Después eliges envío a toda España o entrega en persona en Zaragoza.",
+    objetivo: [PESTANAS[2]],
+  },
+  {
+    icono: "chatbubbles-outline",
+    titulo: "Foro",
+    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el selector de abajo a la derecha, encima del botón de enviar.",
+    objetivo: [PESTANAS[3]],
+  },
+  {
+    icono: "sparkles-outline",
+    titulo: "Blue IA",
+    texto: "Pregúntame lo que quieras. Las sugerencias se mueven solas: toca una. Si necesitas a una persona, toca «Hablar con el equipo».",
+    objetivo: [PESTANAS[4]],
+  },
+  {
+    icono: "happy-outline",
+    titulo: "Este soy yo",
+    texto: "Tócame y se abre mi panel con 3 pestañas: Asistente, Notificaciones y Noticias. Arrástrame a donde quieras; si tapo algo, me aparto solo.",
+    objetivo: [`#${BLUE_DOM_ID}`],
   },
   {
     icono: "cash-outline",
@@ -1887,11 +1941,6 @@ const PASOS_GUIA: PasoGuia[] = [
     accion: { texto: "Ver servicios", ruta: "/servicios" },
   },
   {
-    icono: "sparkles-outline",
-    titulo: "Siempre a mano",
-    texto: "Tócame cuando quieras: te respondo en Blue IA, te paso con el equipo si hace falta y en Notificaciones te aviso de novedades y bajadas de precio.",
-  },
-  {
     icono: "person-circle-outline",
     titulo: "Tu cuenta",
     texto: "Con tu cuenta guardas tus conversaciones, sigues tus pedidos y reparaciones y recibes avisos. Solo tardas un momento.",
@@ -1899,12 +1948,96 @@ const PASOS_GUIA: PasoGuia[] = [
   },
 ];
 
-function GuiaBlue({ onCerrar, onIr, onVender }: { onCerrar: () => void; onIr: (ruta: string) => void; onVender: () => void }) {
+type Caja = { x: number; y: number; w: number; h: number };
+
+// Caja en pantalla de los elementos visibles que cumplen los selectores (unión si son varios).
+function medirObjetivo(selectores?: string[]): Caja | null {
+  if (!selectores?.length || Platform.OS !== "web" || typeof document === "undefined") return null;
+  let x1 = Infinity;
+  let y1 = Infinity;
+  let x2 = -Infinity;
+  let y2 = -Infinity;
+  for (const sel of selectores) {
+    for (const el of Array.from(document.querySelectorAll(sel))) {
+      const r = el.getBoundingClientRect();
+      // Solo lo que se ve (las pantallas de otras pestañas también existen, ocultas).
+      if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > window.innerHeight) continue;
+      x1 = Math.min(x1, r.left);
+      y1 = Math.min(y1, r.top);
+      x2 = Math.max(x2, r.right);
+      y2 = Math.max(y2, r.bottom);
+    }
+  }
+  return Number.isFinite(x1) ? { x: x1, y: y1, w: x2 - x1, h: y2 - y1 } : null;
+}
+
+const FONDO_GUIA = "rgba(11,33,56,0.58)";
+const MARGEN_ARO = 6;
+
+function GuiaBlue({
+  onCerrar,
+  onIr,
+  onVender,
+  onSenalaBlue,
+}: {
+  onCerrar: () => void;
+  onIr: (ruta: string) => void;
+  onVender: () => void;
+  // Avisa a Blue de si este paso le señala a él (mientras no, se esconde para no tapar la guía).
+  onSenalaBlue: (si: boolean) => void;
+}) {
   const [paso, setPaso] = useState(0);
   const total = PASOS_GUIA.length;
   const p = PASOS_GUIA[paso];
   const anim = useRef(new Animated.Value(1)).current;
   const direccion = useRef(1);
+  const pathname = usePathname() ?? "";
+  const [caja, setCaja] = useState<Caja | null>(null);
+  const [pantalla, setPantalla] = useState(() => Dimensions.get("window"));
+
+  // La guía recorre la portada: si se abre en otra pantalla, primero va a Inicio.
+  useEffect(() => {
+    if (pathname !== "/") router.navigate("/" as Href);
+    // solo al abrir
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    onSenalaBlue(!!p.objetivo?.includes(`#${BLUE_DOM_ID}`));
+  }, [p, onSenalaBlue]);
+
+  // Mide el botón del paso (tras un instante, para que la pantalla ya esté pintada) y
+  // vuelve a medir si cambia el tamaño de la pantalla.
+  useEffect(() => {
+    setCaja(null);
+    if (!p.objetivo) return;
+    const medir = () => {
+      setPantalla(Dimensions.get("window"));
+      setCaja(medirObjetivo(p.objetivo));
+    };
+    const t1 = setTimeout(medir, 280);
+    const t2 = setTimeout(medir, 900);
+    const sub = Dimensions.addEventListener("change", medir);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      // @ts-ignore — API antigua (RN<0.65) devuelve undefined
+      sub?.remove?.();
+    };
+  }, [p, pathname]);
+
+  // Aro que late y flecha que bota sobre el botón señalado.
+  const latido = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(latido, { toValue: 1, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO }),
+        Animated.timing(latido, { toValue: 0, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO }),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [latido]);
 
   const pasoRef = useRef(paso);
   pasoRef.current = paso;
@@ -1938,23 +2071,76 @@ function GuiaBlue({ onCerrar, onIr, onVender }: { onCerrar: () => void; onIr: (r
     })
   ).current;
 
-  const { width } = Dimensions.get("window");
+  const { width, height } = pantalla;
   const ancho = Math.min(width - 24, 420);
   const desplazamiento = anim.interpolate({ inputRange: [0, 1], outputRange: [28 * direccion.current, 0] });
 
+  // Hueco iluminado alrededor del botón y dónde va la tarjeta: abajo (para el pulgar) salvo
+  // que el botón esté abajo; entonces justo encima de él, con la flecha apuntándolo.
+  const hueco = caja
+    ? {
+        x: Math.max(0, caja.x - MARGEN_ARO),
+        y: Math.max(0, caja.y - MARGEN_ARO),
+        w: Math.min(width, caja.w + MARGEN_ARO * 2),
+        h: caja.h + MARGEN_ARO * 2,
+      }
+    : null;
+  const botonAbajo = !!hueco && hueco.y + hueco.h / 2 > height * 0.5;
+  const ESPACIO_FLECHA = 44;
+  const abajoTarjeta = hueco && botonAbajo ? Math.max(18, height - hueco.y + ESPACIO_FLECHA) : Platform.OS === "ios" ? 30 : 18;
+  const flechaX = hueco ? limitar(hueco.x + hueco.w / 2 - 16, 8, width - 40) : 0;
+  const flechaY = hueco ? (botonAbajo ? hueco.y - 38 : hueco.y + hueco.h + 6) : 0;
+  const bote = latido.interpolate({ inputRange: [0, 1], outputRange: [0, botonAbajo ? 7 : -7] });
+  const escalaAro = latido.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
+
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(11,33,56,0.45)",
-          justifyContent: "flex-end",
-          // En pantallas anchas, abajo a la derecha (pulgar derecho); en el móvil, a todo lo ancho.
-          alignItems: width >= 700 ? "flex-end" : "center",
-          padding: 12,
-          paddingBottom: Platform.OS === "ios" ? 30 : 18,
-        }}
-      >
+      <View style={{ flex: 1 }}>
+        {/* Oscurecido: todo menos el hueco del botón señalado. */}
+        {hueco ? (
+          <>
+            <View style={{ position: "absolute", left: 0, right: 0, top: 0, height: hueco.y, backgroundColor: FONDO_GUIA }} />
+            <View style={{ position: "absolute", left: 0, right: 0, top: hueco.y + hueco.h, bottom: 0, backgroundColor: FONDO_GUIA }} />
+            <View style={{ position: "absolute", left: 0, width: hueco.x, top: hueco.y, height: hueco.h, backgroundColor: FONDO_GUIA }} />
+            <View
+              style={{ position: "absolute", left: hueco.x + hueco.w, right: 0, top: hueco.y, height: hueco.h, backgroundColor: FONDO_GUIA }}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: hueco.x,
+                top: hueco.y,
+                width: hueco.w,
+                height: hueco.h,
+                borderRadius: Math.min(22, hueco.h / 2),
+                borderWidth: 3,
+                borderColor: COLORS.accent,
+                transform: [{ scale: escalaAro }],
+              }}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={{ position: "absolute", left: flechaX, top: flechaY, transform: [{ translateY: bote }] }}
+            >
+              <Ionicons name={botonAbajo ? "arrow-down-circle" : "arrow-up-circle"} size={32} color={COLORS.accent} />
+            </Animated.View>
+          </>
+        ) : (
+          <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: FONDO_GUIA }} />
+        )}
+
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: "absolute",
+            left: 12,
+            right: 12,
+            bottom: abajoTarjeta,
+            // En pantallas anchas, a la derecha (pulgar derecho); en el móvil, a todo lo ancho.
+            alignItems: width >= 700 ? "flex-end" : "center",
+          }}
+        >
         <Animated.View
           {...deslizar.panHandlers}
           accessibilityViewIsModal
@@ -2067,6 +2253,7 @@ function GuiaBlue({ onCerrar, onIr, onVender }: { onCerrar: () => void; onIr: (r
             </View>
           )}
         </Animated.View>
+        </View>
       </View>
     </Modal>
   );
