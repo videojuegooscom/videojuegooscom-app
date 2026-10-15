@@ -2142,7 +2142,9 @@ function GuiaBlue({
                 top: hueco.y,
                 width: hueco.w,
                 height: hueco.h,
-                borderRadius: Math.min(22, hueco.h / 2),
+                // Poco redondeado: el hueco iluminado es rectangular y, con más radio, asoman
+                // esquinas del fondo blanco de la barra por fuera del aro.
+                borderRadius: Math.min(10, hueco.h / 2),
                 borderWidth: 3,
                 borderColor: COLORS.accent,
                 transform: [{ scale: escalaAro }],
