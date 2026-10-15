@@ -33,7 +33,8 @@
  *
  * Conectado con: supabase/migrations/20261014140000_escaparate_veoaura.sql (id_veoaura,
  * vendido_en, nonces y registro), 20261014160000_escaparate_retirar.sql (retirado_en,
- * veoaura_envio), products / product_media / categories de la tienda.
+ * veoaura_envio), 20261015100000_escaparate_novedades_retorno.sql (novedad_en; el puente de
+ * vuelta tienda → VeoAura está en api/escaparate-retorno.ts), products / product_media / categories de la tienda.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -291,14 +292,17 @@ async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto
 
   const { data: existente, error: errBuscar } = await supabase
     .from("products")
-    .select("id")
+    .select("id,is_active")
     .eq("id_veoaura", idVeoaura)
-    .maybeSingle<{ id: string }>();
+    .maybeSingle<{ id: string; is_active: boolean | null }>();
   if (errBuscar) throw new Rechazo(500, "no se pudo leer el producto");
 
   let idTienda = existente?.id ?? null;
   if (idTienda) {
-    const { error } = await supabase.from("products").update(campos).eq("id", idTienda);
+    // Si vuelve a la venta (estaba vendido o retirado), cuenta otra vez como novedad
+    // (estante «Recién llegado», avisos de novedades y «Avísame cuando llegue»).
+    const vuelve = existente?.is_active === false ? { novedad_en: campos.updated_at } : {};
+    const { error } = await supabase.from("products").update({ ...campos, ...vuelve }).eq("id", idTienda);
     if (error) throw new Rechazo(500, "no se pudo actualizar el producto");
   } else {
     const { data, error } = await supabase

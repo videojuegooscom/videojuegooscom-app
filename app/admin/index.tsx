@@ -37,7 +37,7 @@
  *   app/admin/flash-news.tsx, app/admin/policies.tsx, app/admin/blog.tsx,
  *   app/admin/analytics.tsx, app/admin/users.tsx, app/admin/marca-seo.tsx,
  *   app/admin/redes-sociales.tsx, app/admin/aprendizajes.tsx,
- *   app/admin/pedidos.tsx → destino de las tarjetas de "Gestión principal".
+ *   app/admin/pedidos.tsx, app/admin/escaparate.tsx → destino de las tarjetas de "Gestión principal".
  * - app/admin/_layout.tsx → si el acceso no es válido redirige a /perfil
  *   (sin sesión) o a / (sesión sin rol admin).
  * - app/admin/products/products.components.tsx → AdminHeader (cabecera común).
@@ -225,6 +225,13 @@ export default function AdminHome() {
         subtitle: "Pedidos de la tienda: estado, entrega y datos del cliente",
         icon: "receipt-outline" as IoniconName,
         onPress: () => router.push("/admin/pedidos"),
+      },
+      {
+        key: "escaparate",
+        title: "Escaparate VeoAura",
+        subtitle: "Lo que llega de VeoAura, sus visitas y las ventas de la tienda avisadas a VeoAura",
+        icon: "swap-horizontal-outline" as IoniconName,
+        onPress: () => router.push("/admin/escaparate"),
       },
       {
         key: "inventario",

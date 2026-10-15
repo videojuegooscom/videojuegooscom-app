@@ -2,7 +2,10 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,
-  "crons": [{ "path": "/api/noticias-gaming", "schedule": "0 6 * * *" }],
+  "crons": [
+    { "path": "/api/noticias-gaming", "schedule": "0 6 * * *" },
+    { "path": "/api/escaparate-retorno", "schedule": "30 6 * * *" }
+  ],
   "images": {
     "sizes": [320, 480, 640, 960, 1280],
     "formats": ["image/avif", "image/webp"],
@@ -12,10 +15,26 @@
         "protocol": "https",
         "hostname": "rgvyvaineyodyxzwootl.supabase.co",
         "pathname": "/storage/v1/object/public/noticias/**"
+      },
+      {
+        "protocol": "https",
+        "hostname": "rgvyvaineyodyxzwootl.supabase.co",
+        "pathname": "/storage/v1/object/public/product-media/**"
       }
     ]
   },
   "rewrites": [
+    {
+      "source": "/producto/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|facebookexternalhit|Facebot|meta-externalagent|Twitterbot|TelegramBot|Slackbot|Discordbot|LinkedInBot|Pinterest|SkypeUriPreview|redditbot|Iframely).*"
+        }
+      ],
+      "destination": "/api/compartir?id=:id"
+    },
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },
     { "source": "/politicas/:slug", "destination": "/politicas/[slug]" },
