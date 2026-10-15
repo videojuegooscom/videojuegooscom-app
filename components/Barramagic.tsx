@@ -566,6 +566,8 @@ export function FloatingBarramagic({
 
   return (
     <Animated.View
+      // id en la web: la guía de Blue (components/Campanita.tsx) señala el buscador.
+      nativeID="buscador-flotante"
       pointerEvents={hidden ? "none" : "box-none"}
       {...panResponder.panHandlers}
       style={{

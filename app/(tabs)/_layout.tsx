@@ -250,6 +250,8 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Inicio",
+          // data-testid en la web: la guía de Blue (components/Campanita.tsx) señala cada pestaña.
+          tabBarButtonTestID: "pestana-index",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
               ruta="index"
@@ -265,6 +267,7 @@ export default function TabsLayout() {
         name="perfil"
         options={{
           title: "Perfil",
+          tabBarButtonTestID: "pestana-perfil",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
               ruta="perfil"
@@ -280,6 +283,7 @@ export default function TabsLayout() {
         name="cesta"
         options={{
           title: "Cesta",
+          tabBarButtonTestID: "pestana-cesta",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
               ruta="cesta"
@@ -295,6 +299,7 @@ export default function TabsLayout() {
         name="chat-global"
         options={{
           title: "Foro",
+          tabBarButtonTestID: "pestana-foro",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
               ruta="chat-global"
@@ -310,6 +315,7 @@ export default function TabsLayout() {
         name="blue-ia"
         options={{
           title: "Blue IA",
+          tabBarButtonTestID: "pestana-blue-ia",
           tabBarIcon: ({ color, focused }) => (
             <IconoPestana
               ruta="blue-ia"
