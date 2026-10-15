@@ -1207,16 +1207,10 @@ function FeaturedMediaCarousel({
       {remaining > 0 ? (
         <View style={{ position: "absolute", right: 12, bottom: hasMultiple ? 26 : 12 }}>
           <Text
-            style={{
-              color: "#FFFFFF",
-              fontWeight: "900",
-              fontSize: 12,
-              textShadowColor: "rgba(0,0,0,0.55)",
-              textShadowOffset: { width: 0, height: 1 },
-              textShadowRadius: 4,
-            }}
+            // Azul marino: las fotos van enteras sobre fondo claro y en blanco no se leía.
+            style={{ color: "#0B2138", fontWeight: "900", fontSize: 12.5 }}
           >
-            …+{remaining}
+            +{remaining} fotos
           </Text>
         </View>
       ) : null}
