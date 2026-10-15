@@ -20,8 +20,12 @@ const SUPABASE_ORIGIN = "https://rgvyvaineyodyxzwootl.supabase.co";
 //   sin la espera del doble toque (los toques responden al momento).
 // No se usa scroll-behavior:smooth global: los ScrollView ya animan scrollTo cuando toca y
 // en los saltos sin animación (animated:false) lo convertiría en un desplazamiento lento.
+// - overflow-x:hidden y max-width:100% → nada puede ensanchar la página. En el iPhone, si
+//   algo se sale por un lado (p. ej. Blue al esconderse), Safari agranda el ancho de la
+//   ventana y la tienda entera se maqueta como si la pantalla fuera más ancha (buscador
+//   cortado, categorías una por fila).
 const BOOT_CSS =
-  "html,body,#root{background-color:#FFFFFF;}" +
+  "html,body,#root{background-color:#FFFFFF;overflow-x:hidden;max-width:100%;}" +
   "html,body{overscroll-behavior-y:none;}" +
   "body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}";
 

@@ -10,7 +10,7 @@
  *   iconos a tamaño fijo TAB_ICON_SIZE y etiqueta más pequeña) para dejar
  *   más hueco visible al contenido con scroll de cada pantalla, pero con
  *   aire suficiente para que el nombre de cada pestaña no se recorte en
- *   móvil. Se lee bien: icono de 22, nombre de 11,5 px, gris con más
+ *   móvil. Se lee bien: icono de 22, nombre de 11 px, gris con más
  *   contraste y una línea azul fina encima de la sección activa. Altura algo mayor fuera de iOS
  *   (donde antes iba muy justa) y el icono desplazado hacia arriba
  *   (paddingTop menor) para dejarle más hueco debajo a la etiqueta. Si se
@@ -226,7 +226,7 @@ export default function TabsLayout() {
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
           height: TAB_BAR_BASE_HEIGHT + bottomInset,
-          paddingTop: 7,
+          paddingTop: 4,
           paddingBottom: TAB_BAR_BASE_PADDING_BOTTOM + bottomInset,
           ...Platform.select({
             web: { boxShadow: "0 -6px 20px rgba(11,33,56,0.06)" },
@@ -236,12 +236,13 @@ export default function TabsLayout() {
         tabBarItemStyle: {
           paddingVertical: 1,
         },
-        // Nombre de la sección más grande y sin recortes (antes 10 px).
+        // Nombre de la sección algo más grande (antes 10 px) y con su alto justo: la barra
+        // tiene la altura contada (padding 4 + icono 28 + nombre 13 + padding 10) y si el
+        // nombre pide más, el navegador lo recorta por abajo.
         tabBarLabelStyle: {
-          fontSize: 11.5,
-          lineHeight: 15,
+          fontSize: 11,
+          lineHeight: 13,
           fontWeight: "800",
-          marginTop: 1,
         },
       }}
     >
