@@ -172,6 +172,17 @@ const TAB_ITEMS: { key: HubTab; label: string }[] = [
   { key: "privados", label: "Chat" },
 ];
 
+// Orden de las pestañas que elige cada persona (flechas ↑ del menú). Se guarda en el
+// dispositivo; si falta alguna pestaña o hay una desconocida, se usa el orden de siempre.
+const ORDEN_TABS_KEY = "videojuegoszaragoza:foro_orden_pestanas";
+
+function ordenarTabs(orden: string[] | null): { key: HubTab; label: string }[] {
+  if (!orden) return TAB_ITEMS;
+  const validas = orden.filter((k) => TAB_ITEMS.some((t) => t.key === k));
+  const faltan = TAB_ITEMS.filter((t) => !validas.includes(t.key));
+  return [...validas.map((k) => TAB_ITEMS.find((t) => t.key === k)!), ...faltan];
+}
+
 // Los 6 emojis de reacción disponibles (ver sql/chat_message_reactions.sql —
 // el check constraint de la tabla solo admite estos mismos).
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
@@ -1985,6 +1996,36 @@ function BottomBar({
   visible: boolean;
   visibleAnim: Animated.Value;
 }) {
+  // Orden de las pestañas elegido por la persona (guardado en el dispositivo).
+  const [ordenTabs, setOrdenTabs] = useState<string[] | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(ORDEN_TABS_KEY)
+      .then((raw) => {
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed)) setOrdenTabs(parsed.filter((k): k is string => typeof k === "string"));
+      })
+      .catch(() => {});
+  }, []);
+  const tabsOrdenadas = ordenarTabs(ordenTabs);
+  const subirTab = (key: HubTab) => {
+    const claves: string[] = tabsOrdenadas.map((t) => t.key);
+    const i = claves.indexOf(key);
+    if (i <= 0) return;
+    [claves[i - 1], claves[i]] = [claves[i], claves[i - 1]];
+    setOrdenTabs(claves);
+    AsyncStorage.setItem(ORDEN_TABS_KEY, JSON.stringify(claves)).catch(() => {});
+  };
+
+  // Aro que late alrededor del botón del selector de pestañas.
+  const pulso = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const bucle = Animated.loop(
+      Animated.timing(pulso, { toValue: 1, duration: 1700, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" })
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [pulso]);
+
   // El botón se desactiva solo cuando SÍ hay sesión pero el mensaje es
   // demasiado corto (≤ 3 caracteres). Sin sesión se deja pulsable para que
   // abra el aviso de inicio de sesión.
@@ -2050,46 +2091,77 @@ function BottomBar({
           fondo/borde), centradas, una debajo de otra.
         */}
         <View style={{ alignItems: "flex-end", gap: 8 }}>
-          {TAB_ITEMS.map((tabItem) => (
-            <HubTabButton
-              key={tabItem.key}
-              active={activeTab === tabItem.key}
-              label={tabItem.label}
-              onPress={() => onSelectTab(tabItem.key)}
-            />
+          {tabsOrdenadas.map((tabItem, i) => (
+            <View key={tabItem.key} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {/* Flecha ↑: sube esa pestaña un puesto (cada persona ordena el menú a su gusto). */}
+              {i > 0 ? (
+                <Pressable
+                  onPress={() => subirTab(tabItem.key)}
+                  hitSlop={8}
+                  accessibilityLabel={`Subir ${tabItem.label} un puesto`}
+                  style={({ pressed }) => ({
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: pressed ? 0.6 : 1,
+                  })}
+                >
+                  <Ionicons name="arrow-up-circle-outline" size={22} color={COLORS.accent} />
+                </Pressable>
+              ) : (
+                <View style={{ width: 30 }} />
+              )}
+              <HubTabButton
+                active={activeTab === tabItem.key}
+                label={tabItem.label}
+                onPress={() => onSelectTab(tabItem.key)}
+              />
+            </View>
           ))}
         </View>
       </Animated.View>
 
-      <Pressable
-        onPress={onToggleTabsMenu}
-        accessibilityLabel="Cambiar de sección del chat"
-        style={({ pressed }) => ({
-          alignSelf: "flex-end",
-          // Centrado sobre el botón de enviar (42 px de ancho).
-          marginRight: 4,
-          width: 34,
-          height: 34,
-          borderRadius: 999,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#FFFFFF",
-          borderWidth: 1,
-          borderColor: COLORS.borderSoft,
-          marginBottom: 8,
-          opacity: pressed ? 0.85 : 1,
-          shadowColor: COLORS.accent,
-          shadowOpacity: 0.1,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
-        })}
+      {/* Botón del selector de pestañas: azul de marca y con un aro que late, para que se
+          vea que es AQUÍ donde se cambia de pestaña (Blue lo señala la primera vez). */}
+      <View
+        style={{ alignSelf: "flex-end", marginRight: 1, marginBottom: 8, width: 40, height: 40, alignItems: "center", justifyContent: "center" }}
       >
-        <Ionicons
-          name={tabsMenuOpen ? "chevron-down" : "chevron-up"}
-          size={18}
-          color={COLORS.accent}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: COLORS.accent,
+            opacity: pulso.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
+            transform: [{ scale: pulso.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+          }}
         />
-      </Pressable>
+        <Pressable
+          onPress={onToggleTabsMenu}
+          testID="selector-pestanas"
+          accessibilityLabel="Cambiar de pestaña del Foro: Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat"
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: COLORS.accent,
+            opacity: pressed ? 0.85 : 1,
+            shadowColor: COLORS.accent,
+            shadowOpacity: 0.35,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 3 },
+          })}
+        >
+          <Ionicons name={tabsMenuOpen ? "chevron-down" : "chevron-up"} size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
 
       {!isChatTab ? null : (
       <>

@@ -851,6 +851,8 @@ export default function CestaScreen() {
             </View>
           )}
 
+          {/* El resumen solo existe si hay artículos: con la cesta vacía no se pinta nada. */}
+          {items.length > 0 ? (
           <View
             style={{
               marginTop: sectionGap / 2,
@@ -872,7 +874,6 @@ export default function CestaScreen() {
             <View style={{ marginTop: 4 }}>
               <ActionButton
                 title="Ir a pagar"
-                disabled={items.length === 0}
                 onPress={() => pushRoute("/checkout" as Href)}
               />
             </View>
@@ -886,6 +887,7 @@ export default function CestaScreen() {
               </Text>
             </Pressable>
           </View>
+          ) : null}
           </View>
 
           <CategoryProductsShelf />
