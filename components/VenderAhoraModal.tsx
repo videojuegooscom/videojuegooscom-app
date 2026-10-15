@@ -122,6 +122,7 @@ import {
 } from "react-native";
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import {
   SellMediaPicker,
@@ -303,7 +304,8 @@ function FieldInput({
             color: completed ? COLORS.muted : COLORS.text,
             backgroundColor: completed ? COLORS.card : COLORS.cardSoft,
             fontSize: INPUT_FONT_SIZE,
-            textAlign: "left",
+            // Todo centrado, también lo que escribe el cliente en cada recuadro.
+            textAlign: "center",
           },
           style,
         ]}
@@ -637,9 +639,13 @@ type SellRequestPayload = {
 export default function VenderAhoraModal({
   visible,
   onClose,
+  comoPagina = false,
 }: {
   visible: boolean;
   onClose: () => void;
+  // true = se pinta como una página completa (app/vender.tsx): sin ventana emergente ni
+  // fondo oscuro, con más aire entre apartados y la flecha de volver arriba a la izquierda.
+  comoPagina?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -1075,9 +1081,17 @@ export default function VenderAhoraModal({
   }
 
   const showGmailHint = metodoContacto === "gmail" && !contactoValor.includes("@");
+  const insets = useSafeAreaInsets();
+  // Espacio entre apartados y entre campos emparejados: amplio en la página, el de siempre
+  // en la ventana emergente.
+  const gapCampos = comoPagina ? (isMobile ? 30 : 34) : isMobile ? 12 : 14;
 
-  return (
-    <IsMobileContext.Provider value={isMobile}>
+  // Página completa o ventana emergente. Es una función (no un componente) para que React
+  // no vuelva a montar el formulario en cada pulsación y los campos no pierdan el foco.
+  const envolver = (hijos: React.ReactNode) =>
+    comoPagina ? (
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: insets.top }}>{hijos}</View>
+    ) : (
       <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
         <View
           style={{
@@ -1087,8 +1101,16 @@ export default function VenderAhoraModal({
             justifyContent: "center",
           }}
         >
+          {hijos}
+        </View>
+      </Modal>
+    );
+
+  return (
+    <IsMobileContext.Provider value={isMobile}>
+      {envolver(
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            contentContainerStyle={{ flexGrow: 1, justifyContent: comoPagina ? "flex-start" : "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
             keyboardShouldPersistTaps="handled"
           >
             <Animated.View
@@ -1101,15 +1123,24 @@ export default function VenderAhoraModal({
               }}
             >
               <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.bg2,
-                  padding: isMobile ? 14 : 22,
-                  gap: isMobile ? 12 : 14,
-                  ...softShadow(),
-                }}
+                style={
+                  comoPagina
+                    ? {
+                        // Página: sin tarjeta, fondo limpio y mucho más aire entre apartados.
+                        padding: isMobile ? 18 : 26,
+                        paddingTop: isMobile ? 14 : 20,
+                        gap: isMobile ? 30 : 34,
+                      }
+                    : {
+                        borderRadius: 22,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        backgroundColor: COLORS.bg2,
+                        padding: isMobile ? 14 : 22,
+                        gap: gapCampos,
+                        ...softShadow(),
+                      }
+                }
               >
                 {sent ? (
                   <View style={{ alignItems: "center", gap: 12, paddingVertical: 10 }}>
@@ -1237,8 +1268,9 @@ export default function VenderAhoraModal({
                       onPress={handleClose}
                       containerStyle={{
                         position: "absolute",
-                        top: isMobile ? 12 : 16,
-                        right: isMobile ? 12 : 16,
+                        top: comoPagina ? 6 : isMobile ? 12 : 16,
+                        // En la página, la flecha de volver va arriba a la izquierda.
+                        ...(comoPagina ? { left: isMobile ? 14 : 22 } : { right: isMobile ? 12 : 16 }),
                         zIndex: 2,
                         width: 32,
                         height: 32,
@@ -1254,7 +1286,7 @@ export default function VenderAhoraModal({
                         borderColor: COLORS.border,
                       })}
                     >
-                      <Ionicons name="close" size={18} color={COLORS.text} />
+                      <Ionicons name={comoPagina ? "chevron-back" : "close"} size={18} color={COLORS.text} />
                     </AnimatedPressable>
 
                     <View style={{ alignItems: "center", paddingHorizontal: 34 }}>
@@ -1282,7 +1314,7 @@ export default function VenderAhoraModal({
                     </View>
 
                     {/* Nombre + Apellido */}
-                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
+                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: gapCampos }}>
                       <View style={{ flex: 1, gap: 6 }}>
                         <FieldLabel dim={nombreValido}>Nombre</FieldLabel>
                         <FieldInput
@@ -1384,7 +1416,7 @@ export default function VenderAhoraModal({
                     )}
 
                     {/* Ciudad + Precio estimado */}
-                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
+                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: gapCampos }}>
                       <View style={{ flex: 1, gap: 6 }}>
                         <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
                         <FieldInput
@@ -1415,7 +1447,7 @@ export default function VenderAhoraModal({
                     <View
                       style={{
                         flexDirection: twoCol && metodoContacto ? "row" : "column",
-                        gap: isMobile ? 12 : 14,
+                        gap: gapCampos,
                         alignItems: "flex-start",
                       }}
                     >
@@ -1520,7 +1552,7 @@ export default function VenderAhoraModal({
                     <View
                       style={{
                         flexDirection: twoCol && opcionVenta ? "row" : "column",
-                        gap: isMobile ? 12 : 14,
+                        gap: gapCampos,
                         alignItems: "flex-start",
                       }}
                     >
@@ -1705,8 +1737,7 @@ export default function VenderAhoraModal({
               </View>
             </Animated.View>
           </ScrollView>
-        </View>
-      </Modal>
+      )}
     </IsMobileContext.Provider>
   );
 }

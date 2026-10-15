@@ -94,6 +94,10 @@ const CARD_STEP = CARD_WIDTH + CARD_GAP;
 // componente si ya se pidieron hace poco.
 const SHELF_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
+// Movimiento automático: una tarjeta cada 3,8 s y 9 s de pausa tras tocarlo.
+const AUTO_PASO_MS = 3800;
+const AUTO_PAUSA_MS = 9000;
+
 // Cuántos artículos enseña el estante de novedades.
 const NOVEDADES_MAX = 12;
 
@@ -348,6 +352,26 @@ export default function CategoryProductsShelf({
     };
   }, [modo]);
 
+  // Movimiento automático: cada AUTO_PASO_MS avanza una tarjeta (tiempo de sobra para verla);
+  // al llegar al final vuelve al principio. Si la persona toca o desliza el carrusel, se para
+  // AUTO_PAUSA_MS para no quitarle lo que está mirando.
+  const pausaHasta = useRef(0);
+  const hayProductos = !!products && products.length > 0;
+  useEffect(() => {
+    if (!hayProductos) return;
+    const t = setInterval(() => {
+      if (Date.now() < pausaHasta.current) return;
+      const maxX = contentWidthRef.current - layoutWidthRef.current;
+      if (maxX <= 8) return; // caben todas: no hace falta moverse
+      const siguiente = scrollXRef.current + CARD_STEP;
+      scrollRef.current?.scrollTo({ x: siguiente > maxX + 4 ? 0 : Math.min(maxX, siguiente), animated: true });
+    }, AUTO_PASO_MS);
+    return () => clearInterval(t);
+  }, [hayProductos]);
+  const pausarAuto = useCallback(() => {
+    pausaHasta.current = Date.now() + AUTO_PAUSA_MS;
+  }, []);
+
   // Recalcula qué flechas tienen sentido mostrar a partir de los refs
   // (posición actual, ancho visible, ancho total). Se llama tanto al hacer
   // scroll como al terminar de medir el carrusel (onLayout/onContentSizeChange),
@@ -377,6 +401,8 @@ export default function CategoryProductsShelf({
     // no cortada a medias.
     const visibleCards = Math.max(1, Math.floor(layoutWidthRef.current / CARD_STEP));
     const delta = visibleCards * CARD_STEP * direction;
+    // Con las flechas, el movimiento automático espera un rato.
+    pausaHasta.current = Date.now() + AUTO_PAUSA_MS;
     const maxX = Math.max(0, contentWidthRef.current - layoutWidthRef.current);
     const nextX = Math.min(maxX, Math.max(0, scrollXRef.current + delta));
     scrollRef.current?.scrollTo({ x: nextX, animated: true });
@@ -400,6 +426,8 @@ export default function CategoryProductsShelf({
           snapToInterval={CARD_STEP}
           decelerationRate="fast"
           onScroll={updateArrows}
+          onScrollBeginDrag={pausarAuto}
+          onTouchStart={pausarAuto}
           onLayout={(e) => {
             layoutWidthRef.current = e.nativeEvent.layout.width;
             recomputeArrows();

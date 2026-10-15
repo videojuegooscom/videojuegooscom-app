@@ -75,7 +75,7 @@
  *   claves de avisos de noticias (activar con la campana; marcar como vistas).
  * - supabase/migrations/20261013200000_noticias_comentarios_preferencias.sql →
  *   tabla preferencias_usuario (cada usuario lee la suya).
- * - components/VenderAhoraModal.tsx → formulario "Vender" desde el panel.
+ * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -98,7 +98,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { getAnalyticsConsent } from "../lib/analytics";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import VenderAhoraModal from "./VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -386,7 +385,12 @@ export default function Campanita() {
   const enAdmin = pathname.startsWith("/admin");
   // En las pantallas de chat (y en el propio chat de Blue IA) no se muestra: taparía
   // el campo de escribir y el botón de enviar.
-  const enChat = pathname.startsWith("/blue-ia") || pathname.startsWith("/chat-global") || pathname.startsWith("/chat/");
+  const enChat =
+    pathname.startsWith("/blue-ia") ||
+    pathname.startsWith("/chat-global") ||
+    pathname.startsWith("/chat/") ||
+    // La página de venta es un formulario largo: Blue taparía los campos y el botón de enviar.
+    pathname.startsWith("/vender");
 
   const [ready, setReady] = useState(false);
   // sitio = donde está ahora; preferidoRef = donde lo dejó la persona (vuelve ahí en cuanto
@@ -399,13 +403,16 @@ export default function Campanita() {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
-  const [venderOpen, setVenderOpen] = useState(false);
+  // «Vender» es una página (app/vender.tsx), no una ventana emergente.
+  const abrirVender = useCallback(() => router.push("/vender" as Href), []);
   // Guía de bienvenida (GuiaBlue, al final de este archivo).
   const [guiaAbierta, setGuiaAbierta] = useState(false);
   const guiaPendienteRef = useRef(false);
   // Durante la guía Blue se esconde (no tapa la tarjeta ni sus botones) salvo en el paso
   // que le señala a él.
   const [guiaSenalaBlue, setGuiaSenalaBlue] = useState(false);
+  // Aviso de Blue en el Foro: señala el botón del selector de pestañas (una vez por visita).
+  const [avisoSelector, setAvisoSelector] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
@@ -843,6 +850,26 @@ export default function Campanita() {
   // Cuenta las noticias al montar y otra vez al salir del Foro (donde se ven y se
   // actualiza la clave local de "vistas"), para que el número rojo no se quede viejo.
   const enForo = pathname.startsWith("/chat-global");
+
+  // En el Foro Blue no se queda en pantalla (taparía el campo de escribir), pero sí sale una
+  // vez por visita, a los 2,5 s, para señalar el botón azul del selector de pestañas.
+  useEffect(() => {
+    if (!enForo || yaDicho.has("selector-pestanas") || Platform.OS !== "web") return;
+    let vivo = true;
+    const t = setTimeout(async () => {
+      // Con el aviso de cookies sin contestar, Blue no habla (lo taparía).
+      if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
+      yaDicho.add("selector-pestanas");
+      setAvisoSelector(true);
+    }, 2500);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [enForo]);
+  useEffect(() => {
+    if (!enForo) setAvisoSelector(false);
+  }, [enForo]);
   useEffect(() => {
     if (!enForo) refreshNoticiasNuevas();
   }, [enForo, refreshNoticiasNuevas]);
@@ -1213,9 +1240,9 @@ export default function Campanita() {
     setBocadillo(null);
     if (!b) return;
     if (b.accion === "chat" || b.accion === "ruta") router.push((b.ruta ?? "/blue-ia") as Href);
-    else if (b.accion === "vender") setVenderOpen(true);
+    else if (b.accion === "vender") abrirVender();
     else openPanel("noticias");
-  }, [bocadillo, openPanel]);
+  }, [bocadillo, openPanel, abrirVender]);
 
   const ir = useCallback((href: string) => {
     setPanelOpen(false);
@@ -1322,6 +1349,7 @@ export default function Campanita() {
 
   // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
   // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
+  if (avisoSelector && enForo && !enAdmin) return <AvisoSelector onCerrar={() => setAvisoSelector(false)} />;
   if (!ready || enChat || enAdmin || !aparecido) return null;
 
   const derecha = sitio.lado === "r";
@@ -1606,7 +1634,7 @@ export default function Campanita() {
                   texto="Vender mi consola o dispositivo"
                   onPress={() => {
                     setPanelOpen(false);
-                    setVenderOpen(true);
+                    abrirVender();
                   }}
                 />
               </View>
@@ -1832,8 +1860,6 @@ export default function Campanita() {
         </Pressable>
       </Modal>
 
-      {venderOpen ? <VenderAhoraModal visible={venderOpen} onClose={() => setVenderOpen(false)} /> : null}
-
       {guiaAbierta ? (
         <GuiaBlue
           onCerrar={cerrarGuia}
@@ -1843,7 +1869,7 @@ export default function Campanita() {
           }}
           onVender={() => {
             cerrarGuia();
-            setVenderOpen(true);
+            abrirVender();
           }}
           onSenalaBlue={setGuiaSenalaBlue}
         />
@@ -1882,6 +1908,106 @@ function BotonPanel({
       <Ionicons name={icono} size={17} color={principal ? "#FFFFFF" : COLORS.accentDark} />
       <Text style={{ color: principal ? "#FFFFFF" : COLORS.accentDark, fontWeight: "900", fontSize: 14.5 }}>{texto}</Text>
     </Pressable>
+  );
+}
+
+// --- Aviso de Blue en el Foro --------------------------------------------------------------
+// Señala el botón azul del selector de pestañas (data-testid "selector-pestanas", en
+// app/(tabs)/chat-global.tsx) con un aro y una flecha, y explica qué hace y que las pestañas
+// se pueden ordenar con las flechas ↑ de su menú. No bloquea nada: solo se cierra con
+// «Entendido» (o a los 20 s).
+function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
+  const [caja, setCaja] = useState<Caja | null>(null);
+  const { width, height } = Dimensions.get("window");
+  const latido = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const medir = () => setCaja(medirObjetivo(['[data-testid="selector-pestanas"]']));
+    const t1 = setTimeout(medir, 200);
+    const t2 = setTimeout(medir, 900);
+    const t3 = setTimeout(onCerrar, 20000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [onCerrar]);
+
+  useEffect(() => {
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(latido, { toValue: 1, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO }),
+        Animated.timing(latido, { toValue: 0, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO }),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [latido]);
+
+  // Sin el botón a la vista no hay nada que señalar.
+  if (!caja) return null;
+  const ancho = Math.min(width - 24, 330);
+  const bote = latido.interpolate({ inputRange: [0, 1], outputRange: [0, 7] });
+  const escala = latido.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
+  const flechaX = limitar(caja.x + caja.w / 2 - 16, 8, width - 40);
+
+  return (
+    <View pointerEvents="box-none" style={{ position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999 }}>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: caja.x - 6,
+          top: caja.y - 6,
+          width: caja.w + 12,
+          height: caja.h + 12,
+          borderRadius: (caja.h + 12) / 2,
+          borderWidth: 3,
+          borderColor: COLORS.accent,
+          transform: [{ scale: escala }],
+        }}
+      />
+      <Animated.View pointerEvents="none" style={{ position: "absolute", left: flechaX, top: caja.y - 46, transform: [{ translateY: bote }] }}>
+        <Ionicons name="arrow-down-circle" size={32} color={COLORS.accent} />
+      </Animated.View>
+      <View
+        pointerEvents="auto"
+        style={[
+          CRISTAL,
+          {
+            position: "absolute",
+            right: 12,
+            bottom: Math.max(12, height - caja.y + 54),
+            width: ancho,
+            backgroundColor: "rgba(255,255,255,0.94)",
+            padding: 16,
+            gap: 10,
+            alignItems: "center",
+          },
+        ]}
+      >
+        <MarcaAnimada cual="carga" ancho={54} tocable={false} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Aquí cambias de pestaña</Text>
+        <Text style={{ color: COLORS.text, fontSize: 14.5, lineHeight: 21, textAlign: "center", fontWeight: "600" }}>
+          Toca el botón azul para ver Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat. ¡Y ordénalas a tu gusto con la flecha ↑ de cada pestaña!
+        </Text>
+        <Pressable
+          onPress={onCerrar}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            alignSelf: "stretch",
+            minHeight: 48,
+            borderRadius: 999,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: COLORS.accent,
+            opacity: pressed ? 0.88 : 1,
+          })}
+        >
+          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>Entendido</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -1942,7 +2068,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "chatbubbles-outline",
     titulo: "Foro",
-    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el selector de abajo a la derecha, encima del botón de enviar.",
+    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el botón azul de abajo a la derecha, encima del de enviar, y las ordenas a tu gusto con la flecha ↑ de cada una.",
     objetivo: [PESTANAS[3]],
   },
   {
