@@ -72,10 +72,12 @@ async function revisarPagina(contexto, nombre, ruta) {
     if (r.status() >= 400 && !/favicon/.test(r.url())) errores.push(`HTTP ${r.status()}: ${r.url().slice(0, 120)}`);
   });
 
+  // «load» y no «networkidle»: el Foro mantiene abierta una conexión en tiempo real y la red
+  // nunca queda quieta. Luego se da tiempo a que pinte los datos.
   const t0 = Date.now();
-  await pagina.goto(BASE + ruta, { waitUntil: "networkidle", timeout: 45000 });
+  await pagina.goto(BASE + ruta, { waitUntil: "load", timeout: 45000 });
   const ms = Date.now() - t0;
-  await pagina.waitForTimeout(1500);
+  await pagina.waitForTimeout(3000);
 
   const anchos = await pagina.evaluate(() => ({
     pantalla: window.innerWidth,
@@ -89,9 +91,41 @@ async function revisarPagina(contexto, nombre, ruta) {
   return pagina;
 }
 
+// Primera visita de verdad (sin nada guardado): sale el aviso de cookies y Blue aparece a
+// los 10 s. Blue no puede quedarse encima de ningún botón (p. ej. «Aceptar»).
+async function revisarPrimeraVisita(navegador) {
+  const contexto = await navegador.newContext(IPHONE);
+  const pagina = await contexto.newPage();
+  await pagina.goto(BASE + "/", { waitUntil: "load", timeout: 45000 });
+  await pagina.waitForSelector("#blue-flotante", { timeout: 20000 }).catch(() => fallos.push("Blue no aparece en 20 s"));
+  await pagina.waitForTimeout(4500);
+  await pagina.screenshot({ path: join(SALIDA, "primera-visita.png") });
+  const tapados = await pagina.evaluate(() => {
+    const blue = document.getElementById("blue-flotante");
+    if (!blue) return [];
+    const b = blue.getBoundingClientRect();
+    // También los Pressable de react-native-web (sin rol, pero enfocables con tabindex).
+    return Array.from(document.querySelectorAll('button,a,input,[role="button"],[role="link"],[role="tab"],[tabindex="0"]'))
+      .filter((el) => !el.closest("#blue-flotante"))
+      .filter((el) => el.getBoundingClientRect().width < window.innerWidth * 0.95)
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4) return false;
+        // Que se solapen de verdad (más de 12 px por cada lado).
+        const ancho = Math.min(b.right, r.right) - Math.max(b.left, r.left);
+        const alto = Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top);
+        return ancho > 12 && alto > 12;
+      })
+      .map((el) => (el.textContent || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 40));
+  });
+  if (tapados.length) fallos.push(`primera visita: Blue tapa ${tapados.join(" · ")}`);
+  else console.log("OK    primera visita: Blue no tapa ningún botón");
+  await contexto.close();
+}
+
 async function revisarBlueYGuia(contexto) {
   const pagina = await contexto.newPage();
-  await pagina.goto(BASE + "/", { waitUntil: "networkidle", timeout: 45000 });
+  await pagina.goto(BASE + "/", { waitUntil: "load", timeout: 45000 });
   // Blue aparece a los 10 s.
   await pagina.waitForSelector("#blue-flotante", { timeout: 20000 }).catch(() => fallos.push("Blue no aparece en 20 s"));
   await pagina.waitForTimeout(1500);
@@ -109,6 +143,9 @@ async function revisarBlueYGuia(contexto) {
   // Guía: Blue → panel → «Ver la guía de la tienda», y una captura por paso.
   await pagina.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').tap();
   await pagina.waitForTimeout(800);
+  // Si hay avisos, el panel abre en Notificaciones: la guía está en la pestaña Asistente.
+  await pagina.getByRole("tab", { name: "Asistente" }).tap();
+  await pagina.waitForTimeout(400);
   await pagina.getByText("Ver la guía de la tienda").tap();
   for (let i = 1; i <= 12; i++) {
     await pagina.waitForTimeout(1300);
@@ -124,10 +161,12 @@ async function revisarBlueYGuia(contexto) {
 const navegador = await chromium.launch();
 try {
   const contexto = await navegador.newContext(IPHONE);
-  // La guía automática ya vista y las cookies decididas: así no tapan las capturas.
+  // La guía automática ya vista y la analítica RECHAZADA: así no tapan las capturas y las
+  // pruebas no cuentan como visitas en las estadísticas de la tienda.
   await contexto.addInitScript(() => {
     try {
       localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
+      localStorage.setItem("videojuegoos.analytics.consent", "declined");
     } catch {
       // sin almacenamiento
     }
@@ -137,6 +176,7 @@ try {
     await p.close();
   }
   await revisarBlueYGuia(contexto);
+  await revisarPrimeraVisita(navegador);
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e).slice(0, 200)}`);
 } finally {
