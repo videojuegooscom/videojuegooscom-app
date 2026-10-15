@@ -450,7 +450,8 @@ export default function Campanita() {
       setSitio(s);
       const xy = sitioToXY(s);
       posRef.current = xy;
-      Animated.spring(pan, { toValue: xy, useNativeDriver: false, friction: 8, tension: 50 }).start();
+      // overshootClamping: el muelle no se pasa del sitio (no asoma fuera de la pantalla).
+      Animated.spring(pan, { toValue: xy, useNativeDriver: false, friction: 8, tension: 50, overshootClamping: true }).start();
     },
     [pan]
   );
@@ -1315,6 +1316,21 @@ export default function Campanita() {
 
   return (
     <>
+      {/* Capa del tamaño exacto de la pantalla que recorta: Blue y sus mensajes nunca se
+          salen por un lado (en el iPhone eso ensanchaba toda la página). No bloquea toques. */}
+      <View
+        style={{
+          position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          overflow: "hidden",
+          zIndex: 99999,
+          elevation: 20,
+          pointerEvents: "box-none",
+        }}
+      >
       <Animated.View
         nativeID={BLUE_DOM_ID}
         style={{
@@ -1444,6 +1460,7 @@ export default function Campanita() {
           </Animated.View>
         </Animated.View>
       </Animated.View>
+      </View>
 
       <Modal visible={panelOpen} transparent animationType="fade" onRequestClose={() => setPanelOpen(false)}>
         <Pressable
