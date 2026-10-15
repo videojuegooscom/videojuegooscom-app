@@ -16,8 +16,8 @@
  * - app/checkout.tsx → botón "Ir a pagar".
  * - lib/supabase.ts → tabla products, para completar los datos del
  *   artículo añadido.
- * - components/SocialLinks.tsx → bloque "Síguenos" debajo del resumen del
- *   pedido, con los logos de las redes sociales activas.
+ * - components/SiteFooter.tsx → pie de página (las redes sociales salen ahí una
+ *   sola vez; antes se repetían también encima).
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -41,7 +41,6 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
-import SocialLinks from "../../components/SocialLinks";
 import {
   formatoCuentaAtras,
   liberarReserva,
@@ -890,9 +889,7 @@ export default function CestaScreen() {
           </View>
 
           <CategoryProductsShelf />
-
-          {/* Sin envoltorio: si no hay redes activas no deja hueco. */}
-          <SocialLinks />
+          {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
           </View>
 
           <SiteFooter sidePadding={16} />

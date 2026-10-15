@@ -10,7 +10,8 @@
  *   iconos a tamaño fijo TAB_ICON_SIZE y etiqueta más pequeña) para dejar
  *   más hueco visible al contenido con scroll de cada pantalla, pero con
  *   aire suficiente para que el nombre de cada pestaña no se recorte en
- *   móvil: icono un poco más pequeño (20), altura algo mayor fuera de iOS
+ *   móvil. Se lee bien: icono de 22, nombre de 11,5 px, gris con más
+ *   contraste y una línea azul fina encima de la sección activa. Altura algo mayor fuera de iOS
  *   (donde antes iba muy justa) y el icono desplazado hacia arriba
  *   (paddingTop menor) para dejarle más hueco debajo a la etiqueta. Si se
  *   cambia aquí, conviene revisar SEARCH_LAYOUT.mobileTabBarHeight /
@@ -59,7 +60,7 @@ import {
 import { pulseLoading, useCargando } from "../../lib/loadingBus";
 import { BrilloIconoSeccion } from "../../components/lineapensadoraefectosiri";
 
-const TAB_ICON_SIZE = 20;
+const TAB_ICON_SIZE = 22;
 
 // Triple toque: ventana para los 3 toques, vuelta del icono y efecto Siri.
 const TRIPLE_TOQUE_MS = 900;
@@ -169,7 +170,18 @@ function IconoPestana({
   const rotacion = giro.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
 
   return (
-    <Animated.View style={{ transform: [{ rotate: rotacion }] }}>
+    <Animated.View style={{ transform: [{ rotate: rotacion }], alignItems: "center" }}>
+      {/* Marca de la sección activa: una línea azul fina encima del icono. */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: -7,
+          width: 22,
+          height: 3,
+          borderRadius: 2,
+          backgroundColor: focused ? COLORS.accent : "transparent",
+        }}
+      />
       <BrilloIconoSeccion brillando={focused && cargando}>
         <Ionicons name={nombre} size={TAB_ICON_SIZE} color={color} />
       </BrilloIconoSeccion>
@@ -182,7 +194,8 @@ const COLORS = {
   card: "#FFFFFF",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.55)",
+  // Más contraste en las secciones no activas: antes 0.55 se leía mal al sol.
+  muted: "rgba(11,33,56,0.72)",
   accent: "#1EA7E8",
 };
 
@@ -213,7 +226,7 @@ export default function TabsLayout() {
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
           height: TAB_BAR_BASE_HEIGHT + bottomInset,
-          paddingTop: 4,
+          paddingTop: 7,
           paddingBottom: TAB_BAR_BASE_PADDING_BOTTOM + bottomInset,
           ...Platform.select({
             web: { boxShadow: "0 -6px 20px rgba(11,33,56,0.06)" },
@@ -223,9 +236,12 @@ export default function TabsLayout() {
         tabBarItemStyle: {
           paddingVertical: 1,
         },
+        // Nombre de la sección más grande y sin recortes (antes 10 px).
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11.5,
+          lineHeight: 15,
           fontWeight: "800",
+          marginTop: 1,
         },
       }}
     >

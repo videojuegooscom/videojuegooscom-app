@@ -238,21 +238,6 @@ function resolveCategory(rawCat: string | undefined, cats: CategoryRow[]) {
   return cats.find((c) => c.slug === rawCat) ?? cats.find((c) => c.id === rawCat);
 }
 
-function getCategoryHint(name?: string) {
-  if (!name) return "Segunda mano revisada";
-  const n = name.toLowerCase();
-
-  if (n.includes("playstation 5") || n.includes("ps5")) return "Consolas y packs PS5";
-  if (n.includes("playstation 4") || n.includes("ps4")) return "Consolas y accesorios PS4";
-  if (n.includes("xbox")) return "Xbox y accesorios";
-  if (n.includes("switch") || n.includes("nintendo")) return "Nintendo y accesorios";
-  if (n.includes("videojuego")) return "Juegos listos para enviar";
-  if (n.includes("mando") || n.includes("accesorio")) return "Accesorios y periféricos";
-  if (n.includes("repar")) return "Servicio y mantenimiento";
-  if (n.includes("electr")) return "Electrónica seleccionada";
-
-  return "Producto revisado";
-}
 
 function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | null {
   const imgs = row?.images;
@@ -495,14 +480,6 @@ export default function CatalogoScreen() {
     if (!ready && rawCat) return legacyCatLabel(rawCat) ?? "Catálogo";
     return "Catálogo";
   }, [selectedCategory, ready, rawCat]);
-
-  const pageSubtitle = useMemo(() => {
-    if (isAdmin) return "Gestión visual del catálogo y revisión de estado.";
-    if (selectedCategory?.name) {
-      return `${getCategoryHint(selectedCategory.name)} · Envíos a toda España`;
-    }
-    return "Consolas, videojuegos y electrónica de segunda mano, revisados y listos para ti";
-  }, [isAdmin, selectedCategory]);
 
   const hasActiveFilters =
     !!categoryId ||
@@ -776,32 +753,7 @@ export default function CatalogoScreen() {
               >
                 {pageTitle}
               </Text>
-
-              <Text
-                style={{
-                  color: COLORS.muted,
-                  marginTop: 6,
-                  fontSize: isMobile ? 13 : 14,
-                  lineHeight: 20,
-                  maxWidth: 760,
-                  textAlign: "center",
-                }}
-              >
-                {pageSubtitle}
-              </Text>
             </View>
-
-            {isAdmin ? (
-              <View style={{ alignItems: "center", gap: 6 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  Panel de administración
-                </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center", maxWidth: 760 }}>
-                  Consulta el estado interno de cada producto: publicado, listo o pendiente de
-                  revisión.
-                </Text>
-              </View>
-            ) : null}
 
             {/* Buscador compartido (components/Barramagic.tsx), modo "input":
                 busca al pulsar intro y limpia con la "x". */}

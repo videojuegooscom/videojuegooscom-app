@@ -72,7 +72,6 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -97,7 +96,6 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
-import { openExternalLink } from "../../lib/openExternalLink";
 import { useTabBarBottomInset } from "../../lib/tabBar";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -122,13 +120,6 @@ const COLORS = {
   warningBorder: "rgba(255, 178, 0, 0.45)",
   successBg: "#E7F8EE",
   successBorder: "#BCEBCB",
-};
-
-const BRAND = {
-  name: "Videojuegoszaragoza.com",
-  whatsappPhoneE164: "+34627748741",
-  whatsappPrefill:
-    "Hola, vengo desde videojuegoszaragoza.com. Quiero vender o tasar mi consola/electrónica. ¿Te paso fotos y modelo?",
 };
 
 // Preguntas frecuentes de la sección "Preguntas frecuentes" de Inicio (antes
@@ -294,27 +285,6 @@ function fmtEUR(value: number) {
   const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
   const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
   return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
-
-function buildWhatsAppUrl(prefill: string) {
-  const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
-  const text = encodeURIComponent(clampText(prefill, 400));
-  return `https://wa.me/${phone.replace("+", "")}?text=${text}`;
-}
-
-function openWhatsApp() {
-  const url = buildWhatsAppUrl(BRAND.whatsappPrefill);
-
-  try {
-    // openExternalLink intenta abrir Chrome primero (ver
-    // lib/openExternalLink.ts) — se llama sin await para no perder el
-    // "toque del usuario" que ese truco necesita.
-    openExternalLink(url);
-  } catch {
-    const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "").replace("+", "");
-    const text = encodeURIComponent(clampText(BRAND.whatsappPrefill, 400));
-    Linking.openURL(`https://api.whatsapp.com/send?phone=${phone}&text=${text}`);
-  }
 }
 
 function softShadow() {
@@ -1313,27 +1283,17 @@ function FeaturedOfferCard({
           Descubre nuestras categorías destacadas.
         </Text>
 
-        <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-          Explora las categorías disponibles o escríbenos por WhatsApp y te recomendamos el
-          producto que mejor encaja contigo.
-        </Text>
-
         <View style={{ flexDirection: isDesktopish ? "row" : "column", gap: 12, alignSelf: "stretch" }}>
           <View style={{ flex: 1 }}>
-            <PrimaryButton
-              title="Ver categorías"
-              subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
-              rightHint="Ir →"
-              onPress={onPressCategories}
-              isMobile={isMobile}
-            />
+            <PrimaryButton title="Ver categorías" onPress={onPressCategories} isMobile={isMobile} />
           </View>
 
           <View style={{ flex: 1 }}>
+            {/* Atención dentro de la tienda: primero Blue IA y, si hace falta, el equipo. */}
             <SecondaryButton
-              title="Preguntar por WhatsApp"
-              subtitle="Te orientamos según lo que buscas"
-              onPress={openWhatsApp}
+              title="Preguntar a Blue IA"
+              icon="sparkles-outline"
+              onPress={() => pushRoute("/blue-ia" as Href)}
               isMobile={isMobile}
             />
           </View>
@@ -1436,7 +1396,7 @@ function FeaturedOfferCard({
             <View style={{ flex: 1 }}>
               <SecondaryButton
                 title="Consultar por Chat"
-                subtitle={chatBusy ? "Abriendo…" : "¿Cómo podemos ayudar?"}
+                subtitle={chatBusy ? "Abriendo…" : undefined}
                 icon="chatbubble-ellipses-outline"
                 onPress={onPressChat}
                 isMobile={isMobile}
@@ -1830,23 +1790,11 @@ export default function HomeScreen() {
 
             <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
-                <PrimaryButton
-                  title="Ver categorías"
-                  subtitle="Explora PS5, PS4, Switch, Xbox y servicios"
-                  rightHint={isMobile ? undefined : "Ir →"}
-                  onPress={scrollToCategories}
-                  isMobile={isMobile}
-                />
+                <PrimaryButton title="Ver categorías" onPress={scrollToCategories} isMobile={isMobile} />
               </View>
 
               <View style={{ flex: 1 }}>
-                <PrimaryButton
-                  title="Vender ahora"
-                  subtitle="Te lo compramos rápido y al mejor precio"
-                  rightHint={isMobile ? undefined : "Ir →"}
-                  onPress={() => setSellModalOpen(true)}
-                  isMobile={isMobile}
-                />
+                <PrimaryButton title="Vender ahora" onPress={() => setSellModalOpen(true)} isMobile={isMobile} />
               </View>
             </View>
           </View>
@@ -1888,11 +1836,7 @@ export default function HomeScreen() {
           <CategoryProductsShelf modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
 
           <View onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
-            <SectionTitle
-              title="Categorías"
-              subtitle="Explora las principales secciones de la tienda."
-              isMobile={isMobile}
-            />
+            <SectionTitle title="Categorías" isMobile={isMobile} />
 
             <View
               style={{
@@ -1926,11 +1870,7 @@ export default function HomeScreen() {
           <Separador isMobile={isMobile} />
 
           <View>
-            <SectionTitle
-              title="Compra con confianza"
-              subtitle="Toca cada punto para ver el detalle."
-              isMobile={isMobile}
-            />
+            <SectionTitle title="Compra con confianza" isMobile={isMobile} />
             <TrustInfoRow isMobile={isMobile} onPressItem={setInfoPop} />
           </View>
 
@@ -1949,11 +1889,7 @@ export default function HomeScreen() {
               <MarcaAnimada cual="pareja" ancho={isMobile ? 280 : isWide ? 360 : 320} />
             </View>
 
-            <SectionTitle
-              title="Preguntas frecuentes"
-              subtitle="Toca una y Blue IA te responde al momento."
-              isMobile={isMobile}
-            />
+            <SectionTitle title="Preguntas frecuentes" isMobile={isMobile} />
 
             <View
               style={{

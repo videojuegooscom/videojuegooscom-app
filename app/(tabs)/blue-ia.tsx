@@ -623,6 +623,54 @@ export default function BlueIAScreen() {
         title: "Reparación o limpieza",
         prompt: "Tengo una duda sobre reparación o limpieza de mi dispositivo. ¿Me puedes ayudar?",
       },
+      {
+        id: "5",
+        icon: "sparkles-outline",
+        title: "¿Qué ha llegado nuevo?",
+        prompt: "¿Qué artículos han llegado nuevos a la tienda?",
+      },
+      {
+        id: "6",
+        icon: "logo-playstation",
+        title: "¿Tenéis PS5?",
+        prompt: "¿Qué tenéis de PlayStation 5 ahora mismo?",
+      },
+      {
+        id: "7",
+        icon: "game-controller-outline",
+        title: "¿Tenéis Nintendo Switch?",
+        prompt: "¿Qué tenéis de Nintendo Switch ahora mismo?",
+      },
+      {
+        id: "8",
+        icon: "logo-xbox",
+        title: "¿Tenéis Xbox?",
+        prompt: "¿Qué tenéis de Xbox ahora mismo?",
+      },
+      {
+        id: "9",
+        icon: "bag-handle-outline",
+        title: "¿Cómo compro?",
+        prompt: "¿Cómo funciona comprar en la tienda, desde la cesta hasta el pedido?",
+      },
+      {
+        id: "10",
+        icon: "cube-outline",
+        title: "Envíos y entregas",
+        prompt: "¿Cómo son los envíos y las entregas?",
+      },
+      {
+        id: "11",
+        icon: "card-outline",
+        title: "Pago a plazos",
+        prompt: "¿Se puede pagar a plazos?",
+      },
+      {
+        id: "12",
+        icon: "notifications-outline",
+        title: "Avísame cuando llegue",
+        prompt: "Busco algo que ahora no tenéis. ¿Cómo hago para que me aviséis cuando llegue?",
+      },
     ],
     []
   );
@@ -973,21 +1021,7 @@ export default function BlueIAScreen() {
           }}
         >
           {showQuickSuggestions && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              // flexGrow + center: centradas si caben; si no, se deslizan.
-              contentContainerStyle={{ gap: 8, flexGrow: 1, justifyContent: "center" }}
-            >
-              {quickActions.map((item) => (
-                <QuickSuggestionChip
-                  key={item.id}
-                  item={item}
-                  onPress={() => handleAsk(item.prompt)}
-                />
-              ))}
-            </ScrollView>
+            <SugerenciasAutomaticas items={quickActions} onPress={(item) => handleAsk(item.prompt)} />
           )}
 
           {!!errorText && (
@@ -1473,6 +1507,63 @@ function BlueIATypingBubble() {
         <Text style={{ color: COLORS.muted, fontSize: 13 }}>Blue IA está escribiendo…</Text>
       </View>
     </View>
+  );
+}
+
+// Cada cuánto avanza solo la fila de sugerencias (tiempo de sobra para leer una) y cuánto
+// espera tras tocarla o deslizarla a mano antes de volver a moverse.
+const SUGERENCIA_PASO_MS = 3800;
+const SUGERENCIA_PAUSA_MS = 9000;
+
+// Fila de sugerencias que se desplaza sola, de una en una y en bucle. Si la persona la
+// desliza con el dedo, se para un rato para no quitarle lo que está leyendo.
+function SugerenciasAutomaticas({ items, onPress }: { items: QuickAction[]; onPress: (item: QuickAction) => void }) {
+  const ref = useRef<ScrollView>(null);
+  const posiciones = useRef<number[]>([]);
+  const indice = useRef(0);
+  const pausaHasta = useRef(0);
+  const anchoVisible = useRef(0);
+  const anchoTotal = useRef(0);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (Date.now() < pausaHasta.current) return;
+      // Si todas caben en pantalla, no hace falta moverse.
+      if (anchoTotal.current <= anchoVisible.current + 4) return;
+      const maxX = anchoTotal.current - anchoVisible.current;
+      const actual = posiciones.current[indice.current] ?? 0;
+      const siguiente = indice.current + 1;
+      const x = posiciones.current[siguiente];
+      if (actual >= maxX - 2 || x === undefined) {
+        indice.current = 0;
+        ref.current?.scrollTo({ x: 0, animated: true });
+        return;
+      }
+      indice.current = siguiente;
+      ref.current?.scrollTo({ x: Math.min(maxX, Math.max(0, x - 12)), animated: true });
+    }, SUGERENCIA_PASO_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <ScrollView
+      ref={ref}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      onLayout={(e) => (anchoVisible.current = e.nativeEvent.layout.width)}
+      onContentSizeChange={(w) => (anchoTotal.current = w)}
+      onScrollBeginDrag={() => (pausaHasta.current = Date.now() + SUGERENCIA_PAUSA_MS)}
+      onTouchStart={() => (pausaHasta.current = Date.now() + SUGERENCIA_PAUSA_MS)}
+      // flexGrow + center: centradas si caben; si no, se deslizan.
+      contentContainerStyle={{ gap: 8, flexGrow: 1, justifyContent: "center", paddingHorizontal: 4 }}
+    >
+      {items.map((item, i) => (
+        <View key={item.id} onLayout={(e) => (posiciones.current[i] = e.nativeEvent.layout.x)}>
+          <QuickSuggestionChip item={item} onPress={() => onPress(item)} />
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 

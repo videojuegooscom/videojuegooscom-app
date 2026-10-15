@@ -50,7 +50,6 @@ import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import {
   AdminHeader,
-  AdminIntro,
   AdminLoading,
   AdminNotice,
   EmptyState,
@@ -469,7 +468,6 @@ export default function AdminCategories() {
       >
         {/* Columna centrada con el mismo ancho máximo para todo */}
         <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
-          <AdminIntro text="Crea, ordena y activa las secciones que estructuran la navegación comercial." />
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <StatCard label="Total" value={String(stats.total)} icon="folder-outline" isMobile={isMobile} columns={3} />
