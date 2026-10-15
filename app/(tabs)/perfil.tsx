@@ -2,9 +2,8 @@
  * Qué hace: pantalla "Mi cuenta" (pestaña Perfil). Antes de iniciar sesión
  * muestra un formulario de acceso/registro; una vez hay sesión, muestra el
  * email conectado, el botón de cerrar sesión y (si el rol es admin) el acceso
- * al panel de administración. Al final, siempre (haya sesión o no), el
- * bloque "Síguenos" con los logos de las redes sociales activas
- * (components/SocialLinks.tsx).
+ * al panel de control. Al final, el pie de página (con las redes sociales,
+ * una sola vez).
  *
  * Cómo funciona:
  * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
@@ -82,7 +81,6 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
-import SocialLinks from "../../components/SocialLinks";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
@@ -523,8 +521,20 @@ export default function PerfilScreen() {
 
   // Pestañas del perfil con sesión: "Mi cuenta" | "Seguimientos" (?tab=seguimientos)
   // ?aviso=… lo manda quien trae aquí para iniciar sesión (p. ej. "Hablar con el equipo").
-  const { tab: tabParam, aviso: avisoParam } = useLocalSearchParams<{ tab?: string; aviso?: string }>();
+  // ?acceso=registro | entrar → abre directamente el formulario de crear cuenta o de iniciar
+  // sesión (lo usa la guía de Blue, components/Campanita.tsx).
+  const {
+    tab: tabParam,
+    aviso: avisoParam,
+    acceso: accesoParam,
+  } = useLocalSearchParams<{ tab?: string; aviso?: string; acceso?: string }>();
   const aviso = typeof avisoParam === "string" ? avisoParam.slice(0, 160) : "";
+  useEffect(() => {
+    if (accesoParam === "registro" || accesoParam === "entrar") {
+      setMode(accesoParam === "registro" ? "signup" : "signin");
+      setFormOpen(true);
+    }
+  }, [accesoParam]);
   const [perfilTab, setPerfilTab] = useState<PerfilTab>(
     tabParam === "seguimientos" ? "seguimientos" : "cuenta"
   );
@@ -1179,39 +1189,12 @@ export default function PerfilScreen() {
 
               {!showSeguimientos && sessionRole === "admin" ? (
                 <SectionCard padding={cardPadding}>
-                  <View style={{ alignItems: "center", gap: 14 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                      Herramientas internas
-                    </Text>
-
-                    <Text
-                      style={{
-                        color: COLORS.text,
-                        fontSize: 20,
-                        fontWeight: "900",
-                        textAlign: "center",
-                      }}
-                    >
-                      Acceso interno disponible
-                    </Text>
-
-                    <Text style={{ color: COLORS.muted, lineHeight: 21, textAlign: "center" }}>
-                      Esta cuenta tiene permisos autorizados. El acceso administrativo solo se
-                      muestra cuando el usuario autenticado es realmente administrador.
-                    </Text>
-                  </View>
-
-                  <ActionButton
-                    title="Entrar al panel de administración"
-                    onPress={openAdminPanel}
-                  />
+                  <ActionButton title="Panel de control" onPress={openAdminPanel} />
                 </SectionCard>
               ) : null}
 
               <CategoryProductsShelf />
-
-              {/* Sin envoltorio: si no hay redes activas no deja hueco. */}
-              <SocialLinks />
+              {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
             </View>
 
             <SiteFooter sidePadding={pagePadding} />

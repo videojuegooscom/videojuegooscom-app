@@ -50,7 +50,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import {
   AdminHeader,
-  AdminIntro,
   AdminLoading,
   AdminNotice,
   EmptyState,
@@ -421,7 +420,6 @@ export default function Inventario() {
         keyboardDismissMode={CIERRE_TECLADO}
       >
         <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
-          <AdminIntro text="Controla el código interno y el estado de cada unidad física en gestión." />
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} />

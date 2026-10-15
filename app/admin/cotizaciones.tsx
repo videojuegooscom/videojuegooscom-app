@@ -69,7 +69,6 @@ import { supabase } from "../../lib/supabase";
 import { downloadSellRequestMedia, type SellRequestMediaRow } from "../../components/SellRequestMedia";
 import {
   AdminHeader,
-  AdminIntro,
   AdminLoading,
   AdminNotice,
   EmptyState,
@@ -474,7 +473,6 @@ export default function AdminCotizaciones() {
         keyboardDismissMode={CIERRE_TECLADO}
       >
         <View style={{ ...columnStyle, gap: sectionGap }}>
-          <AdminIntro text="Solicitudes de «Vender ahora» enviadas por clientes desde la app." />
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <StatCard label="Total" value={String(stats.total)} icon="document-text-outline" isMobile={isMobile} />

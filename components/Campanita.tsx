@@ -5,7 +5,15 @@
  * tienda, flotando en una esquina de TODA la app (se monta una sola vez en
  * app/_layout.tsx, fuera del Stack, así que no se reinicia al navegar).
  * - Se mueve sola (components/marca/MarcaAnimada.tsx) y se puede arrastrar a
- *   cualquiera de las 4 esquinas (se recuerda en AsyncStorage).
+ *   cualquier altura de los dos lados (se recuerda en AsyncStorage).
+ * - Se aparta sola (web): si debajo de ella hay texto, un botón, un campo o una foto
+ *   (document.elementsFromPoint en 9 puntos de su caja), busca el hueco libre más
+ *   cercano en su lado (o en el otro) y vuelve a su sitio cuando queda libre. Lo mira
+ *   al cambiar de pantalla, al dejar de desplazarse y cada 2,5 s.
+ * - Guía de bienvenida (GuiaBlue): a los 15 s, una vez por dispositivo y solo sin
+ *   sesión. 8 pasos con datos reales de la tienda, con un dedo (deslizar o «Siguiente»
+ *   abajo a la derecha) y al final ayuda a crear cuenta o a iniciar sesión
+ *   (/perfil?acceso=registro|entrar). Se puede repetir desde el panel de Blue.
  * - Aparece 10 s después de entrar en la web (APARECER_MS, contados desde que
  *   se abrió la página con performance.now()): antes no se ve ni se puede tocar.
  *   Entra con un rebote de escala, saluda moviéndose de lado a lado y enseña un
@@ -17,7 +25,8 @@
  *   horizontales (no cambian scrollTop) no cuentan. Cerca del principio
  *   (scrollTop < 40) siempre se ve. No se oculta con su panel abierto, con un
  *   bocadillo o con el saludo a la vista, y vuelve a verse al cambiar de pantalla.
- * - Habla con bocadillos (solo cuando ya ha aparecido):
+ * - Habla con bocadillos AL LADO de ella, en cristal transparente (se lee bien) y al
+ *   tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
  *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
  *     descripción menciona la garantía, esa frase; si no, que es unidad única y se
  *     reserva 15 minutos en la cesta) y después cómo se entrega (en persona en
@@ -97,6 +106,25 @@ const COLORS = {
   danger: "#DC2626",
 };
 
+// Mensajes de Blue en «cristal»: casi transparentes (se ve lo de detrás, difuminado) pero
+// con el texto siempre legible.
+const CRISTAL = {
+  backgroundColor: "rgba(255,255,255,0.72)",
+  borderRadius: 18,
+  borderWidth: 1,
+  borderColor: "rgba(227,234,242,0.9)",
+  shadowColor: "#0B2138",
+  shadowOpacity: 0.1,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 6,
+  ...(Platform.OS === "web" ? ({ backdropFilter: "blur(12px) saturate(160%)", WebkitBackdropFilter: "blur(12px) saturate(160%)" } as object) : {}),
+};
+const TEXTO_CRISTAL = {
+  color: "#0B2138",
+  ...(Platform.OS === "web" ? ({ textShadow: "0 0 6px rgba(255,255,255,0.9)" } as object) : {}),
+};
+
 const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
@@ -167,6 +195,9 @@ const SEGUNDO_MENSAJE_MS = 7000;
 const NOTICIA_ESPERA_MS = 12000;
 // Blue aparece 10 s después de entrar en la web; el saludo se ve unos segundos.
 const APARECER_MS = 10000;
+// Guía de bienvenida: a los 15 s, una sola vez, para quien entra sin cuenta.
+const GUIA_MS = 15000;
+const GUIA_VISTA_KEY = "videojuegoszaragoza:guia_vista";
 const SALUDO_MS = 2800;
 // Scroll: píxeles mínimos para ocultar/mostrar (sin parpadeos) y zona de arriba
 // en la que siempre se ve.
@@ -177,20 +208,130 @@ const DESLIZ_OCULTO = BLUE_SIZE + EDGE_INSET + 16;
 // Animaciones por el hilo nativo salvo en web (allí no existe).
 const USA_NATIVO = Platform.OS !== "web";
 
-type Corner = "tl" | "tr" | "bl" | "br";
-const CORNERS: Corner[] = ["tl", "tr", "bl", "br"];
+// Dónde está Blue: pegado a un lado ("l" izquierda, "r" derecha) y a qué altura (fy: 0 =
+// arriba del todo, 1 = abajo del todo, dentro de la zona útil). Antes solo había 4 esquinas.
+type Lado = "l" | "r";
+type Sitio = { lado: Lado; fy: number };
+const SITIO_INICIAL: Sitio = { lado: "r", fy: 1 };
+// Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
+const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
+// Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse.
+const APARTARSE_CADA_MS = 2500;
+const APARTARSE_TRAS_SCROLL_MS = 450;
+// id del contenedor de Blue en la web (para no confundirse a sí mismo con el contenido).
+const BLUE_DOM_ID = "blue-flotante";
 
-// "chat" lleva al chat de la tienda (Blue IA primero; desde ahí, el equipo).
-type Bocadillo = { id: string; texto: string; accion?: "chat" | "panel"; ruta?: string };
+// Mensajes de Blue: al tocarlos llevan a lo que dicen. "chat" abre el chat de la tienda
+// (Blue IA primero; desde ahí, el equipo), "ruta" va a esa pantalla, "vender" abre el
+// formulario de venta, "panel" abre el panel de Blue.
+type Bocadillo = { id: string; texto: string; accion?: "chat" | "ruta" | "vender" | "panel"; ruta?: string };
 
 // Lo que ya dijo Blue en esta visita (no se repite al volver a la misma ficha).
 const yaDicho = new Set<string>();
 
-function cornerToXY(corner: Corner) {
+function limitar(v: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, v));
+}
+
+function sitioToXY(s: Sitio) {
   const { width, height } = Dimensions.get("window");
-  const x = corner === "tr" || corner === "br" ? width - BLUE_SIZE - EDGE_INSET : EDGE_INSET;
-  const y = corner === "tl" || corner === "tr" ? TOP_INSET : height - BLUE_SIZE - BOTTOM_INSET;
-  return { x, y };
+  const x = s.lado === "r" ? width - BLUE_SIZE - EDGE_INSET : EDGE_INSET;
+  const yMin = TOP_INSET;
+  const yMax = Math.max(yMin, height - BLUE_SIZE - BOTTOM_INSET);
+  return { x, y: yMin + (yMax - yMin) * limitar(s.fy, 0, 1) };
+}
+
+// Posición guardada: la nueva ({lado, fy}) o la antigua de 4 esquinas ("tl", "br"…).
+function leerSitio(raw: string | null): Sitio {
+  if (!raw) return SITIO_INICIAL;
+  const esquinas: Record<string, Sitio> = {
+    tl: { lado: "l", fy: 0 },
+    tr: { lado: "r", fy: 0 },
+    bl: { lado: "l", fy: 1 },
+    br: { lado: "r", fy: 1 },
+  };
+  if (esquinas[raw]) return esquinas[raw];
+  try {
+    const s = JSON.parse(raw);
+    if ((s?.lado === "l" || s?.lado === "r") && Number.isFinite(s?.fy)) return { lado: s.lado, fy: limitar(Number(s.fy), 0, 1) };
+  } catch {
+    // formato desconocido
+  }
+  return SITIO_INICIAL;
+}
+
+// --- Apartarse cuando tapa algo (solo web) --------------------------------------------
+// ¿Lo que hay en ese punto es contenido (texto, botón, campo, imagen…) y no un fondo vacío?
+function esContenido(el: Element): boolean {
+  if (el.closest(`#${BLUE_DOM_ID}`)) return false;
+  const tag = el.tagName;
+  if (tag === "HTML" || tag === "BODY") return false;
+  if (["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A", "IMG", "VIDEO", "CANVAS", "svg", "SVG", "path"].includes(tag)) return true;
+  if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return true;
+  for (const n of Array.from(el.childNodes)) {
+    if (n.nodeType === 3 && (n.textContent ?? "").trim()) return true;
+  }
+  // Fotos de React Native Web (fondo con imagen).
+  const fondo = typeof window !== "undefined" ? window.getComputedStyle(el).backgroundImage : "";
+  return !!fondo && fondo.includes("url(");
+}
+
+// Cuántos puntos de la caja de Blue en (x, y) caen sobre contenido (0 = sitio libre).
+function contenidoDebajo(x: number, y: number): number {
+  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
+  let tapados = 0;
+  const pasos = [0.18, 0.5, 0.82];
+  for (const fx of pasos) {
+    for (const fy of pasos) {
+      const px = x + BLUE_SIZE * fx;
+      const py = y + BLUE_SIZE * fy;
+      // El primero que no sea el propio Blue es lo que se ve debajo.
+      const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
+      if (debajo && esContenido(debajo)) tapados++;
+    }
+  }
+  return tapados;
+}
+
+// Mejor sitio libre: primero el que eligió la persona; si tapa algo, el hueco más vacío
+// (mismo lado antes que el otro, y lo más cerca posible de donde estaba).
+function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
+  const puntuar = (s: Sitio) => {
+    const { x, y } = sitioToXY(s);
+    return contenidoDebajo(x, y);
+  };
+  if (puntuar(preferido) === 0) return preferido;
+  const enActual = puntuar(actual);
+  if (enActual === 0) return actual;
+  let mejor: { s: Sitio; tapados: number; distancia: number } | null = null;
+  // De la altura más cercana a la preferida a la más lejana.
+  const alturas = [...ALTURAS_CANDIDATAS, preferido.fy].sort((a, b) => Math.abs(a - preferido.fy) - Math.abs(b - preferido.fy));
+  for (const lado of [preferido.lado, preferido.lado === "r" ? "l" : "r"] as Lado[]) {
+    for (const fy of alturas) {
+      const s = { lado, fy };
+      const tapados = puntuar(s);
+      const distancia = Math.abs(fy - preferido.fy) + (lado === preferido.lado ? 0 : 0.5);
+      if (!mejor || tapados < mejor.tapados || (tapados === mejor.tapados && distancia < mejor.distancia)) {
+        mejor = { s, tapados, distancia };
+      }
+      if (tapados === 0 && lado === preferido.lado) break;
+    }
+    if (mejor?.tapados === 0) break;
+  }
+  return mejor && mejor.tapados < enActual ? mejor.s : null;
+}
+
+// A dónde lleva un aviso de «Noticias Flash» según lo que dice (lo escribe el dueño).
+function destinoDeAviso(texto: string): Pick<Bocadillo, "accion" | "ruta"> {
+  const t = texto.toLowerCase();
+  if (/compramos|vend|tasa|véndenos|vendenos/.test(t)) return { accion: "vender" };
+  if (/repar|limpieza|mantenimiento|arregl/.test(t)) return { accion: "ruta", ruta: "/servicios" };
+  if (/envío|envio|entrega|recog/.test(t)) return { accion: "ruta", ruta: "/politicas/envios" };
+  if (/devoluci/.test(t)) return { accion: "ruta", ruta: "/politicas/devoluciones" };
+  if (/noticia/.test(t)) return { accion: "ruta", ruta: "/chat-global?tab=news" };
+  if (/nuev|lleg|novedad|oferta|descuento|rebaj|cat[aá]logo/.test(t)) return { accion: "ruta", ruta: "/catalogo" };
+  // Si no se sabe, Blue IA con ese aviso como tema (lo conoce y lo explica).
+  return { accion: "ruta", ruta: `/blue-ia?tema=${encodeURIComponent(texto.slice(0, 120))}` };
 }
 
 async function getLikedProductIds(): Promise<string[]> {
@@ -237,13 +378,20 @@ export default function Campanita() {
   const enChat = pathname.startsWith("/blue-ia") || pathname.startsWith("/chat-global") || pathname.startsWith("/chat/");
 
   const [ready, setReady] = useState(false);
-  const cornerRef = useRef<Corner>("br");
-  const [corner, setCorner] = useState<Corner>("br");
+  // sitio = donde está ahora; preferidoRef = donde lo dejó la persona (vuelve ahí en cuanto
+  // ese sitio no tapa nada).
+  const sitioRef = useRef<Sitio>(SITIO_INICIAL);
+  const preferidoRef = useRef<Sitio>(SITIO_INICIAL);
+  const [sitio, setSitio] = useState<Sitio>(SITIO_INICIAL);
+  const arrastrandoRef = useRef(false);
   const posRef = useRef({ x: 0, y: 0 });
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [venderOpen, setVenderOpen] = useState(false);
+  // Guía de bienvenida (GuiaBlue, al final de este archivo).
+  const [guiaAbierta, setGuiaAbierta] = useState(false);
+  const guiaPendienteRef = useRef(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
@@ -275,17 +423,17 @@ export default function Campanita() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      let initial: Corner = "br";
+      let initial: Sitio = SITIO_INICIAL;
       try {
-        const raw = await AsyncStorage.getItem(CORNER_KEY);
-        if (raw && (CORNERS as string[]).includes(raw)) initial = raw as Corner;
+        initial = leerSitio(await AsyncStorage.getItem(CORNER_KEY));
       } catch {
-        // se queda en "br"
+        // se queda abajo a la derecha
       }
       if (!alive) return;
-      cornerRef.current = initial;
-      setCorner(initial);
-      const xy = cornerToXY(initial);
+      sitioRef.current = initial;
+      preferidoRef.current = initial;
+      setSitio(initial);
+      const xy = sitioToXY(initial);
       posRef.current = xy;
       pan.setValue(xy);
       setReady(true);
@@ -295,9 +443,21 @@ export default function Campanita() {
     };
   }, [pan]);
 
+  // Mueve a Blue (con un muelle suave) a otro sitio sin cambiar el que eligió la persona.
+  const moverA = useCallback(
+    (s: Sitio) => {
+      sitioRef.current = s;
+      setSitio(s);
+      const xy = sitioToXY(s);
+      posRef.current = xy;
+      Animated.spring(pan, { toValue: xy, useNativeDriver: false, friction: 8, tension: 50 }).start();
+    },
+    [pan]
+  );
+
   useEffect(() => {
     const sub = Dimensions.addEventListener("change", () => {
-      const xy = cornerToXY(cornerRef.current);
+      const xy = sitioToXY(sitioRef.current);
       posRef.current = xy;
       pan.setValue(xy);
     });
@@ -686,7 +846,7 @@ export default function Campanita() {
   // --- bocadillos según la pantalla --------------------------------------------
   useEffect(() => {
     setBocadillo(null);
-    if (enAdmin || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
+    if (enAdmin || guiaAbierta || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     let vivo = true;
@@ -711,12 +871,12 @@ export default function Campanita() {
             timers.push(
               setTimeout(() => {
                 if (!vivo) return;
+                // Habla de entregas y envíos: al tocarlo, la política de envíos.
                 setBocadillo({
                   id: `p2:${id}`,
-                  texto:
-                    "Realizamos entregas en persona en la ciudad de Zaragoza o envíos a toda España. Escríbenos tocando aquí mismo.",
-                  accion: "chat",
-                  ruta,
+                  texto: "Realizamos entregas en persona en la ciudad de Zaragoza o envíos a toda España.",
+                  accion: "ruta",
+                  ruta: "/politicas/envios",
                 });
               }, SEGUNDO_MENSAJE_MS)
             );
@@ -732,7 +892,7 @@ export default function Campanita() {
           setTimeout(() => {
             if (!vivo) return;
             yaDicho.add(`n:${pendiente}`);
-            setBocadillo({ id: `n:${pendiente}`, texto: pendiente, accion: "panel" });
+            setBocadillo({ id: `n:${pendiente}`, texto: pendiente, ...destinoDeAviso(pendiente) });
           }, NOTICIA_ESPERA_MS)
         );
       }
@@ -742,7 +902,7 @@ export default function Campanita() {
       vivo = false;
       timers.forEach(clearTimeout);
     };
-  }, [pathname, enAdmin, noticias]);
+  }, [pathname, enAdmin, noticias, guiaAbierta]);
 
   // Animación de entrada del bocadillo.
   const bocAnim = useRef(new Animated.Value(0)).current;
@@ -890,6 +1050,82 @@ export default function Campanita() {
 
   const openPanelRef = useRef(openPanel);
   openPanelRef.current = openPanel;
+  const moverAReflejo = useRef(moverA);
+  moverAReflejo.current = moverA;
+
+  // Si Blue tapa texto, un botón, un campo o una foto, se aparta solo al hueco libre más
+  // cercano; y vuelve a su sitio en cuanto ese sitio queda libre. Se mira al cambiar de
+  // pantalla, al dejar de desplazarse y cada pocos segundos (solo web).
+  const enPantallaRef = useRef(false);
+  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !enAdmin;
+  const comprobarSitio = useCallback(() => {
+    if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
+    const libre = buscarSitioLibre(preferidoRef.current, sitioRef.current);
+    if (!libre) return;
+    const actual = sitioRef.current;
+    if (libre.lado !== actual.lado || Math.abs(libre.fy - actual.fy) > 0.01) moverA(libre);
+  }, [moverA]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    let espera: ReturnType<typeof setTimeout> | null = null;
+    const trasScroll = () => {
+      if (espera) clearTimeout(espera);
+      espera = setTimeout(comprobarSitio, APARTARSE_TRAS_SCROLL_MS);
+    };
+    const cada = setInterval(() => {
+      if (document.visibilityState !== "hidden") comprobarSitio();
+    }, APARTARSE_CADA_MS);
+    document.addEventListener("scroll", trasScroll, { capture: true, passive: true });
+    window.addEventListener("resize", trasScroll);
+    return () => {
+      if (espera) clearTimeout(espera);
+      clearInterval(cada);
+      document.removeEventListener("scroll", trasScroll, { capture: true });
+      window.removeEventListener("resize", trasScroll);
+    };
+  }, [comprobarSitio]);
+
+  // Al cambiar de pantalla, cuando el contenido nuevo ya está pintado.
+  useEffect(() => {
+    const t = setTimeout(comprobarSitio, 900);
+    return () => clearTimeout(t);
+  }, [pathname, comprobarSitio]);
+
+  // --- guía de bienvenida -------------------------------------------------------------
+  // A los 15 s de entrar, una sola vez por dispositivo y solo a quien no tiene sesión (es
+  // nuevo). En el panel, en un chat o pagando se espera a que salga de ahí.
+  const sitioSinGuia = enAdmin || enChat || pathname.startsWith("/checkout");
+  const sitioSinGuiaRef = useRef(sitioSinGuia);
+  sitioSinGuiaRef.current = sitioSinGuia;
+
+  useEffect(() => {
+    const yaPasado = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+    const t = setTimeout(async () => {
+      try {
+        if ((await AsyncStorage.getItem(GUIA_VISTA_KEY)) === "1") return;
+        const { data } = await supabase.auth.getSession();
+        if (data.session?.user) return;
+      } catch {
+        return;
+      }
+      if (sitioSinGuiaRef.current) guiaPendienteRef.current = true;
+      else setGuiaAbierta(true);
+    }, Math.max(0, GUIA_MS - yaPasado));
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (guiaPendienteRef.current && !sitioSinGuia) {
+      guiaPendienteRef.current = false;
+      setGuiaAbierta(true);
+    }
+  }, [sitioSinGuia]);
+
+  const cerrarGuia = useCallback(() => {
+    setGuiaAbierta(false);
+    AsyncStorage.setItem(GUIA_VISTA_KEY, "1").catch(() => {});
+  }, []);
 
   // El toque lo gestiona un Pressable (clic normal, fiable en Safari del iPhone). El
   // arrastre solo se activa cuando el dedo ya se ha movido unos píxeles: antes el
@@ -904,37 +1140,44 @@ export default function Campanita() {
       onMoveShouldSetPanResponderCapture: empiezaArrastre,
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
+        arrastrandoRef.current = true;
         pan.setOffset(posRef.current);
         pan.setValue({ x: 0, y: 0 });
       },
       onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
       onPanResponderRelease: (_evt, g) => {
+        arrastrandoRef.current = false;
         pan.flattenOffset();
         if (Math.abs(g.dx) + Math.abs(g.dy) < TAP_THRESHOLD) {
           pan.setValue(posRef.current);
           openPanelRef.current();
           return;
         }
+        // Se queda pegado al lado más cercano y a la altura donde se soltó: ese es ahora
+        // su sitio preferido (se recuerda).
         const { width, height } = Dimensions.get("window");
         const cx = posRef.current.x + g.dx + BLUE_SIZE / 2;
-        const cy = posRef.current.y + g.dy + BLUE_SIZE / 2;
-        const next = ((cy < height / 2 ? "t" : "b") + (cx < width / 2 ? "l" : "r")) as Corner;
-        const target = cornerToXY(next);
-        posRef.current = target;
-        cornerRef.current = next;
-        setCorner(next);
-        AsyncStorage.setItem(CORNER_KEY, next).catch(() => {});
-        Animated.spring(pan, { toValue: target, useNativeDriver: false, friction: 7, tension: 60 }).start();
+        const y = posRef.current.y + g.dy;
+        const yMax = Math.max(TOP_INSET + 1, height - BLUE_SIZE - BOTTOM_INSET);
+        const next: Sitio = { lado: cx < width / 2 ? "l" : "r", fy: limitar((y - TOP_INSET) / (yMax - TOP_INSET), 0, 1) };
+        preferidoRef.current = next;
+        AsyncStorage.setItem(CORNER_KEY, JSON.stringify(next)).catch(() => {});
+        moverAReflejo.current(next);
+      },
+      onPanResponderTerminate: () => {
+        arrastrandoRef.current = false;
       },
     })
   ).current;
 
   // --- acciones -----------------------------------------------------------------
+  // Tocar un mensaje lleva directamente a lo que dice.
   const alTocarBocadillo = useCallback(() => {
     const b = bocadillo;
     setBocadillo(null);
     if (!b) return;
-    if (b.accion === "chat") router.push((b.ruta ?? "/blue-ia") as Href);
+    if (b.accion === "chat" || b.accion === "ruta") router.push((b.ruta ?? "/blue-ia") as Href);
+    else if (b.accion === "vender") setVenderOpen(true);
     else openPanel("noticias");
   }, [bocadillo, openPanel]);
 
@@ -1045,8 +1288,20 @@ export default function Campanita() {
   // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
   if (!ready || enChat || enAdmin || !aparecido) return null;
 
-  const derecha = corner === "tr" || corner === "br";
-  const arriba = corner === "tl" || corner === "tr";
+  const derecha = sitio.lado === "r";
+  // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
+  const arriba = sitio.fy < 0.5;
+  // Los mensajes salen AL LADO de Blue (hacia el centro), con el ancho que quepa.
+  const anchoMensaje = Math.max(150, Math.min(260, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
+  const ladoMensaje = { [derecha ? "right" : "left"]: BLUE_SIZE + 6, [arriba ? "top" : "bottom"]: 2 };
+  const pistaAccion =
+    bocadillo?.accion === "chat"
+      ? { icono: "chatbubble-ellipses-outline" as const, texto: "Escribir ahora" }
+      : bocadillo?.accion === "vender"
+        ? { icono: "cash-outline" as const, texto: "Vender ahora" }
+        : bocadillo?.accion === "ruta"
+          ? { icono: "arrow-forward-circle-outline" as const, texto: "Ver" }
+          : null;
 
   // Capa visible: fundido de entrada × fundido al ocultarse, y deslizamiento
   // hacia su borde. Cuerpo: rebote de escala y giro del saludo.
@@ -1061,6 +1316,7 @@ export default function Campanita() {
   return (
     <>
       <Animated.View
+        nativeID={BLUE_DOM_ID}
         style={{
           position: "absolute",
           zIndex: 99999,
@@ -1081,14 +1337,14 @@ export default function Campanita() {
             pointerEvents: "box-none",
           }}
         >
-          {/* Bocadillo de Blue: sale hacia el centro de la pantalla. */}
+          {/* Mensaje de Blue: a su lado, en cristal transparente que se lee bien. Al tocarlo
+              lleva a lo que dice. */}
           {bocadillo ? (
             <Animated.View
               style={{
                 position: "absolute",
-                width: 248,
-                [derecha ? "right" : "left"]: 4,
-                [arriba ? "top" : "bottom"]: BLUE_SIZE + 4,
+                width: anchoMensaje,
+                ...ladoMensaje,
                 opacity: bocAnim,
                 transform: [{ scale: bocAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
               }}
@@ -1096,27 +1352,15 @@ export default function Campanita() {
               <Pressable
                 onPress={alTocarBocadillo}
                 accessibilityRole="button"
-                style={{
-                  backgroundColor: COLORS.bg,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  paddingVertical: 12,
-                  paddingHorizontal: 14,
-                  paddingRight: 30,
-                  shadowColor: "#0B2138",
-                  shadowOpacity: 0.12,
-                  shadowRadius: 14,
-                  shadowOffset: { width: 0, height: 6 },
-                  elevation: 8,
-                }}
+                accessibilityHint={pistaAccion?.texto}
+                style={({ pressed }) => [CRISTAL, { paddingVertical: 11, paddingHorizontal: 13, paddingRight: 30, opacity: pressed ? 0.85 : 1 }]}
               >
                 <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
-                <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19 }}>{bocadillo.texto}</Text>
-                {bocadillo.accion === "chat" ? (
+                <Text style={[TEXTO_CRISTAL, { fontWeight: "800", fontSize: 13.5, lineHeight: 19 }]}>{bocadillo.texto}</Text>
+                {pistaAccion ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={14} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>Escribir ahora</Text>
+                    <Ionicons name={pistaAccion.icono} size={14} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>{pistaAccion.texto}</Text>
                   </View>
                 ) : null}
               </Pressable>
@@ -1136,8 +1380,8 @@ export default function Campanita() {
                 position: "absolute",
                 width: 176,
                 alignItems: derecha ? "flex-end" : "flex-start",
-                [derecha ? "right" : "left"]: 4,
-                [arriba ? "top" : "bottom"]: BLUE_SIZE + 4,
+                [derecha ? "right" : "left"]: BLUE_SIZE + 6,
+                top: BLUE_SIZE / 2 - 18,
                 opacity: chipAnim,
                 transform: [{ scale: chipAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
                 pointerEvents: "box-none",
@@ -1147,22 +1391,7 @@ export default function Campanita() {
                 onPress={() => openPanel()}
                 accessibilityRole="button"
                 accessibilityLabel="Hola, soy Blue. Abrir el asistente"
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  backgroundColor: COLORS.bg,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  shadowColor: "#0B2138",
-                  shadowOpacity: 0.12,
-                  shadowRadius: 12,
-                  shadowOffset: { width: 0, height: 5 },
-                  elevation: 8,
-                }}
+                style={[CRISTAL, { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }]}
               >
                 <Ionicons name="hand-left-outline" size={15} color={COLORS.accent} />
                 <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
@@ -1302,6 +1531,14 @@ export default function Campanita() {
 
               <View style={{ width: "100%", gap: 10, maxWidth: 380 }}>
                 <BotonPanel icono="sparkles-outline" texto="Hablar con Blue IA" principal onPress={() => ir("/blue-ia")} />
+                <BotonPanel
+                  icono="map-outline"
+                  texto="Ver la guía de la tienda"
+                  onPress={() => {
+                    setPanelOpen(false);
+                    setGuiaAbierta(true);
+                  }}
+                />
                 {/* Primero conversa Blue IA; desde ese chat se puede pasar a nuestro equipo. */}
                 <BotonPanel icono="people-outline" texto="Hablar con nuestro equipo" onPress={() => ir("/blue-ia")} />
                 <BotonPanel
@@ -1536,6 +1773,20 @@ export default function Campanita() {
       </Modal>
 
       {venderOpen ? <VenderAhoraModal visible={venderOpen} onClose={() => setVenderOpen(false)} /> : null}
+
+      {guiaAbierta ? (
+        <GuiaBlue
+          onCerrar={cerrarGuia}
+          onIr={(ruta) => {
+            cerrarGuia();
+            router.push(ruta as Href);
+          }}
+          onVender={() => {
+            cerrarGuia();
+            setVenderOpen(true);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -1570,6 +1821,237 @@ function BotonPanel({
       <Ionicons name={icono} size={17} color={principal ? "#FFFFFF" : COLORS.accentDark} />
       <Text style={{ color: principal ? "#FFFFFF" : COLORS.accentDark, fontWeight: "900", fontSize: 14.5 }}>{texto}</Text>
     </Pressable>
+  );
+}
+
+// --- Guía de bienvenida de Blue ----------------------------------------------------------
+// Pasos cortos, cercanos y con datos reales de la tienda. Se usa con un solo dedo: deslizar
+// la tarjeta o tocar «Siguiente» (abajo a la derecha, donde llega el pulgar derecho).
+type PasoGuia = {
+  icono: React.ComponentProps<typeof Ionicons>["name"];
+  titulo: string;
+  texto: string;
+  accion?: { texto: string; ruta?: string; vender?: boolean };
+  cuenta?: boolean;
+};
+
+const PASOS_GUIA: PasoGuia[] = [
+  {
+    icono: "hand-left-outline",
+    titulo: "¡Hola! Soy Blue",
+    texto: "Te enseño la tienda en un minuto. Desliza la tarjeta o toca «Siguiente» con el pulgar.",
+  },
+  {
+    icono: "home-outline",
+    titulo: "Inicio",
+    texto: "Aquí tienes la Oferta de la semana, lo Recién llegado y las categorías: PlayStation, Nintendo Switch, Xbox y más.",
+  },
+  {
+    icono: "search-outline",
+    titulo: "Busca y filtra",
+    texto: "En el catálogo filtras por categoría, estado y precio. ¿No está lo que buscas? Toca «Avísame cuando llegue» y te aviso.",
+    accion: { texto: "Abrir el catálogo", ruta: "/catalogo" },
+  },
+  {
+    icono: "bag-handle-outline",
+    titulo: "Cesta y pedido",
+    texto: "Cada artículo es unidad única: al añadirlo a la Cesta te lo reservamos 15 minutos. Después eliges envío a toda España o entrega en persona en Zaragoza.",
+  },
+  {
+    icono: "cash-outline",
+    titulo: "Vende o cambia",
+    texto: "¿Tienes una consola o un dispositivo que ya no usas? Mándanos sus datos y el equipo te da un precio.",
+    accion: { texto: "Vender ahora", vender: true },
+  },
+  {
+    icono: "construct-outline",
+    titulo: "Reparación y limpieza",
+    texto: "En Servicios tienes reparación, limpieza y mantenimiento para tus dispositivos.",
+    accion: { texto: "Ver servicios", ruta: "/servicios" },
+  },
+  {
+    icono: "sparkles-outline",
+    titulo: "Siempre a mano",
+    texto: "Tócame cuando quieras: te respondo en Blue IA, te paso con el equipo si hace falta y en Notificaciones te aviso de novedades y bajadas de precio.",
+  },
+  {
+    icono: "person-circle-outline",
+    titulo: "Tu cuenta",
+    texto: "Con tu cuenta guardas tus conversaciones, sigues tus pedidos y reparaciones y recibes avisos. Solo tardas un momento.",
+    cuenta: true,
+  },
+];
+
+function GuiaBlue({ onCerrar, onIr, onVender }: { onCerrar: () => void; onIr: (ruta: string) => void; onVender: () => void }) {
+  const [paso, setPaso] = useState(0);
+  const total = PASOS_GUIA.length;
+  const p = PASOS_GUIA[paso];
+  const anim = useRef(new Animated.Value(1)).current;
+  const direccion = useRef(1);
+
+  const pasoRef = useRef(paso);
+  pasoRef.current = paso;
+
+  const irA = useCallback(
+    (n: number) => {
+      const actual = pasoRef.current;
+      const destino = limitar(n, 0, total - 1);
+      if (destino === actual) return;
+      direccion.current = destino > actual ? 1 : -1;
+      pasoRef.current = destino;
+      anim.setValue(0);
+      setPaso(destino);
+      Animated.timing(anim, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: USA_NATIVO }).start();
+    },
+    [anim, total]
+  );
+  const siguienteRef = useRef(() => irA(pasoRef.current + 1));
+  siguienteRef.current = () => irA(pasoRef.current + 1);
+  const atrasRef = useRef(() => irA(pasoRef.current - 1));
+  atrasRef.current = () => irA(pasoRef.current - 1);
+
+  // Deslizar con un dedo: a la izquierda, siguiente; a la derecha, anterior.
+  const deslizar = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx < -40) siguienteRef.current();
+        else if (g.dx > 40) atrasRef.current();
+      },
+    })
+  ).current;
+
+  const { width } = Dimensions.get("window");
+  const ancho = Math.min(width - 24, 420);
+  const desplazamiento = anim.interpolate({ inputRange: [0, 1], outputRange: [28 * direccion.current, 0] });
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(11,33,56,0.45)",
+          justifyContent: "flex-end",
+          // En pantallas anchas, abajo a la derecha (pulgar derecho); en el móvil, a todo lo ancho.
+          alignItems: width >= 700 ? "flex-end" : "center",
+          padding: 12,
+          paddingBottom: Platform.OS === "ios" ? 30 : 18,
+        }}
+      >
+        <Animated.View
+          {...deslizar.panHandlers}
+          accessibilityViewIsModal
+          style={{
+            width: ancho,
+            backgroundColor: COLORS.bg,
+            borderRadius: 24,
+            paddingHorizontal: 18,
+            paddingTop: 16,
+            paddingBottom: 16,
+            gap: 12,
+            alignItems: "center",
+            opacity: anim,
+            transform: [{ translateX: desplazamiento }],
+            shadowColor: "#0B2138",
+            shadowOpacity: 0.18,
+            shadowRadius: 20,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 12,
+          }}
+        >
+          <Pressable
+            onPress={onCerrar}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Saltar la guía"
+            style={{ position: "absolute", top: 12, right: 14, zIndex: 2, paddingVertical: 4, paddingHorizontal: 6 }}
+          >
+            <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13 }}>Saltar</Text>
+          </Pressable>
+
+          <MarcaAnimada cual="carga" ancho={paso === 0 ? 92 : 64} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name={p.icono} size={20} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>{p.titulo}</Text>
+          </View>
+          <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, textAlign: "center", fontWeight: "600" }}>{p.texto}</Text>
+
+          {p.accion ? (
+            <Pressable
+              onPress={() => (p.accion?.vender ? onVender() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined)}
+              accessibilityRole="button"
+              hitSlop={8}
+            >
+              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14.5, textAlign: "center" }}>{p.accion.texto} →</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Progreso */}
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }} accessibilityLabel={`Paso ${paso + 1} de ${total}`}>
+            {PASOS_GUIA.map((_, i) => (
+              <View
+                key={i}
+                style={{
+                  width: i === paso ? 18 : 7,
+                  height: 7,
+                  borderRadius: 4,
+                  backgroundColor: i === paso ? COLORS.accent : COLORS.border,
+                }}
+              />
+            ))}
+          </View>
+
+          {p.cuenta ? (
+            <View style={{ alignSelf: "stretch", gap: 10, marginTop: 4 }}>
+              <BotonPanel icono="person-add-outline" texto="Crear cuenta" principal onPress={() => onIr("/perfil?acceso=registro")} />
+              <BotonPanel icono="log-in-outline" texto="Ya tengo cuenta: iniciar sesión" onPress={() => onIr("/perfil?acceso=entrar")} />
+              <Pressable onPress={onCerrar} hitSlop={8} accessibilityRole="button" style={{ paddingVertical: 6 }}>
+                <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Ahora no, gracias</Text>
+              </Pressable>
+            </View>
+          ) : (
+            // Botones grandes abajo; «Siguiente» a la derecha, donde llega el pulgar derecho.
+            <View style={{ alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 }}>
+              <Pressable
+                onPress={() => atrasRef.current()}
+                disabled={paso === 0}
+                accessibilityRole="button"
+                accessibilityLabel="Paso anterior"
+                style={({ pressed }) => ({
+                  flex: 1,
+                  minHeight: 52,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: paso === 0 ? 0 : pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 15 }}>Atrás</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => siguienteRef.current()}
+                accessibilityRole="button"
+                accessibilityLabel="Paso siguiente"
+                style={({ pressed }) => ({
+                  flex: 2,
+                  minHeight: 56,
+                  borderRadius: 999,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  backgroundColor: COLORS.accent,
+                  opacity: pressed ? 0.88 : 1,
+                })}
+              >
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>{paso === 0 ? "Empezar" : "Siguiente"}</Text>
+                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          )}
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 

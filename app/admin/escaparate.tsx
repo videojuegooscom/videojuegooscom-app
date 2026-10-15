@@ -335,7 +335,7 @@ export default function AdminEscaparate() {
                 })
               )}
 
-              <Titulo texto="En el escaparate" sub="Lo que ha llegado de VeoAura, con sus visitas y «me gusta» en la tienda." />
+              <Titulo texto="En el escaparate" />
               {articulos.length === 0 ? (
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>Todavía no ha llegado nada de VeoAura.</Text>
               ) : (
@@ -359,7 +359,7 @@ export default function AdminEscaparate() {
                 })
               )}
 
-              <Titulo texto="Últimos mensajes" sub="Registro del puente: lo que llega de VeoAura y lo que se le envía." />
+              <Titulo texto="Últimos mensajes" />
               {registro.length === 0 ? (
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>Sin mensajes todavía.</Text>
               ) : (

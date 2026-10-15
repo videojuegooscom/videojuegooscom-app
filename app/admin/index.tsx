@@ -55,7 +55,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { AdminHeader, AdminIntro } from "../../lib/admin/products.components";
+import { AdminHeader } from "../../lib/admin/products.components";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -111,6 +111,9 @@ function CardButton({
   return (
     <Pressable
       onPress={onPress}
+      // La descripción ya no se pinta (el panel va limpio); queda para lectores de pantalla.
+      accessibilityRole="button"
+      accessibilityHint={subtitle}
       style={
         ({ pressed }) =>
           ({
@@ -166,18 +169,6 @@ function CardButton({
             {title}
           </Text>
 
-          {!isMobile && (
-            <Text
-              style={{
-                color: "rgba(255,255,255,0.85)",
-                marginTop: 4,
-                lineHeight: 19,
-                fontSize: 13,
-              }}
-            >
-              {subtitle}
-            </Text>
-          )}
         </View>
       </View>
 
@@ -332,7 +323,7 @@ export default function AdminHome() {
         {/* Misma cabecera fija y compacta que el resto del panel; aquí la
             flecha vuelve a la tienda. */}
         <AdminHeader
-          title="Panel de Administración"
+          title="Panel de control"
           isMobile={isMobile}
           onBack={() => router.replace("/")}
           backLabel="Volver a la tienda"
@@ -349,8 +340,6 @@ export default function AdminHome() {
           showsVerticalScrollIndicator={false}
         >
         <View style={{ ...columnStyle, gap: isMobile ? 16 : 20 }}>
-          <AdminIntro text="Áreas principales de gestión de la tienda" />
-
           <View>
             <View
               style={
