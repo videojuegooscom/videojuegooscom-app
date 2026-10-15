@@ -96,6 +96,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
+import { getAnalyticsConsent } from "../lib/analytics";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import VenderAhoraModal from "./VenderAhoraModal";
 
@@ -272,6 +273,12 @@ function esContenido(el: Element): boolean {
   if (tag === "HTML" || tag === "BODY") return false;
   if (["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A", "IMG", "VIDEO", "CANVAS", "svg", "SVG", "path"].includes(tag)) return true;
   if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return true;
+  // Botones de react-native-web (Pressable): no son <button> ni llevan rol, pero se pueden
+  // enfocar (tabindex) y tienen cursor de mano. Sin esto, Blue se quedaba encima de la
+  // parte de color de «Aceptar» del aviso de cookies.
+  const tocable = el.closest('[tabindex]:not([tabindex="-1"])');
+  if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return true;
+  if (typeof window !== "undefined" && window.getComputedStyle(el).cursor === "pointer") return true;
   for (const n of Array.from(el.childNodes)) {
     if (n.nodeType === 3 && (n.textContent ?? "").trim()) return true;
   }
@@ -872,6 +879,8 @@ export default function Campanita() {
               .eq("id", id)
               .maybeSingle<{ title: string; description: string | null }>();
             if (!vivo || !data?.title) return;
+            // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
+            if ((await getAnalyticsConsent()) === null || !vivo) return;
             yaDicho.add(`p:${id}`);
             const titulo = data.title.trim();
             const ruta = `/blue-ia?producto=${id}`;
@@ -897,8 +906,9 @@ export default function Campanita() {
       const pendiente = noticias.find((n) => !yaDicho.has(`n:${n}`));
       if (pendiente) {
         timers.push(
-          setTimeout(() => {
-            if (!vivo) return;
+          setTimeout(async () => {
+            // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
+            if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
             yaDicho.add(`n:${pendiente}`);
             setBocadillo({ id: `n:${pendiente}`, texto: pendiente, ...destinoDeAviso(pendiente) });
           }, NOTICIA_ESPERA_MS)
@@ -1099,6 +1109,18 @@ export default function Campanita() {
     const t = setTimeout(comprobarSitio, 900);
     return () => clearTimeout(t);
   }, [pathname, comprobarSitio]);
+
+  // Nada más aparecer (y otra vez al acabar el saludo): si cae encima de algo, por ejemplo
+  // del botón «Aceptar» del aviso de cookies, se aparta ya, sin esperar a la siguiente vuelta.
+  useEffect(() => {
+    if (!enPantalla) return;
+    const t1 = setTimeout(comprobarSitio, 150);
+    const t2 = setTimeout(comprobarSitio, SALUDO_MS + 700);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [enPantalla, comprobarSitio]);
 
   // --- guía de bienvenida -------------------------------------------------------------
   // A los 15 s de entrar, una sola vez por dispositivo y solo a quien no tiene sesión (es
