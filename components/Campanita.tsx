@@ -37,6 +37,17 @@
  *   y NOTICIAS_VISTAS_KEY; si no hay ninguna, las de las últimas 24 h). Se suman al
  *   número rojo y salen en Notificaciones ("Ver noticias"). Si no están activados,
  *   ahí mismo se explica cómo activarlos (campana de Noticias Gaming).
+ * - Avisos de la tienda (en Notificaciones, con sus ajustes debajo):
+ *   · Artículos nuevos: si el cliente lo activa (preferencias_usuario.avisos_novedades o,
+ *     sin sesión, NOVEDADES_AVISOS_KEY), cuenta los productos con products.novedad_en
+ *     posterior a la última vez que los vio. Apagado por defecto.
+ *   · «Avísame cuando llegue» (con sesión): el cliente apunta hasta 10 búsquedas
+ *     (tabla avisos_busqueda; también desde el catálogo sin resultados con
+ *     crearAvisoBusqueda) y Blue le avisa cuando entra un artículo con todas esas palabras.
+ *   · Bajada de precio: de lo que le gusta (LIKED_PRODUCTS_KEY) o tiene en la cesta
+ *     (CART_KEY) se guarda en el móvil el precio visto (PRECIOS_VISTOS_KEY); si baja, avisa.
+ *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
+ *     VeoAura (tabla escaparate_salida) → panel Escaparate.
  *
  * Rendimiento: el sondeo (45 s) de mensajes sin leer y de noticias nuevas se pausa
  * con la pestaña en segundo plano (web). El recuento de noticias es head (sin
@@ -63,7 +74,9 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -93,6 +106,55 @@ const NOVEDADES_CONTENT_VERSION = 1;
 const NOTICIAS_AVISOS_KEY = "videojuegoszaragoza:noticias_avisos";
 const NOTICIAS_VISTAS_KEY = "videojuegoszaragoza:noticias_vistas_hasta";
 const DIA_MS = 24 * 60 * 60 * 1000;
+// Avisos de artículos nuevos sin sesión ("1" = activados) y hasta cuándo se vieron.
+const NOVEDADES_AVISOS_KEY = "videojuegoszaragoza:novedades_avisos";
+const NOVEDADES_VISTAS_KEY = "videojuegoszaragoza:novedades_vistas_hasta";
+// Precio visto de cada producto que gusta o está en la cesta ({ id: precio }).
+const PRECIOS_VISTOS_KEY = "videojuegoszaragoza:precios_vistos";
+// Misma clave de la cesta que app/(tabs)/cesta.tsx, app/checkout.tsx y la ficha.
+const CART_KEY = "videojuegoos_cart_v1";
+
+type ProductoAviso = { id: string; title: string; price: number };
+type AvisoBusqueda = { id: string; texto: string; visto_hasta: string };
+type Llegada = { aviso: AvisoBusqueda; productos: ProductoAviso[] };
+type Bajada = { id: string; title: string; antes: number; ahora: number };
+
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
+function fmtEUR(value: number) {
+  const v = Number(value);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
+// Quien escucha cambios de «Avísame cuando llegue» (el catálogo crea avisos y Blue los relee).
+const oyentesAvisos = new Set<() => void>();
+
+// Crea un aviso «Avísame cuando llegue» para el cliente con sesión. Lo usa también el
+// catálogo cuando una búsqueda no encuentra nada.
+export async function crearAvisoBusqueda(texto: string): Promise<"ok" | "sin_sesion" | "limite" | "error"> {
+  const limpio = texto.replace(/\s+/g, " ").trim().slice(0, 60);
+  if (limpio.length < 2) return "error";
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session?.user) return "sin_sesion";
+    const { error } = await supabase.from("avisos_busqueda").insert({ texto: limpio });
+    if (error) return /10 avisos/.test(String(error.message)) ? "limite" : "error";
+    oyentesAvisos.forEach((f) => f());
+    return "ok";
+  } catch {
+    return "error";
+  }
+}
+
+async function leerJsonLocal<T>(clave: string, porDefecto: T): Promise<T> {
+  try {
+    const raw = await AsyncStorage.getItem(clave);
+    return raw ? (JSON.parse(raw) as T) : porDefecto;
+  } catch {
+    return porDefecto;
+  }
+}
 
 const BLUE_SIZE = 72;
 const EDGE_INSET = 6;
@@ -191,6 +253,16 @@ export default function Campanita() {
   // Avisos de Noticias Gaming: si están activados y cuántas hay sin ver.
   const [avisosNoticias, setAvisosNoticias] = useState(false);
   const [noticiasNuevas, setNoticiasNuevas] = useState(0);
+  // Avisos de la tienda: artículos nuevos, «Avísame cuando llegue», bajadas de precio y,
+  // solo el admin, ventas de VeoAura sin confirmar.
+  const [avisosNovedades, setAvisosNovedades] = useState(false);
+  const [novedadesTienda, setNovedadesTienda] = useState(0);
+  const [avisosBusqueda, setAvisosBusqueda] = useState<AvisoBusqueda[]>([]);
+  const [llegadas, setLlegadas] = useState<Llegada[]>([]);
+  const [bajadas, setBajadas] = useState<Bajada[]>([]);
+  const [salidaPendiente, setSalidaPendiente] = useState(0);
+  const [textoAviso, setTextoAviso] = useState("");
+  const [msgAviso, setMsgAviso] = useState<string | null>(null);
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
   // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
   const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
@@ -367,12 +439,187 @@ export default function Campanita() {
     }
   }, []);
 
+  // Artículos nuevos en la tienda desde la última vez que se vieron (solo si lo activó).
+  const refreshNovedadesTienda = useCallback(async () => {
+    let activado = false;
+    let vistasLocal: string | null = null;
+    let vistasCuenta: string | null = null;
+    try {
+      activado = (await AsyncStorage.getItem(NOVEDADES_AVISOS_KEY)) === "1";
+      vistasLocal = await AsyncStorage.getItem(NOVEDADES_VISTAS_KEY);
+    } catch {
+      // sin almacenamiento local: se sigue con lo de la cuenta
+    }
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
+      if (user) {
+        const { data, error } = await supabase
+          .from("preferencias_usuario")
+          .select("avisos_novedades,novedades_vistas_hasta")
+          .eq("user_id", user.id)
+          .maybeSingle<{ avisos_novedades: boolean | null; novedades_vistas_hasta: string | null }>();
+        if (error) throw error;
+        if (data) {
+          activado = data.avisos_novedades === true;
+          vistasCuenta = data.novedades_vistas_hasta;
+        }
+      }
+    } catch {
+      // la columna puede no existir aún: solo lo local
+    }
+
+    setAvisosNovedades(activado);
+    if (!activado) {
+      setNovedadesTienda(0);
+      return;
+    }
+    const vistasMs = Math.max(isoAMs(vistasCuenta), isoAMs(vistasLocal));
+    const desde = new Date(vistasMs || Date.now() - DIA_MS).toISOString();
+    try {
+      const { count, error } = await supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "PUBLISHED")
+        .eq("is_active", true)
+        .gt("novedad_en", desde);
+      if (error) throw error;
+      setNovedadesTienda(count ?? 0);
+    } catch {
+      setNovedadesTienda(0);
+    }
+  }, []);
+
+  // «Avísame cuando llegue»: por cada búsqueda guardada, artículos con TODAS sus palabras
+  // que han entrado (o vuelto a la venta) después de la última vez que se avisó.
+  const refreshAvisosBusqueda = useCallback(async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user) {
+        setAvisosBusqueda([]);
+        setLlegadas([]);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("avisos_busqueda")
+        .select("id,texto,visto_hasta")
+        .order("created_at", { ascending: true })
+        .limit(10);
+      if (error) throw error;
+      const avisos = (data ?? []) as AvisoBusqueda[];
+      setAvisosBusqueda(avisos);
+
+      const encontradas = await Promise.all(
+        avisos.map(async (aviso) => {
+          const palabras = aviso.texto
+            .toLowerCase()
+            .replace(/[%_\\,()]/g, " ")
+            .split(/\s+/)
+            .filter((w) => w.length >= 2)
+            .slice(0, 5);
+          if (!palabras.length) return null;
+          let consulta = supabase
+            .from("products")
+            .select("id,title,price_eur")
+            .eq("status", "PUBLISHED")
+            .eq("is_active", true)
+            .gt("novedad_en", aviso.visto_hasta);
+          for (const w of palabras) consulta = consulta.ilike("title", `%${w}%`);
+          const { data: prods } = await consulta.order("novedad_en", { ascending: false }).limit(3);
+          const productos = ((prods ?? []) as { id: string; title: string; price_eur: number | string | null }[]).map((p) => ({
+            id: p.id,
+            title: p.title,
+            price: Number(p.price_eur ?? 0),
+          }));
+          return productos.length ? { aviso, productos } : null;
+        })
+      );
+      setLlegadas(encontradas.filter((x): x is Llegada => x !== null));
+    } catch {
+      // la tabla puede no existir aún: sin avisos
+      setLlegadas([]);
+    }
+  }, []);
+
+  // Bajadas de precio de lo que gusta o está en la cesta (precio visto guardado en el móvil).
+  const refreshBajadas = useCallback(async () => {
+    try {
+      const gustan = await getLikedProductIds();
+      const cesta = await leerJsonLocal<unknown[]>(CART_KEY, []);
+      const enCesta = (Array.isArray(cesta) ? cesta : [])
+        .map((it: any) => String(it?.id ?? ""))
+        .filter(Boolean);
+      const ids = [...new Set([...gustan, ...enCesta])].slice(0, 60);
+      if (!ids.length) {
+        setBajadas([]);
+        return;
+      }
+      const { data, error } = await supabase.from("products").select("id,title,price_eur").in("id", ids);
+      if (error) throw error;
+      const vistos = await leerJsonLocal<Record<string, number>>(PRECIOS_VISTOS_KEY, {});
+      const nuevos: Record<string, number> = {};
+      const lista: Bajada[] = [];
+      for (const p of (data ?? []) as { id: string; title: string; price_eur: number | string | null }[]) {
+        const ahora = Number(p.price_eur ?? 0);
+        const antes = Number(vistos[p.id]);
+        if (Number.isFinite(antes) && antes > 0 && ahora > 0 && ahora < antes - 0.004) {
+          lista.push({ id: p.id, title: p.title, antes, ahora });
+          nuevos[p.id] = antes; // se mantiene hasta que lo vea
+        } else {
+          nuevos[p.id] = ahora; // primera vez o sube: se apunta el precio actual
+        }
+      }
+      await AsyncStorage.setItem(PRECIOS_VISTOS_KEY, JSON.stringify(nuevos)).catch(() => {});
+      setBajadas(lista);
+    } catch {
+      // sin conexión: se deja como estaba
+    }
+  }, []);
+
+  // Solo el admin: ventas de artículos de VeoAura que aún no se han confirmado a VeoAura.
+  const refreshSalida = useCallback(async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user) {
+        setSalidaPendiente(0);
+        return;
+      }
+      const { count, error } = await supabase
+        .from("escaparate_salida")
+        .select("id", { count: "exact", head: true })
+        .in("estado", ["pendiente", "error"]);
+      // Para quien no es admin, RLS no devuelve filas: cuenta 0.
+      setSalidaPendiente(error ? 0 : count ?? 0);
+    } catch {
+      setSalidaPendiente(0);
+    }
+  }, []);
+
+  const refreshAvisosTienda = useCallback(() => {
+    refreshNovedadesTienda();
+    refreshAvisosBusqueda();
+    refreshBajadas();
+    refreshSalida();
+  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida]);
+
+  // El catálogo puede crear avisos: entonces se releen.
+  useEffect(() => {
+    const oyente = () => {
+      refreshAvisosBusqueda();
+    };
+    oyentesAvisos.add(oyente);
+    return () => {
+      oyentesAvisos.delete(oyente);
+    };
+  }, [refreshAvisosBusqueda]);
+
   useEffect(() => {
     refreshAuth();
     refreshChats();
     refreshLikes();
     refreshNovedades();
     refreshNoticias();
+    refreshAvisosTienda();
     // refreshNoticiasNuevas() al montar lo hace el efecto de la ruta (más abajo).
 
     const hasDocument = typeof document !== "undefined";
@@ -381,6 +628,7 @@ export default function Campanita() {
       if (!isPageVisible()) return;
       refreshChats();
       refreshNoticiasNuevas();
+      refreshNovedadesTienda();
     }, POLL_MS);
 
     let onVisibilityChange: (() => void) | null = null;
@@ -389,6 +637,7 @@ export default function Campanita() {
         if (document.visibilityState !== "visible") return;
         refreshChats();
         refreshNoticiasNuevas();
+        refreshAvisosTienda();
       };
       document.addEventListener("visibilitychange", onVisibilityChange);
     }
@@ -397,6 +646,7 @@ export default function Campanita() {
       refreshAuth();
       refreshChats();
       refreshNoticiasNuevas();
+      refreshAvisosTienda();
     });
 
     return () => {
@@ -404,7 +654,16 @@ export default function Campanita() {
       if (hasDocument && onVisibilityChange) document.removeEventListener("visibilitychange", onVisibilityChange);
       authSub?.subscription?.unsubscribe?.();
     };
-  }, [refreshAuth, refreshChats, refreshLikes, refreshNovedades, refreshNoticias, refreshNoticiasNuevas]);
+  }, [
+    refreshAuth,
+    refreshChats,
+    refreshLikes,
+    refreshNovedades,
+    refreshNoticias,
+    refreshNoticiasNuevas,
+    refreshNovedadesTienda,
+    refreshAvisosTienda,
+  ]);
 
   // Cuenta las noticias al montar y otra vez al salir del Foro (donde se ven y se
   // actualiza la clave local de "vistas"), para que el número rojo no se quede viejo.
@@ -413,7 +672,15 @@ export default function Campanita() {
     if (!enForo) refreshNoticiasNuevas();
   }, [enForo, refreshNoticiasNuevas]);
 
-  const totalCount = unreadChats + likedUnavailable.length + (novedadesPending ? 1 : 0) + noticiasNuevas;
+  const totalCount =
+    unreadChats +
+    likedUnavailable.length +
+    (novedadesPending ? 1 : 0) +
+    noticiasNuevas +
+    (novedadesTienda > 0 ? 1 : 0) +
+    llegadas.length +
+    bajadas.length +
+    (isAdmin && salidaPendiente > 0 ? 1 : 0);
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
   // --- bocadillos según la pantalla --------------------------------------------
@@ -618,7 +885,8 @@ export default function Campanita() {
     refreshLikes();
     refreshNovedades();
     refreshNoticiasNuevas();
-  }, [refreshChats, refreshLikes, refreshNovedades, refreshNoticiasNuevas]);
+    refreshAvisosTienda();
+  }, [refreshChats, refreshLikes, refreshNovedades, refreshNoticiasNuevas, refreshAvisosTienda]);
 
   const openPanelRef = useRef(openPanel);
   openPanelRef.current = openPanel;
@@ -685,6 +953,93 @@ export default function Campanita() {
       // como mucho se vuelve a avisar
     }
   }, [likedUnavailable]);
+
+  // Guarda en la cuenta (si hay sesión) los ajustes de avisos de artículos nuevos.
+  const guardarPreferenciasNovedades = useCallback(async (campos: { avisos_novedades?: boolean; novedades_vistas_hasta?: string }) => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      if (!user) return;
+      await supabase
+        .from("preferencias_usuario")
+        .upsert({ user_id: user.id, ...campos, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    } catch {
+      // queda lo local
+    }
+  }, []);
+
+  const cambiarAvisosNovedades = useCallback(
+    async (activar: boolean) => {
+      const ahora = new Date().toISOString();
+      setAvisosNovedades(activar);
+      setNovedadesTienda(0);
+      try {
+        await AsyncStorage.setItem(NOVEDADES_AVISOS_KEY, activar ? "1" : "0");
+        // Al activarlos se empieza a contar desde ahora (sin avisar de lo que ya había).
+        if (activar) await AsyncStorage.setItem(NOVEDADES_VISTAS_KEY, ahora);
+      } catch {
+        // sin almacenamiento local
+      }
+      await guardarPreferenciasNovedades(activar ? { avisos_novedades: true, novedades_vistas_hasta: ahora } : { avisos_novedades: false });
+    },
+    [guardarPreferenciasNovedades]
+  );
+
+  const verNovedades = useCallback(async () => {
+    const ahora = new Date().toISOString();
+    setNovedadesTienda(0);
+    AsyncStorage.setItem(NOVEDADES_VISTAS_KEY, ahora).catch(() => {});
+    guardarPreferenciasNovedades({ novedades_vistas_hasta: ahora });
+    ir("/");
+  }, [guardarPreferenciasNovedades, ir]);
+
+  const verLlegada = useCallback(
+    async (l: Llegada) => {
+      setLlegadas((prev) => prev.filter((x) => x.aviso.id !== l.aviso.id));
+      supabase
+        .from("avisos_busqueda")
+        .update({ visto_hasta: new Date().toISOString() })
+        .eq("id", l.aviso.id)
+        .then(() => {}, () => {});
+      ir(l.productos.length === 1 ? `/producto/${l.productos[0].id}` : `/catalogo?query=${encodeURIComponent(l.aviso.texto)}`);
+    },
+    [ir]
+  );
+
+  const verBajada = useCallback(
+    async (b: Bajada) => {
+      setBajadas((prev) => prev.filter((x) => x.id !== b.id));
+      const vistos = await leerJsonLocal<Record<string, number>>(PRECIOS_VISTOS_KEY, {});
+      vistos[b.id] = b.ahora;
+      AsyncStorage.setItem(PRECIOS_VISTOS_KEY, JSON.stringify(vistos)).catch(() => {});
+      ir(`/producto/${b.id}`);
+    },
+    [ir]
+  );
+
+  const anadirAviso = useCallback(async () => {
+    const r = await crearAvisoBusqueda(textoAviso);
+    if (r === "ok") {
+      setTextoAviso("");
+      setMsgAviso("Hecho: te avisaremos en cuanto llegue.");
+    } else if (r === "limite") {
+      setMsgAviso("Ya tienes 10 avisos: quita alguno para añadir otro.");
+    } else if (r === "sin_sesion") {
+      setMsgAviso("Inicia sesión para crear avisos.");
+    } else {
+      setMsgAviso("Escribe al menos 2 letras de lo que buscas.");
+    }
+  }, [textoAviso]);
+
+  const quitarAviso = useCallback(async (id: string) => {
+    setAvisosBusqueda((prev) => prev.filter((a) => a.id !== id));
+    setLlegadas((prev) => prev.filter((l) => l.aviso.id !== id));
+    try {
+      await supabase.from("avisos_busqueda").delete().eq("id", id);
+    } catch {
+      // se volverá a ver al recargar
+    }
+  }, []);
 
   // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
   // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
@@ -1030,6 +1385,42 @@ export default function Campanita() {
                         onPress={() => ir("/chat-global?tab=news")}
                       />
                     ) : null}
+                    {isAdmin && salidaPendiente > 0 ? (
+                      <Aviso
+                        titulo={
+                          salidaPendiente === 1
+                            ? "Una venta de un artículo de VeoAura aún no se ha confirmado a VeoAura"
+                            : `${salidaPendiente} ventas de artículos de VeoAura aún no se han confirmado a VeoAura`
+                        }
+                        accion="Ver escaparate"
+                        onPress={() => ir("/admin/escaparate")}
+                      />
+                    ) : null}
+                    {novedadesTienda > 0 ? (
+                      <Aviso
+                        titulo={novedadesTienda === 1 ? "Ha llegado 1 artículo nuevo" : `Han llegado ${novedadesTienda} artículos nuevos`}
+                        accion="Ver novedades"
+                        onPress={verNovedades}
+                      />
+                    ) : null}
+                    {llegadas.map((l) => (
+                      <Aviso
+                        key={l.aviso.id}
+                        titulo={`Ha llegado lo que buscabas («${l.aviso.texto}»): ${l.productos[0].title} · ${fmtEUR(l.productos[0].price)}${
+                          l.productos.length > 1 ? ` y ${l.productos.length - 1} más` : ""
+                        }`}
+                        accion="Ver"
+                        onPress={() => verLlegada(l)}
+                      />
+                    ))}
+                    {bajadas.map((b) => (
+                      <Aviso
+                        key={b.id}
+                        titulo={`Ha bajado de precio: ${b.title} · antes ${fmtEUR(b.antes)}, ahora ${fmtEUR(b.ahora)}`}
+                        accion="Ver"
+                        onPress={() => verBajada(b)}
+                      />
+                    ))}
                   </>
                 )}
                 {/* Sin avisos de noticias activados: cómo activarlos. */}
@@ -1050,6 +1441,93 @@ export default function Campanita() {
                     Inicia sesión para ver también los avisos de tus conversaciones.
                   </Text>
                 ) : null}
+
+                {/* Ajustes de los avisos de la tienda. */}
+                <View
+                  style={{
+                    alignSelf: "stretch",
+                    borderTopWidth: 1,
+                    borderTopColor: COLORS.border,
+                    paddingTop: 14,
+                    marginTop: 4,
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>Avisarme de los artículos nuevos</Text>
+                    <Switch
+                      value={avisosNovedades}
+                      onValueChange={cambiarAvisosNovedades}
+                      trackColor={{ false: "#D9E3EC", true: COLORS.accentSoft }}
+                      thumbColor={avisosNovedades ? COLORS.accent : "#F4F4F5"}
+                      accessibilityLabel="Avisarme de los artículos nuevos"
+                    />
+                  </View>
+
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center", marginTop: 4 }}>Avísame cuando llegue</Text>
+                  {isLoggedIn ? (
+                    <>
+                      <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
+                        Escribe lo que buscas y te avisamos aquí en cuanto entre en la tienda.
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%", maxWidth: 380 }}>
+                        <TextInput
+                          value={textoAviso}
+                          onChangeText={(t) => {
+                            setTextoAviso(t);
+                            setMsgAviso(null);
+                          }}
+                          onSubmitEditing={anadirAviso}
+                          placeholder="Ej.: Switch OLED"
+                          placeholderTextColor="rgba(11,33,56,0.40)"
+                          maxLength={60}
+                          returnKeyType="done"
+                          style={{
+                            flex: 1,
+                            borderWidth: 1,
+                            borderColor: COLORS.border,
+                            borderRadius: 999,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                            color: COLORS.text,
+                            // 16px: evita el zoom automático de Safari/iOS al enfocar.
+                            fontSize: 16,
+                            textAlign: "center",
+                          }}
+                        />
+                        <Pressable
+                          onPress={anadirAviso}
+                          accessibilityRole="button"
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.85 : 1,
+                            paddingVertical: 10,
+                            paddingHorizontal: 16,
+                            borderRadius: 999,
+                            backgroundColor: COLORS.accent,
+                          })}
+                        >
+                          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Añadir</Text>
+                        </Pressable>
+                      </View>
+                      {msgAviso ? (
+                        <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>{msgAviso}</Text>
+                      ) : null}
+                      {avisosBusqueda.map((a) => (
+                        <View key={a.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                          <Text style={{ color: COLORS.text, fontWeight: "700", textAlign: "center" }}>{a.texto}</Text>
+                          <Pressable onPress={() => quitarAviso(a.id)} hitSlop={8} accessibilityLabel={`Quitar el aviso ${a.texto}`}>
+                            <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Quitar</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </>
+                  ) : (
+                    <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
+                      Inicia sesión para que te avisemos cuando llegue lo que buscas.
+                    </Text>
+                  )}
+                </View>
               </View>
               ) : null}
             </ScrollView>

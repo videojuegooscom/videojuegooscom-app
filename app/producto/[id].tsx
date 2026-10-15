@@ -953,9 +953,11 @@ export default function ProductoScreen() {
   async function shareProduct() {
     if (!p) return;
 
+    // Enlace limpio de la ficha: WhatsApp, Instagram… enseñan su vista previa con foto,
+    // título y precio (api/compartir.ts, por la regla de vercel.json para sus lectores).
     const url =
       Platform.OS === "web" && typeof window !== "undefined"
-        ? window.location.href
+        ? `${window.location.origin}/producto/${p.id}`
         : `https://videojuegoszaragoza.com/producto/${p.id}`;
 
     if (Platform.OS !== "web") {
@@ -971,7 +973,7 @@ export default function ProductoScreen() {
 
     if (nav?.share) {
       try {
-        await nav.share({ title: p.title, url });
+        await nav.share({ title: p.title, text: `${p.title} · ${fmtEUR(p.priceEUR)}`, url });
       } catch {
         // El usuario canceló el share del navegador: no hay nada que hacer.
       }

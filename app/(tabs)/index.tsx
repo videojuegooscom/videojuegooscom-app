@@ -20,6 +20,8 @@
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
  * - Cada apartado lleva su título y entre apartados hay una línea fina
  *   (Separador) con aire; "Oferta de la semana" brilla (TituloOferta).
+ * - "Recién llegado": carrusel con lo último que ha entrado a la tienda
+ *   (components/CategoryProductsShelf.tsx, modo "novedades").
  * - El botón "Vender ahora" abre el formulario "pop" de VenderAhoraModal,
  *   que guarda la solicitud en Supabase (tabla "sell_requests") para
  *   revisarla luego en el admin. La antigua franja "Noticias Flash" ya no
@@ -86,6 +88,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
+import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
@@ -1879,6 +1882,10 @@ export default function HomeScreen() {
           </View>
 
           <Separador isMobile={isMobile} />
+
+          {/* Recién llegado: lo último que ha entrado (también lo que llega de VeoAura).
+              Si no hay nada, no se pinta, ni su separador. */}
+          <CategoryProductsShelf modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
 
           <View onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
             <SectionTitle

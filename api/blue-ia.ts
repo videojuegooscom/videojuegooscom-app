@@ -73,8 +73,8 @@
  *
  * Conectado con:
  * - app/(tabs)/blue-ia.tsx → único sitio que llama a este endpoint
- *   (fetch("/api/blue-ia") en web), y quien pinta "socialChips" como fila de
- *   botones bajo la respuesta.
+ *   (fetch("/api/blue-ia") en web), y quien pinta "socialChips" y "productChips"
+ *   (artículos que nombra la respuesta, con su enlace a la ficha) bajo la respuesta.
  * - sql/products.sql / sql/categories → de aquí sale el contexto real de
  *   catálogo (solo productos con status="PUBLISHED" e is_active=true, que es
  *   justo lo que ve cualquier visitante sin sesión).
@@ -190,49 +190,116 @@ async function isFlaggedByModeration(openaiKey: string, message: string): Promis
   }
 }
 
-// Trae una muestra real del catálogo publicado (los últimos productos
-// activos) para que Blue IA solo hable de cosas que de verdad existen en la
-// tienda, con el precio real en euros. No hace falta más: al ser una tienda
-// de segundas manos/reacondicionados, unas cuantas decenas de productos
-// recientes ya dan una idea representativa de lo que hay disponible.
-async function loadProductContext(): Promise<string> {
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
+function fmtEUR(value: number) {
+  const v = Number(value);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
+// Días que un producto cuenta como «recién llegado» (products.novedad_en).
+const DIAS_NOVEDAD = 7;
+
+type ProductoContexto = { id: string; title: string; price: number };
+
+// Palabras de la pregunta que sirven para buscar en el catálogo (sin signos, para que no
+// se cuelen en el filtro de Supabase).
+function palabrasDeBusqueda(texto: string): string[] {
+  const vacias = new Set(["que", "qué", "hay", "para", "con", "los", "las", "una", "uno", "unos", "del", "por", "tienes", "teneis", "tenéis", "busco", "quiero", "precio", "cuanto", "cuánto", "vale", "cuesta"]);
+  return [
+    ...new Set(
+      texto
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .split(/\s+/)
+        .filter((w) => w.length >= 3 && !vacias.has(w))
+    ),
+  ].slice(0, 5);
+}
+
+// Catálogo real para Blue IA: los últimos productos publicados (lo recién llegado primero)
+// y, además, los que coincidan con lo que pregunta la persona en TODO el stock (no solo los
+// recientes). Así no se inventa productos ni precios y puede enseñar el artículo con su
+// enlace (productChips). Devuelve el texto del contexto y la lista para elegir los chips.
+async function loadProductContext(pregunta: string): Promise<{ texto: string; productos: ProductoContexto[] }> {
+  const vacio = { texto: "", productos: [] as ProductoContexto[] };
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) return "";
+  if (!supabaseUrl || !supabaseAnonKey) return vacio;
 
   try {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const columnas = "id,title,price_eur,condition,novedad_en,categories(name)";
 
-    const { data, error } = await supabase
+    const recientes = supabase
       .from("products")
-      .select("title,price_eur,condition,categories(name)")
+      .select(columnas)
       .eq("status", "PUBLISHED")
       .eq("is_active", true)
-      .order("created_at", { ascending: false })
+      .order("novedad_en", { ascending: false })
       .limit(45);
 
-    if (error) {
-      console.error("Blue IA: error cargando el catálogo desde Supabase:", error);
-      return "";
+    const palabras = palabrasDeBusqueda(pregunta);
+    const coincidencias = palabras.length
+      ? supabase
+          .from("products")
+          .select(columnas)
+          .eq("status", "PUBLISHED")
+          .eq("is_active", true)
+          .or(palabras.map((w) => `title.ilike.%${w}%`).join(","))
+          .order("novedad_en", { ascending: false })
+          .limit(20)
+      : null;
+
+    const [r1, r2] = await Promise.all([recientes, coincidencias]);
+    if (r1.error) {
+      console.error("Blue IA: error cargando el catálogo desde Supabase:", r1.error);
+      return vacio;
     }
 
-    const rows = Array.isArray(data) ? data : [];
-    if (!rows.length) return "";
+    const vistos = new Set<string>();
+    const rows = [...(r2 && !r2.error ? (r2.data ?? []) : []), ...(r1.data ?? [])].filter((p: any) => {
+      if (!p?.id || vistos.has(p.id)) return false;
+      vistos.add(p.id);
+      return true;
+    });
+    if (!rows.length) return vacio;
 
-    return rows
+    const limiteNovedad = Date.now() - DIAS_NOVEDAD * 24 * 60 * 60 * 1000;
+    const texto = rows
       .map((p: any) => {
-        const catName = Array.isArray(p.categories)
-          ? p.categories[0]?.name
-          : p.categories?.name;
+        const catName = Array.isArray(p.categories) ? p.categories[0]?.name : p.categories?.name;
         const cat = catName ? ` · ${catName}` : "";
         const cond = CONDITION_LABEL[p.condition] ?? p.condition;
-        return `- ${p.title} — ${p.price_eur}€ (${cond}${cat})`;
+        const nuevo = Date.parse(p.novedad_en ?? "") > limiteNovedad ? " [recién llegado]" : "";
+        return `- ${p.title} — ${fmtEUR(Number(p.price_eur ?? 0))} (${cond}${cat})${nuevo}`;
       })
       .join("\n");
+
+    const productos = rows.map((p: any) => ({ id: String(p.id), title: String(p.title ?? ""), price: Number(p.price_eur ?? 0) }));
+    return { texto, productos };
   } catch (e) {
     console.error("Blue IA: error inesperado cargando el catálogo:", e);
-    return "";
+    return vacio;
   }
+}
+
+// Productos que la respuesta nombra (por su título, o por casi todas sus palabras): se
+// mandan aparte para que la app los pinte como botones que abren la ficha. Como mucho 3.
+function pickProductChips(replyText: string, productos: ProductoContexto[]) {
+  const respuesta = replyText.toLowerCase();
+  const elegidos: { id: string; title: string; price: number }[] = [];
+  for (const p of productos) {
+    const titulo = p.title.toLowerCase().trim();
+    if (!titulo) continue;
+    const palabras = titulo.split(/\s+/).filter((w) => w.length >= 3);
+    const presentes = palabras.filter((w) => respuesta.includes(w)).length;
+    const nombrado = respuesta.includes(titulo) || (palabras.length >= 2 && presentes / palabras.length >= 0.75);
+    if (nombrado) elegidos.push(p);
+    if (elegidos.length >= 3) break;
+  }
+  return elegidos;
 }
 
 // "Noticias Flash" activas (app/admin/flash-news.tsx): avisos y promociones que la
@@ -421,7 +488,7 @@ function buildSystemPrompt(productContext: string, socialLinksContext: string, f
     : "";
 
   const catalogBlock = productContext
-    ? `Aquí tienes una muestra REAL y actual del catálogo de la tienda (título — precio en euros, estado, categoría). Solo puedes recomendar o mencionar productos de esta lista, con su precio tal cual aparece. Si nada encaja con lo que pide la persona, dilo con sinceridad y sugiere mirar el catálogo completo en la pestaña "Inicio" o "Catálogo", o preguntar por otra cosa:\n${productContext}`
+    ? `Aquí tienes una muestra REAL y actual del catálogo de la tienda (título — precio en euros, estado, categoría), con lo que coincide con la pregunta al principio. Solo puedes recomendar o mencionar productos de esta lista, con su precio tal cual aparece. Cuando recomiendes uno, escribe su título tal cual: la app pondrá debajo un botón para abrir su ficha. Los marcados [recién llegado] acaban de llegar: si preguntan qué hay nuevo, empieza por ellos (no escribas la marca entre corchetes). Si nada encaja con lo que pide la persona, dilo con sinceridad y sugiere mirar el catálogo completo en la pestaña "Inicio" o "Catálogo", o activar «Avísame cuando llegue» en las notificaciones de Blue para que le avisemos en cuanto entre:\n${productContext}`
     : "No se ha podido cargar el catálogo real en este momento. No inventes productos ni precios concretos: invita a la persona a mirar el catálogo de la tienda directamente o a preguntar por otra cosa.";
 
   const socialBlock = socialLinksContext
@@ -513,12 +580,12 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const [productContext, socialLinks, flashNews] = await Promise.all([
-      loadProductContext(),
+    const [catalogo, socialLinks, flashNews] = await Promise.all([
+      loadProductContext(cleanMessage),
       loadActiveSocialLinks(),
       loadFlashNewsContext(),
     ]);
-    const systemPrompt = buildSystemPrompt(productContext, socialLinksToPromptContext(socialLinks), flashNews);
+    const systemPrompt = buildSystemPrompt(catalogo.texto, socialLinksToPromptContext(socialLinks), flashNews);
 
     // Como mucho las últimas 10 vueltas de la conversación: suficiente para
     // que Blue IA recuerde el hilo (p. ej. el presupuesto que ya dijiste)
@@ -573,8 +640,13 @@ export default async function handler(req: any, res: any) {
 
     const reply = sanitizeReplyText(rawReply);
     const socialChips = pickSocialChips(rawReply, socialLinks);
+    const productChips = pickProductChips(rawReply, catalogo.productos);
 
-    res.status(200).json(socialChips.length ? { reply, socialChips } : { reply });
+    res.status(200).json({
+      reply,
+      ...(socialChips.length ? { socialChips } : {}),
+      ...(productChips.length ? { productChips } : {}),
+    });
   } catch (e: any) {
     console.error("Blue IA: error inesperado en /api/blue-ia:", e);
     res.status(500).json({ error: "Ha ocurrido un error inesperado. Inténtalo de nuevo." });

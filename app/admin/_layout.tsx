@@ -27,7 +27,8 @@
  *   app/admin/cotizaciones.tsx, app/admin/chats.tsx, app/admin/flash-news.tsx,
  *   app/admin/policies.tsx, app/admin/blog.tsx, app/admin/analytics.tsx,
  *   app/admin/users.tsx, app/admin/cliente/[userId].tsx, app/admin/marca-seo.tsx,
- *   app/admin/redes-sociales.tsx, app/admin/aprendizajes.tsx, app/admin/pedidos.tsx
+ *   app/admin/redes-sociales.tsx, app/admin/aprendizajes.tsx, app/admin/pedidos.tsx,
+ *   app/admin/escaparate.tsx
  *   → las rutas hijas que este layout protege (Stack.Screen).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -182,6 +183,7 @@ export default function AdminLayout() {
       <Stack.Screen name="redes-sociales" />
       <Stack.Screen name="aprendizajes" />
       <Stack.Screen name="pedidos" />
+      <Stack.Screen name="escaparate" />
     </Stack>
   );
 }

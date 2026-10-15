@@ -62,6 +62,7 @@ import Barramagic from "../components/Barramagic";
 import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
+import { crearAvisoBusqueda } from "../components/Campanita";
 import CatalogFilters, {
   Chip,
   USED_CONDITIONS,
@@ -451,6 +452,16 @@ export default function CatalogoScreen() {
   const [price, setPrice] = useState<PriceFilter>("ALL");
   const [sort, setSort] = useState<SortKey>("NEWEST");
   const [q, setQ] = useState(queryFromUrl);
+  // «Avísame cuando llegue» desde una búsqueda sin resultados (lo avisa Blue, components/Campanita.tsx).
+  const [avisoMsg, setAvisoMsg] = useState<string | null>(null);
+  const avisarCuandoLlegue = useCallback(async () => {
+    const r = await crearAvisoBusqueda(q);
+    if (r === "ok") setAvisoMsg("Hecho: Blue te avisará en cuanto llegue.");
+    else if (r === "sin_sesion") router.push(`/perfil?aviso=${encodeURIComponent("Inicia sesión para que te avisemos cuando llegue")}` as Href);
+    else if (r === "limite") setAvisoMsg("Ya tienes 10 avisos: quita alguno desde las notificaciones de Blue.");
+    else setAvisoMsg("No se ha podido crear el aviso. Inténtalo de nuevo.");
+  }, [q]);
+  useEffect(() => setAvisoMsg(null), [q]);
   const [appliedQuery, setAppliedQuery] = useState(queryFromUrl);
 
   const [contactBusy, setContactBusy] = useState(false);
@@ -925,6 +936,35 @@ export default function CatalogoScreen() {
                         Quitar filtros
                       </Text>
                     </Pressable>
+                  ) : null}
+
+                  {q.trim().length >= 2 ? (
+                    avisoMsg ? (
+                      <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>{avisoMsg}</Text>
+                    ) : (
+                      <Pressable
+                        onPress={avisarCuandoLlegue}
+                        accessibilityRole="button"
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.88 : 1,
+                          alignSelf: isMobile ? "stretch" : "center",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          borderRadius: 999,
+                          paddingVertical: 12,
+                          paddingHorizontal: 18,
+                          borderWidth: 1.5,
+                          borderColor: COLORS.accent,
+                        })}
+                      >
+                        <Ionicons name="notifications-outline" size={16} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.accent, fontWeight: "900", textAlign: "center" }}>
+                          Avísame cuando llegue «{q.trim().slice(0, 40)}»
+                        </Text>
+                      </Pressable>
+                    )
                   ) : null}
                 </View>
               ) : (

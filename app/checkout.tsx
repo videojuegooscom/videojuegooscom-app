@@ -400,6 +400,11 @@ export default function CheckoutScreen() {
       } catch {
         // sin número: se sigue por WhatsApp
       }
+      // Si el pedido lleva artículos de VeoAura, el servidor avisa a VeoAura para que no los
+      // venda también en la tienda física (api/escaparate-retorno.ts). No se espera.
+      if (numero && Platform.OS === "web") {
+        fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
+      }
 
       trackEvent("order_whatsapp", "Pedido por WhatsApp", {
         path: "/checkout",

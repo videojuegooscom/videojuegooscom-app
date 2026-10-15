@@ -35,6 +35,9 @@
  *   táctiles sigue funcionando igual arrastrando con el dedo; las flechas
  *   son sobre todo para ratón/escritorio.
  * - Cada tarjeta abre la ficha del producto (app/producto/[id].tsx).
+ * - modo="novedades": el mismo carrusel con lo último que ha llegado a la tienda (por
+ *   products.novedad_en, que se renueva también cuando un artículo de VeoAura vuelve a la
+ *   venta), sin filtrar por categoría. Lo usa la portada («Recién llegado»).
  *
  * Rendimiento: este componente se monta por separado en Perfil Y en Cesta —
  * son las MISMAS tarjetas de PS5/Xbox en los dos sitios, así que antes, cada
@@ -90,8 +93,13 @@ const CARD_STEP = CARD_WIDTH + CARD_GAP;
 // arriba): evita repetir las mismas 3 consultas cada vez que se monta este
 // componente si ya se pidieron hace poco.
 const SHELF_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
-let shelfCache: { data: ShelfProduct[]; fetchedAt: number } | null = null;
-let shelfInFlight: Promise<ShelfProduct[]> | null = null;
+
+// Cuántos artículos enseña el estante de novedades.
+const NOVEDADES_MAX = 12;
+
+type ShelfModo = "consolas" | "novedades";
+const shelfCache = new Map<ShelfModo, { data: ShelfProduct[]; fetchedAt: number }>();
+const shelfInFlight = new Map<ShelfModo, Promise<ShelfProduct[]>>();
 
 type ShelfProductRow = {
   id: string;
@@ -227,19 +235,41 @@ async function fetchCoverImageMapSafe(productIds: string[]): Promise<Map<string,
   }
 }
 
-async function fetchShelfProductsSafe(): Promise<ShelfProduct[]> {
+// Lo último que ha llegado (novedad_en; si esa columna aún no existe, created_at).
+async function fetchNovedadesRowsSafe(): Promise<ShelfProductRow[]> {
+  for (const orden of ["novedad_en", "created_at"]) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id,title,price_eur,images")
+      .eq("is_active", true)
+      .eq("status", "PUBLISHED")
+      .order(orden, { ascending: false })
+      .limit(NOVEDADES_MAX);
+    if (!error && Array.isArray(data)) {
+      return data.map(asShelfProductRow).filter((p): p is ShelfProductRow => p !== null);
+    }
+  }
+  return [];
+}
+
+async function fetchShelfProductsSafe(modo: ShelfModo): Promise<ShelfProduct[]> {
   try {
-    const { data: cats, error: catsErr } = await supabase
-      .from("categories")
-      .select("id,slug")
-      .in("slug", SHELF_CATEGORY_SLUGS);
+    let rows: ShelfProductRow[];
+    if (modo === "novedades") {
+      rows = await fetchNovedadesRowsSafe();
+    } else {
+      const { data: cats, error: catsErr } = await supabase
+        .from("categories")
+        .select("id,slug")
+        .in("slug", SHELF_CATEGORY_SLUGS);
 
-    if (catsErr || !Array.isArray(cats) || cats.length === 0) return [];
+      if (catsErr || !Array.isArray(cats) || cats.length === 0) return [];
 
-    const catIds = (cats as Array<{ id: string }>).map((c) => c.id).filter(Boolean);
-    if (catIds.length === 0) return [];
+      const catIds = (cats as { id: string }[]).map((c) => c.id).filter(Boolean);
+      if (catIds.length === 0) return [];
 
-    const rows = await fetchProductRowsSafe(catIds);
+      rows = await fetchProductRowsSafe(catIds);
+    }
     if (rows.length === 0) return [];
 
     const coverMap = await fetchCoverImageMapSafe(rows.map((r) => r.id));
@@ -259,27 +289,39 @@ async function fetchShelfProductsSafe(): Promise<ShelfProduct[]> {
 // todavía es reciente (SHELF_CACHE_TTL_MS) y compartiendo la misma petición
 // en vuelo si Perfil y Cesta llegan a pedirla casi a la vez (por ejemplo, al
 // recargar la página con las dos montadas).
-async function getShelfProductsCached(): Promise<ShelfProduct[]> {
+async function getShelfProductsCached(modo: ShelfModo): Promise<ShelfProduct[]> {
   const now = Date.now();
-  if (shelfCache && now - shelfCache.fetchedAt < SHELF_CACHE_TTL_MS) {
-    return shelfCache.data;
+  const cache = shelfCache.get(modo);
+  if (cache && now - cache.fetchedAt < SHELF_CACHE_TTL_MS) {
+    return cache.data;
   }
 
-  if (!shelfInFlight) {
-    shelfInFlight = fetchShelfProductsSafe()
+  let enVuelo = shelfInFlight.get(modo);
+  if (!enVuelo) {
+    enVuelo = fetchShelfProductsSafe(modo)
       .then((rows) => {
-        shelfCache = { data: rows, fetchedAt: Date.now() };
+        shelfCache.set(modo, { data: rows, fetchedAt: Date.now() });
         return rows;
       })
       .finally(() => {
-        shelfInFlight = null;
+        shelfInFlight.delete(modo);
       });
+    shelfInFlight.set(modo, enVuelo);
   }
 
-  return shelfInFlight;
+  return enVuelo;
 }
 
-export default function CategoryProductsShelf() {
+export default function CategoryProductsShelf({
+  modo = "consolas",
+  titulo,
+  pie,
+}: {
+  modo?: ShelfModo;
+  titulo?: string;
+  // Algo que va debajo solo si el estante se pinta (p. ej. el separador de la portada).
+  pie?: React.ReactNode;
+} = {}) {
   const [products, setProducts] = useState<ShelfProduct[] | null>(null);
 
   // Estado del carrusel: solo hace falta saber cuánto se puede seguir
@@ -297,14 +339,14 @@ export default function CategoryProductsShelf() {
   useEffect(() => {
     let alive = true;
 
-    getShelfProductsCached().then((rows) => {
+    getShelfProductsCached(modo).then((rows) => {
       if (alive) setProducts(rows);
     });
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [modo]);
 
   // Recalcula qué flechas tienen sentido mostrar a partir de los refs
   // (posición actual, ancho visible, ancho total). Se llama tanto al hacer
@@ -347,7 +389,7 @@ export default function CategoryProductsShelf() {
   return (
     <View style={{ gap: 10 }}>
       <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
-        También te puede interesar
+        {titulo ?? "También te puede interesar"}
       </Text>
 
       <View style={{ position: "relative" }}>
@@ -445,6 +487,7 @@ export default function CategoryProductsShelf() {
           <CarouselArrow direction="right" onPress={() => scrollByCards(1)} />
         ) : null}
       </View>
+      {pie}
     </View>
   );
 }

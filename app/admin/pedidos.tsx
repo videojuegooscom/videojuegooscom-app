@@ -15,9 +15,11 @@
  * - app/admin/index.tsx → tarjeta "Pedidos" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("pedidos") en el Stack.
  * - app/checkout.tsx → crea los pedidos con la función crear_pedido.
+ * - api/escaparate-retorno.ts → al cambiar el estado se le avisa, por si el pedido lleva
+ *   artículos de VeoAura (al cancelarlo, VeoAura los vuelve a poner a la venta).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StatusBar, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StatusBar, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -140,6 +142,9 @@ export default function PedidosAdmin() {
       setErr("No se pudo cambiar el estado del pedido.");
     } else {
       setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, estado } : x)));
+      // Si se cancela un pedido con artículos de VeoAura, el servidor se lo avisa a VeoAura
+      // (api/escaparate-retorno.ts). No se espera.
+      if (Platform.OS === "web") fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
     }
     setGuardando(null);
   }

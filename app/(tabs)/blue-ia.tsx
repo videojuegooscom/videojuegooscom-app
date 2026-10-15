@@ -139,6 +139,10 @@ type HelpBlock = {
 // enlace real lo abre BlueIASocialChips, nunca aparece escrito en el mensaje.
 type SocialChip = { platform: string; label: string; href: string };
 
+// Un artículo del catálogo que nombra la respuesta (api/blue-ia.ts → pickProductChips):
+// se pinta como botón que abre su ficha.
+type ProductChip = { id: string; title: string; price: number };
+
 type BlueIAMessage = {
   id: string;
   role: "user" | "assistant";
@@ -147,6 +151,7 @@ type BlueIAMessage = {
   apiText?: string;
   isError?: boolean;
   socialChips?: SocialChip[];
+  productChips?: ProductChip[];
 };
 
 // Respuestas en las que la IA reconoce que no puede resolverlo sola.
@@ -710,9 +715,15 @@ export default function BlueIAScreen() {
           ? data.socialChips
           : undefined;
 
+        const productChips: ProductChip[] | undefined = Array.isArray(data.productChips)
+          ? data.productChips
+              .filter((c: any) => c && typeof c.id === "string" && typeof c.title === "string")
+              .map((c: any) => ({ id: c.id, title: c.title, price: Number(c.price ?? 0) }))
+          : undefined;
+
         setMessages((prev) => [
           ...prev,
-          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips },
+          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips, productChips },
         ]);
 
         // Con sesión, la vuelta se guarda en su cuenta (los errores no).
@@ -1339,8 +1350,43 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
           {message.text}
         </Text>
 
+        {!!message.productChips?.length && <BlueIAProductChips chips={message.productChips} />}
         {!!message.socialChips?.length && <BlueIASocialChips chips={message.socialChips} />}
       </View>
+    </View>
+  );
+}
+
+// Artículos que Blue IA recomienda en la respuesta: título y precio; al tocarlos se abre
+// su ficha.
+function BlueIAProductChips({ chips }: { chips: ProductChip[] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      {chips.map((chip) => (
+        <Pressable
+          key={chip.id}
+          onPress={() => router.push(`/producto/${chip.id}` as never)}
+          accessibilityRole="link"
+          accessibilityLabel={`Ver ${chip.title}`}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingVertical: 9,
+            paddingHorizontal: 12,
+            borderRadius: 14,
+            backgroundColor: "#FFFFFF",
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            opacity: pressed ? 0.82 : 1,
+          })}
+        >
+          <Ionicons name="pricetag-outline" size={15} color={COLORS.accent} />
+          <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>{chip.title}</Text>
+          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 12.5 }}>{fmtEUR(chip.price)}</Text>
+          <Ionicons name="chevron-forward" size={14} color={COLORS.accent} />
+        </Pressable>
+      ))}
     </View>
   );
 }
