@@ -1349,8 +1349,10 @@ export default function Campanita() {
 
   // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
   // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
-  if (avisoSelector && enForo && !enAdmin) return <AvisoSelector onCerrar={() => setAvisoSelector(false)} />;
-  if (!ready || enChat || enAdmin || !aparecido) return null;
+  if (avisoSelector && enForo && !enAdmin && !guiaAbierta) return <AvisoSelector onCerrar={() => setAvisoSelector(false)} />;
+  // Con la guía abierta se sigue montando aunque la guía pase por una pantalla de chat (Foro,
+  // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
+  if (!ready || (enChat && !guiaAbierta) || enAdmin || !aparecido) return null;
 
   const derecha = sitio.lado === "r";
   // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
@@ -2023,6 +2025,11 @@ type PasoGuia = {
   titulo: string;
   texto: string;
   objetivo?: string[];
+  // Pantalla en la que se explica el paso: la guía navega sola hasta ella (como si te llevara
+  // de la mano). Si no se indica, se queda en Inicio.
+  ruta?: string;
+  // Selector de lo que hay que traer a la vista (desplazando la pantalla) antes de señalarlo.
+  desplazar?: string;
   accion?: { texto: string; ruta?: string; vender?: boolean };
   cuenta?: boolean;
 };
@@ -2046,48 +2053,77 @@ const PASOS_GUIA: PasoGuia[] = [
     titulo: "Inicio",
     texto: "La Oferta de la semana, lo Recién llegado y las categorías: PlayStation, Nintendo Switch, Xbox y más. Desliza hacia abajo para verlo todo.",
     objetivo: [PESTANAS[0]],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
+  },
+  {
+    icono: "apps-outline",
+    titulo: "Ver categorías",
+    texto: "Este botón te lleva directo a las categorías: PlayStation, Nintendo Switch, Xbox y más.",
+    objetivo: ['[data-testid="boton-ver-categorias"]'],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
+  },
+  {
+    icono: "grid-outline",
+    titulo: "Aquí están las categorías",
+    texto: "Así llegas con «Ver categorías»: toca la que te interese y verás sus artículos.",
+    objetivo: ['[data-testid="seccion-categorias"]'],
+    ruta: "/",
+    desplazar: '[data-testid="seccion-categorias"]',
+  },
+  {
+    icono: "cash-outline",
+    titulo: "Vender ahora",
+    texto: "¿Tienes una consola o un dispositivo que ya no usas? Toca este botón, cuéntanos lo básico y el equipo te da un precio.",
+    objetivo: ['[data-testid="boton-vender-ahora"]'],
+    ruta: "/",
+    desplazar: '[data-testid="boton-vender-ahora"]',
+    accion: { texto: "Abrir el formulario", vender: true },
   },
   {
     icono: "search-outline",
     titulo: "El buscador",
     texto: "Escribe aquí lo que buscas. En el catálogo filtras por categoría, estado y precio. Puedes arrastrar el buscador arriba o abajo.",
     objetivo: ["#buscador-flotante"],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
   },
   {
     icono: "person-outline",
     titulo: "Perfil",
     texto: "Tu cuenta. Dentro hay dos pestañas: «Mi cuenta» y «Seguimientos», donde ves tus pedidos y reparaciones.",
     objetivo: [PESTANAS[1]],
+    ruta: "/perfil",
   },
   {
     icono: "bag-handle-outline",
     titulo: "Cesta",
     texto: "Cada artículo es unidad única: al añadirlo te lo reservamos 15 minutos. Después eliges envío a toda España o entrega en persona en Zaragoza.",
     objetivo: [PESTANAS[2]],
+    ruta: "/cesta",
   },
   {
     icono: "chatbubbles-outline",
     titulo: "Foro",
     texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el botón azul de abajo a la derecha, encima del de enviar, y las ordenas a tu gusto: mantén pulsada una pestaña y arrástrala a su sitio.",
     objetivo: [PESTANAS[3]],
+    ruta: "/chat-global",
   },
   {
     icono: "sparkles-outline",
     titulo: "Blue IA",
     texto: "Pregúntame lo que quieras. Las sugerencias se mueven solas: toca una. Si necesitas a una persona, toca «Hablar con el equipo».",
     objetivo: [PESTANAS[4]],
+    ruta: "/blue-ia",
   },
   {
     icono: "happy-outline",
     titulo: "Este soy yo",
     texto: "Tócame y se abre mi panel con 3 pestañas: Asistente, Notificaciones y Noticias. Arrástrame a donde quieras; si tapo algo, me aparto solo.",
     objetivo: [`#${BLUE_DOM_ID}`],
-  },
-  {
-    icono: "cash-outline",
-    titulo: "Vende o cambia",
-    texto: "¿Tienes una consola o un dispositivo que ya no usas? Mándanos sus datos y el equipo te da un precio.",
-    accion: { texto: "Vender ahora", vender: true },
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
   },
   {
     icono: "construct-outline",
@@ -2150,12 +2186,14 @@ function GuiaBlue({
   const [caja, setCaja] = useState<Caja | null>(null);
   const [pantalla, setPantalla] = useState(() => Dimensions.get("window"));
 
-  // La guía recorre la portada: si se abre en otra pantalla, primero va a Inicio.
+  // La guía te lleva de la mano: en cada paso cambia sola a la pantalla de la que habla
+  // (Inicio, Perfil, Cesta, Foro, Blue IA…). Al abrirse en otra pantalla, vuelve a Inicio.
+  const destino = p.ruta ?? "/";
   useEffect(() => {
-    if (pathname !== "/") router.navigate("/" as Href);
-    // solo al abrir
+    if (pathname !== destino) router.navigate(destino as Href);
+    // solo al cambiar de paso
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [destino]);
 
   useEffect(() => {
     onSenalaBlue(!!p.objetivo?.includes(`#${BLUE_DOM_ID}`));
@@ -2165,17 +2203,32 @@ function GuiaBlue({
   // vuelve a medir si cambia el tamaño de la pantalla.
   useEffect(() => {
     setCaja(null);
-    if (!p.objetivo) return;
+    // Trae a la vista lo que hay que enseñar (desplaza Inicio hasta el botón o la sección).
+    const traer = () => {
+      if (!p.desplazar || Platform.OS !== "web" || typeof document === "undefined") return;
+      const el = Array.from(document.querySelectorAll(p.desplazar)).find((e) => {
+        const r = e.getBoundingClientRect();
+        return r.width > 4 && r.height > 4;
+      });
+      el?.scrollIntoView({ block: p.desplazar.includes("seccion") ? "start" : "center", behavior: "smooth" });
+    };
+    const t0 = setTimeout(traer, 200);
+    if (!p.objetivo) {
+      return () => clearTimeout(t0);
+    }
     const medir = () => {
       setPantalla(Dimensions.get("window"));
       setCaja(medirObjetivo(p.objetivo));
     };
-    const t1 = setTimeout(medir, 280);
-    const t2 = setTimeout(medir, 900);
+    const t1 = setTimeout(medir, 700);
+    const t2 = setTimeout(medir, 1300);
+    const t3 = setTimeout(medir, 2000);
     const sub = Dimensions.addEventListener("change", medir);
     return () => {
+      clearTimeout(t0);
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
       // @ts-ignore — API antigua (RN<0.65) devuelve undefined
       sub?.remove?.();
     };
