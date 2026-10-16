@@ -173,28 +173,17 @@ function uiFilterToDb(f: UiFilter): DbStatus | null {
   return null;
 }
 
-function publicStatusLabel(s: UiStatus) {
-  if (s === "PUBLICADA") return "Disponible";
-  if (s === "LISTA") return "Preparación";
-  return "Revisión";
-}
-
 function adminStatusLabel(s: UiStatus) {
   if (s === "PUBLICADA") return "Publicada";
   if (s === "LISTA") return "Lista";
   return "Por revisar";
 }
 
-function statusBg(s: UiStatus) {
-  if (s === "PUBLICADA") return "#DCFCE7";
-  if (s === "LISTA") return "#FEF3C7";
-  return "#FFE4E6";
-}
-
-function statusBorder(s: UiStatus) {
-  if (s === "PUBLICADA") return "#86EFAC";
-  if (s === "LISTA") return "#FDE68A";
-  return "#FDA4AF";
+// Color del texto del estado interno (solo lo ve el administrador).
+function adminStatusColor(s: UiStatus) {
+  if (s === "PUBLICADA") return "#15803D";
+  if (s === "LISTA") return "#92660B";
+  return "#B91C1C";
 }
 
 function smartBack() {
@@ -939,15 +928,13 @@ export default function CatalogoScreen() {
                       justifyContent: "center",
                       gap: 8,
                       borderRadius: 999,
-                      paddingVertical: 12,
+                      paddingVertical: 14,
                       paddingHorizontal: 22,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
-                      backgroundColor: COLORS.accent2,
+                      backgroundColor: COLORS.accent,
                     })}
                   >
-                    {loadingMore ? <ActivityIndicator size="small" color={COLORS.text} /> : null}
-                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    {loadingMore ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
                       {loadingMore ? "Cargando…" : "Ver más productos"}
                     </Text>
                   </Pressable>
@@ -994,19 +981,17 @@ export default function CatalogoScreen() {
                       justifyContent: "center",
                       gap: 6,
                       borderRadius: 999,
-                      paddingVertical: 11,
-                      paddingHorizontal: 14,
-                      borderWidth: 1,
-                      borderColor: COLORS.accentBorder,
-                      backgroundColor: COLORS.accent2,
+                      paddingVertical: 14,
+                      paddingHorizontal: 18,
+                      backgroundColor: COLORS.accent,
                     })}
                   >
                     {contactBusy ? (
-                      <ActivityIndicator size="small" color={COLORS.text} />
+                      <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
-                      <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                      <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
                     )}
-                    <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
                       Chatear con nosotros
                     </Text>
                   </Pressable>
@@ -1080,28 +1065,30 @@ const ProductCard = React.memo(function ProductCard({
   /** Móvil + 2 columnas: tarjeta más estrecha, precio/botón necesitan menos aire. */
   compact?: boolean;
 }) {
-  const badgeLabel = isAdmin ? adminStatusLabel(p.status) : publicStatusLabel(p.status);
-
+  // Mismo diseño que las tarjetas de Inicio (CategoryProductsShelf): fondo suave sin borde,
+  // foto entera sobre blanco, título completo y precio en azul. Sin etiquetas ni botones
+  // decorativos: toda la tarjeta es el enlace. Solo el administrador ve, en texto y sin
+  // recuadro, el estado interno del artículo.
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="link"
       accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
       style={({ pressed }) => ({
-        opacity: pressed ? 0.94 : 1,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: COLORS.border,
+        opacity: pressed ? 0.9 : 1,
+        borderRadius: 16,
         backgroundColor: COLORS.card,
-        overflow: "hidden",
+        padding: compact ? 8 : 10,
+        alignItems: "center",
       })}
     >
       <View
         style={{
+          width: "100%",
           height: compact ? 150 : isMobile ? 200 : 180,
-          backgroundColor: COLORS.bg3,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.borderSoft,
+          borderRadius: 12,
+          overflow: "hidden",
+          backgroundColor: "#FFFFFF",
           position: "relative",
           justifyContent: "center",
           alignItems: "center",
@@ -1127,94 +1114,37 @@ const ProductCard = React.memo(function ProductCard({
         )}
       </View>
 
-      <View style={{ padding: compact ? 10 : isMobile ? 12 : 14, gap: compact ? 8 : 10 }}>
-        <View style={{ gap: 6, alignItems: "center" }}>
-          <View
-            style={{
-              alignSelf: "center",
-              paddingVertical: 5,
-              paddingHorizontal: 10,
-              borderRadius: 999,
-              backgroundColor: statusBg(p.status),
-              borderWidth: 1,
-              borderColor: statusBorder(p.status),
-            }}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>{badgeLabel}</Text>
-          </View>
+      {/* Sin numberOfLines a propósito: el título se ve completo, en dos o tres líneas. */}
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "800",
+          fontSize: compact ? 13 : 14.5,
+          lineHeight: compact ? 17 : 19,
+          marginTop: 8,
+          textAlign: "center",
+        }}
+      >
+        {p.title}
+      </Text>
 
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: compact ? 14 : isMobile ? 16 : 17,
-              lineHeight: compact ? 18 : isMobile ? 21 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-            }}
-          >
-            {p.title}
-          </Text>
+      <Text
+        style={{
+          color: COLORS.accent,
+          fontWeight: "900",
+          fontSize: compact ? 16 : 18,
+          marginTop: 4,
+          textAlign: "center",
+        }}
+      >
+        {fmtEUR(p.priceEUR)}
+      </Text>
 
-          {!compact ? (
-            <Text
-              style={{
-                color: COLORS.muted,
-                fontSize: 13,
-                lineHeight: 19,
-                minHeight: 38,
-                textAlign: "center",
-              }}
-              numberOfLines={2}
-            >
-              {p.description?.trim()
-                ? p.description.trim()
-                : "Aún no hay una descripción detallada. Escríbenos si tienes alguna duda sobre este artículo."}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={{ alignItems: "center", gap: 8 }}>
-          <View style={{ alignItems: "center", gap: compact ? 8 : 10 }}>
-            <View style={{ alignItems: "center" }}>
-              <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
-                Precio
-              </Text>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: compact ? 19 : isMobile ? 22 : 24,
-                  fontWeight: "900",
-                  textAlign: "center",
-                }}
-              >
-                {fmtEUR(p.priceEUR)}
-              </Text>
-            </View>
-
-            <View
-              style={{
-                borderRadius: 999,
-                paddingVertical: compact ? 7 : 8,
-                paddingHorizontal: 12,
-                borderWidth: 1,
-                borderColor: COLORS.accentBorder,
-                backgroundColor: COLORS.accent2,
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Ver más</Text>
-            </View>
-          </View>
-
-          {!compact ? (
-            <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
-              {isAdmin
-                ? "Estado interno visible solo para gestión."
-                : "Compra segura, con atención directa y envío inmediato tras confirmar el pedido."}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+      {isAdmin ? (
+        <Text style={{ color: adminStatusColor(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
+          {adminStatusLabel(p.status)}
+        </Text>
+      ) : null}
     </Pressable>
   );
 });
