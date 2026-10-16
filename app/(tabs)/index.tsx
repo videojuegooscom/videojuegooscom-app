@@ -915,12 +915,15 @@ function PrimaryButton({
   rightHint,
   isMobile,
   icono,
+  testID,
 }: {
   title: string;
   subtitle?: string;
   onPress: () => void;
   rightHint?: string;
   isMobile?: boolean;
+  // Lo usa la guía de Blue para señalar el botón.
+  testID?: string;
   // Con icono, el botón es el «destacado» de la cabecera de Inicio («Ver categorías» y «Vender
   // ahora»): más alto, con icono, sombra azul y una «respiración» muy suave. Así el cliente
   // sabe siempre por dónde empezar, sin competir con el brillo de «Oferta de la semana».
@@ -946,6 +949,7 @@ function PrimaryButton({
     >
     <Pressable
       onPress={onPress}
+      testID={testID}
       style={({ pressed }) => ({
         borderRadius: 18,
         borderWidth: 1,
@@ -1895,11 +1899,11 @@ export default function HomeScreen() {
 
             <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
-                <PrimaryButton title="Ver categorías" icono="apps" onPress={scrollToCategories} isMobile={isMobile} />
+                <PrimaryButton title="Ver categorías" icono="apps" testID="boton-ver-categorias" onPress={scrollToCategories} isMobile={isMobile} />
               </View>
 
               <View style={{ flex: 1 }}>
-                <PrimaryButton title="Vender ahora" icono="cash" onPress={() => pushRoute("/vender" as Href)} isMobile={isMobile} />
+                <PrimaryButton title="Vender ahora" icono="cash" testID="boton-vender-ahora" onPress={() => pushRoute("/vender" as Href)} isMobile={isMobile} />
               </View>
             </View>
           </View>
@@ -1940,7 +1944,7 @@ export default function HomeScreen() {
               Si no hay nada, no se pinta, ni su separador. */}
           <CategoryProductsShelf modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
 
-          <View ref={categoriasRef} onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
+          <View ref={categoriasRef} testID="seccion-categorias" onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
             <SectionTitle title="Categorías" isMobile={isMobile} />
 
             <View
