@@ -1096,6 +1096,12 @@ export default function VenderAhoraModal({
   const tresColumnas = !isMobile;
   const filaStyle = { flexDirection: "row" as const, gap: isMobile ? 12 : 16, alignItems: "stretch" as const };
   const campoStyle = { flex: 1, minWidth: 0, gap: 6, justifyContent: "flex-end" as const };
+  // Dato que depende de un desplegable (número, correo, dirección, disponibilidad): al lado en
+  // pantallas anchas; en el móvil, debajo y a todo el ancho para que no salga cortado.
+  const campoDatoStyle = tresColumnas ? campoStyle : { width: "100%" as const, gap: 6 };
+  // Pantallas anchas: «Contacto» y «Opción de venta» comparten fila mientras no hayan elegido;
+  // al elegir, cada uno pasa a su propia fila (desplegable | dato) para que nada salga truncado.
+  const contactoYOpcionEnFila = tresColumnas && !metodoContacto && !opcionVenta;
 
   const campoGenero = (
     <View style={campoStyle}>
@@ -1246,7 +1252,7 @@ export default function VenderAhoraModal({
                 }
               >
                 {sent ? (
-                  <View style={{ alignItems: "center", gap: 12, paddingVertical: 10 }}>
+                  <View style={{ alignItems: "center", gap: 12, paddingVertical: comoPagina ? 64 : 10, paddingHorizontal: comoPagina ? 20 : 0 }}>
                     <View
                       style={{
                         width: 56,
@@ -1490,9 +1496,11 @@ export default function VenderAhoraModal({
 
                     {/* Método de contacto + su campo condicional en pareja cuando hay uno elegido */}
                     {/* Pantallas anchas: «Contacto» y «Opción de venta» comparten fila (2 columnas). */}
-                    <View style={tresColumnas ? { ...filaStyle, alignItems: "flex-start" } : { gap: gapCampos }}>
-                    <View style={{ ...filaStyle, flexDirection: metodoContacto ? "row" : "column", ...(tresColumnas ? { flex: 1, minWidth: 0 } : null) }}>
-                      <View style={metodoContacto ? campoStyle : { width: "100%", gap: 6 }}>
+                    <View style={contactoYOpcionEnFila ? { ...filaStyle, alignItems: "flex-start" } : { gap: gapCampos }}>
+                    {/* En el móvil el dato va DEBAJO del desplegable, a todo el ancho: en media fila el
+                        correo y la dirección salían cortados. En pantallas anchas, al lado. */}
+                    <View style={{ ...filaStyle, flexDirection: metodoContacto && tresColumnas ? "row" : "column", ...(contactoYOpcionEnFila ? { flex: 1, minWidth: 0 } : { gap: gapCampos }) }}>
+                      <View style={metodoContacto && tresColumnas ? campoStyle : { width: "100%", gap: 6 }}>
                         <FieldLabel dim={!!metodoContacto}>¿Cómo prefieres que te contactemos?</FieldLabel>
                         <SelectField
                           options={METODO_OPTIONS}
@@ -1507,7 +1515,7 @@ export default function VenderAhoraModal({
                       </View>
 
                       {metodoContacto === "whatsapp" && (
-                        <View style={campoStyle}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={contactoValido}>Tu número de WhatsApp</FieldLabel>
                           <PrefixedInput
                             prefix="+34"
@@ -1524,7 +1532,7 @@ export default function VenderAhoraModal({
                       )}
 
                       {metodoContacto === "gmail" && (
-                        <View style={campoStyle}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={contactoValido}>Tu email de Gmail</FieldLabel>
                           <FieldInput
                             value={contactoValor}
@@ -1565,7 +1573,7 @@ export default function VenderAhoraModal({
                       {(metodoContacto === "instagram" ||
                         metodoContacto === "facebook" ||
                         metodoContacto === "tiktok") && (
-                        <View style={campoStyle}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={contactoValido}>
                             Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
                           </FieldLabel>
@@ -1584,8 +1592,8 @@ export default function VenderAhoraModal({
                     </View>
 
                     {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
-                    <View style={{ ...filaStyle, flexDirection: opcionVenta ? "row" : "column", ...(tresColumnas ? { flex: 1, minWidth: 0 } : null) }}>
-                      <View style={opcionVenta ? campoStyle : { width: "100%", gap: 6 }}>
+                    <View style={{ ...filaStyle, flexDirection: opcionVenta && tresColumnas ? "row" : "column", ...(contactoYOpcionEnFila ? { flex: 1, minWidth: 0 } : { gap: gapCampos }) }}>
+                      <View style={opcionVenta && tresColumnas ? campoStyle : { width: "100%", gap: 6 }}>
                         <FieldLabel dim={!!opcionVenta}>Opción de venta</FieldLabel>
                         <SelectField
                           options={OPCION_VENTA_OPTIONS}
@@ -1599,7 +1607,7 @@ export default function VenderAhoraModal({
                       </View>
 
                       {opcionVenta === "domicilio" && (
-                        <View style={campoStyle}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={!!direccion.trim()}>Dirección completa</FieldLabel>
                           <FieldInput
                             value={direccion}
@@ -1615,7 +1623,7 @@ export default function VenderAhoraModal({
                       )}
 
                       {opcionVenta === "entrega" && (
-                        <View style={campoStyle}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={!!disponibilidad}>Disponibilidad diaria</FieldLabel>
                           <SelectField
                             options={DISPONIBILIDAD_OPTIONS}
