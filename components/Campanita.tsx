@@ -98,6 +98,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/analytics";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
+import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
 
 const COLORS = {
@@ -211,6 +212,8 @@ const SALUDO_MS = 2800;
 // en la que siempre se ve.
 const SCROLL_UMBRAL = 12;
 const SCROLL_ARRIBA = 40;
+// Blue se esconde al bajar y reaparece cuando la pantalla lleva este tiempo quieta.
+const PARADA_MS = 450;
 // Cuánto se desliza hacia su borde al ocultarse.
 const DESLIZ_OCULTO = BLUE_SIZE + EDGE_INSET + 16;
 // Animaciones por el hilo nativo salvo en web (allí no existe).
@@ -976,7 +979,11 @@ export default function Campanita() {
     const hasDocument = typeof document !== "undefined";
     const isPageVisible = () => !hasDocument || document.visibilityState !== "hidden";
     const interval = setInterval(() => {
-      if (!isPageVisible()) return;
+      if (!isPageVisible()) {
+        // En segundo plano solo se mira el chat, y solo si hay avisos del navegador activados.
+        if (estadoNotificaciones() === "activadas") refreshChats();
+        return;
+      }
       refreshChats();
       refreshNoticiasNuevas();
       refreshNovedadesTienda();
@@ -1049,6 +1056,18 @@ export default function Campanita() {
   useEffect(() => {
     if (!enForo) refreshNoticiasNuevas();
   }, [enForo, refreshNoticiasNuevas]);
+
+  // Aviso del navegador cuando llegan mensajes nuevos al chat y la pestaña está en segundo plano
+  // (solo si la persona activó las notificaciones; lib/notificaciones.ts). Los primeros 8 s no
+  // cuentan: son los mensajes que ya estaban sin leer al abrir la tienda.
+  const montadoEnRef = useRef(Date.now());
+  const chatsPrevRef = useRef(0);
+  useEffect(() => {
+    const antes = chatsPrevRef.current;
+    chatsPrevRef.current = unreadChats;
+    if (unreadChats <= antes || Date.now() - montadoEnRef.current < 8000) return;
+    notificarMensajeNuevo(unreadChats - antes, () => router.push((isAdmin ? "/admin/chats" : "/chat-global?tab=privados") as Href));
+  }, [unreadChats, isAdmin]);
 
   const totalCount =
     unreadChats +
@@ -1261,9 +1280,11 @@ export default function Campanita() {
 
   // Con el panel abierto, un bocadillo o el saludo a la vista no se oculta (lo lee
   // el listener de scroll, que se registra una sola vez).
+  // Un mensaje de Blue ya NO impide esconderlo: va pegado a Blue y se esconde con él al bajar el
+  // scroll (y vuelve con él cuando la pantalla se queda quieta).
   const bocadilloVisible = aparecido && !!bocadillo;
   const noOcultarRef = useRef(false);
-  noOcultarRef.current = panelOpen || bocadilloVisible || saludando;
+  noOcultarRef.current = panelOpen || saludando;
 
   const ocultoScrollRef = useRef(false);
   const ponerOcultoScroll = useCallback((oculto: boolean) => {
@@ -1279,7 +1300,14 @@ export default function Campanita() {
     if (Platform.OS !== "web" || typeof document === "undefined" || !aparecido) return;
     // Último scrollTop de cada contenedor (WeakMap: no retiene los que se desmontan).
     const ultimos = new WeakMap<object, number>();
+    // Pantalla parada: pasados PARADA_MS sin ningún movimiento de scroll, Blue vuelve a verse.
+    let parada: ReturnType<typeof setTimeout> | null = null;
     const alHacerScroll = (ev: Event) => {
+      if (parada) clearTimeout(parada);
+      parada = setTimeout(() => {
+        parada = null;
+        ponerOcultoScroll(false);
+      }, PARADA_MS);
       const t = ev.target;
       const elemento = t instanceof Element && t !== document.documentElement && t !== document.body ? t : null;
       const clave: object = elemento ?? document;
@@ -1303,7 +1331,10 @@ export default function Campanita() {
       else if (!noOcultarRef.current) ponerOcultoScroll(true);
     };
     document.addEventListener("scroll", alHacerScroll, { capture: true, passive: true });
-    return () => document.removeEventListener("scroll", alHacerScroll, { capture: true });
+    return () => {
+      if (parada) clearTimeout(parada);
+      document.removeEventListener("scroll", alHacerScroll, { capture: true });
+    };
   }, [aparecido, ponerOcultoScroll]);
 
   // Al cambiar de pantalla vuelve a verse; también si sale un bocadillo.
@@ -1315,7 +1346,7 @@ export default function Campanita() {
   }, [bocadilloVisible, ponerOcultoScroll]);
 
   // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote.
-  const oculto = ocultoScroll && !panelOpen && !bocadilloVisible && !saludando;
+  const oculto = ocultoScroll && !panelOpen && !saludando;
   useEffect(() => {
     Animated.timing(ocultar, {
       toValue: oculto ? 1 : 0,
