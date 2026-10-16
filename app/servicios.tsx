@@ -255,6 +255,8 @@ export default function ServiciosScreen() {
             <View style={{ flex: 1, alignItems: "center" }}>
               <MarcaAnimada cual="taller" ancho={isMobile ? 140 : 160} />
               <Text
+                accessibilityRole="header"
+                {...({ "aria-level": 1 } as object)}
                 style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900", textAlign: "center" }}
               >
                 Reparación y limpieza

@@ -45,6 +45,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Stack } from "expo-router";
+import Head from "expo-router/head";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
@@ -79,7 +80,17 @@ export default function RootLayout() {
   const bootLoading = !montado || (!fontsLoaded && !fontError && !fontTimedOut);
 
   if (bootLoading) {
-    return <BrandLoadingScreen message="Cargando tienda..." />;
+    // Esta es la versión que se genera de antemano (HTML estático): lleva ya el título de la
+    // tienda para que el <title> no salga vacío para Google y los lectores de enlaces. Cuando
+    // la tienda arranca, SiteHead pone el título de «Marca y SEO» y el de cada página.
+    return (
+      <>
+        <Head>
+          <title>Videojuegoszaragoza.com</title>
+        </Head>
+        <BrandLoadingScreen message="Cargando tienda..." />
+      </>
+    );
   }
 
   return (

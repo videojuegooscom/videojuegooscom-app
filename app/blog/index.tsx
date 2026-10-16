@@ -231,6 +231,8 @@ export default function BlogScreen() {
           </Pressable>
           <View style={{ alignItems: "center", paddingHorizontal: 44 }}>
             <Text
+              accessibilityRole="header"
+              {...({ "aria-level": 1 } as object)}
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 20 : 22,

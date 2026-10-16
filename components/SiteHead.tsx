@@ -12,11 +12,12 @@
  * expo-router (react-helmet por debajo) solo pinta algo cuando la pantalla
  * donde vive está "enfocada" (usa useIsFocused() de React Navigation) — está
  * pensado para poner un título DISTINTO en cada pantalla, montado dentro de
- * cada una. Aquí el título/descripción son los mismos en TODA la tienda (un
- * único ajuste global, no uno por página), así que se aplican una vez desde
- * la raíz (app/_layout.tsx, junto a la campanita) escribiendo directamente
- * en el <head> del navegador — sin depender de en qué pantalla esté el
- * visitante ni de si esa pantalla tiene foco.
+ * cada una. Aquí el ajuste global («Marca y SEO») se aplica desde la raíz
+ * (app/_layout.tsx, junto a la campanita) escribiendo directamente en el
+ * <head> del navegador — sin depender de en qué pantalla esté el visitante
+ * ni de si esa pantalla tiene foco — y, según la ruta (usePathname), las
+ * páginas públicas principales (Catálogo, Servicios, Vender, Blog y las
+ * políticas) llevan además su propio título y descripción (tabla PAGINAS).
  *
  * Cómo funciona: en cuanto la app arranca en web, pide la fila única de
  * "site_settings" (lectura pública, no hace falta estar logueado) y:
@@ -41,9 +42,26 @@
  *   seo_description y logo_url.
  * - app/_layout.tsx → la monta una única vez, junto a Campanita/CookieConsentBanner.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Platform } from "react-native";
+import { usePathname } from "expo-router";
 import { supabase } from "../lib/supabase";
+
+// Título y descripción propios de cada página pública (los ve Google tras ejecutar la web y quien
+// comparte el enlace desde el navegador). El título lleva detrás el nombre de la marca de «Marca y
+// SEO». Las fichas de producto y de servicio mantienen el título general.
+const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
+  "/catalogo": { titulo: "Catálogo", descripcion: "Consolas, videojuegos y dispositivos de segunda mano y reacondicionados." },
+  "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
+  "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
+  "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  "/politicas/envios": { titulo: "Política de envíos" },
+  "/politicas/devoluciones": { titulo: "Política de devoluciones" },
+  "/politicas/privacidad": { titulo: "Política de privacidad" },
+  "/politicas/terminos": { titulo: "Términos y condiciones" },
+};
+
+type Ajustes = { title: string; description: string; logoUrl: string };
 
 function upsertMeta(attr: "name" | "property", key: string, content: string) {
   if (typeof document === "undefined") return;
@@ -70,6 +88,10 @@ function upsertLink(rel: string, href: string) {
 }
 
 export default function SiteHead() {
+  const pathname = usePathname() ?? "/";
+  const [ajustes, setAjustes] = useState<Ajustes | null>(null);
+
+  // Una sola vez: lee «Marca y SEO» y pone el icono y la imagen al compartir.
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
 
@@ -89,21 +111,12 @@ export default function SiteHead() {
         const description = String((data as any).seo_description ?? "").trim();
         const logoUrl = String((data as any).logo_url ?? "").trim();
 
-        if (title) {
-          document.title = title;
-          upsertMeta("property", "og:title", title);
-        }
-
-        if (description) {
-          upsertMeta("name", "description", description);
-          upsertMeta("property", "og:description", description);
-        }
-
         if (logoUrl) {
           upsertLink("icon", logoUrl);
           upsertLink("apple-touch-icon", logoUrl);
           upsertMeta("property", "og:image", logoUrl);
         }
+        setAjustes({ title, description, logoUrl });
       } catch {
         // Silencioso: si falla, la app se queda con el título/favicon
         // estáticos de siempre (app.json) — nunca debe romper la pantalla.
@@ -116,6 +129,24 @@ export default function SiteHead() {
       alive = false;
     };
   }, []);
+
+  // En cada página: su título y su descripción (o los generales de «Marca y SEO»).
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined" || !ajustes) return;
+    const ruta = pathname.replace(/\/+$/, "") || "/";
+    const pagina = PAGINAS[ruta];
+    const titulo = pagina ? (ajustes.title ? `${pagina.titulo} | ${ajustes.title}` : pagina.titulo) : ajustes.title;
+    const descripcion = pagina?.descripcion ?? ajustes.description;
+
+    if (titulo) {
+      document.title = titulo;
+      upsertMeta("property", "og:title", titulo);
+    }
+    if (descripcion) {
+      upsertMeta("name", "description", descripcion);
+      upsertMeta("property", "og:description", descripcion);
+    }
+  }, [pathname, ajustes]);
 
   return null;
 }

@@ -731,6 +731,8 @@ export default function CatalogoScreen() {
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
             <View style={{ alignItems: "center" }}>
               <Text
+                accessibilityRole="header"
+                {...({ "aria-level": 1 } as object)}
                 style={{
                   color: COLORS.text,
                   fontSize: isMobile ? 24 : 28,
