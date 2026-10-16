@@ -914,14 +914,36 @@ function PrimaryButton({
   onPress,
   rightHint,
   isMobile,
+  icono,
 }: {
   title: string;
   subtitle?: string;
   onPress: () => void;
   rightHint?: string;
   isMobile?: boolean;
+  // Con icono, el botón es el «destacado» de la cabecera de Inicio («Ver categorías» y «Vender
+  // ahora»): más alto, con icono, sombra azul y una «respiración» muy suave. Así el cliente
+  // sabe siempre por dónde empezar, sin competir con el brillo de «Oferta de la semana».
+  icono?: IoniconName;
 }) {
+  const respiracion = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!icono) return;
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(respiracion, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(respiracion, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== "web" }),
+        Animated.delay(900),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [icono, respiracion]);
+
   return (
+    <Animated.View
+      style={icono ? { transform: [{ scale: respiracion.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] }) }] } : undefined}
+    >
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
@@ -929,21 +951,30 @@ function PrimaryButton({
         borderWidth: 1,
         borderColor: COLORS.accentDark,
         backgroundColor: COLORS.accent,
-        paddingVertical: isMobile ? 13 : 14,
+        paddingVertical: icono ? (isMobile ? 18 : 20) : isMobile ? 13 : 14,
         paddingHorizontal: isMobile ? 14 : 16,
         opacity: pressed ? 0.9 : 1,
-        ...softShadow(),
+        ...(icono
+          ? {
+              shadowColor: COLORS.accent,
+              shadowOpacity: 0.5,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 7 },
+              elevation: 8,
+            }
+          : softShadow()),
       })}
     >
       {/* Todo apilado y centrado; la pista ("Ir →") va como texto simple
           debajo, sin pastilla ni pegada a la derecha. */}
       <View style={{ alignItems: "center" }}>
+        {icono ? <Ionicons name={icono} size={isMobile ? 22 : 24} color={COLORS.onAccent} style={{ marginBottom: 4 }} /> : null}
         <Text
           style={{
             color: COLORS.onAccent,
             fontWeight: "900",
-            fontSize: isMobile ? 15 : 16,
-            lineHeight: isMobile ? 20 : 22,
+            fontSize: icono ? (isMobile ? 17 : 18) : isMobile ? 15 : 16,
+            lineHeight: icono ? (isMobile ? 22 : 24) : isMobile ? 20 : 22,
             textAlign: "center",
           }}
         >
@@ -979,6 +1010,7 @@ function PrimaryButton({
         )}
       </View>
     </Pressable>
+    </Animated.View>
   );
 }
 
@@ -1863,11 +1895,11 @@ export default function HomeScreen() {
 
             <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
-                <PrimaryButton title="Ver categorías" onPress={scrollToCategories} isMobile={isMobile} />
+                <PrimaryButton title="Ver categorías" icono="apps" onPress={scrollToCategories} isMobile={isMobile} />
               </View>
 
               <View style={{ flex: 1 }}>
-                <PrimaryButton title="Vender ahora" onPress={() => pushRoute("/vender" as Href)} isMobile={isMobile} />
+                <PrimaryButton title="Vender ahora" icono="cash" onPress={() => pushRoute("/vender" as Href)} isMobile={isMobile} />
               </View>
             </View>
           </View>
@@ -2034,8 +2066,6 @@ export default function HomeScreen() {
 
       <FloatingBarramagic
         isMobile={isMobile}
-        // En el móvil el buscador arranca abajo, a mano del pulgar (se puede arrastrar arriba).
-        posicionInicial={isMobile ? "bottom" : "top"}
         topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
         mobileTabBarHeight={mobileTabBarHeight}
         desktopTabBarHeight={desktopTabBarHeight}

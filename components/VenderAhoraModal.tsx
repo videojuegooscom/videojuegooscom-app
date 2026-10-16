@@ -1084,7 +1084,110 @@ export default function VenderAhoraModal({
   const insets = useSafeAreaInsets();
   // Espacio entre apartados y entre campos emparejados: amplio en la página, el de siempre
   // en la ventana emergente.
-  const gapCampos = comoPagina ? (isMobile ? 30 : 34) : isMobile ? 12 : 14;
+  // Entre filas de campos: aire claro pero sin alargar el formulario de más (los campos ya van
+  // en columnas).
+  const gapCampos = comoPagina ? (isMobile ? 22 : 26) : isMobile ? 12 : 14;
+
+  // Rejilla de campos: filas con columnas iguales que aprovechan el ancho. En el móvil, 2
+  // columnas (Nombre | Apellido, Género | ¿Todo funciona?, Ciudad | Precio…); en pantallas
+  // anchas, hasta 3 (Nombre | Apellido | Género, ¿Todo funciona? | motivo…). Los textos largos
+  // (artículo, dirección, fotos) ocupan toda la fila. Dentro de cada fila los recuadros quedan
+  // alineados abajo aunque una etiqueta ocupe dos líneas.
+  const tresColumnas = !isMobile;
+  const filaStyle = { flexDirection: "row" as const, gap: isMobile ? 12 : 16, alignItems: "stretch" as const };
+  const campoStyle = { flex: 1, minWidth: 0, gap: 6, justifyContent: "flex-end" as const };
+
+  const campoGenero = (
+    <View style={campoStyle}>
+      <FieldLabel dim={!!genero}>Género</FieldLabel>
+      <SelectField
+        options={GENERO_OPTIONS}
+        value={genero}
+        onChange={(v) => {
+          setGenero(v);
+          setFormErr(null);
+        }}
+        compact={twoCol}
+      />
+    </View>
+  );
+
+  const campoCiudad = (
+    <View style={campoStyle}>
+      <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
+      <FieldInput
+        value={ciudad}
+        onChangeText={(v) => {
+          setCiudad(v);
+          setFormErr(null);
+        }}
+        placeholder="Ej: Zaragoza"
+        filled={!!ciudad.trim()}
+      />
+    </View>
+  );
+
+  const campoPrecio = (
+    <View style={campoStyle}>
+      <FieldLabel dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
+      <FieldInput
+        value={precioEstimado}
+        onChangeText={(v) => {
+          setPrecioEstimado(v);
+          setFormErr(null);
+        }}
+        placeholder="Ej: 150€"
+        filled={!!precioEstimado.trim()}
+      />
+    </View>
+  );
+
+  const campoFunciona = (
+    <View style={campoStyle}>
+      <FieldLabel dim={funcionaBien !== null}>¿Todo funciona perfectamente?</FieldLabel>
+      <YesNoSelect
+        value={funcionaBien}
+        onChange={(v) => {
+          setFuncionaBien(v);
+          setFormErr(null);
+        }}
+        compact={twoCol}
+      />
+    </View>
+  );
+
+  const campoMotivoOProblema =
+    funcionaBien === true ? (
+      <View style={{ gap: 6 }}>
+        <FieldLabel dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</FieldLabel>
+        <FieldInput
+          value={motivoVenta}
+          onChangeText={(v) => {
+            setMotivoVenta(v);
+            setFormErr(null);
+          }}
+          placeholder="Ej: ya no lo uso, cambio de consola..."
+          multiline
+          filled={!!motivoVenta.trim()}
+        />
+      </View>
+    ) : funcionaBien === false ? (
+      <View style={{ gap: 6 }}>
+        <FieldLabel dim={!!descripcionProblema.trim()}>
+          ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
+        </FieldLabel>
+        <FieldInput
+          value={descripcionProblema}
+          onChangeText={(v) => {
+            setDescripcionProblema(v);
+            setFormErr(null);
+          }}
+          placeholder="Ej: no lee discos, la batería no carga..."
+          multiline
+          filled={!!descripcionProblema.trim()}
+        />
+      </View>
+    ) : null;
 
   // Página completa o ventana emergente. Es una función (no un componente) para que React
   // no vuelva a montar el formulario en cada pulsación y los campos no pierdan el foco.
@@ -1129,7 +1232,7 @@ export default function VenderAhoraModal({
                         // Página: sin tarjeta, fondo limpio y mucho más aire entre apartados.
                         padding: isMobile ? 18 : 26,
                         paddingTop: isMobile ? 14 : 20,
-                        gap: isMobile ? 30 : 34,
+                        gap: gapCampos,
                       }
                     : {
                         borderRadius: 22,
@@ -1313,9 +1416,9 @@ export default function VenderAhoraModal({
                       </Text>
                     </View>
 
-                    {/* Nombre + Apellido */}
-                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: gapCampos }}>
-                      <View style={{ flex: 1, gap: 6 }}>
+                    {/* Nombre + Apellido (+ Género cuando caben 3 columnas) */}
+                    <View style={filaStyle}>
+                      <View style={campoStyle}>
                         <FieldLabel dim={nombreValido}>Nombre</FieldLabel>
                         <FieldInput
                           value={nombre}
@@ -1327,7 +1430,7 @@ export default function VenderAhoraModal({
                           filled={nombreValido}
                         />
                       </View>
-                      <View style={{ flex: 1, gap: 6 }}>
+                      <View style={campoStyle}>
                         <FieldLabel dim={apellidoValido}>Apellido</FieldLabel>
                         <FieldInput
                           value={apellido}
@@ -1339,21 +1442,16 @@ export default function VenderAhoraModal({
                           filled={apellidoValido}
                         />
                       </View>
+                      {tresColumnas ? campoGenero : null}
                     </View>
 
-                    {/* Género, justo debajo de Nombre y Apellido */}
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel dim={!!genero}>Género</FieldLabel>
-                      <SelectField
-                        options={GENERO_OPTIONS}
-                        value={genero}
-                        onChange={(v) => {
-                          setGenero(v);
-                          setFormErr(null);
-                        }}
-                        compact={twoCol}
-                      />
-                    </View>
+                    {/* Móvil: Género y Ciudad comparten fila (2 columnas). */}
+                    {!tresColumnas ? (
+                      <View style={filaStyle}>
+                        {campoGenero}
+                        {campoCiudad}
+                      </View>
+                    ) : null}
 
                     <View style={{ gap: 6 }}>
                       <FieldLabel dim={!!articulo.trim()}>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
@@ -1369,95 +1467,32 @@ export default function VenderAhoraModal({
                       />
                     </View>
 
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel dim={funcionaBien !== null}>¿Todo funciona perfectamente?</FieldLabel>
-                      <YesNoSelect
-                        value={funcionaBien}
-                        onChange={(v) => {
-                          setFuncionaBien(v);
-                          setFormErr(null);
-                        }}
-                        compact={twoCol}
-                      />
-                    </View>
-
-                    {funcionaBien === true && (
-                      <View style={{ gap: 6 }}>
-                        <FieldLabel dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</FieldLabel>
-                        <FieldInput
-                          value={motivoVenta}
-                          onChangeText={(v) => {
-                            setMotivoVenta(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: ya no lo uso, cambio de consola..."
-                          multiline
-                          filled={!!motivoVenta.trim()}
-                        />
-                      </View>
+                    {/* Pantallas anchas: «¿Todo funciona?» y, a su lado, el motivo o el problema.
+                        Móvil: «¿Todo funciona?» con el precio, y el motivo o el problema debajo. */}
+                    {tresColumnas ? (
+                      <>
+                        <View style={filaStyle}>
+                          {campoFunciona}
+                          {campoCiudad}
+                          {campoPrecio}
+                        </View>
+                        {campoMotivoOProblema}
+                      </>
+                    ) : (
+                      <>
+                        <View style={filaStyle}>
+                          {campoFunciona}
+                          {campoPrecio}
+                        </View>
+                        {campoMotivoOProblema}
+                      </>
                     )}
-
-                    {funcionaBien === false && (
-                      <View style={{ gap: 6 }}>
-                        <FieldLabel dim={!!descripcionProblema.trim()}>
-                          ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
-                        </FieldLabel>
-                        <FieldInput
-                          value={descripcionProblema}
-                          onChangeText={(v) => {
-                            setDescripcionProblema(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: no lee discos, la batería no carga..."
-                          multiline
-                          filled={!!descripcionProblema.trim()}
-                        />
-                      </View>
-                    )}
-
-                    {/* Ciudad + Precio estimado */}
-                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: gapCampos }}>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
-                        <FieldInput
-                          value={ciudad}
-                          onChangeText={(v) => {
-                            setCiudad(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: Zaragoza"
-                          filled={!!ciudad.trim()}
-                        />
-                      </View>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
-                        <FieldInput
-                          value={precioEstimado}
-                          onChangeText={(v) => {
-                            setPrecioEstimado(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: 150€"
-                          filled={!!precioEstimado.trim()}
-                        />
-                      </View>
-                    </View>
 
                     {/* Método de contacto + su campo condicional en pareja cuando hay uno elegido */}
-                    <View
-                      style={{
-                        flexDirection: twoCol && metodoContacto ? "row" : "column",
-                        gap: gapCampos,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <View
-                        style={{
-                          flex: metodoContacto ? 1 : undefined,
-                          width: metodoContacto ? undefined : "100%",
-                          gap: 6,
-                        }}
-                      >
+                    {/* Pantallas anchas: «Contacto» y «Opción de venta» comparten fila (2 columnas). */}
+                    <View style={tresColumnas ? { ...filaStyle, alignItems: "flex-start" } : { gap: gapCampos }}>
+                    <View style={{ ...filaStyle, flexDirection: metodoContacto ? "row" : "column", ...(tresColumnas ? { flex: 1, minWidth: 0 } : null) }}>
+                      <View style={metodoContacto ? campoStyle : { width: "100%", gap: 6 }}>
                         <FieldLabel dim={!!metodoContacto}>¿Cómo prefieres que te contactemos?</FieldLabel>
                         <SelectField
                           options={METODO_OPTIONS}
@@ -1472,7 +1507,7 @@ export default function VenderAhoraModal({
                       </View>
 
                       {metodoContacto === "whatsapp" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoStyle}>
                           <FieldLabel dim={contactoValido}>Tu número de WhatsApp</FieldLabel>
                           <PrefixedInput
                             prefix="+34"
@@ -1489,7 +1524,7 @@ export default function VenderAhoraModal({
                       )}
 
                       {metodoContacto === "gmail" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoStyle}>
                           <FieldLabel dim={contactoValido}>Tu email de Gmail</FieldLabel>
                           <FieldInput
                             value={contactoValor}
@@ -1530,7 +1565,7 @@ export default function VenderAhoraModal({
                       {(metodoContacto === "instagram" ||
                         metodoContacto === "facebook" ||
                         metodoContacto === "tiktok") && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoStyle}>
                           <FieldLabel dim={contactoValido}>
                             Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
                           </FieldLabel>
@@ -1549,20 +1584,8 @@ export default function VenderAhoraModal({
                     </View>
 
                     {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
-                    <View
-                      style={{
-                        flexDirection: twoCol && opcionVenta ? "row" : "column",
-                        gap: gapCampos,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <View
-                        style={{
-                          flex: opcionVenta ? 1 : undefined,
-                          width: opcionVenta ? undefined : "100%",
-                          gap: 6,
-                        }}
-                      >
+                    <View style={{ ...filaStyle, flexDirection: opcionVenta ? "row" : "column", ...(tresColumnas ? { flex: 1, minWidth: 0 } : null) }}>
+                      <View style={opcionVenta ? campoStyle : { width: "100%", gap: 6 }}>
                         <FieldLabel dim={!!opcionVenta}>Opción de venta</FieldLabel>
                         <SelectField
                           options={OPCION_VENTA_OPTIONS}
@@ -1576,7 +1599,7 @@ export default function VenderAhoraModal({
                       </View>
 
                       {opcionVenta === "domicilio" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoStyle}>
                           <FieldLabel dim={!!direccion.trim()}>Dirección completa</FieldLabel>
                           <FieldInput
                             value={direccion}
@@ -1592,7 +1615,7 @@ export default function VenderAhoraModal({
                       )}
 
                       {opcionVenta === "entrega" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoStyle}>
                           <FieldLabel dim={!!disponibilidad}>Disponibilidad diaria</FieldLabel>
                           <SelectField
                             options={DISPONIBILIDAD_OPTIONS}
@@ -1604,6 +1627,7 @@ export default function VenderAhoraModal({
                           />
                         </View>
                       )}
+                    </View>
                     </View>
 
                     {/* Fotos y vídeo: opcional, no cuenta para el progreso del formulario */}
