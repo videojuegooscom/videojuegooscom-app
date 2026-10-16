@@ -1995,15 +1995,17 @@ export default function HomeScreen() {
         />
       </ScrollView>
 
-      {/* "Volver arriba": aparece solo tras bajar bastante, en la esquina
-          izquierda para no chocar con FloatingBarramagic (el buscador
-          flotante, que vive más centrado/derecha). */}
+      {/* "Volver arriba": aparece solo tras bajar bastante, abajo a la DERECHA (donde llega el
+          pulgar derecho). Con el buscador abajo (móvil) se coloca justo encima de él. */}
       <Animated.View
         pointerEvents={showScrollTop ? "auto" : "none"}
         style={{
           position: "absolute",
-          left: 14,
-          bottom: (isMobile ? mobileTabBarHeight : desktopTabBarHeight) + 14,
+          right: 14,
+          bottom:
+            (isMobile ? mobileTabBarHeight : desktopTabBarHeight) +
+            14 +
+            (isMobile && searchSnapPosition === "bottom" ? SEARCH_LAYOUT.searchBarHeightMobile + 14 : 0),
           opacity: scrollTopAnim,
           transform: [
             {
@@ -2014,10 +2016,11 @@ export default function HomeScreen() {
       >
         <Pressable
           onPress={scrollToTop}
+          // 46 px: objetivo cómodo para el pulgar.
           style={({ pressed }) => ({
-            width: 38,
-            height: 38,
-            borderRadius: 19,
+            width: 46,
+            height: 46,
+            borderRadius: 23,
             backgroundColor: "rgba(11,33,56,0.75)",
             alignItems: "center",
             justifyContent: "center",
@@ -2031,6 +2034,8 @@ export default function HomeScreen() {
 
       <FloatingBarramagic
         isMobile={isMobile}
+        // En el móvil el buscador arranca abajo, a mano del pulgar (se puede arrastrar arriba).
+        posicionInicial={isMobile ? "bottom" : "top"}
         topSnapY={isMobile ? SEARCH_LAYOUT.topSnapMobile : SEARCH_LAYOUT.topSnapDesktop}
         mobileTabBarHeight={mobileTabBarHeight}
         desktopTabBarHeight={desktopTabBarHeight}

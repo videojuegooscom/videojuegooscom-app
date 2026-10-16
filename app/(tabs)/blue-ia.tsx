@@ -72,9 +72,11 @@
  */
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Modal,
   Platform,
@@ -233,6 +235,27 @@ const WELCOME_MESSAGE: BlueIAMessage = {
     "Hola, soy Blue IA. Pregúntame lo que necesites sobre productos, ventas, cambios, reparaciones o pago a plazos — o toca una de las sugerencias de abajo.",
 };
 
+// Saludos de Blue IA: se escriben letra a letra al entrar en la sección y cambian cada vez que
+// se vuelve a entrar (se guarda por dónde va la rotación). Solo hablan de lo que la tienda
+// hace de verdad. El primero es el de siempre.
+const SALUDO_KEY = "videojuegoszaragoza:blue_ia_saludo";
+
+function momentoDelDia(): string {
+  const h = new Date().getHours();
+  return h < 6 || h >= 21 ? "Buenas noches" : h < 14 ? "Buenos días" : "Buenas tardes";
+}
+
+const SALUDOS: (() => string)[] = [
+  () => WELCOME_MESSAGE.text,
+  () => `${momentoDelDia()}. ¿Buscas una consola, un videojuego o un accesorio? Dime tu presupuesto y te recomiendo lo que mejor encaja.`,
+  () => "¡Hola de nuevo! ¿Tienes algo que vender o cambiar? Cuéntame qué es y cómo está, y te explico cómo hacerlo.",
+  () => "¿Algo no funciona como debe? Cuéntame qué le pasa a tu consola y te oriento sobre reparación, limpieza o mantenimiento.",
+  () => "¿Quieres ver lo último que ha llegado? Pregúntame «¿qué hay nuevo?» y te lo enseño.",
+  () => "¿Dudas con el envío, la recogida en Zaragoza o la reserva de 15 minutos de la cesta? Pregúntame.",
+  () => "Dime qué buscas, por ejemplo una Switch OLED. Si ahora no está, te aviso en cuanto llegue.",
+  () => "Estoy aquí para lo que necesites: elegir, vender, cambiar, reparar o pagar a plazos. ¿Por dónde empezamos?",
+];
+
 // Icono + color de marca por plataforma, para pintar los "socialChips" que
 // puede traer una respuesta de Blue IA. Deliberadamente duplicado del mapa
 // de components/SocialLinks.tsx (mismo motivo que ya se explica ahí y en
@@ -360,6 +383,73 @@ export default function BlueIAScreen() {
   const [abriendoEquipo, setAbriendoEquipo] = useState(false);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [messages, setMessages] = useState<BlueIAMessage[]>([WELCOME_MESSAGE]);
+
+  // Saludo: cada vez que se entra en la sección se elige el siguiente (la primera vez, el de
+  // siempre) y se escribe letra a letra. Con la conversación empezada no se toca; con el
+  // movimiento reducido activado se muestra entero y al instante.
+  const [saludoMostrado, setSaludoMostrado] = useState(WELCOME_MESSAGE.text);
+  const [escribiendo, setEscribiendo] = useState(false);
+  const mensajesRef = useRef(messages);
+  mensajesRef.current = messages;
+  const escrituraRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const escribirSaludo = useCallback(async (texto: string) => {
+    if (escrituraRef.current) clearInterval(escrituraRef.current);
+    let reducido = false;
+    try {
+      reducido = await AccessibilityInfo.isReduceMotionEnabled();
+    } catch {
+      // se escribe normal
+    }
+    if (reducido) {
+      setSaludoMostrado(texto);
+      setEscribiendo(false);
+      return;
+    }
+    let n = 0;
+    setSaludoMostrado("");
+    setEscribiendo(true);
+    escrituraRef.current = setInterval(() => {
+      n += 2;
+      setSaludoMostrado(texto.slice(0, n));
+      if (n >= texto.length) {
+        if (escrituraRef.current) clearInterval(escrituraRef.current);
+        escrituraRef.current = null;
+        setEscribiendo(false);
+      }
+    }, 24);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let vivo = true;
+      (async () => {
+        // Con una conversación en marcha, el saludo ya no se ve como tal: no se cambia.
+        if (mensajesRef.current.length > 1) return;
+        let previo: number | null = null;
+        try {
+          const raw = await AsyncStorage.getItem(SALUDO_KEY);
+          const n = raw === null ? NaN : Number(raw);
+          previo = Number.isFinite(n) ? n : null;
+        } catch {
+          // sin almacenamiento: siempre el primero
+        }
+        if (!vivo) return;
+        const idx = previo === null ? 0 : (previo + 1) % SALUDOS.length;
+        AsyncStorage.setItem(SALUDO_KEY, String(idx)).catch(() => {});
+        escribirSaludo(SALUDOS[idx]());
+      })();
+      return () => {
+        vivo = false;
+        if (escrituraRef.current) {
+          clearInterval(escrituraRef.current);
+          escrituraRef.current = null;
+        }
+        // Al salir se deja completo el que estaba, para que al volver no parpadee.
+        setEscribiendo(false);
+      };
+    }, [escribirSaludo])
+  );
   const [sending, setSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -962,7 +1052,11 @@ export default function BlueIAScreen() {
               </View>
             )}
             {messages.map((message) => (
-              <BlueIABubble key={message.id} message={message} />
+              <BlueIABubble
+                key={message.id}
+                // El saludo se escribe letra a letra (cursor mientras escribe).
+                message={message.id === WELCOME_MESSAGE.id ? { ...message, text: saludoMostrado + (escribiendo ? "▍" : "") } : message}
+              />
             ))}
             {sending && <BlueIATypingBubble />}
             {destacarEquipo && (

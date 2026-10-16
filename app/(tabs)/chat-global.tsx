@@ -101,6 +101,7 @@ import {
   Image,
   LayoutAnimation,
   Modal,
+  PanResponder,
   PixelRatio,
   Platform,
   Pressable,
@@ -172,7 +173,7 @@ const TAB_ITEMS: { key: HubTab; label: string }[] = [
   { key: "privados", label: "Chat" },
 ];
 
-// Orden de las pestañas que elige cada persona (flechas ↑ del menú). Se guarda en el
+// Orden de las pestañas que elige cada persona (mantener pulsada y arrastrar). Se guarda en el
 // dispositivo; si falta alguna pestaña o hay una desconocida, se usa el orden de siempre.
 const ORDEN_TABS_KEY = "videojuegoszaragoza:foro_orden_pestanas";
 
@@ -1478,14 +1479,21 @@ function HubTabButton({
   label,
   active,
   onPress,
+  onLongPress,
+  onPressOut,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
+  onPressOut?: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      onPressOut={onPressOut}
+      delayLongPress={320}
       style={({ pressed }) => ({
         opacity: pressed ? 0.92 : 1,
         borderRadius: 999,
@@ -2007,13 +2015,72 @@ function BottomBar({
       .catch(() => {});
   }, []);
   const tabsOrdenadas = ordenarTabs(ordenTabs);
-  const subirTab = (key: HubTab) => {
-    const claves: string[] = tabsOrdenadas.map((t) => t.key);
+  // Mover una pestaña: se mantiene pulsada (0,3 s), se arrastra arriba o abajo con el dedo y
+  // al soltar queda en su nuevo sitio. Las demás se apartan mientras tanto.
+  const [arrastre, setArrastre] = useState<{ key: HubTab; dy: number } | null>(null);
+  const arrastreRef = useRef(arrastre);
+  arrastreRef.current = arrastre;
+  const tabsRef = useRef(tabsOrdenadas);
+  tabsRef.current = tabsOrdenadas;
+  const altoFilaRef = useRef(54);
+  const movioRef = useRef(false);
+
+  const destinoArrastre = (key: HubTab, dy: number) => {
+    const claves = tabsRef.current.map((t) => t.key);
     const i = claves.indexOf(key);
-    if (i <= 0) return;
-    [claves[i - 1], claves[i]] = [claves[i], claves[i - 1]];
-    setOrdenTabs(claves);
-    AsyncStorage.setItem(ORDEN_TABS_KEY, JSON.stringify(claves)).catch(() => {});
+    const destino = Math.max(0, Math.min(claves.length - 1, i + Math.round(dy / altoFilaRef.current)));
+    return { i, destino };
+  };
+
+  const soltarArrastre = () => {
+    const a = arrastreRef.current;
+    if (a) {
+      const { i, destino } = destinoArrastre(a.key, a.dy);
+      if (destino !== i) {
+        const claves: string[] = tabsRef.current.map((t) => t.key);
+        claves.splice(i, 1);
+        claves.splice(destino, 0, a.key);
+        setOrdenTabs(claves);
+        AsyncStorage.setItem(ORDEN_TABS_KEY, JSON.stringify(claves)).catch(() => {});
+      }
+    }
+    movioRef.current = false;
+    setArrastre(null);
+  };
+  const soltarArrastreRef = useRef(soltarArrastre);
+  soltarArrastreRef.current = soltarArrastre;
+
+  const panArrastre = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      // Con el arrastre activo (tras la pulsación larga), este contenedor se queda con el gesto.
+      onMoveShouldSetPanResponder: () => !!arrastreRef.current,
+      onMoveShouldSetPanResponderCapture: () => !!arrastreRef.current,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        movioRef.current = true;
+      },
+      onPanResponderMove: (_e, g) => {
+        const a = arrastreRef.current;
+        if (a) setArrastre({ key: a.key, dy: g.dy });
+      },
+      onPanResponderRelease: () => soltarArrastreRef.current(),
+      onPanResponderTerminate: () => {
+        movioRef.current = false;
+        setArrastre(null);
+      },
+    })
+  ).current;
+
+  const empezarArrastre = (key: HubTab) => {
+    movioRef.current = false;
+    setArrastre({ key, dy: 0 });
+    // Vibración corta (donde el móvil la permite) para notar que ya se puede mover.
+    try {
+      (navigator as any)?.vibrate?.(14);
+    } catch {
+      // sin vibración
+    }
   };
 
   // Aro que late alrededor del botón del selector de pestañas.
@@ -2090,36 +2157,62 @@ function BottomBar({
           de su propia burbuja pequeña (HubTabButton ya trae su propio
           fondo/borde), centradas, una debajo de otra.
         */}
-        <View style={{ alignItems: "flex-end", gap: 8 }}>
-          {tabsOrdenadas.map((tabItem, i) => (
-            <View key={tabItem.key} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              {/* Flecha ↑: sube esa pestaña un puesto (cada persona ordena el menú a su gusto). */}
-              {i > 0 ? (
-                <Pressable
-                  onPress={() => subirTab(tabItem.key)}
-                  hitSlop={8}
-                  accessibilityLabel={`Subir ${tabItem.label} un puesto`}
-                  style={({ pressed }) => ({
-                    width: 30,
-                    height: 30,
-                    borderRadius: 15,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: pressed ? 0.6 : 1,
-                  })}
-                >
-                  <Ionicons name="arrow-up-circle-outline" size={22} color={COLORS.accent} />
-                </Pressable>
-              ) : (
-                <View style={{ width: 30 }} />
-              )}
-              <HubTabButton
-                active={activeTab === tabItem.key}
-                label={tabItem.label}
-                onPress={() => onSelectTab(tabItem.key)}
-              />
-            </View>
-          ))}
+        <View
+          // userSelect: sin esto, al arrastrar el navegador selecciona las letras de la pestaña.
+          style={[{ alignItems: "flex-end", gap: 8 }, Platform.OS === "web" ? ({ userSelect: "none", WebkitUserSelect: "none", touchAction: "none" } as object) : null]}
+          {...panArrastre.panHandlers}
+        >
+          {/* Pastilla azul de marca: el menú se abre sobre texto de fondo y sin ella no se leía. */}
+          <View style={{ backgroundColor: COLORS.accent, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>
+              Mantén pulsada una pestaña para moverla
+            </Text>
+          </View>
+          {tabsOrdenadas.map((tabItem, j) => {
+            const claves = tabsOrdenadas.map((t) => t.key);
+            const esta = arrastre?.key === tabItem.key;
+            let ty = 0;
+            if (arrastre) {
+              const alto = altoFilaRef.current;
+              const { i: origen, destino } = destinoArrastre(arrastre.key, arrastre.dy);
+              if (esta) ty = Math.max(-j * alto, Math.min((claves.length - 1 - j) * alto, arrastre.dy));
+              else if (origen < destino && j > origen && j <= destino) ty = -alto;
+              else if (origen > destino && j >= destino && j < origen) ty = alto;
+            }
+            return (
+              <View
+                key={tabItem.key}
+                onLayout={j === 0 ? (e) => (altoFilaRef.current = e.nativeEvent.layout.height + 8) : undefined}
+                style={[
+                  {
+                    zIndex: esta ? 10 : 0,
+                    transform: [{ translateY: ty }, { scale: esta ? 1.06 : 1 }],
+                    shadowColor: "#0B2138",
+                    shadowOpacity: esta ? 0.22 : 0,
+                    shadowRadius: 12,
+                    shadowOffset: { width: 0, height: 6 },
+                  },
+                  // En la web, las pestañas que se apartan lo hacen con un deslizamiento suave.
+                  Platform.OS === "web"
+                    ? ({ transitionProperty: "transform", transitionDuration: esta ? "0ms" : "170ms" } as object)
+                    : null,
+                ]}
+              >
+                <HubTabButton
+                  active={activeTab === tabItem.key}
+                  label={tabItem.label}
+                  onPress={() => onSelectTab(tabItem.key)}
+                  onLongPress={() => empezarArrastre(tabItem.key)}
+                  onPressOut={() =>
+                    // Si se soltó sin arrastrar, se cancela el modo mover.
+                    setTimeout(() => {
+                      if (arrastreRef.current && !movioRef.current) setArrastre(null);
+                    }, 80)
+                  }
+                />
+              </View>
+            );
+          })}
         </View>
       </Animated.View>
 
