@@ -106,7 +106,7 @@ export default async function handler(req: any, res: any) {
       const fila = (data ?? []).find((f: { slug: string }) => f.slug === slug) as { intro?: string; sections?: unknown } | undefined;
       if (!fila) { poner(n, nombre, "fallo", "No existe la página."); continue; }
       const texto = `${fila.intro ?? ""} ${JSON.stringify(fila.sections ?? "")}`;
-      const marcas = Array.from(new Set(texto.match(/\[[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9 /.\-]{2,40}\]/g) ?? []));
+      const marcas = Array.from(new Set(texto.match(/\[[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9 /.\-]{2,90}\]/g) ?? []));
       poner(n, nombre, marcas.length ? "fallo" : "ok", marcas.length ? `Tiene marcas sin rellenar: ${marcas.join(", ")}` : "Publicada y sin marcas de relleno.");
     }
   } catch {
