@@ -318,6 +318,8 @@ export default function PoliticaScreen() {
             <Ionicons name="chevron-back" size={22} color={COLORS.text} />
           </Pressable>
           <Text
+            accessibilityRole="header"
+            {...({ "aria-level": 1 } as object)}
             style={{
               color: COLORS.text,
               fontSize: isMobile ? 20 : 22,

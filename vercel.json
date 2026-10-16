@@ -35,6 +35,7 @@
       ],
       "destination": "/api/compartir?id=:id"
     },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },
     { "source": "/politicas/:slug", "destination": "/politicas/[slug]" },

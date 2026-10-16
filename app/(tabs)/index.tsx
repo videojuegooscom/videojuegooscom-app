@@ -516,6 +516,7 @@ function SectionTitle({
     <View style={{ marginBottom: 12, alignItems: "center" }}>
       <Text
         accessibilityRole="header"
+        {...({ "aria-level": 2 } as object)}
         style={{
           color: COLORS.text,
           fontSize: isMobile ? 19 : 21,
@@ -640,7 +641,7 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
   if (esWeb) {
     return (
       <View style={{ alignItems: "center", marginBottom: 2 }}>
-        <Text accessibilityRole="header" style={estilo}>
+        <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={estilo}>
           <span className="vz-oferta-brillo">Oferta de la semana</span>
         </Text>
       </View>
@@ -667,7 +668,7 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
         >
           Oferta de la semana
         </Animated.Text>
-        <Text accessibilityRole="header" style={estilo}>
+        <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={estilo}>
           Oferta de la semana
         </Text>
       </View>
@@ -1883,7 +1884,10 @@ export default function HomeScreen() {
 
           {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}
           <View style={{ gap: 12, alignItems: "center", paddingVertical: 4 }}>
+            {/* Único título de primer nivel (h1) de la portada. */}
             <Text
+              accessibilityRole="header"
+              {...({ "aria-level": 1 } as object)}
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 21 : 22,

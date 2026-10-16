@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /checkout
+Disallow: /chat/
+Disallow: /chat-global
+Disallow: /perfil
+Disallow: /cesta
+Disallow: /reset-password
+
+Sitemap: https://videojuegoszaragoza.com/sitemap.xml

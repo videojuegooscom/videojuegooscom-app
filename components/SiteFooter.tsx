@@ -225,7 +225,7 @@ export default function SiteFooter({
                 onPress={() => pushRoute("/politicas/devoluciones" as Href)}
               />
               <FooterLink
-                label="Privacidad"
+                label="Política de privacidad"
                 onPress={() => pushRoute("/politicas/privacidad" as Href)}
               />
               <FooterLink

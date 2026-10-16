@@ -1484,6 +1484,8 @@ export default function VenderAhoraModal({
 
                     <View style={{ alignItems: "center", paddingHorizontal: 34 }}>
                       <Text
+                        accessibilityRole="header"
+                        {...({ "aria-level": 1 } as object)}
                         style={{
                           color: COLORS.text,
                           fontSize: isMobile ? 18 : 21,
