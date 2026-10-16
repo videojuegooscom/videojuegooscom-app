@@ -257,6 +257,14 @@ export default function AdminHome() {
         onPress: () => router.push("/admin/flash-news"),
       },
       {
+        key: "auditorias",
+        title: "Revisiones",
+        subtitle:
+          "La tienda se revisa sola los días 1 y 15 con la lista de 20 puntos de calidad web: aquí queda cuándo se hizo y qué se encontró.",
+        icon: "clipboard-outline" as IoniconName,
+        onPress: () => router.push("/admin/auditorias"),
+      },
+      {
         key: "conocimiento",
         title: "Lo que Blue sabe",
         subtitle:
