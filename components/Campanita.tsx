@@ -131,6 +131,9 @@ const TEXTO_CRISTAL = {
 };
 
 const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
+// El aviso de Blue sobre el selector de pestañas del Foro sale una sola vez por dispositivo
+// (también cuenta como visto si se enseñó en la guía).
+const SELECTOR_VISTO_KEY = "videojuegoszaragoza:blue_aviso_selector_visto";
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
@@ -1017,22 +1020,29 @@ export default function Campanita() {
   // actualiza la clave local de "vistas"), para que el número rojo no se quede viejo.
   const enForo = pathname.startsWith("/chat-global");
 
-  // En el Foro Blue no se queda en pantalla (taparía el campo de escribir), pero sí sale una
-  // vez por visita, a los 2,5 s, para señalar el botón azul del selector de pestañas.
+  // En el Foro Blue no se queda en pantalla (taparía el campo de escribir), pero sale UNA sola
+  // vez por dispositivo (queda guardado), a los 2,5 s, para señalar el botón azul del selector de
+  // pestañas. Si ya lo vio en la guía de Blue, tampoco sale.
   useEffect(() => {
-    if (!enForo || yaDicho.has("selector-pestanas") || Platform.OS !== "web") return;
+    if (!enForo || guiaAbierta || yaDicho.has("selector-pestanas") || Platform.OS !== "web") return;
     let vivo = true;
     const t = setTimeout(async () => {
-      // Con el aviso de cookies sin contestar, Blue no habla (lo taparía).
-      if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
-      yaDicho.add("selector-pestanas");
-      setAvisoSelector(true);
+      try {
+        // Con el aviso de cookies sin contestar, Blue no habla (lo taparía).
+        if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
+        if ((await AsyncStorage.getItem(SELECTOR_VISTO_KEY)) === "1" || !vivo) return;
+        yaDicho.add("selector-pestanas");
+        AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
+        setAvisoSelector(true);
+      } catch {
+        // sin aviso si falla
+      }
     }, 2500);
     return () => {
       vivo = false;
       clearTimeout(t);
     };
-  }, [enForo]);
+  }, [enForo, guiaAbierta]);
   useEffect(() => {
     if (!enForo) setAvisoSelector(false);
   }, [enForo]);
@@ -2321,7 +2331,8 @@ function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
 
   // Sin el botón a la vista no hay nada que señalar.
   if (!caja) return null;
-  const ancho = Math.min(width - 24, 330);
+  // Mensaje alargado, como los de Blue flotante (no una tarjeta gorda).
+  const ancho = Math.min(width - 24, 340);
   const bote = latido.interpolate({ inputRange: [0, 1], outputRange: [0, 7] });
   const escala = latido.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
   const flechaX = limitar(caja.x + caja.w / 2 - 16, 8, width - 40);
@@ -2345,8 +2356,12 @@ function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
       <Animated.View pointerEvents="none" style={{ position: "absolute", left: flechaX, top: caja.y - 46, transform: [{ translateY: bote }] }}>
         <Ionicons name="arrow-down-circle" size={32} color={COLORS.accent} />
       </Animated.View>
-      <View
-        pointerEvents="auto"
+      {/* Mensaje de Blue: Blue pequeño a la izquierda y el texto en un párrafo alargado; al tocarlo
+          se cierra. Sale una sola vez por dispositivo. */}
+      <Pressable
+        onPress={onCerrar}
+        accessibilityRole="button"
+        accessibilityLabel="Entendido"
         style={[
           CRISTAL,
           {
@@ -2355,33 +2370,21 @@ function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
             bottom: Math.max(12, height - caja.y + 54),
             width: ancho,
             backgroundColor: "rgba(255,255,255,0.94)",
-            padding: 16,
-            gap: 10,
+            paddingVertical: 8,
+            paddingHorizontal: 10,
+            flexDirection: "row",
             alignItems: "center",
+            gap: 8,
           },
         ]}
       >
-        <MarcaAnimada cual="carga" ancho={54} tocable={false} />
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Aquí cambias de pestaña</Text>
-        <Text style={{ color: COLORS.text, fontSize: 14.5, lineHeight: 21, textAlign: "center", fontWeight: "600" }}>
-          Toca el botón azul para ver Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat. ¡Y ordénalas a tu gusto: mantén pulsada una pestaña y arrástrala a su sitio!
+        <MarcaAnimada cual="carga" ancho={44} tocable={false} />
+        <Text style={[TEXTO_CRISTAL, { flex: 1, fontWeight: "800", fontSize: 13, lineHeight: 18 }]}>
+          <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>Blue · </Text>
+          Toca el botón azul para cambiar de pestaña. Para ordenarlas, mantén pulsada una y arrástrala.
+          <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>  Entendido ›</Text>
         </Text>
-        <Pressable
-          onPress={onCerrar}
-          accessibilityRole="button"
-          style={({ pressed }) => ({
-            alignSelf: "stretch",
-            minHeight: 48,
-            borderRadius: 999,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: COLORS.accent,
-            opacity: pressed ? 0.88 : 1,
-          })}
-        >
-          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>Entendido</Text>
-        </Pressable>
-      </View>
+      </Pressable>
     </View>
   );
 }
@@ -2481,8 +2484,15 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "chatbubbles-outline",
     titulo: "Foro",
-    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el botón azul de abajo a la derecha, encima del de enviar, y las ordenas a tu gusto: mantén pulsada una pestaña y arrástrala a su sitio.",
+    texto: "Aquí está la comunidad: Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats.",
     objetivo: [PESTANAS[3]],
+    ruta: "/chat-global",
+  },
+  {
+    icono: "swap-vertical-outline",
+    titulo: "Cambia de pestaña aquí",
+    texto: "Toca este botón azul para ver Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat. Para ordenarlas a tu gusto, mantén pulsada una pestaña y arrástrala a su sitio.",
+    objetivo: ['[data-testid="selector-pestanas"]'],
     ruta: "/chat-global",
   },
   {
@@ -2576,7 +2586,11 @@ function GuiaBlue({
   useEffect(() => {
     trackEvent("guia_paso", `Guía Blue: ${String(paso + 1).padStart(2, "0")} ${p.titulo}`);
     if (paso === total - 1) trackEvent("guia_completada", "Guía Blue: completada");
-  }, [paso, p.titulo, total]);
+    // Si la guía ya enseñó el selector de pestañas del Foro, el aviso suelto no vuelve a salir.
+    if (p.objetivo?.some((o) => o.includes("selector-pestanas"))) {
+      AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
+    }
+  }, [paso, p.titulo, p.objetivo, total]);
   const pasoActualRef = useRef(0);
   pasoActualRef.current = paso;
   const onCerrar = useCallback(() => {

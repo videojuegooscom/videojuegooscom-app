@@ -176,6 +176,9 @@ const TAB_ITEMS: { key: HubTab; label: string }[] = [
 // Orden de las pestañas que elige cada persona (mantener pulsada y arrastrar). Se guarda en el
 // dispositivo; si falta alguna pestaña o hay una desconocida, se usa el orden de siempre.
 const ORDEN_TABS_KEY = "videojuegoszaragoza:foro_orden_pestanas";
+// La pista «Mantén pulsada una pestaña para moverla» sale UNA sola vez por dispositivo (la
+// primera vez que se abre el desplegable); después ya no vuelve.
+const PISTA_ORDEN_KEY = "videojuegoszaragoza:foro_pista_orden_vista";
 
 function ordenarTabs(orden: string[] | null): { key: HubTab; label: string }[] {
   if (!orden) return TAB_ITEMS;
@@ -2015,6 +2018,27 @@ function BottomBar({
       .catch(() => {});
   }, []);
   const tabsOrdenadas = ordenarTabs(ordenTabs);
+  // Pista de «mantén pulsada para mover»: null = aún no se sabe, false = no se ha visto, true = ya vista.
+  const [pistaVista, setPistaVista] = useState<boolean | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(PISTA_ORDEN_KEY)
+      .then((raw) => setPistaVista(raw === "1"))
+      .catch(() => setPistaVista(true));
+  }, []);
+  // Se marca como vista a los 9 s de tenerla delante o al cerrar el desplegable.
+  const mostrandoPista = tabsMenuOpen && pistaVista === false;
+  useEffect(() => {
+    if (!mostrandoPista) return;
+    const marcar = () => {
+      setPistaVista(true);
+      AsyncStorage.setItem(PISTA_ORDEN_KEY, "1").catch(() => {});
+    };
+    const t = setTimeout(marcar, 9000);
+    return () => {
+      clearTimeout(t);
+      marcar();
+    };
+  }, [mostrandoPista]);
   // Mover una pestaña: se mantiene pulsada (0,3 s), se arrastra arriba o abajo con el dedo y
   // al soltar queda en su nuevo sitio. Las demás se apartan mientras tanto.
   const [arrastre, setArrastre] = useState<{ key: HubTab; dy: number } | null>(null);
@@ -2162,12 +2186,29 @@ function BottomBar({
           style={[{ alignItems: "flex-end", gap: 8 }, Platform.OS === "web" ? ({ userSelect: "none", WebkitUserSelect: "none", touchAction: "none" } as object) : null]}
           {...panArrastre.panHandlers}
         >
-          {/* Pastilla azul de marca: el menú se abre sobre texto de fondo y sin ella no se leía. */}
-          <View style={{ backgroundColor: COLORS.accent, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>
-              Mantén pulsada una pestaña para moverla
-            </Text>
-          </View>
+          {/* Mensaje de Blue, igual que los de Blue flotante (cristal, «Blue · …»), UNA sola vez:
+              la primera vez que se abre el desplegable. Con fondo claro para leerse sobre el texto. */}
+          {mostrandoPista ? (
+            <View
+              style={{
+                backgroundColor: "rgba(255,255,255,0.94)",
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: "rgba(227,234,242,0.9)",
+                paddingVertical: 7,
+                paddingHorizontal: 12,
+                shadowColor: "#0B2138",
+                shadowOpacity: 0.1,
+                shadowRadius: 12,
+                shadowOffset: { width: 0, height: 4 },
+              }}
+            >
+              <Text style={{ color: "#0B2138", fontWeight: "800", fontSize: 12.5, lineHeight: 17, textAlign: "center" }}>
+                <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Blue · </Text>
+                Mantén pulsada una pestaña para moverla
+              </Text>
+            </View>
+          ) : null}
           {tabsOrdenadas.map((tabItem, j) => {
             const claves = tabsOrdenadas.map((t) => t.key);
             const esta = arrastre?.key === tabItem.key;
