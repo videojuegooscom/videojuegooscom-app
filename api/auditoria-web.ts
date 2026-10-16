@@ -33,7 +33,7 @@ const MANUALES: { n: number; nombre: string; detalle: string }[] = [
   { n: 3, nombre: "API y secretos", detalle: "Se revisa el código con Claude: nada escrito en el repositorio, .env ignorado, endpoints protegidos." },
   { n: 5, nombre: "Aviso de cookies", detalle: "Necesita un navegador: lo comprueba Claude." },
   { n: 10, nombre: "Imágenes con texto alternativo (ALT)", detalle: "Necesita un navegador: lo comprueba Claude." },
-  { n: 13, nombre: "Contraste de colores", detalle: "Decisión del dueño (2026-10-17): el azul de marca se deja como está." },
+  { n: 13, nombre: "Contraste de colores", detalle: "Decisión del dueño (2026-10-16): el azul de marca se deja como está." },
   { n: 14, nombre: "Web en móvil", detalle: "Necesita un navegador (360, 390 y 414 px): lo comprueba Claude." },
   { n: 17, nombre: "Formularios validados", detalle: "Necesita un navegador: lo comprueba Claude." },
   { n: 18, nombre: "Protección contra spam", detalle: "Se revisa con Claude (campo trampa, límites en la base de datos)." },
