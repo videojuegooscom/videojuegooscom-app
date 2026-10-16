@@ -97,6 +97,7 @@ import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import MarcaAnimada from "./marca/MarcaAnimada";
 
 const COLORS = {
@@ -233,7 +234,48 @@ const BLUE_DOM_ID = "blue-flotante";
 // Mensajes de Blue: al tocarlos llevan a lo que dicen. "chat" abre el chat de la tienda
 // (Blue IA primero; desde ahí, el equipo), "ruta" va a esa pantalla, "vender" abre el
 // formulario de venta, "panel" abre el panel de Blue.
-type Bocadillo = { id: string; texto: string; accion?: "chat" | "ruta" | "vender" | "panel" | "instalar"; ruta?: string };
+type Bocadillo = {
+  id: string;
+  texto: string;
+  accion?: "chat" | "ruta" | "vender" | "panel" | "instalar" | "conocimiento";
+  ruta?: string;
+  // «conocimiento»: tema de lib/conocimiento.ts que Blue le propone al dueño en el panel.
+  tema?: string;
+};
+
+// --- Blue propone información de la tienda (solo el dueño, en el panel de administración) ---
+// A lo largo del día (de 9 a 21 h), con huecos de 45 min y hasta 8 veces al día, Blue le propone
+// un tema pendiente de «Lo que Blue sabe» (horario, envíos, garantía…). La respuesta la escribe
+// el dueño y Blue IA la usa con los clientes. «Ahora no» lo aparca hasta mañana y «No aplica»
+// no lo vuelve a proponer.
+const PROP_KEY = "videojuegoszaragoza:blue_propuestas";
+const PROP_HUECO_MS = 45 * 60 * 1000;
+const PROP_MAX_DIA = 8;
+type EstadoProp = { fecha: string; n: number; ultima: number; hoyNo: string[]; descartados: string[] };
+function fechaHoy(): string {
+  return new Date().toLocaleDateString("sv");
+}
+async function leerEstadoProp(): Promise<EstadoProp> {
+  const base: EstadoProp = { fecha: fechaHoy(), n: 0, ultima: 0, hoyNo: [], descartados: [] };
+  try {
+    const raw = await AsyncStorage.getItem(PROP_KEY);
+    if (!raw) return base;
+    const e = JSON.parse(raw) as Partial<EstadoProp>;
+    const descartados = Array.isArray(e.descartados) ? e.descartados : [];
+    // Un día nuevo reinicia el contador y los «ahora no».
+    if (e.fecha !== base.fecha) return { ...base, descartados };
+    return { ...base, ...e, descartados, hoyNo: Array.isArray(e.hoyNo) ? e.hoyNo : [] };
+  } catch {
+    return base;
+  }
+}
+async function guardarEstadoProp(e: EstadoProp): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PROP_KEY, JSON.stringify(e));
+  } catch {
+    // sin memoria local: se vuelve a proponer, no pasa nada
+  }
+}
 
 // Lo que ya dijo Blue en esta visita (no se repite al volver a la misma ficha).
 const yaDicho = new Set<string>();
@@ -493,9 +535,43 @@ export default function Campanita() {
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
   const bocadilloRef = useRef<Bocadillo | null>(null);
   bocadilloRef.current = bocadillo;
+  const propuestaAbiertaRef = useRef(false);
   // Instalar la tienda como app: cómo se ofrece en este dispositivo y los pasos de iPhone.
   const [modoInst, setModoInst] = useState<"prompt" | "ios" | null>(null);
   const [pasosIosAbiertos, setPasosIosAbiertos] = useState(false);
+  // Propuesta de Blue al dueño (panel de administración): tema abierto, su respuesta y estado.
+  const [propuesta, setPropuesta] = useState<TemaConocimiento | null>(null);
+  const [respuestaProp, setRespuestaProp] = useState("");
+  const [guardandoProp, setGuardandoProp] = useState(false);
+  const [errorProp, setErrorProp] = useState<string | null>(null);
+  propuestaAbiertaRef.current = !!propuesta;
+  const cerrarPropuesta = useCallback(
+    async (como: "ahora-no" | "no-aplica" | "guardada") => {
+      const tema = propuesta?.tema;
+      setPropuesta(null);
+      setRespuestaProp("");
+      setErrorProp(null);
+      if (!tema || como === "guardada") return;
+      const e = await leerEstadoProp();
+      if (como === "ahora-no") e.hoyNo = [...new Set([...e.hoyNo, tema])];
+      else e.descartados = [...new Set([...e.descartados, tema])];
+      await guardarEstadoProp(e);
+    },
+    [propuesta]
+  );
+  const guardarPropuesta = useCallback(async () => {
+    if (!propuesta || guardandoProp) return;
+    setGuardandoProp(true);
+    setErrorProp(null);
+    const error = await guardarConocimiento(propuesta.tema, respuestaProp);
+    setGuardandoProp(false);
+    if (error) {
+      setErrorProp(error);
+      return;
+    }
+    await cerrarPropuesta("guardada");
+    setBocadillo({ id: "prop-ok", texto: "¡Guardado! Desde ahora lo uso al responder a tus clientes." });
+  }, [propuesta, respuestaProp, guardandoProp, cerrarPropuesta]);
   useEffect(() => {
     const actualizar = () => setModoInst(modoInstalar());
     actualizar();
@@ -1103,6 +1179,43 @@ export default function Campanita() {
     };
   }, [modoInst, enPantalla, enAdmin, guiaAbierta, pathname]);
 
+  // Blue propone información de la tienda al dueño, dentro del panel de administración: a los
+  // 25 s de entrar y después cada 10 min mira si toca (de 9 a 21 h, hueco de 45 min, hasta 8 al
+  // día). Solo propone temas sin respuesta, sin «No aplica» y sin «Ahora no» de hoy.
+  useEffect(() => {
+    if (!enAdmin || !isAdmin || !enPantalla || guiaAbierta) return;
+    let vivo = true;
+    const intentar = async () => {
+      try {
+        const hora = new Date().getHours();
+        if (!vivo || hora < 9 || hora >= 21 || bocadilloRef.current || propuestaAbiertaRef.current) return;
+        const estado = await leerEstadoProp();
+        if (estado.n >= PROP_MAX_DIA || Date.now() - estado.ultima < PROP_HUECO_MS) return;
+        const respondidos = await temasRespondidos();
+        const siguiente = TEMAS_CONOCIMIENTO.find(
+          (t) => !respondidos.has(t.tema) && !estado.hoyNo.includes(t.tema) && !estado.descartados.includes(t.tema)
+        );
+        if (!vivo || !siguiente || bocadilloRef.current) return;
+        await guardarEstadoProp({ ...estado, n: estado.n + 1, ultima: Date.now() });
+        setBocadillo({
+          id: `prop:${siguiente.tema}`,
+          texto: `${siguiente.tema}: ¿me lo cuentas para responder mejor a tus clientes?`,
+          accion: "conocimiento",
+          tema: siguiente.tema,
+        });
+      } catch {
+        // sin propuesta si falla
+      }
+    };
+    const primera = setTimeout(intentar, 25000);
+    const cada = setInterval(intentar, 10 * 60 * 1000);
+    return () => {
+      vivo = false;
+      clearTimeout(primera);
+      clearInterval(cada);
+    };
+  }, [enAdmin, isAdmin, enPantalla, guiaAbierta]);
+
   // Entrada (una sola vez, la primera vez que se ve): rebote de escala y saludo
   // moviéndose de lado a lado.
   useEffect(() => {
@@ -1228,7 +1341,7 @@ export default function Campanita() {
   // cercano; y vuelve a su sitio en cuanto ese sitio queda libre. Se mira al cambiar de
   // pantalla, al dejar de desplazarse y cada pocos segundos (solo web).
   const enPantallaRef = useRef(false);
-  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !enAdmin && !guiaAbierta;
+  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !guiaAbierta;
   const comprobarSitio = useCallback(() => {
     if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
     const libre = buscarSitioLibre(preferidoRef.current, sitioRef.current);
@@ -1391,7 +1504,10 @@ export default function Campanita() {
       marcarOrigenVender("blue");
       abrirVender();
     } else if (b.accion === "instalar") instalarApp();
-    else openPanel("noticias");
+    else if (b.accion === "conocimiento") {
+      const t = TEMAS_CONOCIMIENTO.find((x) => x.tema === b.tema);
+      if (t) setPropuesta(t);
+    } else openPanel("noticias");
   }, [bocadillo, openPanel, abrirVender, instalarApp]);
 
   const ir = useCallback((href: string) => {
@@ -1502,7 +1618,9 @@ export default function Campanita() {
   if (avisoSelector && enForo && !enAdmin && !guiaAbierta) return <AvisoSelector onCerrar={() => setAvisoSelector(false)} />;
   // Con la guía abierta se sigue montando aunque la guía pase por una pantalla de chat (Foro,
   // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
-  if (!ready || (enChat && !guiaAbierta) || enAdmin || !aparecido) return null;
+  // En el panel de administración Blue solo aparece para el dueño (propone información de la
+  // tienda); a cualquier otra persona no se le monta nunca allí.
+  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido) return null;
 
   const derecha = sitio.lado === "r";
   // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
@@ -1520,7 +1638,9 @@ export default function Campanita() {
           ? { icono: "arrow-forward-circle-outline" as const, texto: "Ver" }
           : bocadillo?.accion === "instalar"
             ? { icono: "download-outline" as const, texto: "Instalar" }
-            : null;
+            : bocadillo?.accion === "conocimiento"
+              ? { icono: "create-outline" as const, texto: "Responder" }
+              : null;
 
   // Capa visible: fundido de entrada × fundido al ocultarse, y deslizamiento
   // hacia su borde. Cuerpo: rebote de escala y giro del saludo.
@@ -2038,6 +2158,71 @@ export default function Campanita() {
           onSenalaBlue={setGuiaSenalaBlue}
         />
       ) : null}
+
+      {/* Blue le pregunta al dueño (panel de administración): la respuesta la escribe él. */}
+      <Modal visible={!!propuesta} transparent animationType="fade" onRequestClose={() => cerrarPropuesta("ahora-no")}>
+        <Pressable
+          onPress={() => cerrarPropuesta("ahora-no")}
+          style={{ flex: 1, backgroundColor: FONDO_GUIA, justifyContent: "center", alignItems: "center", padding: 14 }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{ width: "100%", maxWidth: 440, backgroundColor: COLORS.bg, borderRadius: 24, padding: 18, gap: 12, alignItems: "center" }}
+          >
+            <Ionicons name="bulb-outline" size={26} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>{propuesta?.tema}</Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, fontWeight: "600", textAlign: "center" }}>
+              {propuesta?.pregunta}
+            </Text>
+            <TextInput
+              value={respuestaProp}
+              onChangeText={setRespuestaProp}
+              placeholder="Escribe la respuesta real de la tienda"
+              placeholderTextColor={COLORS.muted}
+              multiline
+              maxLength={800}
+              style={{
+                alignSelf: "stretch",
+                minHeight: 110,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 16,
+                padding: 12,
+                textAlign: "center",
+                color: COLORS.text,
+                backgroundColor: "#F6FAFD",
+              }}
+            />
+            {errorProp ? <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>{errorProp}</Text> : null}
+            <Pressable
+              onPress={guardarPropuesta}
+              disabled={guardandoProp}
+              accessibilityRole="button"
+              style={{ alignSelf: "stretch", minHeight: 52, borderRadius: 999, backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center", opacity: guardandoProp ? 0.6 : 1 }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>{guardandoProp ? "Guardando…" : "Guardar"}</Text>
+            </Pressable>
+            <View style={{ flexDirection: "row", gap: 18, alignItems: "center" }}>
+              <Pressable onPress={() => cerrarPropuesta("ahora-no")} hitSlop={8} accessibilityRole="button">
+                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Ahora no</Text>
+              </Pressable>
+              <Pressable onPress={() => cerrarPropuesta("no-aplica")} hitSlop={8} accessibilityRole="button">
+                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>No aplica</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  cerrarPropuesta("ahora-no");
+                  router.push("/admin/conocimiento" as Href);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Ver lo que sé</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* iPhone/iPad: no hay botón de instalar; se enseñan los pasos de Safari. */}
       <Modal visible={pasosIosAbiertos} transparent animationType="fade" onRequestClose={() => setPasosIosAbiertos(false)}>

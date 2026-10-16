@@ -257,6 +257,14 @@ export default function AdminHome() {
         onPress: () => router.push("/admin/flash-news"),
       },
       {
+        key: "conocimiento",
+        title: "Lo que Blue sabe",
+        subtitle:
+          "Horario, envíos, garantía, pagos…: respuestas reales que Blue IA usa con tus clientes. Blue te propone temas durante el día.",
+        icon: "bulb-outline" as IoniconName,
+        onPress: () => router.push("/admin/conocimiento"),
+      },
+      {
         key: "policies",
         title: "Políticas",
         subtitle:
