@@ -245,14 +245,15 @@ function softShadow() {
   });
 }
 
-// Brillo de colores con efecto «Siri» alrededor de lo que envuelve: un borde de degradado que gira
-// (azul de marca, violeta, rosa, naranja y turquesa) con un resplandor suave por fuera. Se enciende
-// cada vez que cambia `encender` (si es > 0), dura unos segundos y se apaga solo. Va DETRÁS del
-// contenido (que debe tener fondo opaco), así que solo se ve el borde y el resplandor. Solo web;
-// con «reducir movimiento» no gira (queda fijo).
+// Brillo SUTIL con efecto «Siri» alrededor de lo que envuelve: un borde fino de degradado que gira,
+// en tonos suaves (azul de marca y pasteles), con un resplandor muy tenue por fuera. Solo sirve para
+// que la persona vea las opciones: no debe llamar la atención. Se enciende cada vez que cambia
+// `encender` (si es > 0), dura un par de segundos y se apaga solo. Va DETRÁS del contenido (que debe
+// tener fondo opaco), así que solo se ve el borde y el resplandor. Solo web; con «reducir
+// movimiento» no gira (queda fijo).
 const SIRI_DEGRADADO =
-  "conic-gradient(from 0deg, #1EA7E8, #7C5CFF, #FF4FA3, #FF9A3C, #3CE0C5, #1EA7E8)";
-const SIRI_MS = 3200;
+  "conic-gradient(from 0deg, #1EA7E8, #9FB4FF, #D3B8FF, #FFC2DD, #A8E6EF, #1EA7E8)";
+const SIRI_MS = 2400;
 function SiriGlow({
   encender,
   radio = 14,
@@ -335,8 +336,8 @@ function SiriGlow({
     <View style={[{ position: "relative" }, style]}>
       {visible ? (
         <>
-          {capa(8, { filter: "blur(9px)" } as object, 0.7)}
-          {capa(2.5, {}, 1)}
+          {capa(4, { filter: "blur(6px)" } as object, 0.3)}
+          {capa(1.5, {}, 0.65)}
         </>
       ) : null}
       <View style={{ position: "relative" }}>{children}</View>
