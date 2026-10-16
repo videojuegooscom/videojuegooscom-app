@@ -125,6 +125,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { activarNotificaciones, estadoNotificaciones, type EstadoNotificaciones } from "../lib/notificaciones";
 import {
   SellMediaPicker,
   uploadSellRequestMedia,
@@ -155,7 +156,8 @@ const COLORS = {
 // navegadores móviles hacen zoom automático al enfocar el campo.
 const INPUT_FONT_SIZE = 16;
 
-type MetodoContacto = "whatsapp" | "gmail" | "instagram" | "facebook" | "tiktok";
+// Solo dos formas de contacto: el correo de Gmail y el chat propio de la tienda.
+type MetodoContacto = "gmail" | "chat";
 type OpcionVenta = "domicilio" | "entrega";
 type Disponibilidad = "manana" | "mediodia" | "tardenoche";
 type Genero = "masculino" | "femenino";
@@ -243,6 +245,105 @@ function softShadow() {
   });
 }
 
+// Brillo de colores con efecto «Siri» alrededor de lo que envuelve: un borde de degradado que gira
+// (azul de marca, violeta, rosa, naranja y turquesa) con un resplandor suave por fuera. Se enciende
+// cada vez que cambia `encender` (si es > 0), dura unos segundos y se apaga solo. Va DETRÁS del
+// contenido (que debe tener fondo opaco), así que solo se ve el borde y el resplandor. Solo web;
+// con «reducir movimiento» no gira (queda fijo).
+const SIRI_DEGRADADO =
+  "conic-gradient(from 0deg, #1EA7E8, #7C5CFF, #FF4FA3, #FF9A3C, #3CE0C5, #1EA7E8)";
+const SIRI_MS = 3200;
+function SiriGlow({
+  encender,
+  radio = 14,
+  style,
+  children,
+}: {
+  encender: number;
+  radio?: number;
+  style?: object;
+  children: React.ReactNode;
+}) {
+  const [visible, setVisible] = useState(false);
+  const opacidad = useRef(new Animated.Value(0)).current;
+  const giro = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!encender || Platform.OS !== "web") return;
+    let reducido = false;
+    try {
+      reducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      // sin matchMedia
+    }
+    setVisible(true);
+    opacidad.setValue(0);
+    giro.setValue(0);
+    const vuelta = reducido
+      ? null
+      : Animated.loop(Animated.timing(giro, { toValue: 1, duration: 2400, easing: Easing.linear, useNativeDriver: false }));
+    vuelta?.start();
+    Animated.timing(opacidad, { toValue: 1, duration: 260, useNativeDriver: false }).start();
+    const apagar = setTimeout(() => {
+      Animated.timing(opacidad, { toValue: 0, duration: 700, useNativeDriver: false }).start(() => {
+        setVisible(false);
+        vuelta?.stop();
+      });
+    }, SIRI_MS);
+    return () => {
+      clearTimeout(apagar);
+      vuelta?.stop();
+    };
+  }, [encender, opacidad, giro]);
+
+  const rotar = giro.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  // Capa cuadrada grande y centrada que gira dentro de un marco recortado con las esquinas del campo.
+  const capa = (margen: number, extra: object, op: number) => (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: -margen,
+        right: -margen,
+        top: -margen,
+        bottom: -margen,
+        borderRadius: radio + margen,
+        overflow: "hidden",
+        opacity: opacidad.interpolate({ inputRange: [0, 1], outputRange: [0, op] }),
+        ...extra,
+      }}
+    >
+      <Animated.View
+        style={
+          {
+            position: "absolute",
+            width: 600,
+            height: 600,
+            left: "50%",
+            top: "50%",
+            marginLeft: -300,
+            marginTop: -300,
+            backgroundImage: SIRI_DEGRADADO,
+            transform: [{ rotate: rotar }],
+          } as object
+        }
+      />
+    </Animated.View>
+  );
+
+  return (
+    <View style={[{ position: "relative" }, style]}>
+      {visible ? (
+        <>
+          {capa(8, { filter: "blur(9px)" } as object, 0.7)}
+          {capa(2.5, {}, 1)}
+        </>
+      ) : null}
+      <View style={{ position: "relative" }}>{children}</View>
+    </View>
+  );
+}
+
 // dim=true atenúa también la pregunta (no solo el campo/desplegable de
 // debajo) cuando ese campo ya está completo, siguiendo el mismo lenguaje
 // visual de "completado" que FieldInput/SelectField.
@@ -321,56 +422,6 @@ function FieldInput({
   );
 }
 
-// Fila fija (prefijo tipo "+34" o "@") + campo editable a su lado. Mismo
-// alto y tipografía que FieldInput para que no salte el zoom del navegador.
-// El texto que escribe el usuario sigue alineado a la izquierda a propósito.
-function PrefixedInput({
-  prefix,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType,
-  filled,
-}: {
-  prefix: string;
-  value: string;
-  onChangeText: (v: string) => void;
-  placeholder?: string;
-  keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
-  filled?: boolean;
-}) {
-  const isMobile = useIsMobile();
-  return (
-    <View style={{ flexDirection: "row", gap: 8 }}>
-      <View
-        style={{
-          paddingHorizontal: isMobile ? 12 : 14,
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          backgroundColor: COLORS.card,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: INPUT_FONT_SIZE }}>
-          {prefix}
-        </Text>
-      </View>
-
-      <FieldInput
-        containerStyle={{ flex: 1 }}
-        filled={filled}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        keyboardType={keyboardType}
-        autoCapitalize="none"
-      />
-    </View>
-  );
-}
-
 // Selector "Elegir ⌄": un botón compacto y centrado que muestra el valor
 // elegido (o "Elegir" con un icono de flecha si no hay nada elegido
 // todavía) y, al tocarlo, despliega justo debajo las opciones en forma de
@@ -391,7 +442,21 @@ function SelectField<T extends string>({
 }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  // Cada vez que se despliega, las opciones se iluminan unos segundos con el efecto «Siri».
+  const [brillo, setBrillo] = useState(0);
+  const cajaRef = useRef<View>(null);
   const selected = options.find((o) => o.value === value);
+
+  // Al desplegar, el scroll se adapta solo para que el desplegable (botón y opciones) quede a la
+  // vista y centrado, también cuando está al final del formulario o tapado por el teclado.
+  useEffect(() => {
+    if (!open || Platform.OS !== "web") return;
+    const t = setTimeout(() => {
+      const nodo = cajaRef.current as unknown as HTMLElement | null;
+      nodo?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 90);
+    return () => clearTimeout(t);
+  }, [open]);
   // "Completado": ya hay un valor elegido y el desplegable está cerrado. En
   // ese caso el botón baja de intensidad y muestra un check en vez de la
   // flecha; al volver a tocarlo (se abre) recupera el aspecto normal para
@@ -399,9 +464,13 @@ function SelectField<T extends string>({
   const completed = !!value && !open;
 
   return (
-    <View style={{ gap: 8, alignItems: compact ? "center" : "stretch" }}>
+    <View ref={cajaRef} style={{ gap: 8, alignItems: compact ? "center" : "stretch" }}>
       <AnimatedPressable
-        onPress={() => setOpen((o) => !o)}
+        onPress={() => {
+          const siguiente = !open;
+          setOpen(siguiente);
+          if (siguiente) setBrillo((b) => b + 1);
+        }}
         containerStyle={{
           alignSelf: compact ? "center" : "stretch",
           width: compact ? undefined : "100%",
@@ -450,28 +519,28 @@ function SelectField<T extends string>({
           {options.map((opt) => {
             const active = value === opt.value;
             return (
-              <AnimatedPressable
-                key={opt.value}
-                onPress={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                containerStyle={{ flexGrow: 1, minWidth: 96 }}
-                style={({ pressed }) => ({
-                  borderRadius: 14,
-                  paddingVertical: isMobile ? 10 : 12,
-                  paddingHorizontal: 12,
-                  alignItems: "center",
-                  borderWidth: 1,
-                  borderColor: active ? COLORS.accentBorder : COLORS.border,
-                  backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-                  opacity: pressed ? 0.9 : 1,
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
-                  {opt.label}
-                </Text>
-              </AnimatedPressable>
+              <SiriGlow key={opt.value} encender={brillo} style={{ flexGrow: 1, minWidth: 96 }}>
+                <AnimatedPressable
+                  onPress={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  style={({ pressed }) => ({
+                    borderRadius: 14,
+                    paddingVertical: isMobile ? 10 : 12,
+                    paddingHorizontal: 12,
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: active ? COLORS.accentBorder : COLORS.border,
+                    backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
+                    opacity: pressed ? 0.9 : 1,
+                  })}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
+                    {opt.label}
+                  </Text>
+                </AnimatedPressable>
+              </SiriGlow>
             );
           })}
         </View>
@@ -557,11 +626,8 @@ function Checkbox({
 }
 
 const METODO_OPTIONS: { label: string; value: MetodoContacto }[] = [
-  { label: "WhatsApp", value: "whatsapp" },
   { label: "Gmail", value: "gmail" },
-  { label: "Instagram", value: "instagram" },
-  { label: "Facebook", value: "facebook" },
-  { label: "TikTok", value: "tiktok" },
+  { label: "Chat de la tienda", value: "chat" },
 ];
 
 const OPCION_VENTA_OPTIONS: { label: string; value: OpcionVenta }[] = [
@@ -580,26 +646,14 @@ const GENERO_OPTIONS: { label: string; value: Genero }[] = [
   { label: "Femenino", value: "femenino" },
 ];
 
-// Valida el dato de contacto según el método elegido, con un mínimo de
-// caracteres para evitar datos claramente incompletos: un número de
-// WhatsApp necesita al menos 9 dígitos (como un móvil español sin el
-// prefijo "+34"), un email de Gmail necesita al menos 3 caracteres antes
-// de la "@", y un usuario de red social al menos 2 caracteres sin contar
-// el "@" inicial.
+// Valida el dato de contacto según el método elegido: un email de Gmail necesita al menos 3
+// caracteres antes de la "@"; el chat de la tienda no pide ningún dato (se habla dentro de la
+// propia tienda, con la cuenta de la persona).
 function contactoEsValido(metodo: MetodoContacto | null, valor: string): boolean {
+  if (metodo === "chat") return true;
   const raw = valor.trim();
   if (!metodo || !raw) return false;
-
-  if (metodo === "whatsapp") {
-    return raw.replace(/[^\d]/g, "").length >= 9;
-  }
-
-  if (metodo === "gmail") {
-    return raw.split("@")[0].trim().length >= 3;
-  }
-
-  // instagram / facebook / tiktok
-  return raw.replace(/^@+/, "").trim().length >= 2;
+  return raw.split("@")[0].trim().length >= 3;
 }
 
 /**
@@ -627,7 +681,9 @@ type SellRequestPayload = {
   descripcion_problema: string | null;
   ciudad: string;
   precio_estimado: string;
-  metodo_contacto: MetodoContacto | null;
+  // El chat no tiene valor propio en la base de datos (su restricción solo admite los de antes):
+  // se guarda como null y en «contacto» el texto «Chat de la tienda».
+  metodo_contacto: "gmail" | null;
   contacto: string | null;
   opcion_venta: OpcionVenta;
   direccion: string | null;
@@ -669,6 +725,27 @@ export default function VenderAhoraModal({
 
   const [metodoContacto, setMetodoContacto] = useState<MetodoContacto | null>(null);
   const [contactoValor, setContactoValor] = useState("");
+  // Sesión iniciada (el chat de la tienda la necesita) y estado de los avisos del navegador.
+  const [haySesion, setHaySesion] = useState(false);
+  const [estadoNotif, setEstadoNotif] = useState<EstadoNotificaciones>("no-disponibles");
+  useEffect(() => {
+    let vivo = true;
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (vivo) setHaySesion(!!data.session?.user);
+      })
+      .catch(() => {});
+    const { data: sub } = supabase.auth.onAuthStateChange((_evento, sesion) => setHaySesion(!!sesion?.user));
+    return () => {
+      vivo = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+  // Al elegir el chat se mira si ya están activados los avisos (si lo están, no se muestra nada).
+  useEffect(() => {
+    if (metodoContacto === "chat") setEstadoNotif(estadoNotificaciones());
+  }, [metodoContacto]);
 
   const [opcionVenta, setOpcionVenta] = useState<OpcionVenta | null>(null);
   const [direccion, setDireccion] = useState("");
@@ -877,21 +954,10 @@ export default function VenderAhoraModal({
 
   function buildContacto(): string | null {
     if (!metodoContacto) return null;
+    if (metodoContacto === "chat") return "Chat de la tienda";
     const raw = contactoValor.trim();
     if (!raw) return null;
-
-    if (metodoContacto === "whatsapp") {
-      const digits = raw.replace(/[^\d]/g, "");
-      return digits ? `+34 ${digits}` : null;
-    }
-
-    if (metodoContacto === "gmail") {
-      return raw.includes("@") ? raw : `${raw}@gmail.com`;
-    }
-
-    // instagram / facebook / tiktok
-    const handle = raw.replace(/^@+/, "");
-    return handle ? `@${handle}` : null;
+    return raw.includes("@") ? raw : `${raw}@gmail.com`;
   }
 
   async function handleSubmit() {
@@ -966,7 +1032,13 @@ export default function VenderAhoraModal({
       return;
     }
 
-    if (!contactoValor.trim()) {
+    // El chat de la tienda necesita una cuenta: sin sesión no se puede abrir la conversación.
+    if (metodoContacto === "chat" && !haySesion) {
+      setFormErr("Para hablar por el chat necesitas iniciar sesión. Inicia sesión desde Perfil o elige Gmail.");
+      return;
+    }
+
+    if (metodoContacto === "gmail" && !contactoValor.trim()) {
       setFormErr("Completa tu dato de contacto.");
       return;
     }
@@ -1010,7 +1082,7 @@ export default function VenderAhoraModal({
       descripcion_problema: !funcionaBien ? cleanProblema : null,
       ciudad: cleanCiudad,
       precio_estimado: cleanPrecio,
-      metodo_contacto: metodoContacto,
+      metodo_contacto: metodoContacto === "gmail" ? "gmail" : null,
       contacto: buildContacto(),
       opcion_venta: opcionVenta,
       direccion: opcionVenta === "domicilio" ? cleanDireccion : null,
@@ -1525,23 +1597,6 @@ export default function VenderAhoraModal({
                         />
                       </View>
 
-                      {metodoContacto === "whatsapp" && (
-                        <View style={campoDatoStyle}>
-                          <FieldLabel dim={contactoValido}>Tu número de WhatsApp</FieldLabel>
-                          <PrefixedInput
-                            prefix="+34"
-                            value={contactoValor}
-                            onChangeText={(v) => {
-                              setContactoValor(v);
-                              setFormErr(null);
-                            }}
-                            placeholder="612 345 678"
-                            keyboardType="phone-pad"
-                            filled={contactoValido}
-                          />
-                        </View>
-                      )}
-
                       {metodoContacto === "gmail" && (
                         <View style={campoDatoStyle}>
                           <FieldLabel dim={contactoValido}>Tu email de Gmail</FieldLabel>
@@ -1581,23 +1636,50 @@ export default function VenderAhoraModal({
                         </View>
                       )}
 
-                      {(metodoContacto === "instagram" ||
-                        metodoContacto === "facebook" ||
-                        metodoContacto === "tiktok") && (
-                        <View style={campoDatoStyle}>
-                          <FieldLabel dim={contactoValido}>
-                            Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
-                          </FieldLabel>
-                          <PrefixedInput
-                            prefix="@"
-                            value={contactoValor}
-                            onChangeText={(v) => {
-                              setContactoValor(v);
-                              setFormErr(null);
-                            }}
-                            placeholder="tu.usuario"
-                            filled={contactoValido}
-                          />
+                      {/* Chat de la tienda: no pide ningún dato. Si no hay sesión, se avisa; si los avisos
+                          del navegador no están activados, se ofrece activarlos (si ya lo están, no sale
+                          nada). */}
+                      {metodoContacto === "chat" && (!haySesion || (estadoNotif !== "activadas" && estadoNotif !== "no-disponibles")) && (
+                        <View style={{ ...campoDatoStyle, alignItems: "center", gap: 10 }}>
+                          {!haySesion ? (
+                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", fontWeight: "700" }}>
+                              Para hablar por el chat necesitas iniciar sesión. Si prefieres no hacerlo, elige Gmail.
+                            </Text>
+                          ) : null}
+                          {estadoNotif === "pendientes" ? (
+                            <>
+                              <Text style={{ color: COLORS.text, fontSize: 13.5, lineHeight: 19, textAlign: "center", fontWeight: "800" }}>
+                                Activa las notificaciones y te avisamos en cuanto te escribamos.
+                              </Text>
+                              <AnimatedPressable
+                                onPress={async () => setEstadoNotif(await activarNotificaciones())}
+                                containerStyle={{ alignSelf: "stretch" }}
+                                style={{
+                                  minHeight: 48,
+                                  borderRadius: 999,
+                                  backgroundColor: COLORS.accent,
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: 8,
+                                  paddingHorizontal: 16,
+                                }}
+                              >
+                                <Ionicons name="notifications-outline" size={18} color="#FFFFFF" />
+                                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Activar notificaciones</Text>
+                              </AnimatedPressable>
+                            </>
+                          ) : null}
+                          {estadoNotif === "bloqueadas" ? (
+                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", fontWeight: "700" }}>
+                              Tienes las notificaciones bloqueadas en este navegador. Actívalas en los ajustes del sitio para enterarte al momento.
+                            </Text>
+                          ) : null}
+                          {estadoNotif === "instalar" ? (
+                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", fontWeight: "700" }}>
+                              En iPhone, para recibir avisos instala antes la tienda en tu pantalla de inicio (botón «Instalar la tienda como app» del panel de Blue).
+                            </Text>
+                          ) : null}
                         </View>
                       )}
                     </View>
