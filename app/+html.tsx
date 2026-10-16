@@ -41,6 +41,14 @@ export default function Root({ children }: PropsWithChildren) {
           content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
         />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+        {/* Tienda instalable como app (Android: botón de instalar; iPhone: «Añadir a pantalla
+            de inicio»). Los iconos salen del logo de la marca (public/). */}
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#1EA7E8" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="VideojuegosZaragoza" />
+        <link rel="apple-touch-icon" href="/icono-192.png" />
         {/* Conexión anticipada con Supabase (API y fotos): ahorra DNS+TLS en la 1.ª petición. */}
         {/* Dos conexiones: la API va con CORS (fetch) y las fotos <img> sin CORS. */}
         <link rel="preconnect" href={SUPABASE_ORIGIN} crossOrigin="anonymous" />

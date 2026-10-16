@@ -1,0 +1,16 @@
+{
+  "name": "VideojuegosZaragoza",
+  "short_name": "VideojuegosZgz",
+  "description": "Tienda de consolas, videojuegos y dispositivos de segunda mano y reacondicionados en Zaragoza.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1EA7E8",
+  "icons": [
+    { "src": "/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

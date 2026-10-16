@@ -124,6 +124,7 @@ import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analytics";
 import {
   SellMediaPicker,
   uploadSellRequestMedia,
@@ -817,7 +818,15 @@ export default function VenderAhoraModal({
     outputRange: [0.55, 1],
   });
 
+  // Embudo: el formulario se ha abierto (y desde dónde: la guía de Blue u otro sitio).
+  useEffect(() => {
+    if (!visible) return;
+    trackEvent("vender_abierto", "Vender: abierto");
+    if (leerOrigenVender() === "guia") trackEvent("vender_abierto_guia", "Vender: abierto desde la guía");
+  }, [visible]);
+
   function resetForm() {
+    marcarOrigenVender(null);
     setNombre("");
     setApellido("");
     setArticulo("");
@@ -1071,6 +1080,8 @@ export default function VenderAhoraModal({
 
       setSentChatId(openedChatId);
       setSent(true);
+      trackEvent("vender_enviado", "Vender: enviado");
+      if (leerOrigenVender() === "guia") trackEvent("vender_enviado_guia", "Vender: enviado desde la guía");
     } catch (e: any) {
       setFormErr(
         e?.message ?? "No se pudo enviar el formulario. Inténtalo de nuevo en unos segundos."

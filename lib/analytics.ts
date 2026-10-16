@@ -248,6 +248,17 @@ async function sendEvent({ eventName, stepLabel, opts }: QueuedEvent): Promise<v
   }
 }
 
+// Desde dónde se abrió el formulario de Vender («guia» = la guía de Blue, «blue» = un mensaje
+// o el panel de Blue). Sirve para medir cuántos llegan al formulario desde la guía y cuántos lo
+// envían. Solo vive en memoria.
+let origenVender: string | null = null;
+export function marcarOrigenVender(origen: string | null): void {
+  origenVender = origen;
+}
+export function leerOrigenVender(): string | null {
+  return origenVender;
+}
+
 const lastTrackedAt = new Map<string, number>();
 
 /**
