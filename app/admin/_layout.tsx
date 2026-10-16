@@ -174,6 +174,7 @@ export default function AdminLayout() {
       <Stack.Screen name="cotizaciones" />
       <Stack.Screen name="chats" />
       <Stack.Screen name="flash-news" />
+      <Stack.Screen name="conocimiento" />
       <Stack.Screen name="policies" />
       <Stack.Screen name="blog" />
       <Stack.Screen name="analytics" />
