@@ -109,7 +109,7 @@ const COLORS = {
   tileBorder: "rgba(11,33,56,0.10)",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
@@ -1155,10 +1155,12 @@ function CategoryCard({
 // está viendo) que va bajando a medida que se avanza.
 function FeaturedMediaCarousel({
   images,
+  alt,
   mediaHeight,
   hasVideo,
 }: {
   images: string[];
+  alt: string;
   mediaHeight: number;
   hasVideo: boolean;
 }) {
@@ -1236,6 +1238,8 @@ function FeaturedMediaCarousel({
             <SmartImage
               key={`${uri}-${index}`}
               uri={uri}
+              alt={images.length > 1 ? `${alt} (foto ${index + 1} de ${images.length})` : alt}
+              ancho={Math.max(320, containerWidth || 420)}
               contentFit="contain"
               style={{ width: containerWidth, height: mediaHeight }}
             />
@@ -1413,6 +1417,7 @@ function FeaturedOfferCard({
         <View style={{ flex: isDesktopish ? 1.05 : undefined }}>
           <FeaturedMediaCarousel
             images={item.images}
+            alt={item.title}
             mediaHeight={mediaHeight}
             hasVideo={item.hasVideo}
           />

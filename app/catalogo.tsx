@@ -81,7 +81,7 @@ const COLORS = {
   borderSoft: "#EEF3F8",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -1097,7 +1097,7 @@ const ProductCard = React.memo(function ProductCard({
         }}
       >
         {p.imageUrl ? (
-          <SmartImage uri={p.imageUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+          <SmartImage uri={p.imageUrl} alt={p.title} ancho={compact ? 190 : 340} contentFit="contain" style={{ width: "100%", height: "100%" }} />
         ) : (
           <View
             style={{

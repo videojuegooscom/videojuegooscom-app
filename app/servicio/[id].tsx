@@ -57,7 +57,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -379,6 +379,7 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                   {selectedImageUrl ? (
                     <Image
                       source={{ uri: selectedImageUrl }}
+                      alt={s.title}
                       style={{
                         width: "100%",
                         height: isWide ? 520 : isTablet ? 360 : 260,

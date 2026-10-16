@@ -45,7 +45,7 @@ const COLORS = {
   borderSoft: "#EEF3F8",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -150,7 +150,7 @@ function ServiceCard({ s, onPress, compact }: { s: Service; onPress: () => void;
         }}
       >
         {s.imageUrl ? (
-          <SmartImage uri={s.imageUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+          <SmartImage uri={s.imageUrl} alt={s.title} ancho={190} contentFit="contain" style={{ width: "100%", height: "100%" }} />
         ) : (
           <Ionicons name="construct-outline" size={34} color={COLORS.muted2} />
         )}

@@ -276,6 +276,7 @@ export default function ImageLightbox({
         <SmartImage
           key={current.id}
           uri={current.url}
+          alt="Foto ampliada"
           contentFit="contain"
           style={{
             width,
