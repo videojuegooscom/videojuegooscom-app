@@ -1914,7 +1914,7 @@ function BotonPanel({
 // --- Aviso de Blue en el Foro --------------------------------------------------------------
 // Señala el botón azul del selector de pestañas (data-testid "selector-pestanas", en
 // app/(tabs)/chat-global.tsx) con un aro y una flecha, y explica qué hace y que las pestañas
-// se pueden ordenar con las flechas ↑ de su menú. No bloquea nada: solo se cierra con
+// se pueden ordenar manteniendo pulsada una y arrastrándola. No bloquea nada: solo se cierra con
 // «Entendido» (o a los 20 s).
 function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
   const [caja, setCaja] = useState<Caja | null>(null);
@@ -1989,7 +1989,7 @@ function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
         <MarcaAnimada cual="carga" ancho={54} tocable={false} />
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Aquí cambias de pestaña</Text>
         <Text style={{ color: COLORS.text, fontSize: 14.5, lineHeight: 21, textAlign: "center", fontWeight: "600" }}>
-          Toca el botón azul para ver Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat. ¡Y ordénalas a tu gusto con la flecha ↑ de cada pestaña!
+          Toca el botón azul para ver Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat. ¡Y ordénalas a tu gusto: mantén pulsada una pestaña y arrástrala a su sitio!
         </Text>
         <Pressable
           onPress={onCerrar}
@@ -2068,7 +2068,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "chatbubbles-outline",
     titulo: "Foro",
-    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el botón azul de abajo a la derecha, encima del de enviar, y las ordenas a tu gusto con la flecha ↑ de cada una.",
+    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el botón azul de abajo a la derecha, encima del de enviar, y las ordenas a tu gusto: mantén pulsada una pestaña y arrástrala a su sitio.",
     objetivo: [PESTANAS[3]],
   },
   {

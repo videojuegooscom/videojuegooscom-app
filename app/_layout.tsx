@@ -47,6 +47,7 @@ import { View } from "react-native";
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
+import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
@@ -126,6 +127,9 @@ export default function RootLayout() {
 
       {/* Blue, asistente flotante (antes campanita): por encima de TODO, en todas las pantallas. */}
       <Campanita />
+
+      {/* «Volver» a mano del pulgar derecho en las páginas de lectura. */}
+      <BotonAtrasAlcance />
 
       {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}
       <CookieConsentBanner />

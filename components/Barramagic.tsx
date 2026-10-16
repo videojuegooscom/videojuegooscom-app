@@ -310,6 +310,8 @@ export type FloatingBarramagicProps = {
   /** A dónde navega al tocar la píldora (por defecto /catalogo). */
   onPress?: () => void;
   placeholder?: string;
+  /** Dónde arranca: "top" (por defecto) o "bottom" (a mano del pulgar en el móvil). */
+  posicionInicial?: SearchSnapPosition;
 };
 
 export function FloatingBarramagic({
@@ -326,6 +328,7 @@ export function FloatingBarramagic({
   hidden = false,
   onPress,
   placeholder = "Buscar producto o hacer una pregunta",
+  posicionInicial = "top",
 }: FloatingBarramagicProps) {
   const { width, height } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
@@ -411,14 +414,16 @@ export function FloatingBarramagic({
    * ESTADO INICIAL SIEMPRE EN TOP.
    */
   const [searchSnapPosition, setSearchSnapPosition] =
-    useState<SearchSnapPosition>("top");
+    useState<SearchSnapPosition>(posicionInicial);
 
   /**
-   * Arranca visualmente arriba desde el primer render.
+   * Arranca desde el primer render en su posición inicial (arriba, o abajo en el móvil para
+   * que el pulgar llegue sin estirarse).
    */
-  const animatedTop = useRef(new Animated.Value(resolvedTopSnapY)).current;
-  const dragStartTop = useRef(resolvedTopSnapY);
-  const liveTop = useRef(resolvedTopSnapY);
+  const topInicial = posicionInicial === "bottom" ? resolvedBottomSnapY : resolvedTopSnapY;
+  const animatedTop = useRef(new Animated.Value(topInicial)).current;
+  const dragStartTop = useRef(topInicial);
+  const liveTop = useRef(topInicial);
   const didInitRef = useRef(false);
 
   useEffect(() => {
@@ -442,9 +447,9 @@ export function FloatingBarramagic({
 
     if (!didInitRef.current) {
       didInitRef.current = true;
-      liveTop.current = resolvedTopSnapY;
-      dragStartTop.current = resolvedTopSnapY;
-      animatedTop.setValue(resolvedTopSnapY);
+      liveTop.current = nextTarget;
+      dragStartTop.current = nextTarget;
+      animatedTop.setValue(nextTarget);
       return;
     }
 
