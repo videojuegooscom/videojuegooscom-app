@@ -134,7 +134,7 @@ const COLORS = {
   borderSoft: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  soft: "rgba(11,33,56,0.48)",
+  soft: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",

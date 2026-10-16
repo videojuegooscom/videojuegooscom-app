@@ -121,7 +121,7 @@ const COLORS = {
   borderSoft: "#EEF3F8",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -1181,6 +1181,8 @@ export default function ProductoScreen() {
                   <View style={{ width: "100%" }} {...mainImagePan.panHandlers}>
                     <SmartImage
                       uri={selectedImageUrl}
+                      alt={p.title}
+                      ancho={isWide ? 700 : 420}
                       style={{
                         width: "100%",
                         height: isWide ? 520 : isTablet ? 360 : 260,
@@ -1337,6 +1339,8 @@ export default function ProductoScreen() {
                       >
                         <SmartImage
                           uri={media.publicUrl}
+                          alt={`${p.title} (miniatura)`}
+                          ancho={90}
                           contentFit="cover"
                           style={{ width: "100%", height: "100%" }}
                         />

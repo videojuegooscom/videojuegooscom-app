@@ -94,7 +94,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  mutedSoft: "rgba(11,33,56,0.48)",
+  mutedSoft: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   danger: "#B91C1C",
   success: "#15803D",

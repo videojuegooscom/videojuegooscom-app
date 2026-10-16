@@ -471,7 +471,7 @@ export default function CategoryProductsShelf({
                 }}
               >
                 {p.image ? (
-                  <SmartImage uri={p.image} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                  <SmartImage uri={p.image} alt={p.title} ancho={150} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                 ) : (
                   <Ionicons name="game-controller-outline" size={28} color={COLORS.muted} />
                 )}

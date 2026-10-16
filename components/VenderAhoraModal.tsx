@@ -139,7 +139,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
@@ -726,6 +726,13 @@ export default function VenderAhoraModal({
 
   const [metodoContacto, setMetodoContacto] = useState<MetodoContacto | null>(null);
   const [contactoValor, setContactoValor] = useState("");
+  // Protección contra spam: un campo trampa que una persona no ve (si se rellena, es un robot) y un
+  // tiempo mínimo desde que se abre el formulario hasta que se envía (un robot envía al instante).
+  const [campoTrampa, setCampoTrampa] = useState("");
+  const abiertoEnRef = useRef(Date.now());
+  useEffect(() => {
+    if (visible) abiertoEnRef.current = Date.now();
+  }, [visible]);
   // Sesión iniciada (el chat de la tienda la necesita) y estado de los avisos del navegador.
   const [haySesion, setHaySesion] = useState(false);
   const [estadoNotif, setEstadoNotif] = useState<EstadoNotificaciones>("no-disponibles");
@@ -1069,6 +1076,15 @@ export default function VenderAhoraModal({
       return;
     }
 
+    // Robot: campo trampa relleno o envío en menos de 4 s. Se finge que salió bien (para no darle
+    // pistas) pero no se guarda nada.
+    if (campoTrampa.trim() || Date.now() - abiertoEnRef.current < 4000) {
+      setFormErr(null);
+      setSentChatId(null);
+      setSent(true);
+      return;
+    }
+
     setFormErr(null);
     setSending(true);
 
@@ -1211,6 +1227,7 @@ export default function VenderAhoraModal({
           setCiudad(v);
           setFormErr(null);
         }}
+        maxLength={100}
         placeholder="Ej: Zaragoza"
         filled={!!ciudad.trim()}
       />
@@ -1226,6 +1243,7 @@ export default function VenderAhoraModal({
           setPrecioEstimado(v);
           setFormErr(null);
         }}
+        maxLength={40}
         placeholder="Ej: 150€"
         filled={!!precioEstimado.trim()}
       />
@@ -1256,6 +1274,7 @@ export default function VenderAhoraModal({
             setMotivoVenta(v);
             setFormErr(null);
           }}
+          maxLength={600}
           placeholder="Ej: ya no lo uso, cambio de consola..."
           multiline
           filled={!!motivoVenta.trim()}
@@ -1272,6 +1291,7 @@ export default function VenderAhoraModal({
             setDescripcionProblema(v);
             setFormErr(null);
           }}
+          maxLength={600}
           placeholder="Ej: no lee discos, la batería no carga..."
           multiline
           filled={!!descripcionProblema.trim()}
@@ -1518,6 +1538,7 @@ export default function VenderAhoraModal({
                             setNombre(v);
                             setFormErr(null);
                           }}
+                          maxLength={80}
                           placeholder="Tu nombre"
                           filled={nombreValido}
                         />
@@ -1530,6 +1551,7 @@ export default function VenderAhoraModal({
                             setApellido(v);
                             setFormErr(null);
                           }}
+                          maxLength={80}
                           placeholder="Tu apellido"
                           filled={apellidoValido}
                         />
@@ -1553,6 +1575,7 @@ export default function VenderAhoraModal({
                           setArticulo(v);
                           setFormErr(null);
                         }}
+                        maxLength={300}
                         placeholder="Ej: PlayStation 5 con dos mandos"
                         multiline
                         filled={!!articulo.trim()}
@@ -1609,6 +1632,7 @@ export default function VenderAhoraModal({
                               setContactoValor(v);
                               setFormErr(null);
                             }}
+                            maxLength={150}
                             placeholder="tunombre@gmail.com"
                             keyboardType="email-address"
                             autoCapitalize="none"
@@ -1711,6 +1735,7 @@ export default function VenderAhoraModal({
                               setDireccion(v);
                               setFormErr(null);
                             }}
+                            maxLength={300}
                             placeholder="Calle, número, puerta y letra"
                             multiline
                             filled={!!direccion.trim()}
@@ -1755,6 +1780,20 @@ export default function VenderAhoraModal({
                         setFormErr(null);
                       }}
                       label="Confirmo que soy mayor de 18 años"
+                    />
+
+                    {/* Campo trampa anti-robots: fuera de pantalla, sin foco y oculto a lectores. */}
+                    <TextInput
+                      value={campoTrampa}
+                      onChangeText={setCampoTrampa}
+                      autoComplete="off"
+                      autoCorrect={false}
+                      tabIndex={-1}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      aria-hidden
+                      placeholder="Sitio web"
+                      style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0 }}
                     />
 
                     {!!formErr && (
