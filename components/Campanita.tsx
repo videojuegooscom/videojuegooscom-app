@@ -96,7 +96,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
-import { getAnalyticsConsent } from "../lib/analytics";
+import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/analytics";
 import MarcaAnimada from "./marca/MarcaAnimada";
 
 const COLORS = {
@@ -216,25 +216,79 @@ const USA_NATIVO = Platform.OS !== "web";
 // arriba del todo, 1 = abajo del todo, dentro de la zona útil). Antes solo había 4 esquinas.
 type Lado = "l" | "r";
 type Sitio = { lado: Lado; fy: number };
-const SITIO_INICIAL: Sitio = { lado: "r", fy: 1 };
+// Blue NUNCA se pone abajo a la derecha (petición del dueño): ahí están el botón de volver
+// arriba, «Volver» y el de enviar, y es donde llega el pulgar. En el lado derecho solo
+// puede estar de la mitad de la pantalla hacia arriba.
+const FY_MAX_DERECHA = 0.5;
+const SITIO_INICIAL: Sitio = { lado: "l", fy: 1 };
 // Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
 const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
-// Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse.
-const APARTARSE_CADA_MS = 4000;
-const APARTARSE_TRAS_SCROLL_MS = 450;
+// Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse o tras
+// tocar algo (por ejemplo, al abrirse un desplegable). Se aparta en seguida.
+const APARTARSE_CADA_MS = 1200;
+const APARTARSE_TRAS_SCROLL_MS = 220;
 // id del contenedor de Blue en la web (para no confundirse a sí mismo con el contenido).
 const BLUE_DOM_ID = "blue-flotante";
 
 // Mensajes de Blue: al tocarlos llevan a lo que dicen. "chat" abre el chat de la tienda
 // (Blue IA primero; desde ahí, el equipo), "ruta" va a esa pantalla, "vender" abre el
 // formulario de venta, "panel" abre el panel de Blue.
-type Bocadillo = { id: string; texto: string; accion?: "chat" | "ruta" | "vender" | "panel"; ruta?: string };
+type Bocadillo = { id: string; texto: string; accion?: "chat" | "ruta" | "vender" | "panel" | "instalar"; ruta?: string };
 
 // Lo que ya dijo Blue en esta visita (no se repite al volver a la misma ficha).
 const yaDicho = new Set<string>();
 
+// --- Instalar la tienda como app (solo web) ----------------------------------------------
+// Chrome/Android avisa con «beforeinstallprompt»: se guarda el evento y Blue ofrece un botón
+// que abre el diálogo de instalación. En iPhone/iPad (Safari) no existe ese diálogo: Blue
+// enseña los pasos de «Añadir a pantalla de inicio». Si ya está instalada, no se ofrece.
+type EventoInstalar = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+let eventoInstalar: EventoInstalar | null = null;
+const oyentesInstalar = new Set<() => void>();
+const INSTALAR_KEY = "videojuegoszaragoza:blue_instalar_visto";
+const INSTALAR_ESPERA_MS = 7 * 24 * 60 * 60 * 1000;
+
+function esWebConVentana(): boolean {
+  return Platform.OS === "web" && typeof window !== "undefined";
+}
+function appYaInstalada(): boolean {
+  if (!esWebConVentana()) return false;
+  try {
+    return window.matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
+  } catch {
+    return false;
+  }
+}
+function esAppleMovil(): boolean {
+  if (!esWebConVentana()) return false;
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as unknown as { MSStream?: unknown }).MSStream;
+}
+// "prompt" = diálogo propio del navegador; "ios" = pasos manuales; null = no se ofrece.
+function modoInstalar(): "prompt" | "ios" | null {
+  if (!esWebConVentana() || appYaInstalada()) return null;
+  if (eventoInstalar) return "prompt";
+  return esAppleMovil() ? "ios" : null;
+}
+if (esWebConVentana()) {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    eventoInstalar = e as EventoInstalar;
+    oyentesInstalar.forEach((f) => f());
+  });
+  window.addEventListener("appinstalled", () => {
+    eventoInstalar = null;
+    trackEvent("app_instalada", "App instalada");
+    oyentesInstalar.forEach((f) => f());
+  });
+}
+
 function limitar(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
+}
+
+// Un sitio permitido: nunca abajo a la derecha. Si cae ahí, sube en el mismo lado.
+function sitioPermitido(s: Sitio): Sitio {
+  return s.lado === "r" && s.fy > FY_MAX_DERECHA ? { lado: "r", fy: FY_MAX_DERECHA } : s;
 }
 
 function sitioToXY(s: Sitio) {
@@ -254,10 +308,12 @@ function leerSitio(raw: string | null): Sitio {
     bl: { lado: "l", fy: 1 },
     br: { lado: "r", fy: 1 },
   };
-  if (esquinas[raw]) return esquinas[raw];
+  if (esquinas[raw]) return sitioPermitido(esquinas[raw]);
   try {
     const s = JSON.parse(raw);
-    if ((s?.lado === "l" || s?.lado === "r") && Number.isFinite(s?.fy)) return { lado: s.lado, fy: limitar(Number(s.fy), 0, 1) };
+    if ((s?.lado === "l" || s?.lado === "r") && Number.isFinite(s?.fy)) {
+      return sitioPermitido({ lado: s.lado, fy: limitar(Number(s.fy), 0, 1) });
+    }
   } catch {
     // formato desconocido
   }
@@ -319,6 +375,8 @@ function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
   for (const lado of [preferido.lado, preferido.lado === "r" ? "l" : "r"] as Lado[]) {
     for (const fy of alturas) {
       const s = { lado, fy };
+      // Abajo a la derecha no se pone nunca, ni siquiera para apartarse.
+      if (sitioPermitido(s) !== s) continue;
       const tapados = puntuar(s);
       const distancia = Math.abs(fy - preferido.fy) + (lado === preferido.lado ? 0 : 0.5);
       if (!mejor || tapados < mejor.tapados || (tapados === mejor.tapados && distancia < mejor.distancia)) {
@@ -433,6 +491,38 @@ export default function Campanita() {
   const [textoAviso, setTextoAviso] = useState("");
   const [msgAviso, setMsgAviso] = useState<string | null>(null);
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
+  const bocadilloRef = useRef<Bocadillo | null>(null);
+  bocadilloRef.current = bocadillo;
+  // Instalar la tienda como app: cómo se ofrece en este dispositivo y los pasos de iPhone.
+  const [modoInst, setModoInst] = useState<"prompt" | "ios" | null>(null);
+  const [pasosIosAbiertos, setPasosIosAbiertos] = useState(false);
+  useEffect(() => {
+    const actualizar = () => setModoInst(modoInstalar());
+    actualizar();
+    oyentesInstalar.add(actualizar);
+    return () => {
+      oyentesInstalar.delete(actualizar);
+    };
+  }, []);
+  const instalarApp = useCallback(async () => {
+    setPanelOpen(false);
+    trackEvent("instalar_toque", "Instalar app: toque");
+    const ev = eventoInstalar;
+    if (ev) {
+      try {
+        await ev.prompt();
+        const r = await ev.userChoice;
+        if (r.outcome === "accepted") trackEvent("instalar_aceptada", "Instalar app: aceptada");
+      } catch {
+        // el navegador no dejó abrir el diálogo
+      }
+      // El evento solo vale una vez.
+      eventoInstalar = null;
+      setModoInst(modoInstalar());
+    } else if (esAppleMovil()) {
+      setPasosIosAbiertos(true);
+    }
+  }, []);
   // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
   const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
   // Aparición a los 10 s, mini saludo y oculto por scroll hacia abajo.
@@ -977,6 +1067,42 @@ export default function Campanita() {
   const entradaHechaRef = useRef(false);
   const enPantalla = aparecido && ready && !enChat;
 
+  // Oferta de instalar la tienda como app: un mensaje de Blue, una vez cada 7 días como mucho,
+  // cuando ya lleva un rato en pantalla, no está hablando de otra cosa y la persona ya
+  // contestó el aviso de cookies. Siempre queda el botón en el panel de Blue.
+  useEffect(() => {
+    if (!modoInst || !enPantalla || enAdmin || guiaAbierta || pathname.startsWith("/checkout")) return;
+    let vivo = true;
+    let t: ReturnType<typeof setTimeout>;
+    // Si Blue está diciendo otra cosa, espera 15 s y lo intenta de nuevo (hasta 8 veces).
+    const intentar = async (veces: number) => {
+      try {
+        if (!vivo || (await getAnalyticsConsent()) === null) return;
+        const visto = Number((await AsyncStorage.getItem(INSTALAR_KEY)) ?? 0);
+        if (!vivo || (visto && Date.now() - visto < INSTALAR_ESPERA_MS)) return;
+        if (bocadilloRef.current) {
+          if (veces < 8) t = setTimeout(() => intentar(veces + 1), 15000);
+          return;
+        }
+        await AsyncStorage.setItem(INSTALAR_KEY, String(Date.now()));
+        if (!vivo) return;
+        trackEvent("instalar_oferta", "Instalar app: oferta");
+        setBocadillo({
+          id: "instalar",
+          texto: "Instala la tienda en tu móvil y ábrela con un toque desde la pantalla de inicio.",
+          accion: "instalar",
+        });
+      } catch {
+        // sin oferta si falla
+      }
+    };
+    t = setTimeout(() => intentar(0), 40000);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [modoInst, enPantalla, enAdmin, guiaAbierta, pathname]);
+
   // Entrada (una sola vez, la primera vez que se ve): rebote de escala y saludo
   // moviéndose de lado a lado.
   useEffect(() => {
@@ -1116,17 +1242,35 @@ export default function Campanita() {
     let espera: ReturnType<typeof setTimeout> | null = null;
     const trasScroll = () => {
       if (espera) clearTimeout(espera);
-      espera = setTimeout(comprobarSitio, APARTARSE_TRAS_SCROLL_MS);
+      espera = setTimeout(() => {
+        espera = null;
+        comprobarSitio();
+      }, APARTARSE_TRAS_SCROLL_MS);
     };
     const cada = setInterval(() => {
       if (document.visibilityState !== "hidden") comprobarSitio();
     }, APARTARSE_CADA_MS);
     document.addEventListener("scroll", trasScroll, { capture: true, passive: true });
     window.addEventListener("resize", trasScroll);
+    // En cuanto algo se toca (se abre un desplegable, un aviso…) o aparece contenido nuevo,
+    // mira otra vez sin esperar a la vuelta de cada 1,2 s.
+    document.addEventListener("click", trasScroll, { capture: true, passive: true });
+    let observador: MutationObserver | null = null;
+    if (typeof MutationObserver !== "undefined" && document.body) {
+      observador = new MutationObserver(() => {
+        if (!espera) espera = setTimeout(() => {
+          espera = null;
+          comprobarSitio();
+        }, 300);
+      });
+      observador.observe(document.body, { childList: true, subtree: true });
+    }
     return () => {
       if (espera) clearTimeout(espera);
       clearInterval(cada);
+      observador?.disconnect();
       document.removeEventListener("scroll", trasScroll, { capture: true });
+      document.removeEventListener("click", trasScroll, { capture: true });
       window.removeEventListener("resize", trasScroll);
     };
   }, [comprobarSitio]);
@@ -1222,7 +1366,10 @@ export default function Campanita() {
         const cx = posRef.current.x + g.dx + BLUE_SIZE / 2;
         const y = posRef.current.y + g.dy;
         const yMax = Math.max(TOP_INSET + 1, height - BLUE_SIZE - BOTTOM_INSET);
-        const next: Sitio = { lado: cx < width / 2 ? "l" : "r", fy: limitar((y - TOP_INSET) / (yMax - TOP_INSET), 0, 1) };
+        const next: Sitio = sitioPermitido({
+          lado: cx < width / 2 ? "l" : "r",
+          fy: limitar((y - TOP_INSET) / (yMax - TOP_INSET), 0, 1),
+        });
         preferidoRef.current = next;
         AsyncStorage.setItem(CORNER_KEY, JSON.stringify(next)).catch(() => {});
         moverAReflejo.current(next);
@@ -1240,9 +1387,12 @@ export default function Campanita() {
     setBocadillo(null);
     if (!b) return;
     if (b.accion === "chat" || b.accion === "ruta") router.push((b.ruta ?? "/blue-ia") as Href);
-    else if (b.accion === "vender") abrirVender();
+    else if (b.accion === "vender") {
+      marcarOrigenVender("blue");
+      abrirVender();
+    } else if (b.accion === "instalar") instalarApp();
     else openPanel("noticias");
-  }, [bocadillo, openPanel, abrirVender]);
+  }, [bocadillo, openPanel, abrirVender, instalarApp]);
 
   const ir = useCallback((href: string) => {
     setPanelOpen(false);
@@ -1358,7 +1508,8 @@ export default function Campanita() {
   // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
   const arriba = sitio.fy < 0.5;
   // Los mensajes salen AL LADO de Blue (hacia el centro), con el ancho que quepa.
-  const anchoMensaje = Math.max(150, Math.min(260, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
+  // Alargado (más ancho que alto): pocas líneas, sin título ni botón aparte.
+  const anchoMensaje = Math.max(170, Math.min(330, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
   const ladoMensaje = { [derecha ? "right" : "left"]: BLUE_SIZE + 6, [arriba ? "top" : "bottom"]: 2 };
   const pistaAccion =
     bocadillo?.accion === "chat"
@@ -1367,7 +1518,9 @@ export default function Campanita() {
         ? { icono: "cash-outline" as const, texto: "Vender ahora" }
         : bocadillo?.accion === "ruta"
           ? { icono: "arrow-forward-circle-outline" as const, texto: "Ver" }
-          : null;
+          : bocadillo?.accion === "instalar"
+            ? { icono: "download-outline" as const, texto: "Instalar" }
+            : null;
 
   // Capa visible: fundido de entrada × fundido al ocultarse, y deslizamiento
   // hacia su borde. Cuerpo: rebote de escala y giro del saludo.
@@ -1439,22 +1592,20 @@ export default function Campanita() {
                 onPress={alTocarBocadillo}
                 accessibilityRole="button"
                 accessibilityHint={pistaAccion?.texto}
-                style={({ pressed }) => [CRISTAL, { paddingVertical: 11, paddingHorizontal: 13, paddingRight: 30, opacity: pressed ? 0.85 : 1 }]}
+                style={({ pressed }) => [CRISTAL, { paddingVertical: 8, paddingLeft: 13, paddingRight: 30, opacity: pressed ? 0.85 : 1 }]}
               >
-                <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
-                <Text style={[TEXTO_CRISTAL, { fontWeight: "800", fontSize: 13.5, lineHeight: 19 }]}>{bocadillo.texto}</Text>
-                {pistaAccion ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
-                    <Ionicons name={pistaAccion.icono} size={14} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>{pistaAccion.texto}</Text>
-                  </View>
-                ) : null}
+                {/* Todo en un solo párrafo: «Blue», el mensaje y lo que pasa al tocar. */}
+                <Text numberOfLines={3} style={[TEXTO_CRISTAL, { fontWeight: "800", fontSize: 13, lineHeight: 17 }]}>
+                  <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>Blue · </Text>
+                  {bocadillo.texto}
+                  {pistaAccion ? <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>{`  ${pistaAccion.texto} ›`}</Text> : null}
+                </Text>
               </Pressable>
               <Pressable
                 onPress={() => setBocadillo(null)}
                 hitSlop={10}
                 accessibilityLabel="Cerrar mensaje de Blue"
-                style={{ position: "absolute", top: 8, right: 8 }}
+                style={{ position: "absolute", top: 7, right: 9 }}
               >
                 <Ionicons name="close" size={16} color={COLORS.muted} />
               </Pressable>
@@ -1636,9 +1787,12 @@ export default function Campanita() {
                   texto="Vender mi consola o dispositivo"
                   onPress={() => {
                     setPanelOpen(false);
+                    marcarOrigenVender("blue");
                     abrirVender();
                   }}
                 />
+                {/* Solo si se puede instalar en este dispositivo y aún no está instalada. */}
+                {modoInst ? <BotonPanel icono="download-outline" texto="Instalar la tienda como app" onPress={instalarApp} /> : null}
               </View>
 
               </>
@@ -1870,12 +2024,46 @@ export default function Campanita() {
             router.push(ruta as Href);
           }}
           onVender={() => {
+            // El formulario recuerda que viene de la guía (para medir cuántos lo envían).
+            marcarOrigenVender("guia");
+            trackEvent("guia_vender", "Guía Blue: pulsa «Abrir el formulario»");
             cerrarGuia();
             abrirVender();
           }}
+          onInstalar={() => {
+            cerrarGuia();
+            instalarApp();
+          }}
+          instalable={!!modoInst}
           onSenalaBlue={setGuiaSenalaBlue}
         />
       ) : null}
+
+      {/* iPhone/iPad: no hay botón de instalar; se enseñan los pasos de Safari. */}
+      <Modal visible={pasosIosAbiertos} transparent animationType="fade" onRequestClose={() => setPasosIosAbiertos(false)}>
+        <Pressable
+          onPress={() => setPasosIosAbiertos(false)}
+          style={{ flex: 1, backgroundColor: FONDO_GUIA, justifyContent: "flex-end", alignItems: "center", padding: 12 }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{ width: "100%", maxWidth: 420, backgroundColor: COLORS.bg, borderRadius: 24, padding: 20, gap: 12, alignItems: "center" }}
+          >
+            <Ionicons name="download-outline" size={26} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>Instala la tienda en tu iPhone</Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, fontWeight: "600", textAlign: "center" }}>
+              {"1. Toca el botón Compartir de Safari (el cuadrado con una flecha hacia arriba).\n2. Elige «Añadir a pantalla de inicio».\n3. Toca «Añadir». Ya la tendrás como una app."}
+            </Text>
+            <Pressable
+              onPress={() => setPasosIosAbiertos(false)}
+              accessibilityRole="button"
+              style={{ alignSelf: "stretch", minHeight: 52, borderRadius: 999, backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center" }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Entendido</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -2030,8 +2218,10 @@ type PasoGuia = {
   ruta?: string;
   // Selector de lo que hay que traer a la vista (desplazando la pantalla) antes de señalarlo.
   desplazar?: string;
-  accion?: { texto: string; ruta?: string; vender?: boolean };
+  accion?: { texto: string; ruta?: string; vender?: boolean; instalar?: boolean };
   cuenta?: boolean;
+  // Solo se enseña si la tienda se puede instalar en este dispositivo.
+  soloInstalable?: boolean;
 };
 
 const PESTANAS = ["index", "perfil", "cesta", "foro", "blue-ia"].map((p) => `[data-testid="pestana-${p}"]`);
@@ -2126,6 +2316,14 @@ const PASOS_GUIA: PasoGuia[] = [
     desplazar: '[data-testid="boton-ver-categorias"]',
   },
   {
+    icono: "download-outline",
+    titulo: "Instala la tienda",
+    texto: "Ten VideojuegosZaragoza como una app en tu pantalla de inicio: la abres con un toque, sin buscarla en el navegador.",
+    ruta: "/",
+    soloInstalable: true,
+    accion: { texto: "Instalar la app", instalar: true },
+  },
+  {
     icono: "construct-outline",
     titulo: "Reparación y limpieza",
     texto: "En Servicios tienes reparación, limpieza y mantenimiento para tus dispositivos.",
@@ -2166,20 +2364,40 @@ const FONDO_GUIA = "rgba(11,33,56,0.58)";
 const MARGEN_ARO = 6;
 
 function GuiaBlue({
-  onCerrar,
+  onCerrar: cerrarSinMedir,
   onIr,
   onVender,
+  onInstalar,
+  instalable,
   onSenalaBlue,
 }: {
   onCerrar: () => void;
   onIr: (ruta: string) => void;
   onVender: () => void;
+  onInstalar: () => void;
+  // El paso «Instala la tienda» solo sale si se puede instalar en este dispositivo.
+  instalable: boolean;
   // Avisa a Blue de si este paso le señala a él (mientras no, se esconde para no tapar la guía).
   onSenalaBlue: (si: boolean) => void;
 }) {
   const [paso, setPaso] = useState(0);
-  const total = PASOS_GUIA.length;
-  const p = PASOS_GUIA[paso];
+  const pasos = React.useMemo(() => PASOS_GUIA.filter((x) => !x.soloInstalable || instalable), [instalable]);
+  const total = pasos.length;
+  const p = pasos[paso];
+
+  // Embudo: en qué paso está cada visitante (con su consentimiento de analítica) y cómo
+  // termina la guía. Así se ve en el panel dónde se pierde la gente y cuántos llegan al
+  // formulario de Vender.
+  useEffect(() => {
+    trackEvent("guia_paso", `Guía Blue: ${String(paso + 1).padStart(2, "0")} ${p.titulo}`);
+    if (paso === total - 1) trackEvent("guia_completada", "Guía Blue: completada");
+  }, [paso, p.titulo, total]);
+  const pasoActualRef = useRef(0);
+  pasoActualRef.current = paso;
+  const onCerrar = useCallback(() => {
+    if (pasoActualRef.current < total - 1) trackEvent("guia_saltada", "Guía Blue: saltada");
+    cerrarSinMedir();
+  }, [cerrarSinMedir, total]);
   const anim = useRef(new Animated.Value(1)).current;
   const direccion = useRef(1);
   const pathname = usePathname() ?? "";
@@ -2391,7 +2609,9 @@ function GuiaBlue({
 
           {p.accion ? (
             <Pressable
-              onPress={() => (p.accion?.vender ? onVender() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined)}
+              onPress={() =>
+                p.accion?.vender ? onVender() : p.accion?.instalar ? onInstalar() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined
+              }
               accessibilityRole="button"
               hitSlop={8}
             >
@@ -2401,7 +2621,7 @@ function GuiaBlue({
 
           {/* Progreso */}
           <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }} accessibilityLabel={`Paso ${paso + 1} de ${total}`}>
-            {PASOS_GUIA.map((_, i) => (
+            {pasos.map((_, i) => (
               <View
                 key={i}
                 style={{
