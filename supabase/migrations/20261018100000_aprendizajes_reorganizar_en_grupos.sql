@@ -1,5 +1,6 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
--- Migración: reorganiza el Centro de Aprendizajes en 10 grupos (antes, 54 lecciones sueltas).
+-- Migración: reorganiza el Centro de Aprendizajes en 10 grupos (antes, 54 lecciones sueltas más las
+--   2 nuevas de 20261018090000).
 -- Tipo:     NO borra nada y no pierde ninguna palabra.
 --   1) Crea una fila «Grupo · …» por tema. Su regla es una frase de introducción más las reglas
 --      ORIGINALES copiadas tal cual desde la tabla (con su prioridad [P1] [P2] [P3] y su título), y lo
@@ -9,8 +10,8 @@
 --   completo y, con 3.923 de los 4.000 caracteres que admite la regla, no cabe dentro de un grupo.
 -- Idempotente: si el grupo ya existe no se vuelve a crear, y las sueltas solo se desactivan si su
 --   grupo está activo. Vuelta atrás: supabase/rollbacks/20261018100000_aprendizajes_reorganizar_revertir.sql
--- Orden: debe aplicarse DESPUÉS de 20261018090000_aprendizajes_minimo_10_recomendaciones.sql, que
---   crea una de las lecciones del primer grupo.
+-- Orden: debe aplicarse DESPUÉS de 20261018090000_aprendizajes_lecciones_nuevas.sql, que crea una
+--   lección del primer grupo y otra del cuarto.
 -- ============================================================================
 
 do $$
@@ -51,7 +52,8 @@ begin
              'Lo que usa el código tiene que existir en la base de datos',
              'No crear archivos por crear',
              'Archivos de ayuda fuera de app/',
-             'Nombres y valores de variables secretas']),
+             'Nombres y valores de variables secretas',
+             'Comprobar los límites de la tabla antes de añadir texto']),
       ('Grupo · Blue flotante: sitio, avisos y guía', 'diseno',
        'Blue flotante: nunca tapa contenido, dónde se coloca, cuándo se esconde, cómo y cuántas veces avisa, dónde viven las notificaciones y cómo funciona su guía.',
        array['La guía de Blue navega sola y no puede desmontarse',

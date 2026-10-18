@@ -4,8 +4,9 @@
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --
 -- Qué hace (y nada más):
---   1) Vuelve a activar las 54 lecciones sueltas originales y la lección «Mínimo 10 recomendaciones…»
---      (la migración las había dejado con activa = false; sus textos nunca se tocaron).
+--   1) Vuelve a activar las 54 lecciones sueltas originales y las 2 nuevas («Mínimo 10
+--      recomendaciones…» y «Comprobar los límites…»; la migración las había dejado con activa = false;
+--      sus textos nunca se tocaron).
 --   2) Desactiva las 10 filas «Grupo · …» (activa = false). No se borran: la tabla no admite borrados
 --      y así queda constancia de cómo estaban agrupadas.
 --
@@ -46,6 +47,7 @@ where not activa
     'No crear archivos por crear',
     'Archivos de ayuda fuera de app/',
     'Nombres y valores de variables secretas',
+    'Comprobar los límites de la tabla antes de añadir texto',
     'La guía de Blue navega sola y no puede desmontarse',
     'Blue nunca tapa contenido',
     'Blue se esconde al bajar el scroll y vuelve al parar',
