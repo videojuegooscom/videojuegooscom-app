@@ -94,6 +94,19 @@ const CATALOGO = [
   { nombre: "pedidos-sql", grupo: "sql", archivo: P("pedidos-sql"), args: (c) => [c.servidor] },
   { nombre: "limite-sql", grupo: "sql", archivo: P("limite-sql"), args: (c) => [c.servidor] },
   { nombre: "interaccion-sql", grupo: "sql", archivo: P("interaccion-sql"), args: (c) => [c.servidor] },
+  { nombre: "reservas-sql", grupo: "sql", archivo: P("reservas-sql"), args: (c) => [c.servidor] },
+  { nombre: "analitica-sql", grupo: "sql", archivo: P("analitica-sql"), args: (c) => [c.servidor] },
+  { nombre: "permisos-chat-sql", grupo: "sql", archivo: P("permisos-chat-sql"), args: (c) => [c.servidor] },
+  {
+    // Todas las migraciones preparadas, juntas, dos veces y deshechas en orden inverso: necesita las de todas las PR.
+    nombre: "migraciones-cadena", grupo: "sql", archivo: P("migraciones-cadena"), args: (c) => [c.servidor],
+    requiere: [
+      "pruebas/sql-aislado.mjs", "supabase/migrations/20261013090000_reservas_cesta.sql", "supabase/migrations/20261013120000_pedidos.sql",
+      ...["090000_aprendizajes_lecciones_nuevas", "095000_aprendizajes_autorizacion_expresa", "096000_aprendizajes_blue_publico_y_admin", "097000_aprendizajes_pruebas_y_permisos",
+        "100000_aprendizajes_reorganizar_en_grupos", "110000_pedidos_idempotencia", "120000_limite_peticiones", "130000_visitas_y_apoyos_protegidos", "140000_reservas_protegidas",
+        "150000_analitica_topes", "160000_funciones_chat_sin_public"].map((m) => `supabase/migrations/20261018${m}.sql`),
+    ],
+  },
   { nombre: "api-limite", grupo: "sql", archivo: P("api-limite"), args: (c) => [c.servidor] },
   { nombre: "blue-ia-abuso", grupo: "sql", archivo: P("blue-ia-abuso"), args: (c) => [c.servidor] },
   { nombre: "interaccion-api", grupo: "sql", archivo: P("interaccion-api"), args: (c) => [c.servidor] },
@@ -105,6 +118,16 @@ const CATALOGO = [
     nombre: "control: pedidos-sql sin bloqueos",
     grupo: "sql", control: true, archivo: P("pedidos-sql"), args: (c) => [c.servidor, "--mutacion-sin-bloqueos"], esperaTexto: "MUTACIÓN DETECTADA",
   },
+  {
+    nombre: "control: reservas-sql sin bloqueo por persona",
+    grupo: "sql", control: true, archivo: P("reservas-sql"), args: (c) => [c.servidor, "--mutacion-sin-bloqueo"], esperaTexto: "MUTACIÓN DETECTADA",
+    requiereTexto: [[P("reservas-sql"), "--mutacion-sin-bloqueo"]],
+  },
+  ...["divisor", "espera", "pausa"].map((m) => ({
+    nombre: `control: blue-ia-abuso sin la defensa «${m}»`,
+    grupo: "sql", control: true, archivo: P("blue-ia-abuso"), args: (c) => [c.servidor, `--mutacion=${m}`], esperaTexto: "MUTACIÓN DETECTADA",
+    requiereTexto: [[P("blue-ia-abuso"), "--mutacion="]],
+  })),
 ];
 
 // --- utilidades --------------------------------------------------------------------------------------
@@ -315,6 +338,9 @@ try {
     if (!p.cmd && !existsSync(p.archivo)) { omitir("la prueba no está en esta rama"); continue; }
     const sinArchivos = (p.requiere ?? []).filter((f) => !existsSync(f));
     if (sinArchivos.length) { omitir(`faltan archivos que llegan con otras PR (${sinArchivos.length}): ${sinArchivos.map((f) => basename(f)).slice(0, 2).join(", ")}…`); continue; }
+    // «requiereTexto»: la prueba existe pero esta rama aún no trae la opción que necesita este control.
+    const sinOpcion = (p.requiereTexto ?? []).filter(([f, t]) => !existsSync(f) || !readFileSync(f, "utf8").includes(t));
+    if (sinOpcion.length) { omitir(`la prueba de esta rama aún no tiene la opción «${sinOpcion[0][1]}» (llega con otra PR)`); continue; }
     if (p.grupo === "sql" && !ctx.servidor) { omitir("falta el PostgreSQL de pruebas (--servidor o --postgres-propio)"); continue; }
     if (p.grupo === "navegador") {
       if (!hayNavegador) { omitir(motivoNavegador); continue; }

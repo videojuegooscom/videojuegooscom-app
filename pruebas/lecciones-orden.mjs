@@ -190,9 +190,10 @@ try {
   const nuevasActivas = Number(await db.consulta(cadena, `select count(*) from public.aprendizajes where activa and titulo in (
     'Mínimo 10 recomendaciones de mejoría en cada respuesta', 'Comprobar los límites de la tabla antes de añadir texto',
     'Autorización expresa del dueño antes de fusionar, desplegar o migrar', 'Blue: interfaz pública y Administración',
-    'Una prueba debe fallar sin la corrección', 'Quitar permisos de una función: revisar también PUBLIC', 'npm audit no equivale a «llega al navegador»')`));
-  ok(nuevasActivas === 7, `volver a aplicar tras la vuelta atrás reactiva las 7 lecciones nuevas (activas: ${nuevasActivas})`);
-  ok(reaplicada.activas === "61" && reaplicada.repetidos === "0", `y quedan 61 activas (55 originales - la de Blue sustituida + 7 nuevas) sin títulos repetidos (activas: ${reaplicada.activas})`);
+    'Una prueba debe fallar sin la corrección', 'Quitar permisos de una función: revisar también PUBLIC', 'npm audit no equivale a «llega al navegador»',
+    'Probar los ciclos y las condiciones reales, no solo el camino feliz')`));
+  ok(nuevasActivas === 8, `volver a aplicar tras la vuelta atrás reactiva las 8 lecciones nuevas (activas: ${nuevasActivas})`);
+  ok(reaplicada.activas === "62" && reaplicada.repetidos === "0", `y quedan 62 activas (55 originales - la de Blue sustituida + 8 nuevas) sin títulos repetidos (activas: ${reaplicada.activas})`);
   const blueAntigua = await db.consulta(cadena, "select count(*) from public.aprendizajes where titulo = 'Blue fuera del panel' and not activa and regla like '%SUSTITUIDA 2026-10-18%'");
   ok(blueAntigua === "1", "y «Blue fuera del panel» queda sustituida una sola vez");
   console.log(`INFO tras «aplicar, deshacer, aplicar» el estado ${reaplicada.huella === una.huella ? "es el mismo" : "NO es el mismo"} que la primera vez (los grupos creados se conservan inactivos y no se vuelven a activar solos)`);
