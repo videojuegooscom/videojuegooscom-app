@@ -49,6 +49,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CargaMarca from "../components/marca/CargaMarca";
+import CabeceraMarca from "../components/CabeceraMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../components/ProductChatThread";
 import { supabase } from "../lib/supabase";
@@ -445,12 +446,14 @@ export default function CheckoutScreen() {
         }}
       >
         <View style={columnStyle}>
+          <CabeceraMarca onBack={smartBackToHome} />
           <View
             style={{
               flexDirection: "row",
               justifyContent: "space-between",
               alignItems: "center",
               gap: 10,
+              marginTop: 8,
             }}
           >
             <View style={{ flex: 1 }}>
@@ -461,22 +464,6 @@ export default function CheckoutScreen() {
                 Rápido, claro y sin costes ocultos.
               </Text>
             </View>
-          </View>
-
-          <View style={{ alignItems: "center", marginTop: 10 }}>
-            <Pressable
-              onPress={smartBackToHome}
-              style={{
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
-              }}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "800" }}>← Volver</Text>
-            </Pressable>
           </View>
 
           {err ? (

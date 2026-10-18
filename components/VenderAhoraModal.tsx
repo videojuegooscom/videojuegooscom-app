@@ -125,6 +125,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import CabeceraMarca from "./CabeceraMarca";
 import { activarNotificaciones, estadoNotificaciones, type EstadoNotificaciones } from "../lib/notificaciones";
 import {
   SellMediaPicker,
@@ -1477,30 +1478,36 @@ export default function VenderAhoraModal({
                   </View>
                 ) : (
                   <>
-                    <AnimatedPressable
-                      onPress={handleClose}
-                      containerStyle={{
-                        position: "absolute",
-                        top: comoPagina ? 6 : isMobile ? 12 : 16,
-                        // En la página, la flecha de volver va arriba a la izquierda.
-                        ...(comoPagina ? { left: isMobile ? 14 : 22 } : { right: isMobile ? 12 : 16 }),
-                        zIndex: 2,
-                        width: 32,
-                        height: 32,
-                      }}
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        opacity: pressed ? 0.8 : 1,
-                        borderRadius: 16,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: COLORS.card,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                      })}
-                    >
-                      <Ionicons name={comoPagina ? "chevron-back" : "close"} size={18} color={COLORS.text} />
-                    </AnimatedPressable>
+                    {comoPagina ? (
+                      // En la página: la misma cabecera que el resto (volver + VideojuegosZaragoza).
+                      <View style={{ width: "100%", marginBottom: 6 }}>
+                        <CabeceraMarca onBack={handleClose} />
+                      </View>
+                    ) : (
+                      <AnimatedPressable
+                        onPress={handleClose}
+                        containerStyle={{
+                          position: "absolute",
+                          top: isMobile ? 12 : 16,
+                          right: isMobile ? 12 : 16,
+                          zIndex: 2,
+                          width: 32,
+                          height: 32,
+                        }}
+                        style={({ pressed }) => ({
+                          flex: 1,
+                          opacity: pressed ? 0.8 : 1,
+                          borderRadius: 16,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: COLORS.card,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                        })}
+                      >
+                        <Ionicons name="close" size={18} color={COLORS.text} />
+                      </AnimatedPressable>
+                    )}
 
                     <View style={{ alignItems: "center", paddingHorizontal: 34 }}>
                       <Text

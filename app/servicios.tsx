@@ -35,6 +35,7 @@ import { supabase } from "../lib/supabase";
 import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
+import CabeceraMarca from "../components/CabeceraMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -238,20 +239,8 @@ export default function ServiciosScreen() {
         }}
       >
         <View style={{ ...columnStyle, gap: 12 }}>
+          <CabeceraMarca />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Pressable
-              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.85 : 1,
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                alignItems: "center",
-                justifyContent: "center",
-              })}
-            >
-              <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-            </Pressable>
             <View style={{ flex: 1, alignItems: "center" }}>
               <MarcaAnimada cual="taller" ancho={isMobile ? 140 : 160} />
               <Text
