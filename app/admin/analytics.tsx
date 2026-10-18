@@ -528,6 +528,30 @@ export default function AdminAnalytics() {
     };
   }, [funnel]);
 
+  // Guía de Blue y formulario de Vender: pasos de la guía (en orden), cómo termina y qué pasa
+  // después en el formulario (abierto y enviado, y de ellos cuántos venían de la guía).
+  const guiaVender = useMemo(() => {
+    const filas = (prefijo: string) =>
+      funnel
+        .filter((f) => f.step_label.startsWith(prefijo))
+        .sort((a, b) => a.step_label.localeCompare(b.step_label));
+    const pasos = filas("Guía Blue: ").filter((f) => /^Guía Blue: \d\d /.test(f.step_label));
+    const exacto = (label: string) => funnel.find((f) => f.step_label === label)?.sessions ?? 0;
+    const empiezan = pasos[0]?.sessions ?? 0;
+    const desdeGuia = exacto("Vender: abierto desde la guía");
+    return {
+      pasos,
+      empiezan,
+      completada: exacto("Guía Blue: completada"),
+      saltada: exacto("Guía Blue: saltada"),
+      pulsaFormulario: exacto("Guía Blue: pulsa «Abrir el formulario»"),
+      abierto: exacto("Vender: abierto"),
+      abiertoGuia: desdeGuia,
+      enviado: exacto("Vender: enviado"),
+      enviadoGuia: exacto("Vender: enviado desde la guía"),
+    };
+  }, [funnel]);
+
   const topCategories = useMemo(
     () =>
       funnel
@@ -793,6 +817,43 @@ export default function AdminAnalytics() {
                     <Ionicons name="swap-vertical-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Sesiones con scroll (en cualquier punto del recorrido): {coreFunnel.scroll}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Guía de Blue y Vender"
+              subtitle="Sesiones que llegan a cada paso de la guía y qué pasa después con el formulario de Vender (solo visitantes que aceptaron la analítica)."
+            >
+              {guiaVender.empiezan === 0 ? (
+                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
+                  Todavía no hay datos de la guía en este rango de fechas.
+                </Text>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  {guiaVender.pasos.map((s) => (
+                    <BarRow
+                      key={s.step_label}
+                      label={s.step_label.replace(/^Guía Blue: \d\d /, "")}
+                      value={s.sessions}
+                      maxValue={guiaVender.empiezan}
+                      color={COLORS.accentDark}
+                    />
+                  ))}
+                  <BarRow label="Guía completada" value={guiaVender.completada} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  <BarRow label="Guía saltada" value={guiaVender.saltada} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  <BarRow label="Pulsan «Abrir el formulario» en la guía" value={guiaVender.pulsaFormulario} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  <BarRow label="Formulario abierto desde la guía" value={guiaVender.abiertoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  <BarRow label="Formulario enviado desde la guía" value={guiaVender.enviadoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  <View style={{ marginTop: 4, borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, gap: 4 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                      Formulario de Vender (todas las vías): abierto {guiaVender.abierto} · enviado {guiaVender.enviado}
+                    </Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                      De cada 100 que empiezan la guía, {Math.round((guiaVender.abiertoGuia / guiaVender.empiezan) * 100)} abren el formulario y{" "}
+                      {Math.round((guiaVender.enviadoGuia / guiaVender.empiezan) * 100)} lo envían.
                     </Text>
                   </View>
                 </View>

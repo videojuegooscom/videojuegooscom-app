@@ -122,7 +122,11 @@ import {
 } from "react-native";
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import CabeceraMarca from "./CabeceraMarca";
+import { activarNotificaciones, estadoNotificaciones, type EstadoNotificaciones } from "../lib/notificaciones";
 import {
   SellMediaPicker,
   uploadSellRequestMedia,
@@ -136,7 +140,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
@@ -153,7 +157,8 @@ const COLORS = {
 // navegadores móviles hacen zoom automático al enfocar el campo.
 const INPUT_FONT_SIZE = 16;
 
-type MetodoContacto = "whatsapp" | "gmail" | "instagram" | "facebook" | "tiktok";
+// Solo dos formas de contacto: el correo de Gmail y el chat propio de la tienda.
+type MetodoContacto = "gmail" | "chat";
 type OpcionVenta = "domicilio" | "entrega";
 type Disponibilidad = "manana" | "mediodia" | "tardenoche";
 type Genero = "masculino" | "femenino";
@@ -241,6 +246,106 @@ function softShadow() {
   });
 }
 
+// Brillo SUTIL con efecto «Siri» alrededor de lo que envuelve: un borde fino de degradado que gira,
+// en tonos suaves (azul de marca y pasteles), con un resplandor muy tenue por fuera. Solo sirve para
+// que la persona vea las opciones: no debe llamar la atención. Se enciende cada vez que cambia
+// `encender` (si es > 0), dura un par de segundos y se apaga solo. Va DETRÁS del contenido (que debe
+// tener fondo opaco), así que solo se ve el borde y el resplandor. Solo web; con «reducir
+// movimiento» no gira (queda fijo).
+const SIRI_DEGRADADO =
+  "conic-gradient(from 0deg, #1EA7E8, #9FB4FF, #D3B8FF, #FFC2DD, #A8E6EF, #1EA7E8)";
+const SIRI_MS = 2400;
+function SiriGlow({
+  encender,
+  radio = 14,
+  style,
+  children,
+}: {
+  encender: number;
+  radio?: number;
+  style?: object;
+  children: React.ReactNode;
+}) {
+  const [visible, setVisible] = useState(false);
+  const opacidad = useRef(new Animated.Value(0)).current;
+  const giro = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!encender || Platform.OS !== "web") return;
+    let reducido = false;
+    try {
+      reducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      // sin matchMedia
+    }
+    setVisible(true);
+    opacidad.setValue(0);
+    giro.setValue(0);
+    const vuelta = reducido
+      ? null
+      : Animated.loop(Animated.timing(giro, { toValue: 1, duration: 2400, easing: Easing.linear, useNativeDriver: false }));
+    vuelta?.start();
+    Animated.timing(opacidad, { toValue: 1, duration: 260, useNativeDriver: false }).start();
+    const apagar = setTimeout(() => {
+      Animated.timing(opacidad, { toValue: 0, duration: 700, useNativeDriver: false }).start(() => {
+        setVisible(false);
+        vuelta?.stop();
+      });
+    }, SIRI_MS);
+    return () => {
+      clearTimeout(apagar);
+      vuelta?.stop();
+    };
+  }, [encender, opacidad, giro]);
+
+  const rotar = giro.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  // Capa cuadrada grande y centrada que gira dentro de un marco recortado con las esquinas del campo.
+  const capa = (margen: number, extra: object, op: number) => (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: -margen,
+        right: -margen,
+        top: -margen,
+        bottom: -margen,
+        borderRadius: radio + margen,
+        overflow: "hidden",
+        opacity: opacidad.interpolate({ inputRange: [0, 1], outputRange: [0, op] }),
+        ...extra,
+      }}
+    >
+      <Animated.View
+        style={
+          {
+            position: "absolute",
+            width: 600,
+            height: 600,
+            left: "50%",
+            top: "50%",
+            marginLeft: -300,
+            marginTop: -300,
+            backgroundImage: SIRI_DEGRADADO,
+            transform: [{ rotate: rotar }],
+          } as object
+        }
+      />
+    </Animated.View>
+  );
+
+  return (
+    <View style={[{ position: "relative" }, style]}>
+      {visible ? (
+        <>
+          {capa(4, { filter: "blur(6px)" } as object, 0.3)}
+          {capa(1.5, {}, 0.65)}
+        </>
+      ) : null}
+      <View style={{ position: "relative" }}>{children}</View>
+    </View>
+  );
+}
+
 // dim=true atenúa también la pregunta (no solo el campo/desplegable de
 // debajo) cuando ese campo ya está completo, siguiendo el mismo lenguaje
 // visual de "completado" que FieldInput/SelectField.
@@ -303,7 +408,8 @@ function FieldInput({
             color: completed ? COLORS.muted : COLORS.text,
             backgroundColor: completed ? COLORS.card : COLORS.cardSoft,
             fontSize: INPUT_FONT_SIZE,
-            textAlign: "left",
+            // Todo centrado, también lo que escribe el cliente en cada recuadro.
+            textAlign: "center",
           },
           style,
         ]}
@@ -314,56 +420,6 @@ function FieldInput({
           <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
         </View>
       )}
-    </View>
-  );
-}
-
-// Fila fija (prefijo tipo "+34" o "@") + campo editable a su lado. Mismo
-// alto y tipografía que FieldInput para que no salte el zoom del navegador.
-// El texto que escribe el usuario sigue alineado a la izquierda a propósito.
-function PrefixedInput({
-  prefix,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType,
-  filled,
-}: {
-  prefix: string;
-  value: string;
-  onChangeText: (v: string) => void;
-  placeholder?: string;
-  keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
-  filled?: boolean;
-}) {
-  const isMobile = useIsMobile();
-  return (
-    <View style={{ flexDirection: "row", gap: 8 }}>
-      <View
-        style={{
-          paddingHorizontal: isMobile ? 12 : 14,
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          backgroundColor: COLORS.card,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: INPUT_FONT_SIZE }}>
-          {prefix}
-        </Text>
-      </View>
-
-      <FieldInput
-        containerStyle={{ flex: 1 }}
-        filled={filled}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        keyboardType={keyboardType}
-        autoCapitalize="none"
-      />
     </View>
   );
 }
@@ -388,7 +444,21 @@ function SelectField<T extends string>({
 }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  // Cada vez que se despliega, las opciones se iluminan unos segundos con el efecto «Siri».
+  const [brillo, setBrillo] = useState(0);
+  const cajaRef = useRef<View>(null);
   const selected = options.find((o) => o.value === value);
+
+  // Al desplegar, el scroll se adapta solo para que el desplegable (botón y opciones) quede a la
+  // vista y centrado, también cuando está al final del formulario o tapado por el teclado.
+  useEffect(() => {
+    if (!open || Platform.OS !== "web") return;
+    const t = setTimeout(() => {
+      const nodo = cajaRef.current as unknown as HTMLElement | null;
+      nodo?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 90);
+    return () => clearTimeout(t);
+  }, [open]);
   // "Completado": ya hay un valor elegido y el desplegable está cerrado. En
   // ese caso el botón baja de intensidad y muestra un check en vez de la
   // flecha; al volver a tocarlo (se abre) recupera el aspecto normal para
@@ -396,9 +466,13 @@ function SelectField<T extends string>({
   const completed = !!value && !open;
 
   return (
-    <View style={{ gap: 8, alignItems: compact ? "center" : "stretch" }}>
+    <View ref={cajaRef} style={{ gap: 8, alignItems: compact ? "center" : "stretch" }}>
       <AnimatedPressable
-        onPress={() => setOpen((o) => !o)}
+        onPress={() => {
+          const siguiente = !open;
+          setOpen(siguiente);
+          if (siguiente) setBrillo((b) => b + 1);
+        }}
         containerStyle={{
           alignSelf: compact ? "center" : "stretch",
           width: compact ? undefined : "100%",
@@ -447,28 +521,28 @@ function SelectField<T extends string>({
           {options.map((opt) => {
             const active = value === opt.value;
             return (
-              <AnimatedPressable
-                key={opt.value}
-                onPress={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                containerStyle={{ flexGrow: 1, minWidth: 96 }}
-                style={({ pressed }) => ({
-                  borderRadius: 14,
-                  paddingVertical: isMobile ? 10 : 12,
-                  paddingHorizontal: 12,
-                  alignItems: "center",
-                  borderWidth: 1,
-                  borderColor: active ? COLORS.accentBorder : COLORS.border,
-                  backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-                  opacity: pressed ? 0.9 : 1,
-                })}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
-                  {opt.label}
-                </Text>
-              </AnimatedPressable>
+              <SiriGlow key={opt.value} encender={brillo} style={{ flexGrow: 1, minWidth: 96 }}>
+                <AnimatedPressable
+                  onPress={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  style={({ pressed }) => ({
+                    borderRadius: 14,
+                    paddingVertical: isMobile ? 10 : 12,
+                    paddingHorizontal: 12,
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: active ? COLORS.accentBorder : COLORS.border,
+                    backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
+                    opacity: pressed ? 0.9 : 1,
+                  })}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
+                    {opt.label}
+                  </Text>
+                </AnimatedPressable>
+              </SiriGlow>
             );
           })}
         </View>
@@ -554,11 +628,8 @@ function Checkbox({
 }
 
 const METODO_OPTIONS: { label: string; value: MetodoContacto }[] = [
-  { label: "WhatsApp", value: "whatsapp" },
   { label: "Gmail", value: "gmail" },
-  { label: "Instagram", value: "instagram" },
-  { label: "Facebook", value: "facebook" },
-  { label: "TikTok", value: "tiktok" },
+  { label: "Chat de la tienda", value: "chat" },
 ];
 
 const OPCION_VENTA_OPTIONS: { label: string; value: OpcionVenta }[] = [
@@ -577,26 +648,14 @@ const GENERO_OPTIONS: { label: string; value: Genero }[] = [
   { label: "Femenino", value: "femenino" },
 ];
 
-// Valida el dato de contacto según el método elegido, con un mínimo de
-// caracteres para evitar datos claramente incompletos: un número de
-// WhatsApp necesita al menos 9 dígitos (como un móvil español sin el
-// prefijo "+34"), un email de Gmail necesita al menos 3 caracteres antes
-// de la "@", y un usuario de red social al menos 2 caracteres sin contar
-// el "@" inicial.
+// Valida el dato de contacto según el método elegido: un email de Gmail necesita al menos 3
+// caracteres antes de la "@"; el chat de la tienda no pide ningún dato (se habla dentro de la
+// propia tienda, con la cuenta de la persona).
 function contactoEsValido(metodo: MetodoContacto | null, valor: string): boolean {
+  if (metodo === "chat") return true;
   const raw = valor.trim();
   if (!metodo || !raw) return false;
-
-  if (metodo === "whatsapp") {
-    return raw.replace(/[^\d]/g, "").length >= 9;
-  }
-
-  if (metodo === "gmail") {
-    return raw.split("@")[0].trim().length >= 3;
-  }
-
-  // instagram / facebook / tiktok
-  return raw.replace(/^@+/, "").trim().length >= 2;
+  return raw.split("@")[0].trim().length >= 3;
 }
 
 /**
@@ -624,7 +683,9 @@ type SellRequestPayload = {
   descripcion_problema: string | null;
   ciudad: string;
   precio_estimado: string;
-  metodo_contacto: MetodoContacto | null;
+  // El chat no tiene valor propio en la base de datos (su restricción solo admite los de antes):
+  // se guarda como null y en «contacto» el texto «Chat de la tienda».
+  metodo_contacto: "gmail" | null;
   contacto: string | null;
   opcion_venta: OpcionVenta;
   direccion: string | null;
@@ -637,9 +698,13 @@ type SellRequestPayload = {
 export default function VenderAhoraModal({
   visible,
   onClose,
+  comoPagina = false,
 }: {
   visible: boolean;
   onClose: () => void;
+  // true = se pinta como una página completa (app/vender.tsx): sin ventana emergente ni
+  // fondo oscuro, con más aire entre apartados y la flecha de volver arriba a la izquierda.
+  comoPagina?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -662,6 +727,34 @@ export default function VenderAhoraModal({
 
   const [metodoContacto, setMetodoContacto] = useState<MetodoContacto | null>(null);
   const [contactoValor, setContactoValor] = useState("");
+  // Protección contra spam: un campo trampa que una persona no ve (si se rellena, es un robot) y un
+  // tiempo mínimo desde que se abre el formulario hasta que se envía (un robot envía al instante).
+  const [campoTrampa, setCampoTrampa] = useState("");
+  const abiertoEnRef = useRef(Date.now());
+  useEffect(() => {
+    if (visible) abiertoEnRef.current = Date.now();
+  }, [visible]);
+  // Sesión iniciada (el chat de la tienda la necesita) y estado de los avisos del navegador.
+  const [haySesion, setHaySesion] = useState(false);
+  const [estadoNotif, setEstadoNotif] = useState<EstadoNotificaciones>("no-disponibles");
+  useEffect(() => {
+    let vivo = true;
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (vivo) setHaySesion(!!data.session?.user);
+      })
+      .catch(() => {});
+    const { data: sub } = supabase.auth.onAuthStateChange((_evento, sesion) => setHaySesion(!!sesion?.user));
+    return () => {
+      vivo = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+  // Al elegir el chat se mira si ya están activados los avisos (si lo están, no se muestra nada).
+  useEffect(() => {
+    if (metodoContacto === "chat") setEstadoNotif(estadoNotificaciones());
+  }, [metodoContacto]);
 
   const [opcionVenta, setOpcionVenta] = useState<OpcionVenta | null>(null);
   const [direccion, setDireccion] = useState("");
@@ -811,7 +904,15 @@ export default function VenderAhoraModal({
     outputRange: [0.55, 1],
   });
 
+  // Embudo: el formulario se ha abierto (y desde dónde: la guía de Blue u otro sitio).
+  useEffect(() => {
+    if (!visible) return;
+    trackEvent("vender_abierto", "Vender: abierto");
+    if (leerOrigenVender() === "guia") trackEvent("vender_abierto_guia", "Vender: abierto desde la guía");
+  }, [visible]);
+
   function resetForm() {
+    marcarOrigenVender(null);
     setNombre("");
     setApellido("");
     setArticulo("");
@@ -862,21 +963,10 @@ export default function VenderAhoraModal({
 
   function buildContacto(): string | null {
     if (!metodoContacto) return null;
+    if (metodoContacto === "chat") return "Chat de la tienda";
     const raw = contactoValor.trim();
     if (!raw) return null;
-
-    if (metodoContacto === "whatsapp") {
-      const digits = raw.replace(/[^\d]/g, "");
-      return digits ? `+34 ${digits}` : null;
-    }
-
-    if (metodoContacto === "gmail") {
-      return raw.includes("@") ? raw : `${raw}@gmail.com`;
-    }
-
-    // instagram / facebook / tiktok
-    const handle = raw.replace(/^@+/, "");
-    return handle ? `@${handle}` : null;
+    return raw.includes("@") ? raw : `${raw}@gmail.com`;
   }
 
   async function handleSubmit() {
@@ -951,7 +1041,13 @@ export default function VenderAhoraModal({
       return;
     }
 
-    if (!contactoValor.trim()) {
+    // El chat de la tienda necesita una cuenta: sin sesión no se puede abrir la conversación.
+    if (metodoContacto === "chat" && !haySesion) {
+      setFormErr("Para hablar por el chat necesitas iniciar sesión. Inicia sesión desde Perfil o elige Gmail.");
+      return;
+    }
+
+    if (metodoContacto === "gmail" && !contactoValor.trim()) {
       setFormErr("Completa tu dato de contacto.");
       return;
     }
@@ -981,6 +1077,15 @@ export default function VenderAhoraModal({
       return;
     }
 
+    // Robot: campo trampa relleno o envío en menos de 4 s. Se finge que salió bien (para no darle
+    // pistas) pero no se guarda nada.
+    if (campoTrampa.trim() || Date.now() - abiertoEnRef.current < 4000) {
+      setFormErr(null);
+      setSentChatId(null);
+      setSent(true);
+      return;
+    }
+
     setFormErr(null);
     setSending(true);
 
@@ -995,7 +1100,7 @@ export default function VenderAhoraModal({
       descripcion_problema: !funcionaBien ? cleanProblema : null,
       ciudad: cleanCiudad,
       precio_estimado: cleanPrecio,
-      metodo_contacto: metodoContacto,
+      metodo_contacto: metodoContacto === "gmail" ? "gmail" : null,
       contacto: buildContacto(),
       opcion_venta: opcionVenta,
       direccion: opcionVenta === "domicilio" ? cleanDireccion : null,
@@ -1065,6 +1170,8 @@ export default function VenderAhoraModal({
 
       setSentChatId(openedChatId);
       setSent(true);
+      trackEvent("vender_enviado", "Vender: enviado");
+      if (leerOrigenVender() === "guia") trackEvent("vender_enviado_guia", "Vender: enviado desde la guía");
     } catch (e: any) {
       setFormErr(
         e?.message ?? "No se pudo enviar el formulario. Inténtalo de nuevo en unos segundos."
@@ -1075,9 +1182,130 @@ export default function VenderAhoraModal({
   }
 
   const showGmailHint = metodoContacto === "gmail" && !contactoValor.includes("@");
+  const insets = useSafeAreaInsets();
+  // Espacio entre apartados y entre campos emparejados: amplio en la página, el de siempre
+  // en la ventana emergente.
+  // Entre filas de campos: aire claro pero sin alargar el formulario de más (los campos ya van
+  // en columnas).
+  const gapCampos = comoPagina ? (isMobile ? 22 : 26) : isMobile ? 12 : 14;
 
-  return (
-    <IsMobileContext.Provider value={isMobile}>
+  // Rejilla de campos: filas con columnas iguales que aprovechan el ancho. En el móvil, 2
+  // columnas (Nombre | Apellido, Género | ¿Todo funciona?, Ciudad | Precio…); en pantallas
+  // anchas, hasta 3 (Nombre | Apellido | Género, ¿Todo funciona? | motivo…). Los textos largos
+  // (artículo, dirección, fotos) ocupan toda la fila. Dentro de cada fila los recuadros quedan
+  // alineados abajo aunque una etiqueta ocupe dos líneas.
+  const tresColumnas = !isMobile;
+  const filaStyle = { flexDirection: "row" as const, gap: isMobile ? 12 : 16, alignItems: "stretch" as const };
+  const campoStyle = { flex: 1, minWidth: 0, gap: 6, justifyContent: "flex-end" as const };
+  // Dato que depende de un desplegable (número, correo, dirección, disponibilidad): al lado en
+  // pantallas anchas; en el móvil, debajo y a todo el ancho para que no salga cortado.
+  const campoDatoStyle = tresColumnas ? campoStyle : { width: "100%" as const, gap: 6 };
+  // Pantallas anchas: «Contacto» y «Opción de venta» comparten fila mientras no hayan elegido;
+  // al elegir, cada uno pasa a su propia fila (desplegable | dato) para que nada salga truncado.
+  const contactoYOpcionEnFila = tresColumnas && !metodoContacto && !opcionVenta;
+
+  const campoGenero = (
+    <View style={campoStyle}>
+      <FieldLabel dim={!!genero}>Género</FieldLabel>
+      <SelectField
+        options={GENERO_OPTIONS}
+        value={genero}
+        onChange={(v) => {
+          setGenero(v);
+          setFormErr(null);
+        }}
+        compact={twoCol}
+      />
+    </View>
+  );
+
+  const campoCiudad = (
+    <View style={campoStyle}>
+      <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
+      <FieldInput
+        value={ciudad}
+        onChangeText={(v) => {
+          setCiudad(v);
+          setFormErr(null);
+        }}
+        maxLength={100}
+        placeholder="Ej: Zaragoza"
+        filled={!!ciudad.trim()}
+      />
+    </View>
+  );
+
+  const campoPrecio = (
+    <View style={campoStyle}>
+      <FieldLabel dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
+      <FieldInput
+        value={precioEstimado}
+        onChangeText={(v) => {
+          setPrecioEstimado(v);
+          setFormErr(null);
+        }}
+        maxLength={40}
+        placeholder="Ej: 150€"
+        filled={!!precioEstimado.trim()}
+      />
+    </View>
+  );
+
+  const campoFunciona = (
+    <View style={campoStyle}>
+      <FieldLabel dim={funcionaBien !== null}>¿Todo funciona perfectamente?</FieldLabel>
+      <YesNoSelect
+        value={funcionaBien}
+        onChange={(v) => {
+          setFuncionaBien(v);
+          setFormErr(null);
+        }}
+        compact={twoCol}
+      />
+    </View>
+  );
+
+  const campoMotivoOProblema =
+    funcionaBien === true ? (
+      <View style={{ gap: 6 }}>
+        <FieldLabel dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</FieldLabel>
+        <FieldInput
+          value={motivoVenta}
+          onChangeText={(v) => {
+            setMotivoVenta(v);
+            setFormErr(null);
+          }}
+          maxLength={600}
+          placeholder="Ej: ya no lo uso, cambio de consola..."
+          multiline
+          filled={!!motivoVenta.trim()}
+        />
+      </View>
+    ) : funcionaBien === false ? (
+      <View style={{ gap: 6 }}>
+        <FieldLabel dim={!!descripcionProblema.trim()}>
+          ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
+        </FieldLabel>
+        <FieldInput
+          value={descripcionProblema}
+          onChangeText={(v) => {
+            setDescripcionProblema(v);
+            setFormErr(null);
+          }}
+          maxLength={600}
+          placeholder="Ej: no lee discos, la batería no carga..."
+          multiline
+          filled={!!descripcionProblema.trim()}
+        />
+      </View>
+    ) : null;
+
+  // Página completa o ventana emergente. Es una función (no un componente) para que React
+  // no vuelva a montar el formulario en cada pulsación y los campos no pierdan el foco.
+  const envolver = (hijos: React.ReactNode) =>
+    comoPagina ? (
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: insets.top }}>{hijos}</View>
+    ) : (
       <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
         <View
           style={{
@@ -1087,8 +1315,16 @@ export default function VenderAhoraModal({
             justifyContent: "center",
           }}
         >
+          {hijos}
+        </View>
+      </Modal>
+    );
+
+  return (
+    <IsMobileContext.Provider value={isMobile}>
+      {envolver(
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+            contentContainerStyle={{ flexGrow: 1, justifyContent: comoPagina ? "flex-start" : "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
             keyboardShouldPersistTaps="handled"
           >
             <Animated.View
@@ -1101,18 +1337,27 @@ export default function VenderAhoraModal({
               }}
             >
               <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: COLORS.bg2,
-                  padding: isMobile ? 14 : 22,
-                  gap: isMobile ? 12 : 14,
-                  ...softShadow(),
-                }}
+                style={
+                  comoPagina
+                    ? {
+                        // Página: sin tarjeta, fondo limpio y mucho más aire entre apartados.
+                        padding: isMobile ? 18 : 26,
+                        paddingTop: isMobile ? 14 : 20,
+                        gap: gapCampos,
+                      }
+                    : {
+                        borderRadius: 22,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        backgroundColor: COLORS.bg2,
+                        padding: isMobile ? 14 : 22,
+                        gap: gapCampos,
+                        ...softShadow(),
+                      }
+                }
               >
                 {sent ? (
-                  <View style={{ alignItems: "center", gap: 12, paddingVertical: 10 }}>
+                  <View style={{ alignItems: "center", gap: 12, paddingVertical: comoPagina ? 64 : 10, paddingHorizontal: comoPagina ? 20 : 0 }}>
                     <View
                       style={{
                         width: 56,
@@ -1233,32 +1478,41 @@ export default function VenderAhoraModal({
                   </View>
                 ) : (
                   <>
-                    <AnimatedPressable
-                      onPress={handleClose}
-                      containerStyle={{
-                        position: "absolute",
-                        top: isMobile ? 12 : 16,
-                        right: isMobile ? 12 : 16,
-                        zIndex: 2,
-                        width: 32,
-                        height: 32,
-                      }}
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        opacity: pressed ? 0.8 : 1,
-                        borderRadius: 16,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: COLORS.card,
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                      })}
-                    >
-                      <Ionicons name="close" size={18} color={COLORS.text} />
-                    </AnimatedPressable>
+                    {comoPagina ? (
+                      // En la página: la misma cabecera que el resto (volver + VideojuegosZaragoza).
+                      <View style={{ width: "100%", marginBottom: 6 }}>
+                        <CabeceraMarca onBack={handleClose} />
+                      </View>
+                    ) : (
+                      <AnimatedPressable
+                        onPress={handleClose}
+                        containerStyle={{
+                          position: "absolute",
+                          top: isMobile ? 12 : 16,
+                          right: isMobile ? 12 : 16,
+                          zIndex: 2,
+                          width: 32,
+                          height: 32,
+                        }}
+                        style={({ pressed }) => ({
+                          flex: 1,
+                          opacity: pressed ? 0.8 : 1,
+                          borderRadius: 16,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: COLORS.card,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                        })}
+                      >
+                        <Ionicons name="close" size={18} color={COLORS.text} />
+                      </AnimatedPressable>
+                    )}
 
                     <View style={{ alignItems: "center", paddingHorizontal: 34 }}>
                       <Text
+                        accessibilityRole="header"
+                        {...({ "aria-level": 1 } as object)}
                         style={{
                           color: COLORS.text,
                           fontSize: isMobile ? 18 : 21,
@@ -1281,9 +1535,9 @@ export default function VenderAhoraModal({
                       </Text>
                     </View>
 
-                    {/* Nombre + Apellido */}
-                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
-                      <View style={{ flex: 1, gap: 6 }}>
+                    {/* Nombre + Apellido (+ Género cuando caben 3 columnas) */}
+                    <View style={filaStyle}>
+                      <View style={campoStyle}>
                         <FieldLabel dim={nombreValido}>Nombre</FieldLabel>
                         <FieldInput
                           value={nombre}
@@ -1291,11 +1545,12 @@ export default function VenderAhoraModal({
                             setNombre(v);
                             setFormErr(null);
                           }}
+                          maxLength={80}
                           placeholder="Tu nombre"
                           filled={nombreValido}
                         />
                       </View>
-                      <View style={{ flex: 1, gap: 6 }}>
+                      <View style={campoStyle}>
                         <FieldLabel dim={apellidoValido}>Apellido</FieldLabel>
                         <FieldInput
                           value={apellido}
@@ -1303,25 +1558,21 @@ export default function VenderAhoraModal({
                             setApellido(v);
                             setFormErr(null);
                           }}
+                          maxLength={80}
                           placeholder="Tu apellido"
                           filled={apellidoValido}
                         />
                       </View>
+                      {tresColumnas ? campoGenero : null}
                     </View>
 
-                    {/* Género, justo debajo de Nombre y Apellido */}
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel dim={!!genero}>Género</FieldLabel>
-                      <SelectField
-                        options={GENERO_OPTIONS}
-                        value={genero}
-                        onChange={(v) => {
-                          setGenero(v);
-                          setFormErr(null);
-                        }}
-                        compact={twoCol}
-                      />
-                    </View>
+                    {/* Móvil: Género y Ciudad comparten fila (2 columnas). */}
+                    {!tresColumnas ? (
+                      <View style={filaStyle}>
+                        {campoGenero}
+                        {campoCiudad}
+                      </View>
+                    ) : null}
 
                     <View style={{ gap: 6 }}>
                       <FieldLabel dim={!!articulo.trim()}>¿Qué artículo de electrónica o relacionado quieres vender?</FieldLabel>
@@ -1331,101 +1582,41 @@ export default function VenderAhoraModal({
                           setArticulo(v);
                           setFormErr(null);
                         }}
+                        maxLength={300}
                         placeholder="Ej: PlayStation 5 con dos mandos"
                         multiline
                         filled={!!articulo.trim()}
                       />
                     </View>
 
-                    <View style={{ gap: 6 }}>
-                      <FieldLabel dim={funcionaBien !== null}>¿Todo funciona perfectamente?</FieldLabel>
-                      <YesNoSelect
-                        value={funcionaBien}
-                        onChange={(v) => {
-                          setFuncionaBien(v);
-                          setFormErr(null);
-                        }}
-                        compact={twoCol}
-                      />
-                    </View>
-
-                    {funcionaBien === true && (
-                      <View style={{ gap: 6 }}>
-                        <FieldLabel dim={!!motivoVenta.trim()}>¿Cuál es el motivo de la venta?</FieldLabel>
-                        <FieldInput
-                          value={motivoVenta}
-                          onChangeText={(v) => {
-                            setMotivoVenta(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: ya no lo uso, cambio de consola..."
-                          multiline
-                          filled={!!motivoVenta.trim()}
-                        />
-                      </View>
+                    {/* Pantallas anchas: «¿Todo funciona?» y, a su lado, el motivo o el problema.
+                        Móvil: «¿Todo funciona?» con el precio, y el motivo o el problema debajo. */}
+                    {tresColumnas ? (
+                      <>
+                        <View style={filaStyle}>
+                          {campoFunciona}
+                          {campoCiudad}
+                          {campoPrecio}
+                        </View>
+                        {campoMotivoOProblema}
+                      </>
+                    ) : (
+                      <>
+                        <View style={filaStyle}>
+                          {campoFunciona}
+                          {campoPrecio}
+                        </View>
+                        {campoMotivoOProblema}
+                      </>
                     )}
-
-                    {funcionaBien === false && (
-                      <View style={{ gap: 6 }}>
-                        <FieldLabel dim={!!descripcionProblema.trim()}>
-                          ¿Puedes hacernos una breve descripción de qué es lo que le sucede?
-                        </FieldLabel>
-                        <FieldInput
-                          value={descripcionProblema}
-                          onChangeText={(v) => {
-                            setDescripcionProblema(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: no lee discos, la batería no carga..."
-                          multiline
-                          filled={!!descripcionProblema.trim()}
-                        />
-                      </View>
-                    )}
-
-                    {/* Ciudad + Precio estimado */}
-                    <View style={{ flexDirection: twoCol ? "row" : "column", gap: isMobile ? 12 : 14 }}>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel dim={!!ciudad.trim()}>¿En qué ciudad te encuentras?</FieldLabel>
-                        <FieldInput
-                          value={ciudad}
-                          onChangeText={(v) => {
-                            setCiudad(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: Zaragoza"
-                          filled={!!ciudad.trim()}
-                        />
-                      </View>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <FieldLabel dim={!!precioEstimado.trim()}>¿Cuánto estimas recibir por tu artículo?</FieldLabel>
-                        <FieldInput
-                          value={precioEstimado}
-                          onChangeText={(v) => {
-                            setPrecioEstimado(v);
-                            setFormErr(null);
-                          }}
-                          placeholder="Ej: 150€"
-                          filled={!!precioEstimado.trim()}
-                        />
-                      </View>
-                    </View>
 
                     {/* Método de contacto + su campo condicional en pareja cuando hay uno elegido */}
-                    <View
-                      style={{
-                        flexDirection: twoCol && metodoContacto ? "row" : "column",
-                        gap: isMobile ? 12 : 14,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <View
-                        style={{
-                          flex: metodoContacto ? 1 : undefined,
-                          width: metodoContacto ? undefined : "100%",
-                          gap: 6,
-                        }}
-                      >
+                    {/* Pantallas anchas: «Contacto» y «Opción de venta» comparten fila (2 columnas). */}
+                    <View style={contactoYOpcionEnFila ? { ...filaStyle, alignItems: "flex-start" } : { gap: gapCampos }}>
+                    {/* En el móvil el dato va DEBAJO del desplegable, a todo el ancho: en media fila el
+                        correo y la dirección salían cortados. En pantallas anchas, al lado. */}
+                    <View style={{ ...filaStyle, flexDirection: metodoContacto && tresColumnas ? "row" : "column", ...(contactoYOpcionEnFila ? { flex: 1, minWidth: 0 } : { gap: gapCampos }) }}>
+                      <View style={metodoContacto && tresColumnas ? campoStyle : { width: "100%", gap: 6 }}>
                         <FieldLabel dim={!!metodoContacto}>¿Cómo prefieres que te contactemos?</FieldLabel>
                         <SelectField
                           options={METODO_OPTIONS}
@@ -1439,25 +1630,8 @@ export default function VenderAhoraModal({
                         />
                       </View>
 
-                      {metodoContacto === "whatsapp" && (
-                        <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel dim={contactoValido}>Tu número de WhatsApp</FieldLabel>
-                          <PrefixedInput
-                            prefix="+34"
-                            value={contactoValor}
-                            onChangeText={(v) => {
-                              setContactoValor(v);
-                              setFormErr(null);
-                            }}
-                            placeholder="612 345 678"
-                            keyboardType="phone-pad"
-                            filled={contactoValido}
-                          />
-                        </View>
-                      )}
-
                       {metodoContacto === "gmail" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={contactoValido}>Tu email de Gmail</FieldLabel>
                           <FieldInput
                             value={contactoValor}
@@ -1465,6 +1639,7 @@ export default function VenderAhoraModal({
                               setContactoValor(v);
                               setFormErr(null);
                             }}
+                            maxLength={150}
                             placeholder="tunombre@gmail.com"
                             keyboardType="email-address"
                             autoCapitalize="none"
@@ -1495,42 +1670,57 @@ export default function VenderAhoraModal({
                         </View>
                       )}
 
-                      {(metodoContacto === "instagram" ||
-                        metodoContacto === "facebook" ||
-                        metodoContacto === "tiktok") && (
-                        <View style={{ flex: 1, gap: 6 }}>
-                          <FieldLabel dim={contactoValido}>
-                            Tu usuario de {METODO_OPTIONS.find((m) => m.value === metodoContacto)?.label}
-                          </FieldLabel>
-                          <PrefixedInput
-                            prefix="@"
-                            value={contactoValor}
-                            onChangeText={(v) => {
-                              setContactoValor(v);
-                              setFormErr(null);
-                            }}
-                            placeholder="tu.usuario"
-                            filled={contactoValido}
-                          />
+                      {/* Chat de la tienda: no pide ningún dato. Si no hay sesión, se avisa; si los avisos
+                          del navegador no están activados, se ofrece activarlos (si ya lo están, no sale
+                          nada). */}
+                      {metodoContacto === "chat" && (!haySesion || (estadoNotif !== "activadas" && estadoNotif !== "no-disponibles")) && (
+                        <View style={{ ...campoDatoStyle, alignItems: "center", gap: 10 }}>
+                          {!haySesion ? (
+                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", fontWeight: "700" }}>
+                              Para hablar por el chat necesitas iniciar sesión. Si prefieres no hacerlo, elige Gmail.
+                            </Text>
+                          ) : null}
+                          {estadoNotif === "pendientes" ? (
+                            <>
+                              <Text style={{ color: COLORS.text, fontSize: 13.5, lineHeight: 19, textAlign: "center", fontWeight: "800" }}>
+                                Activa las notificaciones y te avisamos en cuanto te escribamos.
+                              </Text>
+                              <AnimatedPressable
+                                onPress={async () => setEstadoNotif(await activarNotificaciones())}
+                                containerStyle={{ alignSelf: "stretch" }}
+                                style={{
+                                  minHeight: 48,
+                                  borderRadius: 999,
+                                  backgroundColor: COLORS.accent,
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: 8,
+                                  paddingHorizontal: 16,
+                                }}
+                              >
+                                <Ionicons name="notifications-outline" size={18} color="#FFFFFF" />
+                                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Activar notificaciones</Text>
+                              </AnimatedPressable>
+                            </>
+                          ) : null}
+                          {estadoNotif === "bloqueadas" ? (
+                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", fontWeight: "700" }}>
+                              Tienes las notificaciones bloqueadas en este navegador. Actívalas en los ajustes del sitio para enterarte al momento.
+                            </Text>
+                          ) : null}
+                          {estadoNotif === "instalar" ? (
+                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", fontWeight: "700" }}>
+                              En iPhone, para recibir avisos instala antes la tienda en tu pantalla de inicio (botón «Instalar la tienda como app» del panel de Blue).
+                            </Text>
+                          ) : null}
                         </View>
                       )}
                     </View>
 
                     {/* Opción de venta + su campo condicional en pareja cuando hay una elegida */}
-                    <View
-                      style={{
-                        flexDirection: twoCol && opcionVenta ? "row" : "column",
-                        gap: isMobile ? 12 : 14,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <View
-                        style={{
-                          flex: opcionVenta ? 1 : undefined,
-                          width: opcionVenta ? undefined : "100%",
-                          gap: 6,
-                        }}
-                      >
+                    <View style={{ ...filaStyle, flexDirection: opcionVenta && tresColumnas ? "row" : "column", ...(contactoYOpcionEnFila ? { flex: 1, minWidth: 0 } : { gap: gapCampos }) }}>
+                      <View style={opcionVenta && tresColumnas ? campoStyle : { width: "100%", gap: 6 }}>
                         <FieldLabel dim={!!opcionVenta}>Opción de venta</FieldLabel>
                         <SelectField
                           options={OPCION_VENTA_OPTIONS}
@@ -1544,7 +1734,7 @@ export default function VenderAhoraModal({
                       </View>
 
                       {opcionVenta === "domicilio" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={!!direccion.trim()}>Dirección completa</FieldLabel>
                           <FieldInput
                             value={direccion}
@@ -1552,6 +1742,7 @@ export default function VenderAhoraModal({
                               setDireccion(v);
                               setFormErr(null);
                             }}
+                            maxLength={300}
                             placeholder="Calle, número, puerta y letra"
                             multiline
                             filled={!!direccion.trim()}
@@ -1560,7 +1751,7 @@ export default function VenderAhoraModal({
                       )}
 
                       {opcionVenta === "entrega" && (
-                        <View style={{ flex: 1, gap: 6 }}>
+                        <View style={campoDatoStyle}>
                           <FieldLabel dim={!!disponibilidad}>Disponibilidad diaria</FieldLabel>
                           <SelectField
                             options={DISPONIBILIDAD_OPTIONS}
@@ -1572,6 +1763,7 @@ export default function VenderAhoraModal({
                           />
                         </View>
                       )}
+                    </View>
                     </View>
 
                     {/* Fotos y vídeo: opcional, no cuenta para el progreso del formulario */}
@@ -1595,6 +1787,20 @@ export default function VenderAhoraModal({
                         setFormErr(null);
                       }}
                       label="Confirmo que soy mayor de 18 años"
+                    />
+
+                    {/* Campo trampa anti-robots: fuera de pantalla, sin foco y oculto a lectores. */}
+                    <TextInput
+                      value={campoTrampa}
+                      onChangeText={setCampoTrampa}
+                      autoComplete="off"
+                      autoCorrect={false}
+                      tabIndex={-1}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      aria-hidden
+                      placeholder="Sitio web"
+                      style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0 }}
                     />
 
                     {!!formErr && (
@@ -1705,8 +1911,7 @@ export default function VenderAhoraModal({
               </View>
             </Animated.View>
           </ScrollView>
-        </View>
-      </Modal>
+      )}
     </IsMobileContext.Provider>
   );
 }

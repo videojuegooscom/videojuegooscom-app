@@ -22,7 +22,7 @@
  *   (Separador) con aire; "Oferta de la semana" brilla (TituloOferta).
  * - "Recién llegado": carrusel con lo último que ha entrado a la tienda
  *   (components/CategoryProductsShelf.tsx, modo "novedades").
- * - El botón "Vender ahora" abre el formulario "pop" de VenderAhoraModal,
+ * - El botón "Vender ahora" lleva a la página app/vender.tsx (formulario de VenderAhoraModal),
  *   que guarda la solicitud en Supabase (tabla "sell_requests") para
  *   revisarla luego en el admin. La antigua franja "Noticias Flash" ya no
  *   se muestra: esas noticias las enseña ahora el asistente flotante de
@@ -91,7 +91,6 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
-import VenderAhoraModal from "../../components/VenderAhoraModal";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
@@ -110,7 +109,7 @@ const COLORS = {
   tileBorder: "rgba(11,33,56,0.10)",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
@@ -122,17 +121,40 @@ const COLORS = {
   successBorder: "#BCEBCB",
 };
 
-// Preguntas frecuentes de la sección "Preguntas frecuentes" de Inicio (antes
-// vivían dentro de Blue IA). Tocar una lleva a "/blue-ia?q=..." y esa
-// pantalla la manda automáticamente en cuanto entra — ver el useEffect de
-// autoenvío en app/(tabs)/blue-ia.tsx.
-const HOME_FAQ = [
-  "Quiero una PS5 por unos 450€",
-  "Tengo una Nintendo Switch para vender",
-  "¿Cuánto cuesta limpiar una consola?",
-  "Busco un mando bueno y barato para PS4",
-  "¿Puedo pagar a plazos?",
-  "Quiero un pack completo para empezar a jugar",
+// Preguntas frecuentes de Inicio: desplegables con la respuesta ya escrita. Solo se dice lo
+// que la tienda ya publica (reserva de 15 min, envíos y recogida, Servicios, «Vender
+// ahora»); lo demás (garantía, plazos) se deriva a la ficha o a Blue IA, sin inventar nada.
+const HOME_FAQ: { pregunta: string; respuesta: string }[] = [
+  {
+    pregunta: "¿Cómo compro un artículo?",
+    respuesta:
+      "Añádelo a la Cesta. Cada artículo es unidad única, así que te lo reservamos 15 minutos. Después eliges envío o recogida, rellenas tus datos y confirmas el pedido.",
+  },
+  {
+    pregunta: "¿Cómo son los envíos y la recogida?",
+    respuesta:
+      "Enviamos a toda España y también puedes recoger tu pedido en persona en Zaragoza. Preparamos cada pedido en 24–48 h laborables tras confirmarse el pago. Todos los detalles están en la política de envíos.",
+  },
+  {
+    pregunta: "¿Qué estado y garantía tiene cada producto?",
+    respuesta:
+      "Cada ficha indica el estado del artículo y, en su descripción, lo que incluye y su garantía. Si te queda alguna duda, pregúntale a Blue IA o escríbenos desde el chat de la tienda.",
+  },
+  {
+    pregunta: "¿Puedo vender o cambiar mi consola?",
+    respuesta:
+      "Sí. Toca «Vender ahora», cuéntanos qué tienes y cómo está, y nuestro equipo te da un precio. También puedes entregarla como parte de pago de otra compra.",
+  },
+  {
+    pregunta: "¿Reparáis y limpiáis consolas?",
+    respuesta:
+      "Sí. En Servicios tienes reparación, limpieza y mantenimiento, cada uno con su precio y su ficha para contratarlo.",
+  },
+  {
+    pregunta: "¿Puedo pagar a plazos?",
+    respuesta:
+      "Está disponible en el proceso de compra. Para conocer las condiciones, pregúntale a Blue IA o al equipo desde el chat de la tienda.",
+  },
 ];
 
 type FeaturedProduct = {
@@ -218,8 +240,8 @@ const SEARCH_LAYOUT = {
   // para dejar más hueco al scroll; estos valores acompañan esa altura
   // real para que la barra de búsqueda "abajo" y el padding inferior del
   // scroll no dejen un hueco de más.
-  mobileTabBarHeight: 84,
-  desktopTabBarHeight: 88,
+  mobileTabBarHeight: 100,
+  desktopTabBarHeight: 104,
   bottomGapMobile: 12,
   bottomGapDesktop: 14,
   widthMobilePercent: 0.86,
@@ -494,6 +516,7 @@ function SectionTitle({
     <View style={{ marginBottom: 12, alignItems: "center" }}>
       <Text
         accessibilityRole="header"
+        {...({ "aria-level": 2 } as object)}
         style={{
           color: COLORS.text,
           fontSize: isMobile ? 19 : 21,
@@ -618,7 +641,7 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
   if (esWeb) {
     return (
       <View style={{ alignItems: "center", marginBottom: 2 }}>
-        <Text accessibilityRole="header" style={estilo}>
+        <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={estilo}>
           <span className="vz-oferta-brillo">Oferta de la semana</span>
         </Text>
       </View>
@@ -645,7 +668,7 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
         >
           Oferta de la semana
         </Animated.Text>
-        <Text accessibilityRole="header" style={estilo}>
+        <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={estilo}>
           Oferta de la semana
         </Text>
       </View>
@@ -653,30 +676,76 @@ function TituloOferta({ isMobile }: { isMobile?: boolean }) {
   );
 }
 
-function FaqChip({ text, onPress }: { text: string; onPress: () => void }) {
+// Pregunta frecuente desplegable: fondo limpio (sin burbuja), línea fina entre preguntas, la
+// flecha gira y la respuesta se abre con una animación suave de altura y fundido. La
+// respuesta se mide en una capa absoluta para conocer su alto real sin que se corte.
+function FaqItem({
+  pregunta,
+  respuesta,
+  abierta,
+  onToggle,
+}: {
+  pregunta: string;
+  respuesta: string;
+  abierta: boolean;
+  onToggle: () => void;
+}) {
+  const progreso = useRef(new Animated.Value(0)).current;
+  const [alto, setAlto] = useState(0);
+
+  useEffect(() => {
+    Animated.timing(progreso, {
+      toValue: abierta ? 1 : 0,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [abierta, progreso]);
+
+  const altura = progreso.interpolate({ inputRange: [0, 1], outputRange: [0, alto] });
+  const giro = progreso.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] });
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.9 : 1,
-      })}
-    >
-      <View
-        style={{
-          borderRadius: 999,
-          paddingVertical: 10,
-          paddingHorizontal: 14,
-          backgroundColor: "#F6FAFD",
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          maxWidth: 420,
-        }}
+    <View style={{ borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: abierta }}
+        style={({ pressed }) => ({
+          paddingVertical: 17,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          opacity: pressed ? 0.8 : 1,
+        })}
       >
-        <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-          {text}
+        <Text
+          style={{
+            flexShrink: 1,
+            color: abierta ? COLORS.accent : COLORS.text,
+            fontWeight: "900",
+            fontSize: 16,
+            lineHeight: 22,
+            textAlign: "center",
+          }}
+        >
+          {pregunta}
         </Text>
-      </View>
-    </Pressable>
+        <Animated.View style={{ transform: [{ rotate: giro }] }}>
+          <Ionicons name="chevron-down" size={20} color={COLORS.accent} />
+        </Animated.View>
+      </Pressable>
+
+      <Animated.View style={{ height: altura, opacity: progreso, overflow: "hidden" }}>
+        <View
+          onLayout={(e) => setAlto(Math.round(e.nativeEvent.layout.height))}
+          style={{ position: "absolute", left: 0, right: 0, top: 0, paddingBottom: 18, paddingHorizontal: 6 }}
+        >
+          <Text style={{ color: COLORS.muted, fontSize: 15, lineHeight: 23, textAlign: "center" }}>{respuesta}</Text>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -846,36 +915,71 @@ function PrimaryButton({
   onPress,
   rightHint,
   isMobile,
+  icono,
+  testID,
 }: {
   title: string;
   subtitle?: string;
   onPress: () => void;
   rightHint?: string;
   isMobile?: boolean;
+  // Lo usa la guía de Blue para señalar el botón.
+  testID?: string;
+  // Con icono, el botón es el «destacado» de la cabecera de Inicio («Ver categorías» y «Vender
+  // ahora»): más alto, con icono, sombra azul y una «respiración» muy suave. Así el cliente
+  // sabe siempre por dónde empezar, sin competir con el brillo de «Oferta de la semana».
+  icono?: IoniconName;
 }) {
+  const respiracion = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!icono) return;
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(respiracion, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(respiracion, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== "web" }),
+        Animated.delay(900),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [icono, respiracion]);
+
   return (
+    <Animated.View
+      style={icono ? { transform: [{ scale: respiracion.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] }) }] } : undefined}
+    >
     <Pressable
       onPress={onPress}
+      testID={testID}
       style={({ pressed }) => ({
         borderRadius: 18,
         borderWidth: 1,
         borderColor: COLORS.accentDark,
         backgroundColor: COLORS.accent,
-        paddingVertical: isMobile ? 13 : 14,
+        paddingVertical: icono ? (isMobile ? 18 : 20) : isMobile ? 13 : 14,
         paddingHorizontal: isMobile ? 14 : 16,
         opacity: pressed ? 0.9 : 1,
-        ...softShadow(),
+        ...(icono
+          ? {
+              shadowColor: COLORS.accent,
+              shadowOpacity: 0.5,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 7 },
+              elevation: 8,
+            }
+          : softShadow()),
       })}
     >
       {/* Todo apilado y centrado; la pista ("Ir →") va como texto simple
           debajo, sin pastilla ni pegada a la derecha. */}
       <View style={{ alignItems: "center" }}>
+        {icono ? <Ionicons name={icono} size={isMobile ? 22 : 24} color={COLORS.onAccent} style={{ marginBottom: 4 }} /> : null}
         <Text
           style={{
             color: COLORS.onAccent,
             fontWeight: "900",
-            fontSize: isMobile ? 15 : 16,
-            lineHeight: isMobile ? 20 : 22,
+            fontSize: icono ? (isMobile ? 17 : 18) : isMobile ? 15 : 16,
+            lineHeight: icono ? (isMobile ? 22 : 24) : isMobile ? 20 : 22,
             textAlign: "center",
           }}
         >
@@ -911,6 +1015,7 @@ function PrimaryButton({
         )}
       </View>
     </Pressable>
+    </Animated.View>
   );
 }
 
@@ -1050,10 +1155,12 @@ function CategoryCard({
 // está viendo) que va bajando a medida que se avanza.
 function FeaturedMediaCarousel({
   images,
+  alt,
   mediaHeight,
   hasVideo,
 }: {
   images: string[];
+  alt: string;
   mediaHeight: number;
   hasVideo: boolean;
 }) {
@@ -1131,6 +1238,8 @@ function FeaturedMediaCarousel({
             <SmartImage
               key={`${uri}-${index}`}
               uri={uri}
+              alt={images.length > 1 ? `${alt} (foto ${index + 1} de ${images.length})` : alt}
+              ancho={Math.max(320, containerWidth || 420)}
               contentFit="contain"
               style={{ width: containerWidth, height: mediaHeight }}
             />
@@ -1207,16 +1316,10 @@ function FeaturedMediaCarousel({
       {remaining > 0 ? (
         <View style={{ position: "absolute", right: 12, bottom: hasMultiple ? 26 : 12 }}>
           <Text
-            style={{
-              color: "#FFFFFF",
-              fontWeight: "900",
-              fontSize: 12,
-              textShadowColor: "rgba(0,0,0,0.55)",
-              textShadowOffset: { width: 0, height: 1 },
-              textShadowRadius: 4,
-            }}
+            // Azul marino: las fotos van enteras sobre fondo claro y en blanco no se leía.
+            style={{ color: "#0B2138", fontWeight: "900", fontSize: 12.5 }}
           >
-            …+{remaining}
+            +{remaining} fotos
           </Text>
         </View>
       ) : null}
@@ -1314,6 +1417,7 @@ function FeaturedOfferCard({
         <View style={{ flex: isDesktopish ? 1.05 : undefined }}>
           <FeaturedMediaCarousel
             images={item.images}
+            alt={item.title}
             mediaHeight={mediaHeight}
             hasVideo={item.hasVideo}
           />
@@ -1420,12 +1524,9 @@ export default function HomeScreen() {
   const [featuredChatBusy, setFeaturedChatBusy] = useState(false);
 
   const [searchSnapPosition, setSearchSnapPosition] = useState<SearchSnapPosition>("bottom");
-  const [sellModalOpen, setSellModalOpen] = useState(false);
-  // El formulario de "Vender ahora" es grande: no se monta hasta la primera vez que se abre
-  // (y luego se queda montado para conservar su animación de cierre).
-  const [sellModalMounted, setSellModalMounted] = useState(false);
-  if (sellModalOpen && !sellModalMounted) setSellModalMounted(true);
   const [infoPop, setInfoPop] = useState<TrustInfoItem | null>(null);
+  // Pregunta frecuente abierta (solo una a la vez).
+  const [faqAbierta, setFaqAbierta] = useState<number | null>(null);
   // Botón flotante "volver arriba" ⬆️: aparece tras bajar bastante.
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
@@ -1615,8 +1716,22 @@ export default function HomeScreen() {
     setCategoriesY(e.nativeEvent.layout.y);
   }, []);
 
+  const categoriasRef = useRef<View>(null);
+
   const scrollToCategories = useCallback(() => {
     if (!scrollRef.current) return;
+    // Web: se mide dónde está AHORA el apartado «Categorías» respecto al contenido que se
+    // desplaza (layout.y es relativo a su contenedor y no cuenta el margen de arriba, ni lo
+    // que aparece después, como «Recién llegado»): así llega exactamente a su título.
+    if (Platform.OS === "web") {
+      const el = categoriasRef.current as unknown as HTMLElement | null;
+      const contenedor = (scrollRef.current as any).getScrollableNode?.() as HTMLElement | undefined;
+      if (el?.getBoundingClientRect && contenedor) {
+        const y = el.getBoundingClientRect().top - contenedor.getBoundingClientRect().top + contenedor.scrollTop;
+        scrollRef.current.scrollTo({ y: Math.max(0, y - 18), animated: true });
+        return;
+      }
+    }
     const target = Math.max(categoriesY - 12, 0);
     scrollRef.current.scrollTo({ y: target, animated: true });
   }, [categoriesY]);
@@ -1774,7 +1889,10 @@ export default function HomeScreen() {
 
           {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}
           <View style={{ gap: 12, alignItems: "center", paddingVertical: 4 }}>
+            {/* Único título de primer nivel (h1) de la portada. */}
             <Text
+              accessibilityRole="header"
+              {...({ "aria-level": 1 } as object)}
               style={{
                 color: COLORS.text,
                 fontSize: isMobile ? 21 : 22,
@@ -1790,11 +1908,11 @@ export default function HomeScreen() {
 
             <View style={{ flexDirection: "row", justifyContent: "center", gap: 12, alignSelf: "stretch" }}>
               <View style={{ flex: 1 }}>
-                <PrimaryButton title="Ver categorías" onPress={scrollToCategories} isMobile={isMobile} />
+                <PrimaryButton title="Ver categorías" icono="apps" testID="boton-ver-categorias" onPress={scrollToCategories} isMobile={isMobile} />
               </View>
 
               <View style={{ flex: 1 }}>
-                <PrimaryButton title="Vender ahora" onPress={() => setSellModalOpen(true)} isMobile={isMobile} />
+                <PrimaryButton title="Vender ahora" icono="cash" testID="boton-vender-ahora" onPress={() => pushRoute("/vender" as Href)} isMobile={isMobile} />
               </View>
             </View>
           </View>
@@ -1835,7 +1953,7 @@ export default function HomeScreen() {
               Si no hay nada, no se pinta, ni su separador. */}
           <CategoryProductsShelf modo="novedades" titulo="Recién llegado" pie={<Separador isMobile={isMobile} />} />
 
-          <View onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
+          <View ref={categoriasRef} testID="seccion-categorias" onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
             <SectionTitle title="Categorías" isMobile={isMobile} />
 
             <View
@@ -1891,22 +2009,27 @@ export default function HomeScreen() {
 
             <SectionTitle title="Preguntas frecuentes" isMobile={isMobile} />
 
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                justifyContent: "center",
-                gap: 10,
-              }}
-            >
-              {HOME_FAQ.map((item) => (
-                <FaqChip
-                  key={item}
-                  text={item}
-                  onPress={() => pushRoute(`/blue-ia?q=${encodeURIComponent(item)}` as Href)}
+            <View style={{ width: "100%", maxWidth: 640, alignSelf: "center", borderTopWidth: 1, borderTopColor: COLORS.border }}>
+              {HOME_FAQ.map((item, i) => (
+                <FaqItem
+                  key={item.pregunta}
+                  pregunta={item.pregunta}
+                  respuesta={item.respuesta}
+                  abierta={faqAbierta === i}
+                  onToggle={() => setFaqAbierta((a) => (a === i ? null : i))}
                 />
               ))}
             </View>
+
+            <Pressable
+              onPress={() => pushRoute("/blue-ia" as Href)}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ alignSelf: "center", paddingVertical: 10, opacity: pressed ? 0.8 : 1 })}
+            >
+              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+                ¿Otra duda? Pregúntale a Blue IA →
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -1917,15 +2040,17 @@ export default function HomeScreen() {
         />
       </ScrollView>
 
-      {/* "Volver arriba": aparece solo tras bajar bastante, en la esquina
-          izquierda para no chocar con FloatingBarramagic (el buscador
-          flotante, que vive más centrado/derecha). */}
+      {/* "Volver arriba": aparece solo tras bajar bastante, abajo a la DERECHA (donde llega el
+          pulgar derecho). Con el buscador abajo (móvil) se coloca justo encima de él. */}
       <Animated.View
         pointerEvents={showScrollTop ? "auto" : "none"}
         style={{
           position: "absolute",
-          left: 14,
-          bottom: (isMobile ? mobileTabBarHeight : desktopTabBarHeight) + 14,
+          right: 14,
+          bottom:
+            (isMobile ? mobileTabBarHeight : desktopTabBarHeight) +
+            14 +
+            (isMobile && searchSnapPosition === "bottom" ? SEARCH_LAYOUT.searchBarHeightMobile + 14 : 0),
           opacity: scrollTopAnim,
           transform: [
             {
@@ -1936,10 +2061,11 @@ export default function HomeScreen() {
       >
         <Pressable
           onPress={scrollToTop}
+          // 46 px: objetivo cómodo para el pulgar.
           style={({ pressed }) => ({
-            width: 38,
-            height: 38,
-            borderRadius: 19,
+            width: 46,
+            height: 46,
+            borderRadius: 23,
             backgroundColor: "rgba(11,33,56,0.75)",
             alignItems: "center",
             justifyContent: "center",
@@ -1964,10 +2090,6 @@ export default function HomeScreen() {
         onSnapChange={setSearchSnapPosition}
         hidden={headerHidden}
       />
-
-      {sellModalMounted ? (
-        <VenderAhoraModal visible={sellModalOpen} onClose={() => setSellModalOpen(false)} />
-      ) : null}
 
       <InfoPopModal item={infoPop} onClose={() => setInfoPop(null)} />
     </View>

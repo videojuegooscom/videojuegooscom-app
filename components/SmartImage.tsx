@@ -46,12 +46,29 @@
  * "react-native" para pintar una foto remota (uri) ahora usa <SmartImage>.
  * lib/loadingBus.ts → a quien avisa mientras carga.
  */
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Image, type ImageContentFit, type ImageProps, type ImageStyle } from "expo-image";
-import type { StyleProp } from "react-native";
+import { Platform, type StyleProp } from "react-native";
 import { markEnd, markStart } from "../lib/loadingBus";
 
 type ImagePriority = NonNullable<ImageProps["priority"]>;
+
+// Fotos de la tienda: las subidas originales pesan varios MB. Con `ancho` (el ancho en pantalla,
+// en px) la web pide a Vercel una versión del tamaño justo (320, 480, 640, 960 o 1280 px, calidad
+// 75, WebP/AVIF), que se guarda 30 días en su caché (vercel.json → images). Si el optimizador no
+// responde (en local, por ejemplo) se vuelve a la foto original. Solo fotos de nuestro
+// almacenamiento público de productos y noticias.
+const TAMANOS_OPTIMIZADOR = [320, 480, 640, 960, 1280];
+const FOTO_TIENDA_RE = /^https:\/\/rgvyvaineyodyxzwootl\.supabase\.co\/storage\/v1\/object\/public\/(product-media|noticias)\//;
+
+function urlOptimizada(uri: string, ancho: number | undefined): string {
+  if (!ancho || Platform.OS !== "web" || typeof window === "undefined") return uri;
+  if (!FOTO_TIENDA_RE.test(uri) || !/^https:$/.test(window.location.protocol)) return uri;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const pedido = Math.ceil(ancho * dpr);
+  const w = TAMANOS_OPTIMIZADOR.find((t) => t >= pedido) ?? TAMANOS_OPTIMIZADOR[TAMANOS_OPTIMIZADOR.length - 1];
+  return `/_vercel/image?url=${encodeURIComponent(uri)}&w=${w}&q=75`;
+}
 
 // Si una foto concreta nunca llega a avisar de que terminó (fallo raro de
 // red), se cierra su cuenta igualmente pasado este tiempo — para que la
@@ -66,6 +83,10 @@ export type SmartImageProps = {
   /** Duración del fundido de entrada, en ms. */
   transitionMs?: number;
   accessibilityLabel?: string;
+  /** Texto alternativo de la foto (para lectores de pantalla y buscadores). */
+  alt?: string;
+  /** Ancho en pantalla en px: pide una versión del tamaño justo en vez de la foto original. */
+  ancho?: number;
   /** Prioridad de descarga (opcional): "high" para la foto principal visible al entrar. */
   priority?: ImagePriority;
 };
@@ -76,8 +97,13 @@ export default function SmartImage({
   contentFit = "cover",
   transitionMs = 150,
   accessibilityLabel,
+  alt,
+  ancho,
   priority = "normal",
 }: SmartImageProps) {
+  // Si la versión optimizada falla, se vuelve a la foto original.
+  const [usarOriginal, setUsarOriginal] = useState(false);
+  useEffect(() => setUsarOriginal(false), [uri]);
   const loadingRef = useRef(false);
   const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,18 +140,24 @@ export default function SmartImage({
 
   if (!uri) return null;
 
+  const origen = usarOriginal ? uri : urlOptimizada(uri, ancho);
+
   return (
     <Image
-      source={{ uri }}
+      source={{ uri: origen }}
       style={style}
       contentFit={contentFit}
       cachePolicy="memory-disk"
       transition={transitionMs}
       priority={priority}
       recyclingKey={uri}
-      accessibilityLabel={accessibilityLabel}
+      alt={alt ?? accessibilityLabel ?? ""}
+      accessibilityLabel={accessibilityLabel ?? alt}
       onLoadStart={handleLoadStart}
       onLoadEnd={handleLoadEnd}
+      onError={() => {
+        if (origen !== uri) setUsarOriginal(true);
+      }}
     />
   );
 }

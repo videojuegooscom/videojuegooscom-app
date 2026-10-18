@@ -62,7 +62,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  mutedSoft: "rgba(11,33,56,0.48)",
+  mutedSoft: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   gold: "#B8860B",
   danger: "#DC2626",
@@ -778,6 +778,7 @@ export default function CestaScreen() {
                   {it.imageUrl ? (
                     <Image
                       source={{ uri: it.imageUrl }}
+                      alt={it.title}
                       style={{ width: 88, height: 88, borderRadius: 16 }}
                       resizeMode="cover"
                     />
@@ -851,6 +852,8 @@ export default function CestaScreen() {
             </View>
           )}
 
+          {/* El resumen solo existe si hay artículos: con la cesta vacía no se pinta nada. */}
+          {items.length > 0 ? (
           <View
             style={{
               marginTop: sectionGap / 2,
@@ -872,7 +875,6 @@ export default function CestaScreen() {
             <View style={{ marginTop: 4 }}>
               <ActionButton
                 title="Ir a pagar"
-                disabled={items.length === 0}
                 onPress={() => pushRoute("/checkout" as Href)}
               />
             </View>
@@ -886,6 +888,7 @@ export default function CestaScreen() {
               </Text>
             </Pressable>
           </View>
+          ) : null}
           </View>
 
           <CategoryProductsShelf />

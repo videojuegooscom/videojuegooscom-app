@@ -36,16 +36,15 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StatusBar,
   Text,
   View,
   useWindowDimensions,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import CabeceraMarca from "../../components/CabeceraMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -299,25 +298,11 @@ export default function PoliticaScreen() {
           paddingBottom: 14,
         }}
       >
-        <View style={{ ...columnStyle, minHeight: 36, alignItems: "center", justifyContent: "center" }}>
-          <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.85 : 1,
-              position: "absolute",
-              left: 0,
-              top: 0,
-              zIndex: 1,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              alignItems: "center",
-              justifyContent: "center",
-            })}
-          >
-            <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-          </Pressable>
+        <View style={{ ...columnStyle, gap: 12, alignItems: "center", justifyContent: "center" }}>
+          <CabeceraMarca />
           <Text
+            accessibilityRole="header"
+            {...({ "aria-level": 1 } as object)}
             style={{
               color: COLORS.text,
               fontSize: isMobile ? 20 : 22,

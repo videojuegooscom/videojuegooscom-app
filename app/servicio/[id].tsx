@@ -48,6 +48,7 @@ import { openExternalLink } from "../../lib/openExternalLink";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CargaMarca from "../../components/marca/CargaMarca";
+import CabeceraMarca from "../../components/CabeceraMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -57,7 +58,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -288,21 +289,7 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
         }}
       >
         <View style={{ width: "100%", maxWidth: 1240 }}>
-          <Pressable
-            onPress={smartBack}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              alignSelf: "flex-start",
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              backgroundColor: "#F6FAFD",
-            })}
-          >
-            <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
-          </Pressable>
+          <CabeceraMarca onBack={smartBack} />
         </View>
       </View>
 
@@ -379,6 +366,7 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                   {selectedImageUrl ? (
                     <Image
                       source={{ uri: selectedImageUrl }}
+                      alt={s.title}
                       style={{
                         width: "100%",
                         height: isWide ? 520 : isTablet ? 360 : 260,

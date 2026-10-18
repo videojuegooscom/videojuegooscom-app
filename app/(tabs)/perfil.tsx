@@ -81,7 +81,11 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+
+// Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
+const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -94,7 +98,7 @@ const COLORS = {
   border: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  mutedSoft: "rgba(11,33,56,0.48)",
+  mutedSoft: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   danger: "#B91C1C",
   success: "#15803D",
@@ -642,6 +646,25 @@ export default function PerfilScreen() {
   useEffect(() => {
     hydrateSessionState();
   }, [hydrateSessionState]);
+
+  // «Comprar ya» sin sesión deja aquí la ficha a la que volver: en cuanto hay sesión (al iniciar
+  // sesión o al crear la cuenta) se vuelve a esa ficha. La marca caduca a los 30 minutos.
+  useEffect(() => {
+    if (!sessionEmail) return;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(VOLVER_TRAS_ACCESO_KEY);
+        if (!raw) return;
+        await AsyncStorage.removeItem(VOLVER_TRAS_ACCESO_KEY);
+        const v = JSON.parse(raw) as { ruta?: string; hasta?: number };
+        if (v?.ruta && typeof v.ruta === "string" && v.ruta.startsWith("/") && Date.now() < Number(v.hasta ?? 0)) {
+          router.replace(v.ruta as never);
+        }
+      } catch {
+        // sin marca válida: se queda en el perfil
+      }
+    })();
+  }, [sessionEmail]);
 
   const canSubmitLogin = useMemo(() => {
     return isValidEmail(email) && pass.trim().length >= 6 && state === "idle";

@@ -7,7 +7,9 @@
  * Cómo funciona: usa expo-router Stack con headerShown:false (cada
  * pantalla dibuja su propia cabecera) y animación "fade" entre rutas.
  *
- * Pantalla de carga: solo espera a la fuente de Ionicons (la usa TODA la app),
+ * Pantalla de carga: es también la versión pre-generada de cada página (la tienda se
+ * pinta solo ya montada en el dispositivo, con su ancho real; ver «montado» abajo).
+ * Además espera a la fuente de Ionicons (la usa TODA la app),
  * vía useFonts() de expo-font, para que los iconos no salgan en blanco la
  * primera vez. Como mucho BOOT_FONT_TIMEOUT_MS (1,5 s): si la fuente tarda más
  * (conexión lenta), la tienda se muestra igualmente y los iconos aparecen al
@@ -43,8 +45,10 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Stack } from "expo-router";
+import Head from "expo-router/head";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
+import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
 import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
@@ -57,6 +61,14 @@ const BOOT_FONT_TIMEOUT_MS = 1500;
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontTimedOut, setFontTimedOut] = useState(false);
+  // La web se genera de antemano SIN saber el tamaño de la pantalla (ancho 1024 por
+  // defecto). Si la tienda se pintara ya en esa versión, al arrancar en el móvil React no
+  // corrige los estilos que no coinciden y se quedan medidas de ordenador (buscador de
+  // 758 px en un móvil de 390, categorías una por fila…). Por eso la versión pre-generada
+  // y el primer pintado son la pantalla de carga, y la tienda se pinta solo cuando ya está
+  // montada en el dispositivo, con su ancho real.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) return;
@@ -65,10 +77,20 @@ export default function RootLayout() {
   }, [fontsLoaded, fontError]);
 
   // Nunca se bloquea: si la fuente falla o tarda más de 1,5 s, se entra igual.
-  const bootLoading = !fontsLoaded && !fontError && !fontTimedOut;
+  const bootLoading = !montado || (!fontsLoaded && !fontError && !fontTimedOut);
 
   if (bootLoading) {
-    return <BrandLoadingScreen message="Cargando tienda..." />;
+    // Esta es la versión que se genera de antemano (HTML estático): lleva ya el título de la
+    // tienda para que el <title> no salga vacío para Google y los lectores de enlaces. Cuando
+    // la tienda arranca, SiteHead pone el título de «Marca y SEO» y el de cada página.
+    return (
+      <>
+        <Head>
+          <title>Videojuegoszaragoza.com</title>
+        </Head>
+        <BrandLoadingScreen message="Cargando tienda..." />
+      </>
+    );
   }
 
   return (
@@ -86,6 +108,7 @@ export default function RootLayout() {
         <Stack.Screen name="catalogo" />
         <Stack.Screen name="servicios" />
         <Stack.Screen name="checkout" />
+        <Stack.Screen name="vender" />
         <Stack.Screen name="reset-password" />
 
         {/* Políticas (envíos, devoluciones, privacidad, términos) y Blog */}
@@ -115,6 +138,9 @@ export default function RootLayout() {
 
       {/* Blue, asistente flotante (antes campanita): por encima de TODO, en todas las pantallas. */}
       <Campanita />
+
+      {/* «Volver» a mano del pulgar derecho en las páginas de lectura. */}
+      <BotonAtrasAlcance />
 
       {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}
       <CookieConsentBanner />

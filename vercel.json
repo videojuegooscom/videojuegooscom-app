@@ -4,7 +4,8 @@
   "trailingSlash": false,
   "crons": [
     { "path": "/api/noticias-gaming", "schedule": "0 6 * * *" },
-    { "path": "/api/escaparate-retorno", "schedule": "30 6 * * *" }
+    { "path": "/api/escaparate-retorno", "schedule": "30 6 * * *" },
+    { "path": "/api/auditoria-web", "schedule": "20 5 1,15 * *" }
   ],
   "images": {
     "sizes": [320, 480, 640, 960, 1280],
@@ -35,6 +36,7 @@
       ],
       "destination": "/api/compartir?id=:id"
     },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },
     { "source": "/politicas/:slug", "destination": "/politicas/[slug]" },

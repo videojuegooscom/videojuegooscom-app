@@ -75,7 +75,7 @@
  *   claves de avisos de noticias (activar con la campana; marcar como vistas).
  * - supabase/migrations/20261013200000_noticias_comentarios_preferencias.sql →
  *   tabla preferencias_usuario (cada usuario lee la suya).
- * - components/VenderAhoraModal.tsx → formulario "Vender" desde el panel.
+ * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -96,8 +96,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
+import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
+import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import VenderAhoraModal from "./VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -130,6 +132,9 @@ const TEXTO_CRISTAL = {
 };
 
 const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
+// El aviso de Blue sobre el selector de pestañas del Foro sale una sola vez por dispositivo
+// (también cuenta como visto si se enseñó en la guía).
+const SELECTOR_VISTO_KEY = "videojuegoszaragoza:blue_aviso_selector_visto";
 const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
 const NOVEDADES_SEEN_KEY = "videojuegoszaragoza:novedades_seen_version";
 const NOVEDADES_CONTENT_VERSION = 1;
@@ -207,6 +212,8 @@ const SALUDO_MS = 2800;
 // en la que siempre se ve.
 const SCROLL_UMBRAL = 12;
 const SCROLL_ARRIBA = 40;
+// Blue se esconde al bajar y reaparece cuando la pantalla lleva este tiempo quieta.
+const PARADA_MS = 450;
 // Cuánto se desliza hacia su borde al ocultarse.
 const DESLIZ_OCULTO = BLUE_SIZE + EDGE_INSET + 16;
 // Animaciones por el hilo nativo salvo en web (allí no existe).
@@ -216,25 +223,123 @@ const USA_NATIVO = Platform.OS !== "web";
 // arriba del todo, 1 = abajo del todo, dentro de la zona útil). Antes solo había 4 esquinas.
 type Lado = "l" | "r";
 type Sitio = { lado: Lado; fy: number };
-const SITIO_INICIAL: Sitio = { lado: "r", fy: 1 };
+// Blue NUNCA se pone abajo a la derecha (petición del dueño): ahí están el botón de volver
+// arriba, «Volver» y el de enviar, y es donde llega el pulgar. En el lado derecho solo
+// puede estar de la mitad de la pantalla hacia arriba.
+const FY_MAX_DERECHA = 0.5;
+const SITIO_INICIAL: Sitio = { lado: "l", fy: 1 };
 // Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
 const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
-// Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse.
-const APARTARSE_CADA_MS = 4000;
-const APARTARSE_TRAS_SCROLL_MS = 450;
+// Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse o tras
+// tocar algo (por ejemplo, al abrirse un desplegable). Se aparta en seguida.
+const APARTARSE_CADA_MS = 1200;
+const APARTARSE_TRAS_SCROLL_MS = 220;
 // id del contenedor de Blue en la web (para no confundirse a sí mismo con el contenido).
 const BLUE_DOM_ID = "blue-flotante";
+// El mensaje que sale al lado de Blue (no el saludo, que dura unos segundos): se mide para que
+// tampoco tape botones.
+const BLUE_MENSAJE_DOM_ID = "blue-mensaje";
 
 // Mensajes de Blue: al tocarlos llevan a lo que dicen. "chat" abre el chat de la tienda
 // (Blue IA primero; desde ahí, el equipo), "ruta" va a esa pantalla, "vender" abre el
 // formulario de venta, "panel" abre el panel de Blue.
-type Bocadillo = { id: string; texto: string; accion?: "chat" | "ruta" | "vender" | "panel"; ruta?: string };
+type Bocadillo = {
+  id: string;
+  texto: string;
+  accion?: "chat" | "ruta" | "vender" | "panel" | "instalar" | "conocimiento";
+  ruta?: string;
+  // «conocimiento»: tema de lib/conocimiento.ts que Blue le propone al dueño en el panel.
+  tema?: string;
+};
+
+// --- Blue propone información de la tienda (solo el dueño, en el panel de administración) ---
+// A lo largo del día (de 9 a 21 h), con huecos de 45 min y hasta 8 veces al día, Blue le propone
+// un tema pendiente de «Lo que Blue sabe» (horario, envíos, garantía…). La respuesta la escribe
+// el dueño y Blue IA la usa con los clientes. «Ahora no» lo aparca hasta mañana y «No aplica»
+// no lo vuelve a proponer.
+const PROP_KEY = "videojuegoszaragoza:blue_propuestas";
+const PROP_HUECO_MS = 45 * 60 * 1000;
+const PROP_MAX_DIA = 8;
+type EstadoProp = { fecha: string; n: number; ultima: number; hoyNo: string[]; descartados: string[] };
+function fechaHoy(): string {
+  return new Date().toLocaleDateString("sv");
+}
+async function leerEstadoProp(): Promise<EstadoProp> {
+  const base: EstadoProp = { fecha: fechaHoy(), n: 0, ultima: 0, hoyNo: [], descartados: [] };
+  try {
+    const raw = await AsyncStorage.getItem(PROP_KEY);
+    if (!raw) return base;
+    const e = JSON.parse(raw) as Partial<EstadoProp>;
+    const descartados = Array.isArray(e.descartados) ? e.descartados : [];
+    // Un día nuevo reinicia el contador y los «ahora no».
+    if (e.fecha !== base.fecha) return { ...base, descartados };
+    return { ...base, ...e, descartados, hoyNo: Array.isArray(e.hoyNo) ? e.hoyNo : [] };
+  } catch {
+    return base;
+  }
+}
+async function guardarEstadoProp(e: EstadoProp): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PROP_KEY, JSON.stringify(e));
+  } catch {
+    // sin memoria local: se vuelve a proponer, no pasa nada
+  }
+}
 
 // Lo que ya dijo Blue en esta visita (no se repite al volver a la misma ficha).
 const yaDicho = new Set<string>();
 
+// --- Instalar la tienda como app (solo web) ----------------------------------------------
+// Chrome/Android avisa con «beforeinstallprompt»: se guarda el evento y Blue ofrece un botón
+// que abre el diálogo de instalación. En iPhone/iPad (Safari) no existe ese diálogo: Blue
+// enseña los pasos de «Añadir a pantalla de inicio». Si ya está instalada, no se ofrece.
+type EventoInstalar = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+let eventoInstalar: EventoInstalar | null = null;
+const oyentesInstalar = new Set<() => void>();
+const INSTALAR_KEY = "videojuegoszaragoza:blue_instalar_visto";
+const INSTALAR_ESPERA_MS = 7 * 24 * 60 * 60 * 1000;
+
+function esWebConVentana(): boolean {
+  return Platform.OS === "web" && typeof window !== "undefined";
+}
+function appYaInstalada(): boolean {
+  if (!esWebConVentana()) return false;
+  try {
+    return window.matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
+  } catch {
+    return false;
+  }
+}
+function esAppleMovil(): boolean {
+  if (!esWebConVentana()) return false;
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as unknown as { MSStream?: unknown }).MSStream;
+}
+// "prompt" = diálogo propio del navegador; "ios" = pasos manuales; null = no se ofrece.
+function modoInstalar(): "prompt" | "ios" | null {
+  if (!esWebConVentana() || appYaInstalada()) return null;
+  if (eventoInstalar) return "prompt";
+  return esAppleMovil() ? "ios" : null;
+}
+if (esWebConVentana()) {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    eventoInstalar = e as EventoInstalar;
+    oyentesInstalar.forEach((f) => f());
+  });
+  window.addEventListener("appinstalled", () => {
+    eventoInstalar = null;
+    trackEvent("app_instalada", "App instalada");
+    oyentesInstalar.forEach((f) => f());
+  });
+}
+
 function limitar(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
+}
+
+// Un sitio permitido: nunca abajo a la derecha. Si cae ahí, sube en el mismo lado.
+function sitioPermitido(s: Sitio): Sitio {
+  return s.lado === "r" && s.fy > FY_MAX_DERECHA ? { lado: "r", fy: FY_MAX_DERECHA } : s;
 }
 
 function sitioToXY(s: Sitio) {
@@ -254,10 +359,12 @@ function leerSitio(raw: string | null): Sitio {
     bl: { lado: "l", fy: 1 },
     br: { lado: "r", fy: 1 },
   };
-  if (esquinas[raw]) return esquinas[raw];
+  if (esquinas[raw]) return sitioPermitido(esquinas[raw]);
   try {
     const s = JSON.parse(raw);
-    if ((s?.lado === "l" || s?.lado === "r") && Number.isFinite(s?.fy)) return { lado: s.lado, fy: limitar(Number(s.fy), 0, 1) };
+    if ((s?.lado === "l" || s?.lado === "r") && Number.isFinite(s?.fy)) {
+      return sitioPermitido({ lado: s.lado, fy: limitar(Number(s.fy), 0, 1) });
+    }
   } catch {
     // formato desconocido
   }
@@ -272,6 +379,12 @@ function esContenido(el: Element): boolean {
   if (tag === "HTML" || tag === "BODY") return false;
   if (["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A", "IMG", "VIDEO", "CANVAS", "svg", "SVG", "path"].includes(tag)) return true;
   if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return true;
+  // Botones de react-native-web (Pressable): no son <button> ni llevan rol, pero se pueden
+  // enfocar (tabindex) y tienen cursor de mano. Sin esto, Blue se quedaba encima de la
+  // parte de color de «Aceptar» del aviso de cookies.
+  const tocable = el.closest('[tabindex]:not([tabindex="-1"])');
+  if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return true;
+  if (typeof window !== "undefined" && window.getComputedStyle(el).cursor === "pointer") return true;
   for (const n of Array.from(el.childNodes)) {
     if (n.nodeType === 3 && (n.textContent ?? "").trim()) return true;
   }
@@ -281,20 +394,69 @@ function esContenido(el: Element): boolean {
 }
 
 // Cuántos puntos de la caja de Blue en (x, y) caen sobre contenido (0 = sitio libre).
+// Cuánto «molesta» taparlo: los controles (botones, enlaces, campos, el botón de volver) pesan
+// más que el texto, y el texto más que una foto. Así Blue prefiere quedarse sobre una foto antes
+// que sobre un botón, aunque la foto ocupe más sitio.
+function pesoContenido(el: Element): number {
+  if (!esContenido(el)) return 0;
+  if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return 6;
+  const tocable = el.closest('[tabindex]:not([tabindex="-1"])');
+  if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return 6;
+  if (window.getComputedStyle(el).cursor === "pointer") return 6;
+  if (["IMG", "VIDEO", "CANVAS"].includes(el.tagName)) return 1;
+  return 2;
+}
+
+// Puntuación de lo que hay debajo de la caja de Blue en (x, y): 0 = sitio libre; cuanto más alta,
+// peor (controles > texto > fotos). Se mira con una rejilla de 4 × 4 puntos para no dejar escapar
+// botones pequeños como el de volver (40 px).
 function contenidoDebajo(x: number, y: number): number {
   if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
   let tapados = 0;
-  const pasos = [0.18, 0.5, 0.82];
+  const pasos = [0.1, 0.37, 0.63, 0.9];
   for (const fx of pasos) {
     for (const fy of pasos) {
       const px = x + BLUE_SIZE * fx;
       const py = y + BLUE_SIZE * fy;
       // El primero que no sea el propio Blue es lo que se ve debajo.
       const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
-      if (debajo && esContenido(debajo)) tapados++;
+      if (debajo) tapados += pesoContenido(debajo);
     }
   }
   return tapados;
+}
+
+// Lo mismo para el mensaje que sale al lado de Blue, si hay uno a la vista: sale hacia
+// el centro de la pantalla (a la izquierda si Blue está a la derecha) y, según la altura, pegado
+// arriba o abajo. Se mira con una rejilla de 6 × 3 puntos. Así Blue no se queda en un sitio donde
+// su mensaje taparía «Comprar ya» (en escritorio el mensaje mide hasta 330 px).
+// Solo cuentan los controles (botones, enlaces, campos): taparlos es lo grave; tapar texto o una
+// foto con un mensaje que se cierra con la X no. Y un roce con un solo punto no justifica moverse.
+// Esta puntuación pesa mucho menos que la de la propia Blue (ver PESO_BLUE): lo primero es que Blue
+// no tape nada, y solo entre sitios igual de libres se prefiere el que deja libre el mensaje.
+const PESO_BLUE = 1000;
+function contenidoDebajoDelMensaje(s: Sitio, x: number, y: number): number {
+  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
+  const m = document.getElementById(BLUE_MENSAJE_DOM_ID);
+  if (!m || !m.offsetWidth || !m.offsetHeight) return 0;
+  const ancho = m.offsetWidth;
+  const alto = m.offsetHeight;
+  const izq = s.lado === "r" ? x - 6 - ancho : x + BLUE_SIZE + 6;
+  const arriba = s.fy < 0.5;
+  const sup = arriba ? y + 2 : y + BLUE_SIZE - 2 - alto;
+  const { width, height } = Dimensions.get("window");
+  let tapados = 0;
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 3; j++) {
+      const px = izq + ancho * ((i + 0.5) / 6);
+      const py = sup + alto * ((j + 0.5) / 3);
+      if (px < 0 || py < 0 || px >= width || py >= height) continue;
+      const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
+      const peso = debajo ? pesoContenido(debajo) : 0;
+      if (peso >= 6) tapados += peso;
+    }
+  }
+  return tapados >= 12 ? tapados : 0;
 }
 
 // Mejor sitio libre: primero el que eligió la persona; si tapa algo, el hueco más vacío
@@ -302,7 +464,7 @@ function contenidoDebajo(x: number, y: number): number {
 function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
   const puntuar = (s: Sitio) => {
     const { x, y } = sitioToXY(s);
-    return contenidoDebajo(x, y);
+    return contenidoDebajo(x, y) * PESO_BLUE + contenidoDebajoDelMensaje(s, x, y);
   };
   if (puntuar(preferido) === 0) return preferido;
   const enActual = puntuar(actual);
@@ -313,6 +475,8 @@ function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
   for (const lado of [preferido.lado, preferido.lado === "r" ? "l" : "r"] as Lado[]) {
     for (const fy of alturas) {
       const s = { lado, fy };
+      // Abajo a la derecha no se pone nunca, ni siquiera para apartarse.
+      if (sitioPermitido(s) !== s) continue;
       const tapados = puntuar(s);
       const distancia = Math.abs(fy - preferido.fy) + (lado === preferido.lado ? 0 : 0.5);
       if (!mejor || tapados < mejor.tapados || (tapados === mejor.tapados && distancia < mejor.distancia)) {
@@ -379,7 +543,12 @@ export default function Campanita() {
   const enAdmin = pathname.startsWith("/admin");
   // En las pantallas de chat (y en el propio chat de Blue IA) no se muestra: taparía
   // el campo de escribir y el botón de enviar.
-  const enChat = pathname.startsWith("/blue-ia") || pathname.startsWith("/chat-global") || pathname.startsWith("/chat/");
+  const enChat =
+    pathname.startsWith("/blue-ia") ||
+    pathname.startsWith("/chat-global") ||
+    pathname.startsWith("/chat/") ||
+    // La página de venta es un formulario largo: Blue taparía los campos y el botón de enviar.
+    pathname.startsWith("/vender");
 
   const [ready, setReady] = useState(false);
   // sitio = donde está ahora; preferidoRef = donde lo dejó la persona (vuelve ahí en cuanto
@@ -392,13 +561,16 @@ export default function Campanita() {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
-  const [venderOpen, setVenderOpen] = useState(false);
+  // «Vender» es una página (app/vender.tsx), no una ventana emergente.
+  const abrirVender = useCallback(() => router.push("/vender" as Href), []);
   // Guía de bienvenida (GuiaBlue, al final de este archivo).
   const [guiaAbierta, setGuiaAbierta] = useState(false);
   const guiaPendienteRef = useRef(false);
   // Durante la guía Blue se esconde (no tapa la tarjeta ni sus botones) salvo en el paso
   // que le señala a él.
   const [guiaSenalaBlue, setGuiaSenalaBlue] = useState(false);
+  // Aviso de Blue en el Foro: señala el botón del selector de pestañas (una vez por visita).
+  const [avisoSelector, setAvisoSelector] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
@@ -419,6 +591,72 @@ export default function Campanita() {
   const [textoAviso, setTextoAviso] = useState("");
   const [msgAviso, setMsgAviso] = useState<string | null>(null);
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
+  const bocadilloRef = useRef<Bocadillo | null>(null);
+  bocadilloRef.current = bocadillo;
+  const propuestaAbiertaRef = useRef(false);
+  // Instalar la tienda como app: cómo se ofrece en este dispositivo y los pasos de iPhone.
+  const [modoInst, setModoInst] = useState<"prompt" | "ios" | null>(null);
+  const [pasosIosAbiertos, setPasosIosAbiertos] = useState(false);
+  // Propuesta de Blue al dueño (panel de administración): tema abierto, su respuesta y estado.
+  const [propuesta, setPropuesta] = useState<TemaConocimiento | null>(null);
+  const [respuestaProp, setRespuestaProp] = useState("");
+  const [guardandoProp, setGuardandoProp] = useState(false);
+  const [errorProp, setErrorProp] = useState<string | null>(null);
+  propuestaAbiertaRef.current = !!propuesta;
+  const cerrarPropuesta = useCallback(
+    async (como: "ahora-no" | "no-aplica" | "guardada") => {
+      const tema = propuesta?.tema;
+      setPropuesta(null);
+      setRespuestaProp("");
+      setErrorProp(null);
+      if (!tema || como === "guardada") return;
+      const e = await leerEstadoProp();
+      if (como === "ahora-no") e.hoyNo = [...new Set([...e.hoyNo, tema])];
+      else e.descartados = [...new Set([...e.descartados, tema])];
+      await guardarEstadoProp(e);
+    },
+    [propuesta]
+  );
+  const guardarPropuesta = useCallback(async () => {
+    if (!propuesta || guardandoProp) return;
+    setGuardandoProp(true);
+    setErrorProp(null);
+    const error = await guardarConocimiento(propuesta.tema, respuestaProp);
+    setGuardandoProp(false);
+    if (error) {
+      setErrorProp(error);
+      return;
+    }
+    await cerrarPropuesta("guardada");
+    setBocadillo({ id: "prop-ok", texto: "¡Guardado! Desde ahora lo uso al responder a tus clientes." });
+  }, [propuesta, respuestaProp, guardandoProp, cerrarPropuesta]);
+  useEffect(() => {
+    const actualizar = () => setModoInst(modoInstalar());
+    actualizar();
+    oyentesInstalar.add(actualizar);
+    return () => {
+      oyentesInstalar.delete(actualizar);
+    };
+  }, []);
+  const instalarApp = useCallback(async () => {
+    setPanelOpen(false);
+    trackEvent("instalar_toque", "Instalar app: toque");
+    const ev = eventoInstalar;
+    if (ev) {
+      try {
+        await ev.prompt();
+        const r = await ev.userChoice;
+        if (r.outcome === "accepted") trackEvent("instalar_aceptada", "Instalar app: aceptada");
+      } catch {
+        // el navegador no dejó abrir el diálogo
+      }
+      // El evento solo vale una vez.
+      eventoInstalar = null;
+      setModoInst(modoInstalar());
+    } else if (esAppleMovil()) {
+      setPasosIosAbiertos(true);
+    }
+  }, []);
   // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
   const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
   // Aparición a los 10 s, mini saludo y oculto por scroll hacia abajo.
@@ -793,7 +1031,11 @@ export default function Campanita() {
     const hasDocument = typeof document !== "undefined";
     const isPageVisible = () => !hasDocument || document.visibilityState !== "hidden";
     const interval = setInterval(() => {
-      if (!isPageVisible()) return;
+      if (!isPageVisible()) {
+        // En segundo plano solo se mira el chat, y solo si hay avisos del navegador activados.
+        if (estadoNotificaciones() === "activadas") refreshChats();
+        return;
+      }
       refreshChats();
       refreshNoticiasNuevas();
       refreshNovedadesTienda();
@@ -836,9 +1078,48 @@ export default function Campanita() {
   // Cuenta las noticias al montar y otra vez al salir del Foro (donde se ven y se
   // actualiza la clave local de "vistas"), para que el número rojo no se quede viejo.
   const enForo = pathname.startsWith("/chat-global");
+
+  // En el Foro Blue no se queda en pantalla (taparía el campo de escribir), pero sale UNA sola
+  // vez por dispositivo (queda guardado), a los 2,5 s, para señalar el botón azul del selector de
+  // pestañas. Si ya lo vio en la guía de Blue, tampoco sale.
+  useEffect(() => {
+    if (!enForo || guiaAbierta || yaDicho.has("selector-pestanas") || Platform.OS !== "web") return;
+    let vivo = true;
+    const t = setTimeout(async () => {
+      try {
+        // Con el aviso de cookies sin contestar, Blue no habla (lo taparía).
+        if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
+        if ((await AsyncStorage.getItem(SELECTOR_VISTO_KEY)) === "1" || !vivo) return;
+        yaDicho.add("selector-pestanas");
+        AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
+        setAvisoSelector(true);
+      } catch {
+        // sin aviso si falla
+      }
+    }, 2500);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [enForo, guiaAbierta]);
+  useEffect(() => {
+    if (!enForo) setAvisoSelector(false);
+  }, [enForo]);
   useEffect(() => {
     if (!enForo) refreshNoticiasNuevas();
   }, [enForo, refreshNoticiasNuevas]);
+
+  // Aviso del navegador cuando llegan mensajes nuevos al chat y la pestaña está en segundo plano
+  // (solo si la persona activó las notificaciones; lib/notificaciones.ts). Los primeros 8 s no
+  // cuentan: son los mensajes que ya estaban sin leer al abrir la tienda.
+  const montadoEnRef = useRef(Date.now());
+  const chatsPrevRef = useRef(0);
+  useEffect(() => {
+    const antes = chatsPrevRef.current;
+    chatsPrevRef.current = unreadChats;
+    if (unreadChats <= antes || Date.now() - montadoEnRef.current < 8000) return;
+    notificarMensajeNuevo(unreadChats - antes, () => router.push((isAdmin ? "/admin/chats" : "/chat-global?tab=privados") as Href));
+  }, [unreadChats, isAdmin]);
 
   const totalCount =
     unreadChats +
@@ -872,6 +1153,8 @@ export default function Campanita() {
               .eq("id", id)
               .maybeSingle<{ title: string; description: string | null }>();
             if (!vivo || !data?.title) return;
+            // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
+            if ((await getAnalyticsConsent()) === null || !vivo) return;
             yaDicho.add(`p:${id}`);
             const titulo = data.title.trim();
             const ruta = `/blue-ia?producto=${id}`;
@@ -897,8 +1180,9 @@ export default function Campanita() {
       const pendiente = noticias.find((n) => !yaDicho.has(`n:${n}`));
       if (pendiente) {
         timers.push(
-          setTimeout(() => {
-            if (!vivo) return;
+          setTimeout(async () => {
+            // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
+            if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
             yaDicho.add(`n:${pendiente}`);
             setBocadillo({ id: `n:${pendiente}`, texto: pendiente, ...destinoDeAviso(pendiente) });
           }, NOTICIA_ESPERA_MS)
@@ -940,6 +1224,79 @@ export default function Campanita() {
   const entradaHechaRef = useRef(false);
   const enPantalla = aparecido && ready && !enChat;
 
+  // Oferta de instalar la tienda como app: un mensaje de Blue, una vez cada 7 días como mucho,
+  // cuando ya lleva un rato en pantalla, no está hablando de otra cosa y la persona ya
+  // contestó el aviso de cookies. Siempre queda el botón en el panel de Blue.
+  useEffect(() => {
+    if (!modoInst || !enPantalla || enAdmin || guiaAbierta || pathname.startsWith("/checkout")) return;
+    let vivo = true;
+    let t: ReturnType<typeof setTimeout>;
+    // Si Blue está diciendo otra cosa, espera 15 s y lo intenta de nuevo (hasta 8 veces).
+    const intentar = async (veces: number) => {
+      try {
+        if (!vivo || (await getAnalyticsConsent()) === null) return;
+        const visto = Number((await AsyncStorage.getItem(INSTALAR_KEY)) ?? 0);
+        if (!vivo || (visto && Date.now() - visto < INSTALAR_ESPERA_MS)) return;
+        if (bocadilloRef.current) {
+          if (veces < 8) t = setTimeout(() => intentar(veces + 1), 15000);
+          return;
+        }
+        await AsyncStorage.setItem(INSTALAR_KEY, String(Date.now()));
+        if (!vivo) return;
+        trackEvent("instalar_oferta", "Instalar app: oferta");
+        setBocadillo({
+          id: "instalar",
+          texto: "Instala la tienda en tu móvil y ábrela con un toque desde la pantalla de inicio.",
+          accion: "instalar",
+        });
+      } catch {
+        // sin oferta si falla
+      }
+    };
+    t = setTimeout(() => intentar(0), 40000);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [modoInst, enPantalla, enAdmin, guiaAbierta, pathname]);
+
+  // Blue propone información de la tienda al dueño, dentro del panel de administración: a los
+  // 25 s de entrar y después cada 10 min mira si toca (de 9 a 21 h, hueco de 45 min, hasta 8 al
+  // día). Solo propone temas sin respuesta, sin «No aplica» y sin «Ahora no» de hoy.
+  useEffect(() => {
+    if (!enAdmin || !isAdmin || !enPantalla || guiaAbierta) return;
+    let vivo = true;
+    const intentar = async () => {
+      try {
+        const hora = new Date().getHours();
+        if (!vivo || hora < 9 || hora >= 21 || bocadilloRef.current || propuestaAbiertaRef.current) return;
+        const estado = await leerEstadoProp();
+        if (estado.n >= PROP_MAX_DIA || Date.now() - estado.ultima < PROP_HUECO_MS) return;
+        const respondidos = await temasRespondidos();
+        const siguiente = TEMAS_CONOCIMIENTO.find(
+          (t) => !respondidos.has(t.tema) && !estado.hoyNo.includes(t.tema) && !estado.descartados.includes(t.tema)
+        );
+        if (!vivo || !siguiente || bocadilloRef.current) return;
+        await guardarEstadoProp({ ...estado, n: estado.n + 1, ultima: Date.now() });
+        setBocadillo({
+          id: `prop:${siguiente.tema}`,
+          texto: `${siguiente.tema}: ¿me lo cuentas para responder mejor a tus clientes?`,
+          accion: "conocimiento",
+          tema: siguiente.tema,
+        });
+      } catch {
+        // sin propuesta si falla
+      }
+    };
+    const primera = setTimeout(intentar, 25000);
+    const cada = setInterval(intentar, 10 * 60 * 1000);
+    return () => {
+      vivo = false;
+      clearTimeout(primera);
+      clearInterval(cada);
+    };
+  }, [enAdmin, isAdmin, enPantalla, guiaAbierta]);
+
   // Entrada (una sola vez, la primera vez que se ve): rebote de escala y saludo
   // moviéndose de lado a lado.
   useEffect(() => {
@@ -975,9 +1332,11 @@ export default function Campanita() {
 
   // Con el panel abierto, un bocadillo o el saludo a la vista no se oculta (lo lee
   // el listener de scroll, que se registra una sola vez).
+  // Un mensaje de Blue ya NO impide esconderlo: va pegado a Blue y se esconde con él al bajar el
+  // scroll (y vuelve con él cuando la pantalla se queda quieta).
   const bocadilloVisible = aparecido && !!bocadillo;
   const noOcultarRef = useRef(false);
-  noOcultarRef.current = panelOpen || bocadilloVisible || saludando;
+  noOcultarRef.current = panelOpen || saludando;
 
   const ocultoScrollRef = useRef(false);
   const ponerOcultoScroll = useCallback((oculto: boolean) => {
@@ -993,7 +1352,14 @@ export default function Campanita() {
     if (Platform.OS !== "web" || typeof document === "undefined" || !aparecido) return;
     // Último scrollTop de cada contenedor (WeakMap: no retiene los que se desmontan).
     const ultimos = new WeakMap<object, number>();
+    // Pantalla parada: pasados PARADA_MS sin ningún movimiento de scroll, Blue vuelve a verse.
+    let parada: ReturnType<typeof setTimeout> | null = null;
     const alHacerScroll = (ev: Event) => {
+      if (parada) clearTimeout(parada);
+      parada = setTimeout(() => {
+        parada = null;
+        ponerOcultoScroll(false);
+      }, PARADA_MS);
       const t = ev.target;
       const elemento = t instanceof Element && t !== document.documentElement && t !== document.body ? t : null;
       const clave: object = elemento ?? document;
@@ -1017,7 +1383,10 @@ export default function Campanita() {
       else if (!noOcultarRef.current) ponerOcultoScroll(true);
     };
     document.addEventListener("scroll", alHacerScroll, { capture: true, passive: true });
-    return () => document.removeEventListener("scroll", alHacerScroll, { capture: true });
+    return () => {
+      if (parada) clearTimeout(parada);
+      document.removeEventListener("scroll", alHacerScroll, { capture: true });
+    };
   }, [aparecido, ponerOcultoScroll]);
 
   // Al cambiar de pantalla vuelve a verse; también si sale un bocadillo.
@@ -1029,7 +1398,7 @@ export default function Campanita() {
   }, [bocadilloVisible, ponerOcultoScroll]);
 
   // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote.
-  const oculto = ocultoScroll && !panelOpen && !bocadilloVisible && !saludando;
+  const oculto = ocultoScroll && !panelOpen && !saludando;
   useEffect(() => {
     Animated.timing(ocultar, {
       toValue: oculto ? 1 : 0,
@@ -1065,7 +1434,7 @@ export default function Campanita() {
   // cercano; y vuelve a su sitio en cuanto ese sitio queda libre. Se mira al cambiar de
   // pantalla, al dejar de desplazarse y cada pocos segundos (solo web).
   const enPantallaRef = useRef(false);
-  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !enAdmin && !guiaAbierta;
+  enPantallaRef.current = enPantalla && !oculto && !panelOpen && !guiaAbierta;
   const comprobarSitio = useCallback(() => {
     if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
     const libre = buscarSitioLibre(preferidoRef.current, sitioRef.current);
@@ -1079,17 +1448,35 @@ export default function Campanita() {
     let espera: ReturnType<typeof setTimeout> | null = null;
     const trasScroll = () => {
       if (espera) clearTimeout(espera);
-      espera = setTimeout(comprobarSitio, APARTARSE_TRAS_SCROLL_MS);
+      espera = setTimeout(() => {
+        espera = null;
+        comprobarSitio();
+      }, APARTARSE_TRAS_SCROLL_MS);
     };
     const cada = setInterval(() => {
       if (document.visibilityState !== "hidden") comprobarSitio();
     }, APARTARSE_CADA_MS);
     document.addEventListener("scroll", trasScroll, { capture: true, passive: true });
     window.addEventListener("resize", trasScroll);
+    // En cuanto algo se toca (se abre un desplegable, un aviso…) o aparece contenido nuevo,
+    // mira otra vez sin esperar a la vuelta de cada 1,2 s.
+    document.addEventListener("click", trasScroll, { capture: true, passive: true });
+    let observador: MutationObserver | null = null;
+    if (typeof MutationObserver !== "undefined" && document.body) {
+      observador = new MutationObserver(() => {
+        if (!espera) espera = setTimeout(() => {
+          espera = null;
+          comprobarSitio();
+        }, 300);
+      });
+      observador.observe(document.body, { childList: true, subtree: true });
+    }
     return () => {
       if (espera) clearTimeout(espera);
       clearInterval(cada);
+      observador?.disconnect();
       document.removeEventListener("scroll", trasScroll, { capture: true });
+      document.removeEventListener("click", trasScroll, { capture: true });
       window.removeEventListener("resize", trasScroll);
     };
   }, [comprobarSitio]);
@@ -1099,6 +1486,18 @@ export default function Campanita() {
     const t = setTimeout(comprobarSitio, 900);
     return () => clearTimeout(t);
   }, [pathname, comprobarSitio]);
+
+  // Nada más aparecer (y otra vez al acabar el saludo): si cae encima de algo, por ejemplo
+  // del botón «Aceptar» del aviso de cookies, se aparta ya, sin esperar a la siguiente vuelta.
+  useEffect(() => {
+    if (!enPantalla) return;
+    const t1 = setTimeout(comprobarSitio, 150);
+    const t2 = setTimeout(comprobarSitio, SALUDO_MS + 700);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [enPantalla, comprobarSitio]);
 
   // --- guía de bienvenida -------------------------------------------------------------
   // A los 15 s de entrar, una sola vez por dispositivo y solo a quien no tiene sesión (es
@@ -1173,7 +1572,10 @@ export default function Campanita() {
         const cx = posRef.current.x + g.dx + BLUE_SIZE / 2;
         const y = posRef.current.y + g.dy;
         const yMax = Math.max(TOP_INSET + 1, height - BLUE_SIZE - BOTTOM_INSET);
-        const next: Sitio = { lado: cx < width / 2 ? "l" : "r", fy: limitar((y - TOP_INSET) / (yMax - TOP_INSET), 0, 1) };
+        const next: Sitio = sitioPermitido({
+          lado: cx < width / 2 ? "l" : "r",
+          fy: limitar((y - TOP_INSET) / (yMax - TOP_INSET), 0, 1),
+        });
         preferidoRef.current = next;
         AsyncStorage.setItem(CORNER_KEY, JSON.stringify(next)).catch(() => {});
         moverAReflejo.current(next);
@@ -1191,9 +1593,15 @@ export default function Campanita() {
     setBocadillo(null);
     if (!b) return;
     if (b.accion === "chat" || b.accion === "ruta") router.push((b.ruta ?? "/blue-ia") as Href);
-    else if (b.accion === "vender") setVenderOpen(true);
-    else openPanel("noticias");
-  }, [bocadillo, openPanel]);
+    else if (b.accion === "vender") {
+      marcarOrigenVender("blue");
+      abrirVender();
+    } else if (b.accion === "instalar") instalarApp();
+    else if (b.accion === "conocimiento") {
+      const t = TEMAS_CONOCIMIENTO.find((x) => x.tema === b.tema);
+      if (t) setPropuesta(t);
+    } else openPanel("noticias");
+  }, [bocadillo, openPanel, abrirVender, instalarApp]);
 
   const ir = useCallback((href: string) => {
     setPanelOpen(false);
@@ -1300,13 +1708,19 @@ export default function Campanita() {
 
   // Antes de los 10 s (o en un chat) Blue no existe en pantalla.
   // Tampoco en el panel de administración (petición del dueño): allí no hace falta.
-  if (!ready || enChat || enAdmin || !aparecido) return null;
+  if (avisoSelector && enForo && !enAdmin && !guiaAbierta) return <AvisoSelector onCerrar={() => setAvisoSelector(false)} />;
+  // Con la guía abierta se sigue montando aunque la guía pase por una pantalla de chat (Foro,
+  // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
+  // En el panel de administración Blue solo aparece para el dueño (propone información de la
+  // tienda); a cualquier otra persona no se le monta nunca allí.
+  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido) return null;
 
   const derecha = sitio.lado === "r";
   // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
   const arriba = sitio.fy < 0.5;
   // Los mensajes salen AL LADO de Blue (hacia el centro), con el ancho que quepa.
-  const anchoMensaje = Math.max(150, Math.min(260, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
+  // Alargado (más ancho que alto): pocas líneas, sin título ni botón aparte.
+  const anchoMensaje = Math.max(170, Math.min(330, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
   const ladoMensaje = { [derecha ? "right" : "left"]: BLUE_SIZE + 6, [arriba ? "top" : "bottom"]: 2 };
   const pistaAccion =
     bocadillo?.accion === "chat"
@@ -1315,7 +1729,11 @@ export default function Campanita() {
         ? { icono: "cash-outline" as const, texto: "Vender ahora" }
         : bocadillo?.accion === "ruta"
           ? { icono: "arrow-forward-circle-outline" as const, texto: "Ver" }
-          : null;
+          : bocadillo?.accion === "instalar"
+            ? { icono: "download-outline" as const, texto: "Instalar" }
+            : bocadillo?.accion === "conocimiento"
+              ? { icono: "create-outline" as const, texto: "Responder" }
+              : null;
 
   // Capa visible: fundido de entrada × fundido al ocultarse, y deslizamiento
   // hacia su borde. Cuerpo: rebote de escala y giro del saludo.
@@ -1375,6 +1793,7 @@ export default function Campanita() {
               lleva a lo que dice. */}
           {bocadillo ? (
             <Animated.View
+              nativeID={BLUE_MENSAJE_DOM_ID}
               style={{
                 position: "absolute",
                 width: anchoMensaje,
@@ -1387,22 +1806,20 @@ export default function Campanita() {
                 onPress={alTocarBocadillo}
                 accessibilityRole="button"
                 accessibilityHint={pistaAccion?.texto}
-                style={({ pressed }) => [CRISTAL, { paddingVertical: 11, paddingHorizontal: 13, paddingRight: 30, opacity: pressed ? 0.85 : 1 }]}
+                style={({ pressed }) => [CRISTAL, { paddingVertical: 8, paddingLeft: 13, paddingRight: 30, opacity: pressed ? 0.85 : 1 }]}
               >
-                <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12, marginBottom: 2 }}>Blue</Text>
-                <Text style={[TEXTO_CRISTAL, { fontWeight: "800", fontSize: 13.5, lineHeight: 19 }]}>{bocadillo.texto}</Text>
-                {pistaAccion ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
-                    <Ionicons name={pistaAccion.icono} size={14} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 12.5 }}>{pistaAccion.texto}</Text>
-                  </View>
-                ) : null}
+                {/* Todo en un solo párrafo: «Blue», el mensaje y lo que pasa al tocar. */}
+                <Text numberOfLines={3} style={[TEXTO_CRISTAL, { fontWeight: "800", fontSize: 13, lineHeight: 17 }]}>
+                  <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>Blue · </Text>
+                  {bocadillo.texto}
+                  {pistaAccion ? <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>{`  ${pistaAccion.texto} ›`}</Text> : null}
+                </Text>
               </Pressable>
               <Pressable
                 onPress={() => setBocadillo(null)}
                 hitSlop={10}
                 accessibilityLabel="Cerrar mensaje de Blue"
-                style={{ position: "absolute", top: 8, right: 8 }}
+                style={{ position: "absolute", top: 7, right: 9 }}
               >
                 <Ionicons name="close" size={16} color={COLORS.muted} />
               </Pressable>
@@ -1584,9 +2001,12 @@ export default function Campanita() {
                   texto="Vender mi consola o dispositivo"
                   onPress={() => {
                     setPanelOpen(false);
-                    setVenderOpen(true);
+                    marcarOrigenVender("blue");
+                    abrirVender();
                   }}
                 />
+                {/* Solo si se puede instalar en este dispositivo y aún no está instalada. */}
+                {modoInst ? <BotonPanel icono="download-outline" texto="Instalar la tienda como app" onPress={instalarApp} /> : null}
               </View>
 
               </>
@@ -1810,8 +2230,6 @@ export default function Campanita() {
         </Pressable>
       </Modal>
 
-      {venderOpen ? <VenderAhoraModal visible={venderOpen} onClose={() => setVenderOpen(false)} /> : null}
-
       {guiaAbierta ? (
         <GuiaBlue
           onCerrar={cerrarGuia}
@@ -1820,12 +2238,111 @@ export default function Campanita() {
             router.push(ruta as Href);
           }}
           onVender={() => {
+            // El formulario recuerda que viene de la guía (para medir cuántos lo envían).
+            marcarOrigenVender("guia");
+            trackEvent("guia_vender", "Guía Blue: pulsa «Abrir el formulario»");
             cerrarGuia();
-            setVenderOpen(true);
+            abrirVender();
           }}
+          onInstalar={() => {
+            cerrarGuia();
+            instalarApp();
+          }}
+          instalable={!!modoInst}
           onSenalaBlue={setGuiaSenalaBlue}
         />
       ) : null}
+
+      {/* Blue le pregunta al dueño (panel de administración): la respuesta la escribe él. */}
+      <Modal visible={!!propuesta} transparent animationType="fade" onRequestClose={() => cerrarPropuesta("ahora-no")}>
+        <Pressable
+          onPress={() => cerrarPropuesta("ahora-no")}
+          style={{ flex: 1, backgroundColor: FONDO_GUIA, justifyContent: "center", alignItems: "center", padding: 14 }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{ width: "100%", maxWidth: 440, backgroundColor: COLORS.bg, borderRadius: 24, padding: 18, gap: 12, alignItems: "center" }}
+          >
+            <Ionicons name="bulb-outline" size={26} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>{propuesta?.tema}</Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, fontWeight: "600", textAlign: "center" }}>
+              {propuesta?.pregunta}
+            </Text>
+            <TextInput
+              value={respuestaProp}
+              onChangeText={setRespuestaProp}
+              placeholder="Escribe la respuesta real de la tienda"
+              placeholderTextColor={COLORS.muted}
+              multiline
+              maxLength={800}
+              style={{
+                alignSelf: "stretch",
+                minHeight: 110,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 16,
+                padding: 12,
+                textAlign: "center",
+                color: COLORS.text,
+                backgroundColor: "#F6FAFD",
+              }}
+            />
+            {errorProp ? <Text style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center" }}>{errorProp}</Text> : null}
+            <Pressable
+              onPress={guardarPropuesta}
+              disabled={guardandoProp}
+              accessibilityRole="button"
+              style={{ alignSelf: "stretch", minHeight: 52, borderRadius: 999, backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center", opacity: guardandoProp ? 0.6 : 1 }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>{guardandoProp ? "Guardando…" : "Guardar"}</Text>
+            </Pressable>
+            <View style={{ flexDirection: "row", gap: 18, alignItems: "center" }}>
+              <Pressable onPress={() => cerrarPropuesta("ahora-no")} hitSlop={8} accessibilityRole="button">
+                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Ahora no</Text>
+              </Pressable>
+              <Pressable onPress={() => cerrarPropuesta("no-aplica")} hitSlop={8} accessibilityRole="button">
+                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>No aplica</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  cerrarPropuesta("ahora-no");
+                  router.push("/admin/conocimiento" as Href);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Ver lo que sé</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* iPhone/iPad: no hay botón de instalar; se enseñan los pasos de Safari. */}
+      <Modal visible={pasosIosAbiertos} transparent animationType="fade" onRequestClose={() => setPasosIosAbiertos(false)}>
+        <Pressable
+          onPress={() => setPasosIosAbiertos(false)}
+          style={{ flex: 1, backgroundColor: FONDO_GUIA, justifyContent: "flex-end", alignItems: "center", padding: 12 }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{ width: "100%", maxWidth: 420, backgroundColor: COLORS.bg, borderRadius: 24, padding: 20, gap: 12, alignItems: "center" }}
+          >
+            <Ionicons name="download-outline" size={26} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>Instala la tienda en tu iPhone</Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, fontWeight: "600", textAlign: "center" }}>
+              {"1. Toca el botón Compartir de Safari (el cuadrado con una flecha hacia arriba).\n2. Elige «Añadir a pantalla de inicio».\n3. Toca «Añadir». Ya la tendrás como una app."}
+            </Text>
+            <Pressable
+              onPress={() => setPasosIosAbiertos(false)}
+              accessibilityRole="button"
+              style={{ alignSelf: "stretch", minHeight: 52, borderRadius: 999, backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center" }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Entendido</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -1863,6 +2380,99 @@ function BotonPanel({
   );
 }
 
+// --- Aviso de Blue en el Foro --------------------------------------------------------------
+// Señala el botón azul del selector de pestañas (data-testid "selector-pestanas", en
+// app/(tabs)/chat-global.tsx) con un aro y una flecha, y explica qué hace y que las pestañas
+// se pueden ordenar manteniendo pulsada una y arrastrándola. No bloquea nada: solo se cierra con
+// «Entendido» (o a los 20 s).
+function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
+  const [caja, setCaja] = useState<Caja | null>(null);
+  const { width, height } = Dimensions.get("window");
+  const latido = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const medir = () => setCaja(medirObjetivo(['[data-testid="selector-pestanas"]']));
+    const t1 = setTimeout(medir, 200);
+    const t2 = setTimeout(medir, 900);
+    const t3 = setTimeout(onCerrar, 20000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [onCerrar]);
+
+  useEffect(() => {
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(latido, { toValue: 1, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO }),
+        Animated.timing(latido, { toValue: 0, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO }),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [latido]);
+
+  // Sin el botón a la vista no hay nada que señalar.
+  if (!caja) return null;
+  // Mensaje alargado, como los de Blue flotante (no una tarjeta gorda).
+  const ancho = Math.min(width - 24, 340);
+  const bote = latido.interpolate({ inputRange: [0, 1], outputRange: [0, 7] });
+  const escala = latido.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
+  const flechaX = limitar(caja.x + caja.w / 2 - 16, 8, width - 40);
+
+  return (
+    <View pointerEvents="box-none" style={{ position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999 }}>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: caja.x - 6,
+          top: caja.y - 6,
+          width: caja.w + 12,
+          height: caja.h + 12,
+          borderRadius: (caja.h + 12) / 2,
+          borderWidth: 3,
+          borderColor: COLORS.accent,
+          transform: [{ scale: escala }],
+        }}
+      />
+      <Animated.View pointerEvents="none" style={{ position: "absolute", left: flechaX, top: caja.y - 46, transform: [{ translateY: bote }] }}>
+        <Ionicons name="arrow-down-circle" size={32} color={COLORS.accent} />
+      </Animated.View>
+      {/* Mensaje de Blue: Blue pequeño a la izquierda y el texto en un párrafo alargado; al tocarlo
+          se cierra. Sale una sola vez por dispositivo. */}
+      <Pressable
+        onPress={onCerrar}
+        accessibilityRole="button"
+        accessibilityLabel="Entendido"
+        style={[
+          CRISTAL,
+          {
+            position: "absolute",
+            right: 12,
+            bottom: Math.max(12, height - caja.y + 54),
+            width: ancho,
+            backgroundColor: "rgba(255,255,255,0.94)",
+            paddingVertical: 8,
+            paddingHorizontal: 10,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+          },
+        ]}
+      >
+        <MarcaAnimada cual="carga" ancho={44} tocable={false} />
+        <Text style={[TEXTO_CRISTAL, { flex: 1, fontWeight: "800", fontSize: 13, lineHeight: 18 }]}>
+          <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>Blue · </Text>
+          Toca el botón azul para cambiar de pestaña. Para ordenarlas, mantén pulsada una y arrástrala.
+          <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>  Entendido ›</Text>
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // --- Guía de bienvenida de Blue ----------------------------------------------------------
 // Pasos cortos, cercanos y con datos reales de la tienda. Se usa con un solo dedo: deslizar
 // la tarjeta o tocar «Siguiente» (abajo a la derecha, donde llega el pulgar derecho).
@@ -1875,8 +2485,15 @@ type PasoGuia = {
   titulo: string;
   texto: string;
   objetivo?: string[];
-  accion?: { texto: string; ruta?: string; vender?: boolean };
+  // Pantalla en la que se explica el paso: la guía navega sola hasta ella (como si te llevara
+  // de la mano). Si no se indica, se queda en Inicio.
+  ruta?: string;
+  // Selector de lo que hay que traer a la vista (desplazando la pantalla) antes de señalarlo.
+  desplazar?: string;
+  accion?: { texto: string; ruta?: string; vender?: boolean; instalar?: boolean };
   cuenta?: boolean;
+  // Solo se enseña si la tienda se puede instalar en este dispositivo.
+  soloInstalable?: boolean;
 };
 
 const PESTANAS = ["index", "perfil", "cesta", "foro", "blue-ia"].map((p) => `[data-testid="pestana-${p}"]`);
@@ -1898,48 +2515,92 @@ const PASOS_GUIA: PasoGuia[] = [
     titulo: "Inicio",
     texto: "La Oferta de la semana, lo Recién llegado y las categorías: PlayStation, Nintendo Switch, Xbox y más. Desliza hacia abajo para verlo todo.",
     objetivo: [PESTANAS[0]],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
+  },
+  {
+    icono: "apps-outline",
+    titulo: "Ver categorías",
+    texto: "Este botón te lleva directo a las categorías: PlayStation, Nintendo Switch, Xbox y más.",
+    objetivo: ['[data-testid="boton-ver-categorias"]'],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
+  },
+  {
+    icono: "grid-outline",
+    titulo: "Aquí están las categorías",
+    texto: "Así llegas con «Ver categorías»: toca la que te interese y verás sus artículos.",
+    objetivo: ['[data-testid="seccion-categorias"]'],
+    ruta: "/",
+    desplazar: '[data-testid="seccion-categorias"]',
+  },
+  {
+    icono: "cash-outline",
+    titulo: "Vender ahora",
+    texto: "¿Tienes una consola o un dispositivo que ya no usas? Toca este botón, cuéntanos lo básico y el equipo te da un precio.",
+    objetivo: ['[data-testid="boton-vender-ahora"]'],
+    ruta: "/",
+    desplazar: '[data-testid="boton-vender-ahora"]',
+    accion: { texto: "Abrir el formulario", vender: true },
   },
   {
     icono: "search-outline",
     titulo: "El buscador",
     texto: "Escribe aquí lo que buscas. En el catálogo filtras por categoría, estado y precio. Puedes arrastrar el buscador arriba o abajo.",
     objetivo: ["#buscador-flotante"],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
   },
   {
     icono: "person-outline",
     titulo: "Perfil",
     texto: "Tu cuenta. Dentro hay dos pestañas: «Mi cuenta» y «Seguimientos», donde ves tus pedidos y reparaciones.",
     objetivo: [PESTANAS[1]],
+    ruta: "/perfil",
   },
   {
     icono: "bag-handle-outline",
     titulo: "Cesta",
     texto: "Cada artículo es unidad única: al añadirlo te lo reservamos 15 minutos. Después eliges envío a toda España o entrega en persona en Zaragoza.",
     objetivo: [PESTANAS[2]],
+    ruta: "/cesta",
   },
   {
     icono: "chatbubbles-outline",
     titulo: "Foro",
-    texto: "Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats. Cambias de pestaña con el selector de abajo a la derecha, encima del botón de enviar.",
+    texto: "Aquí está la comunidad: Foro, Noticias Gaming, Nuestras Novedades, Torneos y tus Chats.",
     objetivo: [PESTANAS[3]],
+    ruta: "/chat-global",
+  },
+  {
+    icono: "swap-vertical-outline",
+    titulo: "Cambia de pestaña aquí",
+    texto: "Toca este botón azul para ver Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat. Para ordenarlas a tu gusto, mantén pulsada una pestaña y arrástrala a su sitio.",
+    objetivo: ['[data-testid="selector-pestanas"]'],
+    ruta: "/chat-global",
   },
   {
     icono: "sparkles-outline",
     titulo: "Blue IA",
     texto: "Pregúntame lo que quieras. Las sugerencias se mueven solas: toca una. Si necesitas a una persona, toca «Hablar con el equipo».",
     objetivo: [PESTANAS[4]],
+    ruta: "/blue-ia",
   },
   {
     icono: "happy-outline",
     titulo: "Este soy yo",
     texto: "Tócame y se abre mi panel con 3 pestañas: Asistente, Notificaciones y Noticias. Arrástrame a donde quieras; si tapo algo, me aparto solo.",
     objetivo: [`#${BLUE_DOM_ID}`],
+    ruta: "/",
+    desplazar: '[data-testid="boton-ver-categorias"]',
   },
   {
-    icono: "cash-outline",
-    titulo: "Vende o cambia",
-    texto: "¿Tienes una consola o un dispositivo que ya no usas? Mándanos sus datos y el equipo te da un precio.",
-    accion: { texto: "Vender ahora", vender: true },
+    icono: "download-outline",
+    titulo: "Instala la tienda",
+    texto: "Ten VideojuegosZaragoza como una app en tu pantalla de inicio: la abres con un toque, sin buscarla en el navegador.",
+    ruta: "/",
+    soloInstalable: true,
+    accion: { texto: "Instalar la app", instalar: true },
   },
   {
     icono: "construct-outline",
@@ -1982,32 +2643,58 @@ const FONDO_GUIA = "rgba(11,33,56,0.58)";
 const MARGEN_ARO = 6;
 
 function GuiaBlue({
-  onCerrar,
+  onCerrar: cerrarSinMedir,
   onIr,
   onVender,
+  onInstalar,
+  instalable,
   onSenalaBlue,
 }: {
   onCerrar: () => void;
   onIr: (ruta: string) => void;
   onVender: () => void;
+  onInstalar: () => void;
+  // El paso «Instala la tienda» solo sale si se puede instalar en este dispositivo.
+  instalable: boolean;
   // Avisa a Blue de si este paso le señala a él (mientras no, se esconde para no tapar la guía).
   onSenalaBlue: (si: boolean) => void;
 }) {
   const [paso, setPaso] = useState(0);
-  const total = PASOS_GUIA.length;
-  const p = PASOS_GUIA[paso];
+  const pasos = React.useMemo(() => PASOS_GUIA.filter((x) => !x.soloInstalable || instalable), [instalable]);
+  const total = pasos.length;
+  const p = pasos[paso];
+
+  // Embudo: en qué paso está cada visitante (con su consentimiento de analítica) y cómo
+  // termina la guía. Así se ve en el panel dónde se pierde la gente y cuántos llegan al
+  // formulario de Vender.
+  useEffect(() => {
+    trackEvent("guia_paso", `Guía Blue: ${String(paso + 1).padStart(2, "0")} ${p.titulo}`);
+    if (paso === total - 1) trackEvent("guia_completada", "Guía Blue: completada");
+    // Si la guía ya enseñó el selector de pestañas del Foro, el aviso suelto no vuelve a salir.
+    if (p.objetivo?.some((o) => o.includes("selector-pestanas"))) {
+      AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
+    }
+  }, [paso, p.titulo, p.objetivo, total]);
+  const pasoActualRef = useRef(0);
+  pasoActualRef.current = paso;
+  const onCerrar = useCallback(() => {
+    if (pasoActualRef.current < total - 1) trackEvent("guia_saltada", "Guía Blue: saltada");
+    cerrarSinMedir();
+  }, [cerrarSinMedir, total]);
   const anim = useRef(new Animated.Value(1)).current;
   const direccion = useRef(1);
   const pathname = usePathname() ?? "";
   const [caja, setCaja] = useState<Caja | null>(null);
   const [pantalla, setPantalla] = useState(() => Dimensions.get("window"));
 
-  // La guía recorre la portada: si se abre en otra pantalla, primero va a Inicio.
+  // La guía te lleva de la mano: en cada paso cambia sola a la pantalla de la que habla
+  // (Inicio, Perfil, Cesta, Foro, Blue IA…). Al abrirse en otra pantalla, vuelve a Inicio.
+  const destino = p.ruta ?? "/";
   useEffect(() => {
-    if (pathname !== "/") router.navigate("/" as Href);
-    // solo al abrir
+    if (pathname !== destino) router.navigate(destino as Href);
+    // solo al cambiar de paso
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [destino]);
 
   useEffect(() => {
     onSenalaBlue(!!p.objetivo?.includes(`#${BLUE_DOM_ID}`));
@@ -2017,17 +2704,32 @@ function GuiaBlue({
   // vuelve a medir si cambia el tamaño de la pantalla.
   useEffect(() => {
     setCaja(null);
-    if (!p.objetivo) return;
+    // Trae a la vista lo que hay que enseñar (desplaza Inicio hasta el botón o la sección).
+    const traer = () => {
+      if (!p.desplazar || Platform.OS !== "web" || typeof document === "undefined") return;
+      const el = Array.from(document.querySelectorAll(p.desplazar)).find((e) => {
+        const r = e.getBoundingClientRect();
+        return r.width > 4 && r.height > 4;
+      });
+      el?.scrollIntoView({ block: p.desplazar.includes("seccion") ? "start" : "center", behavior: "smooth" });
+    };
+    const t0 = setTimeout(traer, 200);
+    if (!p.objetivo) {
+      return () => clearTimeout(t0);
+    }
     const medir = () => {
       setPantalla(Dimensions.get("window"));
       setCaja(medirObjetivo(p.objetivo));
     };
-    const t1 = setTimeout(medir, 280);
-    const t2 = setTimeout(medir, 900);
+    const t1 = setTimeout(medir, 700);
+    const t2 = setTimeout(medir, 1300);
+    const t3 = setTimeout(medir, 2000);
     const sub = Dimensions.addEventListener("change", medir);
     return () => {
+      clearTimeout(t0);
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
       // @ts-ignore — API antigua (RN<0.65) devuelve undefined
       sub?.remove?.();
     };
@@ -2120,7 +2822,9 @@ function GuiaBlue({
                 top: hueco.y,
                 width: hueco.w,
                 height: hueco.h,
-                borderRadius: Math.min(22, hueco.h / 2),
+                // Poco redondeado: el hueco iluminado es rectangular y, con más radio, asoman
+                // esquinas del fondo blanco de la barra por fuera del aro.
+                borderRadius: Math.min(10, hueco.h / 2),
                 borderWidth: 3,
                 borderColor: COLORS.accent,
                 transform: [{ scale: escalaAro }],
@@ -2188,7 +2892,9 @@ function GuiaBlue({
 
           {p.accion ? (
             <Pressable
-              onPress={() => (p.accion?.vender ? onVender() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined)}
+              onPress={() =>
+                p.accion?.vender ? onVender() : p.accion?.instalar ? onInstalar() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined
+              }
               accessibilityRole="button"
               hitSlop={8}
             >
@@ -2198,7 +2904,7 @@ function GuiaBlue({
 
           {/* Progreso */}
           <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }} accessibilityLabel={`Paso ${paso + 1} de ${total}`}>
-            {PASOS_GUIA.map((_, i) => (
+            {pasos.map((_, i) => (
               <View
                 key={i}
                 style={{

@@ -35,6 +35,7 @@ import { supabase } from "../lib/supabase";
 import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
+import CabeceraMarca from "../components/CabeceraMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -45,7 +46,7 @@ const COLORS = {
   borderSoft: "#EEF3F8",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -150,7 +151,7 @@ function ServiceCard({ s, onPress, compact }: { s: Service; onPress: () => void;
         }}
       >
         {s.imageUrl ? (
-          <SmartImage uri={s.imageUrl} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+          <SmartImage uri={s.imageUrl} alt={s.title} ancho={190} contentFit="contain" style={{ width: "100%", height: "100%" }} />
         ) : (
           <Ionicons name="construct-outline" size={34} color={COLORS.muted2} />
         )}
@@ -238,23 +239,13 @@ export default function ServiciosScreen() {
         }}
       >
         <View style={{ ...columnStyle, gap: 12 }}>
+          <CabeceraMarca />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Pressable
-              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.85 : 1,
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                alignItems: "center",
-                justifyContent: "center",
-              })}
-            >
-              <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-            </Pressable>
             <View style={{ flex: 1, alignItems: "center" }}>
               <MarcaAnimada cual="taller" ancho={isMobile ? 140 : 160} />
               <Text
+                accessibilityRole="header"
+                {...({ "aria-level": 1 } as object)}
                 style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900", textAlign: "center" }}
               >
                 Reparación y limpieza

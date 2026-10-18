@@ -101,6 +101,7 @@ import {
   Image,
   LayoutAnimation,
   Modal,
+  PanResponder,
   PixelRatio,
   Platform,
   Pressable,
@@ -133,7 +134,7 @@ const COLORS = {
   borderSoft: "#E3EAF2",
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
-  soft: "rgba(11,33,56,0.48)",
+  soft: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -171,6 +172,20 @@ const TAB_ITEMS: { key: HubTab; label: string }[] = [
   { key: "torneos", label: "Torneos" },
   { key: "privados", label: "Chat" },
 ];
+
+// Orden de las pestañas que elige cada persona (mantener pulsada y arrastrar). Se guarda en el
+// dispositivo; si falta alguna pestaña o hay una desconocida, se usa el orden de siempre.
+const ORDEN_TABS_KEY = "videojuegoszaragoza:foro_orden_pestanas";
+// La pista «Mantén pulsada una pestaña para moverla» sale UNA sola vez por dispositivo (la
+// primera vez que se abre el desplegable); después ya no vuelve.
+const PISTA_ORDEN_KEY = "videojuegoszaragoza:foro_pista_orden_vista";
+
+function ordenarTabs(orden: string[] | null): { key: HubTab; label: string }[] {
+  if (!orden) return TAB_ITEMS;
+  const validas = orden.filter((k) => TAB_ITEMS.some((t) => t.key === k));
+  const faltan = TAB_ITEMS.filter((t) => !validas.includes(t.key));
+  return [...validas.map((k) => TAB_ITEMS.find((t) => t.key === k)!), ...faltan];
+}
 
 // Los 6 emojis de reacción disponibles (ver sql/chat_message_reactions.sql —
 // el check constraint de la tabla solo admite estos mismos).
@@ -1467,14 +1482,21 @@ function HubTabButton({
   label,
   active,
   onPress,
+  onLongPress,
+  onPressOut,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
+  onPressOut?: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      onPressOut={onPressOut}
+      delayLongPress={320}
       style={({ pressed }) => ({
         opacity: pressed ? 0.92 : 1,
         borderRadius: 999,
@@ -1985,6 +2007,116 @@ function BottomBar({
   visible: boolean;
   visibleAnim: Animated.Value;
 }) {
+  // Orden de las pestañas elegido por la persona (guardado en el dispositivo).
+  const [ordenTabs, setOrdenTabs] = useState<string[] | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(ORDEN_TABS_KEY)
+      .then((raw) => {
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed)) setOrdenTabs(parsed.filter((k): k is string => typeof k === "string"));
+      })
+      .catch(() => {});
+  }, []);
+  const tabsOrdenadas = ordenarTabs(ordenTabs);
+  // Pista de «mantén pulsada para mover»: null = aún no se sabe, false = no se ha visto, true = ya vista.
+  const [pistaVista, setPistaVista] = useState<boolean | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(PISTA_ORDEN_KEY)
+      .then((raw) => setPistaVista(raw === "1"))
+      .catch(() => setPistaVista(true));
+  }, []);
+  // Se marca como vista a los 9 s de tenerla delante o al cerrar el desplegable.
+  const mostrandoPista = tabsMenuOpen && pistaVista === false;
+  useEffect(() => {
+    if (!mostrandoPista) return;
+    const marcar = () => {
+      setPistaVista(true);
+      AsyncStorage.setItem(PISTA_ORDEN_KEY, "1").catch(() => {});
+    };
+    const t = setTimeout(marcar, 9000);
+    return () => {
+      clearTimeout(t);
+      marcar();
+    };
+  }, [mostrandoPista]);
+  // Mover una pestaña: se mantiene pulsada (0,3 s), se arrastra arriba o abajo con el dedo y
+  // al soltar queda en su nuevo sitio. Las demás se apartan mientras tanto.
+  const [arrastre, setArrastre] = useState<{ key: HubTab; dy: number } | null>(null);
+  const arrastreRef = useRef(arrastre);
+  arrastreRef.current = arrastre;
+  const tabsRef = useRef(tabsOrdenadas);
+  tabsRef.current = tabsOrdenadas;
+  const altoFilaRef = useRef(54);
+  const movioRef = useRef(false);
+
+  const destinoArrastre = (key: HubTab, dy: number) => {
+    const claves = tabsRef.current.map((t) => t.key);
+    const i = claves.indexOf(key);
+    const destino = Math.max(0, Math.min(claves.length - 1, i + Math.round(dy / altoFilaRef.current)));
+    return { i, destino };
+  };
+
+  const soltarArrastre = () => {
+    const a = arrastreRef.current;
+    if (a) {
+      const { i, destino } = destinoArrastre(a.key, a.dy);
+      if (destino !== i) {
+        const claves: string[] = tabsRef.current.map((t) => t.key);
+        claves.splice(i, 1);
+        claves.splice(destino, 0, a.key);
+        setOrdenTabs(claves);
+        AsyncStorage.setItem(ORDEN_TABS_KEY, JSON.stringify(claves)).catch(() => {});
+      }
+    }
+    movioRef.current = false;
+    setArrastre(null);
+  };
+  const soltarArrastreRef = useRef(soltarArrastre);
+  soltarArrastreRef.current = soltarArrastre;
+
+  const panArrastre = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      // Con el arrastre activo (tras la pulsación larga), este contenedor se queda con el gesto.
+      onMoveShouldSetPanResponder: () => !!arrastreRef.current,
+      onMoveShouldSetPanResponderCapture: () => !!arrastreRef.current,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        movioRef.current = true;
+      },
+      onPanResponderMove: (_e, g) => {
+        const a = arrastreRef.current;
+        if (a) setArrastre({ key: a.key, dy: g.dy });
+      },
+      onPanResponderRelease: () => soltarArrastreRef.current(),
+      onPanResponderTerminate: () => {
+        movioRef.current = false;
+        setArrastre(null);
+      },
+    })
+  ).current;
+
+  const empezarArrastre = (key: HubTab) => {
+    movioRef.current = false;
+    setArrastre({ key, dy: 0 });
+    // Vibración corta (donde el móvil la permite) para notar que ya se puede mover.
+    try {
+      (navigator as any)?.vibrate?.(14);
+    } catch {
+      // sin vibración
+    }
+  };
+
+  // Aro que late alrededor del botón del selector de pestañas.
+  const pulso = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const bucle = Animated.loop(
+      Animated.timing(pulso, { toValue: 1, duration: 1700, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" })
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [pulso]);
+
   // El botón se desactiva solo cuando SÍ hay sesión pero el mensaje es
   // demasiado corto (≤ 3 caracteres). Sin sesión se deja pulsable para que
   // abra el aviso de inicio de sesión.
@@ -2049,47 +2181,121 @@ function BottomBar({
           de su propia burbuja pequeña (HubTabButton ya trae su propio
           fondo/borde), centradas, una debajo de otra.
         */}
-        <View style={{ alignItems: "flex-end", gap: 8 }}>
-          {TAB_ITEMS.map((tabItem) => (
-            <HubTabButton
-              key={tabItem.key}
-              active={activeTab === tabItem.key}
-              label={tabItem.label}
-              onPress={() => onSelectTab(tabItem.key)}
-            />
-          ))}
+        <View
+          // userSelect: sin esto, al arrastrar el navegador selecciona las letras de la pestaña.
+          style={[{ alignItems: "flex-end", gap: 8 }, Platform.OS === "web" ? ({ userSelect: "none", WebkitUserSelect: "none", touchAction: "none" } as object) : null]}
+          {...panArrastre.panHandlers}
+        >
+          {/* Mensaje de Blue, igual que los de Blue flotante (cristal, «Blue · …»), UNA sola vez:
+              la primera vez que se abre el desplegable. Con fondo claro para leerse sobre el texto. */}
+          {mostrandoPista ? (
+            <View
+              style={{
+                backgroundColor: "rgba(255,255,255,0.94)",
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: "rgba(227,234,242,0.9)",
+                paddingVertical: 7,
+                paddingHorizontal: 12,
+                shadowColor: "#0B2138",
+                shadowOpacity: 0.1,
+                shadowRadius: 12,
+                shadowOffset: { width: 0, height: 4 },
+              }}
+            >
+              <Text style={{ color: "#0B2138", fontWeight: "800", fontSize: 12.5, lineHeight: 17, textAlign: "center" }}>
+                <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Blue · </Text>
+                Mantén pulsada una pestaña para moverla
+              </Text>
+            </View>
+          ) : null}
+          {tabsOrdenadas.map((tabItem, j) => {
+            const claves = tabsOrdenadas.map((t) => t.key);
+            const esta = arrastre?.key === tabItem.key;
+            let ty = 0;
+            if (arrastre) {
+              const alto = altoFilaRef.current;
+              const { i: origen, destino } = destinoArrastre(arrastre.key, arrastre.dy);
+              if (esta) ty = Math.max(-j * alto, Math.min((claves.length - 1 - j) * alto, arrastre.dy));
+              else if (origen < destino && j > origen && j <= destino) ty = -alto;
+              else if (origen > destino && j >= destino && j < origen) ty = alto;
+            }
+            return (
+              <View
+                key={tabItem.key}
+                onLayout={j === 0 ? (e) => (altoFilaRef.current = e.nativeEvent.layout.height + 8) : undefined}
+                style={[
+                  {
+                    zIndex: esta ? 10 : 0,
+                    transform: [{ translateY: ty }, { scale: esta ? 1.06 : 1 }],
+                    shadowColor: "#0B2138",
+                    shadowOpacity: esta ? 0.22 : 0,
+                    shadowRadius: 12,
+                    shadowOffset: { width: 0, height: 6 },
+                  },
+                  // En la web, las pestañas que se apartan lo hacen con un deslizamiento suave.
+                  Platform.OS === "web"
+                    ? ({ transitionProperty: "transform", transitionDuration: esta ? "0ms" : "170ms" } as object)
+                    : null,
+                ]}
+              >
+                <HubTabButton
+                  active={activeTab === tabItem.key}
+                  label={tabItem.label}
+                  onPress={() => onSelectTab(tabItem.key)}
+                  onLongPress={() => empezarArrastre(tabItem.key)}
+                  onPressOut={() =>
+                    // Si se soltó sin arrastrar, se cancela el modo mover.
+                    setTimeout(() => {
+                      if (arrastreRef.current && !movioRef.current) setArrastre(null);
+                    }, 80)
+                  }
+                />
+              </View>
+            );
+          })}
         </View>
       </Animated.View>
 
-      <Pressable
-        onPress={onToggleTabsMenu}
-        accessibilityLabel="Cambiar de sección del chat"
-        style={({ pressed }) => ({
-          alignSelf: "flex-end",
-          // Centrado sobre el botón de enviar (42 px de ancho).
-          marginRight: 4,
-          width: 34,
-          height: 34,
-          borderRadius: 999,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#FFFFFF",
-          borderWidth: 1,
-          borderColor: COLORS.borderSoft,
-          marginBottom: 8,
-          opacity: pressed ? 0.85 : 1,
-          shadowColor: COLORS.accent,
-          shadowOpacity: 0.1,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
-        })}
+      {/* Botón del selector de pestañas: azul de marca y con un aro que late, para que se
+          vea que es AQUÍ donde se cambia de pestaña (Blue lo señala la primera vez). */}
+      <View
+        style={{ alignSelf: "flex-end", marginRight: 1, marginBottom: 8, width: 40, height: 40, alignItems: "center", justifyContent: "center" }}
       >
-        <Ionicons
-          name={tabsMenuOpen ? "chevron-down" : "chevron-up"}
-          size={18}
-          color={COLORS.accent}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: COLORS.accent,
+            opacity: pulso.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
+            transform: [{ scale: pulso.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+          }}
         />
-      </Pressable>
+        <Pressable
+          onPress={onToggleTabsMenu}
+          testID="selector-pestanas"
+          accessibilityLabel="Cambiar de pestaña del Foro: Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat"
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: COLORS.accent,
+            opacity: pressed ? 0.85 : 1,
+            shadowColor: COLORS.accent,
+            shadowOpacity: 0.35,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 3 },
+          })}
+        >
+          <Ionicons name={tabsMenuOpen ? "chevron-down" : "chevron-up"} size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
 
       {!isChatTab ? null : (
       <>
