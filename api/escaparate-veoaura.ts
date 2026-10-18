@@ -78,6 +78,19 @@ function responder(res: any, http: number, cuerpo: Record<string, unknown>) {
   res.status(http).json(cuerpo);
 }
 
+// Tope de filas de ERROR que una instancia apunta en la base de datos por minuto. Aun siendo mensajes
+// con la firma válida (de VeoAura), un fallo repetido no debe llenar la tabla: pasado el tope solo queda
+// el registro de Vercel (console.log de abajo).
+const MAX_ERRORES_POR_MINUTO = 30;
+const erroresApuntados: number[] = [];
+function cabeOtroError(): boolean {
+  const ahora = Date.now();
+  while (erroresApuntados.length && ahora - erroresApuntados[0] > 60_000) erroresApuntados.shift();
+  if (erroresApuntados.length >= MAX_ERRORES_POR_MINUTO) return false;
+  erroresApuntados.push(ahora);
+  return true;
+}
+
 async function registrar(
   supabase: SupabaseClient | null,
   datos: { evento?: string | null; id_veoaura?: string | null; resultado: string; http: number; detalle?: string }
@@ -92,6 +105,7 @@ async function registrar(
   };
   console.log("escaparate-veoaura:", JSON.stringify(fila));
   if (!supabase) return;
+  if (datos.resultado !== "ok" && !cabeOtroError()) return;
   try {
     await supabase.from("escaparate_registro").insert(fila);
   } catch {
@@ -431,6 +445,11 @@ export default async function handler(req: any, res: any) {
 
   let evento: string | null = null;
   let idVeoaura: string | null = null;
+  // Solo pasa a true cuando la firma ya está comprobada: a partir de ahí quien escribe conoce el secreto
+  // (es VeoAura), y solo entonces un rechazo se apunta en la base de datos. Lo que llega sin firma válida
+  // (cualquiera en internet) queda únicamente en el registro de Vercel, no en escaparate_registro: así un
+  // anónimo ya no puede llenar esa tabla ni los registros con peticiones basura.
+  let autenticado = false;
 
   try {
     // 1. Solo POST, por HTTPS y como mucho 100 KB.
@@ -459,6 +478,7 @@ export default async function handler(req: any, res: any) {
     if (!(await firmaValida(secreto, fecha, cabecera(req, "x-veoaura-nonce"), cuerpo, firma))) {
       throw new Rechazo(401, "firma no válida");
     }
+    autenticado = true;
 
     // 5. Nonce de un solo uso (10 minutos): se intenta apuntar; si ya existía, solo vale
     //    si se usó hace más de 10 minutos (y entonces se renueva).
@@ -512,7 +532,7 @@ export default async function handler(req: any, res: any) {
   } catch (e: unknown) {
     const r = e instanceof Rechazo ? e : new Rechazo(500, "error interno");
     if (!(e instanceof Rechazo)) console.error("escaparate-veoaura: error inesperado", e);
-    await registrar(supabase, { evento, id_veoaura: idVeoaura, resultado: "error", http: r.http, detalle: r.motivo });
+    await registrar(autenticado ? supabase : null, { evento, id_veoaura: idVeoaura, resultado: "error", http: r.http, detalle: r.motivo });
     responder(res, r.http, { ok: false, error: r.motivo });
   }
 }
