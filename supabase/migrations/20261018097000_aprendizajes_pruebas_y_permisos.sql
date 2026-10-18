@@ -5,7 +5,9 @@
 --   2) «Quitar permisos de una función: revisar también PUBLIC»: revoke from anon no cierra una función
 --      que tiene el permiso de «todos» (=X/postgres).
 --   3) «npm audit no equivale a «llega al navegador»»: clasificar las vulnerabilidades por exposición real.
--- Tipo:     3 inserciones, cada una una sola vez (por título), o reactivación si ya existe inactiva con
+--   4) «Probar los ciclos y las condiciones reales, no solo el camino feliz»: aplicar-deshacer-aplicar, todos
+--      los órdenes, pruebas de navegador bajo carga y respuestas simuladas con el formato real.
+-- Tipo:     4 inserciones, cada una una sola vez (por título), o reactivación si ya existe inactiva con
 --           exactamente el mismo texto. No borra ni modifica nada más.
 -- Límites:  cada regla queda muy por debajo de los 4.000 caracteres que admite aprendizajes_regla_check.
 -- Vuelta atrás: supabase/rollbacks/20261018097000_aprendizajes_pruebas_y_permisos_revertir.sql
@@ -31,6 +33,14 @@ with nueva (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien) as (
        'En Supabase una función SECURITY DEFINER cuya lista de permisos (proacl) incluye «=X/postgres» la puede ejecutar TODO el mundo (PUBLIC), también anon: «revoke … from anon, authenticated» NO la cierra. Se hace «revoke … from public, anon, authenticated», se concede solo a service_role y se comprueba con has_function_privilege para anon, authenticated y service_role, y con el proacl. Esto lo cazó una prueba real el 2026-10-18: adjust_product_like, increment_product_view e increment_service_view estaban abiertas a cualquiera por PUBLIC. En un rollback se restituye el estado EXACTO anterior, incluido PUBLIC.',
        'Quitar el permiso a anon y authenticated y dar la función por cerrada sin mirar PUBLIC.',
        'Mirar el proacl en producción, quitar también a PUBLIC y probar con has_function_privilege que anon y authenticated reciben «permission denied».'
+    ),
+    (
+       'Probar los ciclos y las condiciones reales, no solo el camino feliz',
+       'codigo',
+       1,
+       'Una migración de datos se prueba con «aplicar, deshacer, aplicar» (debe terminar igual que «aplicar»: el 2026-10-18 una inserción «si no existe por título» dejaba inactivas las lecciones nuevas tras la vuelta atrás y el Centro perdía una regla), en TODOS los órdenes posibles y dentro de transacciones que se deshacen (así se descubren las restricciones de orden reales). Una prueba de navegador espera a que la página hidrate (lo escrito antes se pierde) y se prueba también con otra prueba de navegador a la vez, porque con la CPU justa fallan las que dependen de tiempos. Las respuestas simuladas imitan el formato REAL (PostgREST devuelve un texto entre comillas, no el texto sin más) y, si la prueba no encuentra un fallo, se comprueba que de verdad podía encontrarlo.',
+       'Dar una migración por idempotente por haberla aplicado dos veces seguidas, o una prueba de navegador por estable porque pasó una vez sola.',
+       'Probar aplicar, deshacer y aplicar otra vez, las 120 ordenaciones y la prueba de navegador bajo carga, y arreglar la prueba si falla por tiempos.'
     ),
     (
        'npm audit no equivale a «llega al navegador»',
