@@ -10,7 +10,8 @@
  *  3) Cupo global: muchas IP distintas juntas también se frenan.
  *  4) El cron (Authorization: Bearer CRON_SECRET) no tiene cupo.
  *  5) Simultaneidad real: 40 peticiones a la vez de la misma IP dejan pasar exactamente el cupo.
- *  6) Si la base de datos del límite no responde, se usa el límite en memoria (no se deja pasar todo).
+ *  6) Modo degradado: si la base de datos del límite no responde, se usa el límite en memoria con los cupos a
+ *     la cuarta parte y se pregunta una sola vez (no una por petición): no se deja pasar todo.
  *  7) En la tabla solo hay cubos (no la IP real) y como mucho 4.096 por tipo.
  * NO toca producción ni envía nada a Supabase real ni a OpenAI.
  *
@@ -60,7 +61,9 @@ globalThis.fetch = async (entrada, opciones) => {
   return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
 };
 const consolaError = console.error;
+const consolaAviso = console.warn;
 console.error = () => {}; // los manejadores registran errores esperados en estas pruebas
+console.warn = () => {};
 
 const retorno = (await import("../api/escaparate-retorno.ts")).default;
 const noticias = (await import("../api/noticias-gaming.ts")).default;
@@ -138,12 +141,21 @@ try {
     ok(pasan === 12, `noticias: 40 peticiones SIMULTÁNEAS de la misma IP dejan pasar exactamente 12 (${pasan})`);
   }
 
-  // 7) Si la base de datos del límite no responde, se usa el límite en memoria
+  // 7) Modo degradado: si la base de datos del límite no responde, el límite en memoria usa la cuarta parte de
+  //    los cupos y solo se pregunta una vez a la base de datos (no una por petición). Cada servicio usa su propia
+  //    copia del módulo (la pausa y los contadores viven en el módulo).
   {
     bdCaida = true;
+    llamadasLimite = 0;
+    const noticiasDegradado = (await import("../api/noticias-gaming.ts?degradado")).default;
     const rs = [];
-    for (let i = 0; i < 15; i++) rs.push(await lanzar(noticias, "GET", { "x-vercel-forwarded-for": ip(70) }));
-    ok(rs.slice(0, 12).every((r) => r.codigo !== 429) && rs.slice(12).every((r) => r.codigo === 429), `noticias: con el límite compartido caído, el de memoria sigue frenando (${bloqueadas(rs)} bloqueadas de 15)`);
+    for (let i = 0; i < 15; i++) rs.push(await lanzar(noticiasDegradado, "GET", { "x-vercel-forwarded-for": ip(70) }));
+    ok(rs.slice(0, 3).every((r) => r.codigo !== 429) && rs.slice(3).every((r) => r.codigo === 429), `noticias: con el límite compartido caído, cupos a la cuarta parte (pasan 3, ${bloqueadas(rs)} bloqueadas de 15)`);
+    ok(llamadasLimite === 1, `noticias: tras el primer fallo no se vuelve a preguntar al límite compartido (consultas: ${llamadasLimite})`);
+    const retornoDegradado = (await import("../api/escaparate-retorno.ts?degradado")).default;
+    const rr = [];
+    for (let i = 0; i < 8; i++) rr.push(await lanzar(retornoDegradado, "POST", { "x-vercel-forwarded-for": ip(71) }));
+    ok(rr.slice(0, 5).every((r) => r.codigo !== 429) && rr.slice(5).every((r) => r.codigo === 429), `retorno: con el límite compartido caído, cupos a la cuarta parte (pasan 5 de 20, ${bloqueadas(rr)} bloqueadas de 8)`);
     bdCaida = false;
   }
 
@@ -160,6 +172,7 @@ try {
 } finally {
   globalThis.fetch = original;
   console.error = consolaError;
+  console.warn = consolaAviso;
 }
 
 for (const f of fallos) console.log(`FALLO ${f}`);

@@ -88,8 +88,8 @@ export const config = { maxDuration: 60 };
 // función, base de datos y llamadas a OpenAI. Un cupo compartido por IP y global frena a quien lo martillee.
 // Se apoya en la tabla limites_peticiones y la función consumir_limite
 // (supabase/migrations/20261018120000_limite_peticiones.sql), con la clave de servidor. Si esa función aún
-// no existe o la base de datos no responde, se usa el límite en memoria de esta instancia: nunca se deja
-// pasar todo. (El mismo bloque está en api/escaparate-retorno.ts y api/blue-ia.ts: cada función es
+// no existe o la base de datos no responde (o tarda más de 2 s), se usa el límite en memoria de esta
+// instancia con los cupos a la cuarta parte (modo degradado, más abajo): nunca se deja pasar todo. (El mismo bloque está en api/escaparate-retorno.ts y api/blue-ia.ts: cada función es
 // autónoma y no comparte archivos.)
 type LimiteCuenta = { max: number; ventanaSegundos: number };
 
@@ -124,17 +124,49 @@ function consumirEnMemoria(clave: string, { max, ventanaSegundos }: LimiteCuenta
   return { permitido: c.n <= max, reiniciaEn: Math.max(1, Math.ceil((c.inicio + ventanaSegundos * 1000 - ahora) / 1000)) };
 }
 
+// Modo degradado: sin límite compartido (la función aún no existe, la base de datos no responde o tarda
+// demasiado) cada instancia de Vercel cuenta sola y una instancia nueva empieza de cero, así que lo que
+// podría colarse crece con el número de instancias. Por eso, en ese modo: los cupos se reducen a la cuarta
+// parte (mínimo 1), la consulta compartida no espera más de 2 s y, tras un fallo, no se vuelve a intentar
+// durante 30 s para no frenar cada petición mientras dure la caída. (LIMITE_PAUSA_MS cambia esa pausa.)
+const DIVISOR_DEGRADADO = 4;
+const ESPERA_LIMITE_MS = 2000;
+const PAUSA_TRAS_FALLO_MS = 30_000;
+let sinLimiteCompartidoHasta = 0;
+let ultimoAvisoDegradado = 0;
+
+function cupoDegradado({ max, ventanaSegundos }: LimiteCuenta): LimiteCuenta {
+  return { max: Math.max(1, Math.floor(max / DIVISOR_DEGRADADO)), ventanaSegundos };
+}
+
 async function consumirLimite(supabase: SupabaseClient, clave: string, limite: LimiteCuenta): Promise<{ permitido: boolean; reiniciaEn: number }> {
-  try {
-    const { data, error } = await supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos });
-    if (!error && data && typeof data === "object") {
-      const d = data as { permitido?: boolean; reinicia_en?: number };
-      return { permitido: d.permitido === true, reiniciaEn: Number(d.reinicia_en ?? limite.ventanaSegundos) };
+  if (Date.now() >= sinLimiteCompartidoHasta) {
+    let temporizador: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const esperar = new Promise<never>((_, rechazar) => {
+        temporizador = setTimeout(() => rechazar(new Error("el límite compartido tardó demasiado")), ESPERA_LIMITE_MS);
+      });
+      const { data, error } = await Promise.race([
+        supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos }),
+        esperar,
+      ]);
+      if (!error && data && typeof data === "object") {
+        const d = data as { permitido?: boolean; reinicia_en?: number };
+        return { permitido: d.permitido === true, reiniciaEn: Number(d.reinicia_en ?? limite.ventanaSegundos) };
+      }
+    } catch {
+      // sin límite compartido: modo degradado
+    } finally {
+      clearTimeout(temporizador);
     }
-  } catch {
-    // sin límite compartido: se usa el de esta instancia
+    const pausa = Number(process.env.LIMITE_PAUSA_MS);
+    sinLimiteCompartidoHasta = Date.now() + (Number.isFinite(pausa) && pausa >= 0 ? pausa : PAUSA_TRAS_FALLO_MS);
+    if (Date.now() - ultimoAvisoDegradado > 60_000) {
+      ultimoAvisoDegradado = Date.now();
+      console.warn("limite: el límite compartido no responde; se usa el de esta instancia con cupos reducidos");
+    }
   }
-  return consumirEnMemoria(clave, limite);
+  return consumirEnMemoria(clave, cupoDegradado(limite));
 }
 
 // Primero el cubo de la IP (así un visitante bloqueado no gasta el cupo de todos) y luego el cupo global.
