@@ -825,9 +825,17 @@ export default function BlueIAScreen() {
       setSending(true);
 
       try {
+        // Con sesión se manda el token: el servidor da un cupo por USUARIO (más holgado) en vez de por IP.
+        let token: string | null = null;
+        try {
+          const { data: s } = await supabase.auth.getSession();
+          token = s.session?.access_token ?? null;
+        } catch {
+          // sin sesión: se pregunta como visitante
+        }
         const response = await fetch(BLUE_IA_API_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           body: JSON.stringify({ message: apiText, history: historyForApi }),
         });
 
