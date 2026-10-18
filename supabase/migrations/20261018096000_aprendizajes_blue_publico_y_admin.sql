@@ -3,7 +3,8 @@
 --            el dueño). Se crea la versión actualizada «Blue: interfaz pública y Administración» y la
 --            antigua se conserva con su texto original más una nota de «SUSTITUIDA», marcada como inactiva
 --            (no se borra: queda como historial).
--- Tipo:     1 inserción y 1 actualización, idempotentes (por título o por marca). No borra nada.
+-- Tipo:     1 inserción (o reactivación si está inactiva con el mismo texto) y 1 actualización, idempotentes
+--           (por título o por marca). No borra nada.
 -- Fuente:   components/Campanita.tsx (comprobado el 2026-10-18): Blue no se monta en chats ni en Vender;
 --           en /admin solo se monta para el rol admin.
 -- Límites:  cada regla queda por debajo de los 4.000 caracteres que admite aprendizajes_regla_check.
@@ -12,17 +13,29 @@
 -- Vuelta atrás: supabase/rollbacks/20261018096000_aprendizajes_blue_publico_y_admin_revertir.sql
 -- ============================================================================
 
-insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien, activa)
-select 'Blue: interfaz pública y Administración',
+-- Si la lección ya existe pero está inactiva con exactamente este texto (porque antes se aplicó la vuelta
+-- atrás), se vuelve a activar: así «aplicar, deshacer, aplicar» termina igual que «aplicar». Si alguien
+-- editó el texto, no se toca.
+with nueva (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien) as (
+  values (
+       'Blue: interfaz pública y Administración',
        'diseno',
        1,
        'Blue flotante se comporta distinto según la pantalla (comprobado en components/Campanita.tsx el 2026-10-18). INTERFAZ PÚBLICA: aparece en toda la tienda salvo en las pantallas de chat (Blue IA, Foro y chats) y en el formulario Vender, porque taparía el campo de escribir y el botón de enviar; la guía sí puede abrirse allí. En el pago no saca mensajes ni ofrece instalar la app. ADMINISTRACIÓN: Blue solo se monta para el dueño con rol admin; a nadie más. Allí no saca mensajes de la tienda; propone temas de «Lo que Blue sabe» (la respuesta la escribe siempre el dueño) y avisa de ventas de VeoAura sin confirmar, y se aparta sin tapar el panel. Sustituye a «Blue fuera del panel», que se conserva como historial.',
        'Decir que Blue no aparece en Administración, o dejar que se monte para cualquier visitante.',
-       'Público: Blue en todo menos chats y Vender. Administración: Blue solo para el dueño.',
-       true
-where not exists (
-  select 1 from public.aprendizajes where titulo = 'Blue: interfaz pública y Administración'
-);
+       'Público: Blue en todo menos chats y Vender. Administración: Blue solo para el dueño.'
+  )
+), alta as (
+  insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien, activa)
+  select n.titulo, n.categoria, n.prioridad, n.regla, n.ejemplo_mal, n.ejemplo_bien, true
+    from nueva n
+   where not exists (select 1 from public.aprendizajes a where a.titulo = n.titulo)
+  returning id
+)
+update public.aprendizajes a
+   set activa = true
+  from nueva n
+ where a.titulo = n.titulo and not a.activa and a.regla = n.regla;
 
 update public.aprendizajes
 set regla = regla || ' SUSTITUIDA 2026-10-18 por «Blue: interfaz pública y Administración»: hoy Blue sí aparece en Administración, pero solo para el dueño. Se conserva como historial.',
