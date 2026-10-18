@@ -4,32 +4,29 @@
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --
 -- Qué hace (y nada más):
---   1) Vuelve a activar las lecciones sueltas que la migración dejó con activa = false (las 54
---      originales y las nuevas de 090000 y 095000 que estuvieran creadas; sus textos nunca se
---      tocaron). Una de ellas, «Blue fuera del panel», es un caso especial (ver más abajo).
---   2) Desactiva las 10 filas «Grupo · …» (activa = false). No se borran: la tabla no admite borrados
---      y así queda constancia de cómo estaban agrupadas.
+--   1) Vuelve a activar las lecciones sueltas que la migración dejó con activa = false (sus textos y
+--      prioridades nunca se tocaron). «Blue fuera del panel» es un caso especial (ver más abajo).
+--   2) Desactiva todas las filas «Grupo · …» (activa = false). No se borran: la tabla no admite borrados y
+--      así queda constancia de cómo estaban agrupadas.
 --
--- Ojo: si después de aplicar la migración se editó el texto de una lección suelta, esa edición se
--- conserva (solo se cambia activa). Si se editó una fila «Grupo · …», esa edición queda guardada en la
--- fila inactiva y habría que pasarla a mano a la lección suelta correspondiente.
+-- Ojo: si después de aplicar la migración se editó el texto de una lección suelta, esa edición se conserva
+-- (solo se cambia activa). Si se editó una fila «Grupo · …», esa edición queda guardada en la fila inactiva
+-- y habría que pasarla a mano a la lección suelta correspondiente.
 --
 -- Comprobación previa (solo lectura): qué filas cambiaría.
---   select titulo, activa from public.aprendizajes order by activa, titulo;
+--   select titulo, prioridad, activa from public.aprendizajes order by activa, prioridad, titulo;
 -- ============================================================================
 
 update public.aprendizajes
 set activa = true
 where not activa
   and titulo in (
-    'Autorización expresa del dueño antes de fusionar, desplegar o migrar',
-    'Blue: interfaz pública y Administración',
     'Consultar el Centro de Aprendizajes antes de cada respuesta',
     'Formato de respuesta en 7 apartados',
     'Mínimo 10 recomendaciones de mejoría en cada respuesta',
-    'Recomendar modelo en cada respuesta',
     'Solo se menciona lo que existe',
     'Ambición: pensar como un cerebro más de la tienda',
+    'Autorización expresa del dueño antes de fusionar, desplegar o migrar',
     'Claude ejecuta, el dueño solo da la orden',
     'Publicar en cuanto la vista previa esté en verde',
     'Supabase lo aplica Claude',
@@ -44,12 +41,13 @@ where not activa
     'Vigilar el espacio en disco del servidor',
     'Funciones del servidor en api/',
     'pointerEvents siempre como propiedad',
+    'No crear archivos por crear',
+    'Comprobar los límites de la tabla antes de añadir texto',
     'Toque y arrastre separados',
     'Lo que usa el código tiene que existir en la base de datos',
-    'No crear archivos por crear',
     'Archivos de ayuda fuera de app/',
     'Nombres y valores de variables secretas',
-    'Comprobar los límites de la tabla antes de añadir texto',
+    'Blue: interfaz pública y Administración',
     'La guía de Blue navega sola y no puede desmontarse',
     'Blue nunca tapa contenido',
     'Blue se esconde al bajar el scroll y vuelve al parar',
@@ -58,18 +56,17 @@ where not activa
     'Notificaciones dentro de Blue',
     'Azul de marca en los botones',
     'Sin burbujas ni recuadros decorativos',
-    'Todo centrado',
     'Imágenes enteras, sin recortar',
+    'Listas de productos con el diseño de Inicio',
+    'Todo centrado',
     'Precios siempre con céntimos',
     'Redes sociales una sola vez',
-    'Listas de productos con el diseño de Inicio',
     'Botones principales de Inicio destacados con medida',
     'Nada se sale por los lados en el móvil',
     'Todo al alcance del pulgar derecho',
+    'Vender: contacto por Gmail o chat, brillo Siri y scroll al desplegable',
     'Pensado para una mano',
     'Formularios en rejilla, no en columna',
-    'Vender: contacto por Gmail o chat, brillo Siri y scroll al desplegable',
-    'Fotos de noticias fieles a la noticia',
     'Garantías y promesas solo en la descripción',
     'Sin subtítulos innecesarios',
     'No inventar datos del negocio',
@@ -82,8 +79,8 @@ where not activa
   );
 
 -- «Blue fuera del panel» solo se reactiva si la reorganización fue quien la desactivó. Si la desactivó
--- 20261018095000 (porque la sustituye «Blue: interfaz pública y Administración»), su texto lleva la
--- nota «SUSTITUIDA 2026-10-18» y se queda inactiva: esa la reactiva el rollback de 095000.
+-- 20261018096000 (porque la sustituye «Blue: interfaz pública y Administración»), su texto lleva la nota
+-- «SUSTITUIDA 2026-10-18» y se queda inactiva: esa la reactiva el rollback de 096000.
 update public.aprendizajes
 set activa = true
 where not activa
@@ -93,15 +90,4 @@ where not activa
 update public.aprendizajes
 set activa = false
 where activa
-  and titulo in (
-    'Grupo · Cómo respondo al dueño',
-    'Grupo · Cómo trabajo: ramas, permisos y publicación',
-    'Grupo · Probar y vigilar antes de dar algo por bueno',
-    'Grupo · Normas técnicas del código y del servidor',
-    'Grupo · Blue flotante: sitio, avisos y guía',
-    'Grupo · Diseño de marca y estética',
-    'Grupo · Diseño para el móvil y una sola mano',
-    'Grupo · Textos y contenido',
-    'Grupo · Negocio: datos reales, clientes y consentimiento',
-    'Grupo · Seguridad e integración con VeoAura'
-  );
+  and titulo like 'Grupo · %';
