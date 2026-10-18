@@ -114,6 +114,53 @@ async function markBuyNowSoldIfApplies(items: CartItem[]) {
   }
 }
 
+// Clave única de la operación de compra. Se manda en cada intento de crear el pedido y el servidor
+// (crear_pedido_idempotente, supabase/migrations/20261018110000_pedidos_idempotencia.sql) crea UN solo
+// pedido por clave: un reintento tras un corte de red, una recarga o dos toques seguidos devuelven el
+// mismo número en lugar de crear otro pedido.
+const PEDIDO_CLAVE_KEY = "videojuegoszaragoza:pedido_clave";
+const PEDIDO_CLAVE_MINUTOS = 30;
+
+function nuevoUuid(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  // Sin crypto.randomUUID (móvil nativo): UUID v4 con números aleatorios.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16);
+    return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+// La misma clave mientras el carrito y la entrega no cambien (30 min): así reintentar, aunque se
+// recargue la página, no crea otro pedido. Una clave nueva si cambia el carrito.
+async function claveDelPedido(items: CartItem[], entrega: string): Promise<string> {
+  const huella = `${entrega}:${items.map((it) => it.id).sort().join(",")}`;
+  try {
+    const raw = await AsyncStorage.getItem(PEDIDO_CLAVE_KEY);
+    if (raw) {
+      const g = JSON.parse(raw) as { clave?: string; huella?: string; creada?: number };
+      if (g?.clave && g.huella === huella && typeof g.creada === "number" && Date.now() - g.creada < PEDIDO_CLAVE_MINUTOS * 60000) {
+        return g.clave;
+      }
+    }
+  } catch {
+    // sin clave guardada: se crea una nueva
+  }
+  const clave = nuevoUuid();
+  try {
+    await AsyncStorage.setItem(PEDIDO_CLAVE_KEY, JSON.stringify({ clave, huella, creada: Date.now() }));
+  } catch {
+    // sin almacenamiento: la clave vale igual para los reintentos de esta pantalla
+  }
+  return clave;
+}
+
+// ¿Falla porque la función nueva aún no existe en la base de datos (migración sin aplicar) o ya no
+// tiene permiso (vuelta atrás)? Entonces se usa la antigua, sin idempotencia.
+function funcionNoDisponible(e: { code?: string; message?: string }): boolean {
+  return e.code === "PGRST202" || e.code === "42883" || e.code === "42501" || /could not find the function|permission denied/i.test(e.message ?? "");
+}
+
 const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
@@ -231,6 +278,11 @@ export default function CheckoutScreen() {
   const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; texto: string } | null>(null);
 
   const bootedRef = useRef(false);
+  // Guarda síncrona contra dos toques seguidos, como defensa extra: el botón ya se desactiva con
+  // `submitting`, pero ese estado de React se actualiza con retraso. (Con la simulación de una compra
+  // en el navegador, el doble toque no llegó a duplicar nada ni sin esta guarda: el hueco real era
+  // el servidor, que aceptaba cualquier reintento; ver crear_pedido_idempotente.)
+  const enviandoRef = useRef(false);
 
   const subtotal = useMemo(
     () => items.reduce((acc, it) => acc + it.priceEUR * it.qty, 0),
@@ -357,6 +409,7 @@ export default function CheckoutScreen() {
   }, [bootstrap]);
 
   const onPay = useCallback(async () => {
+    if (enviandoRef.current) return;
     setErr(null);
 
     if (items.length === 0) {
@@ -377,41 +430,59 @@ export default function CheckoutScreen() {
       return;
     }
 
+    enviandoRef.current = true;
     setSubmitting(true);
     try {
       // 1) Se registra el pedido en la tienda (supabase/migrations/20261013120000_pedidos.sql).
-      //    El total lo calcula la base de datos con los precios reales. Si la función aún
-      //    no existe o falla la red, el pedido sigue por WhatsApp como hasta ahora.
+      //    El total lo calcula la base de datos con los precios reales. Se manda una clave única de
+      //    esta compra: repetir el envío devuelve el mismo pedido (repetido = true) en vez de crear
+      //    otro. Si la función nueva aún no existe o falla la red, el pedido sigue por WhatsApp
+      //    como hasta ahora.
       let numero: number | null = null;
+      let repetido = false;
       try {
-        const { data, error } = await supabase.rpc("crear_pedido", {
-          p_datos: {
-            nombre: safeStr(fullName),
-            email: safeStr(email),
-            telefono: safeStr(phone),
-            entrega,
-            direccion: entrega === "envio" ? safeStr(address1) : "",
-            codigo_postal: entrega === "envio" ? safeStr(postalCode) : "",
-            ciudad: entrega === "envio" ? safeStr(city) : "",
-            notas: safeStr(notes),
-          },
-          p_productos: items.map((it) => it.id),
-        });
-        if (!error && data != null) numero = Number(data);
+        const datos = {
+          nombre: safeStr(fullName),
+          email: safeStr(email),
+          telefono: safeStr(phone),
+          entrega,
+          direccion: entrega === "envio" ? safeStr(address1) : "",
+          codigo_postal: entrega === "envio" ? safeStr(postalCode) : "",
+          ciudad: entrega === "envio" ? safeStr(city) : "",
+          notas: safeStr(notes),
+        };
+        const ids = items.map((it) => it.id);
+        const clave = await claveDelPedido(items, entrega);
+        const r = await supabase.rpc("crear_pedido_idempotente", { p_clave: clave, p_datos: datos, p_productos: ids });
+        if (!r.error && r.data && typeof r.data === "object") {
+          const res = r.data as { numero?: number | string; repetido?: boolean };
+          numero = Number(res.numero) || null;
+          repetido = !!res.repetido;
+        } else if (r.error && funcionNoDisponible(r.error)) {
+          // Respaldo mientras la migración no esté aplicada (o tras una vuelta atrás): la función
+          // antigua, que crea el pedido sin idempotencia.
+          const { data, error } = await supabase.rpc("crear_pedido", { p_datos: datos, p_productos: ids });
+          if (!error && data != null) numero = Number(data);
+        }
+        // Con número, esta operación ya está hecha: la próxima compra empieza con clave nueva.
+        if (numero) await AsyncStorage.removeItem(PEDIDO_CLAVE_KEY);
       } catch {
-        // sin número: se sigue por WhatsApp
+        // sin número: se sigue por WhatsApp (la clave queda guardada para el reintento)
       }
       // Si el pedido lleva artículos de VeoAura, el servidor avisa a VeoAura para que no los
-      // venda también en la tienda física (api/escaparate-retorno.ts). No se espera.
-      if (numero && Platform.OS === "web") {
-        fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
-      }
+      // venda también en la tienda física (api/escaparate-retorno.ts). No se espera. Un reintento
+      // (repetido) no vuelve a avisar ni a contar como una venta nueva.
+      if (!repetido) {
+        if (numero && Platform.OS === "web") {
+          fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
+        }
 
-      trackEvent("order_whatsapp", "Pedido por WhatsApp", {
-        path: "/checkout",
-        metadata: { numero, total, items: items.length, entrega },
-      });
-      await markBuyNowSoldIfApplies(items);
+        trackEvent("order_whatsapp", "Pedido por WhatsApp", {
+          path: "/checkout",
+          metadata: { numero, total, items: items.length, entrega },
+        });
+        await markBuyNowSoldIfApplies(items);
+      }
 
       // 2) Con el pedido registrado, la cesta se vacía y se muestra la confirmación.
       const texto = buildWhatsText(numero);
@@ -426,6 +497,7 @@ export default function CheckoutScreen() {
       setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
     } finally {
       setSubmitting(false);
+      enviandoRef.current = false;
     }
   }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, buildWhatsText]);
 
