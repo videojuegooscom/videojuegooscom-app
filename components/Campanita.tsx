@@ -236,6 +236,9 @@ const APARTARSE_CADA_MS = 1200;
 const APARTARSE_TRAS_SCROLL_MS = 220;
 // id del contenedor de Blue en la web (para no confundirse a sí mismo con el contenido).
 const BLUE_DOM_ID = "blue-flotante";
+// El mensaje que sale al lado de Blue (no el saludo, que dura unos segundos): se mide para que
+// tampoco tape botones.
+const BLUE_MENSAJE_DOM_ID = "blue-mensaje";
 
 // Mensajes de Blue: al tocarlos llevan a lo que dicen. "chat" abre el chat de la tienda
 // (Blue IA primero; desde ahí, el equipo), "ruta" va a esa pantalla, "vender" abre el
@@ -423,12 +426,45 @@ function contenidoDebajo(x: number, y: number): number {
   return tapados;
 }
 
+// Lo mismo para el mensaje que sale al lado de Blue, si hay uno a la vista: sale hacia
+// el centro de la pantalla (a la izquierda si Blue está a la derecha) y, según la altura, pegado
+// arriba o abajo. Se mira con una rejilla de 6 × 3 puntos. Así Blue no se queda en un sitio donde
+// su mensaje taparía «Comprar ya» (en escritorio el mensaje mide hasta 330 px).
+// Solo cuentan los controles (botones, enlaces, campos): taparlos es lo grave; tapar texto o una
+// foto con un mensaje que se cierra con la X no. Y un roce con un solo punto no justifica moverse.
+// Esta puntuación pesa mucho menos que la de la propia Blue (ver PESO_BLUE): lo primero es que Blue
+// no tape nada, y solo entre sitios igual de libres se prefiere el que deja libre el mensaje.
+const PESO_BLUE = 1000;
+function contenidoDebajoDelMensaje(s: Sitio, x: number, y: number): number {
+  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
+  const m = document.getElementById(BLUE_MENSAJE_DOM_ID);
+  if (!m || !m.offsetWidth || !m.offsetHeight) return 0;
+  const ancho = m.offsetWidth;
+  const alto = m.offsetHeight;
+  const izq = s.lado === "r" ? x - 6 - ancho : x + BLUE_SIZE + 6;
+  const arriba = s.fy < 0.5;
+  const sup = arriba ? y + 2 : y + BLUE_SIZE - 2 - alto;
+  const { width, height } = Dimensions.get("window");
+  let tapados = 0;
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 3; j++) {
+      const px = izq + ancho * ((i + 0.5) / 6);
+      const py = sup + alto * ((j + 0.5) / 3);
+      if (px < 0 || py < 0 || px >= width || py >= height) continue;
+      const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
+      const peso = debajo ? pesoContenido(debajo) : 0;
+      if (peso >= 6) tapados += peso;
+    }
+  }
+  return tapados >= 12 ? tapados : 0;
+}
+
 // Mejor sitio libre: primero el que eligió la persona; si tapa algo, el hueco más vacío
 // (mismo lado antes que el otro, y lo más cerca posible de donde estaba).
 function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
   const puntuar = (s: Sitio) => {
     const { x, y } = sitioToXY(s);
-    return contenidoDebajo(x, y);
+    return contenidoDebajo(x, y) * PESO_BLUE + contenidoDebajoDelMensaje(s, x, y);
   };
   if (puntuar(preferido) === 0) return preferido;
   const enActual = puntuar(actual);
@@ -1757,6 +1793,7 @@ export default function Campanita() {
               lleva a lo que dice. */}
           {bocadillo ? (
             <Animated.View
+              nativeID={BLUE_MENSAJE_DOM_ID}
               style={{
                 position: "absolute",
                 width: anchoMensaje,
