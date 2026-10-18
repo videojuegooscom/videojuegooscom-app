@@ -103,6 +103,7 @@ const RUTAS = ["/", "/catalogo", "/servicios", "/blog", "/politicas/envios", "/c
 
 const fallos = [];
 let comprobadas = 0; // páginas en las que Blue estaba en pantalla y se midió de verdad
+let fichasConMensaje = 0; // fichas de producto medidas con el mensaje de Blue a la vista
 const ok = (cond, msg) => {
   console.log(`${cond ? "OK   " : "FALLO"} ${msg}`);
   if (!cond) fallos.push(msg);
@@ -205,6 +206,12 @@ async function revisarPagina(ctx, t, ruta, etiqueta, espera = 6000) {
     await p.close();
     return;
   }
+  // La ficha de producto saca un mensaje de Blue pasados unos segundos: se espera a que esté a la
+  // vista, porque es el caso en que el mensaje (y no solo Blue) podía tapar «Comprar ya».
+  let conMensaje = false;
+  if (ruta.startsWith("/producto/")) {
+    conMensaje = await p.waitForSelector("#blue-mensaje", { timeout: 25000 }).then(() => true).catch(() => false);
+  }
   await p.waitForTimeout(espera); // Blue se aparta cada 1,2 s: dejarlo asentarse
   const m = await p.evaluate(medirTapados);
   if (m.sinBlue) {
@@ -215,7 +222,8 @@ async function revisarPagina(ctx, t, ruta, etiqueta, espera = 6000) {
     return;
   }
   comprobadas++;
-  ok(m.tapados.length === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no tapa ningún botón${m.tapados.length ? ` (tapa: ${m.tapados.join(" · ")})` : ""}`);
+  if (conMensaje && (await p.evaluate(() => !!document.getElementById("blue-mensaje")))) fichasConMensaje++;
+  ok(m.tapados.length === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no tapa ningún botón${conMensaje ? " (con su mensaje a la vista)" : ""}${m.tapados.length ? ` (tapa: ${m.tapados.join(" · ")})` : ""}`);
   if (m.solapeVolver !== null) ok(m.solapeVolver === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no se solapa con «Volver atrás» (${m.solapeVolver} %)`);
   if (m.tapados.length || (m.solapeVolver ?? 0) > 0) await p.screenshot({ path: join(SALIDA, `${etiqueta}-${t.nombre}-${ruta.replace(/\W+/g, "_")}.png`) });
   await p.close();
@@ -292,7 +300,8 @@ try {
 }
 
 if (comprobadas === 0 && (SOLO === "todo" || SOLO === "paginas" || SOLO === "primera")) fallos.push("no se midió ninguna página (Blue no apareció en ninguna)");
-console.log(`páginas medidas con Blue en pantalla: ${comprobadas}`);
+if (comprobadas > 0 && (SOLO === "todo" || SOLO === "paginas") && fichasConMensaje === 0) fallos.push("no se vio ningún mensaje de Blue en las fichas de producto: el caso del mensaje no se probó");
+console.log(`páginas medidas con Blue en pantalla: ${comprobadas} (fichas con el mensaje de Blue a la vista: ${fichasConMensaje})`);
 for (const f of fallos) console.log(`FALLO ${f}`);
 console.log(fallos.length ? `${fallos.length} fallos` : "todo bien");
 console.log(`capturas de los fallos en ${SALIDA}`);
