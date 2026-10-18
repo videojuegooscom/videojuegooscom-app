@@ -38,6 +38,71 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const codificar = new TextEncoder();
 
+// --- Límite de peticiones COMPARTIDO entre instancias --------------------------------------------
+// Cada instancia de Vercel tiene su propia memoria, así que un límite en memoria no frena a quien abre
+// varias conexiones. Este suma en la base de datos (tabla limites_peticiones, función consumir_limite,
+// supabase/migrations/20261018120000_limite_peticiones.sql) con la clave de servidor. Si esa función aún
+// no existe o la base de datos no responde, se usa el límite en memoria de esta instancia: nunca se deja
+// pasar todo. (El mismo bloque está en api/noticias-gaming.ts y api/blue-ia.ts: cada función es
+// autónoma y no comparte archivos.)
+type LimiteCuenta = { max: number; ventanaSegundos: number };
+
+// La IP real del visitante: Vercel la pone en x-vercel-forwarded-for y no se puede falsear desde fuera;
+// x-forwarded-for solo como último recurso (puede traer lo que mande el cliente).
+function ipDelCliente(req: any): string {
+  for (const nombre of ["x-vercel-forwarded-for", "x-real-ip", "x-forwarded-for"]) {
+    const v = req.headers?.[nombre];
+    const primero = Array.isArray(v) ? v[0] : v;
+    if (typeof primero === "string" && primero.trim()) return primero.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "desconocida";
+}
+
+// «Cubo» de la IP: hash de IP + día, módulo 4.096. No se guarda la IP real y la tabla no crece sin límite.
+async function cuboDeIp(ip: string): Promise<string> {
+  const dia = new Date().toISOString().slice(0, 10);
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${dia}`)));
+  return String(((h[0] << 8) | h[1]) % 4096);
+}
+
+const contadoresMemoria = new Map<string, { inicio: number; n: number }>();
+function consumirEnMemoria(clave: string, { max, ventanaSegundos }: LimiteCuenta): { permitido: boolean; reiniciaEn: number } {
+  const ahora = Date.now();
+  const actual = contadoresMemoria.get(clave);
+  const c = actual && ahora - actual.inicio < ventanaSegundos * 1000 ? actual : { inicio: ahora, n: 0 };
+  c.n += 1;
+  contadoresMemoria.set(clave, c);
+  if (contadoresMemoria.size > 2000) {
+    for (const [k, v] of contadoresMemoria) if (ahora - v.inicio > 3_600_000) contadoresMemoria.delete(k);
+  }
+  return { permitido: c.n <= max, reiniciaEn: Math.max(1, Math.ceil((c.inicio + ventanaSegundos * 1000 - ahora) / 1000)) };
+}
+
+async function consumirLimite(supabase: SupabaseClient, clave: string, limite: LimiteCuenta): Promise<{ permitido: boolean; reiniciaEn: number }> {
+  try {
+    const { data, error } = await supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos });
+    if (!error && data && typeof data === "object") {
+      const d = data as { permitido?: boolean; reinicia_en?: number };
+      return { permitido: d.permitido === true, reiniciaEn: Number(d.reinicia_en ?? limite.ventanaSegundos) };
+    }
+  } catch {
+    // sin límite compartido: se usa el de esta instancia
+  }
+  return consumirEnMemoria(clave, limite);
+}
+
+// Primero el cubo de la IP (así un visitante bloqueado no gasta el cupo de todos) y luego el cupo global.
+async function permitirPeticion(
+  supabase: SupabaseClient,
+  req: any,
+  nombre: string,
+  limites: { porIp: LimiteCuenta; global: LimiteCuenta }
+): Promise<{ permitido: boolean; reiniciaEn: number }> {
+  const porIp = await consumirLimite(supabase, `${nombre}:ip:${await cuboDeIp(ipDelCliente(req))}`, limites.porIp);
+  if (!porIp.permitido) return porIp;
+  return consumirLimite(supabase, `${nombre}:global`, limites.global);
+}
+
 const MAX_INTENTOS = 12;
 const ESPERA_REINTENTO_MS = 60 * 1000;
 const ENVIANDO_CADUCA_MS = 2 * 60 * 1000;
@@ -47,6 +112,11 @@ const PRESUPUESTO_MS = 20000;
 const MAX_POR_VUELTA = 5;
 const LOTE_ESTADISTICAS = 200;
 const PAUSA_SIN_CRON_MS = 5000;
+// Cupo de las llamadas que no son del cron: por IP (cubo) y de todas juntas, cada 10 minutos. Un pedido
+// o abrir el panel Escaparate son 1 llamada; 20 por IP y 60 en total dan de sobra para el uso normal.
+const LIMITE_VENTANA_S = 600;
+const LIMITE_IP_MAX = 20;
+const LIMITE_GLOBAL_MAX = 60;
 
 type Evento = "pedido" | "pedido_anulado";
 
@@ -311,14 +381,25 @@ export default async function handler(req: any, res: any) {
     responder(res, 503, { ok: false, error: "sin configurar" });
     return;
   }
+  const supabase = createClient(supabaseUrl, claveServidor, { auth: { persistSession: false, autoRefreshToken: false } });
   if (!esCron) {
+    // Quien no es el cron (el navegador de un cliente o del admin) tiene un cupo compartido por IP y global:
+    // este endpoint no pide sesión y trabaja con la clave de servidor.
+    const cupo = await permitirPeticion(supabase, req, "retorno", {
+      porIp: { max: LIMITE_IP_MAX, ventanaSegundos: LIMITE_VENTANA_S },
+      global: { max: LIMITE_GLOBAL_MAX, ventanaSegundos: LIMITE_VENTANA_S },
+    });
+    if (!cupo.permitido) {
+      res.setHeader("Retry-After", String(cupo.reiniciaEn));
+      responder(res, 429, { ok: false, error: "demasiadas peticiones" });
+      return;
+    }
     if (Date.now() - ultimaVuelta < PAUSA_SIN_CRON_MS) {
       responder(res, 200, { ok: true, omitido: true });
       return;
     }
     ultimaVuelta = Date.now();
   }
-  const supabase = createClient(supabaseUrl, claveServidor, { auth: { persistSession: false, autoRefreshToken: false } });
 
   const url = String(process.env.VEOAURA_RETORNO_URL ?? "").trim();
   const secreto = process.env.VEOAURA_RETORNO_SECRETO ?? "";
