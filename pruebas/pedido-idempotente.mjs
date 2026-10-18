@@ -121,11 +121,22 @@ async function escenario(navegador, nombre, respuestas, { retraso = 0, antiguo =
 }
 
 async function rellenarYEnviar(p, { doble = false } = {}) {
-  await p.getByRole("radio", { name: /Recogida en tienda/ }).click();
-  await p.getByPlaceholder("Nombre completo").fill("Cliente de Prueba");
-  await p.getByPlaceholder("tu@email.com").fill("prueba@example.com");
-  await p.getByPlaceholder("627 748 741").fill("600123123");
   const boton = p.getByText(/Confirmar pedido/).last();
+  // Con el equipo justo de CPU la página tarda en «despertar» (hidratar) y lo que se escribe antes se pierde:
+  // el botón sigue desactivado y el clic esperaría 30 s (comprobado: con otra prueba de navegador a la vez
+  // fallaba). Se repite el rellenado hasta que el botón se activa, y si no se activa se dice claramente.
+  let activo = false;
+  for (let intento = 0; intento < 6 && !activo; intento++) {
+    await p.getByRole("radio", { name: /Recogida en tienda/ }).click();
+    await p.getByPlaceholder("Nombre completo").fill("Cliente de Prueba");
+    await p.getByPlaceholder("tu@email.com").fill("prueba@example.com");
+    await p.getByPlaceholder("627 748 741").fill("600123123");
+    for (let i = 0; i < 6 && !activo; i++) {
+      activo = await boton.isEnabled();
+      if (!activo) await p.waitForTimeout(500);
+    }
+  }
+  if (!activo) throw new Error("el botón «Confirmar pedido» no se activó con el formulario rellenado");
   await boton.scrollIntoViewIfNeeded();
   if (doble) await Promise.all([boton.click(), boton.click({ delay: 10 })]);
   else await boton.click();
