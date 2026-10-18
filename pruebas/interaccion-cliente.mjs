@@ -13,6 +13,10 @@
  *  B) El endpoint dice 429 (límite): no se cae a la vía antigua (sería saltarse el límite) y el «me gusta»
  *     se deshace en pantalla.
  *  C) El endpoint no existe (404, aún sin publicar): se cae a las funciones antiguas (la tienda no se rompe).
+ *  D) «Añadir a la cesta» pide la reserva a /api/interaccion con {accion:"reservar", id, token:<uuid>} y usa la hora
+ *     de fin que da el servidor; E) con 429 (tope de reservas) no se cae a la función antigua pero la compra no se
+ *     bloquea; F) sin endpoint se cae a reservar_producto; G) si lo tiene reservado otro cliente (hasta:null) no
+ *     entra en la cesta.
  * NO toca producción: las únicas peticiones a Supabase real son lecturas (GET).
  *
  * Uso: node pruebas/interaccion-cliente.mjs [carpeta_dist]     (por defecto dist)
@@ -66,6 +70,9 @@ const ok = (cond, msg) => {
   if (!cond) fallos.push(msg);
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HASTA_ANTIGUA = new Date(Date.now() + 14 * 60000).toISOString(); // lo que contesta la función antigua de reservas
+const VISITA_OK = { status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, contado: true, total: 42 }) };
+const carrito = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("videojuegoos_cart_v1") ?? "[]"));
 
 async function escenario(navegador, nombre, respuestaEndpoint) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "es-ES" });
@@ -86,6 +93,10 @@ async function escenario(navegador, nombre, respuestaEndpoint) {
   await ctx.route("**/rest/v1/rpc/adjust_product_like", (r) => {
     registro.viejas.push(`adjust_product_like:${r.request().postDataJSON()?.delta}`);
     return r.fulfill({ status: 200, contentType: "application/json", body: "88" });
+  });
+  await ctx.route("**/rest/v1/rpc/reservar_producto", (r) => {
+    registro.viejas.push("reservar_producto");
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(HASTA_ANTIGUA) });
   });
   await ctx.route("**/api/interaccion", (r) => {
     const cuerpo = r.request().postDataJSON();
@@ -148,6 +159,59 @@ try {
     await p.waitForTimeout(1500);
     ok(registro.viejas.includes("adjust_product_like:1"), "C: y el «me gusta» cae a adjust_product_like con delta 1");
     ok((await texto(p)) === "88", `C: la pantalla enseña el total que devuelve la función antigua (${await texto(p)})`);
+    await ctx.close();
+  }
+
+  // D) Reservas de la cesta: el endpoint responde bien
+  {
+    const hasta = new Date(Date.now() + 15 * 60000).toISOString();
+    const { ctx, p, registro, idProducto } = await escenario(navegador, "D", (c) =>
+      c.accion === "reservar" ? { status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, hasta }) } : VISITA_OK
+    );
+    await p.getByText("Añadir a la cesta").first().click();
+    await p.waitForTimeout(1800);
+    const reserva = registro.endpoint.find((c) => c.accion === "reservar");
+    ok(!!reserva && reserva.id === idProducto && UUID_RE.test(reserva.token), `D: «Añadir a la cesta» pide la reserva a /api/interaccion con {reservar, id, token:<uuid>} (${reserva ? "token " + reserva.token : "no se mandó"})`);
+    ok(!registro.viejas.includes("reservar_producto"), "D: no se llama a la función antigua reservar_producto");
+    const items = await carrito(p);
+    ok(items.length === 1 && Math.abs(items[0].reservedUntil - Date.parse(hasta)) < 2000, "D: el producto queda en la cesta con la hora de fin que da el servidor");
+    await ctx.close();
+  }
+
+  // E) Reservas: el servidor dice 429 (tope): no se cae a la vía antigua, pero la compra no se bloquea
+  {
+    const { ctx, p, registro } = await escenario(navegador, "E", (c) =>
+      c.accion === "reservar" ? { status: 429, contentType: "application/json", body: JSON.stringify({ ok: false, error: "demasiadas reservas activas" }) } : VISITA_OK
+    );
+    await p.getByText("Añadir a la cesta").first().click();
+    await p.waitForTimeout(1800);
+    ok(!registro.viejas.includes("reservar_producto"), "E: con 429 NO se cae a la función antigua (sería saltarse el tope)");
+    const items = await carrito(p);
+    ok(items.length === 1 && items[0].reservedUntil > Date.now() + 14 * 60000 && items[0].reservedUntil < Date.now() + 16 * 60000, "E: aun así el producto entra en la cesta, con la reserva solo en este dispositivo (15 min)");
+    await ctx.close();
+  }
+
+  // F) Reservas: el endpoint no existe todavía (404): cae a la función antigua
+  {
+    const { ctx, p, registro } = await escenario(navegador, "F", (c) =>
+      c.accion === "reservar" ? { status: 404, contentType: "text/plain", body: "No encontrado" } : VISITA_OK
+    );
+    await p.getByText("Añadir a la cesta").first().click();
+    await p.waitForTimeout(1800);
+    ok(registro.viejas.includes("reservar_producto"), "F: sin endpoint, la reserva cae a la función antigua (la tienda no se rompe según el orden en que se publique)");
+    const items = await carrito(p);
+    ok(items.length === 1 && Math.abs(items[0].reservedUntil - Date.parse(HASTA_ANTIGUA)) < 2000, "F: y usa la hora de fin que devuelve esa función");
+    await ctx.close();
+  }
+
+  // G) Reservas: el artículo lo tiene reservado otro cliente (hasta:null)
+  {
+    const { ctx, p } = await escenario(navegador, "G", (c) =>
+      c.accion === "reservar" ? { status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, hasta: null }) } : VISITA_OK
+    );
+    await p.getByText("Añadir a la cesta").first().click();
+    await p.waitForTimeout(1800);
+    ok((await carrito(p)).length === 0, "G: si el servidor dice que lo tiene otro cliente, el producto NO entra en la cesta");
     await ctx.close();
   }
 } catch (e) {

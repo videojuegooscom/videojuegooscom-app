@@ -22,7 +22,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { supabase } from "./supabase";
 
-const URL_INTERACCION = Platform.OS === "web" ? "/api/interaccion" : "https://videojuegoszaragoza.com/api/interaccion";
+export const URL_INTERACCION = Platform.OS === "web" ? "/api/interaccion" : "https://videojuegoszaragoza.com/api/interaccion";
 const VISITANTE_KEY = "videojuegoszaragoza:visitante";
 
 function nuevoIdentificador(): string {
