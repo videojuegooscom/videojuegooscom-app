@@ -62,6 +62,7 @@ import Barramagic from "../components/Barramagic";
 import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
+import CabeceraMarca from "../components/CabeceraMarca";
 import { crearAvisoBusqueda } from "../components/Campanita";
 import CatalogFilters, {
   Chip,
@@ -676,35 +677,6 @@ export default function CatalogoScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Botón de volver flotante en la esquina superior izquierda. */}
-      <Pressable
-        onPress={smartBack}
-        hitSlop={8}
-        accessibilityLabel="Volver"
-        style={({ pressed }) => ({
-          position: "absolute",
-          top: 14,
-          left: 16,
-          zIndex: 10,
-          width: 38,
-          height: 38,
-          borderRadius: 999,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#FFFFFF",
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          opacity: pressed ? 0.85 : 1,
-          shadowColor: "#000",
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 3 },
-          elevation: 3,
-        })}
-      >
-        <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-      </Pressable>
-
       <ScrollView
         // 96 abajo: la última fila de productos y el botón "cargar más" quedan por encima
         // del asistente flotante Blue (72 px en la esquina inferior).
@@ -722,13 +694,13 @@ export default function CatalogoScreen() {
             borderBottomWidth: 1,
             borderBottomColor: "#F6FAFD",
             paddingHorizontal: pagePadding,
-            // +40 para que el título no quede bajo el botón de volver.
-            paddingTop: (isMobile ? 12 : 14) + 40,
+            paddingTop: isMobile ? 12 : 14,
             paddingBottom: isMobile ? 14 : 18,
             alignItems: "center",
           }}
         >
           <View style={{ width: "100%", maxWidth: 1240, gap: 14 }}>
+            <CabeceraMarca onBack={smartBack} />
             <View style={{ alignItems: "center" }}>
               <Text
                 accessibilityRole="header"

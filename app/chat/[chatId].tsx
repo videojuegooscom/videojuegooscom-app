@@ -22,11 +22,11 @@
  * - lib/supabase.ts → comprobación de sesión.
  */
 import React, { useEffect, useState } from "react";
-import { Platform, Pressable, SafeAreaView, StatusBar, Text, View } from "react-native";
+import { Platform, SafeAreaView, StatusBar, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import ProductChatThread from "../../components/ProductChatThread";
+import CabeceraMarca from "../../components/CabeceraMarca";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -62,38 +62,11 @@ export default function ChatScreen() {
 
       {/* Cabecera limpia: volver a la izquierda, título centrado y un hueco
           igual a la derecha para que el título quede en el centro exacto. */}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 10,
-          paddingHorizontal: 12,
-          paddingVertical: Platform.OS === "web" ? 12 : 8,
-        }}
-      >
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.85 : 1,
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            alignItems: "center",
-            justifyContent: "center",
-          })}
-        >
-          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-        </Pressable>
-
-        <Text
-          numberOfLines={1}
-          style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}
-        >
+      <View style={{ paddingHorizontal: 12, paddingVertical: Platform.OS === "web" ? 10 : 6, gap: 2 }}>
+        <CabeceraMarca onBack={() => (router.canGoBack() ? router.back() : router.replace("/"))} />
+        <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
           Chat con la tienda
         </Text>
-
-        <View style={{ width: 36 }} />
       </View>
 
       {checking || !chatId ? (

@@ -109,6 +109,7 @@ import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
 import CargaMarca from "../../components/marca/CargaMarca";
+import CabeceraMarca from "../../components/CabeceraMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 
 const COLORS = {
@@ -287,18 +288,6 @@ function mapDbStatusToUi(s: DbStatus): UiStatus {
   if (s === "PUBLISHED") return "PUBLICADA";
   if (s === "DRAFT") return "LISTA";
   return "REVISAR";
-}
-
-function publicStatusLabel(s: UiStatus) {
-  if (s === "PUBLICADA") return "Disponible";
-  if (s === "LISTA") return "En preparación";
-  return "Por revisar";
-}
-
-function adminStatusLabel(s: UiStatus) {
-  if (s === "PUBLICADA") return "Publicada";
-  if (s === "LISTA") return "Lista";
-  return "Por revisar";
 }
 
 function asProductCondition(value: unknown): ProductCondition {
@@ -608,11 +597,6 @@ export default function ProductoScreen() {
     };
   }, [loadedId]);
 
-  const badgeLabel = useMemo(() => {
-    if (!p) return "";
-    return isAdmin ? adminStatusLabel(p.status) : publicStatusLabel(p.status);
-  }, [p, isAdmin]);
-
   const heroSubcopy = useMemo(() => {
     if (!p) return "Ficha de producto";
 
@@ -850,7 +834,14 @@ export default function ProductoScreen() {
         const { data: sessionData } = await supabase.auth.getSession();
         const userId = sessionData.session?.user?.id;
         if (!userId) {
-          pushRoute("/perfil" as Href);
+          // Sin sesión: primero iniciar sesión o registrarse, y después vuelve a esta ficha.
+          await AsyncStorage.setItem(
+            "videojuegoszaragoza:volver_tras_acceso",
+            JSON.stringify({ ruta: `/producto/${p.id}`, hasta: Date.now() + 30 * 60 * 1000 })
+          ).catch(() => {});
+          pushRoute(
+            `/perfil?acceso=entrar&aviso=${encodeURIComponent("Inicia sesión o crea tu cuenta para comprar. Al terminar volverás a este artículo.")}` as Href
+          );
           return;
         }
         await AsyncStorage.setItem(
@@ -1008,21 +999,7 @@ export default function ProductoScreen() {
       >
         {/* Columna centrada: en pantallas anchas la ficha no se pega a la izquierda */}
         <View style={{ width: "100%", maxWidth: 1240 }}>
-        <Pressable
-          onPress={smartBack}
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.88 : 1,
-            alignSelf: "flex-start",
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            backgroundColor: "#F6FAFD",
-          })}
-        >
-          <Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>
-        </Pressable>
+          <CabeceraMarca onBack={smartBack} />
         </View>
       </View>
 
@@ -1521,62 +1498,34 @@ export default function ProductoScreen() {
                   )}
                 </View>
 
-                <View style={{ width: "100%", gap: 10, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}>
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                    Información del producto
-                  </Text>
-
-                  <View style={{ gap: 10, width: "100%" }}>
-                    <InfoRow label="Estado" value={badgeLabel} isMobile={isMobile} />
-                    {p.reference ? (
-                      <InfoRow
-                        label="Número de referencia del artículo"
-                        value={p.reference}
-                        isMobile={isMobile}
-                      />
-                    ) : null}
-                    <InfoRow
-                      label="Categoría"
-                      value={p.category?.name ?? "General"}
-                      isMobile={isMobile}
-                    />
-                    <InfoRow label="Precio" value={fmtEUR(p.priceEUR)} isMobile={isMobile} />
-                    <InfoRow
-                      label="Multimedia"
-                      value={mediaCountLabel(p.media)}
-                      isMobile={isMobile}
-                    />
-                    <InfoRow
-                      label="Compra"
-                      value={canBuy ? "Disponible para añadir a la cesta" : "No disponible"}
-                      isMobile={isMobile}
-                    />
-                  </View>
-                </View>
               </View>
-
               {/* Las garantías y promesas las escribe la tienda en la descripción de cada producto. */}
-              <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                ¿Dudas sobre el estado, los accesorios incluidos o la compatibilidad? Pregúntanos por
-                el chat desde el botón de arriba.
-              </Text>
             </View>
           </View>
 
-          <View style={{ alignItems: "center", paddingTop: 4 }}>
+          {/* Último botón: limpio y claro, vuelve a donde estaba (o al catálogo). */}
+          <View style={{ alignItems: "center", paddingTop: 8, paddingBottom: 8 }}>
             <Pressable
-              onPress={() => replaceRoute("/catalogo" as Href)}
+              onPress={smartBack}
+              accessibilityRole="button"
+              accessibilityLabel="Volver atrás"
               style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
+                width: "100%",
+                maxWidth: 320,
+                minHeight: 52,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
                 borderRadius: 999,
-                paddingVertical: 12,
-                paddingHorizontal: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                backgroundColor: "#F6FAFD",
+                borderWidth: 1.5,
+                borderColor: COLORS.accent,
+                backgroundColor: "#FFFFFF",
+                opacity: pressed ? 0.85 : 1,
               })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al catálogo</Text>
+              <Ionicons name="chevron-back" size={20} color={COLORS.accent} />
+              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16 }}>Volver atrás</Text>
             </Pressable>
           </View>
           </View>
@@ -1589,35 +1538,6 @@ export default function ProductoScreen() {
         initialIndex={lightboxIndex}
         onClose={() => setLightboxOpen(false)}
       />
-    </View>
-  );
-}
-
-function InfoRow({
-  label,
-  value,
-  isMobile,
-}: {
-  label: string;
-  value: string;
-  isMobile?: boolean;
-}) {
-  return (
-    // Etiqueta encima y valor debajo, ambos centrados (nada pegado a un lado).
-    <View style={{ gap: 2, alignItems: "center" }}>
-      <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
-        {label}
-      </Text>
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "800",
-          textAlign: "center",
-        }}
-        numberOfLines={isMobile ? 3 : 2}
-      >
-        {value}
-      </Text>
     </View>
   );
 }
