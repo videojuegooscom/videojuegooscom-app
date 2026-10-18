@@ -18,6 +18,7 @@
  * Uso: node pruebas/lecciones-sql.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
  */
+import { existsSync } from "node:fs";
 import { conectar } from "./sql-aislado.mjs";
 
 const servidor = process.argv[2];
@@ -37,6 +38,12 @@ const V090 = R + "20261018090000_aprendizajes_lecciones_nuevas_revertir.sql";
 const V095 = R + "20261018095000_aprendizajes_autorizacion_expresa_revertir.sql";
 const V096 = R + "20261018096000_aprendizajes_blue_publico_y_admin_revertir.sql";
 const V100 = R + "20261018100000_aprendizajes_reorganizar_revertir.sql";
+
+// 095000 y 096000 llegan con las PR #78 y #79: si esta rama aún no las trae, sus bloques se omiten (con aviso).
+const HAY_095 = existsSync(N095);
+const HAY_096 = existsSync(N096);
+if (!HAY_095) console.log("AVISO falta 20261018095000 (PR #78): se omiten los bloques B, E y G");
+if (!HAY_096) console.log("AVISO falta 20261018096000 (PR #79): se omiten los bloques C, E y G");
 
 const fallos = [];
 const ok = (cond, msg) => {
@@ -105,10 +112,14 @@ try {
     await db.aplicar(b, [V090]);
     ok((await n(b, "select count(*) from public.aprendizajes where activa")) === 55, "A: la vuelta atrás deja activas solo las 55 originales");
     ok((await diferenciasConOriginal(b)) === 0, "A: tras la vuelta atrás las originales están idénticas");
+    // Aplicar, deshacer y volver a aplicar termina igual que aplicar (antes las lecciones se quedaban inactivas).
+    await db.aplicar(b, [N090]);
+    ok((await n(b, "select count(*) from public.aprendizajes where activa and titulo in ('Mínimo 10 recomendaciones de mejoría en cada respuesta', 'Comprobar los límites de la tabla antes de añadir texto')")) === 2, "A: volver a aplicar tras la vuelta atrás reactiva las 2 lecciones");
+    ok((await n(b, "select count(*) from public.aprendizajes")) === 57, "A: y no crea filas duplicadas (57 en total)");
   }
 
   // B) 095000
-  {
+  if (HAY_095) {
     const b = await db.clonar(plantilla);
     await db.aplicar(b, [N095]);
     ok((await n(b, "select count(*) from public.aprendizajes where titulo like 'Autorización expresa%' and activa and prioridad = 1")) === 1, "B: la lección de autorización existe, activa y de prioridad 1");
@@ -125,7 +136,7 @@ try {
   }
 
   // C) 096000
-  {
+  if (HAY_096) {
     const b = await db.clonar(plantilla);
     await db.aplicar(b, [N096]);
     ok((await n(b, "select count(*) from public.aprendizajes where titulo = 'Blue: interfaz pública y Administración' and activa")) === 1, "C: la lección nueva de Blue está activa");
@@ -160,7 +171,7 @@ try {
   }
 
   // E) Secuencia completa y vuelta atrás en orden inverso
-  {
+  if (HAY_095 && HAY_096) {
     const b = await db.clonar(plantilla);
     await db.aplicar(b, [N090, N095, N096]);
     ok((await n(b, "select count(*) from public.aprendizajes")) === 59, "E: tras 090000, 095000 y 096000 la tabla tiene 59 filas (55 + 4 lecciones nuevas)");
@@ -190,7 +201,7 @@ try {
   }
 
   // G) Orden distinto: reorganizar primero y aplicar 095000 y 096000 después
-  {
+  if (HAY_095 && HAY_096) {
     const b = await db.clonar(plantilla);
     await db.aplicar(b, [N100, N095, N096]);
     ok((await titulosRepetidos(b)) === 0, "G: en este orden no hay títulos repetidos");
