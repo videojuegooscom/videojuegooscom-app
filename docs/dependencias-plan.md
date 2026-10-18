@@ -80,3 +80,67 @@ pero **no está probado**.
 - No se leyeron los textos completos de los avisos GHSA ni el código de `react-navigation`/`expo-router` sobre `nanoid`.
 - No se ejecutó `tsc`, `lint`, `build` ni `expo-doctor` con ninguna de las versiones nuevas.
 - No se sabe si el SDK 58 limpia todo, ni qué Node usa realmente Vercel (solo `engines` 24.x de `package.json`).
+
+## 6. Análisis ampliado (2026-10-18, solo lectura): qué es explotable de verdad en producción
+
+Segunda pasada hecha por otro analista de solo lectura, leyendo el código de cada paquete y buscando sus marcas en
+el único archivo JavaScript del navegador (`dist/_expo/static/js/web/entry-*.js`, 2,67 MB). Con controles
+positivos (las marcas de xmldom, yaml, js-yaml, postcss, node-forge y picomatch sí aparecen donde deben).
+
+**Resultado: de las 53, ninguna es explotable hoy por un visitante remoto.**
+
+| Clase | Qué significa | Nº | Paquetes |
+|---|---|---|---|
+| P1 | Explotable hoy por un visitante remoto | **0** | — |
+| P2 | Va en el navegador, alcanzable en teoría, efecto muy limitado | 5 | `nanoid`, `decode-uri-component`, `query-string`, `@react-navigation/core`, `expo-router` |
+| P3 | Solo compilación o desarrollo; la entrada es nuestro propio código | 47 | cadena Expo/Metro/Babel, jest de React Native, ESLint, `shell-quote` (la crítica), `node-forge`, `postcss`… |
+| P4 | Código que no llega a ejecutarse en producción | 1 | `ws` (ninguna función de `api/` ni el bundle lo cargan) |
+
+Pruebas de los P2 (leídas en el código, no probadas con un navegador):
+- `nanoid` 3.3.11: va la copia `non-secure`; todas las llamadas son `nanoid()` sin argumentos y `customAlphabet`
+  no se llama en ningún sitio, que es lo que exigen los avisos. No se pudo leer el aviso de desbordamiento
+  (GHSA-xwg4) por falta de red.
+- `decode-uri-component`/`query-string`: `expo-router` lee la dirección con `new URL().searchParams`; el
+  `queryString.parse` vulnerable solo está en un respaldo que no se usa. Aunque se alcanzara, el daño (CPU) sería solo
+  en la pestaña de quien abra un enlace manipulado.
+
+**Trampas del arreglo automático:** `npm audit --omit=dev` marca 50 de 53 solo porque `expo` y `react-native` están
+en `dependencies`; eso no significa que lleguen al navegador. `fixAvailable` apunta a `expo@44.0.6` en 19 paquetes:
+es una **bajada** del SDK 54 al 44 y rompería la tienda. **Nunca `npm audit fix --force`.** Otros 9 piden
+`react-native@0.88.0` y 6 un salto al SDK 58. Solo 19 se arreglan tocando el lockfile.
+
+### Lo que sí merece atención: `api/`, base de datos y cabeceras (de más a menos riesgo real)
+
+1. **`api/blue-ia.ts` (coste, riesgo medio-bajo):** la defensa es la cabecera `Origin`, que cualquier script puede
+   falsificar; el límite de 8 peticiones por minuto vive en memoria de cada instancia. Un script podría gastar la
+   clave de OpenAI. No expone datos. Mejora: límite compartido en Supabase.
+2. **`api/escaparate-veoaura.ts` (escritura anónima, riesgo medio-bajo):** cada petición rechazada, incluidas las de
+   firma inválida, inserta una fila en `escaparate_registro`. Un anónimo puede inflar esa tabla. Lo demás (HMAC en
+   tiempo constante, nonce, límite de 100 KB) está bien.
+3. **`api/escaparate-retorno.ts` (riesgo bajo):** el POST no pide autenticación (diseño documentado) y trabaja con
+   la clave de servidor; la pausa entre vueltas es por instancia. Revela cuántos avisos se enviaron.
+4. **`api/noticias-gaming.ts` (riesgo bajo):** sondeo ciego de direcciones internas (descarga fotos y páginas de
+   terceros sin filtrar IP privadas; solo GET y no devuelve el contenido) y comparación del secreto del cron con
+   `===` en lugar de tiempo constante.
+5. **Cabeceras (`vercel.json`):** hay `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy` y
+   `Permissions-Policy`; **no hay CSP** ni se comprobó HSTS (Vercel suele añadirlo).
+6. **Base de datos (avisos de seguridad de Supabase, 2026-10-18):**
+   - 14 funciones `security definer` las puede ejecutar el visitante sin sesión; son las que la tienda necesita
+     (pedidos, reservas, chats, contadores). Las tres de administración (`admin_list_users_with_stats`,
+     `admin_search_users`, `admin_users_by_ids`) **sí comprueban `is_admin()`** (leídas).
+   - `adjust_product_like` e `increment_product_view/service_view` las puede llamar cualquiera sin límite: se pueden
+     inflar «me gusta» y visitas de un producto (integridad de métricas, sin datos expuestos).
+   - Protección contra contraseñas filtradas desactivada en Supabase Auth (es un ajuste del panel, lo cambia el dueño).
+   - Tres tablas con RLS y sin políticas (`escaparate_nonces`, `noticias_gaming_control`, `reservas_cesta`): es lo
+     esperado, solo las toca el servidor.
+7. **Higiene:** en la raíz del repositorio hay una copia extra de variables de entorno (`.env.local.save`). Está
+   cubierta por `.gitignore`, pero es una copia más de secretos en disco; conviene borrarla (lo decide el dueño; no se
+   ha abierto ni se ha tocado).
+
+Nada de esto se ha cambiado. Propuesta de siguiente paso, sin actualizaciones masivas: (a) el dueño ejecuta
+`npm audit fix` sin `--force` en una rama (Lote 1) y yo pruebo y abro la PR; (b) una PR aparte de endurecimiento de
+`api/` (límite compartido, no registrar firmas inválidas sin tope, tiempo constante en el cron) cuando el dueño lo
+autorice.
+
+Lección sugerida: `npm audit --omit=dev` no equivale a «llega al navegador», y un `fixAvailable` con `expo@44.0.6`
+es una bajada: nunca `audit fix --force`.

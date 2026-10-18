@@ -1,6 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: reorganiza el Centro de Aprendizajes en 10 grupos (antes, 54 lecciones sueltas más las
---   2 nuevas de 20261018090000).
+--   2 nuevas de 20261018090000 y las 2 de 20261018095000, si ya están aplicadas: los títulos que no
+--   existan simplemente no entran).
 -- Tipo:     NO borra nada y no pierde ninguna palabra.
 --   1) Crea una fila «Grupo · …» por tema. Su regla es una frase de introducción más las reglas
 --      ORIGINALES copiadas tal cual desde la tabla (con su prioridad [P1] [P2] [P3] y su título), y lo
@@ -10,8 +11,11 @@
 --   completo y, con 3.923 de los 4.000 caracteres que admite la regla, no cabe dentro de un grupo.
 -- Idempotente: si el grupo ya existe no se vuelve a crear, y las sueltas solo se desactivan si su
 --   grupo está activo. Vuelta atrás: supabase/rollbacks/20261018100000_aprendizajes_reorganizar_revertir.sql
--- Orden: debe aplicarse DESPUÉS de 20261018090000_aprendizajes_lecciones_nuevas.sql, que crea una
---   lección del primer grupo y otra del cuarto.
+-- Orden: debe aplicarse DESPUÉS de 20261018090000_aprendizajes_lecciones_nuevas.sql (crea una lección
+--   del primer grupo y otra del cuarto) y de 20261018095000_aprendizajes_autorizacion_y_blue_panel.sql
+--   (crea una del segundo grupo y otra del quinto, y deja inactiva «Blue fuera del panel», que por eso
+--   no entra en el grupo de Blue: se queda como historial). Con las cuatro lecciones nuevas, el grupo 2
+--   queda en 3.563 y el grupo 5 en 3.801 caracteres de los 4.000 permitidos.
 -- ============================================================================
 
 do $$
@@ -30,7 +34,8 @@ begin
              'Ambición: pensar como un cerebro más de la tienda']),
       ('Grupo · Cómo trabajo: ramas, permisos y publicación', 'general',
        'Cómo se trabaja con el repositorio y el servidor: ramas desde main actualizado, comprobación de errores en toda rama, comandos simples sin ventanas de permiso y quién publica y aplica cada cosa.',
-       array['Claude ejecuta, el dueño solo da la orden',
+       array['Autorización expresa del dueño antes de fusionar, desplegar o migrar',
+             'Claude ejecuta, el dueño solo da la orden',
              'Publicar en cuanto la vista previa esté en verde',
              'Supabase lo aplica Claude',
              'Comandos sin ventanas de permiso',
@@ -56,7 +61,8 @@ begin
              'Comprobar los límites de la tabla antes de añadir texto']),
       ('Grupo · Blue flotante: sitio, avisos y guía', 'diseno',
        'Blue flotante: nunca tapa contenido, dónde se coloca, cuándo se esconde, cómo y cuántas veces avisa, dónde viven las notificaciones y cómo funciona su guía.',
-       array['La guía de Blue navega sola y no puede desmontarse',
+       array['Blue: interfaz pública y Administración',
+             'La guía de Blue navega sola y no puede desmontarse',
              'Blue nunca tapa contenido',
              'Blue se esconde al bajar el scroll y vuelve al parar',
              'Blue: nunca abajo a la derecha, tarjeta alargada y tienda instalable',

@@ -4,9 +4,9 @@
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --
 -- Qué hace (y nada más):
---   1) Vuelve a activar las 54 lecciones sueltas originales y las 2 nuevas («Mínimo 10
---      recomendaciones…» y «Comprobar los límites…»; la migración las había dejado con activa = false;
---      sus textos nunca se tocaron).
+--   1) Vuelve a activar las lecciones sueltas que la migración dejó con activa = false (las 54
+--      originales y las nuevas de 090000 y 095000 que estuvieran creadas; sus textos nunca se
+--      tocaron). Una de ellas, «Blue fuera del panel», es un caso especial (ver más abajo).
 --   2) Desactiva las 10 filas «Grupo · …» (activa = false). No se borran: la tabla no admite borrados
 --      y así queda constancia de cómo estaban agrupadas.
 --
@@ -22,6 +22,8 @@ update public.aprendizajes
 set activa = true
 where not activa
   and titulo in (
+    'Autorización expresa del dueño antes de fusionar, desplegar o migrar',
+    'Blue: interfaz pública y Administración',
     'Consultar el Centro de Aprendizajes antes de cada respuesta',
     'Formato de respuesta en 7 apartados',
     'Mínimo 10 recomendaciones de mejoría en cada respuesta',
@@ -54,7 +56,6 @@ where not activa
     'Blue: nunca abajo a la derecha, tarjeta alargada y tienda instalable',
     'Los avisos y pistas de Blue salen una sola vez',
     'Notificaciones dentro de Blue',
-    'Blue fuera del panel',
     'Azul de marca en los botones',
     'Sin burbujas ni recuadros decorativos',
     'Todo centrado',
@@ -79,6 +80,15 @@ where not activa
     'Integraciones con VeoAura sin cruzar proyectos',
     'Descripción fija en artículos de VeoAura'
   );
+
+-- «Blue fuera del panel» solo se reactiva si la reorganización fue quien la desactivó. Si la desactivó
+-- 20261018095000 (porque la sustituye «Blue: interfaz pública y Administración»), su texto lleva la
+-- nota «SUSTITUIDA 2026-10-18» y se queda inactiva: esa la reactiva el rollback de 095000.
+update public.aprendizajes
+set activa = true
+where not activa
+  and titulo = 'Blue fuera del panel'
+  and regla not like '%SUSTITUIDA 2026-10-18%';
 
 update public.aprendizajes
 set activa = false
