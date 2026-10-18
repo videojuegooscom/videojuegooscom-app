@@ -81,8 +81,9 @@ Cuatro capas, de menor a mayor garantía:
    (lo hace), el segundo intento ve que ya se procesó y responde 200 sin tocar nada. Marcar el pedido pagado y
    registrar el evento va en **una sola función SQL** (una transacción).
 
-Además, `crear_pedido` recibirá una clave de pedido del cliente (`p_clave_unica`) para que un reintento devuelva el
-pedido existente en lugar de crear otro (arregla también el hueco del flujo actual).
+La clave de pedido del cliente ya está **preparada en la PR #77** (`crear_pedido_idempotente`: un reintento devuelve el
+pedido existente en lugar de crear otro; sin aplicar, pendiente de la autorización del dueño). Stripe reutilizará esa
+misma clave como `Idempotency-Key`. Por eso las capas 2 y 3 se apoyan en esa PR y no hace falta rehacerlas.
 
 ## 5. Protección de datos de los clientes
 
