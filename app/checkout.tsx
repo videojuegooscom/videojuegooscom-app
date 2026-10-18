@@ -460,7 +460,7 @@ export default function CheckoutScreen() {
           repetido = !!res.repetido;
         } else if (r.error && funcionNoDisponible(r.error)) {
           // Respaldo mientras la migración no esté aplicada (o tras una vuelta atrás): la función
-          // antigua, que crea el pedido sin idempotencia.
+          // antigua. Con la migración aplicada ya es idempotente por «misma compra»; sin ella, no.
           const { data, error } = await supabase.rpc("crear_pedido", { p_datos: datos, p_productos: ids });
           if (!error && data != null) numero = Number(data);
         }

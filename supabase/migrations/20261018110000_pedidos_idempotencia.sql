@@ -2,34 +2,46 @@
 -- Migración: pedidos idempotentes. Repetir la misma operación nunca crea un segundo pedido.
 -- Problema: crear_pedido(p_datos, p_productos) no tiene ninguna defensa en el servidor: cada llamada
 --           inserta un pedido nuevo. Si la respuesta se pierde (corte de red, recarga) o la misma petición
---           llega dos veces (dos pestañas, dos dispositivos, un reintento), salen dos pedidos iguales.
--- Solución: el navegador genera una clave única (UUID) por operación de compra y la manda en cada
---           intento. La función nueva crear_pedido_idempotente la usa así:
---           1) bloqueo por clave (pg_advisory_xact_lock): dos peticiones simultáneas con la misma
---              clave se ponen en fila, la segunda espera a que la primera termine;
---           2) si ya existe un pedido con esa clave, devuelve el MISMO número con repetido = true y
---              no escribe nada; si la clave la usa otra persona o con otro carrito, falla;
---           3) si no existe, lo crea, y el índice único de clave_unica es la última defensa.
--- Tipo:     aditiva. Añade 2 columnas nulas y un índice único a pedidos, y una función nueva.
---           NO cambia crear_pedido (sigue como respaldo mientras el navegador antiguo siga vivo).
---           No borra ni modifica datos (hoy pedidos está vacía). Lleva security definer y permisos
---           (anon, authenticated): la revisa y aplica el dueño.
--- Pantallas: app/checkout.tsx (genera la clave y usa la función nueva; si la función aún no existe,
---           cae a crear_pedido).
--- Vuelta atrás: supabase/rollbacks/20261018110000_pedidos_idempotencia_revertir.sql
--- Pruebas:  supabase/tests/crear_pedido_idempotente.sql (en una base de pruebas, nunca en producción).
+--           llega dos veces (dos pestañas, dos dispositivos, un reintento), salen dos pedidos iguales. Y
+--           mientras la función antigua siga abierta a anon y authenticated, cualquiera (o un navegador
+--           antiguo) puede saltarse cualquier defensa que se ponga solo en la nueva.
+-- Solución: DOS defensas en la misma función, y la antigua pasa por ella.
+--   1) CLAVE DE OPERACIÓN. El navegador genera un UUID por compra y lo manda en cada intento. Con la misma
+--      clave se devuelve el MISMO pedido (repetido = true); si la clave la usa otra persona o con otro
+--      carrito, falla.
+--   2) MISMA COMPRA. Aunque la clave sea distinta (o no exista), si la misma persona (usuario con sesión, o
+--      correo si no la tiene) ya tiene un pedido PENDIENTE con el mismo carrito (mismos productos y
+--      misma entrega) de los últimos 10 minutos, se devuelve ese pedido. Cada artículo es una unidad
+--      única, así que dos pedidos idénticos seguidos son siempre un duplicado.
+--   Dos bloqueos de asesoramiento (pg_advisory_xact_lock) ponen en fila las peticiones simultáneas: primero
+--   el de la compra (persona + carrito) y después el de la clave, siempre en ese orden (sin bloqueos
+--   cruzados). Y el índice único sobre clave_unica es la última defensa.
+--   La función antigua crear_pedido mantiene su firma, su tipo de retorno y sus permisos, pero ahora llama a
+--   la nueva con una clave aleatoria: así ya no puede saltarse la defensa de «misma compra».
+-- Tipo:     aditiva en el esquema (2 columnas nulas, un índice único y una función nueva) y UNA función
+--           existente reemplazada (crear_pedido, que sigue devolviendo el número de pedido). No borra ni
+--           modifica datos (hoy pedidos está vacía). Lleva security definer y permisos (anon,
+--           authenticated): la revisa y aplica el dueño.
+-- Pantallas: app/checkout.tsx (genera la clave y usa la función nueva; si la función aún no existe, cae a
+--           crear_pedido, que ya es idempotente por «misma compra»).
+-- Vuelta atrás: supabase/rollbacks/20261018110000_pedidos_idempotencia_revertir.sql (restaura el cuerpo
+--           original de crear_pedido y apaga la función nueva).
+-- Pruebas:  pruebas/pedidos-sql.mjs (SQL real con peticiones concurrentes en una base aislada, nunca en
+--           producción; incluye una «prueba de las pruebas» que quita los bloqueos y comprueba que fallan).
 -- ============================================================================
 
 alter table public.pedidos add column if not exists clave_unica uuid;
 alter table public.pedidos add column if not exists clave_huella text;
 
 comment on column public.pedidos.clave_unica is 'Clave de la operación de compra (UUID del navegador): la misma clave nunca crea dos pedidos.';
-comment on column public.pedidos.clave_huella is 'md5 de entrega + productos del pedido: detecta que una clave se reutiliza con otro carrito.';
+comment on column public.pedidos.clave_huella is 'md5 de entrega + productos del pedido: detecta que una clave se reutiliza con otro carrito y la misma compra repetida.';
 
--- Varios NULL no chocan entre sí: los pedidos creados sin clave (función antigua) siguen valiendo.
+-- Varios NULL no chocan entre sí: los pedidos creados antes de esta migración (sin clave) siguen valiendo.
 create unique index if not exists pedidos_clave_unica_uidx on public.pedidos (clave_unica);
+-- Para buscar rápido la «misma compra» reciente de una persona.
+create index if not exists pedidos_huella_idx on public.pedidos (clave_huella, created_at desc);
 
--- Crea el pedido una sola vez por clave. Devuelve {"numero": n, "repetido": false|true}.
+-- Crea el pedido una sola vez por clave y por compra. Devuelve {"numero": n, "repetido": false|true}.
 -- p_datos: {nombre, email, telefono, entrega, direccion, codigo_postal, ciudad, notas}
 create or replace function public.crear_pedido_idempotente(p_clave uuid, p_datos jsonb, p_productos uuid[])
 returns jsonb
@@ -40,6 +52,7 @@ as $$
 declare
   v_entrega text := coalesce(nullif(p_datos->>'entrega', ''), 'envio');
   v_uid uuid := auth.uid();
+  v_email text := lower(btrim(coalesce(p_datos->>'email', '')));
   v_huella text;
   v_prev record;
   v_id uuid;
@@ -62,20 +75,37 @@ begin
     into v_huella
     from (select distinct unnest(p_productos) as x) s;
 
-  -- Pone en fila las llamadas con la misma clave hasta que termine la primera (se libera sola al
-  -- acabar la transacción). Tras esperar, cada sentencia ve ya el pedido que acaba de crear la otra.
-  perform pg_advisory_xact_lock(hashtextextended('crear_pedido:' || p_clave::text, 0));
+  -- Pone en fila las llamadas simultáneas (se liberan solas al acabar la transacción). Siempre en este
+  -- orden: primero la compra (persona + carrito), después la clave. Tras esperar, cada sentencia ve ya
+  -- el pedido que acaba de crear la otra.
+  perform pg_advisory_xact_lock(hashtextextended('compra:' || coalesce(v_uid::text, v_email) || ':' || v_huella, 0));
+  perform pg_advisory_xact_lock(hashtextextended('clave:' || p_clave::text, 0));
 
   for v_vuelta in 1..2 loop
+    -- 1) La misma clave: es un reintento si es la misma persona y el mismo carrito.
     select id, numero, user_id, clave_huella into v_prev
       from public.pedidos
      where clave_unica = p_clave;
 
     if found then
-      -- Misma persona y mismo carrito: es un reintento. Otra persona u otro carrito: error.
       if v_prev.user_id is distinct from v_uid or v_prev.clave_huella is distinct from v_huella then
         raise exception 'la clave del pedido ya se usó con otro pedido';
       end if;
+      return jsonb_build_object('numero', v_prev.numero, 'repetido', true);
+    end if;
+
+    -- 2) La misma compra con otra clave: mismo carrito, misma persona, pedido pendiente de hace menos de 10 min.
+    select id, numero into v_prev
+      from public.pedidos
+     where clave_huella = v_huella
+       and estado = 'pendiente'
+       and created_at > now() - interval '10 minutes'
+       and ((v_uid is not null and user_id = v_uid)
+            or (v_uid is null and user_id is null and v_email <> '' and lower(email) = v_email))
+     order by created_at
+     limit 1;
+
+    if found then
       return jsonb_build_object('numero', v_prev.numero, 'repetido', true);
     end if;
 
@@ -123,3 +153,16 @@ $$;
 
 revoke all on function public.crear_pedido_idempotente(uuid, jsonb, uuid[]) from public;
 grant execute on function public.crear_pedido_idempotente(uuid, jsonb, uuid[]) to anon, authenticated;
+
+-- La función antigua conserva su firma, su retorno (el número de pedido) y sus permisos, pero ya no puede
+-- duplicar: pasa por la nueva con una clave aleatoria, así que se aplica la defensa de «misma compra».
+create or replace function public.crear_pedido(p_datos jsonb, p_productos uuid[])
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return (public.crear_pedido_idempotente(gen_random_uuid(), p_datos, p_productos) ->> 'numero')::bigint;
+end;
+$$;
