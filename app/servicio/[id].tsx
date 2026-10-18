@@ -44,6 +44,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { contarVistaServicio } from "../../lib/interaccion";
 import { openExternalLink } from "../../lib/openExternalLink";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
@@ -207,14 +208,9 @@ export default function ServicioScreen() {
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
       setSelectedImageUrl(cover?.publicUrl ?? null);
 
-      supabase
-        .rpc("increment_service_view", { service_id: row.id })
-        .then(
-          ({ data, error }) => {
-            if (!error && typeof data === "number") setViewCount(data);
-          },
-          () => {} // sin red o sin permiso: simplemente no se muestra el número
-        );
+      contarVistaServicio(row.id).then((total) => {
+        if (typeof total === "number") setViewCount(total);
+      });
     } catch (e) {
       console.error("Error cargando el servicio:", e);
       setErr("No hemos podido cargar este servicio en este momento. Inténtalo de nuevo en unos instantes.");

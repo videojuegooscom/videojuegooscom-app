@@ -104,6 +104,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import { contarVistaProducto, fijarMeGusta } from "../../lib/interaccion";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
@@ -705,15 +706,10 @@ export default function ProductoScreen() {
         // cada carga real de la ficha, salvo cuando la abre el propio admin
         // (esas no son visitas de clientes). Si la función falla, simplemente
         // no se muestra el número, sin romper la ficha.
-        supabase
-          .rpc("increment_product_view", { product_id: mapped.id })
-          .then(
-            ({ data, error }) => {
-              if (seq !== reqSeqRef.current) return;
-              if (!error && typeof data === "number") setViewCount(data);
-            },
-            () => {} // sin red o sin permiso: simplemente no se muestra el número
-          );
+        contarVistaProducto(mapped.id).then((total) => {
+          if (seq !== reqSeqRef.current) return;
+          if (typeof total === "number") setViewCount(total);
+        });
 
         // Analítica: igual que el contador de visitas, no se cuentan las
         // aperturas del propio admin revisando su catálogo.
@@ -919,13 +915,10 @@ export default function ProductoScreen() {
     setLikeCount((prev) => Math.max(0, prev + delta));
 
     try {
-      const { data, error } = await supabase.rpc("adjust_product_like", {
-        product_id: p.id,
-        delta,
-      });
-
-      if (error) throw error;
-      if (typeof data === "number") setLikeCount(data);
+      // Pasa por api/interaccion.ts: un «me gusta» por persona y producto (ver lib/interaccion.ts).
+      const total = await fijarMeGusta(p.id, nextLiked);
+      if (total === null) throw new Error("no se pudo actualizar el me gusta");
+      setLikeCount(total);
 
       const likedIds = await getLikedProductIds();
       if (nextLiked) likedIds.add(p.id);
@@ -1257,6 +1250,8 @@ export default function ProductoScreen() {
                   <Pressable
                     onPress={toggleLike}
                     disabled={likeBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={liked ? "Quitar me gusta" : "Dar me gusta"}
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.85 : 1,
                       minWidth: 32,
