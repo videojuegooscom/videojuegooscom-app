@@ -391,17 +391,33 @@ function esContenido(el: Element): boolean {
 }
 
 // Cuántos puntos de la caja de Blue en (x, y) caen sobre contenido (0 = sitio libre).
+// Cuánto «molesta» taparlo: los controles (botones, enlaces, campos, el botón de volver) pesan
+// más que el texto, y el texto más que una foto. Así Blue prefiere quedarse sobre una foto antes
+// que sobre un botón, aunque la foto ocupe más sitio.
+function pesoContenido(el: Element): number {
+  if (!esContenido(el)) return 0;
+  if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return 6;
+  const tocable = el.closest('[tabindex]:not([tabindex="-1"])');
+  if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return 6;
+  if (window.getComputedStyle(el).cursor === "pointer") return 6;
+  if (["IMG", "VIDEO", "CANVAS"].includes(el.tagName)) return 1;
+  return 2;
+}
+
+// Puntuación de lo que hay debajo de la caja de Blue en (x, y): 0 = sitio libre; cuanto más alta,
+// peor (controles > texto > fotos). Se mira con una rejilla de 4 × 4 puntos para no dejar escapar
+// botones pequeños como el de volver (40 px).
 function contenidoDebajo(x: number, y: number): number {
   if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
   let tapados = 0;
-  const pasos = [0.18, 0.5, 0.82];
+  const pasos = [0.1, 0.37, 0.63, 0.9];
   for (const fx of pasos) {
     for (const fy of pasos) {
       const px = x + BLUE_SIZE * fx;
       const py = y + BLUE_SIZE * fy;
       // El primero que no sea el propio Blue es lo que se ve debajo.
       const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
-      if (debajo && esContenido(debajo)) tapados++;
+      if (debajo) tapados += pesoContenido(debajo);
     }
   }
   return tapados;
