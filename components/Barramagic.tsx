@@ -292,7 +292,7 @@ async function buscarProductosInicio(texto: string, intencion: IntencionBusqueda
     if (!intencion) consulta = consulta.or(`title.ilike.${patron},description.ilike.${patron}`);
     const { data, error, count } = await consulta
       .order("created_at", { ascending: intencion === "antiguos" })
-      .range(0, (intencion ? Math.min(MAX_PRODUCTOS_INTENCION, filasDemo ?? MAX_PRODUCTOS_INTENCION) : MAX_PRODUCTOS_PANEL) - 1);
+      .range(0, Math.min(intencion ? MAX_PRODUCTOS_INTENCION : MAX_PRODUCTOS_PANEL, filasDemo ?? 99) - 1);
     if (error) return null;
     const filas = (Array.isArray(data) ? data : []) as { id: string; title: string | null; price_eur: number | string | null; images?: string[] | null }[];
     const portadas = new Map<string, string>();

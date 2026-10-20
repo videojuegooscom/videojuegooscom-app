@@ -327,8 +327,9 @@ export default function ServiciosScreen() {
             </View>
           ) : (
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14 }}>
-              {filtered.map((s) => (
-                <View key={s.id} style={{ width: `${100 / columns - 1.2}%` as any }}>
+              {filtered.map((s, i) => (
+                // nativeID: la guía de Blue (components/Campanita.tsx) enmarca el primer servicio.
+                <View key={s.id} nativeID={i === 0 ? "servicios-lista" : undefined} style={{ width: `${100 / columns - 1.2}%` as any }}>
                   <ServiceCard s={s} compact={columns >= 3} onPress={() => router.push(`/servicio/${s.id}` as any)} />
                 </View>
               ))}

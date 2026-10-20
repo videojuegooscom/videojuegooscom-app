@@ -572,6 +572,15 @@ export default function Campanita() {
   // Guía de bienvenida (GuiaBlue, al final de este archivo).
   const [guiaAbierta, setGuiaAbierta] = useState(false);
   const guiaPendienteRef = useRef(false);
+  // Pantalla donde estaba la persona al abrirse la guía: al saltarla o cerrarla se vuelve allí (la guía te lleva por
+  // otras pantallas y, sin esto, te dejaba en la última).
+  const guiaOrigenRef = useRef<string | null>(null);
+  const pathnameActualRef = useRef(pathname);
+  pathnameActualRef.current = pathname;
+  const abrirGuia = useCallback(() => {
+    guiaOrigenRef.current = pathnameActualRef.current;
+    setGuiaAbierta(true);
+  }, []);
   // Durante la guía Blue se esconde (no tapa la tarjeta ni sus botones) salvo en el paso
   // que le señala a él.
   const [guiaSenalaBlue, setGuiaSenalaBlue] = useState(false);
@@ -1524,22 +1533,27 @@ export default function Campanita() {
         return;
       }
       if (sitioSinGuiaRef.current) guiaPendienteRef.current = true;
-      else setGuiaAbierta(true);
+      else abrirGuia();
     }, Math.max(0, GUIA_MS - yaPasado));
     return () => clearTimeout(t);
-  }, []);
+  }, [abrirGuia]);
 
   useEffect(() => {
     if (guiaPendienteRef.current && !sitioSinGuia) {
       guiaPendienteRef.current = false;
-      setGuiaAbierta(true);
+      abrirGuia();
     }
-  }, [sitioSinGuia]);
+  }, [sitioSinGuia, abrirGuia]);
 
-  const cerrarGuia = useCallback(() => {
+  // volver = true (Saltar, «Ahora no», atrás del móvil): se vuelve a la pantalla donde estaba la persona al abrirse la
+  // guía. Con una acción (Crear cuenta, Instalar…) no: esa acción lleva a otro sitio.
+  const cerrarGuia = useCallback((volver?: boolean) => {
     setGuiaAbierta(false);
     setGuiaSenalaBlue(false);
     AsyncStorage.setItem(GUIA_VISTA_KEY, "1").catch(() => {});
+    const origen = guiaOrigenRef.current;
+    guiaOrigenRef.current = null;
+    if (volver === true && origen && origen !== pathnameActualRef.current) router.navigate(origen as Href);
   }, []);
 
   // Con la guía abierta Blue tiene que verse en su sitio (no escondido por el scroll).
@@ -1998,7 +2012,7 @@ export default function Campanita() {
                   texto="Ver la guía de la tienda"
                   onPress={() => {
                     setPanelOpen(false);
-                    setGuiaAbierta(true);
+                    abrirGuia();
                   }}
                 />
                 {/* Primero conversa Blue IA; desde ese chat se puede pasar a nuestro equipo. */}
@@ -2244,18 +2258,12 @@ export default function Campanita() {
             cerrarGuia();
             router.push(ruta as Href);
           }}
-          onVender={() => {
-            // El formulario recuerda que viene de la guía (para medir cuántos lo envían).
-            marcarOrigenVender("guia");
-            trackEvent("guia_vender", "Guía Blue: pulsa «Abrir el formulario»");
-            cerrarGuia();
-            abrirVender();
-          }}
           onInstalar={() => {
             cerrarGuia();
             instalarApp();
           }}
           instalable={!!modoInst}
+          conSesion={isLoggedIn}
           onSenalaBlue={setGuiaSenalaBlue}
         />
       ) : null}
@@ -2495,13 +2503,36 @@ type DemoGuia =
   | "buscador" // escribe «lo último añadido» y «lo más antiguo» en el buscador
   | "vender-toque" // la mano pulsa «Vender ahora» y la guía pasa sola al formulario
   | "formulario" // el formulario se desplaza un poco para enseñar que hay más abajo
-  | "salir-formulario"; // se señala cómo salir del formulario
+  | "salir-formulario" // se señala cómo salir del formulario
+  | "perfil-cuenta" // en Perfil con sesión, se pone la pestaña «Mi cuenta»
+  | "perfil-seguimientos" // en Perfil con sesión, la guía pulsa la pestaña «Seguimientos» y se ve su contenido
+  | "foro-pestanas" // la guía despliega el selector del Foro y enseña cada pestaña, una por una
+  | "foro-chat" // la guía abre la pestaña «Foro» (los mensajes) y la tarjeta enseña cómo reaccionar y responder
+  | "capacidades" // lo que Blue sabe hacer (iconos en la tarjeta)
+  | "como-se-compra"; // los pasos de una compra (iconos en la tarjeta)
 
 type PasoGuia = {
   icono: React.ComponentProps<typeof Ionicons>["name"];
   titulo: string;
-  texto: string;
+  texto: string | ((conSesion: boolean) => string);
   objetivo?: string[];
+  // Tarjeta baja (sin la mascota): deja ver la página que se enseña (el formulario, Perfil, Servicios…).
+  compacta?: boolean;
+  // No enmarca el título de la página (primer paso, instalar y cuenta no hablan de ninguna página).
+  sinTitulo?: boolean;
+  // Solo se enseña con sesión iniciada / solo sin ella.
+  soloConSesion?: boolean;
+  soloSinSesion?: boolean;
+  // Solo se enseña si la tienda tiene algún artículo publicado al que llevar a la persona (la ruta lleva «{producto}»).
+  soloConProducto?: boolean;
+  // No oscurece la página (se quiere ver entera, p. ej. los mensajes del Foro).
+  sinOscurecer?: boolean;
+  // Si lo señalado es muy alto (la tarjeta de un servicio), solo se enmarca su parte de arriba, para que la tarjeta de la
+  // guía no lo tape.
+  limiteAlto?: number;
+  // Selector del botón señalado: tocar dentro del recuadro lo pulsa de verdad (la guía tapa la página, así que
+  // sin esto «probarlo» no hacía nada).
+  probar?: string;
   // Pantalla en la que se explica el paso: la guía navega sola hasta ella (como si te llevara
   // de la mano). Si no se indica, se queda en Inicio.
   ruta?: string;
@@ -2509,7 +2540,7 @@ type PasoGuia = {
   desplazar?: string;
   // Lleva Inicio arriba del todo antes de señalar (p. ej. para que se vea el buscador).
   arriba?: boolean;
-  accion?: { texto: string; ruta?: string; vender?: boolean; instalar?: boolean };
+  accion?: { texto: string; ruta?: string; instalar?: boolean };
   cuenta?: boolean;
   // Solo se enseña si la tienda se puede instalar en este dispositivo.
   soloInstalable?: boolean;
@@ -2526,6 +2557,7 @@ const PASOS_GUIA: PasoGuia[] = [
     titulo: "¡Hola! Soy Blue",
     texto: "Toca «Siguiente» para empezar.",
     gesto: "siguiente",
+    sinTitulo: true,
   },
   {
     icono: "apps-outline",
@@ -2533,6 +2565,7 @@ const PASOS_GUIA: PasoGuia[] = [
     texto: "Toca una para cambiar de sección.",
     objetivo: PESTANAS,
     demo: "secciones",
+    sinTitulo: true, // ya se enmarca toda la barra
   },
   {
     icono: "home-outline",
@@ -2561,6 +2594,26 @@ const PASOS_GUIA: PasoGuia[] = [
     desplazar: '[data-testid="seccion-categorias"]',
   },
   {
+    icono: "options-outline",
+    titulo: "Filtros y orden",
+    texto: "Filtra por plataforma, estado y precio, y ordena.",
+    objetivo: ['[aria-label^="Filtros"]'],
+    ruta: "/catalogo",
+    compacta: true,
+  },
+  {
+    icono: "bag-add-outline",
+    titulo: "Un artículo",
+    // «Añadir» reserva el artículo 15 minutos (lib/reservas.ts); «Comprar ya» lleva directo a pedir, con sesión.
+    texto: "«Añadir» lo reserva 15 minutos. «Comprar ya» va directo a pedir.",
+    objetivo: ['[aria-label^="Añadir "]', '[aria-label^="Comprar ya "]'],
+    // ?guia=1: la ficha no suma una visita ni un evento de analítica por esta demostración.
+    ruta: "/producto/{producto}?guia=1",
+    desplazar: '[aria-label^="Comprar ya "]',
+    soloConProducto: true,
+    compacta: true,
+  },
+  {
     icono: "cash-outline",
     titulo: "Vender ahora",
     texto: "Mira: lo pulso y se abre el formulario.",
@@ -2577,6 +2630,7 @@ const PASOS_GUIA: PasoGuia[] = [
     objetivo: ["#vender-scroll"],
     ruta: "/vender",
     demo: "formulario",
+    compacta: true,
   },
   {
     icono: "arrow-back-circle-outline",
@@ -2586,6 +2640,7 @@ const PASOS_GUIA: PasoGuia[] = [
     ruta: "/vender",
     gesto: "toque",
     demo: "salir-formulario",
+    compacta: true,
   },
   {
     icono: "search-outline",
@@ -2599,9 +2654,23 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "person-outline",
     titulo: "Perfil",
-    texto: "Aquí están las pestañas de tu cuenta.",
+    // Con sesión se enseña la pestaña «Mi cuenta» (y en el paso siguiente «Seguimientos»); sin sesión, el acceso.
+    texto: (conSesion) => (conSesion ? "«Mi cuenta»: tu sesión iniciada." : "Aquí entras o creas tu cuenta."),
     objetivo: ["#perfil-pestanas", "#perfil-acceso"],
     ruta: "/perfil",
+    demo: "perfil-cuenta",
+    compacta: true,
+  },
+  {
+    icono: "file-tray-full-outline",
+    titulo: "Seguimientos",
+    texto: "Aquí ves tus reparaciones y pedidos.",
+    objetivo: ["#perfil-pestanas"],
+    ruta: "/perfil",
+    gesto: "toque",
+    demo: "perfil-seguimientos",
+    soloConSesion: true,
+    compacta: true,
   },
   {
     icono: "bag-handle-outline",
@@ -2610,6 +2679,17 @@ const PASOS_GUIA: PasoGuia[] = [
     objetivo: [PESTANAS[2]],
     ruta: "/cesta",
     gesto: "toque",
+    compacta: true,
+  },
+  {
+    icono: "receipt-outline",
+    titulo: "Cómo se compra",
+    // Verificado en app/checkout.tsx: se elige envío o recogida, no hay pago online y al confirmar se habla por chat
+    // o WhatsApp.
+    texto: "Reservas, confirmas y te hablamos. Sin pago online.",
+    ruta: "/cesta",
+    demo: "como-se-compra",
+    sinOscurecer: true,
   },
   {
     icono: "chatbubbles-outline",
@@ -2618,14 +2698,26 @@ const PASOS_GUIA: PasoGuia[] = [
     objetivo: [PESTANAS[3]],
     ruta: "/chat-global",
     gesto: "toque",
+    compacta: true,
   },
   {
     icono: "swap-vertical-outline",
-    titulo: "Cambia de pestaña",
-    texto: "Toca el botón azul. Mantén pulsada una pestaña para moverla.",
+    titulo: "Las pestañas del Foro",
+    texto: "Toca el botón azul y elige una. Mantén pulsada una para moverla.",
     objetivo: ['[data-testid="selector-pestanas"]'],
     ruta: "/chat-global",
     gesto: "toque",
+    demo: "foro-pestanas",
+    probar: '[data-testid="selector-pestanas"]',
+  },
+  {
+    icono: "chatbox-ellipses-outline",
+    titulo: "Reacciona y responde",
+    // chat-global.tsx: un toque en un mensaje abre las reacciones, dos toques seguidos responden (con sesión).
+    texto: "Un toque en un mensaje reacciona; dos, responden. Con sesión.",
+    ruta: "/chat-global",
+    demo: "foro-chat",
+    sinOscurecer: true,
   },
   {
     icono: "sparkles-outline",
@@ -2634,15 +2726,27 @@ const PASOS_GUIA: PasoGuia[] = [
     objetivo: [PESTANAS[4]],
     ruta: "/blue-ia",
     gesto: "toque",
+    compacta: true,
+  },
+  {
+    icono: "headset-outline",
+    titulo: "Hablar con el equipo",
+    // blue-ia.tsx: primero responde Blue IA; «Hablar con el equipo» pide sesión y le manda un resumen al equipo.
+    texto: "Primero te ayudo yo. Si quieres, te paso con el equipo (con sesión).",
+    objetivo: ['[aria-label="Hablar con el equipo"]'],
+    ruta: "/blue-ia",
+    gesto: "toque",
+    compacta: true,
   },
   {
     icono: "happy-outline",
     titulo: "Este soy yo",
-    texto: "Tócame y se abre mi panel.",
+    texto: "Respondo dudas, aviso de lo nuevo y te paso con el equipo.",
     objetivo: [`#${BLUE_DOM_ID}`],
     ruta: "/",
     desplazar: '[data-testid="boton-ver-categorias"]',
     gesto: "toque",
+    demo: "capacidades",
   },
   {
     icono: "download-outline",
@@ -2651,20 +2755,43 @@ const PASOS_GUIA: PasoGuia[] = [
     ruta: "/",
     soloInstalable: true,
     accion: { texto: "Instalar la app", instalar: true },
+    sinTitulo: true,
   },
   {
     icono: "construct-outline",
     titulo: "Reparación y limpieza",
-    texto: "Reparación, limpieza y mantenimiento.",
-    accion: { texto: "Ver servicios", ruta: "/servicios" },
+    texto: "Elige un servicio y te lo explicamos.",
+    objetivo: ["#servicios-lista"],
+    ruta: "/servicios",
+    compacta: true,
+    sinOscurecer: true, // la página se ve entera (cargue ya o no sus servicios)
+    limiteAlto: 130, // el primer servicio es una tarjeta alta: se enmarca su parte de arriba
   },
   {
     icono: "person-circle-outline",
     titulo: "Tu cuenta",
     texto: "Guarda tus chats, pedidos y avisos.",
     cuenta: true,
+    soloSinSesion: true,
+    sinTitulo: true,
   },
 ];
+
+// Dónde está el TÍTULO de cada página, para enmarcarlo en cada paso («Estás aquí»): en las cinco secciones es su
+// nombre en la barra de abajo (Foro, Cesta y Blue IA no tienen otro título arriba) y en Vender y Servicios su h1.
+const TITULO_DE_PAGINA: Record<string, string[]> = {
+  "/": [PESTANAS[0]],
+  "/perfil": [PESTANAS[1]],
+  "/cesta": [PESTANAS[2]],
+  "/chat-global": [PESTANAS[3]],
+  "/blue-ia": [PESTANAS[4]],
+  "/vender": ["h1"],
+  "/servicios": ["h1"],
+  "/catalogo": ["h1"],
+};
+// Las fichas de producto (/producto/<id>) tienen su nombre como h1.
+const tituloDePagina = (pathname: string): string[] | null =>
+  TITULO_DE_PAGINA[pathname] ?? (pathname.startsWith("/producto/") ? ["h1"] : null);
 
 type Caja = { x: number; y: number; w: number; h: number };
 
@@ -2691,6 +2818,32 @@ function medirObjetivo(selectores?: string[]): Caja | null {
 
 const FONDO_GUIA = "rgba(11,33,56,0.58)";
 const MARGEN_ARO = 6;
+
+// Rectángulos que oscurecen TODA la pantalla menos los huecos (uno o dos recuadros iluminados): se corta la pantalla en
+// franjas horizontales y, en cada una, se tapa lo que no cae dentro de ningún hueco.
+function panesOscuros(huecos: Caja[], ancho: number, alto: number): Caja[] {
+  const ys = Array.from(
+    new Set([0, alto, ...huecos.flatMap((h) => [limitar(h.y, 0, alto), limitar(h.y + h.h, 0, alto)])])
+  ).sort((a, b) => a - b);
+  const panes: Caja[] = [];
+  for (let i = 0; i < ys.length - 1; i++) {
+    const y1 = ys[i];
+    const y2 = ys[i + 1];
+    if (y2 - y1 < 0.5) continue;
+    const medio = (y1 + y2) / 2;
+    const tramos = huecos
+      .filter((h) => h.y <= medio && h.y + h.h >= medio)
+      .map((h) => [Math.max(0, h.x), Math.min(ancho, h.x + h.w)] as const)
+      .sort((a, b) => a[0] - b[0]);
+    let x = 0;
+    for (const [a, b] of tramos) {
+      if (a > x) panes.push({ x, y: y1, w: a - x, h: y2 - y1 });
+      x = Math.max(x, b);
+    }
+    if (x < ancho) panes.push({ x, y: y1, w: ancho - x, h: y2 - y1 });
+  }
+  return panes;
+}
 
 // Desplaza un elemento con el scrollTo/scrollBy del navegador (solo web). react-native-web cambia el scrollTo de sus
 // ScrollView por uno que espera { y, animated } e ignora { top }: el desplazamiento no se hace y no avisa de nada.
@@ -2734,11 +2887,32 @@ function ManoToque({ x, y, tamano = 40 }: { x: number; y: number; tamano?: numbe
           transform: [{ scale: circulo }],
         }}
       />
+      {/* Siempre un ICONO de la app (nunca un emoji): huella táctil blanca en un círculo azul de marca. */}
       <Animated.View
+        testID="guia-toque"
         pointerEvents="none"
-        style={{ position: "absolute", left: x - tamano / 2 + 2, top: y - 4, opacity: opacidad, transform: [{ translateY: sube }, { scale: escala }] }}
+        style={{
+          position: "absolute",
+          // La esquina de arriba a la izquierda toca el punto señalado (como la punta de un cursor).
+          left: x - 10,
+          top: y - 10,
+          width: tamano + 6,
+          height: tamano + 6,
+          borderRadius: (tamano + 6) / 2,
+          backgroundColor: COLORS.accent,
+          borderWidth: 3,
+          borderColor: "#FFFFFF",
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: opacidad,
+          transform: [{ translateY: sube }, { scale: escala }],
+          shadowColor: "#0B2138",
+          shadowOpacity: 0.3,
+          shadowRadius: 6,
+          shadowOffset: { width: 0, height: 2 },
+        }}
       >
-        <Text style={{ fontSize: tamano, lineHeight: tamano + 4, ...(Platform.OS === "web" ? ({ textShadow: "0 2px 6px rgba(11,33,56,0.35)" } as object) : {}) }}>👆</Text>
+        <Ionicons name="finger-print" size={Math.round(tamano * 0.7)} color="#FFFFFF" />
       </Animated.View>
     </>
   );
@@ -2888,22 +3062,66 @@ function SelectorSecciones({ activa, ancho, onElegir }: { activa: number; ancho:
   );
 }
 
-// Ejemplos que la guía escribe sola en el buscador (el buscador entiende «lo último añadido» y «lo más antiguo»).
-const EJEMPLOS_BUSCADOR = [
+// Ejemplos que la guía escribe sola en el buscador: el NOMBRE del último artículo añadido y el del más antiguo (se
+// leen de la tienda). Si no se pueden leer, se escribe «lo último añadido» y «lo más antiguo», que el buscador entiende.
+type EjemploBuscador = { texto: string; etiqueta: string; icono: React.ComponentProps<typeof Ionicons>["name"] };
+const EJEMPLOS_POR_DEFECTO: EjemploBuscador[] = [
   { texto: "lo último añadido", etiqueta: "Último añadido", icono: "time-outline" },
   { texto: "lo más antiguo", etiqueta: "Más antiguo", icono: "hourglass-outline" },
-] as const;
+];
 
-function EjemplosBuscador({ activo, onElegir }: { activo: number | null; onElegir: (i: number | null) => void }) {
+// Un nombre largo se recorta a unas pocas palabras: buscarlo así encuentra el artículo igual.
+function recortarNombre(nombre: string): string {
+  const t = nombre.replace(/\s+/g, " ").trim();
+  if (t.length <= 40) return t;
+  return t.slice(0, 40).replace(/\s+\S*$/, "") || t.slice(0, 40);
+}
+
+// Nombre del artículo publicado más reciente (o más antiguo). Vacío si no se puede leer.
+async function nombreDeArticulo(masAntiguo: boolean): Promise<string> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("title")
+    .eq("is_active", true)
+    .eq("status", "PUBLISHED")
+    .order("created_at", { ascending: masAntiguo })
+    .limit(1);
+  if (error || !Array.isArray(data)) return "";
+  const t = (data[0] as { title?: unknown } | undefined)?.title;
+  return typeof t === "string" ? recortarNombre(t) : "";
+}
+
+// Id del artículo publicado más reciente (null si no se puede leer o no hay): la guía enseña con él la ficha.
+async function idDeArticuloReciente(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id")
+    .eq("is_active", true)
+    .eq("status", "PUBLISHED")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const id = Array.isArray(data) ? (data[0] as { id?: unknown } | undefined)?.id : null;
+  return !error && typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+}
+
+function EjemplosBuscador({
+  ejemplos,
+  activo,
+  onElegir,
+}: {
+  ejemplos: EjemploBuscador[];
+  activo: number | null;
+  onElegir: (i: number | null) => void;
+}) {
   return (
     <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
-      {EJEMPLOS_BUSCADOR.map((e, i) => (
+      {ejemplos.map((e, i) => (
         <Pressable
-          key={e.texto}
+          key={e.etiqueta}
           onPress={() => onElegir(activo === i ? null : i)}
           hitSlop={4}
           accessibilityRole="button"
-          accessibilityLabel={`Ejemplo: ${e.texto}`}
+          accessibilityLabel={`Ejemplo: ${e.etiqueta.toLowerCase()}`}
           style={({ pressed }) => ({
             flex: 1,
             minHeight: 48,
@@ -2926,8 +3144,137 @@ function EjemplosBuscador({ activo, onElegir }: { activo: number | null; onElegi
   );
 }
 
+// Las pestañas del Foro tal como se llaman en su menú (app/(tabs)/chat-global.tsx).
+const PESTANAS_FORO = [
+  { nombre: "Foro", corto: "Foro" },
+  { nombre: "Noticias Gaming", corto: "Noticias" },
+  { nombre: "Nuestras Novedades", corto: "Novedades" },
+  { nombre: "Torneos", corto: "Torneos" },
+  { nombre: "Chat", corto: "Chat" },
+] as const;
+
+// Pulsa de verdad un elemento de la página (la guía tapa la página: no se le puede tocar con el dedo).
+function pulsarEnPagina(el: Element | null | undefined) {
+  (el as HTMLElement | null | undefined)?.click?.();
+}
+// Ojo: las pantallas de las pestañas existen DOS veces en el documento (una oculta): siempre se usa la que se ve.
+const seVe = (e: Element) => {
+  const r = e.getBoundingClientRect();
+  return r.width > 4 && r.height > 4;
+};
+const primeroVisible = (selector: string): Element | null =>
+  typeof document === "undefined" ? null : Array.from(document.querySelectorAll(selector)).find(seVe) ?? null;
+const botonSelectorForo = () => primeroVisible('[data-testid="selector-pestanas"]');
+// El menú del Foro está desplegado cuando se ven sus pestañas.
+const menuForoAbierto = () => !!pestanaDelMenuForo("Torneos");
+// La pestaña del menú del Foro con ese nombre (no la de la barra de abajo, que también se llama «Foro»).
+const pestanaDelMenuForo = (nombre: string) =>
+  typeof document === "undefined"
+    ? null
+    : Array.from(document.querySelectorAll("div")).find(
+        (n) =>
+          n.children.length === 0 &&
+          (n.textContent ?? "").trim() === nombre &&
+          // ni la barra de abajo ni los botones de la propia tarjeta de la guía, que se llaman igual
+          !n.closest('[data-testid^="pestana-"]') &&
+          !n.closest("#guia-tarjeta") &&
+          seVe(n)
+      );
+
+// Fila de 5 botones con las pestañas del Foro: la activa se ilumina mientras la guía las va enseñando; tocar una la abre.
+function ChipsForo({ activa, onElegir }: { activa: number; onElegir: (i: number) => void }) {
+  return (
+    <View style={{ flexDirection: "row", gap: 4, alignSelf: "stretch" }}>
+      {PESTANAS_FORO.map((t, i) => (
+        <Pressable
+          key={t.nombre}
+          onPress={() => onElegir(i)}
+          accessibilityRole="button"
+          accessibilityLabel={`Ver ${t.nombre}`}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: 44,
+            borderRadius: 999,
+            borderWidth: 1.5,
+            borderColor: i === activa ? COLORS.accent : COLORS.border,
+            backgroundColor: i === activa ? COLORS.accent : COLORS.bg,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: 2,
+            opacity: pressed ? 0.8 : 1,
+          })}
+        >
+          <Text numberOfLines={1} style={{ color: i === activa ? "#FFFFFF" : COLORS.text, fontWeight: "900", fontSize: 11.5 }}>
+            {t.corto}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+type IconoGuia = React.ComponentProps<typeof Ionicons>["name"];
+type ItemIcono = { icono: IconoGuia; texto: string };
+
+// Lo que Blue sabe hacer (de su panel: Blue IA, avisos de artículos nuevos, Vender, el equipo y las noticias).
+const CAPACIDADES_BLUE: ItemIcono[] = [
+  { icono: "sparkles-outline", texto: "Dudas" },
+  { icono: "notifications-outline", texto: "Avisos" },
+  { icono: "cash-outline", texto: "Vender" },
+  { icono: "people-outline", texto: "Equipo" },
+  { icono: "megaphone-outline", texto: "Noticias" },
+];
+// Los pasos de una compra (app/checkout.tsx): se añade y se reserva, se elige envío o recogida, se confirma el pedido
+// (no hay pago online) y la tienda habla con la persona por chat o WhatsApp.
+const PASOS_DE_COMPRA: ItemIcono[] = [
+  { icono: "bag-add-outline", texto: "Añadir" },
+  { icono: "time-outline", texto: "Reserva" },
+  { icono: "car-outline", texto: "Entrega" },
+  { icono: "checkmark-circle-outline", texto: "Confirma" },
+  { icono: "chatbubbles-outline", texto: "Hablamos" },
+];
+// Gestos de los mensajes del Foro (chat-global.tsx).
+const GESTOS_DEL_FORO: ItemIcono[] = [
+  { icono: "happy-outline", texto: "1 toque" },
+  { icono: "arrow-undo-outline", texto: "2 toques" },
+  { icono: "create-outline", texto: "Escribir" },
+];
+
+// Fila de iconos con su nombre debajo; se iluminan uno tras otro (más imagen y menos letras).
+function FilaIconos({ items }: { items: ItemIcono[] }) {
+  const [activa, setActiva] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setActiva((a) => (a + 1) % items.length), 1300);
+    return () => clearInterval(t);
+  }, [items.length]);
+  return (
+    <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", alignItems: "flex-start" }}>
+      {items.map((c, i) => (
+        <View key={c.texto} style={{ width: 56, alignItems: "center", gap: 3 }}>
+          <View
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: i === activa ? COLORS.accent : COLORS.accentSoft,
+            }}
+          >
+            <Ionicons name={c.icono} size={20} color={i === activa ? "#FFFFFF" : COLORS.accent} />
+          </View>
+          <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 11 }}>{c.texto}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // Altura fija de la tarjeta de la guía: así «Siguiente» está SIEMPRE en el mismo sitio y el pulgar no lo busca.
+// La tarjeta GRANDE lleva la mascota o los iconos del paso; la COMPACTA (pasos que enseñan otra página: el formulario,
+// Perfil, Servicios…) es 80 px más baja para dejar ver la página. Las dos pegadas abajo: «Siguiente» no se mueve.
 const ALTO_TARJETA = 292;
+const ALTO_COMPACTA = 212;
 
 // Dónde empieza la tarjeta de la guía cuando no tiene que apartarse (la misma cuenta que hace GuiaBlue más abajo).
 const arribaTarjeta = (alto: number) => alto - (Math.round(alto * 0.15) + (Platform.OS === "ios" ? 8 : 0)) - ALTO_TARJETA;
@@ -2939,35 +3286,89 @@ const filasBuscadorQueCaben = (alto: number) => limitar(Math.floor((arribaTarjet
 function GuiaBlue({
   onCerrar: cerrarSinMedir,
   onIr,
-  onVender,
   onInstalar,
   instalable,
+  conSesion,
   onSenalaBlue,
 }: {
-  onCerrar: () => void;
+  // volver = true: se cierra sin más (Saltar, «Ahora no», atrás del móvil) y la persona vuelve a la pantalla donde
+  // abrió la guía. Con una acción (Crear cuenta, Instalar…) no se vuelve: esa acción lleva a otro sitio.
+  onCerrar: (volver?: boolean) => void;
   onIr: (ruta: string) => void;
-  onVender: () => void;
   onInstalar: () => void;
   // El paso «Instala la tienda» solo sale si se puede instalar en este dispositivo.
   instalable: boolean;
+  // Con sesión iniciada: sale «Seguimientos» y no sale «Tu cuenta» (crear cuenta).
+  conSesion: boolean;
   // Avisa a Blue de si este paso le señala a él (mientras no, se esconde para no tapar la guía).
   onSenalaBlue: (si: boolean) => void;
 }) {
   const [paso, setPaso] = useState(0);
-  const pasos = React.useMemo(() => PASOS_GUIA.filter((x) => !x.soloInstalable || instalable), [instalable]);
+  // Artículo publicado más reciente: con él se enseña la ficha (undefined = leyéndolo, null = la tienda no tiene).
+  const [productoId, setProductoId] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let vivo = true;
+    idDeArticuloReciente().then(
+      (id) => vivo && setProductoId(id),
+      () => vivo && setProductoId(null)
+    );
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const pasos = React.useMemo(
+    () =>
+      PASOS_GUIA.filter(
+        (x) =>
+          (!x.soloInstalable || instalable) &&
+          (!x.soloConSesion || conSesion) &&
+          (!x.soloSinSesion || !conSesion) &&
+          (!x.soloConProducto || productoId !== null)
+      ),
+    [instalable, conSesion, productoId]
+  );
   const total = pasos.length;
-  const p = pasos[paso];
+  const p = pasos[Math.min(paso, pasos.length - 1)];
+  // Si la lista de pasos cambia a mitad de la guía (p. ej. se quita «Un artículo» porque no hay artículos), la persona
+  // sigue en el MISMO paso.
+  const pasoObjRef = useRef<PasoGuia>(PASOS_GUIA[0]);
+  useEffect(() => {
+    const i = pasos.indexOf(pasoObjRef.current);
+    if (i >= 0) {
+      setPaso((actual) => (actual === i ? actual : i));
+    } else {
+      const j = Math.min(pasoRef.current, pasos.length - 1);
+      pasoObjRef.current = pasos[j];
+      setPaso(j);
+    }
+  }, [pasos]);
+  const textoPaso = typeof p.texto === "function" ? p.texto(conSesion) : p.texto;
+  // Número del paso SIEMPRE el mismo (con o sin sesión), para que la analítica no mezcle pasos distintos.
+  const numeroPaso = (s: PasoGuia) => String(PASOS_GUIA.indexOf(s) + 1).padStart(2, "0");
+  // Quien ha visto el paso de «Vender ahora» y luego abre el formulario (en la hora siguiente) cuenta «desde la guía».
+  const vioVenderRef = useRef(false);
+  useEffect(() => {
+    const i = pasos.findIndex((s) => s.demo === "vender-toque");
+    if (i >= 0 && paso >= i) vioVenderRef.current = true;
+  }, [paso, pasos]);
+  useEffect(
+    () => () => {
+      if (vioVenderRef.current) marcarOrigenVender("guia", 60);
+    },
+    []
+  );
 
   // Embudo: en qué paso está cada visitante (con su consentimiento de analítica) y cómo
   // termina la guía. Así se ve en el panel dónde se pierde la gente y cuántos llegan al
   // formulario de Vender.
   useEffect(() => {
-    trackEvent("guia_paso", `Guía Blue: ${String(paso + 1).padStart(2, "0")} ${p.titulo}`);
+    trackEvent("guia_paso", `Guía Blue: ${numeroPaso(p)} ${p.titulo}`);
     if (paso === total - 1) trackEvent("guia_completada", "Guía Blue: completada");
     // Si la guía ya enseñó el selector de pestañas del Foro, el aviso suelto no vuelve a salir.
     if (p.objetivo?.some((o) => o.includes("selector-pestanas"))) {
       AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paso, p.titulo, p.objetivo, total]);
   const pasoActualRef = useRef(0);
   pasoActualRef.current = paso;
@@ -2977,30 +3378,46 @@ function GuiaBlue({
   // Para las demostraciones: sección elegida en el paso «Las 5 secciones» y ejemplo elegido en «El buscador».
   const [seccionElegida, setSeccionElegida] = useState<{ i: number; n: number }>({ i: -1, n: 0 });
   const [ejemploElegido, setEjemploElegido] = useState<number | null>(null);
+  // Ejemplos del buscador: null = aún se están leyendo los nombres de la tienda.
+  const [ejemplos, setEjemplos] = useState<EjemploBuscador[] | null>(null);
+  // Pestaña del Foro que se está enseñando y si la persona ha tomado el mando (entonces la guía deja de moverlas).
+  const [pestanaForo, setPestanaForo] = useState(0);
+  const [foroManual, setForoManual] = useState(false);
+  // Dónde apunta el puntero en los pasos de «tocar» cuando no es el centro del recuadro (la pestaña «Seguimientos»).
+  const [puntoToque, setPuntoToque] = useState<{ x: number; y: number } | null>(null);
   const [anchoSiguiente, setAnchoSiguiente] = useState(0);
   useEffect(() => {
     setSeccionElegida({ i: -1, n: 0 });
     setEjemploElegido(null);
+    setPestanaForo(0);
+    setForoManual(false);
+    setPuntoToque(null);
   }, [paso]);
   const onCerrar = useCallback(() => {
-    if (pasoActualRef.current < total - 1) trackEvent("guia_saltada", "Guía Blue: saltada");
+    const i = pasoActualRef.current;
+    if (i < total - 1) {
+      trackEvent("guia_saltada", "Guía Blue: saltada");
+      trackEvent("guia_saltada_en", `Guía Blue: saltada en el paso ${numeroPaso(pasos[i])} ${pasos[i].titulo}`);
+    }
     escribirEnBuscadorDemo(null);
-    // Si se cierra con el formulario de Vender a medias (era solo una demostración), se vuelve a Inicio.
-    if (pathnameRef.current.startsWith("/vender") && pasos[pasoActualRef.current]?.ruta === "/vender") router.navigate("/" as Href);
-    cerrarSinMedir();
+    cerrarSinMedir(true);
   }, [cerrarSinMedir, total, pasos]);
   const anim = useRef(new Animated.Value(1)).current;
   const direccion = useRef(1);
   const [caja, setCaja] = useState<Caja | null>(null);
+  // Caja del TÍTULO de la página en la que está la guía (se enmarca con «Estás aquí»).
+  const [cajaTitulo, setCajaTitulo] = useState<Caja | null>(null);
   const [pantalla, setPantalla] = useState(() => Dimensions.get("window"));
 
   // La guía te lleva de la mano: en cada paso cambia sola a la pantalla de la que habla
   // (Inicio, Perfil, Cesta, Foro, Blue IA…). Al abrirse en otra pantalla, vuelve a Inicio.
-  const destino = p.ruta ?? "/";
+  // («{producto}» es el artículo más reciente; con ?guia=1 la ficha no cuenta la visita.)
+  const destino = (p.ruta ?? "/").replace("{producto}", productoId ?? "");
   useEffect(() => {
     // En cada paso (aunque la pantalla sea la misma que la del paso anterior: en «Las 5 secciones» se puede haber
-    // cambiado de sección desde la tarjeta).
-    if (pathnameRef.current !== destino) router.navigate(destino as Href);
+    // cambiado de sección desde la tarjeta). El pathname no lleva «?guia=1», por eso se compara sin él.
+    if (destino.endsWith("/producto/") || destino.includes("/producto/?")) return; // aún no se sabe qué artículo enseñar
+    if (pathnameRef.current !== destino.split("?")[0]) router.navigate(destino as Href);
     // solo al cambiar de paso
   }, [destino, paso]);
 
@@ -3012,11 +3429,12 @@ function GuiaBlue({
   // vuelve a medir si cambia el tamaño de la pantalla.
   useEffect(() => {
     setCaja(null);
+    setCajaTitulo(null);
     // Trae a la vista lo que hay que enseñar (desplaza Inicio hasta el botón o la sección).
-    const traer = () => {
+    const traer = (primera = true) => {
       if (Platform.OS !== "web" || typeof document === "undefined") return;
       // Inicio arriba del todo (cualquier contenedor desplazado vuelve al principio).
-      if (p.arriba) {
+      if (p.arriba && primera) {
         for (const el of Array.from(document.querySelectorAll("*"))) {
           if (el.scrollTop > 0) desplazarDom(el, { top: 0, behavior: "smooth" });
         }
@@ -3029,32 +3447,59 @@ function GuiaBlue({
       if (!el) return;
       // Lo señalado se deja en la parte de ARRIBA de la pantalla (hacia el 22 %): así la tarjeta, que va fija a la
       // altura del pulgar, no lo tapa y «Siguiente» no tiene que cambiar de sitio.
+      // (si ya está donde toca, no se vuelve a desplazar: lo señalado puede tardar en aparecer, p. ej. los botones de la
+      // ficha mientras carga el artículo, y por eso se reintenta unas veces)
+      const faltan = el.getBoundingClientRect().top - window.innerHeight * 0.22;
+      if (Math.abs(faltan) < 40) return;
       let contenedor: HTMLElement | null = el.parentElement;
       while (contenedor && !(contenedor.scrollHeight > contenedor.clientHeight + 40 && /(auto|scroll)/.test(getComputedStyle(contenedor).overflowY))) {
         contenedor = contenedor.parentElement;
       }
       if (contenedor) {
-        desplazarDom(contenedor, { top: el.getBoundingClientRect().top - window.innerHeight * 0.22, behavior: "smooth" }, true);
+        desplazarDom(contenedor, { top: faltan, behavior: "smooth" }, true);
       } else {
         el.scrollIntoView({ block: "start", behavior: "smooth" });
       }
     };
-    const t0 = setTimeout(traer, 200);
-    if (!p.objetivo) {
-      return () => clearTimeout(t0);
+    const t0 = setTimeout(() => traer(true), 200);
+    const reintentos = p.desplazar ? [1000, 1900, 2900].map((ms) => setTimeout(() => traer(false), ms)) : [];
+    // Sin recuadro ni título que enmarcar (primer paso, instalar, crear cuenta): no hay nada que medir.
+    if (!p.objetivo && p.sinTitulo) {
+      return () => {
+        clearTimeout(t0);
+        reintentos.forEach(clearTimeout);
+      };
     }
+    const selectoresTitulo = p.sinTitulo ? null : tituloDePagina(pathname);
+    // (Solo se actualiza lo que de verdad ha cambiado de sitio: así medir a menudo no vuelve a pintar la guía en balde.)
+    const cambio = (a: Caja | null, b: Caja | null) =>
+      a === b || (!!a && !!b && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.w - b.w) < 1 && Math.abs(a.h - b.h) < 1) ? a : b;
     const medir = () => {
       setPantalla(Dimensions.get("window"));
-      setCaja(medirObjetivo(p.objetivo));
+      const c = medirObjetivo(p.objetivo);
+      const nueva = c && p.limiteAlto ? { ...c, h: Math.min(c.h, p.limiteAlto) } : c;
+      setCaja((antes) => cambio(antes, nueva));
+      const t = selectoresTitulo ? medirObjetivo(selectoresTitulo) : null;
+      setCajaTitulo((antes) => cambio(antes, t));
     };
     const t1 = setTimeout(medir, 700);
     const t2 = setTimeout(medir, 1300);
     const t3 = setTimeout(medir, 2000);
     // El buscador enseña resultados que van apareciendo: el hueco iluminado los sigue.
-    const vigilar = p.demo === "buscador" ? setInterval(medir, 400) : null;
+    // Lo mismo donde la página se mueve sola durante el paso (el formulario que baja y sube, las pestañas de Perfil).
+    // Y donde la guía desplaza la página hasta lo señalado (la ficha, Inicio): el recuadro sigue a lo que se mueve.
+    // En los demás pasos también, más despacio: la página puede acabar de colocarse después de medir (p. ej. el
+    // catálogo, que recoloca sus botones al cargar los artículos).
+    const vigilar =
+      p.demo === "buscador"
+        ? setInterval(medir, 400)
+        : p.demo === "formulario" || p.demo === "perfil-seguimientos" || p.desplazar
+        ? setInterval(medir, 250)
+        : setInterval(medir, 500);
     const sub = Dimensions.addEventListener("change", medir);
     return () => {
       clearTimeout(t0);
+      reintentos.forEach(clearTimeout);
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
@@ -3087,11 +3532,12 @@ function GuiaBlue({
       if (destino === actual) return;
       direccion.current = destino > actual ? 1 : -1;
       pasoRef.current = destino;
+      pasoObjRef.current = pasos[destino];
       anim.setValue(0);
       setPaso(destino);
       Animated.timing(anim, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: USA_NATIVO }).start();
     },
-    [anim, total]
+    [anim, total, pasos]
   );
   const siguienteRef = useRef(() => irA(pasoRef.current + 1));
   siguienteRef.current = () => irA(pasoRef.current + 1);
@@ -3100,22 +3546,50 @@ function GuiaBlue({
 
   // --- Demostraciones: la guía hace las cosas para que se vean, en vez de explicarlas con letras ---------------
 
-  // «El buscador»: escribe solo los ejemplos (con el brillo de Siri) y deja ver los resultados.
+  // «El buscador»: primero se lee de la tienda el nombre del último artículo añadido y el del más antiguo.
   useEffect(() => {
     if (p.demo !== "buscador") return;
+    let vivo = true;
+    const lectura = Promise.race([
+      Promise.all([nombreDeArticulo(false), nombreDeArticulo(true)]),
+      new Promise<[string, string]>((ok) => setTimeout(() => ok(["", ""]), 3000)),
+    ]);
+    lectura
+      .then(([nuevo, viejo]) => {
+        if (!vivo) return;
+        setEjemplos(
+          nuevo && viejo && nuevo !== viejo
+            ? [
+                { texto: nuevo, etiqueta: "Último añadido", icono: "time-outline" },
+                { texto: viejo, etiqueta: "Más antiguo", icono: "hourglass-outline" },
+              ]
+            : EJEMPLOS_POR_DEFECTO
+        );
+      })
+      .catch(() => {
+        if (vivo) setEjemplos(EJEMPLOS_POR_DEFECTO);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [p.demo]);
+
+  // …y se escriben solos en el buscador (con el brillo de Siri), dejando ver los resultados de cada uno.
+  useEffect(() => {
+    if (p.demo !== "buscador" || !ejemplos) return;
     let cancelado = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const espera = (ms: number) => new Promise<void>((ok) => timers.push(setTimeout(ok, ms)));
     const filas = filasBuscadorQueCaben(Dimensions.get("window").height);
     (async () => {
-      await espera(1100);
+      await espera(900);
       while (!cancelado) {
-        const lista = ejemploElegido === null ? EJEMPLOS_BUSCADOR.map((_, i) => i) : [ejemploElegido];
+        const lista = ejemploElegido === null ? ejemplos.map((_, i) => i) : [ejemploElegido];
         for (const i of lista) {
-          const texto = EJEMPLOS_BUSCADOR[i].texto;
+          const texto = ejemplos[i].texto;
           for (let k = 1; k <= texto.length && !cancelado; k++) {
             escribirEnBuscadorDemo(texto.slice(0, k), filas);
-            await espera(85);
+            await espera(70);
           }
           await espera(3600); // los resultados, a la vista
           if (cancelado) return;
@@ -3129,7 +3603,79 @@ function GuiaBlue({
       timers.forEach(clearTimeout);
       escribirEnBuscadorDemo(null);
     };
-  }, [p.demo, ejemploElegido]);
+  }, [p.demo, ejemploElegido, ejemplos]);
+
+  // Perfil con sesión: se pulsa de verdad «Mi cuenta» o «Seguimientos» para que se vea el contenido de cada una.
+  useEffect(() => {
+    if ((p.demo !== "perfil-cuenta" && p.demo !== "perfil-seguimientos") || Platform.OS !== "web" || typeof document === "undefined") return;
+    const nombre = p.demo === "perfil-seguimientos" ? "Seguimientos" : "Mi cuenta";
+    // Ojo: la página de Perfil existe dos veces en el documento (una oculta): se coge la pestaña que se ve.
+    const pestana = () =>
+      Array.from(document.querySelectorAll("#perfil-pestanas *")).find((n) => {
+        if (n.children.length !== 0 || (n.textContent ?? "").trim() !== nombre) return false;
+        const r = n.getBoundingClientRect();
+        return r.width > 4 && r.height > 4;
+      });
+    const t1 = setTimeout(() => pulsarEnPagina(pestana()), 700);
+    // El puntero apunta justo a esa pestaña (no al centro de las dos).
+    const t2 = setTimeout(() => {
+      const el = pestana();
+      if (!el || p.demo !== "perfil-seguimientos") return;
+      const r = el.getBoundingClientRect();
+      setPuntoToque({ x: r.left + r.width / 2 - 10, y: r.top + r.height / 2 - 6 });
+    }, 800);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [p.demo]);
+
+  // El Foro: la guía despliega el selector y enseña cada pestaña, una por una (hasta que la persona toma el mando).
+  useEffect(() => {
+    if (p.demo !== "foro-pestanas" || foroManual || Platform.OS !== "web" || typeof document === "undefined") return;
+    let cancelado = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const espera = (ms: number) => new Promise<void>((ok) => timers.push(setTimeout(ok, ms)));
+    (async () => {
+      await espera(1500);
+      while (!cancelado) {
+        for (let i = 0; i < PESTANAS_FORO.length && !cancelado; i++) {
+          setPestanaForo(i);
+          if (!menuForoAbierto()) pulsarEnPagina(botonSelectorForo()); // se despliega el menú (si no lo estaba ya)
+          await espera(1200);
+          if (cancelado) return;
+          pulsarEnPagina(pestanaDelMenuForo(PESTANAS_FORO[i].nombre)); // y se elige la pestaña
+          await espera(1900);
+        }
+        await espera(1200);
+      }
+    })();
+    return () => {
+      cancelado = true;
+      timers.forEach(clearTimeout);
+    };
+  }, [p.demo, foroManual]);
+
+  // Tocar una pestaña en la tarjeta (o el botón azul de la página): la guía despliega el menú y abre esa pestaña.
+  const elegirPestanaForo = useCallback((i: number) => {
+    setForoManual(true);
+    setPestanaForo(i);
+    if (!menuForoAbierto()) pulsarEnPagina(botonSelectorForo());
+    setTimeout(() => pulsarEnPagina(pestanaDelMenuForo(PESTANAS_FORO[i].nombre)), 900);
+  }, []);
+
+  // «Reacciona y responde»: la guía abre la pestaña «Foro» (la de los mensajes) para que se vean.
+  useEffect(() => {
+    if (p.demo !== "foro-chat" || Platform.OS !== "web" || typeof document === "undefined") return;
+    const t1 = setTimeout(() => {
+      if (!menuForoAbierto()) pulsarEnPagina(botonSelectorForo());
+    }, 500);
+    const t2 = setTimeout(() => pulsarEnPagina(pestanaDelMenuForo("Foro")), 1500);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [p.demo]);
 
   // «Vender ahora»: la mano pulsa el botón y, tras verlo, la guía pasa sola al formulario (solo yendo hacia delante).
   useEffect(() => {
@@ -3152,7 +3698,8 @@ function GuiaBlue({
       if (hoja) desplazarDom(hoja, { top, behavior });
     };
     (async () => {
-      await espera(1500);
+      // Primero se ve el título del formulario enmarcado; después baja un poco y vuelve a subir.
+      await espera(3000);
       for (let vuelta = 0; vuelta < 2 && !cancelado; vuelta++) {
         ir(360, "smooth");
         await espera(1500);
@@ -3182,8 +3729,15 @@ function GuiaBlue({
   const ancho = Math.min(width - 24, 420);
   const desplazamiento = anim.interpolate({ inputRange: [0, 1], outputRange: [28 * direccion.current, 0] });
 
+  // Dónde va la tarjeta: un poco MÁS ARRIBA que antes (a la altura del pulgar de la mano derecha, no pegada al borde
+  // de abajo) y siempre del mismo tamaño, así «Siguiente» no cambia de sitio. Si lo señalado cae justo en esa franja,
+  // la tarjeta se pone encima (o debajo, si encima no cabe) con la flecha entre las dos cosas.
+  const altoTarjeta = p.compacta ? ALTO_COMPACTA : ALTO_TARJETA;
+  const fondoNormal = Math.round(height * 0.15) + (Platform.OS === "ios" ? 8 : 0);
+  const franjaArriba = height - fondoNormal - altoTarjeta;
+
   // Hueco iluminado alrededor del botón señalado.
-  const hueco = caja
+  const huecoBruto = caja
     ? {
         x: Math.max(0, caja.x - MARGEN_ARO),
         y: Math.max(0, caja.y - MARGEN_ARO),
@@ -3191,24 +3745,37 @@ function GuiaBlue({
         h: caja.h + MARGEN_ARO * 2,
       }
     : null;
+  // Lo señalado muy alto (limiteAlto: la tarjeta de un servicio): solo se enmarca lo que queda POR ENCIMA de la tarjeta de
+  // la guía; si no queda sitio ni para un poco, no se enmarca nada (la página se ve entera con su título enmarcado).
+  let hueco = huecoBruto;
+  if (huecoBruto && p.limiteAlto) {
+    const libre = franjaArriba - 14 - huecoBruto.y;
+    hueco = libre >= 48 ? { ...huecoBruto, h: Math.min(huecoBruto.h, libre) } : null;
+  }
   // Si lo señalado ocupa casi toda la pantalla (el formulario), no se mueve nada por ello: ni tarjeta ni flecha.
   const enorme = !!hueco && hueco.h > height * 0.45;
   const objetivo = hueco && !enorme ? hueco : null;
   const botonAbajo = !!objetivo && objetivo.y + objetivo.h / 2 > height * 0.5;
   const ESPACIO_FLECHA = 44;
-
-  // Dónde va la tarjeta: un poco MÁS ARRIBA que antes (a la altura del pulgar de la mano derecha, no pegada al borde
-  // de abajo) y siempre del mismo tamaño, así «Siguiente» no cambia de sitio. Si lo señalado cae justo en esa franja,
-  // la tarjeta se pone encima (o debajo, si encima no cabe) con la flecha entre las dos cosas.
-  const fondoNormal = Math.round(height * 0.15) + (Platform.OS === "ios" ? 8 : 0);
-  const franjaArriba = height - fondoNormal - ALTO_TARJETA;
   const estorba = !!objetivo && objetivo.y + objetivo.h > franjaArriba - 6 && objetivo.y < height - fondoNormal;
   let abajoTarjeta = fondoNormal;
   if (objetivo && estorba) {
     const encima = height - objetivo.y + ESPACIO_FLECHA; // «bottom» de la tarjeta puesta justo encima de lo señalado
-    const debajoSitio = height - (objetivo.y + objetivo.h + ESPACIO_FLECHA) - ALTO_TARJETA; // «bottom» si va justo debajo
-    abajoTarjeta = height - encima - ALTO_TARJETA >= 24 ? encima : debajoSitio >= 8 ? debajoSitio : Math.max(18, encima);
+    const debajoSitio = height - (objetivo.y + objetivo.h + ESPACIO_FLECHA) - altoTarjeta; // «bottom» si va justo debajo
+    abajoTarjeta = height - encima - altoTarjeta >= 24 ? encima : debajoSitio >= 8 ? debajoSitio : Math.max(18, encima);
   }
+
+  // Título de la página en la que está la guía, enmarcado con «Estás aquí» (y sin oscurecer, para que se lea). Si ya
+  // queda dentro de lo señalado no se repite.
+  const tituloHueco: Caja | null =
+    cajaTitulo && !p.sinTitulo
+      ? { x: Math.max(0, cajaTitulo.x - 5), y: Math.max(0, cajaTitulo.y - 4), w: Math.min(width, cajaTitulo.w + 10), h: cajaTitulo.h + 8 }
+      : null;
+  const solapan = (a: Caja, b: Caja) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const titulo = tituloHueco && !(objetivo && solapan(tituloHueco, objetivo)) ? tituloHueco : null;
+  // Se oscurece todo menos lo señalado (y el título); si lo señalado es toda la pantalla (el formulario) no se oscurece nada.
+  const oscurece = !p.sinOscurecer && (!hueco || !enorme);
+  const panes = oscurece ? panesOscuros([objetivo, titulo].filter((h): h is Caja => !!h), width, height) : [];
   const flechaX = objetivo ? limitar(objetivo.x + objetivo.w / 2 - 16, 8, width - 40) : 0;
   const flechaY = objetivo ? (botonAbajo ? objetivo.y - 38 : objetivo.y + objetivo.h + 6) : 0;
   const bote = latido.interpolate({ inputRange: [0, 1], outputRange: [0, botonAbajo ? 7 : -7] });
@@ -3220,32 +3787,91 @@ function GuiaBlue({
   const seccionActiva = SECCIONES_GUIA.findIndex((s) => (s.ruta === "/" ? pathname === "/" : pathname.startsWith(s.ruta)));
   // Cada sección enseñada con su dedo: la mano toca justo en el centro de lo señalado (excepto en el paso de las 5
   // secciones, donde la mano va de una a otra, y en los que no son un botón).
-  const manoEn = hueco && p.gesto === "toque" ? { x: hueco.x + hueco.w / 2, y: hueco.y + hueco.h / 2 - 8 } : null;
+  // En los botones anchos el puntero se pone hacia la derecha (a las tres cuartas partes y media): así no tapa el nombre.
+  const manoEn =
+    hueco && p.gesto === "toque"
+      ? puntoToque ?? { x: hueco.x + hueco.w * (hueco.w > 160 ? 0.85 : 0.5), y: hueco.y + hueco.h / 2 - 8 }
+      : null;
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
       <View style={{ flex: 1 }}>
-        {/* Oscurecido: todo menos el hueco del botón señalado (si lo señalado es toda la pantalla, no se oscurece nada). */}
-        {hueco && !enorme ? (
+        {/* Oscurecido: todo menos lo señalado y el título de la página (los rectángulos que quedan por fuera). */}
+        {panes.map((r, i) => (
+          <View
+            key={i}
+            style={{
+              position: "absolute",
+              left: r.x,
+              top: r.y,
+              // Los que llegan al borde se alargan un poco: así no queda ninguna rendija en el borde de la pantalla.
+              width: r.x + r.w >= width - 0.5 ? r.w + 80 : r.w,
+              height: r.y + r.h >= height - 0.5 ? r.h + 240 : r.h,
+              backgroundColor: FONDO_GUIA,
+            }}
+          />
+        ))}
+        {/* Título de la página: recuadro fijo y «Estás aquí» (para que siempre se sepa dónde se está). */}
+        {titulo ? (
           <>
-            <View style={{ position: "absolute", left: 0, right: 0, top: 0, height: hueco.y, backgroundColor: FONDO_GUIA }} />
-            <View style={{ position: "absolute", left: 0, right: 0, top: hueco.y + hueco.h, bottom: 0, backgroundColor: FONDO_GUIA }} />
-            <View style={{ position: "absolute", left: 0, width: hueco.x, top: hueco.y, height: hueco.h, backgroundColor: FONDO_GUIA }} />
             <View
-              style={{ position: "absolute", left: hueco.x + hueco.w, right: 0, top: hueco.y, height: hueco.h, backgroundColor: FONDO_GUIA }}
+              nativeID="guia-titulo"
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: titulo.x,
+                top: titulo.y,
+                width: titulo.w,
+                height: titulo.h,
+                borderRadius: 10,
+                borderWidth: 2.5,
+                borderColor: COLORS.accent,
+              }}
             />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: limitar(titulo.x + titulo.w / 2 - 36, 6, width - 78),
+                top: Math.max(4, titulo.y - 21),
+                paddingHorizontal: 8,
+                height: 17,
+                borderRadius: 9,
+                backgroundColor: COLORS.accent,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 10.5 }}>Estás aquí</Text>
+            </View>
+          </>
+        ) : null}
+        {/* Tocar el botón señalado lo pulsa de verdad (la guía tapa la página: sin esto no se podía «probar»). */}
+        {p.probar && objetivo ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Probar el botón"
+            onPress={() => {
+              setForoManual(true);
+              pulsarEnPagina(primeroVisible(p.probar as string));
+            }}
+            style={{ position: "absolute", left: objetivo.x, top: objetivo.y, width: objetivo.w, height: objetivo.h }}
+          />
+        ) : null}
+        {objetivo ? (
+          <>
             <Animated.View
               nativeID="guia-aro"
               pointerEvents="none"
               style={{
                 position: "absolute",
-                left: hueco.x,
-                top: hueco.y,
-                width: hueco.w,
-                height: hueco.h,
+                left: objetivo.x,
+                top: objetivo.y,
+                width: objetivo.w,
+                height: objetivo.h,
                 // Poco redondeado: el hueco iluminado es rectangular y, con más radio, asoman
                 // esquinas del fondo blanco de la barra por fuera del aro.
-                borderRadius: Math.min(10, hueco.h / 2),
+                borderRadius: Math.min(10, objetivo.h / 2),
                 borderWidth: 3,
                 borderColor: COLORS.accent,
                 transform: [{ scale: escalaAro }],
@@ -3258,8 +3884,6 @@ function GuiaBlue({
               <Ionicons name={botonAbajo ? "arrow-down-circle" : "arrow-up-circle"} size={32} color={COLORS.accent} />
             </Animated.View>
           </>
-        ) : !hueco ? (
-          <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: FONDO_GUIA }} />
         ) : null}
 
         {/* Paso «Las 5 secciones»: los nombres de la barra de abajo se escriben con el brillo de Siri. */}
@@ -3284,7 +3908,7 @@ function GuiaBlue({
           accessibilityViewIsModal
           style={{
             width: ancho,
-            height: ALTO_TARJETA,
+            height: altoTarjeta,
             backgroundColor: COLORS.bg,
             borderRadius: 24,
             paddingHorizontal: 18,
@@ -3314,8 +3938,9 @@ function GuiaBlue({
             <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13 }}>Saltar</Text>
           </Pressable>
 
-          {/* Zona visual: según el paso, las secciones para cambiar, los ejemplos del buscador o Blue. */}
-          {p.cuenta ? null : (
+          {/* Zona visual: según el paso, las secciones para cambiar, los ejemplos del buscador, las pestañas del Foro,
+              lo que sabe hacer Blue o Blue. La tarjeta compacta no la lleva (deja ver la página). */}
+          {p.cuenta || p.compacta ? null : (
             <View style={{ alignSelf: "stretch", height: 64, alignItems: "center", justifyContent: "center" }}>
               {p.demo === "secciones" ? (
                 <SelectorSecciones
@@ -3327,7 +3952,15 @@ function GuiaBlue({
                   }}
                 />
               ) : p.demo === "buscador" ? (
-                <EjemplosBuscador activo={ejemploElegido} onElegir={setEjemploElegido} />
+                <EjemplosBuscador ejemplos={ejemplos ?? EJEMPLOS_POR_DEFECTO} activo={ejemploElegido} onElegir={setEjemploElegido} />
+              ) : p.demo === "foro-pestanas" ? (
+                <ChipsForo activa={pestanaForo} onElegir={elegirPestanaForo} />
+              ) : p.demo === "capacidades" ? (
+                <FilaIconos items={CAPACIDADES_BLUE} />
+              ) : p.demo === "como-se-compra" ? (
+                <FilaIconos items={PASOS_DE_COMPRA} />
+              ) : p.demo === "foro-chat" ? (
+                <FilaIconos items={GESTOS_DEL_FORO} />
               ) : (
                 <MarcaAnimada cual="carga" ancho={paso === 0 ? 76 : 56} />
               )}
@@ -3338,14 +3971,12 @@ function GuiaBlue({
               <Ionicons name={p.icono} size={20} color={COLORS.accent} />
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>{p.titulo}</Text>
             </View>
-            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21, textAlign: "center", fontWeight: "600" }}>{p.texto}</Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21, textAlign: "center", fontWeight: "600" }}>{textoPaso}</Text>
           </View>
 
           {p.accion ? (
             <Pressable
-              onPress={() =>
-                p.accion?.vender ? onVender() : p.accion?.instalar ? onInstalar() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined
-              }
+              onPress={() => (p.accion?.instalar ? onInstalar() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined)}
               accessibilityRole="button"
               // 44 px de alto REALES (regla del pulgar): en la web el hitSlop no llega ni a la mitad de lo que declara.
               style={{ minHeight: 44, justifyContent: "center" }}
@@ -3414,7 +4045,8 @@ function GuiaBlue({
                   }}
                 />
                 <Pressable
-                  onPress={() => siguienteRef.current()}
+                  // En el último paso (sin sesión sale «Tu cuenta», con sesión este) el botón termina la guía.
+                  onPress={() => (paso === total - 1 ? onCerrar() : siguienteRef.current())}
                   accessibilityRole="button"
                   accessibilityLabel="Paso siguiente"
                   style={({ pressed }) => ({
@@ -3429,7 +4061,7 @@ function GuiaBlue({
                     opacity: pressed ? 0.88 : 1,
                   })}
                 >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 }}>{paso === 0 ? "Empezar" : "Siguiente"}</Text>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 }}>{paso === 0 ? "Empezar" : paso === total - 1 ? "Terminar" : "Siguiente"}</Text>
                   <Animated.View style={{ transform: [{ translateX: empujeFlecha }] }}>
                     <Ionicons name="arrow-forward" size={22} color="#FFFFFF" />
                   </Animated.View>
