@@ -159,9 +159,15 @@ export function TextoSiri({ texto, cursor, style }: { texto: string; cursor?: bo
 // ---------------------------------------------------------------------------
 
 let oyenteDemo: ((texto: string | null) => void) | null = null;
+// Cuántos productos enseña la demostración: los que caben encima de la tarjeta de la guía en esta pantalla.
+let filasDemo: number | null = null;
 
-/** La guía de Blue escribe en el buscador de Inicio (texto parcial en cada letra); `null` = termina y lo deja vacío. */
-export function escribirEnBuscadorDemo(texto: string | null) {
+/**
+ * La guía de Blue escribe en el buscador de Inicio (texto parcial en cada letra); `null` = termina y lo deja vacío.
+ * `filas` limita los productos de «lo último añadido / lo más antiguo» a los que caben sin quedar bajo la tarjeta de la guía.
+ */
+export function escribirEnBuscadorDemo(texto: string | null, filas?: number) {
+  filasDemo = texto === null ? null : filas ?? null;
   oyenteDemo?.(texto);
 }
 
@@ -286,7 +292,7 @@ async function buscarProductosInicio(texto: string, intencion: IntencionBusqueda
     if (!intencion) consulta = consulta.or(`title.ilike.${patron},description.ilike.${patron}`);
     const { data, error, count } = await consulta
       .order("created_at", { ascending: intencion === "antiguos" })
-      .range(0, (intencion ? MAX_PRODUCTOS_INTENCION : MAX_PRODUCTOS_PANEL) - 1);
+      .range(0, (intencion ? Math.min(MAX_PRODUCTOS_INTENCION, filasDemo ?? MAX_PRODUCTOS_INTENCION) : MAX_PRODUCTOS_PANEL) - 1);
     if (error) return null;
     const filas = (Array.isArray(data) ? data : []) as { id: string; title: string | null; price_eur: number | string | null; images?: string[] | null }[];
     const portadas = new Map<string, string>();

@@ -10,8 +10,9 @@
  *   (document.elementsFromPoint en 9 puntos de su caja), busca el hueco libre más
  *   cercano en su lado (o en el otro) y vuelve a su sitio cuando queda libre. Lo mira
  *   al cambiar de pantalla, al dejar de desplazarse y cada 4 s.
- * - Guía de bienvenida (GuiaBlue): a los 15 s, una vez por dispositivo y solo sin
- *   sesión. 17 pasos (18 si se puede instalar la tienda), con más imagen que letra: una mano
+ * - Guía de bienvenida (GuiaBlue): a los 15 s, una vez por dispositivo, solo sin
+ *   sesión y solo si está en Inicio (en una ficha, el catálogo, un chat… espera a que
+ *   llegue a Inicio, sin interrumpirle). 17 pasos (18 si se puede instalar la tienda), con más imagen que letra: una mano
  *   enseña dónde tocar y la guía hace las cosas (cambiar de sección desde la tarjeta, pulsar
  *   «Vender ahora» y abrir el formulario, desplazarlo y salir con la flecha, escribir ejemplos
  *   en el buscador con letras Siri, enmarcar las pestañas de Perfil). SEÑALA cada botón (se
@@ -1506,8 +1507,9 @@ export default function Campanita() {
 
   // --- guía de bienvenida -------------------------------------------------------------
   // A los 15 s de entrar, una sola vez por dispositivo y solo a quien no tiene sesión (es
-  // nuevo). En el panel, en un chat o pagando se espera a que salga de ahí.
-  const sitioSinGuia = enAdmin || enChat || pathname.startsWith("/checkout");
+  // nuevo). Solo se ofrece sola en Inicio: quien llega a una ficha, al catálogo, a un chat, al pago o al panel
+  // (p. ej. desde un enlace compartido) no es interrumpido ni llevado a otra pantalla; se espera a que llegue a Inicio.
+  const sitioSinGuia = pathname !== "/";
   const sitioSinGuiaRef = useRef(sitioSinGuia);
   sitioSinGuiaRef.current = sitioSinGuia;
 
@@ -2927,6 +2929,13 @@ function EjemplosBuscador({ activo, onElegir }: { activo: number | null; onElegi
 // Altura fija de la tarjeta de la guía: así «Siguiente» está SIEMPRE en el mismo sitio y el pulgar no lo busca.
 const ALTO_TARJETA = 292;
 
+// Dónde empieza la tarjeta de la guía cuando no tiene que apartarse (la misma cuenta que hace GuiaBlue más abajo).
+const arribaTarjeta = (alto: number) => alto - (Math.round(alto * 0.15) + (Platform.OS === "ios" ? 8 : 0)) - ALTO_TARJETA;
+
+// Cuántos productos de «lo último añadido» caben en el panel del buscador SIN quedar bajo la tarjeta: el panel empieza
+// hacia los 78 px, y mide 40 de cabecera, 65 por producto y 45 de «Ver todo el catálogo». Entre 1 y 3.
+const filasBuscadorQueCaben = (alto: number) => limitar(Math.floor((arribaTarjeta(alto) - 6 - (78 + 40 + 45)) / 65), 1, 3);
+
 function GuiaBlue({
   onCerrar: cerrarSinMedir,
   onIr,
@@ -3097,6 +3106,7 @@ function GuiaBlue({
     let cancelado = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const espera = (ms: number) => new Promise<void>((ok) => timers.push(setTimeout(ok, ms)));
+    const filas = filasBuscadorQueCaben(Dimensions.get("window").height);
     (async () => {
       await espera(1100);
       while (!cancelado) {
@@ -3104,12 +3114,12 @@ function GuiaBlue({
         for (const i of lista) {
           const texto = EJEMPLOS_BUSCADOR[i].texto;
           for (let k = 1; k <= texto.length && !cancelado; k++) {
-            escribirEnBuscadorDemo(texto.slice(0, k));
+            escribirEnBuscadorDemo(texto.slice(0, k), filas);
             await espera(85);
           }
           await espera(3600); // los resultados, a la vista
           if (cancelado) return;
-          escribirEnBuscadorDemo("");
+          escribirEnBuscadorDemo("", filas);
           await espera(600);
         }
       }
@@ -3295,10 +3305,11 @@ function GuiaBlue({
         >
           <Pressable
             onPress={onCerrar}
-            hitSlop={12}
+            // Zona táctil de 44 px REAL (en la web el hitSlop no llega ni a la mitad de lo que declara).
+            hitSlop={6}
             accessibilityRole="button"
             accessibilityLabel="Saltar la guía"
-            style={{ position: "absolute", top: 12, right: 14, zIndex: 2, paddingVertical: 4, paddingHorizontal: 6 }}
+            style={{ position: "absolute", top: 2, right: 8, zIndex: 2, minHeight: 44, minWidth: 56, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }}
           >
             <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13 }}>Saltar</Text>
           </Pressable>
@@ -3336,7 +3347,8 @@ function GuiaBlue({
                 p.accion?.vender ? onVender() : p.accion?.instalar ? onInstalar() : p.accion?.ruta ? onIr(p.accion.ruta) : undefined
               }
               accessibilityRole="button"
-              hitSlop={8}
+              // 44 px de alto REALES (regla del pulgar): en la web el hitSlop no llega ni a la mitad de lo que declara.
+              style={{ minHeight: 44, justifyContent: "center" }}
             >
               <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14.5, textAlign: "center" }}>{p.accion.texto} →</Text>
             </Pressable>
@@ -3361,7 +3373,7 @@ function GuiaBlue({
             <View style={{ alignSelf: "stretch", gap: 10, marginTop: 4 }}>
               <BotonPanel icono="person-add-outline" texto="Crear cuenta" principal onPress={() => onIr("/perfil?acceso=registro")} />
               <BotonPanel icono="log-in-outline" texto="Ya tengo cuenta: iniciar sesión" onPress={() => onIr("/perfil?acceso=entrar")} />
-              <Pressable onPress={onCerrar} hitSlop={8} accessibilityRole="button" style={{ paddingVertical: 6 }}>
+              <Pressable onPress={onCerrar} accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }}>
                 <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Ahora no, gracias</Text>
               </Pressable>
             </View>
