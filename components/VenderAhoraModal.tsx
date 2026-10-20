@@ -1324,6 +1324,8 @@ export default function VenderAhoraModal({
     <IsMobileContext.Provider value={isMobile}>
       {envolver(
           <ScrollView
+            // nativeID: la guía de Blue (components/Campanita.tsx) desplaza el formulario para enseñar que hay más abajo.
+            nativeID="vender-scroll"
             contentContainerStyle={{ flexGrow: 1, justifyContent: comoPagina ? "flex-start" : "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
             keyboardShouldPersistTaps="handled"
           >
