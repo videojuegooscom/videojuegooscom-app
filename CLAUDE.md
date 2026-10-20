@@ -17,9 +17,10 @@ from public.aprendizajes where activa order by prioridad, categoria, updated_at 
 Si una lección choca con lo que pide el usuario ahora, avísale antes de seguir. Cuando el usuario
 te corrija algo, te pida aprender algo o tú detectes algo que debes aprender, **apúntalo tú** en la
 tabla (no se lo pidas al usuario): añade un insert idempotente (`where not exists` por título) en una
-migración `supabase/migrations/<fecha>_aprendizajes_<tema>.sql`, publícala con su PR y aplícala con
-`apply_migration` (execute_sql no puede escribir). En el apartado 5 de la respuesta di qué lección
-has apuntado.
+migración `supabase/migrations/<fecha>_aprendizajes_<tema>.sql`, ábrela con su PR y déjala pendiente:
+aplicarla con `apply_migration` (execute_sql no puede escribir) exige la autorización expresa del
+dueño (regla permanente de «Hábitos obligatorios»). En el apartado 5 de la respuesta di qué lección
+has apuntado y que queda pendiente de aplicar.
 
 ## Hábitos obligatorios
 
@@ -28,11 +29,12 @@ has apuntado.
 - **Leer archivos fuera del repo con la herramienta Read**, no con Bash (la política solo está en `/etc/claude-code`).
 - **Sin bucles de espera** (`sleep`, `while true`, `watch`). Si algo tarda, se vuelve a mirar después.
 - **Todo cambio va en una rama con su PR**, para que siempre haya vuelta atrás. Nunca trabajar ni hacer push en `main`.
-- **Publicar = `/usr/local/bin/vz-publicar publicar <número>`** cuando la vista previa de Vercel y la revisión automática de GitHub estén en verde (antes, `revisar`). Nunca `gh pr merge`. El controlador publica casi todo; solo rechaza las barreras (infraestructura, `.github`, `.claude`, `.mcp.json`), dependencias, `scripts/`, más de 10 borrados y SQL destructivo: esas las fusiona el usuario. Las migraciones con permisos delicados se fusionan, pero aplicarlas en Supabase sigue siendo del usuario.
+- **REGLA PERMANENTE (dueño, 2026-10-18): sin su autorización expresa NO se fusiona ninguna PR, NO se despliega a producción, NO se aplica ninguna migración y NO se hace nada destructivo.** Se prepara todo (rama, PR, pruebas, simulación y vuelta atrás), se avisa «lista para fusionar» diciendo qué está verificado y qué no, y se sigue con otro trabajo seguro e independiente. La autorización vale solo para esa PR o esa migración: un «adelante» general o la de otra tarea no cuenta. Sin pedir permiso sí se puede leer, analizar, programar en ramas, probar en local y abrir PR. Tras cada bloque importante se informa de: qué se ha completado, qué se ha verificado de verdad, qué falta, qué está bloqueado y por qué, y qué necesita autorización. No se toca VeoAura, TradeandoIA ni el Supervisor Central.
+- **Publicar (solo con esa autorización) = `/usr/local/bin/vz-publicar publicar <número>`** cuando la vista previa de Vercel y la revisión automática de GitHub estén en verde (antes, `revisar`). El verde solo es condición necesaria, no permiso. Nunca `gh pr merge`. El controlador publica casi todo; solo rechaza las barreras (infraestructura, `.github`, `.claude`, `.mcp.json`), dependencias, `scripts/`, más de 10 borrados y SQL destructivo: esas las fusiona el usuario. Las migraciones con permisos delicados se fusionan, pero aplicarlas en Supabase sigue siendo del usuario.
 - **Toda rama pasa `tsc --noEmit` antes del push**, aunque solo toque `api/` o un texto.
-- **Textos largos de PR** con `--body-file` (un archivo del repo), para que el comando quepa en una línea.
+- **Textos largos de PR** con `--body-file` (un archivo del repo), para que el comando quepa en una línea. El cuerpo hay que dejarlo bien al crear la PR: `gh pr edit` falla (Projects classic) y el guardián bloquea `gh api` con PATCH; las correcciones posteriores van como comentario (`gh pr comment`).
 - **Secretos:** nunca leer ni mostrar `.env*`, claves ni tokens, ni nombrar archivos `.env` en comandos.
-- **Base de datos:** consultas de lectura por MCP (`execute_sql`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla, `git fetch origin main` y `apply_migration` con `name=<nombre>` y el contenido EXACTO del archivo (el guardián lo compara con origin/main). Nunca `DELETE`, `DROP` ni `TRUNCATE`; los cambios de permisos delicados (grant, security definer, anon, using (true)) los aplica el usuario.
+- **Base de datos:** consultas de lectura por MCP (`execute_sql`). Los cambios van como SQL aditivo en `supabase/migrations/<fecha>_<nombre>.sql` dentro de una rama; tras publicarla y con la autorización expresa del dueño para esa migración, `git fetch origin main` y `apply_migration` con `name=<nombre>` y el contenido EXACTO del archivo (el guardián lo compara con origin/main). Nunca `DELETE`, `DROP` ni `TRUNCATE`; los cambios de permisos delicados (grant, security definer, anon, using (true)) los aplica el usuario.
 - Si algo se bloquea, no se rodea: se explica qué hace falta y se da al usuario el comando para Termius (como `veoaura`, con `python3`, nunca `jq`).
 
 ## Asesor de modelos (en cada respuesta)
