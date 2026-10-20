@@ -83,7 +83,7 @@ union all select 'T ' || c.relname || ' acl=' || ${ORDENAR("c.relacl")} || ' rls
   from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
 union all select 'P ' || tablename || '.' || policyname || ' ' || cmd || ' ' || roles::text || ' ' || coalesce(qual, '') || ' | ' || coalesce(with_check, '')
   from pg_policies where schemaname = 'public'
-union all select 'G ' || c.relname || '.' || t.tgname || ' ' || t.tgenabled
+union all select 'G ' || c.relname || '.' || t.tgname || ' ' || t.tgenabled::text
   from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relnamespace = 'public'::regnamespace and not t.tgisinternal
 union all select 'K ' || t.relname || '.' || k.conname || ' ' || pg_get_constraintdef(k.oid)
   from pg_constraint k join pg_class t on t.oid = k.conrelid where t.relnamespace = 'public'::regnamespace
