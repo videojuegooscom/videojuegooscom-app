@@ -79,6 +79,7 @@ import {
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type TextInputKeyPressEventData,
+  type TextStyle,
   type ViewStyle,
 } from "react-native";
 import { supabase } from "../lib/supabase";
@@ -106,6 +107,62 @@ function fmtEUR(n: number) {
   const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
   const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
   return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
+// ---------------------------------------------------------------------------
+// Letras con el brillo de colores de Siri (solo web; en nativo, azul de marca). Las usa el buscador cuando la
+// guía de Blue escribe en él un ejemplo, y la guía en los nombres de las secciones de la barra de abajo.
+// ---------------------------------------------------------------------------
+
+const CSS_SIRI_TEXTO = [
+  // Una baldosa de 300 px con los colores de Siri (empieza y acaba en el mismo) que se desplaza justo una baldosa.
+  ".vz-siri-texto{display:inline-block;color:#6F8CF7;background-image:linear-gradient(90deg,#1EA7E8,#3FC6F0,#6F8CF7,#A774F2,#EE7DBA,#5B9DF9,#1EA7E8);background-size:300px 100%;background-repeat:repeat-x;animation:vz-siri-texto 2.4s linear infinite;filter:drop-shadow(0 0 5px rgba(167,116,242,.35));}",
+  // Solo se vuelve transparente el relleno si el navegador sabe recortar el fondo al texto.
+  "@supports (-webkit-background-clip:text) or (background-clip:text){.vz-siri-texto{-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}}",
+  "@keyframes vz-siri-texto{from{background-position:0 0}to{background-position:300px 0}}",
+  // Barrita que parpadea al final: se ve como si se estuviera escribiendo.
+  ".vz-siri-cursor{display:inline-block;width:2px;height:1.05em;margin-left:1px;vertical-align:-0.15em;background:#A774F2;animation:vz-siri-cursor .7s steps(1) infinite;}",
+  "@keyframes vz-siri-cursor{50%{opacity:0}}",
+  "@media (prefers-reduced-motion: reduce){.vz-siri-texto,.vz-siri-cursor{animation:none}}",
+].join("");
+
+const ID_CSS_SIRI_TEXTO = "vz-siri-texto-css";
+
+/** Inyecta la hoja de estilos del brillo una sola vez (solo web). */
+export function asegurarCssSiriTexto() {
+  if (Platform.OS !== "web" || typeof document === "undefined") return;
+  let el = document.getElementById(ID_CSS_SIRI_TEXTO);
+  if (!el) {
+    el = document.createElement("style");
+    el.id = ID_CSS_SIRI_TEXTO;
+    document.head.appendChild(el);
+  }
+  if (el.textContent !== CSS_SIRI_TEXTO) el.textContent = CSS_SIRI_TEXTO;
+}
+
+/** Texto con el brillo de Siri; `cursor` añade la barrita parpadeante del final (como si se estuviera escribiendo). */
+export function TextoSiri({ texto, cursor, style }: { texto: string; cursor?: boolean; style?: TextStyle }) {
+  useEffect(() => {
+    asegurarCssSiriTexto();
+  }, []);
+  if (Platform.OS !== "web") return <Text style={[{ color: COLORS.brand, fontWeight: "800" }, style]}>{texto}</Text>;
+  return (
+    <Text style={style}>
+      <span className="vz-siri-texto">{texto || "​"}</span>
+      {cursor ? <span className="vz-siri-cursor" /> : null}
+    </Text>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Demostración para la guía de Blue: la guía escribe un ejemplo en el buscador de Inicio, letra a letra.
+// ---------------------------------------------------------------------------
+
+let oyenteDemo: ((texto: string | null) => void) | null = null;
+
+/** La guía de Blue escribe en el buscador de Inicio (texto parcial en cada letra); `null` = termina y lo deja vacío. */
+export function escribirEnBuscadorDemo(texto: string | null) {
+  oyenteDemo?.(texto);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,21 +248,45 @@ export function seccionesParaBusqueda(texto: string): SeccionBusqueda[] {
 export type ProductoBusqueda = { id: string; titulo: string; precio: number; imagen: string | null };
 
 const MAX_PRODUCTOS_PANEL = 4;
+const MAX_PRODUCTOS_INTENCION = 3;
+
+export type IntencionBusqueda = "recientes" | "antiguos";
+
+const PALABRAS_RECIENTES = ["ultimo", "ultima", "ultimos", "ultimas", "reciente", "recientes", "novedad", "novedades"];
+const PALABRAS_ANTIGUAS = ["antiguo", "antigua", "antiguos", "antiguas", "viejo", "vieja", "viejos", "viejas", "primero", "primeros"];
+const PALABRAS_DE_RELLENO = ["lo", "los", "las", "el", "la", "que", "se", "ha", "han", "he", "mas", "anadido", "anadidos", "anadida", "anadidas", "agregado", "agregados", "subido", "subidos", "publicado", "publicados", "producto", "productos", "articulo", "articulos"];
+
+/**
+ * «Lo último añadido» o «lo más antiguo»: no se busca ese texto en los productos, se enseñan los más recientes o
+ * los más antiguos. Solo si TODAS las palabras son de ese tipo (o de relleno como «lo», «más», «añadido») y no
+ * se mezclan las dos ideas; «último modelo de ps5», por ejemplo, sigue siendo una búsqueda normal.
+ */
+export function intencionDeBusqueda(texto: string): IntencionBusqueda | null {
+  const palabras = normalizarBusqueda(texto).split(" ").filter(Boolean);
+  if (!palabras.length) return null;
+  const reciente = palabras.some((w) => PALABRAS_RECIENTES.includes(w));
+  const antigua = palabras.some((w) => PALABRAS_ANTIGUAS.includes(w));
+  if (reciente === antigua) return null;
+  const permitidas = [...PALABRAS_RECIENTES, ...PALABRAS_ANTIGUAS, ...PALABRAS_DE_RELLENO];
+  if (!palabras.every((w) => permitidas.includes(w))) return null;
+  return reciente ? "recientes" : "antiguos";
+}
 
 // Misma regla que el catálogo (app/catalogo.tsx): la portada es la marcada, o la primera por orden, o images[0].
-async function buscarProductosInicio(texto: string): Promise<{ productos: ProductoBusqueda[]; total: number } | null> {
+async function buscarProductosInicio(texto: string, intencion: IntencionBusqueda | null): Promise<{ productos: ProductoBusqueda[]; total: number } | null> {
   try {
     const seguro = texto.replace(/[%(),*]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
     if (!seguro) return { productos: [], total: 0 };
     const patron = `%${seguro}%`;
-    const { data, error, count } = await supabase
+    let consulta = supabase
       .from("products")
       .select("id,title,price_eur,images", { count: "exact" })
       .eq("is_active", true)
-      .eq("status", "PUBLISHED")
-      .or(`title.ilike.${patron},description.ilike.${patron}`)
-      .order("created_at", { ascending: false })
-      .range(0, MAX_PRODUCTOS_PANEL - 1);
+      .eq("status", "PUBLISHED");
+    if (!intencion) consulta = consulta.or(`title.ilike.${patron},description.ilike.${patron}`);
+    const { data, error, count } = await consulta
+      .order("created_at", { ascending: intencion === "antiguos" })
+      .range(0, (intencion ? MAX_PRODUCTOS_INTENCION : MAX_PRODUCTOS_PANEL) - 1);
     if (error) return null;
     const filas = (Array.isArray(data) ? data : []) as { id: string; title: string | null; price_eur: number | string | null; images?: string[] | null }[];
     const portadas = new Map<string, string>();
@@ -242,7 +323,9 @@ type EstadoBusqueda = { texto: string; cargando: boolean; productos: ProductoBus
 /** Lo que enseña el panel del buscador para lo escrito: productos (con una espera de 0,26 s al teclear) y secciones. */
 export function useBusquedaInicio(textoCrudo: string) {
   const texto = textoCrudo.trim();
-  const secciones = useMemo(() => seccionesParaBusqueda(texto), [texto]);
+  // «Lo último añadido» / «lo más antiguo»: se enseñan los más recientes o los más antiguos, sin secciones.
+  const intencion = useMemo(() => intencionDeBusqueda(texto), [texto]);
+  const secciones = useMemo(() => (intencion ? [] : seccionesParaBusqueda(texto)), [texto, intencion]);
   const [estado, setEstado] = useState<EstadoBusqueda>({ texto: "", cargando: false, productos: [], total: 0, error: false });
 
   useEffect(() => {
@@ -253,7 +336,7 @@ export function useBusquedaInicio(textoCrudo: string) {
     let vigente = true;
     setEstado((e) => ({ ...e, cargando: true }));
     const espera = setTimeout(async () => {
-      const r = await buscarProductosInicio(texto);
+      const r = await buscarProductosInicio(texto, intencion);
       if (!vigente) return;
       setEstado({ texto, cargando: false, productos: r?.productos ?? [], total: r?.total ?? 0, error: r === null });
     }, 260);
@@ -261,10 +344,10 @@ export function useBusquedaInicio(textoCrudo: string) {
       vigente = false;
       clearTimeout(espera);
     };
-  }, [texto]);
+  }, [texto, intencion]);
 
   // «listo»: los productos que hay en el estado son de lo que está escrito ahora (no de una letra antes).
-  return { texto, secciones, productos: estado.productos, total: estado.total, error: estado.error, listo: !estado.cargando && estado.texto === texto };
+  return { texto, intencion, secciones, productos: estado.productos, total: estado.total, error: estado.error, listo: !estado.cargando && estado.texto === texto };
 }
 
 type BusquedaInicio = ReturnType<typeof useBusquedaInicio>;
@@ -318,8 +401,9 @@ function PanelBusqueda({
   onVerTodo: () => void;
   onPreguntar: () => void;
 }) {
-  const { texto, productos, total, secciones, listo, error } = busqueda;
+  const { texto, productos, total, secciones, listo, error, intencion } = busqueda;
   const hayProductos = listo && productos.length > 0;
+  const titulosIntencion: Record<IntencionBusqueda, string> = { recientes: "Lo último añadido", antiguos: "Lo más antiguo" };
   return (
     <View
       nativeID="buscador-resultados"
@@ -338,12 +422,17 @@ function PanelBusqueda({
       }}
     >
       <ScrollView style={{ maxHeight: maxAlto }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {intencion ? (
+          <View style={{ minHeight: 40, paddingHorizontal: 14, paddingVertical: 10, justifyContent: "center" }}>
+            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18, textAlign: "center", fontWeight: "800" }}>{titulosIntencion[intencion]}</Text>
+          </View>
+        ) : null}
         {!listo ? (
           <TextoPanel>Buscando…</TextoPanel>
         ) : hayProductos ? (
           <>
             {productos.map((p, i) => (
-              <FilaPanel key={p.id} primera={i === 0} onPress={() => onIrA(`/producto/${p.id}`)} etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}>
+              <FilaPanel key={p.id} primera={i === 0 && !intencion} onPress={() => onIrA(`/producto/${p.id}`)} etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}>
                 <View style={{ width: 48, height: 48, flexShrink: 0, backgroundColor: "#FFFFFF" }}>
                   {p.imagen ? <SmartImage uri={p.imagen} alt={p.titulo} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} /> : null}
                 </View>
@@ -356,14 +445,18 @@ function PanelBusqueda({
                 <View style={{ width: 48, flexShrink: 0 }} />
               </FilaPanel>
             ))}
-            {total > productos.length ? (
+            {intencion ? (
+              <FilaPanel onPress={onVerTodo} etiqueta="Ver todo el catálogo">
+                <Text style={{ flex: 1, color: COLORS.brand, fontSize: 14.5, fontWeight: "800", textAlign: "center" }}>Ver todo el catálogo</Text>
+              </FilaPanel>
+            ) : total > productos.length ? (
               <FilaPanel onPress={onVerTodo} etiqueta={`Ver los ${total} resultados en el catálogo`}>
                 <Text style={{ flex: 1, color: COLORS.brand, fontSize: 14.5, fontWeight: "800", textAlign: "center" }}>Ver los {total} resultados en el catálogo</Text>
               </FilaPanel>
             ) : null}
           </>
         ) : (
-          <TextoPanel>{error ? "No se ha podido buscar ahora mismo." : `No hay productos para «${texto}»`}</TextoPanel>
+          <TextoPanel>{error ? "No se ha podido buscar ahora mismo." : intencion ? "Todavía no hay productos." : `No hay productos para «${texto}»`}</TextoPanel>
         )}
 
         {secciones.map((s) => (
@@ -381,7 +474,7 @@ function PanelBusqueda({
           </FilaPanel>
         ))}
 
-        {listo && !hayProductos ? (
+        {listo && !hayProductos && !intencion ? (
           <FilaPanel onPress={onPreguntar} etiqueta={`Preguntar a Blue IA: ${texto}`}>
             <Ionicons name="sparkles-outline" size={22} color={COLORS.text} />
             <Text numberOfLines={2} style={{ flex: 1, color: COLORS.text, fontSize: 14.5, lineHeight: 19, fontWeight: "700", textAlign: "center" }}>
@@ -413,6 +506,8 @@ export type BarramagicProps = {
   onFocus?: () => void;
   onBlur?: () => void;
   onKeyPress?: (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => void;
+  /** mode="input": si no es null, el texto se dibuja con el brillo de Siri y el campo no se puede escribir (demostración de la guía). */
+  textoSiri?: string | null;
 
   /** mode="link": se llama al tocar toda la píldora. */
   onPress?: () => void;
@@ -434,6 +529,7 @@ export default function Barramagic({
   onFocus,
   onBlur,
   onKeyPress,
+  textoSiri,
   onPress,
   onPressAi,
   placeholder = "Buscar producto o hacer una pregunta",
@@ -540,9 +636,11 @@ export default function Barramagic({
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor="rgba(11,33,56,0.45)"
+          editable={textoSiri == null}
           style={{
             flex: 1,
-            color: COLORS.text,
+            // En la demostración de la guía, las letras las dibuja TextoSiri encima (con el brillo de Siri).
+            color: textoSiri != null ? "transparent" : COLORS.text,
             fontWeight: "600",
             paddingVertical: 0,
             // 16px fijo (antes 15 en móvil): por debajo de 16, el móvil
@@ -560,6 +658,15 @@ export default function Barramagic({
           onKeyPress={onKeyPress}
           accessibilityLabel={placeholder}
         />
+
+        {textoSiri != null ? (
+          <View
+            pointerEvents="none"
+            style={{ position: "absolute", left: isMobile ? 31 : 41, right: 28, top: 0, bottom: 0, justifyContent: "center" }}
+          >
+            <TextoSiri texto={textoSiri} cursor style={{ fontSize: 16, fontWeight: "600" }} />
+          </View>
+        ) : null}
 
         {value ? (
           <Pressable
@@ -672,6 +779,25 @@ export function FloatingBarramagic({
   const [abierto, setAbierto] = useState(false);
   const cierreRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busqueda = useBusquedaInicio(modoEnlace ? "" : texto);
+  // Demostración de la guía de Blue (escribirEnBuscadorDemo): el texto lo pone la guía, con el brillo de Siri.
+  const [demo, setDemo] = useState(false);
+  useEffect(() => {
+    if (modoEnlace) return;
+    oyenteDemo = (t) => {
+      if (t === null) {
+        setDemo(false);
+        setTexto("");
+        setAbierto(false);
+        return;
+      }
+      setDemo(true);
+      setTexto(t);
+      setAbierto(t.trim().length >= 2);
+    };
+    return () => {
+      oyenteDemo = null;
+    };
+  }, [modoEnlace]);
   useEffect(
     () => () => {
       if (cierreRef.current) clearTimeout(cierreRef.current);
@@ -922,6 +1048,7 @@ export function FloatingBarramagic({
   };
   // Con un pequeño retraso: al tocar una fila del panel el campo pierde el foco ANTES de que llegue el toque.
   const alDesenfocar = () => {
+    if (demo) return; // la demostración de la guía mantiene el panel abierto
     if (cierreRef.current) clearTimeout(cierreRef.current);
     cierreRef.current = setTimeout(() => setAbierto(false), 220);
   };
@@ -934,6 +1061,11 @@ export function FloatingBarramagic({
   const alEnviar = () => {
     const t = texto.trim();
     if (!t) return;
+    // «Lo último añadido» / «lo más antiguo»: no es un texto que buscar, se abre el catálogo entero.
+    if (busqueda.intencion) {
+      irA("/catalogo");
+      return;
+    }
     // Sin productos pero con una sección que encaja («Blog», «Inicio de sesión»): directo a ella.
     if (busqueda.listo && busqueda.productos.length === 0 && busqueda.secciones.length > 0) {
       irA(busqueda.secciones[0].ruta);
@@ -994,6 +1126,7 @@ export function FloatingBarramagic({
               onFocus={alEnfocar}
               onBlur={alDesenfocar}
               onKeyPress={alPulsarTecla}
+              textoSiri={demo ? texto : null}
               placeholder={placeholder}
             />
           )}
@@ -1032,7 +1165,7 @@ export function FloatingBarramagic({
                 busqueda={busqueda}
                 maxAlto={maxAltoPanel}
                 onIrA={irA}
-                onVerTodo={() => irA(`/catalogo?query=${encodeURIComponent(texto.trim())}`)}
+                onVerTodo={() => irA(busqueda.intencion ? "/catalogo" : `/catalogo?query=${encodeURIComponent(texto.trim())}`)}
                 onPreguntar={() => irA(`/blue-ia?q=${encodeURIComponent(texto.trim())}`)}
               />
             </View>

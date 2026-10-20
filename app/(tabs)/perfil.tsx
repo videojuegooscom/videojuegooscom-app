@@ -991,7 +991,8 @@ export default function PerfilScreen() {
 
                 {sessionRole === "guest" ? (
                   <>
-                    <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
+                    {/* nativeID: sin sesión, la guía de Blue enmarca estas dos pestañas. */}
+                    <View nativeID="perfil-acceso" style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
                       <AuthPill
                         title="Crear cuenta"
                         anim={pillAnimSignup}
@@ -1255,7 +1256,8 @@ function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: Perfi
     { key: "seguimientos", label: "Seguimientos" },
   ];
   return (
-    <View style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 4 }}>
+    // nativeID: la guía de Blue (components/Campanita.tsx) enmarca estas pestañas.
+    <View nativeID="perfil-pestanas" style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 4 }}>
       {tabs.map((t) => {
         const active = value === t.key;
         return (
