@@ -21,10 +21,22 @@
  *   escrito. Busca de verdad en la pantalla que la usa (no navega a otro
  *   sitio).
  * - mode="link": no es editable — es un botón que, al tocarlo, llama a
- *   onPress. La usa así FloatingBarramagic, porque en Inicio la búsqueda de
- *   verdad ocurre al entrar en /catalogo.
+ *   onPress. FloatingBarramagic solo lo usa si se le pasa onPress (el modo
+ *   antiguo de Inicio, que llevaba al catálogo: se tocaba la barra y no se
+ *   podía escribir en ella).
  * En ambos modos, el botón de la derecha (✨) lleva a /blue-ia salvo que se
  * pase onPressAi con otra acción.
+ *
+ * Buscador de Inicio (2026-10): FloatingBarramagic es ahora un buscador REAL.
+ * Se escribe en la propia barra y, con 2 letras o más, sale un panel con los
+ * productos que encajan (título, foto entera y precio) y, un poco más abajo,
+ * las SECCIONES de la tienda que encajan con lo escrito («Blog», «Inicio de
+ * sesión», «Vender»…: SECCIONES_BUSQUEDA, solo pantallas que existen). Si no
+ * hay productos, avisa y deja las secciones y «Preguntar a Blue IA». Intro: si
+ * no hay productos pero sí una sección, va directo a ella; si no, abre el
+ * catálogo con lo escrito (/catalogo?query=…). El panel va en otra capa para
+ * que desplazarlo no arrastre la barra, y sale debajo si la barra está arriba
+ * y encima si está abajo.
  *
  * Cómo funciona `FloatingBarramagic`: usa Animated + PanResponder para el
  * arrastre y el efecto muelle (spring) al soltar, y mide la altura real del
@@ -58,20 +70,26 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   useWindowDimensions,
   View,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
   type ViewStyle,
 } from "react-native";
+import { supabase } from "../lib/supabase";
+import SmartImage from "./SmartImage";
 
 const COLORS = {
   text: "#0B2138",
   muted: "rgba(11,33,56,0.62)",
   bg: "#FFFFFF",
   border: "#E3EAF2",
+  brand: "#1EA7E8",
 };
 
 function pushRoute(route: Href) {
@@ -80,6 +98,301 @@ function pushRoute(route: Href) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, max));
+}
+
+// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
+function fmtEUR(n: number) {
+  const v = Number(n);
+  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
+  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
+// ---------------------------------------------------------------------------
+// Búsqueda en vivo de Inicio: productos de la tienda + accesos directos a secciones.
+// ---------------------------------------------------------------------------
+
+/** Minúsculas, sin tildes ni signos: «Inicio de sesión» → «inicio de sesion». */
+export function normalizarBusqueda(texto: string): string {
+  return String(texto ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type IconoNombre = keyof typeof Ionicons.glyphMap;
+
+export type SeccionBusqueda = {
+  titulo: string;
+  descripcion: string;
+  ruta: string;
+  icono: IconoNombre;
+  /** Cómo la puede llamar la gente (sin tildes); el título también cuenta. */
+  palabras: string[];
+};
+
+/**
+ * Las secciones a las que se puede saltar desde el buscador. Solo hay lo que existe de verdad en la tienda
+ * (lección «Solo se menciona lo que existe»): cada ruta es una pantalla real.
+ */
+export const SECCIONES_BUSQUEDA: SeccionBusqueda[] = [
+  { titulo: "Iniciar sesión", descripcion: "Entra en tu cuenta", ruta: "/perfil?acceso=entrar", icono: "log-in-outline", palabras: ["iniciar sesion", "inicio de sesion", "login", "entrar", "acceder", "acceso", "identificarme", "contrasena", "olvide mi contrasena"] },
+  { titulo: "Crear cuenta", descripcion: "Regístrate en un minuto", ruta: "/perfil?acceso=registro", icono: "person-add-outline", palabras: ["crear cuenta", "registro", "registrarme", "registrarse", "darme de alta", "nueva cuenta", "cuenta nueva"] },
+  { titulo: "Mi cuenta", descripcion: "Tus datos y tus pedidos", ruta: "/perfil", icono: "person-outline", palabras: ["mi cuenta", "cuenta", "perfil", "mis pedidos", "pedidos", "seguimiento", "seguimientos", "mis datos"] },
+  { titulo: "Blog", descripcion: "Lee el blog de la tienda", ruta: "/blog", icono: "newspaper-outline", palabras: ["blog", "articulos", "entradas"] },
+  { titulo: "Catálogo", descripcion: "Todos los productos", ruta: "/catalogo", icono: "grid-outline", palabras: ["catalogo", "productos", "tienda", "consolas", "videojuegos", "juegos", "accesorios", "comprar"] },
+  { titulo: "Vender", descripcion: "Envía tu artículo para venderlo", ruta: "/vender", icono: "cash-outline", palabras: ["vender", "venta", "vende", "vender mi articulo"] },
+  { titulo: "Servicios", descripcion: "Reparaciones y servicios", ruta: "/servicios", icono: "construct-outline", palabras: ["servicios", "reparacion", "reparaciones", "arreglo", "arreglar", "mantenimiento", "limpieza"] },
+  { titulo: "Cesta", descripcion: "Tus artículos reservados", ruta: "/cesta", icono: "bag-outline", palabras: ["cesta", "carrito", "carro", "mi cesta", "pagar", "checkout"] },
+  { titulo: "Foro", descripcion: "Habla con la comunidad", ruta: "/chat-global", icono: "chatbubbles-outline", palabras: ["foro", "chat", "comunidad", "mensajes"] },
+  { titulo: "Blue IA", descripcion: "Pregunta lo que quieras", ruta: "/blue-ia", icono: "sparkles-outline", palabras: ["blue", "blue ia", "ia", "asistente", "preguntar", "pregunta", "ayuda", "inteligencia artificial"] },
+  { titulo: "Política de envíos", descripcion: "Plazos y condiciones de envío", ruta: "/politicas/envios", icono: "cube-outline", palabras: ["envios", "envio", "entrega", "entregas", "gastos de envio", "politica de envios"] },
+  { titulo: "Política de devoluciones", descripcion: "Cómo devolver un pedido", ruta: "/politicas/devoluciones", icono: "return-down-back-outline", palabras: ["devoluciones", "devolucion", "devolver", "reembolso", "politica de devoluciones"] },
+  { titulo: "Política de privacidad", descripcion: "Cómo tratamos tus datos", ruta: "/politicas/privacidad", icono: "shield-checkmark-outline", palabras: ["privacidad", "datos personales", "proteccion de datos", "rgpd", "politica de privacidad"] },
+  { titulo: "Términos y condiciones", descripcion: "Condiciones de compra y uso", ruta: "/politicas/terminos", icono: "document-text-outline", palabras: ["terminos", "terminos y condiciones", "condiciones", "legal"] },
+  { titulo: "Inicio", descripcion: "Volver a la portada", ruta: "/", icono: "home-outline", palabras: ["inicio", "home", "portada", "principal"] },
+];
+
+const SECCIONES_NORMALIZADAS = SECCIONES_BUSQUEDA.map((s) => ({
+  seccion: s,
+  palabras: Array.from(new Set([...s.palabras, s.titulo].map(normalizarBusqueda))),
+}));
+
+/**
+ * Qué secciones encajan con lo escrito (como mucho 3, las mejores primero): 100 si es exactamente una de sus
+ * palabras, 85 si lo escrito es el principio de una, 70 si cada palabra escrita es el principio de alguna
+ * palabra suya («sesion» → «iniciar sesion»). Solo se enseñan las que están cerca de la mejor.
+ */
+export function seccionesParaBusqueda(texto: string): SeccionBusqueda[] {
+  const q = normalizarBusqueda(texto);
+  if (q.length < 2) return [];
+  const tokens = q.split(" ").filter((t) => t.length >= 2);
+  const puntuadas: { seccion: SeccionBusqueda; puntos: number }[] = [];
+  for (const { seccion, palabras } of SECCIONES_NORMALIZADAS) {
+    let puntos = 0;
+    for (const p of palabras) {
+      if (p === q) {
+        puntos = 100;
+        break;
+      }
+      if (q.length >= 3 && p.startsWith(q)) puntos = Math.max(puntos, 85);
+      else if (q.length >= 3 && tokens.length && tokens.every((t) => p.split(" ").some((w) => w.startsWith(t)))) puntos = Math.max(puntos, 70);
+    }
+    if (puntos >= 60) puntuadas.push({ seccion, puntos });
+  }
+  puntuadas.sort((a, b) => b.puntos - a.puntos);
+  const mejor = puntuadas[0]?.puntos ?? 0;
+  return puntuadas.filter((x) => x.puntos >= mejor - 30).slice(0, 3).map((x) => x.seccion);
+}
+
+export type ProductoBusqueda = { id: string; titulo: string; precio: number; imagen: string | null };
+
+const MAX_PRODUCTOS_PANEL = 4;
+
+// Misma regla que el catálogo (app/catalogo.tsx): la portada es la marcada, o la primera por orden, o images[0].
+async function buscarProductosInicio(texto: string): Promise<{ productos: ProductoBusqueda[]; total: number } | null> {
+  try {
+    const seguro = texto.replace(/[%(),*]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!seguro) return { productos: [], total: 0 };
+    const patron = `%${seguro}%`;
+    const { data, error, count } = await supabase
+      .from("products")
+      .select("id,title,price_eur,images", { count: "exact" })
+      .eq("is_active", true)
+      .eq("status", "PUBLISHED")
+      .or(`title.ilike.${patron},description.ilike.${patron}`)
+      .order("created_at", { ascending: false })
+      .range(0, MAX_PRODUCTOS_PANEL - 1);
+    if (error) return null;
+    const filas = (Array.isArray(data) ? data : []) as { id: string; title: string | null; price_eur: number | string | null; images?: string[] | null }[];
+    const portadas = new Map<string, string>();
+    if (filas.length) {
+      const { data: medios, error: errorMedios } = await supabase
+        .from("product_media")
+        .select("product_id,public_url,sort_order,is_cover")
+        .eq("kind", "image")
+        .in("product_id", filas.map((f) => f.id));
+      if (!errorMedios && Array.isArray(medios)) {
+        const ordenados = [...(medios as { product_id: string; public_url?: string | null; sort_order?: number | null; is_cover?: boolean | null }[])].sort(
+          (a, b) => Number(!!b.is_cover) - Number(!!a.is_cover) || (a.sort_order ?? 9999) - (b.sort_order ?? 9999)
+        );
+        for (const m of ordenados) {
+          const url = typeof m.public_url === "string" ? m.public_url.trim() : "";
+          if (url && !portadas.has(m.product_id)) portadas.set(m.product_id, url);
+        }
+      }
+    }
+    const productos = filas.map((f) => ({
+      id: f.id,
+      titulo: String(f.title ?? "").trim() || "Producto",
+      precio: Number(f.price_eur ?? 0),
+      imagen: portadas.get(f.id) ?? (Array.isArray(f.images) && typeof f.images[0] === "string" ? f.images[0] : null),
+    }));
+    return { productos, total: typeof count === "number" ? count : productos.length };
+  } catch {
+    return null;
+  }
+}
+
+type EstadoBusqueda = { texto: string; cargando: boolean; productos: ProductoBusqueda[]; total: number; error: boolean };
+
+/** Lo que enseña el panel del buscador para lo escrito: productos (con una espera de 0,26 s al teclear) y secciones. */
+export function useBusquedaInicio(textoCrudo: string) {
+  const texto = textoCrudo.trim();
+  const secciones = useMemo(() => seccionesParaBusqueda(texto), [texto]);
+  const [estado, setEstado] = useState<EstadoBusqueda>({ texto: "", cargando: false, productos: [], total: 0, error: false });
+
+  useEffect(() => {
+    if (texto.length < 2) {
+      setEstado({ texto, cargando: false, productos: [], total: 0, error: false });
+      return;
+    }
+    let vigente = true;
+    setEstado((e) => ({ ...e, cargando: true }));
+    const espera = setTimeout(async () => {
+      const r = await buscarProductosInicio(texto);
+      if (!vigente) return;
+      setEstado({ texto, cargando: false, productos: r?.productos ?? [], total: r?.total ?? 0, error: r === null });
+    }, 260);
+    return () => {
+      vigente = false;
+      clearTimeout(espera);
+    };
+  }, [texto]);
+
+  // «listo»: los productos que hay en el estado son de lo que está escrito ahora (no de una letra antes).
+  return { texto, secciones, productos: estado.productos, total: estado.total, error: estado.error, listo: !estado.cargando && estado.texto === texto };
+}
+
+type BusquedaInicio = ReturnType<typeof useBusquedaInicio>;
+
+function FilaPanel({ onPress, etiqueta, children, primera }: { onPress: () => void; etiqueta: string; children: React.ReactNode; primera?: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => ({
+        minHeight: 56,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderTopWidth: primera ? 0 : 1,
+        borderTopColor: COLORS.border,
+        backgroundColor: pressed ? "rgba(30,167,232,0.08)" : "transparent",
+      })}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+function TextoPanel({ children }: { children: React.ReactNode }) {
+  return (
+    <View style={{ minHeight: 52, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "center" }}>
+      <Text style={{ color: COLORS.muted, fontSize: 14, lineHeight: 19, textAlign: "center", fontWeight: "600" }}>{children}</Text>
+    </View>
+  );
+}
+
+/**
+ * Panel con los resultados bajo (o sobre) el buscador de Inicio. Primero los productos; si no hay ninguno, el
+ * aviso «No hay productos para…». Un poco más abajo, las secciones que encajan con lo escrito (p. ej. «Blog» o
+ * «Inicio de sesión»). Sin productos, además, se ofrece preguntar a Blue IA.
+ */
+function PanelBusqueda({
+  busqueda,
+  maxAlto,
+  onIrA,
+  onVerTodo,
+  onPreguntar,
+}: {
+  busqueda: BusquedaInicio;
+  maxAlto: number;
+  onIrA: (ruta: string) => void;
+  onVerTodo: () => void;
+  onPreguntar: () => void;
+}) {
+  const { texto, productos, total, secciones, listo, error } = busqueda;
+  const hayProductos = listo && productos.length > 0;
+  return (
+    <View
+      nativeID="buscador-resultados"
+      style={{
+        width: "100%",
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.bg,
+        overflow: "hidden",
+        ...Platform.select({
+          ios: { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
+          android: { elevation: 6 },
+          default: { boxShadow: "0 8px 24px rgba(11,33,56,0.14)" } as ViewStyle,
+        }),
+      }}
+    >
+      <ScrollView style={{ maxHeight: maxAlto }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {!listo ? (
+          <TextoPanel>Buscando…</TextoPanel>
+        ) : hayProductos ? (
+          <>
+            {productos.map((p, i) => (
+              <FilaPanel key={p.id} primera={i === 0} onPress={() => onIrA(`/producto/${p.id}`)} etiqueta={`${p.titulo}, ${fmtEUR(p.precio)}`}>
+                <View style={{ width: 48, height: 48, flexShrink: 0, backgroundColor: "#FFFFFF" }}>
+                  {p.imagen ? <SmartImage uri={p.imagen} alt={p.titulo} ancho={96} contentFit="contain" style={{ width: "100%", height: "100%" }} /> : null}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 14.5, lineHeight: 19, fontWeight: "700", textAlign: "center" }}>
+                    {p.titulo}
+                  </Text>
+                  <Text style={{ color: COLORS.brand, fontSize: 14, lineHeight: 19, fontWeight: "800", textAlign: "center" }}>{fmtEUR(p.precio)}</Text>
+                </View>
+                <View style={{ width: 48, flexShrink: 0 }} />
+              </FilaPanel>
+            ))}
+            {total > productos.length ? (
+              <FilaPanel onPress={onVerTodo} etiqueta={`Ver los ${total} resultados en el catálogo`}>
+                <Text style={{ flex: 1, color: COLORS.brand, fontSize: 14.5, fontWeight: "800", textAlign: "center" }}>Ver los {total} resultados en el catálogo</Text>
+              </FilaPanel>
+            ) : null}
+          </>
+        ) : (
+          <TextoPanel>{error ? "No se ha podido buscar ahora mismo." : `No hay productos para «${texto}»`}</TextoPanel>
+        )}
+
+        {secciones.map((s) => (
+          <FilaPanel key={s.ruta} onPress={() => onIrA(s.ruta)} etiqueta={`${s.titulo}: ${s.descripcion}`} primera={false}>
+            <Ionicons name={s.icono} size={22} color={COLORS.text} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: 15, lineHeight: 20, fontWeight: "800", textAlign: "center" }}>
+                {s.titulo}
+              </Text>
+              <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 13, lineHeight: 17, textAlign: "center" }}>
+                {s.descripcion}
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={18} color={COLORS.muted} />
+          </FilaPanel>
+        ))}
+
+        {listo && !hayProductos ? (
+          <FilaPanel onPress={onPreguntar} etiqueta={`Preguntar a Blue IA: ${texto}`}>
+            <Ionicons name="sparkles-outline" size={22} color={COLORS.text} />
+            <Text numberOfLines={2} style={{ flex: 1, color: COLORS.text, fontSize: 14.5, lineHeight: 19, fontWeight: "700", textAlign: "center" }}>
+              Preguntar a Blue IA: «{texto}»
+            </Text>
+            <Ionicons name="arrow-forward" size={18} color={COLORS.muted} />
+          </FilaPanel>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
 }
 
 export type BarramagicProps = {
@@ -96,6 +409,10 @@ export type BarramagicProps = {
   onSubmit?: () => void;
   /** mode="input": se llama al tocar la "x" para borrar (por defecto, deja el campo vacío). */
   onClear?: () => void;
+  /** mode="input": el campo gana o pierde el foco, y se pulsa una tecla (Inicio lo usa para abrir y cerrar sus resultados). */
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onKeyPress?: (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => void;
 
   /** mode="link": se llama al tocar toda la píldora. */
   onPress?: () => void;
@@ -114,6 +431,9 @@ export default function Barramagic({
   onChangeText,
   onSubmit,
   onClear,
+  onFocus,
+  onBlur,
+  onKeyPress,
   onPress,
   onPressAi,
   placeholder = "Buscar producto o hacer una pregunta",
@@ -230,15 +550,23 @@ export default function Barramagic({
             // buscador de toda la app, ese zoom se notaba en casi
             // cualquier pantalla.
             fontSize: 16,
+            // Sin el recuadro negro que el navegador pinta al escribir: la propia píldora ya se ve como el campo.
+            ...(Platform.OS === "web" ? ({ outlineStyle: "none", outlineWidth: 0 } as object) : {}),
           }}
           returnKeyType="search"
           onSubmitEditing={onSubmit}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onKeyPress={onKeyPress}
+          accessibilityLabel={placeholder}
         />
 
         {value ? (
           <Pressable
             onPress={() => (onClear ? onClear() : onChangeText?.(""))}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Borrar búsqueda"
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
           >
             <Ionicons name="close-circle" size={19} color={COLORS.muted} />
@@ -307,7 +635,10 @@ export type FloatingBarramagicProps = {
    */
   hidden?: boolean;
 
-  /** A dónde navega al tocar la píldora (por defecto /catalogo). */
+  /**
+   * Si se pasa, la píldora es un botón que ejecuta esto al tocarla (el modo antiguo). Si no, es un buscador
+   * REAL: se escribe en ella y debajo (o encima, si está abajo) salen los productos y las secciones que encajan.
+   */
   onPress?: () => void;
   placeholder?: string;
   /** Dónde arranca: "top" (por defecto) o "bottom" (a mano del pulgar en el móvil). */
@@ -327,11 +658,26 @@ export function FloatingBarramagic({
   onSnapChange,
   hidden = false,
   onPress,
-  placeholder = "Buscar producto o hacer una pregunta",
+  placeholder: placeholderProp,
   posicionInicial = "top",
 }: FloatingBarramagicProps) {
   const { width, height } = useWindowDimensions();
   const widthSafe = width > 0 ? width : 1024;
+  // En móvil el campo es estrecho y un <input> recorta el texto largo sin avisar: placeholder corto.
+  const placeholder = placeholderProp ?? (isMobile ? "Buscar en la tienda" : "Buscar productos, secciones o hacer una pregunta");
+
+  // Buscador real (si no se pasa onPress): texto, si los resultados están abiertos y qué hay que enseñar.
+  const modoEnlace = !!onPress;
+  const [texto, setTexto] = useState("");
+  const [abierto, setAbierto] = useState(false);
+  const cierreRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const busqueda = useBusquedaInicio(modoEnlace ? "" : texto);
+  useEffect(
+    () => () => {
+      if (cierreRef.current) clearTimeout(cierreRef.current);
+    },
+    []
+  );
 
   /**
    * ALTURA VISIBLE REAL
@@ -569,38 +915,130 @@ export function FloatingBarramagic({
     [animatedTop, resolvedBottomSnapY, resolvedTopSnapY]
   );
 
+  // --- buscador real -------------------------------------------------------------------------------
+  const alEnfocar = () => {
+    if (cierreRef.current) clearTimeout(cierreRef.current);
+    setAbierto(true);
+  };
+  // Con un pequeño retraso: al tocar una fila del panel el campo pierde el foco ANTES de que llegue el toque.
+  const alDesenfocar = () => {
+    if (cierreRef.current) clearTimeout(cierreRef.current);
+    cierreRef.current = setTimeout(() => setAbierto(false), 220);
+  };
+  const irA = (ruta: string) => {
+    if (cierreRef.current) clearTimeout(cierreRef.current);
+    setAbierto(false);
+    setTexto("");
+    pushRoute(ruta as Href);
+  };
+  const alEnviar = () => {
+    const t = texto.trim();
+    if (!t) return;
+    // Sin productos pero con una sección que encaja («Blog», «Inicio de sesión»): directo a ella.
+    if (busqueda.listo && busqueda.productos.length === 0 && busqueda.secciones.length > 0) {
+      irA(busqueda.secciones[0].ruta);
+      return;
+    }
+    irA(`/catalogo?query=${encodeURIComponent(t)}`);
+  };
+  const alPulsarTecla = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    if (e.nativeEvent.key === "Escape") setAbierto(false);
+  };
+  const panelVisible = !modoEnlace && abierto && texto.trim().length >= 2;
+  // Alto que cabe para el panel: lo que queda debajo del buscador (si está arriba) o encima (si está abajo).
+  const alturaDisponible =
+    searchSnapPosition === "top"
+      ? viewportHeight - resolvedTopSnapY - measuredSearchBarHeight - 24
+      : resolvedBottomSnapY - 24;
+  const maxAltoPanel = clampNumber(alturaDisponible, 150, 440);
+
   return (
-    <Animated.View
-      // id en la web: la guía de Blue (components/Campanita.tsx) señala el buscador.
-      nativeID="buscador-flotante"
-      pointerEvents={hidden ? "none" : "box-none"}
-      {...panResponder.panHandlers}
-      style={{
-        position: "absolute",
-        top: animatedTop,
-        left: 0,
-        right: 0,
-        alignItems: "center",
-        zIndex: 999,
-        elevation: 999,
-        opacity: hideOpacity,
-        transform: [{ translateY: hideTranslateY }],
-      }}
-    >
-      <View
-        onLayout={handleSearchLayout}
+    <>
+      <Animated.View
+        // id en la web: la guía de Blue (components/Campanita.tsx) señala el buscador.
+        nativeID="buscador-flotante"
+        pointerEvents={hidden ? "none" : "box-none"}
+        {...panResponder.panHandlers}
         style={{
-          width: searchBarWidth,
-          maxWidth,
+          position: "absolute",
+          top: animatedTop,
+          left: 0,
+          right: 0,
+          alignItems: "center",
+          zIndex: 999,
+          elevation: 999,
+          opacity: hideOpacity,
+          transform: [{ translateY: hideTranslateY }],
         }}
       >
-        <Barramagic
-          isMobile={isMobile}
-          mode="link"
-          onPress={onPress ?? (() => pushRoute("/catalogo" as Href))}
-          placeholder={placeholder}
-        />
-      </View>
-    </Animated.View>
+        <View
+          onLayout={handleSearchLayout}
+          style={{
+            width: searchBarWidth,
+            maxWidth,
+          }}
+        >
+          {modoEnlace ? (
+            <Barramagic isMobile={isMobile} mode="link" onPress={onPress} placeholder={placeholder} />
+          ) : (
+            <Barramagic
+              isMobile={isMobile}
+              mode="input"
+              value={texto}
+              onChangeText={(t) => {
+                setTexto(t);
+                alEnfocar();
+              }}
+              onSubmit={alEnviar}
+              onClear={() => setTexto("")}
+              onFocus={alEnfocar}
+              onBlur={alDesenfocar}
+              onKeyPress={alPulsarTecla}
+              placeholder={placeholder}
+            />
+          )}
+        </View>
+      </Animated.View>
+
+      {/*
+        Resultados: en OTRA capa (no dentro de la que arrastra el buscador) para que desplazarse por la lista
+        no arrastre el buscador. Siguen su posición: debajo si está arriba, encima si está abajo.
+      */}
+      {panelVisible ? (
+        <Animated.View
+          pointerEvents={hidden ? "none" : "box-none"}
+          style={{
+            position: "absolute",
+            top: animatedTop,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+            zIndex: 998,
+            elevation: 998,
+            opacity: hideOpacity,
+            transform: [{ translateY: hideTranslateY }],
+          }}
+        >
+          <View pointerEvents="box-none" style={{ width: searchBarWidth, maxWidth, height: measuredSearchBarHeight }}>
+            <View
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                ...(searchSnapPosition === "top" ? { top: "100%", marginTop: 8 } : { bottom: "100%", marginBottom: 8 }),
+              }}
+            >
+              <PanelBusqueda
+                busqueda={busqueda}
+                maxAlto={maxAltoPanel}
+                onIrA={irA}
+                onVerTodo={() => irA(`/catalogo?query=${encodeURIComponent(texto.trim())}`)}
+                onPreguntar={() => irA(`/blue-ia?q=${encodeURIComponent(texto.trim())}`)}
+              />
+            </View>
+          </View>
+        </Animated.View>
+      ) : null}
+    </>
   );
 }

@@ -2546,7 +2546,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "search-outline",
     titulo: "El buscador",
-    texto: "Escribe aquí lo que buscas. En el catálogo filtras por categoría, estado y precio. Puedes arrastrar el buscador arriba o abajo.",
+    texto: "Escribe aquí lo que buscas: productos o secciones como «Blog» o «Inicio de sesión». Puedes arrastrar el buscador arriba o abajo.",
     objetivo: ["#buscador-flotante"],
     ruta: "/",
     desplazar: '[data-testid="boton-ver-categorias"]',
