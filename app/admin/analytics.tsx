@@ -539,12 +539,18 @@ export default function AdminAnalytics() {
     const exacto = (label: string) => funnel.find((f) => f.step_label === label)?.sessions ?? 0;
     const empiezan = pasos[0]?.sessions ?? 0;
     const desdeGuia = exacto("Vender: abierto desde la guía");
+    // En qué paso se salta la guía (los que más gente pierden, primero).
+    const prefijoSalto = "Guía Blue: saltada en el paso ";
+    const saltadaEn = funnel
+      .filter((f) => f.step_label.startsWith(prefijoSalto))
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 6);
     return {
       pasos,
       empiezan,
+      saltadaEn,
       completada: exacto("Guía Blue: completada"),
       saltada: exacto("Guía Blue: saltada"),
-      pulsaFormulario: exacto("Guía Blue: pulsa «Abrir el formulario»"),
       abierto: exacto("Vender: abierto"),
       abiertoGuia: desdeGuia,
       enviado: exacto("Vender: enviado"),
@@ -844,9 +850,22 @@ export default function AdminAnalytics() {
                   ))}
                   <BarRow label="Guía completada" value={guiaVender.completada} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
                   <BarRow label="Guía saltada" value={guiaVender.saltada} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
-                  <BarRow label="Pulsan «Abrir el formulario» en la guía" value={guiaVender.pulsaFormulario} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
-                  <BarRow label="Formulario abierto desde la guía" value={guiaVender.abiertoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
-                  <BarRow label="Formulario enviado desde la guía" value={guiaVender.enviadoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  {guiaVender.saltadaEn.length > 0 ? (
+                    <View style={{ gap: 8, marginTop: 2 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5 }}>Dónde se salta la guía (los pasos que más gente pierden)</Text>
+                      {guiaVender.saltadaEn.map((s) => (
+                        <BarRow
+                          key={s.step_label}
+                          label={s.step_label.replace("Guía Blue: saltada en el paso ", "Paso ")}
+                          value={s.sessions}
+                          maxValue={guiaVender.empiezan}
+                          color={COLORS.accentDark}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                  <BarRow label="Formulario abierto tras ver la guía (hasta 1 h después)" value={guiaVender.abiertoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
+                  <BarRow label="Formulario enviado tras ver la guía" value={guiaVender.enviadoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
                   <View style={{ marginTop: 4, borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, gap: 4 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
                       Formulario de Vender (todas las vías): abierto {guiaVender.abierto} · enviado {guiaVender.enviado}

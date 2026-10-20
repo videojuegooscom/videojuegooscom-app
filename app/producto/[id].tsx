@@ -556,7 +556,8 @@ export default function ProductoScreen() {
   const isWide = widthSafe >= 1080;
   const pagePadding = isMobile ? 12 : 16;
 
-  const params = useLocalSearchParams<{ id?: string }>();
+  // ?guia=1: la guía de Blue (components/Campanita.tsx) enseña esta ficha; esa demostración no cuenta como visita.
+  const params = useLocalSearchParams<{ id?: string; guia?: string }>();
   const productId = typeof params.id === "string" ? params.id : "";
 
   const [loading, setLoading] = useState(true);
@@ -699,7 +700,7 @@ export default function ProductoScreen() {
       adminPromise.then((adminFlag) => {
         if (seq !== reqSeqRef.current) return;
         setIsAdmin(adminFlag);
-        if (adminFlag) return;
+        if (adminFlag || params.guia === "1") return;
 
         // Contador de visitas REAL (ver sql/product_views.sql): se suma 1 en
         // cada carga real de la ficha, salvo cuando la abre el propio admin

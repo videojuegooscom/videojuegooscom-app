@@ -248,15 +248,16 @@ async function sendEvent({ eventName, stepLabel, opts }: QueuedEvent): Promise<v
   }
 }
 
-// Desde dónde se abrió el formulario de Vender («guia» = la guía de Blue, «blue» = un mensaje
-// o el panel de Blue). Sirve para medir cuántos llegan al formulario desde la guía y cuántos lo
-// envían. Solo vive en memoria.
-let origenVender: string | null = null;
-export function marcarOrigenVender(origen: string | null): void {
-  origenVender = origen;
+// Desde dónde se abrió el formulario de Vender («guia» = la persona vio «Vender ahora» en la guía de Blue y abrió el
+// formulario después, «blue» = un mensaje o el panel de Blue). Sirve para medir cuántos llegan al formulario desde la
+// guía y cuántos lo envían. Solo vive en memoria. `minutos`: cuánto tiempo vale la marca (la de la guía, una hora).
+let origenVender: { origen: string; hasta: number } | null = null;
+export function marcarOrigenVender(origen: string | null, minutos?: number): void {
+  origenVender = origen ? { origen, hasta: minutos ? Date.now() + minutos * 60_000 : Infinity } : null;
 }
 export function leerOrigenVender(): string | null {
-  return origenVender;
+  if (origenVender && Date.now() > origenVender.hasta) origenVender = null;
+  return origenVender?.origen ?? null;
 }
 
 const lastTrackedAt = new Map<string, number>();
