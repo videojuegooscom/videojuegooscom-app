@@ -2843,7 +2843,7 @@ function PrivateChatsInbox({
           Todavía no tienes conversaciones
         </Text>
         <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-          Pulsa «Chat» en la ficha de un producto para escribirnos por él.
+          Escríbenos desde Blue IA con «Hablar con el equipo» o con «Chatear con nosotros» en el catálogo.
         </Text>
       </View>
     );
