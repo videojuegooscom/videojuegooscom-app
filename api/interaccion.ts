@@ -103,6 +103,14 @@ function responder(res: any, http: number, cuerpo: Record<string, unknown>) {
   res.status(http).json(cuerpo);
 }
 
+// ¿La ficha existe y está publicada? Solo entonces se apunta algo (límite por ficha y persona, visita o
+// «me gusta»). Es una lectura por clave primaria y va después del cupo por IP, que la acota.
+async function fichaPublicada(supabase: SupabaseClient, tabla: "products" | "services", id: string): Promise<boolean> {
+  const { data, error } = await supabase.from(tabla).select("id").eq("id", id).eq("status", "PUBLISHED").eq("is_active", true).limit(1);
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     responder(res, 405, { ok: false, error: "método no permitido" });
@@ -142,7 +150,11 @@ export default async function handler(req: any, res: any) {
   try {
     if (accion === "vista_producto" || accion === "vista_servicio") {
       // Solo cuenta la primera visita de cada visitante (cubo de IP) a cada página cada hora.
-      const primera = await consumirLimite(supabase, `vista:${accion}:${id}:${cubo}`, UNA_VISTA_POR_HORA);
+      if (!(await fichaPublicada(supabase, accion === "vista_producto" ? "products" : "services", id))) {
+        responder(res, 200, { ok: true, contado: false });
+        return;
+      }
+      const primera =await consumirLimite(supabase, `vista:${accion}:${id}:${cubo}`, UNA_VISTA_POR_HORA);
       if (!primera.permitido) {
         responder(res, 200, { ok: true, contado: false });
         return;
@@ -157,6 +169,10 @@ export default async function handler(req: any, res: any) {
     }
 
     // «Me gusta»: por usuario con sesión o, si no, por el identificador anónimo del navegador.
+    if (!(await fichaPublicada(supabase, "products", id))) {
+      responder(res, 404, { ok: false, error: "producto no encontrado" });
+      return;
+    }
     const usuario = await usuarioDeLaPeticion(supabase, req);
     const persona = usuario ? `usuario:${usuario}` : visitante ? `visitante:${visitante}` : null;
     if (!persona) {

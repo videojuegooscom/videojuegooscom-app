@@ -35,7 +35,7 @@ const ok = (cond, msg) => {
 const base = await db.crearBase();
 await db.psql(base, [
   "-c",
-  `create table public.services (id uuid primary key default gen_random_uuid(), title text not null default 's', view_count integer not null default 0);
+  `create table public.services (id uuid primary key default gen_random_uuid(), title text not null default 's', status text not null default 'PUBLISHED', is_active boolean not null default true, view_count integer not null default 0);
    create function public.adjust_product_like(product_id uuid, delta integer) returns integer language plpgsql security definer set search_path = public as $$ declare n int; begin update public.products set like_count = greatest(0, like_count + delta) where id = product_id returning like_count into n; return n; end $$;
    create function public.increment_product_view(product_id uuid) returns integer language plpgsql security definer set search_path = public as $$ declare n int; begin update public.products set view_count = view_count + 1 where id = product_id returning view_count into n; return n; end $$;
    create function public.increment_service_view(service_id uuid) returns integer language plpgsql security definer set search_path = public as $$ declare n int; begin update public.services set view_count = view_count + 1 where id = service_id returning view_count into n; return n; end $$;
@@ -72,6 +72,19 @@ globalThis.fetch = async (entrada, opciones) => {
     return USUARIOS[token]
       ? new Response(JSON.stringify({ id: USUARIOS[token], aud: "authenticated" }), { status: 200, headers: { "content-type": "application/json" } })
       : new Response(JSON.stringify({ message: "token no válido" }), { status: 401, headers: { "content-type": "application/json" } });
+  }
+  // Lectura de una ficha (¿existe y está publicada?): se responde con lo que hay de verdad en la base aislada.
+  const tabla = url.pathname.match(/^\/rest\/v1\/(products|services)$/);
+  if (tabla && (opciones?.method ?? "GET") === "GET") {
+    llamadasBD++;
+    const filtros = [];
+    for (const [columna, valor] of url.searchParams) {
+      if (["select", "limit", "order"].includes(columna)) continue;
+      if (!["id", "status", "is_active"].includes(columna) || !valor.startsWith("eq.")) throw new Error(`prueba: filtro inesperado ${columna}=${valor}`);
+      filtros.push(`${columna}::text = ${literal(valor.slice(3))}`);
+    }
+    const salida = await db.psql(base, ["-c", "set role service_role", "-A", "-t", "-c", `select coalesce(json_agg(json_build_object('id', id)), '[]') from public.${tabla[1]} where ${filtros.join(" and ") || "true"}`]);
+    return new Response(salida.trim(), { status: 200, headers: { "content-type": "application/json" } });
   }
   return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
 };
@@ -186,6 +199,39 @@ try {
       ok(r.codigo === esperado, `entrada inválida «${nombre}»: ${r.codigo} (esperado ${esperado})`);
     }
     ok(llamadasBD === antes, "las entradas inválidas no llegan a la base de datos (ni siquiera al límite)");
+  }
+
+  // Fichas que no existen o no están publicadas: se responde sin apuntar nada
+  {
+    await reiniciarLimites();
+    const BORRADOR = "00000000-0000-4000-8000-0000000005d1";
+    const INACTIVO = "00000000-0000-4000-8000-0000000005d2";
+    const SERVICIO_BORRADOR = "00000000-0000-4000-8000-0000000000b2";
+    await db.consulta(base, `insert into public.products (id, title, price_eur, status) values ('${BORRADOR}', 'Borrador', 10, 'DRAFT');
+      insert into public.products (id, title, price_eur, status, is_active) values ('${INACTIVO}', 'Inactivo', 10, 'PUBLISHED', false);
+      insert into public.services (id, status) values ('${SERVICIO_BORRADOR}', 'DRAFT'); select 1`);
+    const apuntes = () =>
+      db.consulta(base, `select (select count(*) from public.limites_peticiones where clave not like 'interaccion:ip:%') || '/' || (select count(*) from public.producto_apoyos)
+        || '/' || (select coalesce(sum(view_count + like_count), 0) from public.products where status <> 'PUBLISHED' or not is_active)
+        || '/' || (select coalesce(sum(view_count), 0) from public.services where status <> 'PUBLISHED' or not is_active)`);
+    const antes = await apuntes();
+    const inventado = (i) => `abcdef00-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
+    const ip = { "x-vercel-forwarded-for": "198.51.100.70" };
+    const vistas = [];
+    for (let i = 0; i < 20; i++) vistas.push(await llamar({ accion: "vista_producto", id: inventado(i) }, { cabeceras: ip }));
+    for (let i = 0; i < 10; i++) vistas.push(await llamar({ accion: "vista_servicio", id: inventado(100 + i) }, { cabeceras: ip }));
+    for (const id of [BORRADOR, INACTIVO]) vistas.push(await llamar({ accion: "vista_producto", id }, { cabeceras: ip }));
+    vistas.push(await llamar({ accion: "vista_servicio", id: SERVICIO_BORRADOR }, { cabeceras: ip }));
+    const apoyos = [];
+    for (let i = 0; i < 10; i++) apoyos.push(await llamar({ accion: "apoyo", id: inventado(200 + i), activo: true, visitante: `visitante-nuevo-${i}` }, { cabeceras: ip }));
+    for (const id of [BORRADOR, INACTIVO]) apoyos.push(await llamar({ accion: "apoyo", id, activo: true, visitante: "visitante-ficha-oculta" }, { cabeceras: ip }));
+    ok(vistas.every((r) => r.codigo === 200 && r.cuerpo?.contado === false), `visitas a fichas que no existen, en borrador o inactivas: 200 sin contar (${vistas.filter((r) => r.cuerpo?.contado !== false).length} contadas)`);
+    ok(apoyos.every((r) => r.codigo === 404), `«me gusta» a productos que no existen, en borrador o inactivos: 404 (${[...new Set(apoyos.map((r) => r.codigo))].join(",")})`);
+    const despues = await apuntes();
+    ok(despues === antes, `y no se apunta nada: ni límites por ficha o persona, ni «me gusta», ni visitas (${antes} → ${despues})`);
+    const publicada = await llamar({ accion: "vista_producto", id: prod(5) }, { cabeceras: ip });
+    const servicio = await llamar({ accion: "vista_servicio", id: SERVICIO }, { cabeceras: { "x-vercel-forwarded-for": "198.51.100.71" } });
+    ok(publicada.cuerpo?.contado === true && servicio.cuerpo?.contado === true, "una ficha publicada (producto o servicio) sí cuenta");
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
