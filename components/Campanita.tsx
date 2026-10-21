@@ -44,18 +44,19 @@
  *   · En el resto de la tienda, tras 12 s: una de las "Noticias Flash" activas
  *     (tabla flash_news, se editan en app/admin/flash-news.tsx).
  *   Cada bocadillo sale una sola vez por visita y se cierra con la X.
- * - Al tocar a Blue se abre su panel con 3 pestañas: "Asistente" (hablar con Blue
- *   IA, hablar con nuestro equipo —pasando antes por Blue IA—, "Vender"), "Notificaciones" (lo que antes era la campanita:
- *   mensajes sin leer, favoritos que ya no están, novedades; con su número) y
- *   "Noticias" (Noticias Flash). Si hay notificaciones, abre en esa pestaña.
+ * - Al tocar a Blue se abre su panel con 2 pestañas: "Asistente" (UN solo botón «Hablar con
+ *   Blue IA o el equipo» —Blue IA responde primero y desde ese chat se pasa al equipo—, la guía,
+ *   "Vender", instalar) y "Noticias y avisos" (antes eran dos pestañas, «Notificaciones» y «Noticias»:
+ *   avisos —mensajes sin leer, favoritos que ya no están, novedades, con su número—, Noticias Flash y
+ *   los ajustes de avisos, en filas con icono). Si hay avisos, abre en esa pestaña.
  * - Avisos de Noticias Gaming: si el cliente los activó (con sesión,
  *   preferencias_usuario.avisos_noticias; sin sesión o si esa tabla falla, la clave
  *   local NOTICIAS_AVISOS_KEY = "1"), cuenta las noticias publicadas desde la última
  *   vez que las vio (lo más reciente entre preferencias_usuario.noticias_vistas_hasta
  *   y NOTICIAS_VISTAS_KEY; si no hay ninguna, las de las últimas 24 h). Se suman al
- *   número rojo y salen en Notificaciones ("Ver noticias"). Si no están activados,
+ *   número rojo y salen en «Noticias y avisos» ("Ver noticias"). Si no están activados,
  *   ahí mismo se explica cómo activarlos (campana de Noticias Gaming).
- * - Avisos de la tienda (en Notificaciones, con sus ajustes debajo):
+ * - Avisos de la tienda (en «Noticias y avisos», con sus ajustes en «Mis avisos»):
  *   · Artículos nuevos: si el cliente lo activa (preferencias_usuario.avisos_novedades o,
  *     sin sesión, NOVEDADES_AVISOS_KEY), cuenta los productos con products.novedad_en
  *     posterior a la última vez que los vio. Apagado por defecto.
@@ -673,7 +674,8 @@ export default function Campanita() {
     }
   }, []);
   // Pestañas del panel de Blue: asistente, notificaciones (antes la campanita) y noticias.
-  const [pestana, setPestana] = useState<"blue" | "avisos" | "noticias">("blue");
+  // Panel de Blue: «blue» = Asistente; «avisos» = «Noticias y avisos» (las notificaciones y las noticias, juntas).
+  const [pestana, setPestana] = useState<"blue" | "avisos">("blue");
   // Aparición a los 10 s, mini saludo y oculto por scroll hacia abajo.
   const [aparecido, setAparecido] = useState(false);
   const [saludando, setSaludando] = useState(false);
@@ -1427,7 +1429,7 @@ export default function Campanita() {
   const totalRef = useRef(0);
   totalRef.current = totalCount;
 
-  const openPanel = useCallback((tab?: "blue" | "avisos" | "noticias") => {
+  const openPanel = useCallback((tab?: "blue" | "avisos") => {
     setBocadillo(null);
     setSaludando(false);
     // Si hay notificaciones pendientes, se abre directamente en esa pestaña.
@@ -1621,7 +1623,7 @@ export default function Campanita() {
     else if (b.accion === "conocimiento") {
       const t = TEMAS_CONOCIMIENTO.find((x) => x.tema === b.tema);
       if (t) setPropuesta(t);
-    } else openPanel("noticias");
+    } else openPanel("avisos");
   }, [bocadillo, openPanel, abrirVender, instalarApp]);
 
   const ir = useCallback((href: string) => {
@@ -1948,13 +1950,12 @@ export default function Campanita() {
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>Blue</Text>
             </View>
 
-            {/* Pestañas: Blue (asistente) · Notificaciones · Noticias */}
+            {/* Pestañas: Asistente · Noticias y avisos (las notificaciones y las noticias, en una sola) */}
             <View style={{ flexDirection: "row", justifyContent: "center", gap: 6, marginBottom: 14 }}>
               {(
                 [
                   { key: "blue", label: "Asistente", icono: "sparkles-outline", n: 0 },
-                  { key: "avisos", label: "Notificaciones", icono: "notifications-outline", n: totalCount },
-                  { key: "noticias", label: "Noticias", icono: "megaphone-outline", n: 0 },
+                  { key: "avisos", label: "Noticias y avisos", icono: "notifications-outline", n: totalCount },
                 ] as const
               ).map((p) => {
                 const activa = pestana === p.key;
@@ -1968,7 +1969,8 @@ export default function Campanita() {
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 5,
-                      paddingVertical: 8,
+                      // 44 px de alto (regla del pulgar)
+                      minHeight: 44,
                       paddingHorizontal: 10,
                       borderBottomWidth: 2,
                       borderBottomColor: activa ? COLORS.accent : "transparent",
@@ -2006,7 +2008,9 @@ export default function Campanita() {
               </Text>
 
               <View style={{ width: "100%", gap: 10, maxWidth: 380 }}>
-                <BotonPanel icono="sparkles-outline" texto="Hablar con Blue IA" principal onPress={() => ir("/blue-ia")} />
+                {/* Un solo botón para hablar: primero conversa Blue IA y, desde ese chat, se pasa al equipo
+                    («Hablar con el equipo», app/(tabs)/blue-ia.tsx). Antes eran dos botones que llevaban al mismo sitio. */}
+                <BotonPanel icono="chatbubbles-outline" texto="Hablar con Blue IA o el equipo" principal onPress={() => ir("/blue-ia")} />
                 <BotonPanel
                   icono="map-outline"
                   texto="Ver la guía de la tienda"
@@ -2015,8 +2019,6 @@ export default function Campanita() {
                     abrirGuia();
                   }}
                 />
-                {/* Primero conversa Blue IA; desde ese chat se puede pasar a nuestro equipo. */}
-                <BotonPanel icono="people-outline" texto="Hablar con nuestro equipo" onPress={() => ir("/blue-ia")} />
                 <BotonPanel
                   icono="cash-outline"
                   texto="Vender mi consola o dispositivo"
@@ -2033,40 +2035,17 @@ export default function Campanita() {
               </>
               ) : null}
 
-              {pestana === "noticias" ? (
-                <View style={{ width: "100%", gap: 12, alignItems: "center" }}>
-                  {noticias.length ? (
-                    noticias.map((n, i) => (
-                      <Text
-                        key={n}
-                        style={{
-                          color: COLORS.text,
-                          fontWeight: "700",
-                          textAlign: "center",
-                          lineHeight: 21,
-                          paddingTop: i ? 12 : 0,
-                          borderTopWidth: i ? 1 : 0,
-                          borderTopColor: COLORS.border,
-                          alignSelf: "stretch",
-                        }}
-                      >
-                        {n}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text style={{ color: COLORS.muted, textAlign: "center" }}>No hay noticias ahora mismo.</Text>
-                  )}
-                </View>
-              ) : null}
-
+              {/* «Noticias y avisos»: lo que ha pasado (avisos y noticias) y los ajustes de avisos, en una sola pestaña. */}
               {pestana === "avisos" ? (
-              <View style={{ width: "100%", gap: 12, alignItems: "center" }}>
+              <View style={{ width: "100%", maxWidth: 460, gap: 2 }}>
+                <TituloSeccionBlue texto="Avisos" />
                 {totalCount === 0 ? (
-                  <Text style={{ color: COLORS.muted, textAlign: "center" }}>Estás al día: no tienes avisos nuevos.</Text>
+                  <FilaBlue icono="checkmark-circle-outline" titulo="Estás al día: no tienes avisos nuevos." />
                 ) : (
                   <>
                     {unreadChats > 0 ? (
                       <Aviso
+                        icono="chatbubbles-outline"
                         titulo={
                           isAdmin
                             ? unreadChats === 1
@@ -2082,6 +2061,7 @@ export default function Campanita() {
                     ) : null}
                     {likedUnavailable.length > 0 ? (
                       <Aviso
+                        icono="heart-dislike-outline"
                         titulo={
                           likedUnavailable.length === 1
                             ? "Un producto que te gustó ya no está disponible"
@@ -2092,10 +2072,11 @@ export default function Campanita() {
                       />
                     ) : null}
                     {novedadesPending ? (
-                      <Aviso titulo="Hay novedades en el Foro" accion="Ver novedades" onPress={() => ir("/chat-global?tab=novedades")} />
+                      <Aviso icono="newspaper-outline" titulo="Hay novedades en el Foro" accion="Ver novedades" onPress={() => ir("/chat-global?tab=novedades")} />
                     ) : null}
                     {noticiasNuevas > 0 ? (
                       <Aviso
+                        icono="megaphone-outline"
                         titulo={noticiasNuevas === 1 ? "Hay 1 noticia nueva" : `Hay ${noticiasNuevas} noticias nuevas`}
                         accion="Ver noticias"
                         onPress={() => ir("/chat-global?tab=news")}
@@ -2103,6 +2084,7 @@ export default function Campanita() {
                     ) : null}
                     {isAdmin && salidaPendiente > 0 ? (
                       <Aviso
+                        icono="alert-circle-outline"
                         titulo={
                           salidaPendiente === 1
                             ? "Una venta de un artículo de VeoAura aún no se ha confirmado a VeoAura"
@@ -2114,6 +2096,7 @@ export default function Campanita() {
                     ) : null}
                     {novedadesTienda > 0 ? (
                       <Aviso
+                        icono="bag-add-outline"
                         titulo={novedadesTienda === 1 ? "Ha llegado 1 artículo nuevo" : `Han llegado ${novedadesTienda} artículos nuevos`}
                         accion="Ver novedades"
                         onPress={verNovedades}
@@ -2121,6 +2104,7 @@ export default function Campanita() {
                     ) : null}
                     {llegadas.map((l) => (
                       <Aviso
+                        icono="checkmark-done-outline"
                         key={l.aviso.id}
                         titulo={`Ha llegado lo que buscabas («${l.aviso.texto}»): ${l.productos[0].title} · ${fmtEUR(l.productos[0].price)}${
                           l.productos.length > 1 ? ` y ${l.productos.length - 1} más` : ""
@@ -2131,6 +2115,7 @@ export default function Campanita() {
                     ))}
                     {bajadas.map((b) => (
                       <Aviso
+                        icono="trending-down-outline"
                         key={b.id}
                         titulo={`Ha bajado de precio: ${b.title} · antes ${fmtEUR(b.antes)}, ahora ${fmtEUR(b.ahora)}`}
                         accion="Ver"
@@ -2139,39 +2124,35 @@ export default function Campanita() {
                     ))}
                   </>
                 )}
-                {/* Sin avisos de noticias activados: cómo activarlos. */}
-                {!avisosNoticias ? (
-                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
-                    ¿Quieres avisos de noticias?{" "}
-                    <Text
-                      onPress={() => ir("/chat-global?tab=news")}
-                      accessibilityRole="link"
-                      style={{ color: COLORS.accent, fontWeight: "800" }}
-                    >
-                      Actívalos con la campana de Noticias Gaming.
-                    </Text>
-                  </Text>
-                ) : null}
                 {!isLoggedIn ? (
-                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, paddingVertical: 4 }}>
                     Inicia sesión para ver también los avisos de tus conversaciones.
                   </Text>
                 ) : null}
 
+                <TituloSeccionBlue texto="Noticias" />
+                {noticias.length ? (
+                  noticias.map((n) => <FilaBlue key={n} icono="megaphone-outline" titulo={n} />)
+                ) : (
+                  <FilaBlue icono="megaphone-outline" titulo="No hay noticias ahora mismo." apagada />
+                )}
+                {/* Sin avisos de noticias activados: cómo activarlos (con la campana de Noticias Gaming). */}
+                {!avisosNoticias ? (
+                  <Aviso
+                    icono="notifications-outline"
+                    titulo="Activa los avisos de noticias"
+                    detalle="Con la campana de Noticias Gaming"
+                    accion="Ir a Noticias Gaming"
+                    onPress={() => ir("/chat-global?tab=news")}
+                  />
+                ) : null}
+
                 {/* Ajustes de los avisos de la tienda. */}
-                <View
-                  style={{
-                    alignSelf: "stretch",
-                    borderTopWidth: 1,
-                    borderTopColor: COLORS.border,
-                    paddingTop: 14,
-                    marginTop: 4,
-                    gap: 10,
-                    alignItems: "center",
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>Avisarme de los artículos nuevos</Text>
+                <TituloSeccionBlue texto="Mis avisos" />
+                <View style={{ alignSelf: "stretch", gap: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
+                    <IconoCirculoBlue icono="bag-add-outline" />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", flex: 1 }}>Avisarme de los artículos nuevos</Text>
                     <Switch
                       value={avisosNovedades}
                       onValueChange={cambiarAvisosNovedades}
@@ -2181,10 +2162,13 @@ export default function Campanita() {
                     />
                   </View>
 
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center", marginTop: 4 }}>Avísame cuando llegue</Text>
                   {isLoggedIn ? (
                     <>
-                      <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                        <IconoCirculoBlue icono="search-outline" />
+                        <Text style={{ color: COLORS.text, fontWeight: "900", flex: 1 }}>Avísame cuando llegue</Text>
+                      </View>
+                      <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
                         Escribe lo que buscas y te avisamos aquí en cuanto entre en la tienda.
                       </Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%", maxWidth: 380 }}>
@@ -2226,22 +2210,30 @@ export default function Campanita() {
                           <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Añadir</Text>
                         </Pressable>
                       </View>
-                      {msgAviso ? (
-                        <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>{msgAviso}</Text>
-                      ) : null}
+                      {msgAviso ? <Text style={{ color: COLORS.muted, fontSize: 12 }}>{msgAviso}</Text> : null}
                       {avisosBusqueda.map((a) => (
-                        <View key={a.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                          <Text style={{ color: COLORS.text, fontWeight: "700", textAlign: "center" }}>{a.texto}</Text>
-                          <Pressable onPress={() => quitarAviso(a.id)} hitSlop={8} accessibilityLabel={`Quitar el aviso ${a.texto}`}>
+                        <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 }}>
+                          <Ionicons name="pricetag-outline" size={16} color={COLORS.muted} />
+                          <Text style={{ color: COLORS.text, fontWeight: "700", flex: 1 }}>{a.texto}</Text>
+                          <Pressable
+                            onPress={() => quitarAviso(a.id)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Quitar el aviso ${a.texto}`}
+                            style={{ minHeight: 44, minWidth: 64, alignItems: "center", justifyContent: "center" }}
+                          >
                             <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Quitar</Text>
                           </Pressable>
                         </View>
                       ))}
                     </>
                   ) : (
-                    <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
-                      Inicia sesión para que te avisemos cuando llegue lo que buscas.
-                    </Text>
+                    <Aviso
+                      icono="search-outline"
+                      titulo="Avísame cuando llegue"
+                      detalle="Inicia sesión para que te avisemos cuando llegue lo que buscas"
+                      accion="Iniciar sesión"
+                      onPress={() => ir("/perfil?acceso=entrar")}
+                    />
                   )}
                 </View>
               </View>
@@ -4077,13 +4069,63 @@ function GuiaBlue({
   );
 }
 
-function Aviso({ titulo, accion, onPress }: { titulo: string; accion: string; onPress: () => void }) {
+// --- Panel de Blue, pestaña «Noticias y avisos»: filas con icono (más imagen y menos letras) -------------------------
+
+// Círculo con el icono de una fila.
+function IconoCirculoBlue({ icono }: { icono: React.ComponentProps<typeof Ionicons>["name"] }) {
   return (
-    <View style={{ alignItems: "center", gap: 4 }}>
-      <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{titulo}</Text>
-      <Pressable onPress={onPress} hitSlop={6}>
-        <Text style={{ color: COLORS.accent, fontWeight: "900", textAlign: "center" }}>{accion}</Text>
-      </Pressable>
+    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.accentSoft, alignItems: "center", justifyContent: "center" }}>
+      <Ionicons name={icono} size={18} color={COLORS.accent} />
     </View>
+  );
+}
+
+// Título pequeño de cada apartado de la pestaña («Avisos», «Noticias», «Mis avisos»).
+function TituloSeccionBlue({ texto }: { texto: string }) {
+  return (
+    <Text accessibilityRole="header" style={{ color: COLORS.muted, fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginTop: 12, marginBottom: 2 }}>
+      {texto.toUpperCase()}
+    </Text>
+  );
+}
+
+// Fila que solo informa (no se toca): icono y texto.
+function FilaBlue({ icono, titulo, apagada }: { icono: React.ComponentProps<typeof Ionicons>["name"]; titulo: string; apagada?: boolean }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: 4 }}>
+      <IconoCirculoBlue icono={icono} />
+      <Text style={{ color: apagada ? COLORS.muted : COLORS.text, fontWeight: apagada ? "600" : "700", lineHeight: 20, flex: 1 }}>{titulo}</Text>
+    </View>
+  );
+}
+
+// Fila que se toca (≥ 48 px de alto): icono, aviso y una flecha; toda la fila es el botón.
+function Aviso({
+  icono = "notifications-outline",
+  titulo,
+  detalle,
+  accion,
+  onPress,
+}: {
+  icono?: React.ComponentProps<typeof Ionicons>["name"];
+  titulo: string;
+  detalle?: string;
+  accion: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${titulo}. ${accion}`}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingVertical: 6, opacity: pressed ? 0.7 : 1 })}
+    >
+      <IconoCirculoBlue icono={icono} />
+      <View style={{ flex: 1, gap: 1 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20 }}>{titulo}</Text>
+        {detalle ? <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 16 }}>{detalle}</Text> : null}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={COLORS.accent} />
+    </Pressable>
   );
 }
