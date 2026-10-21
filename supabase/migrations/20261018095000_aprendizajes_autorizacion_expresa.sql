@@ -1,12 +1,13 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: REGLA PERMANENTE del dueño (2026-10-18): nada de fusionar PR, desplegar a producción ni
 --            aplicar migraciones sin su autorización expresa.
--- Tipo:     1 inserción (o reactivación si está inactiva con el mismo texto) y 3 actualizaciones de texto,
---           idempotentes (por título o por marca). No borra nada:
+-- Tipo:     1 inserción (o reactivación si está inactiva con el mismo texto) y 7 actualizaciones de texto,
+--           idempotentes (por título y marca). No borra nada:
 --           la lección nueva se añade y, SIN reescribir nada, se anota una línea «ACTUALIZADA» al final de
 --           las tres lecciones que decían lo contrario («Claude ejecuta, el dueño solo da la orden»,
---           «Publicar en cuanto la vista previa esté en verde» y «Supabase lo aplica Claude»): su texto
---           original queda entero.
+--           «Publicar en cuanto la vista previa esté en verde» y «Supabase lo aplica Claude») y de sus
+--           ejemplos que enseñaban a publicar o aplicar sin preguntar: su texto original queda entero. La de
+--           Supabase recoge además lo de CLAUDE.md: los permisos delicados y lo destructivo los aplica el dueño.
 -- Límites:  cada regla queda por debajo de los 4.000 caracteres que admite aprendizajes_regla_check.
 -- Independiente: no depende de ninguna otra migración. Va separada de la documentación (CLAUDE.md) y de
 --           la lección de Blue para poder aprobarse por separado.
@@ -48,6 +49,32 @@ where titulo = 'Publicar en cuanto la vista previa esté en verde'
   and regla not like '%ACTUALIZADA 2026-10-18%';
 
 update public.aprendizajes
-set regla = regla || ' ACTUALIZADA 2026-10-18: Claude prepara la migración, la vuelta atrás y la simulación, pero solo la aplica con autorización expresa del dueño (ver «Autorización expresa del dueño antes de fusionar, desplegar o migrar»).'
+set regla = regla || ' ACTUALIZADA 2026-10-18: Claude prepara la migración, la vuelta atrás y la simulación, pero solo la aplica con autorización expresa del dueño para esa migración; las que cambian permisos delicados (grant, revoke, security definer, anon, using (true)) o son destructivas las aplica siempre el dueño, como dice CLAUDE.md (ver «Autorización expresa del dueño antes de fusionar, desplegar o migrar»).'
 where titulo = 'Supabase lo aplica Claude'
   and regla not like '%ACTUALIZADA 2026-10-18%';
+
+-- Los ejemplos de esas tres lecciones también se anotan (sin borrar su texto), para que ningún ejemplo
+-- «bien» enseñe a publicar o a aplicar sin la autorización expresa del dueño.
+update public.aprendizajes
+set ejemplo_bien = ejemplo_bien || ' ACTUALIZADA 2026-10-18: publicar en main solo con la autorización expresa del dueño para ese cambio.'
+where titulo = 'Claude ejecuta, el dueño solo da la orden'
+  and ejemplo_bien is not null
+  and ejemplo_bien not like '%ACTUALIZADA 2026-10-18%';
+
+update public.aprendizajes
+set ejemplo_bien = ejemplo_bien || ' ACTUALIZADA 2026-10-18: solo tras la autorización expresa del dueño para esa PR («fusiona la #N»).'
+where titulo = 'Publicar en cuanto la vista previa esté en verde'
+  and ejemplo_bien is not null
+  and ejemplo_bien not like '%ACTUALIZADA 2026-10-18%';
+
+update public.aprendizajes
+set ejemplo_mal = ejemplo_mal || ' ACTUALIZADA 2026-10-18: pedirle la autorización expresa para esa PR sí es obligatorio; lo que está mal es pasarle a él el trabajo de fusionar.'
+where titulo = 'Publicar en cuanto la vista previa esté en verde'
+  and ejemplo_mal is not null
+  and ejemplo_mal not like '%ACTUALIZADA 2026-10-18%';
+
+update public.aprendizajes
+set ejemplo_bien = ejemplo_bien || ' ACTUALIZADA 2026-10-18: solo con la autorización expresa del dueño para esa migración, y nunca si cambia permisos delicados o es destructiva (esa la aplica el dueño).'
+where titulo = 'Supabase lo aplica Claude'
+  and ejemplo_bien is not null
+  and ejemplo_bien not like '%ACTUALIZADA 2026-10-18%';
