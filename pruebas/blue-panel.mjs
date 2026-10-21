@@ -2,6 +2,10 @@
  * pruebas/blue-panel.mjs — comprueba el PANEL de Blue (el que se abre al tocar a Blue), como un iPhone (390×844).
  *
  * Comprueba:
+ *  - Guías rápidas: el panel ofrece una por pantalla (Inicio, Catálogo, Artículo, Vender, Perfil, Cesta, Foro, Blue IA,
+ *    Servicios; la de la pantalla actual va resaltada) que enseña SOLO los pasos de esa pantalla y termina con «Terminar».
+ *    Si es la pantalla donde estás no te mueves de ella; si es otra (Blue no se ve en Vender, el Foro ni Blue IA) la guía
+ *    te lleva y al terminar vuelves. No marca la guía de bienvenida como vista; la guía completa sigue empezando por «Empezar».
  *  - Hay DOS pestañas, «Asistente» y «Noticias y avisos» (antes eran tres: Notificaciones y Noticias por separado).
  *  - «Asistente» tiene UN solo botón para hablar («Hablar con Blue IA o el equipo») que lleva a Blue IA, y ya no están
  *    «Hablar con Blue IA» ni «Hablar con nuestro equipo» por separado. Siguen «Ver la guía», «Vender…».
@@ -35,11 +39,17 @@ const TIPOS = {
   ".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon", ".svg": "image/svg+xml", ".ttf": "font/ttf",
   ".woff": "font/woff", ".woff2": "font/woff2", ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
 };
+// Las fichas (/producto/<id>) las sirve la misma página para cualquier id.
+const DINAMICAS = [[/^\/producto\/[^/]+$/, "producto/[id].html"]];
 const buscar = (ruta) => {
   const limpia = normalize(decodeURIComponent(ruta)).replace(/^(\.\.[/\\])+/, "");
   for (const c of [limpia, `${limpia}.html`, join(limpia, "index.html")]) {
     const p = join(raiz, c);
     if (existsSync(p) && statSync(p).isFile()) return p;
+  }
+  for (const [re, destino] of DINAMICAS) {
+    const p = join(raiz, destino);
+    if (re.test(ruta) && existsSync(p)) return p;
   }
   return null;
 };
@@ -188,6 +198,191 @@ try {
   await p.waitForTimeout(1800);
   ok(/\/blue-ia/.test(p.url()), `El botón único lleva a Blue IA (${new URL(p.url()).pathname})`);
   ok((await p.getByRole("tab", { name: /Asistente/ }).count()) === 0, "…y el panel se cierra");
+
+  // --- Mini-guías: fila «Guías rápidas» del panel ----------------------------------------------------------------------
+  // Cada guía rápida enseña SOLO los pasos de su pantalla. Si es la pantalla donde estás, no te mueves de ella; si es otra
+  // (Blue no se ve en Vender, el Foro ni Blue IA, así que se eligen desde otra pantalla), la guía te lleva y al terminar vuelves.
+  const PASOS_MINI = {
+    Inicio: ["Inicio", "Ver categorías", "Las categorías", "Vender ahora", "El buscador"],
+    Catálogo: ["Filtros y orden"],
+    Artículo: ["Un artículo"],
+    Vender: ["Vender mi artículo", "Para salir"],
+    Perfil: SESION ? ["Perfil", "Seguimientos"] : ["Perfil"],
+    Cesta: ["Cesta", "Cómo se compra"],
+    Foro: ["Foro", "Las pestañas del Foro", "Reacciona y responde"],
+    "Blue IA": ["Blue IA", "Hablar con el equipo"],
+    Servicios: ["Reparación y limpieza"],
+  };
+  // Desde Inicio, a qué pantalla lleva cada guía (la del artículo, a una ficha: la más reciente).
+  const RUTA_MINI = { Catálogo: "/catalogo", Artículo: /^\/producto\//, Vender: "/vender", Perfil: "/perfil", Cesta: "/cesta", Foro: "/chat-global", "Blue IA": "/blue-ia", Servicios: "/servicios" };
+  const coincide = (ruta, esperada) => (esperada instanceof RegExp ? esperada.test(ruta) : ruta === esperada);
+  const rutaDe = (q) => new URL(q.url()).pathname;
+  // Espera a que la pantalla sea la esperada (la guía cambia de pantalla un instante después de enseñar el paso).
+  const enRuta = (q, esperada) =>
+    q
+      .waitForFunction(([r, re]) => (re ? new RegExp(re).test(location.pathname) : location.pathname === r), esperada instanceof RegExp ? [null, esperada.source] : [esperada, null], { timeout: 12000 })
+      .then(() => true, () => false);
+  const abrirAsistente = async (q) => {
+    await q.waitForSelector("#blue-flotante", { timeout: 25000 });
+    await q.waitForTimeout(2500);
+    await q.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').tap();
+    await q.waitForTimeout(900);
+    await q.getByRole("tab", { name: /Asistente/ }).tap();
+    await q.waitForTimeout(600);
+  };
+  // Espera a que la tarjeta de la guía muestre este título (en su propia línea: «Foro» no es «Las pestañas del Foro»).
+  const tituloVisible = (q, titulo) =>
+    q
+      .waitForFunction(
+        (t) => (document.getElementById("guia-tarjeta")?.innerText ?? "").split("\n").some((l) => l.trim() === t),
+        titulo,
+        { timeout: 15000 }
+      )
+      .then(() => true, () => false);
+  // Recorre la mini-guía `nombre` desde la pantalla donde está `q`. `durante` = pantalla en la que debe estar la guía
+  // (por defecto, la misma donde se abrió).
+  const recorrerMini = async (q, nombre, durante) => {
+    const origen = rutaDe(q);
+    const pasos = PASOS_MINI[nombre];
+    const donde = durante ?? origen;
+    await abrirAsistente(q);
+    const chip = q.getByRole("button", { name: `Guía rápida: ${nombre}`, exact: true });
+    ok((await chip.count()) === 1, `Guía rápida ${nombre} (desde ${origen}): el panel ofrece la guía «${nombre}»`);
+    const alto = (await chip.first().boundingBox().catch(() => null))?.height ?? 0;
+    ok(alto >= 43.5, `Guía rápida ${nombre}: el botón mide 44 px o más (${Math.round(alto)})`);
+    await chip.first().tap();
+    await q.locator("#guia-tarjeta").waitFor({ timeout: 15000 }).catch(() => {});
+    let rutaVista = null; // la pantalla donde estuvo la guía (para la ficha, la ruta del artículo que enseñó)
+    for (let i = 0; i < pasos.length; i++) {
+      const sale = await tituloVisible(q, pasos[i]);
+      ok(sale, `Guía rápida ${nombre}: paso ${i + 1} de ${pasos.length} = «${pasos[i]}»`);
+      ok(await enRuta(q, donde), `Guía rápida ${nombre}: en «${pasos[i]}» está en ${donde instanceof RegExp ? "una ficha" : donde} (${rutaDe(q)})`);
+      rutaVista = rutaDe(q);
+      const siguiente = q.locator('[aria-label="Paso siguiente"]');
+      const ultimo = i === pasos.length - 1;
+      const rotulo = ((await siguiente.innerText().catch(() => "")) ?? "").replace(/[^A-Za-zÁÉÍÓÚáéíóúñÑ]/g, "");
+      if (i === 0 && (nombre === "Foro" || nombre === "Inicio")) {
+        // (se espera un momento: el panel se desvanece y la pantalla nueva termina de cargar)
+        await q.waitForTimeout(1500);
+        const visible = await q.getByRole("tab", { name: /Asistente/ }).count();
+        ok(visible === 0, `Guía rápida ${nombre}: con la guía en marcha el panel de Blue ya no se ve`);
+        await capturar(q, nombre === "Foro" ? "06-guia-rapida-foro" : "07-guia-rapida-inicio");
+      }
+      ok(ultimo ? rotulo === "Terminar" : rotulo === "Siguiente", `Guía rápida ${nombre}: el botón dice «${ultimo ? "Terminar" : "Siguiente"}» (no «Empezar») en «${pasos[i]}» (${rotulo})`);
+      await siguiente.tap();
+      if (!ultimo) await q.waitForTimeout(500);
+    }
+    const cerrada = await q.locator("#guia-tarjeta").waitFor({ state: "detached", timeout: 8000 }).then(() => true, () => false);
+    ok(cerrada, `Guía rápida ${nombre}: «Terminar» cierra la guía`);
+    ok(await enRuta(q, origen), `Guía rápida ${nombre}: al terminar vuelve a ${origen} (${rutaDe(q)})`);
+    return rutaVista;
+  };
+  const paginaMini = async (ruta) => {
+    const q = await ctx.newPage();
+    q.errores = [];
+    q.on("pageerror", (e) => q.errores.push(e.message.slice(0, 160)));
+    await q.goto(BASE + ruta, { waitUntil: "load", timeout: 60000 });
+    return q;
+  };
+  const sinErrores = (q, etiqueta) => ok(q.errores.length === 0, `${etiqueta}: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+
+  // 1) La guía de la pantalla donde estás: Inicio (con su chip resaltado) y Perfil. No te mueves de ella.
+  {
+    const q = await paginaMini("/");
+    await recorrerMini(q, "Inicio");
+    // (el chip de la pantalla actual va resaltado; los demás, sin relleno)
+    await abrirAsistente(q);
+    const fondo = (nombre) => q.getByRole("button", { name: `Guía rápida: ${nombre}`, exact: true }).first().evaluate((e) => getComputedStyle(e).backgroundColor);
+    const [actual, otro] = [await fondo("Inicio"), await fondo("Catálogo")];
+    ok(actual !== otro && /^rgba\(0, 0, 0, 0\)|transparent/.test(otro), `Guías rápidas: la de la pantalla actual va resaltada (Inicio ${actual}; Catálogo ${otro})`);
+    sinErrores(q, "Guía rápida Inicio");
+    await q.close();
+    const r = await paginaMini("/perfil");
+    await recorrerMini(r, "Perfil");
+    sinErrores(r, "Guía rápida Perfil");
+    await r.close();
+  }
+
+  // 2) Una guía de OTRA pantalla, desde Inicio: la guía te lleva allí y al terminar vuelves a Inicio.
+  for (const nombre of ["Catálogo", "Vender", "Cesta", "Foro", "Blue IA", "Servicios"]) {
+    const q = await paginaMini("/");
+    await recorrerMini(q, nombre, RUTA_MINI[nombre]);
+    sinErrores(q, `Guía rápida ${nombre}`);
+    await q.close();
+  }
+
+  // 3) Una ficha de artículo: desde Inicio la guía del artículo te lleva a una ficha (la del artículo más reciente) y, estando
+  // en una ficha, enseña «Un artículo» SIN llevarte a otro artículo.
+  {
+    const i = await paginaMini("/");
+    const ficha = await recorrerMini(i, "Artículo", RUTA_MINI.Artículo);
+    sinErrores(i, "Guía rápida Artículo (desde Inicio)");
+    await i.close();
+    if (!ficha || !/^\/producto\//.test(ficha)) {
+      ok(false, `Guía rápida Artículo: la guía debía llevar a una ficha (${ficha})`);
+    } else {
+      const q = await paginaMini(ficha);
+      await recorrerMini(q, "Artículo");
+      ok(rutaDe(q) === ficha, `Guía rápida Artículo: se queda en el mismo artículo (${rutaDe(q)})`);
+      sinErrores(q, "Guía rápida Artículo (desde la ficha)");
+      await q.close();
+    }
+  }
+
+  // 4) En una pantalla sin guía propia (Blog) el panel ofrece igualmente las guías, sin ninguna resaltada, y la guía
+  // completa sigue como siempre.
+  {
+    const q = await ctx.newPage();
+    await q.goto(BASE + "/blog", { waitUntil: "load", timeout: 60000 });
+    await abrirAsistente(q);
+    const chips = await q.getByRole("button", { name: /^Guía rápida: / }).evaluateAll((els) => els.map((e) => ({ t: e.getAttribute("aria-label"), fondo: getComputedStyle(e).backgroundColor, h: e.getBoundingClientRect().height })));
+    ok(chips.length === 9, `Blog: el panel ofrece las 9 guías rápidas (${chips.length})`);
+    ok(chips.every((c) => /^rgba\(0, 0, 0, 0\)|transparent/.test(c.fondo)), "Blog: ninguna va resaltada (no hay guía propia de esta pantalla)");
+    ok(chips.every((c) => c.h >= 43.5), `Guías rápidas: los 9 botones miden 44 px o más (${chips.map((c) => Math.round(c.h)).join(", ")})`);
+    ok((await q.getByText("Ver la guía de la tienda").count()) >= 1, "Blog: sigue «Ver la guía de la tienda»");
+    await capturar(q, "08-guias-rapidas");
+    await q.close();
+    const c = await ctx.newPage();
+    await c.goto(BASE + "/cesta", { waitUntil: "load", timeout: 60000 });
+    await abrirAsistente(c);
+    await c.getByText("Ver la guía de la tienda", { exact: true }).first().tap();
+    await c.locator("#guia-tarjeta").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(await tituloVisible(c, "¡Hola! Soy Blue"), "Guía completa: «Ver la guía de la tienda» sigue empezando por «¡Hola! Soy Blue»");
+    const txt = ((await c.locator('[aria-label="Paso siguiente"]').innerText().catch(() => "")) ?? "").replace(/[^A-Za-zÁÉÍÓÚáéíóúñÑ]/g, "");
+    ok(txt === "Empezar", `Guía completa: el primer botón sigue diciendo «Empezar» (${txt})`);
+    await c.close();
+  }
+
+  // Una mini-guía NO marca la guía de bienvenida como vista; la guía completa sí (así quien no la ha visto la sigue recibiendo).
+  {
+    const sinVista = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
+    await sinVista.addInitScript(() => {
+      try {
+        localStorage.setItem("videojuegoos.analytics.consent", "declined");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    await sinVista.route("**/*", (r) => (["GET", "HEAD", "OPTIONS"].includes(r.request().method()) ? r.continue() : r.abort()));
+    const q = await sinVista.newPage();
+    await q.goto(BASE + "/", { waitUntil: "load", timeout: 60000 });
+    await abrirAsistente(q);
+    await q.getByRole("button", { name: "Guía rápida: Catálogo", exact: true }).first().tap();
+    await q.locator("#guia-tarjeta").waitFor({ timeout: 15000 }).catch(() => {});
+    await q.getByRole("button", { name: "Saltar la guía" }).tap();
+    await q.locator("#guia-tarjeta").waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
+    const tras = await q.evaluate(() => localStorage.getItem("videojuegoszaragoza:guia_vista"));
+    ok(tras === null, `Guía rápida: saltarla NO marca la guía de bienvenida como vista (${tras})`);
+    // Y quien aún no la ha visto la sigue recibiendo: a los 15 s de entrar, en Inicio, sale sola la guía de bienvenida.
+    const bienvenida = await q.locator("#guia-tarjeta").waitFor({ timeout: 30000 }).then(() => true, () => false);
+    ok(bienvenida, "Guía rápida: quien no ha visto la guía de bienvenida la sigue recibiendo sola, en Inicio");
+    ok(await tituloVisible(q, "¡Hola! Soy Blue"), "Guía de bienvenida: empieza por «¡Hola! Soy Blue» (guía completa)");
+    await q.getByRole("button", { name: "Saltar la guía" }).tap();
+    await q.locator("#guia-tarjeta").waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
+    const trasCompleta = await q.evaluate(() => localStorage.getItem("videojuegoszaragoza:guia_vista"));
+    ok(trasCompleta === "1", `Guía completa: saltarla SÍ la marca como vista (${trasCompleta})`);
+    await sinVista.close();
+  }
 
   // --- Pantalla ----------------------------------------------------------------------------------------------------
   const anchos = await p.evaluate(() => ({ pantalla: window.innerWidth, pagina: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) }));

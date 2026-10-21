@@ -23,6 +23,12 @@
  *   altura del pulgar derecho (lo señalado se desplaza hacia arriba para no quedar tapado).
  *   Al final ayuda a crear cuenta o a iniciar sesión (/perfil?acceso=registro|entrar).
  *   Se puede repetir desde el panel de Blue. Se prueba entera con pruebas/guia-blue.mjs.
+ *   MINI-GUÍAS: el panel de Blue (pestaña Asistente) tiene una fila «Guías rápidas» con Inicio, Catálogo,
+ *   Artículo, Vender, Perfil, Cesta, Foro, Blue IA y Servicios (la de la pantalla actual, resaltada): la
+ *   misma guía, pero solo con los pasos de ESA pantalla (campo `seccion` de cada paso). Si es otra pantalla
+ *   la guía lleva hasta allí y al terminar vuelve; no marca la guía de bienvenida como vista y se mide
+ *   aparte (miniguia_*). Van en el panel porque Blue no se ve en Vender, el Foro ni Blue IA.
+ *   Se prueba con pruebas/blue-panel.mjs.
  * - Aparece 10 s después de entrar en la web (APARECER_MS, contados desde que
  *   se abrió la página con performance.now()): antes no se ve ni se puede tocar.
  *   Entra con un rebote de escala, saluda moviéndose de lado a lado y enseña un
@@ -572,14 +578,32 @@ export default function Campanita() {
   const abrirVender = useCallback(() => router.push("/vender" as Href), []);
   // Guía de bienvenida (GuiaBlue, al final de este archivo).
   const [guiaAbierta, setGuiaAbierta] = useState(false);
+  const guiaAbiertaRef = useRef(false);
+  guiaAbiertaRef.current = guiaAbierta;
+  // Mini-guía («Guía rápida» del panel): solo los pasos de la pantalla donde está la persona, sin salir de ella. null = guía completa.
+  const [guiaMini, setGuiaMini] = useState<{ seccion: SeccionGuia; ruta?: string } | null>(null);
+  const guiaMiniRef = useRef<{ seccion: SeccionGuia; ruta?: string } | null>(null);
+  guiaMiniRef.current = guiaMini;
   const guiaPendienteRef = useRef(false);
   // Pantalla donde estaba la persona al abrirse la guía: al saltarla o cerrarla se vuelve allí (la guía te lleva por
   // otras pantallas y, sin esto, te dejaba en la última).
   const guiaOrigenRef = useRef<string | null>(null);
   const pathnameActualRef = useRef(pathname);
   pathnameActualRef.current = pathname;
+  // (Si ya hay una guía abierta no se abre otra: p. ej. la de bienvenida, a los 15 s, no pisa una mini-guía.)
   const abrirGuia = useCallback(() => {
+    if (guiaAbiertaRef.current) return;
     guiaOrigenRef.current = pathnameActualRef.current;
+    setGuiaMini(null);
+    setGuiaAbierta(true);
+  }, []);
+  // Si la mini-guía es de la pantalla donde está la persona, no se mueve de ella (`ruta`); si es de otra, la guía la lleva
+  // hasta allí (cada paso sabe su pantalla) y al terminar vuelve a donde estaba.
+  const abrirMiniGuia = useCallback((seccion: SeccionGuia) => {
+    if (guiaAbiertaRef.current) return;
+    const aqui = pathnameActualRef.current;
+    guiaOrigenRef.current = aqui;
+    setGuiaMini({ seccion, ruta: seccionDeGuia(aqui) === seccion ? aqui : undefined });
     setGuiaAbierta(true);
   }, []);
   // Durante la guía Blue se esconde (no tapa la tarjeta ni sus botones) salvo en el paso
@@ -1521,6 +1545,8 @@ export default function Campanita() {
   // nuevo). Solo se ofrece sola en Inicio: quien llega a una ficha, al catálogo, a un chat, al pago o al panel
   // (p. ej. desde un enlace compartido) no es interrumpido ni llevado a otra pantalla; se espera a que llegue a Inicio.
   const sitioSinGuia = pathname !== "/";
+  // Pantalla con mini-guía («Guía rápida» en el panel), si la tiene.
+  const seccionGuiaActual = seccionDeGuia(pathname);
   const sitioSinGuiaRef = useRef(sitioSinGuia);
   sitioSinGuiaRef.current = sitioSinGuia;
 
@@ -1552,7 +1578,8 @@ export default function Campanita() {
   const cerrarGuia = useCallback((volver?: boolean) => {
     setGuiaAbierta(false);
     setGuiaSenalaBlue(false);
-    AsyncStorage.setItem(GUIA_VISTA_KEY, "1").catch(() => {});
+    // Una mini-guía no cuenta como «la guía de bienvenida vista»: quien aún no la ha visto la sigue recibiendo.
+    if (!guiaMiniRef.current) AsyncStorage.setItem(GUIA_VISTA_KEY, "1").catch(() => {});
     const origen = guiaOrigenRef.current;
     guiaOrigenRef.current = null;
     if (volver === true && origen && origen !== pathnameActualRef.current) router.navigate(origen as Href);
@@ -2030,6 +2057,39 @@ export default function Campanita() {
                 />
                 {/* Solo si se puede instalar en este dispositivo y aún no está instalada. */}
                 {modoInst ? <BotonPanel icono="download-outline" texto="Instalar la tienda como app" onPress={instalarApp} /> : null}
+
+                {/* Guías rápidas: una por pantalla, solo con lo de esa pantalla. Aquí (y no en la propia pantalla) porque
+                    Blue no se ve en Vender, el Foro ni Blue IA. La de la pantalla donde estás va resaltada. */}
+                <TituloSeccionBlue texto="Guías rápidas" />
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                  {(Object.keys(NOMBRE_SECCION_GUIA) as SeccionGuia[]).map((s) => {
+                    const actual = s === seccionGuiaActual;
+                    return (
+                      <Pressable
+                        key={s}
+                        onPress={() => {
+                          setPanelOpen(false);
+                          abrirMiniGuia(s);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Guía rápida: ${NOMBRE_SECCION_GUIA[s]}`}
+                        style={({ pressed }) => ({
+                          minHeight: 44,
+                          paddingHorizontal: 16,
+                          borderRadius: 999,
+                          borderWidth: 1.5,
+                          borderColor: COLORS.accent,
+                          backgroundColor: actual ? COLORS.accentSoft : "transparent",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: pressed ? 0.7 : 1,
+                        })}
+                      >
+                        <Text style={{ color: COLORS.accentDark, fontWeight: actual ? "900" : "800", fontSize: 14 }}>{NOMBRE_SECCION_GUIA[s]}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
 
               </>
@@ -2257,6 +2317,8 @@ export default function Campanita() {
           instalable={!!modoInst}
           conSesion={isLoggedIn}
           onSenalaBlue={setGuiaSenalaBlue}
+          seccion={guiaMini?.seccion}
+          rutaFija={guiaMini?.ruta}
         />
       ) : null}
 
@@ -2503,9 +2565,14 @@ type DemoGuia =
   | "capacidades" // lo que Blue sabe hacer (iconos en la tarjeta)
   | "como-se-compra"; // los pasos de una compra (iconos en la tarjeta)
 
+// Pantallas que tienen mini-guía (botón «Guía rápida» en el panel de Blue): cada una enseña solo los pasos de ESA pantalla.
+type SeccionGuia = "inicio" | "catalogo" | "producto" | "vender" | "perfil" | "cesta" | "foro" | "blue-ia" | "servicios";
+
 type PasoGuia = {
   icono: React.ComponentProps<typeof Ionicons>["name"];
   titulo: string;
+  // Mini-guía a la que pertenece el paso (la pantalla donde se enseña). Sin ella, solo sale en la guía completa.
+  seccion?: SeccionGuia;
   texto: string | ((conSesion: boolean) => string);
   objetivo?: string[];
   // Tarjeta baja (sin la mascota): deja ver la página que se enseña (el formulario, Perfil, Servicios…).
@@ -2562,6 +2629,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "home-outline",
     titulo: "Inicio",
+    seccion: "inicio",
     texto: "Ofertas, novedades y categorías.",
     objetivo: [PESTANAS[0]],
     ruta: "/",
@@ -2571,6 +2639,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "apps-outline",
     titulo: "Ver categorías",
+    seccion: "inicio",
     texto: "Te lleva directo a las categorías.",
     objetivo: ['[data-testid="boton-ver-categorias"]'],
     ruta: "/",
@@ -2580,6 +2649,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "grid-outline",
     titulo: "Las categorías",
+    seccion: "inicio",
     texto: "Toca una y verás sus artículos.",
     objetivo: ['[data-testid="seccion-categorias"]'],
     ruta: "/",
@@ -2588,6 +2658,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "options-outline",
     titulo: "Filtros y orden",
+    seccion: "catalogo",
     texto: "Filtra por plataforma, estado y precio, y ordena.",
     objetivo: ['[aria-label^="Filtros"]'],
     ruta: "/catalogo",
@@ -2596,6 +2667,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "bag-add-outline",
     titulo: "Un artículo",
+    seccion: "producto",
     // «Añadir» reserva el artículo 15 minutos (lib/reservas.ts); «Comprar ya» lleva directo a pedir, con sesión.
     texto: "«Añadir» lo reserva 15 minutos. «Comprar ya» va directo a pedir.",
     objetivo: ['[aria-label^="Añadir "]', '[aria-label^="Comprar ya "]'],
@@ -2608,6 +2680,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "cash-outline",
     titulo: "Vender ahora",
+    seccion: "inicio",
     texto: "Mira: lo pulso y se abre el formulario.",
     objetivo: ['[data-testid="boton-vender-ahora"]'],
     ruta: "/",
@@ -2618,6 +2691,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "create-outline",
     titulo: "Vender mi artículo",
+    seccion: "vender",
     texto: "Rellenas tus datos y bajas para ver el resto.",
     objetivo: ["#vender-scroll"],
     ruta: "/vender",
@@ -2627,6 +2701,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "arrow-back-circle-outline",
     titulo: "Para salir",
+    seccion: "vender",
     texto: "Toca la flecha para volver.",
     objetivo: ['[aria-label="Volver atrás"]'],
     ruta: "/vender",
@@ -2637,6 +2712,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "search-outline",
     titulo: "El buscador",
+    seccion: "inicio",
     texto: "Escribe lo que buscas. Prueba con estos.",
     objetivo: ["#buscador-flotante", "#buscador-resultados"],
     ruta: "/",
@@ -2646,6 +2722,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "person-outline",
     titulo: "Perfil",
+    seccion: "perfil",
     // Con sesión se enseña la pestaña «Mi cuenta» (y en el paso siguiente «Seguimientos»); sin sesión, el acceso.
     texto: (conSesion) => (conSesion ? "«Mi cuenta»: tu sesión iniciada." : "Aquí entras o creas tu cuenta."),
     objetivo: ["#perfil-pestanas", "#perfil-acceso"],
@@ -2656,6 +2733,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "file-tray-full-outline",
     titulo: "Seguimientos",
+    seccion: "perfil",
     texto: "Aquí ves tus reparaciones y pedidos.",
     objetivo: ["#perfil-pestanas"],
     ruta: "/perfil",
@@ -2667,6 +2745,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "bag-handle-outline",
     titulo: "Cesta",
+    seccion: "cesta",
     texto: "Te reservamos cada artículo 15 minutos.",
     objetivo: [PESTANAS[2]],
     ruta: "/cesta",
@@ -2676,6 +2755,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "receipt-outline",
     titulo: "Cómo se compra",
+    seccion: "cesta",
     // Verificado en app/checkout.tsx: se elige envío o recogida, no hay pago online y al confirmar se habla por chat
     // o WhatsApp.
     texto: "Reservas, confirmas y te hablamos. Sin pago online.",
@@ -2686,6 +2766,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "chatbubbles-outline",
     titulo: "Foro",
+    seccion: "foro",
     texto: "Comunidad, noticias, torneos y chats.",
     objetivo: [PESTANAS[3]],
     ruta: "/chat-global",
@@ -2695,6 +2776,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "swap-vertical-outline",
     titulo: "Las pestañas del Foro",
+    seccion: "foro",
     texto: "Toca el botón azul y elige una. Mantén pulsada una para moverla.",
     objetivo: ['[data-testid="selector-pestanas"]'],
     ruta: "/chat-global",
@@ -2705,6 +2787,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "chatbox-ellipses-outline",
     titulo: "Reacciona y responde",
+    seccion: "foro",
     // chat-global.tsx: un toque en un mensaje abre las reacciones, dos toques seguidos responden (con sesión).
     texto: "Un toque en un mensaje reacciona; dos, responden. Con sesión.",
     ruta: "/chat-global",
@@ -2714,6 +2797,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "sparkles-outline",
     titulo: "Blue IA",
+    seccion: "blue-ia",
     texto: "Pregúntame lo que quieras.",
     objetivo: [PESTANAS[4]],
     ruta: "/blue-ia",
@@ -2723,6 +2807,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "headset-outline",
     titulo: "Hablar con el equipo",
+    seccion: "blue-ia",
     // blue-ia.tsx: primero responde Blue IA; «Hablar con el equipo» pide sesión y le manda un resumen al equipo.
     texto: "Primero te ayudo yo. Si quieres, te paso con el equipo (con sesión).",
     objetivo: ['[aria-label="Hablar con el equipo"]'],
@@ -2752,6 +2837,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "construct-outline",
     titulo: "Reparación y limpieza",
+    seccion: "servicios",
     texto: "Elige un servicio y te lo explicamos.",
     objetivo: ["#servicios-lista"],
     ruta: "/servicios",
@@ -2768,6 +2854,33 @@ const PASOS_GUIA: PasoGuia[] = [
     sinTitulo: true,
   },
 ];
+
+// Mini-guías: qué pantalla tiene guía rápida y cómo se llama en la fila «Guías rápidas» del panel de Blue. Las demás
+// (Blog, políticas, chats, pedido…) no la tienen. Blue no se ve en Vender, el Foro ni Blue IA, por eso las guías se
+// eligen desde el panel de Blue (en otra pantalla) y no desde la propia pantalla.
+function seccionDeGuia(pathname: string): SeccionGuia | null {
+  if (pathname === "/") return "inicio";
+  if (pathname === "/catalogo") return "catalogo";
+  if (pathname.startsWith("/producto/")) return "producto";
+  if (pathname === "/vender") return "vender";
+  if (pathname === "/perfil") return "perfil";
+  if (pathname === "/cesta") return "cesta";
+  if (pathname === "/chat-global") return "foro";
+  if (pathname === "/blue-ia") return "blue-ia";
+  if (pathname === "/servicios") return "servicios";
+  return null;
+}
+const NOMBRE_SECCION_GUIA: Record<SeccionGuia, string> = {
+  inicio: "Inicio",
+  catalogo: "Catálogo",
+  producto: "Artículo",
+  vender: "Vender",
+  perfil: "Perfil",
+  cesta: "Cesta",
+  foro: "Foro",
+  "blue-ia": "Blue IA",
+  servicios: "Servicios",
+};
 
 // Dónde está el TÍTULO de cada página, para enmarcarlo en cada paso («Estás aquí»): en las cinco secciones es su
 // nombre en la barra de abajo (Foro, Cesta y Blue IA no tienen otro título arriba) y en Vender y Servicios su h1.
@@ -3282,6 +3395,8 @@ function GuiaBlue({
   instalable,
   conSesion,
   onSenalaBlue,
+  seccion,
+  rutaFija,
 }: {
   // volver = true: se cierra sin más (Saltar, «Ahora no», atrás del móvil) y la persona vuelve a la pantalla donde
   // abrió la guía. Con una acción (Crear cuenta, Instalar…) no se vuelve: esa acción lleva a otro sitio.
@@ -3294,6 +3409,10 @@ function GuiaBlue({
   conSesion: boolean;
   // Avisa a Blue de si este paso le señala a él (mientras no, se esconde para no tapar la guía).
   onSenalaBlue: (si: boolean) => void;
+  // Mini-guía: solo los pasos de esa pantalla. Si es la pantalla donde ya está la persona, la guía no se mueve de ella
+  // (`rutaFija`); si es otra, cada paso la lleva hasta allí. Sin `seccion` es la guía completa.
+  seccion?: SeccionGuia;
+  rutaFija?: string;
 }) {
   const [paso, setPaso] = useState(0);
   // Artículo publicado más reciente: con él se enseña la ficha (undefined = leyéndolo, null = la tienda no tiene).
@@ -3308,17 +3427,19 @@ function GuiaBlue({
       vivo = false;
     };
   }, []);
-  const pasos = React.useMemo(
-    () =>
-      PASOS_GUIA.filter(
-        (x) =>
-          (!x.soloInstalable || instalable) &&
-          (!x.soloConSesion || conSesion) &&
-          (!x.soloSinSesion || !conSesion) &&
-          (!x.soloConProducto || productoId !== null)
-      ),
-    [instalable, conSesion, productoId]
-  );
+  const pasos = React.useMemo(() => {
+    const aplicables = PASOS_GUIA.filter(
+      (x) =>
+        (!x.soloInstalable || instalable) &&
+        (!x.soloConSesion || conSesion) &&
+        (!x.soloSinSesion || !conSesion) &&
+        (!x.soloConProducto || productoId !== null)
+    );
+    if (!seccion) return aplicables;
+    // Mini-guía: solo los pasos de esa pantalla (si por lo que sea no quedara ninguno, la guía completa: nunca vacía).
+    const deLaSeccion = aplicables.filter((x) => x.seccion === seccion);
+    return deLaSeccion.length ? deLaSeccion : aplicables;
+  }, [instalable, conSesion, productoId, seccion]);
   const total = pasos.length;
   const p = pasos[Math.min(paso, pasos.length - 1)];
   // Si la lista de pasos cambia a mitad de la guía (p. ej. se quita «Un artículo» porque no hay artículos), la persona
@@ -3353,9 +3474,12 @@ function GuiaBlue({
   // Embudo: en qué paso está cada visitante (con su consentimiento de analítica) y cómo
   // termina la guía. Así se ve en el panel dónde se pierde la gente y cuántos llegan al
   // formulario de Vender.
+  // (Las mini-guías se miden aparte —miniguia_*— para no mezclarlas con el embudo de la guía completa.)
+  const eventoGuia = seccion ? "miniguia" : "guia";
+  const rotuloGuia = seccion ? `Mini-guía ${NOMBRE_SECCION_GUIA[seccion]}` : "Guía Blue";
   useEffect(() => {
-    trackEvent("guia_paso", `Guía Blue: ${numeroPaso(p)} ${p.titulo}`);
-    if (paso === total - 1) trackEvent("guia_completada", "Guía Blue: completada");
+    trackEvent(`${eventoGuia}_paso`, `${rotuloGuia}: ${numeroPaso(p)} ${p.titulo}`);
+    if (paso === total - 1) trackEvent(`${eventoGuia}_completada`, `${rotuloGuia}: completada`);
     // Si la guía ya enseñó el selector de pestañas del Foro, el aviso suelto no vuelve a salir.
     if (p.objetivo?.some((o) => o.includes("selector-pestanas"))) {
       AsyncStorage.setItem(SELECTOR_VISTO_KEY, "1").catch(() => {});
@@ -3388,12 +3512,12 @@ function GuiaBlue({
   const onCerrar = useCallback(() => {
     const i = pasoActualRef.current;
     if (i < total - 1) {
-      trackEvent("guia_saltada", "Guía Blue: saltada");
-      trackEvent("guia_saltada_en", `Guía Blue: saltada en el paso ${numeroPaso(pasos[i])} ${pasos[i].titulo}`);
+      trackEvent(`${eventoGuia}_saltada`, `${rotuloGuia}: saltada`);
+      trackEvent(`${eventoGuia}_saltada_en`, `${rotuloGuia}: saltada en el paso ${numeroPaso(pasos[i])} ${pasos[i].titulo}`);
     }
     escribirEnBuscadorDemo(null);
     cerrarSinMedir(true);
-  }, [cerrarSinMedir, total, pasos]);
+  }, [cerrarSinMedir, total, pasos, eventoGuia, rotuloGuia]);
   const anim = useRef(new Animated.Value(1)).current;
   const direccion = useRef(1);
   const [caja, setCaja] = useState<Caja | null>(null);
@@ -3404,7 +3528,8 @@ function GuiaBlue({
   // La guía te lleva de la mano: en cada paso cambia sola a la pantalla de la que habla
   // (Inicio, Perfil, Cesta, Foro, Blue IA…). Al abrirse en otra pantalla, vuelve a Inicio.
   // («{producto}» es el artículo más reciente; con ?guia=1 la ficha no cuenta la visita.)
-  const destino = (p.ruta ?? "/").replace("{producto}", productoId ?? "");
+  // (La mini-guía de la pantalla donde ya está la persona no cambia de pantalla: se queda donde estaba.)
+  const destino = seccion && rutaFija ? rutaFija : (p.ruta ?? "/").replace("{producto}", productoId ?? "");
   useEffect(() => {
     // En cada paso (aunque la pantalla sea la misma que la del paso anterior: en «Las 5 secciones» se puede haber
     // cambiado de sección desde la tarjeta). El pathname no lleva «?guia=1», por eso se compara sin él.
@@ -4053,7 +4178,7 @@ function GuiaBlue({
                     opacity: pressed ? 0.88 : 1,
                   })}
                 >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 }}>{paso === 0 ? "Empezar" : paso === total - 1 ? "Terminar" : "Siguiente"}</Text>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 }}>{paso === 0 && !seccion ? "Empezar" : paso === total - 1 ? "Terminar" : "Siguiente"}</Text>
                   <Animated.View style={{ transform: [{ translateX: empujeFlecha }] }}>
                     <Ionicons name="arrow-forward" size={22} color="#FFFFFF" />
                   </Animated.View>
