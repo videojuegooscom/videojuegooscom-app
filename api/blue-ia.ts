@@ -682,6 +682,26 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  // El cuerpo se comprueba ANTES de los cupos: es gratis (sin base de datos ni OpenAI) y así una petición
+  // vacía o no válida se rechaza sin restar cupo a nadie. Los cupos van justo después y antes de todo lo
+  // que cuesta algo (moderación, catálogo y modelo).
+  let body: { message?: unknown; history?: unknown };
+  try {
+    body = (req.body ?? {}) as { message?: unknown; history?: unknown };
+  } catch {
+    res.status(400).json({ error: "Petición no válida." });
+    return;
+  }
+  const cleanMessage = typeof body?.message === "string" ? body.message.trim() : "";
+  if (!cleanMessage) {
+    res.status(400).json({ error: "Falta el mensaje." });
+    return;
+  }
+  if (cleanMessage.length > 800) {
+    res.status(400).json({ error: "El mensaje es demasiado largo (máximo 800 caracteres)." });
+    return;
+  }
+
   // Capa 2: cupos por persona (usuario o IP), por minuto y por hora, y tope global por hora y por día,
   // compartidos entre todas las instancias (ver el bloque «Límites de uso» más arriba).
   const supabaseUrlLimite = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -703,18 +723,6 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const body = (req.body ?? {}) as { message?: unknown; history?: unknown };
-    const cleanMessage = typeof body.message === "string" ? body.message.trim() : "";
-
-    if (!cleanMessage) {
-      res.status(400).json({ error: "Falta el mensaje." });
-      return;
-    }
-    if (cleanMessage.length > 800) {
-      res.status(400).json({ error: "El mensaje es demasiado largo (máximo 800 caracteres)." });
-      return;
-    }
-
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
       res.status(500).json({

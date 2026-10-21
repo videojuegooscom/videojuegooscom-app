@@ -14,6 +14,7 @@
  *  7) 40 peticiones SIMULTÁNEAS de la misma IP: pasan exactamente 8 y a OpenAI llegan 8.
  *  8) Con el límite compartido caído, o sin clave de servidor, se usa el de memoria (no se deja pasar todo).
  *  9) El historial que se manda a OpenAI queda por debajo de 5.000 caracteres.
+ * 10) Cuerpo vacío o no válido: 400, sin gastar ningún cupo (ni el de la persona ni el global) y sin OpenAI.
  * NO toca producción, ni Supabase real, ni OpenAI.
  *
  * Uso: node pruebas/blue-ia-abuso.mjs postgresql://postgres@127.0.0.1:55432
@@ -216,6 +217,25 @@ try {
     const mensajes = ultimoChat.messages.filter((m) => m.role !== "system").slice(0, -1);
     const total = mensajes.reduce((a, m) => a + m.content.length, 0);
     ok(total <= 5000 && mensajes.length >= 5, `el historial que llega a OpenAI mide ${total} caracteres (máx. 5.000) y conserva los ${mensajes.length} turnos más recientes`);
+  }
+
+  // 10) Cuerpo vacío o no válido: se rechaza antes de tocar ningún cupo
+  {
+    await reiniciarTodo();
+    reiniciarContadores();
+    const sumaCupos = () => db.consulta(base, "select coalesce(sum(n), 0) || '/' || count(*) from public.limites_peticiones where ventana_inicio > now() - interval '1 day'");
+    const antes = await sumaCupos();
+    const ipFija = "198.51.100.20";
+    const malos = [null, {}, { message: "" }, { message: "   " }, { message: 42 }, { message: "x".repeat(801) }];
+    const rs = [];
+    for (let i = 0; i < 30; i++) rs.push(await preguntar({ cabeceras: { "x-vercel-forwarded-for": ipFija }, cuerpo: malos[i % malos.length] }));
+    const despues = await sumaCupos();
+    ok(rs.every((r) => r.codigo === 400), `30 peticiones con el cuerpo vacío o no válido: todas 400 (${[...new Set(rs.map((r) => r.codigo))].join(",")})`);
+    ok(antes === despues, `y no gastan ningún cupo, ni el de la persona ni el global (contadores ${antes} → ${despues})`);
+    ok(contar().chat === 0 && contar().moderacion === 0, "ni llegan a OpenAI");
+    const bueno = [];
+    for (let i = 0; i < 8; i++) bueno.push(await preguntar({ cabeceras: { "x-vercel-forwarded-for": ipFija } }));
+    ok(bueno.every((r) => r.codigo === 200), `después, esa misma IP conserva su cupo entero: sus 8 preguntas válidas del minuto pasan (${bueno.map((r) => r.codigo).join(",")})`);
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
