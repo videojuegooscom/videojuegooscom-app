@@ -63,6 +63,9 @@
  *   · «Avísame cuando llegue» (con sesión): el cliente apunta hasta 10 búsquedas
  *     (tabla avisos_busqueda; también desde el catálogo sin resultados con
  *     crearAvisoBusqueda) y Blue le avisa cuando entra un artículo con todas esas palabras.
+ *   · Reserva que vence: cada artículo de la cesta (CART_KEY, campo reservedUntil de lib/reservas.ts:
+ *     15 minutos) sale como aviso con lo que le queda; con 5 minutos o menos suma al número rojo y
+ *     Blue lo dice una vez en un mensaje que lleva a la cesta (no en la propia Cesta ni en el pedido).
  *   · Bajada de precio: de lo que le gusta (LIKED_PRODUCTS_KEY) o tiene en la cesta
  *     (CART_KEY) se guarda en el móvil el precio visto (PRECIOS_VISTOS_KEY); si baja, avisa.
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
@@ -162,6 +165,14 @@ type ProductoAviso = { id: string; title: string; price: number };
 type AvisoBusqueda = { id: string; texto: string; visto_hasta: string };
 type Llegada = { aviso: AvisoBusqueda; productos: ProductoAviso[] };
 type Bajada = { id: string; title: string; antes: number; ahora: number };
+// Artículo de la cesta con su reserva en marcha (lib/reservas.ts: 15 minutos); `hasta` = fin de la reserva (ms).
+type ReservaAviso = { id: string; title: string; hasta: number };
+// Blue avisa de una reserva cuando le quedan 5 minutos o menos.
+const RESERVA_AVISO_MS = 5 * 60 * 1000;
+// Cada cuánto se relee la cesta y se actualiza la cuenta atrás (todo en el móvil, sin red).
+const RELOJ_RESERVAS_MS = 15000;
+// Minutos que quedan, redondeando hacia arriba (nunca «0 min»).
+const minutosQueQuedan = (ms: number) => Math.max(1, Math.ceil(ms / 60000));
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(value: number) {
@@ -603,6 +614,9 @@ export default function Campanita() {
   const [avisosBusqueda, setAvisosBusqueda] = useState<AvisoBusqueda[]>([]);
   const [llegadas, setLlegadas] = useState<Llegada[]>([]);
   const [bajadas, setBajadas] = useState<Bajada[]>([]);
+  // Reservas de la cesta en marcha y el reloj con el que se cuenta lo que les queda.
+  const [reservas, setReservas] = useState<ReservaAviso[]>([]);
+  const [reloj, setReloj] = useState(() => Date.now());
   const [salidaPendiente, setSalidaPendiente] = useState(0);
   const [textoAviso, setTextoAviso] = useState("");
   const [msgAviso, setMsgAviso] = useState<string | null>(null);
@@ -1018,12 +1032,44 @@ export default function Campanita() {
     }
   }, []);
 
+  // Reservas de la cesta que siguen en marcha (la cesta guarda en el móvil hasta cuándo vale cada una). Las ya vencidas
+  // no cuentan: la pantalla Cesta las retira cuando se abre.
+  const refreshReservas = useCallback(async () => {
+    const cesta = await leerJsonLocal<unknown[]>(CART_KEY, []);
+    const ahora = Date.now();
+    const lista: ReservaAviso[] = [];
+    for (const it of Array.isArray(cesta) ? cesta : []) {
+      const fila = (it ?? {}) as { id?: unknown; title?: unknown; reservedUntil?: unknown };
+      const id = String(fila.id ?? "");
+      const hasta = Number(fila.reservedUntil);
+      if (id && Number.isFinite(hasta) && hasta > ahora) lista.push({ id, title: String(fila.title ?? "").trim() || "un artículo", hasta });
+    }
+    lista.sort((a, b) => a.hasta - b.hasta);
+    // Sin cambios no se repinta (se mira cada 15 s).
+    setReservas((previa) =>
+      previa.length === lista.length && previa.every((r, i) => r.id === lista[i].id && r.hasta === lista[i].hasta) ? previa : lista
+    );
+    if (lista.length) setReloj(ahora);
+  }, []);
+
   const refreshAvisosTienda = useCallback(() => {
     refreshNovedadesTienda();
     refreshAvisosBusqueda();
     refreshBajadas();
     refreshSalida();
-  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida]);
+    refreshReservas();
+  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida, refreshReservas]);
+
+  // Cuenta atrás de las reservas: se relee la cesta al cambiar de pantalla y cada 15 s (con la pestaña oculta, no).
+  useEffect(() => {
+    refreshReservas();
+  }, [pathname, refreshReservas]);
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") refreshReservas();
+    }, RELOJ_RESERVAS_MS);
+    return () => clearInterval(t);
+  }, [refreshReservas]);
 
   // El catálogo puede crear avisos: entonces se releen.
   useEffect(() => {
@@ -1138,6 +1184,9 @@ export default function Campanita() {
     notificarMensajeNuevo(unreadChats - antes, () => router.push((isAdmin ? "/admin/chats" : "/chat-global?tab=privados") as Href));
   }, [unreadChats, isAdmin]);
 
+  // Reservas en marcha (salen como aviso) y, de ellas, las que vencen en 5 minutos o menos (suman al número rojo).
+  const reservasActivas = React.useMemo(() => reservas.filter((r) => r.hasta > reloj), [reservas, reloj]);
+  const reservasPorVencer = React.useMemo(() => reservasActivas.filter((r) => r.hasta - reloj <= RESERVA_AVISO_MS), [reservasActivas, reloj]);
   const totalCount =
     unreadChats +
     likedUnavailable.length +
@@ -1146,6 +1195,7 @@ export default function Campanita() {
     (novedadesTienda > 0 ? 1 : 0) +
     llegadas.length +
     bajadas.length +
+    reservasPorVencer.length +
     (isAdmin && salidaPendiente > 0 ? 1 : 0);
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
@@ -1240,6 +1290,30 @@ export default function Campanita() {
   const ocultar = useRef(new Animated.Value(0)).current;
   const entradaHechaRef = useRef(false);
   const enPantalla = aparecido && ready && !enChat;
+
+  // Una reserva de la cesta a punto de vencer: un mensaje de Blue, UNA vez por reserva y solo si Blue no está diciendo otra cosa.
+  // No sale en la Cesta (allí ya se ve la cuenta atrás) ni en el pedido, y con el aviso de cookies sin contestar Blue no habla.
+  useEffect(() => {
+    if (!enPantalla || enAdmin || guiaAbierta || panelOpen || bocadillo) return;
+    if (pathname.startsWith("/cesta") || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
+    const r = reservasPorVencer.find((x) => !yaDicho.has(`r:${x.id}:${x.hasta}`));
+    if (!r) return;
+    let vivo = true;
+    (async () => {
+      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      yaDicho.add(`r:${r.id}:${r.hasta}`);
+      const titulo = r.title.length > 40 ? `${r.title.slice(0, 39).trimEnd()}…` : r.title;
+      setBocadillo({
+        id: `r:${r.id}`,
+        texto: `Tu reserva de «${titulo}» vence en ${minutosQueQuedan(r.hasta - Date.now())} min.`,
+        accion: "ruta",
+        ruta: "/cesta",
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, reservasPorVencer]);
 
   // Oferta de instalar la tienda como app: un mensaje de Blue, una vez cada 7 días como mucho,
   // cuando ya lleva un rato en pantalla, no está hablando de otra cosa y la persona ya
@@ -2039,10 +2113,26 @@ export default function Campanita() {
               {pestana === "avisos" ? (
               <View style={{ width: "100%", maxWidth: 460, gap: 2 }}>
                 <TituloSeccionBlue texto="Avisos" />
-                {totalCount === 0 ? (
+                {totalCount === 0 && reservasActivas.length === 0 ? (
                   <FilaBlue icono="checkmark-circle-outline" titulo="Estás al día: no tienes avisos nuevos." />
                 ) : (
                   <>
+                    {/* Reservas de la cesta (15 minutos): las que vencen en 5 o menos avisan; las demás, solo informan. */}
+                    {reservasActivas.map((r) => {
+                      const falta = r.hasta - reloj;
+                      const min = minutosQueQuedan(falta);
+                      const urgente = falta <= RESERVA_AVISO_MS;
+                      return (
+                        <Aviso
+                          icono="time-outline"
+                          key={`${r.id}:${r.hasta}`}
+                          titulo={urgente ? `Tu reserva de «${r.title}» vence en ${min} min` : `Reservado para ti: ${r.title}`}
+                          detalle={urgente ? "Termina el pedido para no perderlo" : `Te quedan ${min} min`}
+                          accion="Ir a la cesta"
+                          onPress={() => ir("/cesta")}
+                        />
+                      );
+                    })}
                     {unreadChats > 0 ? (
                       <Aviso
                         icono="chatbubbles-outline"

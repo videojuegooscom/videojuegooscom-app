@@ -8,6 +8,8 @@
  *  - «Noticias y avisos» junta los avisos, las noticias y los ajustes («Mis avisos»): lo que se toca mide 48 px o más.
  *  - Sin sesión: «Inicia sesión…» lleva al acceso. Con sesión (--sesion, simulada): se ve el campo «Avísame cuando llegue»
  *    y un aviso de mensajes sin leer (simulado) con su fila.
+ *  - Reservas de la cesta (15 min): con tiempo salen como «Reservado para ti» (sin número rojo) y las vencidas no; la que vence
+ *    en 4 min suma al número rojo, Blue lo dice una vez (el mensaje lleva a la cesta) y la fila del panel también.
  *  - Nada se ensancha y no hay errores de JavaScript.
  * NO toca producción: solo lecturas (GET); toda escritura se corta. No añade ningún aviso.
  *
@@ -71,12 +73,20 @@ const capturar = (p, nombre) => (SALIDA ? p.screenshot({ path: join(SALIDA, `${n
 
 const USUARIO_FALSO = { id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated", email: "cliente@example.com", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
 
-async function contexto(navegador) {
+// `carrito`: artículos ya en la cesta, con los minutos que les quedan de reserva (negativo = ya vencida).
+async function contexto(navegador, carrito = null) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
-  await ctx.addInitScript(([sesion, usuario]) => {
+  await ctx.addInitScript(([sesion, usuario, cesta]) => {
     try {
       localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
       localStorage.setItem("videojuegoos.analytics.consent", "declined");
+      if (cesta) {
+        // Misma forma que guarda la Cesta (clave CART_KEY de app/(tabs)/cesta.tsx).
+        localStorage.setItem(
+          "videojuegoos_cart_v1",
+          JSON.stringify(cesta.map((a) => ({ id: a.id, title: a.title, priceEUR: 100, qty: 1, reservedUntil: Date.now() + a.min * 60000 })))
+        );
+      }
       if (sesion) {
         // Sesión falsa (clave de lib/supabase.ts). Nunca llega a ningún servidor.
         const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -87,7 +97,7 @@ async function contexto(navegador) {
     } catch {
       // sin almacenamiento
     }
-  }, [SESION, USUARIO_FALSO]);
+  }, [SESION, USUARIO_FALSO, carrito]);
   await ctx.route("**/*", async (r) => {
     const url = new URL(r.request().url());
     const metodo = r.request().method();
@@ -121,6 +131,8 @@ try {
   const nombres = pestanas
     .map((t) => t.replace(/[^A-Za-zÁÉÍÓÚáéíóúñÑ0-9 ]/g, "").replace(/\s+/g, " ").trim())
     .filter((t) => /(Asistente|Notificaciones|Noticias)/.test(t));
+  // Número rojo de la pestaña sin nada en la cesta (para comparar con las pruebas de reservas, al final).
+  const base = Number(/Noticias y avisos(\d+)/.exec(nombres.find((t) => t.startsWith("Noticias y avisos")) ?? "")?.[1] ?? 0);
   ok(nombres.length === 2, `El panel tiene 2 pestañas (${nombres.join(" · ")})`);
   ok(nombres.some((t) => t.startsWith("Asistente")) && nombres.some((t) => t.startsWith("Noticias y avisos")), "Las pestañas son «Asistente» y «Noticias y avisos»");
   ok(!nombres.some((t) => /^Notificaciones/.test(t)) && !nombres.some((t) => /^Noticias( \d+)?$/.test(t)), "Ya no hay pestañas «Notificaciones» ni «Noticias» sueltas");
@@ -194,6 +206,91 @@ try {
   ok(anchos.pagina <= anchos.pantalla + 1, `La página no se ensancha (${anchos.pagina}/${anchos.pantalla})`);
   ok(errores.length === 0, `Sin errores de JavaScript (${errores.length}${errores[0] ? ": " + errores[0] : ""})`);
   await ctx.close();
+
+  // --- Reservas de la cesta (lib/reservas.ts, 15 minutos) -----------------------------------------------------------
+  const abrirPanelAvisos = async (q) => {
+    await q.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').tap();
+    await q.waitForTimeout(1000);
+    await q.getByRole("tab", { name: /Noticias y avisos/ }).tap();
+    await q.waitForTimeout(900);
+  };
+  const insignia = async (q) => {
+    const textos = await q.getByRole("tab").allInnerTexts();
+    const t = textos.map((x) => x.replace(/[^A-Za-zÁÉÍÓÚáéíóúñÑ0-9 ]/g, "").replace(/\s+/g, " ").trim()).find((x) => x.startsWith("Noticias y avisos"));
+    return Number(/Noticias y avisos(\d+)/.exec(t ?? "")?.[1] ?? 0);
+  };
+  const paginaCon = async (cesta) => {
+    const c = await contexto(navegador, cesta);
+    const q = await c.newPage();
+    q.errores = [];
+    q.on("pageerror", (e) => q.errores.push(e.message.slice(0, 160)));
+    await q.goto(BASE + "/", { waitUntil: "load", timeout: 60000 });
+    await q.waitForSelector("#blue-flotante", { timeout: 25000 });
+    return { c, q };
+  };
+
+  // R1) Una reserva con tiempo y otra vencida: la primera sale como información (sin número rojo) y la vencida no sale.
+  {
+    const { c, q } = await paginaCon([
+      { id: "00000000-0000-4000-8000-0000000000a1", title: "Consola Con Tiempo", min: 12 },
+      { id: "00000000-0000-4000-8000-0000000000a2", title: "Consola Vencida", min: -2 },
+    ]);
+    await q.waitForTimeout(2500);
+    await abrirPanelAvisos(q);
+    const suma = await insignia(q);
+    ok(suma === base, `R1: una reserva con 12 min no suma al número rojo (${suma}, sin cesta: ${base})`);
+    const texto = await q.evaluate(() => document.body.innerText);
+    ok(/Reservado para ti: Consola Con Tiempo/.test(texto) && /Te quedan (11|12) min/.test(texto), "R1: sale «Reservado para ti: …» con lo que le queda");
+    ok(!/Consola Vencida/.test(texto), "R1: la reserva ya vencida no sale");
+    ok(!/vence en/.test(texto), "R1: no se dice «vence» si aún queda tiempo");
+    await capturar(q, "03-reserva-con-tiempo");
+    ok((await q.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth))) <= 391, "R1: la página no se ensancha");
+    ok(q.errores.length === 0, `R1: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+    await c.close();
+  }
+
+  // R2) Una reserva que vence en 4 minutos: suma al número rojo, Blue lo dice UNA vez y la fila lleva a la cesta.
+  {
+    const { c, q } = await paginaCon([{ id: "00000000-0000-4000-8000-0000000000a3", title: "Consola Urgente", min: 4 }]);
+    // Blue sale a los 10 s de abrir la página: el mensaje llega después.
+    const dicho = await q
+      .waitForFunction(() => /Tu reserva de «Consola Urgente» vence en [1-5] min/.test(document.getElementById("blue-mensaje")?.textContent ?? ""), null, { timeout: 40000 })
+      .then(() => true, () => false);
+    ok(dicho, "R2: Blue dice «Tu reserva de «Consola Urgente» vence en N min»");
+    if (dicho) await capturar(q, "04-reserva-mensaje");
+    // Tocar el mensaje lleva a la cesta.
+    if (dicho) {
+      await q.locator("#blue-mensaje").tap();
+      await q.waitForURL(/\/cesta/, { timeout: 15000 }).then(
+        () => ok(true, "R2: tocar el mensaje lleva a la cesta"),
+        () => ok(false, `R2: tocar el mensaje debía llevar a la cesta (está en ${q.url()})`)
+      );
+    }
+    // En la Cesta Blue no repite el aviso (allí se ve la cuenta atrás) ni lo repite después: es UNA vez por reserva.
+    await q.waitForTimeout(3000);
+    ok(!/Tu reserva de/.test((await q.locator("#blue-mensaje").textContent({ timeout: 1000 }).catch(() => "")) ?? ""), "R2: en la Cesta Blue no repite el mensaje");
+    await q.goto(BASE + "/", { waitUntil: "load", timeout: 60000 });
+    await q.waitForSelector("#blue-flotante", { timeout: 25000 });
+    await q.waitForTimeout(2500);
+    await abrirPanelAvisos(q);
+    const suma = await insignia(q);
+    ok(suma === base + 1, `R2: la reserva que vence suma 1 al número rojo (${suma}, sin cesta: ${base})`);
+    const texto = await q.evaluate(() => document.body.innerText);
+    ok(/Tu reserva de «Consola Urgente» vence en [1-5] min/.test(texto) && /Termina el pedido para no perderlo/.test(texto), "R2: el panel dice que la reserva vence y qué hacer");
+    const fila = q.getByRole("button", { name: /Tu reserva de «Consola Urgente»/ });
+    const alto = (await fila.first().boundingBox())?.height ?? 0;
+    ok(alto >= 47.5, `R2: la fila mide 48 px o más (${Math.round(alto)})`);
+    await capturar(q, "05-reserva-vence");
+    await fila.first().tap();
+    await q.waitForURL(/\/cesta/, { timeout: 15000 }).then(
+      () => ok(true, "R2: tocar la fila lleva a la cesta"),
+      () => ok(false, `R2: tocar la fila debía llevar a la cesta (está en ${q.url()})`)
+    );
+    // (se espera: el panel se cierra con una breve animación mientras cambia la pantalla)
+    ok(await q.getByRole("tab", { name: /Asistente/ }).first().waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false), "R2: y el panel se cierra");
+    ok(q.errores.length === 0, `R2: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+    await c.close();
+  }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {
