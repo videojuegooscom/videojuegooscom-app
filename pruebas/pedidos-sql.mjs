@@ -6,8 +6,8 @@
  * 20261018110000_pedidos_idempotencia.sql:
  *  1) Concurrencia: dos peticiones con la misma clave (la segunda ESPERA a la primera y devuelve el mismo
  *     pedido), y 20 a la vez con la misma clave, o con claves distintas pero la misma compra.
- *  2) Una clave no se puede reutilizar con otros productos, otra entrega ni otra persona; los importes
- *     salen siempre de la base de datos, nunca del cliente.
+ *  2) Una clave no se puede reutilizar con otros productos ni otra persona; los importes salen siempre de
+ *     la base de datos, nunca del cliente.
  *  3) Permisos: quién puede ejecutar qué, SECURITY DEFINER y search_path, RLS de pedidos y artículos
  *     (anon no ve nada, cada cliente solo lo suyo, el admin todo, nadie escribe directamente).
  *  4) La función antigua crear_pedido NO permite saltarse la idempotencia (control: SIN la migración sí
@@ -15,6 +15,10 @@
  *  5) Fallos: producto no disponible (la clave no se «quema»), fallo a mitad de la operación (todo se
  *     deshace), respuesta perdida y reintento, cliente que se cae a mitad de transacción.
  *  6) Ventana de 10 minutos, pedidos no pendientes, migración repetida y vuelta atrás.
+ *  7) Datos corregidos: nunca se devuelve un pedido con datos viejos. Con la misma clave (respuesta perdida)
+ *     o con sesión, el pedido pendiente se corrige (teléfono, dirección, envío↔recogida) sin duplicarse; sin
+ *     sesión y con otra clave, datos distintos son otro pedido y el anterior no se toca; un pedido ya
+ *     tramitado no se cambia; 20 reintentos a la vez con datos distintos dejan 1 pedido coherente.
  * NO toca producción: solo habla con el servidor local de pruebas.
  *
  * Uso: node pruebas/pedidos-sql.mjs postgresql://postgres@127.0.0.1:55432
@@ -202,14 +206,13 @@ try {
     const r1 = await crear(b, u1, k, [A, C]);
     const e1 = await error(crear(b, u1, k, [A]));
     ok(/ya se usó con otro pedido/.test(e1), "clave reutilizada con OTROS PRODUCTOS: falla");
-    const e2 = await error(crear(b, u1, k, [A, C], { ...DATOS, entrega: "envio", direccion: "Calle Falsa 123", codigo_postal: "50001", ciudad: "Zaragoza" }));
-    ok(/ya se usó con otro pedido/.test(e2), "clave reutilizada con OTRA ENTREGA: falla");
     const e3 = await error(crear(b, u2, k, [A, C]));
     ok(/ya se usó con otro pedido/.test(e3), "clave reutilizada por OTRO USUARIO: falla");
     const e4 = await error(crear(b, anon, k, [A, C]));
     ok(/ya se usó con otro pedido/.test(e4), "clave de un usuario con sesión reutilizada por un VISITANTE sin sesión: falla");
     const r2 = await crear(b, u1, k, [C, A], { ...DATOS, notas: "otro texto" });
-    ok(r2.repetido === true && r2.numero === r1.numero, "mismo usuario, mismo carrito en otro orden y otras notas: devuelve el pedido original (reintento)");
+    ok(r2.repetido === true && r2.numero === r1.numero, "mismo usuario, mismo carrito en otro orden y otras notas: devuelve el MISMO pedido (reintento)");
+    ok((await como(b, dueno, `select coalesce(notas, '') from public.pedidos where clave_unica = '${k}'`)) === "otro texto", "y el pedido se queda con las notas corregidas, no con las viejas");
     ok((await n(b, `select count(*) from public.pedidos where clave_unica = '${k}'`)) === 1, "tras todos esos intentos, 1 solo pedido con esa clave");
     ok(!/prueba@example\.com|Cliente Prueba|600123123/.test(e3 + e4), "el mensaje de error al reutilizar la clave de otra persona no revela datos del pedido original (nombre, correo, teléfono)");
   }
@@ -360,6 +363,74 @@ try {
     await db.aplicar(b3, [MIG]);
     const r4 = await crear(b3, u1, clave(1104), [C]);
     ok(r4.repetido === false, "tras la vuelta atrás se puede volver a aplicar la migración y funciona");
+  }
+
+  // ---------------------------------------------------------------- 7) datos corregidos: nunca se devuelve un pedido con datos viejos
+  {
+    const b4 = await nueva(true);
+    const datosDe = (num) =>
+      como(b4, dueno, `select entrega || '|' || telefono || '|' || coalesce(direccion, '') || '|' || coalesce(codigo_postal, '') || '|' || coalesce(ciudad, '') || '|' || email from public.pedidos where numero = ${Number(num)}`);
+    const ENVIO = { ...DATOS, entrega: "envio", direccion: "Calle Vieja 1", codigo_postal: "50001", ciudad: "Zaragoza" };
+
+    // a) Respuesta perdida y el cliente corrige teléfono y dirección: la MISMA clave da el mismo pedido, con los datos nuevos.
+    const corrige = { ...ENVIO, email: "corrige@example.com" };
+    const r1 = await crear(b4, anon, clave(1200), [A], corrige);
+    const r2 = await crear(b4, anon, clave(1200), [A], { ...corrige, telefono: "699999999", direccion: "Calle Nueva 2" });
+    ok(r2.repetido === true && r2.numero === r1.numero && r2.actualizado === true, `misma clave con teléfono y dirección corregidos: el MISMO pedido (nº ${r1.numero} y nº ${r2.numero}), marcado como actualizado (${r2.actualizado})`);
+    const d2 = await datosDe(r1.numero);
+    ok(d2 === "envio|699999999|Calle Nueva 2|50001|Zaragoza|corrige@example.com", `y el pedido guarda los datos NUEVOS, no los viejos (${d2})`);
+    const r3 = await crear(b4, anon, clave(1200), [A], { ...corrige, telefono: "699999999", direccion: "Calle Nueva 2" });
+    ok(r3.repetido === true && r3.numero === r1.numero && r3.actualizado === false, "reintento real con los MISMOS datos: el mismo pedido y no se toca nada (actualizado=false)");
+
+    // b) Respuesta perdida y cambio de envío a recogida con la misma clave: no se duplica y la entrega cambia.
+    const r4 = await crear(b4, anon, clave(1200), [A], { ...DATOS, email: "corrige@example.com", telefono: "699999999" });
+    ok(r4.repetido === true && r4.numero === r1.numero, `misma clave y cambio de envío a recogida: el MISMO pedido, no otro (nº ${r4.numero})`);
+    const d4 = await datosDe(r1.numero);
+    ok(d4 === "recogida|699999999||||corrige@example.com", `y queda como recogida en tienda, sin la dirección de envío (${d4})`);
+    ok((await n(b4, "select count(*) from public.pedidos where lower(email) = 'corrige@example.com'")) === 1, "con todos esos cambios sigue habiendo 1 solo pedido de esa compra");
+
+    // c) Con sesión: pedido hecho y, en menos de 10 min, la misma compra con OTRA clave y otra dirección (el cliente
+    //    lo corrige): se corrige ese pedido. La sesión prueba que es la misma persona.
+    const s1 = await crear(b4, u1, clave(1210), [B], ENVIO);
+    const s2 = await crear(b4, u1, clave(1211), [B], { ...ENVIO, direccion: "Calle Corregida 3", ciudad: "Huesca" });
+    ok(s2.repetido === true && s2.numero === s1.numero && s2.actualizado === true, `con sesión, la misma compra con otra clave y otra dirección: el mismo pedido, corregido (nº ${s1.numero} y nº ${s2.numero})`);
+    ok((await datosDe(s1.numero)).startsWith("envio|600123123|Calle Corregida 3|50001|Huesca|"), "y guarda la dirección corregida");
+    const s3 = await crear(b4, u1, clave(1212), [B], DATOS);
+    ok(s3.numero === s1.numero && (await datosDe(s1.numero)).startsWith("recogida|600123123||||"), "con sesión, cambio a recogida con otra clave: el mismo pedido, ahora recogida (sin duplicar)");
+    ok((await n(b4, `select count(*) from public.pedidos where user_id = '${U1}'`)) === 1, "con sesión: 1 solo pedido tras las correcciones");
+
+    // d) Sin sesión, mismo correo y carrito pero OTRA clave y otros datos: se trata como otro pedido con sus
+    //    datos (el correo por sí solo no identifica a la persona) y el anterior no se toca.
+    const invitado = { ...ENVIO, email: "invitado@example.com" };
+    const v1 = await crear(b4, anon, clave(1220), [C], invitado);
+    const v2 = await crear(b4, anon, clave(1221), [C], { ...invitado, direccion: "Calle Otra 9" });
+    ok(v2.repetido === false && v2.numero !== v1.numero, `sin sesión, mismo correo y carrito con otra dirección y otra clave: NO devuelve el pedido viejo (nº ${v1.numero} y nº ${v2.numero})`);
+    ok((await datosDe(v1.numero)).includes("Calle Vieja 1") && (await datosDe(v2.numero)).includes("Calle Otra 9"), "el pedido anterior conserva su dirección y el nuevo lleva la suya");
+    const v3 = await crear(b4, anon, clave(1222), [C], { ...invitado, email: "INVITADO@example.com", direccion: "Calle Otra 9" });
+    ok(v3.repetido === true && v3.numero === v2.numero, "repetir ese pedido con los MISMOS datos (otra clave, correo en mayúsculas) sí es la misma compra");
+
+    // e) Pedido ya tramitado por la tienda: la misma clave con datos distintos devuelve el pedido pero NO lo cambia.
+    const t1 = await crear(b4, anon, clave(1230), [E], { ...ENVIO, email: "tramitado@example.com" });
+    await como(b4, dueno, `update public.pedidos set estado = 'confirmado' where numero = ${Number(t1.numero)}`);
+    const t2 = await crear(b4, anon, clave(1230), [E], { ...ENVIO, email: "tramitado@example.com", telefono: "611111111" });
+    ok(t2.repetido === true && t2.numero === t1.numero && t2.actualizado === false, "misma clave cuando la tienda ya confirmó el pedido: el mismo número, sin cambiarlo (actualizado=false)");
+    ok((await datosDe(t1.numero)).includes("|600123123|"), "y el pedido confirmado conserva sus datos");
+
+    // f) 20 reintentos SIMULTÁNEOS con la misma clave y teléfonos distintos: 1 pedido y coherente.
+    const telefonos = Array.from({ length: 20 }, (_, i) => `6000000${String(i).padStart(2, "0")}`);
+    const rafaga = await enRafaga(b4, anon, telefonos.map((t) => sqlCrear(clave(1240), [F], { ...DATOS, email: "rafaga@example.com", telefono: t })));
+    const buenas = rafaga.filter((x) => x.ok).map(json);
+    ok(
+      buenas.length === 20 && new Set(buenas.map((x) => x.numero)).size === 1 && buenas.filter((x) => !x.repetido).length === 1,
+      `20 reintentos SIMULTÁNEOS con la misma clave y datos distintos: 1 pedido (respuestas ${buenas.length}, números ${new Set(buenas.map((x) => x.numero)).size}, creados ${buenas.filter((x) => !x.repetido).length})`
+    );
+    const tel = await como(b4, dueno, `select telefono from public.pedidos where clave_unica = '${clave(1240)}'`);
+    ok(telefonos.includes(tel) && (await n(b4, `select count(*) from public.pedidos where clave_unica = '${clave(1240)}'`)) === 1, `y el pedido queda con uno de los teléfonos enviados (${tel}), en una sola fila`);
+
+    // g) La función antigua (navegador viejo: clave al azar en cada llamada) con sesión y teléfono corregido: corrige, no duplica.
+    const o1 = await crearAntiguo(b4, u2, [A, B], ENVIO);
+    const o2 = await crearAntiguo(b4, u2, [A, B], { ...ENVIO, telefono: "622222222" });
+    ok(o1 === o2 && (await datosDe(o1)).includes("|622222222|") && (await n(b4, `select count(*) from public.pedidos where user_id = '${U2}'`)) === 1, `función antigua con sesión y teléfono corregido: el mismo pedido (nº ${o1} y nº ${o2}), con el teléfono nuevo`);
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.message).slice(0, 800)}`);

@@ -131,28 +131,38 @@ function nuevoUuid(): string {
   });
 }
 
-// La misma clave mientras el carrito y la entrega no cambien (30 min): así reintentar, aunque se
-// recargue la página, no crea otro pedido. Una clave nueva si cambia el carrito.
-async function claveDelPedido(items: CartItem[], entrega: string): Promise<string> {
-  const huella = `${entrega}:${items.map((it) => it.id).sort().join(",")}`;
+// La misma clave mientras el carrito no cambie (30 min): así reintentar, aunque se recargue la página,
+// no crea otro pedido. Una clave nueva si cambia el carrito. Cambiar los datos (teléfono, dirección,
+// envío↔recogida) NO cambia la clave: si la respuesta se perdió, el servidor corrige ese mismo pedido
+// en vez de crear otro.
+type ClaveGuardada = { clave: string; huella: string; creada: number };
+// Copia en memoria por si el navegador no deja guardar (modo privado, almacenamiento bloqueado): así
+// los reintentos de esta pantalla siguen mandando la misma clave.
+let claveEnMemoria: ClaveGuardada | null = null;
+
+async function claveDelPedido(items: CartItem[]): Promise<string> {
+  const huella = items.map((it) => it.id).sort().join(",");
+  const vale = (g: Partial<ClaveGuardada> | null | undefined): g is ClaveGuardada =>
+    !!g?.clave && g.huella === huella && typeof g.creada === "number" && Date.now() - g.creada < PEDIDO_CLAVE_MINUTOS * 60000;
   try {
     const raw = await AsyncStorage.getItem(PEDIDO_CLAVE_KEY);
-    if (raw) {
-      const g = JSON.parse(raw) as { clave?: string; huella?: string; creada?: number };
-      if (g?.clave && g.huella === huella && typeof g.creada === "number" && Date.now() - g.creada < PEDIDO_CLAVE_MINUTOS * 60000) {
-        return g.clave;
-      }
+    const g = raw ? (JSON.parse(raw) as Partial<ClaveGuardada>) : null;
+    if (vale(g)) {
+      claveEnMemoria = g;
+      return g.clave;
     }
   } catch {
-    // sin clave guardada: se crea una nueva
+    // sin clave guardada: se mira la de memoria o se crea una nueva
   }
-  const clave = nuevoUuid();
+  if (vale(claveEnMemoria)) return claveEnMemoria.clave;
+  const nueva: ClaveGuardada = { clave: nuevoUuid(), huella, creada: Date.now() };
+  claveEnMemoria = nueva;
   try {
-    await AsyncStorage.setItem(PEDIDO_CLAVE_KEY, JSON.stringify({ clave, huella, creada: Date.now() }));
+    await AsyncStorage.setItem(PEDIDO_CLAVE_KEY, JSON.stringify(nueva));
   } catch {
-    // sin almacenamiento: la clave vale igual para los reintentos de esta pantalla
+    // sin almacenamiento: vale la copia en memoria para los reintentos de esta pantalla
   }
-  return clave;
+  return nueva.clave;
 }
 
 // ¿Falla porque la función nueva aún no existe en la base de datos (migración sin aplicar) o ya no
@@ -452,7 +462,7 @@ export default function CheckoutScreen() {
           notas: safeStr(notes),
         };
         const ids = items.map((it) => it.id);
-        const clave = await claveDelPedido(items, entrega);
+        const clave = await claveDelPedido(items);
         const r = await supabase.rpc("crear_pedido_idempotente", { p_clave: clave, p_datos: datos, p_productos: ids });
         if (!r.error && r.data && typeof r.data === "object") {
           const res = r.data as { numero?: number | string; repetido?: boolean };
@@ -465,18 +475,24 @@ export default function CheckoutScreen() {
           if (!error && data != null) numero = Number(data);
         }
         // Con número, esta operación ya está hecha: la próxima compra empieza con clave nueva.
-        if (numero) await AsyncStorage.removeItem(PEDIDO_CLAVE_KEY);
+        if (numero) {
+          claveEnMemoria = null;
+          await AsyncStorage.removeItem(PEDIDO_CLAVE_KEY);
+        }
       } catch {
         // sin número: se sigue por WhatsApp (la clave queda guardada para el reintento)
       }
       // Si el pedido lleva artículos de VeoAura, el servidor avisa a VeoAura para que no los
-      // venda también en la tienda física (api/escaparate-retorno.ts). No se espera. Un reintento
-      // (repetido) no vuelve a avisar ni a contar como una venta nueva.
+      // venda también en la tienda física (api/escaparate-retorno.ts). No se espera. Se despierta
+      // también con un pedido repetido: si la primera respuesta se perdió, nadie lo había hecho, y
+      // es seguro repetirlo (solo procesa lo que hay en la base de datos y cada aviso sale una sola
+      // vez por pedido y artículo, escaparate_salida).
+      if (numero && Platform.OS === "web") {
+        fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
+      }
+      // Un reintento (repetido) no vuelve a contar como una venta nueva: el primer intento ya lo
+      // contó, aunque se quedara sin número.
       if (!repetido) {
-        if (numero && Platform.OS === "web") {
-          fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
-        }
-
         trackEvent("order_whatsapp", "Pedido por WhatsApp", {
           path: "/checkout",
           metadata: { numero, total, items: items.length, entrega },

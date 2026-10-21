@@ -7,11 +7,14 @@
  * 1. Doble toque en «Confirmar pedido»: sale UNA sola petición a crear_pedido_idempotente, con una
  *    clave (UUID), y el aviso a VeoAura (/api/escaparate-retorno) sale una sola vez.
  * 2. Fallo de red y reintento tras recargar la página: el segundo intento manda la MISMA clave.
- * 3. Si el servidor responde repetido = true: se muestra el mismo número y no se vuelve a avisar a
- *    VeoAura.
+ * 3. Si el servidor responde repetido = true: se muestra el mismo número y se despierta igualmente el
+ *    aviso a VeoAura (si la primera respuesta se perdió nadie lo había hecho; repetirlo es seguro porque
+ *    api/escaparate-retorno.ts solo procesa lo que hay en la base de datos y avisa una vez por pedido).
  * 4. Si la función nueva aún no existe en la base de datos (migración sin aplicar): cae a la antigua
  *    crear_pedido y el pedido sigue adelante.
  * 5. Tras un pedido hecho, la clave guardada se borra (la siguiente compra empieza con clave nueva).
+ * 6. Respuesta perdida y el cliente cambia de recogida a envío (con su dirección): el reintento manda la
+ *    MISMA clave con los datos nuevos (el servidor corrige ese pedido en vez de crear otro).
  * NO prueba la base de datos: eso está en supabase/tests/crear_pedido_idempotente.sql.
  *
  * Uso:   node pruebas/pedido-idempotente.mjs [direccion_o_carpeta]
@@ -120,17 +123,22 @@ async function escenario(navegador, nombre, respuestas, { retraso = 0, antiguo =
   return { ctx, llamadas, nombre };
 }
 
-async function rellenarYEnviar(p, { doble = false } = {}) {
+async function rellenarYEnviar(p, { doble = false, envio = false } = {}) {
   const boton = p.getByText(/Confirmar pedido/).last();
   // Con el equipo justo de CPU la página tarda en «despertar» (hidratar) y lo que se escribe antes se pierde:
   // el botón sigue desactivado y el clic esperaría 30 s (comprobado: con otra prueba de navegador a la vez
   // fallaba). Se repite el rellenado hasta que el botón se activa, y si no se activa se dice claramente.
   let activo = false;
   for (let intento = 0; intento < 6 && !activo; intento++) {
-    await p.getByRole("radio", { name: /Recogida en tienda/ }).click();
+    await p.getByRole("radio", { name: envio ? /Envío a domicilio/ : /Recogida en tienda/ }).click();
     await p.getByPlaceholder("Nombre completo").fill("Cliente de Prueba");
     await p.getByPlaceholder("tu@email.com").fill("prueba@example.com");
     await p.getByPlaceholder("627 748 741").fill("600123123");
+    if (envio) {
+      await p.getByPlaceholder("Calle, número, piso...").fill("Calle de Prueba 1");
+      await p.getByPlaceholder("50001").fill("50001");
+      await p.getByPlaceholder("Zaragoza").fill("Zaragoza");
+    }
     for (let i = 0; i < 6 && !activo; i++) {
       activo = await boton.isEnabled();
       if (!activo) await p.waitForTimeout(500);
@@ -180,7 +188,7 @@ try {
     await ctx.close();
   }
 
-  // 3) Repetido: mismo número y sin avisar otra vez a VeoAura.
+  // 3) Repetido: mismo número y se despierta el aviso a VeoAura (seguro: solo procesa lo que hay en la base de datos).
   {
     const { ctx, llamadas } = await escenario(navegador, "repetido", [{ numero: 103, repetido: true }]);
     const p = await ctx.newPage();
@@ -189,7 +197,26 @@ try {
     await p.getByText(/Pedido nº 103 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
     await p.waitForTimeout(1500);
     ok(await p.getByText(/Pedido nº 103 recibido/).count() > 0, "repetido: se muestra el número del pedido ya existente");
-    ok(llamadas.retorno === 0, `repetido: no se avisa otra vez a VeoAura (${llamadas.retorno})`);
+    ok(llamadas.retorno === 1, `repetido: se despierta el aviso a VeoAura una vez (por si la primera respuesta se perdió) (${llamadas.retorno})`);
+    await ctx.close();
+  }
+
+  // 6) Respuesta perdida y cambio de recogida a envío: la MISMA clave con los datos nuevos.
+  {
+    const { ctx, llamadas } = await escenario(navegador, "cambio de entrega", ["red", { numero: 106, repetido: true, actualizado: true }]);
+    const p = await ctx.newPage();
+    await p.goto(BASE + "/checkout", { waitUntil: "load", timeout: 60000 });
+    await rellenarYEnviar(p);
+    await p.waitForTimeout(2500); // el primer intento (recogida) falla por red
+    await p.reload({ waitUntil: "load" });
+    await rellenarYEnviar(p, { envio: true });
+    await p.getByText(/Pedido nº 106 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const [a, b] = llamadas.nuevo;
+    ok(llamadas.nuevo.length === 2 && a?.p_datos?.entrega === "recogida" && b?.p_datos?.entrega === "envio", `cambio de entrega: primero recogida y después envío (${a?.p_datos?.entrega} → ${b?.p_datos?.entrega})`);
+    ok(!!a?.p_clave && a.p_clave === b?.p_clave, `cambio de entrega: el reintento manda la MISMA clave, así que el servidor corrige ese pedido y no crea otro (${a?.p_clave} / ${b?.p_clave})`);
+    ok(b?.p_datos?.direccion === "Calle de Prueba 1" && b?.p_datos?.codigo_postal === "50001", "cambio de entrega: el reintento lleva la dirección nueva");
+    ok(await p.getByText(/Pedido nº 106 recibido/).count() > 0 && llamadas.retorno === 1, `cambio de entrega: se muestra el pedido y se despierta el aviso a VeoAura (${llamadas.retorno})`);
     await ctx.close();
   }
 
