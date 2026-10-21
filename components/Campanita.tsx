@@ -61,8 +61,9 @@
  *     sin sesión, NOVEDADES_AVISOS_KEY), cuenta los productos con products.novedad_en
  *     posterior a la última vez que los vio. Apagado por defecto.
  *   · «Avísame cuando llegue» (con sesión): el cliente apunta hasta 10 búsquedas
- *     (tabla avisos_busqueda; también desde el catálogo sin resultados con
- *     crearAvisoBusqueda) y Blue le avisa cuando entra un artículo con todas esas palabras.
+ *     (tabla avisos_busqueda; también desde el catálogo y desde el buscador de Inicio cuando una
+ *     búsqueda no encuentra nada, con crearAvisoBusqueda) y Blue le avisa cuando entra un artículo
+ *     con todas esas palabras.
  *   · Bajada de precio: de lo que le gusta (LIKED_PRODUCTS_KEY) o tiene en la cesta
  *     (CART_KEY) se guarda en el móvil el precio visto (PRECIOS_VISTOS_KEY); si baja, avisa.
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
@@ -106,7 +107,7 @@ import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/anal
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
-import { asegurarCssSiriTexto, escribirEnBuscadorDemo, TextoSiri } from "./Barramagic";
+import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -190,6 +191,8 @@ export async function crearAvisoBusqueda(texto: string): Promise<"ok" | "sin_ses
     return "error";
   }
 }
+// El buscador de Inicio (components/Barramagic.tsx) lo ofrece cuando no encuentra nada.
+registrarAvisoLlegada(crearAvisoBusqueda);
 
 async function leerJsonLocal<T>(clave: string, porDefecto: T): Promise<T> {
   try {

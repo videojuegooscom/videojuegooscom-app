@@ -433,7 +433,7 @@ export default function CatalogoScreen() {
     const r = await crearAvisoBusqueda(q);
     if (r === "ok") setAvisoMsg("Hecho: Blue te avisará en cuanto llegue.");
     else if (r === "sin_sesion") router.push(`/perfil?aviso=${encodeURIComponent("Inicia sesión para que te avisemos cuando llegue")}` as Href);
-    else if (r === "limite") setAvisoMsg("Ya tienes 10 avisos: quita alguno desde las notificaciones de Blue.");
+    else if (r === "limite") setAvisoMsg("Ya tienes 10 avisos: quita alguno desde «Noticias y avisos» de Blue.");
     else setAvisoMsg("No se ha podido crear el aviso. Inténtalo de nuevo.");
   }, [q]);
   useEffect(() => setAvisoMsg(null), [q]);

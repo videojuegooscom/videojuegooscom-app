@@ -8,7 +8,11 @@
  *  B) «Blog»: ofrece «Blog» (lleva a /blog); con Intro va directo a /blog.
  *  C) «consola»: salen los dos productos (título y precio con céntimos) y, MÁS ABAJO, la sección «Catálogo»;
  *     tocar un producto abre su ficha; con Intro se abre /catalogo?query=consola.
- *  D) Algo que no existe: «No hay productos para…» y «Preguntar a Blue IA» (lleva a /blue-ia?q=…).
+ *  D) Algo que no existe: «No hay productos para…», «Preguntar a Blue IA» (lleva a /blue-ia?q=…) y «Avísame cuando
+ *     llegue» (solo aquí: no sale si hay productos ni si encaja una sección como «Blog»).
+ *  H) Sin sesión, «Avísame cuando llegue» lleva a iniciar sesión (/perfil?aviso=…) y no crea nada.
+ *  I) Con sesión (SIMULADA), «Avísame cuando llegue» crea el aviso con lo escrito (la escritura se corta y se simula),
+ *     confirma en el panel y el panel se cierra solo; también se prueba el límite de 10 avisos y un error.
  *  E) Diseño en 390 px: el panel cabe en la pantalla, queda debajo de la barra, cada fila mide 44 px o más, la página
  *     no se ensancha y no hay errores de consola; la «x» borra y cierra; Escape cierra.
  *  F) Con la barra arrastrada ABAJO, el panel sale encima de ella.
@@ -82,21 +86,48 @@ const PRODUCTOS = [
   { id: P2, title: "Consola Prueba Dos", price_eur: 89.5, images: [] },
 ];
 const buscadas = []; // textos que la tienda ha buscado en la base de datos
+const creados = []; // textos de «Avísame cuando llegue» que la tienda ha intentado crear (simulado: no se escribe nada)
+const respuestaAviso = { status: 201, cuerpo: "" }; // lo que «responde» la base de datos simulada al crear un aviso
+const USUARIO_FALSO = { id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated", email: "cliente@example.com", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
+const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
 
-async function contexto(navegador) {
+async function contexto(navegador, sesion = false) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "es-ES" });
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript(([conSesion, usuario]) => {
     try {
       localStorage.setItem("videojuegoos.analytics.consent", "declined");
       localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
+      if (conSesion) {
+        // Sesión falsa (clave de lib/supabase.ts). Nunca llega a ningún servidor.
+        const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+        const exp = Math.floor(Date.now() / 1000) + 3600;
+        const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: usuario.id, role: "authenticated", exp, aud: "authenticated", email: usuario.email })}.firma`;
+        localStorage.setItem("videojuegoos.supabase.auth", JSON.stringify({ access_token: jwt, refresh_token: "r", expires_at: exp, expires_in: 3600, token_type: "bearer", user: usuario }));
+      }
     } catch {
       // sin almacenamiento
     }
-  });
+  }, [sesion, USUARIO_FALSO]);
+  if (sesion) {
+    await ctx.route("**/auth/v1/user", (r) => r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(USUARIO_FALSO) }));
+  }
   await ctx.route("**/rest/v1/**", async (r) => {
     const peticion = r.request();
-    if (!["GET", "HEAD"].includes(peticion.method())) return r.abort();
     const url = new URL(peticion.url());
+    if (peticion.method() === "OPTIONS") return r.fulfill({ status: 204, headers: CORS });
+    if (sesion && url.pathname.endsWith("/profiles")) {
+      return r.fulfill({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify({ id: USUARIO_FALSO.id, role: "customer" }) });
+    }
+    // Crear un aviso (la única escritura que se deja «pasar», y solo hacia esta respuesta simulada).
+    if (peticion.method() === "POST" && url.pathname.endsWith("/avisos_busqueda")) {
+      try {
+        creados.push(String(JSON.parse(peticion.postData() ?? "{}").texto ?? ""));
+      } catch {
+        creados.push("(ilegible)");
+      }
+      return r.fulfill({ status: respuestaAviso.status, contentType: "application/json", headers: CORS, body: respuestaAviso.cuerpo });
+    }
+    if (!["GET", "HEAD"].includes(peticion.method())) return r.abort();
     const o = url.searchParams.get("or") ?? "";
     if (url.pathname.endsWith("/products") && /ilike/.test(o)) {
       const texto = (o.match(/title\.ilike\.%(.*?)%/) ?? [])[1] ?? "";
@@ -159,6 +190,7 @@ try {
     const fila = panel.getByRole("link", { name: /Iniciar sesión/ });
     ok((await fila.count()) === 1, "A: ofrece la opción «Iniciar sesión»");
     ok((await y(panel.getByText("No hay productos para"))) < (await y(fila)), "A: la opción sale debajo del aviso");
+    ok((await panel.getByText(/Avísame cuando llegue/).count()) === 0, "A: no ofrece «Avísame cuando llegue» (encaja una sección)");
     await capturar(p, "A-inicio-de-sesion");
     await fila.click();
     await p.waitForURL(/\/perfil\?acceso=entrar/, { timeout: 15000 }).then(
@@ -174,6 +206,7 @@ try {
     await escribir(p, "Blog");
     const fila = p.locator("#buscador-resultados").getByRole("link", { name: /^Blog/ });
     ok((await fila.count()) === 1, "B: «Blog» ofrece la sección Blog");
+    ok((await p.locator("#buscador-resultados").getByText(/Avísame cuando llegue/).count()) === 0, "B: no ofrece «Avísame cuando llegue» (encaja una sección)");
     await fila.click();
     await p.waitForURL(/\/blog$/, { timeout: 15000 }).then(
       () => ok(true, "B: tocarla lleva a /blog"),
@@ -205,6 +238,7 @@ try {
     ok((await y(seccion)) > (await y(f2)), "C: la sección sale MÁS ABAJO que los productos");
     ok((await panel.getByText("No hay productos").count()) === 0, "C: sin el aviso de «no hay productos»");
     ok((await panel.getByText(/Preguntar a Blue IA/).count()) === 0, "C: ni «Preguntar a Blue IA» (hay productos)");
+    ok((await panel.getByText(/Avísame cuando llegue/).count()) === 0, "C: ni «Avísame cuando llegue» (hay productos)");
     await capturar(p, "C-consola");
     await f1.click();
     await p.waitForURL(new RegExp(`/producto/${P1}`), { timeout: 15000 }).then(
@@ -232,6 +266,10 @@ try {
     ok((await panel.getByRole("link", { name: /Iniciar sesión|Blog|Catálogo/ }).count()) === 0, "D: y ninguna sección que no encaje");
     const preguntar = panel.getByRole("link", { name: /Preguntar a Blue IA/ });
     ok((await preguntar.count()) === 1, "D: ofrece «Preguntar a Blue IA»");
+    const avisar = panel.getByRole("link", { name: /Avísame cuando llegue: zzzxx/ });
+    ok((await avisar.count()) === 1, "D: ofrece «Avísame cuando llegue: «zzzxx»»");
+    ok((await y(preguntar)) < (await y(avisar)), "D: «Avísame cuando llegue» sale debajo de «Preguntar a Blue IA»");
+    ok(((await avisar.first().boundingBox())?.height ?? 0) >= 44, `D: la fila de «Avísame cuando llegue» mide 44 px o más (${Math.round((await avisar.first().boundingBox())?.height ?? 0)})`);
     await capturar(p, "D-sin-resultados");
     await preguntar.click();
     await p.waitForURL(/\/blue-ia\?q=zzzxx/, { timeout: 15000 }).then(
@@ -239,6 +277,50 @@ try {
       () => ok(false, `D: debía llevar a /blue-ia?q=zzzxx (está en ${p.url()})`)
     );
     await p.close();
+  }
+
+  // H) Sin sesión: «Avísame cuando llegue» lleva a iniciar sesión y no crea nada
+  {
+    const antes = creados.length;
+    const p = await nueva(ctx);
+    await escribir(p, "zzzxx");
+    await p.locator("#buscador-resultados").getByRole("link", { name: /Avísame cuando llegue: zzzxx/ }).click();
+    await p.waitForURL(/\/perfil\?aviso=/, { timeout: 15000 }).then(
+      () => ok(true, "H: sin sesión, tocarla lleva a /perfil?aviso=… (iniciar sesión)"),
+      () => ok(false, `H: sin sesión debía llevar a /perfil?aviso=… (está en ${p.url()})`)
+    );
+    ok(creados.length === antes, "H: sin sesión no se crea ningún aviso");
+    await p.close();
+  }
+
+  // I) Con sesión (simulada): crea el aviso, lo confirma y el panel se cierra solo; límite de 10 y error
+  {
+    const conSesion = await contexto(navegador, true);
+    const casos = [
+      { texto: "zzzxx", respuesta: { status: 201, cuerpo: "" }, mensaje: "Hecho: Blue te avisará en cuanto llegue.", nombre: "se crea" },
+      { texto: "zzzyy", respuesta: { status: 400, cuerpo: JSON.stringify({ code: "P0001", message: "Solo puedes tener 10 avisos", details: null, hint: null }) }, mensaje: "Ya tienes 10 avisos", nombre: "límite de 10" },
+      { texto: "zzzww", respuesta: { status: 500, cuerpo: JSON.stringify({ message: "fallo simulado" }) }, mensaje: "No se ha podido crear el aviso", nombre: "error" },
+    ];
+    for (const caso of casos) {
+      Object.assign(respuestaAviso, caso.respuesta);
+      const antes = creados.length;
+      const p = await nueva(conSesion);
+      const campo = await escribir(p, caso.texto);
+      const panel = p.locator("#buscador-resultados");
+      const fila = panel.getByRole("link", { name: new RegExp(`Avísame cuando llegue: ${caso.texto}`) });
+      ok((await fila.count()) === 1, `I (${caso.nombre}): con sesión sale la fila «Avísame cuando llegue»`);
+      await fila.click();
+      const dicho = await panel.getByText(caso.mensaje).waitFor({ timeout: 8000 }).then(() => true, () => false);
+      ok(dicho, `I (${caso.nombre}): el panel confirma «${caso.mensaje}…»`);
+      ok(creados.length === antes + 1 && creados[creados.length - 1] === caso.texto, `I (${caso.nombre}): la tienda intentó crear el aviso con lo escrito («${creados[creados.length - 1] ?? ""}»)`);
+      if (caso.nombre === "se crea") await capturar(p, "I-aviso-creado");
+      ok(await panel.waitFor({ state: "detached", timeout: 7000 }).then(() => true, () => false), `I (${caso.nombre}): el panel se cierra solo`);
+      ok((await campo.inputValue()) === "", `I (${caso.nombre}): y el campo queda vacío`);
+      ok(p.errores.length === 0, `I (${caso.nombre}): sin errores de consola ni de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+      await p.close();
+    }
+    Object.assign(respuestaAviso, { status: 201, cuerpo: "" });
+    await conSesion.close();
   }
 
   // E) Diseño en 390 px, «x» y Escape
