@@ -3436,9 +3436,13 @@ function GuiaBlue({
         (!x.soloConProducto || productoId !== null)
     );
     if (!seccion) return aplicables;
-    // Mini-guía: solo los pasos de esa pantalla (si por lo que sea no quedara ninguno, la guía completa: nunca vacía).
+    // Mini-guía: solo los pasos de esa pantalla.
     const deLaSeccion = aplicables.filter((x) => x.seccion === seccion);
-    return deLaSeccion.length ? deLaSeccion : aplicables;
+    if (deLaSeccion.length) return deLaSeccion;
+    // Si no queda ninguno (p. ej. la tienda aún no tiene artículos que enseñar) NO se cambia a la guía completa: se enseña
+    // el paso de esa pantalla tal cual, sin llevar a ninguna ficha.
+    const sinArticulo = PASOS_GUIA.filter((x) => x.seccion === seccion && (!x.soloConSesion || conSesion) && (!x.soloSinSesion || !conSesion));
+    return sinArticulo.length ? sinArticulo : aplicables;
   }, [instalable, conSesion, productoId, seccion]);
   const total = pasos.length;
   const p = pasos[Math.min(paso, pasos.length - 1)];

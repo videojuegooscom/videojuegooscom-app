@@ -313,12 +313,16 @@ try {
 
   // 3) Una ficha de artículo: desde Inicio la guía del artículo te lleva a una ficha (la del artículo más reciente) y, estando
   // en una ficha, enseña «Un artículo» SIN llevarte a otro artículo.
+  // (Con la sesión simulada de --sesion el token es falso y la tienda real no devuelve el artículo más reciente: ahí lo que se
+  // comprueba es que la guía NO salta a la guía completa y se queda en Inicio con su único paso.)
   {
     const i = await paginaMini("/");
-    const ficha = await recorrerMini(i, "Artículo", RUTA_MINI.Artículo);
+    const ficha = await recorrerMini(i, "Artículo", SESION ? /^(\/$|\/producto\/)/ : RUTA_MINI.Artículo);
     sinErrores(i, "Guía rápida Artículo (desde Inicio)");
     await i.close();
-    if (!ficha || !/^\/producto\//.test(ficha)) {
+    if (SESION && ficha === "/") {
+      console.log("INFO Guía rápida Artículo: con la sesión simulada no hay ficha que enseñar; se comprobó que no salta a la guía completa");
+    } else if (!ficha || !/^\/producto\//.test(ficha)) {
       ok(false, `Guía rápida Artículo: la guía debía llevar a una ficha (${ficha})`);
     } else {
       const q = await paginaMini(ficha);
