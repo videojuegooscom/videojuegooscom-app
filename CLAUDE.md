@@ -19,11 +19,12 @@ te corrija algo, te pida aprender algo o tú detectes algo que debes aprender, *
 tabla (no se lo pidas al usuario): añade un insert idempotente (`where not exists` por título) en una
 migración `supabase/migrations/<fecha>_aprendizajes_<tema>.sql`, ábrela con su PR y déjala pendiente:
 aplicarla con `apply_migration` (execute_sql no puede escribir) exige la autorización expresa del
-dueño (regla permanente de «Hábitos obligatorios»). En el apartado 5 de la respuesta di qué lección
+dueño (regla permanente de «Hábitos obligatorios»). En el RESUMEN de la respuesta di qué lección
 has apuntado y que queda pendiente de aplicar.
 
 ## Hábitos obligatorios
 
+- **Formato de respuesta (dueño, 2026-10-20): SOLO 4 apartados, con estos títulos en mayúsculas y en viñetas de una línea: RESUMEN, RECOMENDACIONES, TRABAJO PENDIENTE, MODELO RECOMENDADO.** Los pasos y autorizaciones que necesita el dueño y los comandos de Termius van en TRABAJO PENDIENTE; la lección apuntada (pendiente de aplicar) y los permisos especiales usados, en una línea del RESUMEN.
 - **Un comando simple por llamada.** Nada de `cd … &&`, tuberías `|`, `;`, heredocs (`python3 -`, `cat >>`) ni `sed -i`. Si hacen falta varios pasos, varias llamadas.
 - **Editar archivos solo con las herramientas Edit y Write**, nunca desde Bash.
 - **Leer archivos fuera del repo con la herramienta Read**, no con Bash (la política solo está en `/etc/claude-code`).
