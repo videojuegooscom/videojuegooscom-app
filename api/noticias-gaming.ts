@@ -83,6 +83,78 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // Vercel: margen máximo de ejecución (válido en plan Hobby).
 export const config = { maxDuration: 60 };
 
+// --- Límite de peticiones COMPARTIDO entre instancias --------------------------------------------
+// Este endpoint es público (la app lo despierta al abrir Noticias) y cada llamada puede gastar tiempo de
+// función, base de datos y llamadas a OpenAI. Un cupo compartido por IP y global frena a quien lo martillee.
+// Se apoya en la tabla limites_peticiones y la función consumir_limite
+// (supabase/migrations/20261018120000_limite_peticiones.sql), con la clave de servidor. Si esa función aún
+// no existe o la base de datos no responde, se usa el límite en memoria de esta instancia: nunca se deja
+// pasar todo. (El mismo bloque está en api/escaparate-retorno.ts y api/blue-ia.ts: cada función es
+// autónoma y no comparte archivos.)
+type LimiteCuenta = { max: number; ventanaSegundos: number };
+
+// La IP real del visitante: Vercel la pone en x-vercel-forwarded-for y no se puede falsear desde fuera;
+// x-forwarded-for solo como último recurso (puede traer lo que mande el cliente).
+function ipDelCliente(req: any): string {
+  for (const nombre of ["x-vercel-forwarded-for", "x-real-ip", "x-forwarded-for"]) {
+    const v = req.headers?.[nombre];
+    const primero = Array.isArray(v) ? v[0] : v;
+    if (typeof primero === "string" && primero.trim()) return primero.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "desconocida";
+}
+
+// «Cubo» de la IP: hash de IP + día, módulo 4.096. No se guarda la IP real y la tabla no crece sin límite.
+async function cuboDeIp(ip: string): Promise<string> {
+  const dia = new Date().toISOString().slice(0, 10);
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${dia}`)));
+  return String(((h[0] << 8) | h[1]) % 4096);
+}
+
+const contadoresMemoria = new Map<string, { inicio: number; n: number }>();
+function consumirEnMemoria(clave: string, { max, ventanaSegundos }: LimiteCuenta): { permitido: boolean; reiniciaEn: number } {
+  const ahora = Date.now();
+  const actual = contadoresMemoria.get(clave);
+  const c = actual && ahora - actual.inicio < ventanaSegundos * 1000 ? actual : { inicio: ahora, n: 0 };
+  c.n += 1;
+  contadoresMemoria.set(clave, c);
+  if (contadoresMemoria.size > 2000) {
+    for (const [k, v] of contadoresMemoria) if (ahora - v.inicio > 3_600_000) contadoresMemoria.delete(k);
+  }
+  return { permitido: c.n <= max, reiniciaEn: Math.max(1, Math.ceil((c.inicio + ventanaSegundos * 1000 - ahora) / 1000)) };
+}
+
+async function consumirLimite(supabase: SupabaseClient, clave: string, limite: LimiteCuenta): Promise<{ permitido: boolean; reiniciaEn: number }> {
+  try {
+    const { data, error } = await supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos });
+    if (!error && data && typeof data === "object") {
+      const d = data as { permitido?: boolean; reinicia_en?: number };
+      return { permitido: d.permitido === true, reiniciaEn: Number(d.reinicia_en ?? limite.ventanaSegundos) };
+    }
+  } catch {
+    // sin límite compartido: se usa el de esta instancia
+  }
+  return consumirEnMemoria(clave, limite);
+}
+
+// Primero el cubo de la IP (así un visitante bloqueado no gasta el cupo de todos) y luego el cupo global.
+async function permitirPeticion(
+  supabase: SupabaseClient,
+  req: any,
+  nombre: string,
+  limites: { porIp: LimiteCuenta; global: LimiteCuenta }
+): Promise<{ permitido: boolean; reiniciaEn: number }> {
+  const porIp = await consumirLimite(supabase, `${nombre}:ip:${await cuboDeIp(ipDelCliente(req))}`, limites.porIp);
+  if (!porIp.permitido) return porIp;
+  return consumirLimite(supabase, `${nombre}:global`, limites.global);
+}
+
+// Cupo de las llamadas que no son del cron, cada 10 minutos: abrir Noticias es 1 llamada, así que 12 por IP
+// y 120 en total dan de sobra para el uso normal.
+const LIMITE_VENTANA_S = 600;
+const LIMITE_IP_MAX = 12;
+const LIMITE_GLOBAL_MAX = 120;
+
 const HORAS_ENTRE_ACTUALIZACIONES = 3;
 const MINUTOS_ENTRE_REVISIONES = 10;
 // Llamadas a OpenAI por ejecución: 8 resúmenes + 6 comprobaciones de fotos = 14 como mucho.
@@ -2033,6 +2105,18 @@ export default async function handler(req: any, res: any) {
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    // Quien no es el cron (el navegador de un visitante) tiene un cupo compartido por IP y global.
+    if (!esCron) {
+      const cupo = await permitirPeticion(supabase, req, "noticias", {
+        porIp: { max: LIMITE_IP_MAX, ventanaSegundos: LIMITE_VENTANA_S },
+        global: { max: LIMITE_GLOBAL_MAX, ventanaSegundos: LIMITE_VENTANA_S },
+      });
+      if (!cupo.permitido) {
+        res.setHeader("Retry-After", String(cupo.reiniciaEn));
+        res.status(429).json({ ok: false, error: "Demasiadas peticiones. Inténtalo más tarde." });
+        return;
+      }
+    }
     // Principio de las URLs públicas del bucket (…/storage/v1/object/public/noticias/).
     const prefijoBucket = supabase.storage.from(BUCKET_NOTICIAS).getPublicUrl("x").data.publicUrl.slice(0, -1);
 
