@@ -17,8 +17,11 @@
  * 1. Origen: se exige que la petición venga del propio dominio de la tienda
  *    (cabecera Origin). Bloquea que alguien use este endpoint desde OTRA
  *    web con tu clave de OpenAI pagando tú la factura.
- * 2. Límite de peticiones por IP (best-effort, en memoria): corta ráfagas
- *    de spam o bots probando el endpoint muy rápido.
+ * 2. Cupos de uso en la base de datos, compartidos entre instancias: por
+ *    persona (usuario con sesión o IP), por minuto y por hora, y un TOPE
+ *    GLOBAL por hora y por día entre todos los visitantes. Es lo que de verdad
+ *    acota el gasto de OpenAI (la cabecera Origin del punto 1 la puede
+ *    escribir cualquier script). Interruptor de emergencia: BLUE_IA_PAUSADA=1.
  * 3. Moderación: antes de preguntar a OpenAI, se comprueba con el propio
  *    endpoint de moderación de OpenAI si el mensaje es abusivo/ilegal/etc.
  *    Si lo es, ni siquiera se llama al modelo de chat (ahorra coste y corta
@@ -66,6 +69,11 @@
  * Variables de entorno que usa (Vercel → Settings → Environment Variables):
  * - OPENAI_API_KEY: clave de https://platform.openai.com/api-keys. Sin esto
  *   la función responde con un aviso claro en vez de romperse.
+ * - SUPABASE_CLAVE_SERVIDOR (opcional): solo se usa para llamar a la función
+ *   consumir_limite (cupos de uso). Sin ella, se usa un límite en memoria.
+ * - BLUE_IA_MAX_HORA y BLUE_IA_MAX_DIA (opcionales): tope global de respuestas
+ *   de IA por hora (300 por defecto) y por día (1.500 por defecto).
+ * - BLUE_IA_PAUSADA (opcional): 1 apaga las respuestas de IA al instante.
  * - EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY: las mismas que
  *   ya usa el resto de la app (son públicas a propósito, protegidas por las
  *   políticas RLS de sql/products.sql) — se reutilizan aquí para leer el
@@ -87,7 +95,7 @@
  *   recomiende — se gestionan desde app/admin/redes-sociales.tsx, con
  *   components/SocialLinks.tsx.
  */
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type ChatTurn = { role: "user" | "assistant"; text: string };
 
@@ -128,37 +136,118 @@ function isAllowedOrigin(req: any): boolean {
   return false;
 }
 
-// Límite de peticiones por IP: como mucho RATE_LIMIT_MAX preguntas por
-// RATE_LIMIT_WINDOW_MS. Es "best-effort" — vive en memoria, así que se
-// reinicia si Vercel arranca una instancia nueva de la función y no se
-// comparte entre instancias si hay varias a la vez — pero no cuesta nada y
-// frena de sobra a un bot o a alguien dándole al botón sin parar.
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 8;
-const requestLog = new Map<string, number[]>();
+// --- Límites de uso: lo que de verdad protege la clave de OpenAI -----------------------------------
+// La cabecera Origin NO es una defensa: cualquier script la puede escribir. Lo que frena el gasto es
+// esto, en la base de datos y compartido entre todas las instancias de Vercel (tabla limites_peticiones y
+// función consumir_limite, supabase/migrations/20261018120000_limite_peticiones.sql, que se usa con la
+// clave de servidor SOLO para llamar a esa función):
+//  · por persona: con sesión (el navegador manda el token) el cupo es por USUARIO; sin sesión, por IP;
+//  · por minuto y por hora;
+//  · TOPE GLOBAL por hora y por día entre todos los visitantes: aunque alguien use miles de IP o de
+//    cuentas, el gasto máximo está acotado (BLUE_IA_MAX_HORA y BLUE_IA_MAX_DIA, ajustables en Vercel);
+//  · interruptor de emergencia: BLUE_IA_PAUSADA=1 en Vercel apaga las respuestas de IA al instante.
+// Si la función de límite aún no existe o la base de datos no responde, se usa un límite en memoria de
+// esta instancia (más estricto): nunca se deja pasar todo. (El bloque de ayudas está repetido en
+// api/escaparate-retorno.ts y api/noticias-gaming.ts: cada función es autónoma y no comparte archivos.)
+type LimiteCuenta = { max: number; ventanaSegundos: number };
 
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const recent = (requestLog.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
-  recent.push(now);
-  requestLog.set(ip, recent);
-
-  // Limpieza básica para que el mapa no crezca sin límite mientras la
-  // instancia de la función siga caliente.
-  if (requestLog.size > 500) {
-    for (const [key, times] of requestLog) {
-      if (!times.some((t) => now - t < RATE_LIMIT_WINDOW_MS)) requestLog.delete(key);
-    }
+// La IP real del visitante: Vercel la pone en x-vercel-forwarded-for y no se puede falsear desde fuera;
+// x-forwarded-for solo como último recurso (puede traer lo que mande el cliente).
+function ipDelCliente(req: any): string {
+  for (const nombre of ["x-vercel-forwarded-for", "x-real-ip", "x-forwarded-for"]) {
+    const v = req.headers?.[nombre];
+    const primero = Array.isArray(v) ? v[0] : v;
+    if (typeof primero === "string" && primero.trim()) return primero.split(",")[0].trim();
   }
-
-  return recent.length > RATE_LIMIT_MAX;
+  return req.socket?.remoteAddress || "desconocida";
 }
 
-function getClientIp(req: any): string {
-  const forwarded = req.headers?.["x-forwarded-for"];
-  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  if (typeof first === "string" && first.trim()) return first.split(",")[0].trim();
-  return req.socket?.remoteAddress || "unknown";
+// «Cubo» de la IP: hash de IP + día, módulo 4.096. No se guarda la IP real y la tabla no crece sin límite.
+async function cuboDeIp(ip: string): Promise<string> {
+  const dia = new Date().toISOString().slice(0, 10);
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${dia}`)));
+  return String(((h[0] << 8) | h[1]) % 4096);
+}
+
+const contadoresMemoria = new Map<string, { inicio: number; n: number }>();
+function consumirEnMemoria(clave: string, { max, ventanaSegundos }: LimiteCuenta): { permitido: boolean; reiniciaEn: number } {
+  const ahora = Date.now();
+  const actual = contadoresMemoria.get(clave);
+  const c = actual && ahora - actual.inicio < ventanaSegundos * 1000 ? actual : { inicio: ahora, n: 0 };
+  c.n += 1;
+  contadoresMemoria.set(clave, c);
+  if (contadoresMemoria.size > 2000) {
+    for (const [k, v] of contadoresMemoria) if (ahora - v.inicio > 3_600_000) contadoresMemoria.delete(k);
+  }
+  return { permitido: c.n <= max, reiniciaEn: Math.max(1, Math.ceil((c.inicio + ventanaSegundos * 1000 - ahora) / 1000)) };
+}
+
+async function consumirLimite(
+  supabase: SupabaseClient | null,
+  clave: string,
+  limite: LimiteCuenta
+): Promise<{ permitido: boolean; reiniciaEn: number }> {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos });
+      if (!error && data && typeof data === "object") {
+        const d = data as { permitido?: boolean; reinicia_en?: number };
+        return { permitido: d.permitido === true, reiniciaEn: Number(d.reinicia_en ?? limite.ventanaSegundos) };
+      }
+    } catch {
+      // sin límite compartido: se usa el de esta instancia
+    }
+  }
+  return consumirEnMemoria(clave, limite);
+}
+
+function enteroDeEntorno(nombre: string, porDefecto: number): number {
+  const n = Number(process.env[nombre]);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : porDefecto;
+}
+
+// Cupos. Anónimo (por IP): 8 por minuto y 40 por hora. Con sesión (por usuario): 15 por minuto y 120 por
+// hora. Globales: 300 por hora y 1.500 por día por defecto (con gpt-4o-mini y respuestas de máx. 420
+// tokens, el gasto diario máximo queda acotado). Cámbialos en Vercel sin tocar código.
+const CUPO_ANONIMO_MIN: LimiteCuenta = { max: 8, ventanaSegundos: 60 };
+const CUPO_ANONIMO_HORA: LimiteCuenta = { max: 40, ventanaSegundos: 3600 };
+const CUPO_USUARIO_MIN: LimiteCuenta = { max: 15, ventanaSegundos: 60 };
+const CUPO_USUARIO_HORA: LimiteCuenta = { max: 120, ventanaSegundos: 3600 };
+
+// ¿Quién pregunta? Si el navegador manda el token de sesión y Supabase lo da por bueno, el id del usuario;
+// si no, null (se trata como anónimo). Un token falso o caducado nunca da más cupo.
+async function usuarioDeLaPeticion(supabase: SupabaseClient | null, req: any): Promise<string | null> {
+  if (!supabase) return null;
+  const cab = req.headers?.authorization;
+  const valor = Array.isArray(cab) ? cab[0] : cab;
+  if (typeof valor !== "string" || !/^Bearer\s+\S+$/i.test(valor.trim())) return null;
+  try {
+    const { data, error } = await supabase.auth.getUser(valor.trim().replace(/^Bearer\s+/i, ""));
+    return !error && data?.user?.id ? data.user.id : null;
+  } catch {
+    return null;
+  }
+}
+
+// Aplica todos los cupos en orden; devuelve el primero que se pasa (o null si todo va bien).
+async function cupoAgotado(supabase: SupabaseClient | null, req: any): Promise<{ motivo: "persona" | "global"; reiniciaEn: number } | null> {
+  const usuario = await usuarioDeLaPeticion(supabase, req);
+  const persona = usuario ? `usuario:${usuario}` : `ip:${await cuboDeIp(ipDelCliente(req))}`;
+  const [porMin, porHora] = usuario ? [CUPO_USUARIO_MIN, CUPO_USUARIO_HORA] : [CUPO_ANONIMO_MIN, CUPO_ANONIMO_HORA];
+  for (const [sufijo, cupo] of [["min", porMin], ["hora", porHora]] as const) {
+    const r = await consumirLimite(supabase, `blue-ia:${persona}:${sufijo}`, cupo);
+    if (!r.permitido) return { motivo: "persona", reiniciaEn: r.reiniciaEn };
+  }
+  const dia = new Date().toISOString().slice(0, 10);
+  const globales: [string, LimiteCuenta][] = [
+    ["hora", { max: enteroDeEntorno("BLUE_IA_MAX_HORA", 300), ventanaSegundos: 3600 }],
+    [`dia:${dia}`, { max: enteroDeEntorno("BLUE_IA_MAX_DIA", 1500), ventanaSegundos: 86400 }],
+  ];
+  for (const [sufijo, cupo] of globales) {
+    const r = await consumirLimite(supabase, `blue-ia:global:${sufijo}`, cupo);
+    if (!r.permitido) return { motivo: "global", reiniciaEn: r.reiniciaEn };
+  }
+  return null;
 }
 
 // Comprueba con el propio endpoint de moderación de OpenAI si el mensaje es
@@ -584,28 +673,56 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  // Capa 2: como mucho RATE_LIMIT_MAX preguntas por minuto desde la misma IP.
-  const clientIp = getClientIp(req);
-  if (isRateLimited(clientIp)) {
+  // Interruptor de emergencia: BLUE_IA_PAUSADA=1 en Vercel apaga la IA al instante, sin desplegar nada.
+  if (/^(1|true|si|sí)$/i.test(String(process.env.BLUE_IA_PAUSADA ?? "").trim())) {
+    res.setHeader("Retry-After", "600");
+    res.status(503).json({
+      error: "Blue IA está descansando un rato. Puedes hablar con el equipo desde el botón «Hablar con el equipo».",
+    });
+    return;
+  }
+
+  // El cuerpo se comprueba ANTES de los cupos: es gratis (sin base de datos ni OpenAI) y así una petición
+  // vacía o no válida se rechaza sin restar cupo a nadie. Los cupos van justo después y antes de todo lo
+  // que cuesta algo (moderación, catálogo y modelo).
+  let body: { message?: unknown; history?: unknown };
+  try {
+    body = (req.body ?? {}) as { message?: unknown; history?: unknown };
+  } catch {
+    res.status(400).json({ error: "Petición no válida." });
+    return;
+  }
+  const cleanMessage = typeof body?.message === "string" ? body.message.trim() : "";
+  if (!cleanMessage) {
+    res.status(400).json({ error: "Falta el mensaje." });
+    return;
+  }
+  if (cleanMessage.length > 800) {
+    res.status(400).json({ error: "El mensaje es demasiado largo (máximo 800 caracteres)." });
+    return;
+  }
+
+  // Capa 2: cupos por persona (usuario o IP), por minuto y por hora, y tope global por hora y por día,
+  // compartidos entre todas las instancias (ver el bloque «Límites de uso» más arriba).
+  const supabaseUrlLimite = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const claveServidorLimite = process.env.SUPABASE_CLAVE_SERVIDOR;
+  const supabaseLimite =
+    supabaseUrlLimite && claveServidorLimite
+      ? createClient(supabaseUrlLimite, claveServidorLimite, { auth: { persistSession: false, autoRefreshToken: false } })
+      : null;
+  const agotado = await cupoAgotado(supabaseLimite, req);
+  if (agotado) {
+    res.setHeader("Retry-After", String(agotado.reiniciaEn));
     res.status(429).json({
-      error: "Estás preguntando muy rápido. Espera unos segundos y vuelve a intentarlo.",
+      error:
+        agotado.motivo === "global"
+          ? "Blue IA tiene mucha demanda ahora mismo. Inténtalo de nuevo más tarde o habla con el equipo desde el botón «Hablar con el equipo»."
+          : "Estás preguntando muy rápido. Espera un poco y vuelve a intentarlo.",
     });
     return;
   }
 
   try {
-    const body = (req.body ?? {}) as { message?: unknown; history?: unknown };
-    const cleanMessage = typeof body.message === "string" ? body.message.trim() : "";
-
-    if (!cleanMessage) {
-      res.status(400).json({ error: "Falta el mensaje." });
-      return;
-    }
-    if (cleanMessage.length > 800) {
-      res.status(400).json({ error: "El mensaje es demasiado largo (máximo 800 caracteres)." });
-      return;
-    }
-
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
       res.status(500).json({
@@ -653,6 +770,16 @@ export default async function handler(req: any, res: any) {
           )
           .slice(-10)
       : [];
+    // Tope al texto total de la conversación que se manda a OpenAI (cada turno ya se corta a 800): evita que
+    // alguien pague más entrada por petición de la que hace falta para recordar el hilo.
+    let caracteresHistorial = 0;
+    for (let i = historyTurns.length - 1; i >= 0; i--) {
+      caracteresHistorial += Math.min(historyTurns[i].text.length, 800);
+      if (caracteresHistorial > 5000) {
+        historyTurns.splice(0, i + 1);
+        break;
+      }
+    }
 
     const openaiMessages = [
       { role: "system", content: systemPrompt },
