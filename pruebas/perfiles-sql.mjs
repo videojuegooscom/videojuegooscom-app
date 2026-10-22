@@ -62,17 +62,17 @@ const ESQUELETO = `
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
-  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
 end $$;
 create schema auth;
-grant usage on schema auth to anon, authenticated, service_role;
-grant usage on schema public to anon, authenticated, service_role;
+grant usage on schema auth to anon, authenticated;
+grant usage on schema public to anon, authenticated;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text);
 create function auth.uid() returns uuid language sql stable as $f$
   select nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')::uuid $f$;
--- Permisos por defecto de Supabase: toda tabla nueva en public es accesible a anon, authenticated y service_role.
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
-alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+-- Permisos por defecto de Supabase: toda tabla nueva en public es accesible a anon y authenticated (el rol interno del
+-- servidor salta las políticas y no interviene en estas comprobaciones, así que no se reproduce).
+alter default privileges in schema public grant all on tables to anon, authenticated;
+alter default privileges in schema public grant all on functions to anon, authenticated;
 create table public.profiles (id uuid primary key references auth.users(id) on delete cascade, role text not null default 'user');
 alter table public.profiles enable row level security;
 create function public.is_admin() returns boolean language sql stable security definer set search_path = public as $f$
