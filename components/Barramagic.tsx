@@ -32,7 +32,8 @@
  * productos que encajan (título, foto entera y precio) y, un poco más abajo,
  * las SECCIONES de la tienda que encajan con lo escrito («Blog», «Inicio de
  * sesión», «Vender»…: SECCIONES_BUSQUEDA, solo pantallas que existen). Si no
- * hay productos, avisa y deja las secciones y «Preguntar a Blue IA». Intro: si
+ * hay productos, avisa y deja las secciones y «Preguntar a Blue IA»; si tampoco encaja ninguna sección, ofrece
+ * «Avísame cuando llegue» (crea el aviso de Blue, components/Campanita.tsx; sin sesión lleva a iniciar sesión). Intro: si
  * no hay productos pero sí una sección, va directo a ella; si no, abre el
  * catálogo con lo escrito (/catalogo?query=…). El panel va en otra capa para
  * que desplazarlo no arrastre la barra, y sale debajo si la barra está arriba
@@ -170,6 +171,25 @@ export function escribirEnBuscadorDemo(texto: string | null, filas?: number) {
   filasDemo = texto === null ? null : filas ?? null;
   oyenteDemo?.(texto);
 }
+
+// ---------------------------------------------------------------------------
+// «Avísame cuando llegue» desde una búsqueda sin resultados. Lo crea components/Campanita.tsx (que ya importa este
+// archivo) y se registra aquí al cargarse, para no importarlo de vuelta y crear un ciclo de imports.
+// ---------------------------------------------------------------------------
+
+export type ResultadoAvisoLlegada = "ok" | "sin_sesion" | "limite" | "error";
+let crearAvisoLlegada: ((texto: string) => Promise<ResultadoAvisoLlegada>) | null = null;
+
+export function registrarAvisoLlegada(crear: (texto: string) => Promise<ResultadoAvisoLlegada>) {
+  crearAvisoLlegada = crear;
+}
+
+/** Una persona con sesión puede crear este aviso; sin sesión, la fila la lleva a iniciar sesión. */
+const TEXTOS_AVISO_LLEGADA: Record<"ok" | "limite" | "error", string> = {
+  ok: "Hecho: Blue te avisará en cuanto llegue.",
+  limite: "Ya tienes 10 avisos: quita alguno desde «Noticias y avisos» de Blue.",
+  error: "No se ha podido crear el aviso. Inténtalo de nuevo.",
+};
 
 // ---------------------------------------------------------------------------
 // Búsqueda en vivo de Inicio: productos de la tienda + accesos directos a secciones.
@@ -400,12 +420,19 @@ function PanelBusqueda({
   onIrA,
   onVerTodo,
   onPreguntar,
+  puedeAvisar,
+  avisoMsg,
+  onAvisar,
 }: {
   busqueda: BusquedaInicio;
   maxAlto: number;
   onIrA: (ruta: string) => void;
   onVerTodo: () => void;
   onPreguntar: () => void;
+  /** Se ofrece «Avísame cuando llegue» si no hay productos ni secciones que encajen. */
+  puedeAvisar: boolean;
+  avisoMsg: string | null;
+  onAvisar: () => void;
 }) {
   const { texto, productos, total, secciones, listo, error, intencion } = busqueda;
   const hayProductos = listo && productos.length > 0;
@@ -488,6 +515,22 @@ function PanelBusqueda({
             </Text>
             <Ionicons name="arrow-forward" size={18} color={COLORS.muted} />
           </FilaPanel>
+        ) : null}
+
+        {listo && !hayProductos && !intencion && !error && secciones.length === 0 && puedeAvisar ? (
+          avisoMsg ? (
+            <View style={{ borderTopWidth: 1, borderTopColor: COLORS.border }}>
+              <TextoPanel>{avisoMsg}</TextoPanel>
+            </View>
+          ) : (
+            <FilaPanel onPress={onAvisar} etiqueta={`Avísame cuando llegue: ${texto}`}>
+              <Ionicons name="notifications-outline" size={22} color={COLORS.text} />
+              <Text numberOfLines={2} style={{ flex: 1, color: COLORS.text, fontSize: 14.5, lineHeight: 19, fontWeight: "700", textAlign: "center" }}>
+                Avísame cuando llegue: «{texto}»
+              </Text>
+              <Ionicons name="arrow-forward" size={18} color={COLORS.muted} />
+            </FilaPanel>
+          )
         ) : null}
       </ScrollView>
     </View>
@@ -1064,6 +1107,29 @@ export function FloatingBarramagic({
     setTexto("");
     pushRoute(ruta as Href);
   };
+  // «Avísame cuando llegue»: con sesión crea el aviso y lo confirma en el propio panel (que se cierra solo a los 3 s);
+  // sin sesión lleva a iniciar sesión.
+  const [avisoMsg, setAvisoMsg] = useState<string | null>(null);
+  const avisandoRef = useRef(false);
+  useEffect(() => setAvisoMsg(null), [texto]);
+  const alAvisar = async () => {
+    if (avisandoRef.current || !crearAvisoLlegada) return;
+    avisandoRef.current = true;
+    if (cierreRef.current) clearTimeout(cierreRef.current);
+    setAbierto(true);
+    const r = await crearAvisoLlegada(texto);
+    avisandoRef.current = false;
+    if (r === "sin_sesion") {
+      irA(`/perfil?aviso=${encodeURIComponent("Inicia sesión para que te avisemos cuando llegue")}`);
+      return;
+    }
+    setAvisoMsg(TEXTOS_AVISO_LLEGADA[r]);
+    if (cierreRef.current) clearTimeout(cierreRef.current);
+    cierreRef.current = setTimeout(() => {
+      setAbierto(false);
+      setTexto("");
+    }, 3000);
+  };
   const alEnviar = () => {
     const t = texto.trim();
     if (!t) return;
@@ -1173,6 +1239,9 @@ export function FloatingBarramagic({
                 onIrA={irA}
                 onVerTodo={() => irA(busqueda.intencion ? "/catalogo" : `/catalogo?query=${encodeURIComponent(texto.trim())}`)}
                 onPreguntar={() => irA(`/blue-ia?q=${encodeURIComponent(texto.trim())}`)}
+                puedeAvisar={!demo && !!crearAvisoLlegada}
+                avisoMsg={avisoMsg}
+                onAvisar={alAvisar}
               />
             </View>
           </View>
