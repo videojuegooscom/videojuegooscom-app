@@ -12,7 +12,9 @@
  *  3) «Me gusta»: por persona (usuario con sesión o visitante anónimo): repetir no suma, quitar resta, un token
  *     falso no da identidad de usuario, un usuario cuenta una sola vez aunque cambie de navegador.
  *  4) Tope de 30 cambios por persona y hora; 50 peticiones SIMULTÁNEAS de la misma persona suman 1.
- *  5) Entradas inválidas (método, acción, id, activo, sin identificador): 4xx sin tocar la base de datos.
+ *  5) Entradas inválidas (método, acción, id, activo, sin identificador, token de reserva): 4xx sin tocar la base de datos.
+ *  6) Reservas de la cesta: un script con tokens inventados desde una IP solo consigue 4 reservas vivas (no las
+ *     21 de la tienda), un usuario con sesión 8, 12 peticiones por IP cada 10 minutos, 404 si no existe.
  * NO toca producción ni Supabase real.
  *
  * Uso: node pruebas/interaccion-api.mjs postgresql://postgres@127.0.0.1:55432
@@ -42,7 +44,12 @@ await db.psql(base, [
    insert into public.products (id, title, price_eur, status) select ('00000000-0000-4000-8000-' || lpad(to_hex(i), 12, '0'))::uuid, 'P' || i, 10, 'PUBLISHED' from generate_series(1, 120) i;
    insert into public.services (id) values ('00000000-0000-4000-8000-0000000000b1')`,
 ]);
-await db.aplicar(base, ["supabase/migrations/20261018120000_limite_peticiones.sql", "supabase/migrations/20261018130000_visitas_y_apoyos_protegidos.sql"]);
+await db.aplicar(base, [
+  "supabase/migrations/20261013090000_reservas_cesta.sql",
+  "supabase/migrations/20261018120000_limite_peticiones.sql",
+  "supabase/migrations/20261018130000_visitas_y_apoyos_protegidos.sql",
+  "supabase/migrations/20261018140000_reservas_protegidas.sql",
+]);
 
 const FALSO = "https://falso.supabase.test";
 process.env.EXPO_PUBLIC_SUPABASE_URL = FALSO;
@@ -61,7 +68,15 @@ globalThis.fetch = async (entrada, opciones) => {
     const sql = `select public.${rpc[1]}(${Object.entries(args).map(([k, v]) => `${k} => ${literal(v)}`).join(", ")})`;
     try {
       const salida = await db.psql(base, ["-c", "set role service_role", "-A", "-t", "-c", sql]);
-      return new Response(salida.trim() || "null", { status: 200, headers: { "content-type": "application/json" } });
+      // PostgREST contesta JSON: un número tal cual, null si no hay nada y un texto (fechas, uuid) entre comillas.
+      const texto = salida.trim() || "null";
+      let cuerpo = texto;
+      try {
+        JSON.parse(texto);
+      } catch {
+        cuerpo = JSON.stringify(texto);
+      }
+      return new Response(cuerpo, { status: 200, headers: { "content-type": "application/json" } });
     } catch (e) {
       const mensaje = String(e.message).replace(/^ERROR:\s+/, "").split("\n")[0];
       return new Response(JSON.stringify({ message: mensaje }), { status: 400, headers: { "content-type": "application/json" } });
@@ -199,6 +214,56 @@ try {
       ok(r.codigo === esperado, `entrada inválida «${nombre}»: ${r.codigo} (esperado ${esperado})`);
     }
     ok(llamadasBD === antes, "las entradas inválidas no llegan a la base de datos (ni siquiera al límite)");
+    const sinToken = await llamar({ accion: "reservar", id: prod(1) });
+    const tokenMalo = await llamar({ accion: "reservar", id: prod(1), token: "no-es-un-uuid" });
+    ok(sinToken.codigo === 400 && tokenMalo.codigo === 400 && llamadasBD === antes, "reservar sin token o con un token que no es uuid: 400 sin tocar la base de datos");
+  }
+
+  // 6) Reservas de la cesta: no se puede acaparar la tienda
+  {
+    await reiniciarLimites();
+    const tk = (i) => `cccccccc-cccc-4ccc-8ccc-${i.toString(16).padStart(12, "0")}`;
+    const reservar = (p, t, cabeceras) => llamar({ accion: "reservar", id: prod(p), token: tk(t) }, { cabeceras });
+    const ipA = { "x-vercel-forwarded-for": "198.51.100.60" };
+    const r1 = await reservar(1, 1, ipA);
+    const minutos = (Date.parse(r1.cuerpo?.hasta) - Date.now()) / 60000;
+    ok(r1.codigo === 200 && r1.cuerpo.ok === true && minutos > 14 && minutos < 16, `reservar: 200 con la hora de fin (a ${minutos.toFixed(1)} min)`);
+    const otro = await reservar(1, 2, { "x-vercel-forwarded-for": "198.51.100.61" });
+    ok(otro.codigo === 200 && otro.cuerpo.hasta === null, "otro cliente por el mismo producto: 200 con hasta:null (lo tiene reservado otro)");
+    const renueva = await reservar(1, 1, ipA);
+    ok(renueva.codigo === 200 && typeof renueva.cuerpo.hasta === "string", "el dueño de la reserva la renueva");
+
+    // Un script que reserva los 21 productos con un token inventado en cada petición, desde una IP.
+    const ipS = { "x-vercel-forwarded-for": "198.51.100.62", "x-forwarded-for": "192.0.2.9" };
+    const rs = [];
+    for (let p = 2; p <= 21; p++) rs.push(await reservar(p, 100 + p, ipS));
+    const reservadas = rs.filter((r) => r.codigo === 200 && typeof r.cuerpo.hasta === "string").length;
+    ok(reservadas === 4, `un script con 20 tokens inventados desde una IP solo consigue 4 reservas (${reservadas}): no puede dejar la tienda en la cesta de otro`);
+    ok(rs.filter((r) => r.codigo === 429).length === 16 && Number(rs.find((r) => r.codigo === 429).cabeceras["retry-after"]) > 0, "y las otras 16 reciben 429 con Retry-After");
+    const vivas = Number(await db.consulta(base, "select count(*) from public.reservas_cesta where reservado_hasta > now()"));
+    ok(vivas === 5, `en la base de datos hay 5 reservas vivas en total (1 del cliente normal + 4 del script) y no 21 (${vivas})`);
+    const otraPersona = await reservar(10, 500, { "x-vercel-forwarded-for": "198.51.100.63" });
+    ok(otraPersona.codigo === 200 && typeof otraPersona.cuerpo.hasta === "string", "otro cliente normal sigue pudiendo reservar (el cupo es por persona)");
+
+    // Usuario con sesión: su cupo es de 8 y no depende de la IP.
+    const conSesion = [];
+    for (let p = 11; p <= 21; p++) conSesion.push(await llamar({ accion: "reservar", id: prod(p), token: tk(200 + p) }, { cabeceras: { "x-vercel-forwarded-for": ipNueva(), authorization: "Bearer token-u1" } }));
+    const buenasU = conSesion.filter((r) => r.codigo === 200 && typeof r.cuerpo.hasta === "string").length;
+    ok(buenasU === 8 && conSesion.slice(8).every((r) => r.codigo === 429), `un usuario con sesión consigue 8 reservas vivas de 11 intentos y las otras 3 reciben 429 (${buenasU})`);
+    const personaUsuario = Number(await db.consulta(base, "select count(*) from public.reservas_cesta where persona like 'usuario:%' and reservado_hasta > now()"));
+    ok(personaUsuario === 8, `y en la base de datos tiene exactamente 8 (${personaUsuario}), aunque cambie de IP en cada petición`);
+
+    // Tope de peticiones por IP: 12 cada 10 minutos (con renovaciones, que no gastan cupo de reservas).
+    await reiniciarLimites();
+    const ipB = { "x-vercel-forwarded-for": "198.51.100.64" };
+    const ren = [];
+    for (let i = 0; i < 15; i++) ren.push(await reservar(20, 20, ipB));
+    ok(ren.slice(0, 12).every((r) => r.codigo === 200) && ren.slice(12).every((r) => r.codigo === 429), `una IP que renueva sin parar: 12 por 10 minutos y desde la 13.ª, 429 (${ren.filter((r) => r.codigo === 429).length} bloqueadas de 15)`);
+
+    const noExiste = await llamar({ accion: "reservar", id: "00000000-0000-4000-8000-0000000fffff", token: tk(900) }, { cabeceras: { "x-vercel-forwarded-for": "198.51.100.65" } });
+    ok(noExiste.codigo === 404, "producto inexistente: 404");
+    const oculto = await db.consulta(base, "select count(*) from public.reservas_cesta where persona like '%198.51.100.%'");
+    ok(Number(oculto) === 0, "ninguna reserva guarda una IP real (solo cubos)");
   }
 
   // Fichas que no existen o no están publicadas: se responde sin apuntar nada
