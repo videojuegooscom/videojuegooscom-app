@@ -12,19 +12,40 @@
  *  5) Tope GLOBAL: con muchas IP, el total que llega a OpenAI queda acotado (BLUE_IA_MAX_DIA).
  *  6) Interruptor BLUE_IA_PAUSADA: 503 y ni se consume cupo ni se llama a OpenAI.
  *  7) 40 peticiones SIMULTÁNEAS de la misma IP: pasan exactamente 8 y a OpenAI llegan 8.
- *  8) Con el límite compartido caído, o sin clave de servidor, se usa el de memoria (no se deja pasar todo).
+ *  8) Modo degradado (el límite compartido cae, tarda más de 2 s o no hay clave de servidor): cupos a la
+ *     cuarta parte, una sola consulta fallida en vez de una por petición, ninguna espera larga, y vuelta al
+ *     límite compartido cuando pasa la pausa y la base de datos regresa.
  *  9) El historial que se manda a OpenAI queda por debajo de 5.000 caracteres.
  * 10) Cuerpo vacío o no válido: 400, sin gastar ningún cupo (ni el de la persona ni el global) y sin OpenAI.
  * NO toca producción, ni Supabase real, ni OpenAI.
  *
- * Uso: node pruebas/blue-ia-abuso.mjs postgresql://postgres@127.0.0.1:55432
- * Sale con código 1 si algo falla.
+ * Uso: node pruebas/blue-ia-abuso.mjs postgresql://postgres@127.0.0.1:55432 [--mutacion=divisor|espera|pausa]
+ * Sale con código 1 si algo falla. Con --mutacion se prueba una copia a la que se le quita una defensa del modo
+ * degradado (cupo reducido, tiempo máximo de espera o pausa tras el fallo): sale con 0 solo si las pruebas
+ * lo detectan («prueba de las pruebas»).
  */
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { conectar } from "./sql-aislado.mjs";
 
 const servidor = process.argv[2];
 if (!servidor) {
-  console.error("Uso: node pruebas/blue-ia-abuso.mjs <servidor local de pruebas>");
+  console.error("Uso: node pruebas/blue-ia-abuso.mjs <servidor local de pruebas> [--mutacion=divisor|espera|pausa]");
+  process.exit(2);
+}
+// «Prueba de las pruebas» del modo degradado: con --mutacion=<defensa> se prueba una copia de api/blue-ia.ts a la
+// que se le quita esa defensa (cupos enteros, sin tiempo máximo de espera, sin pausa tras un fallo). Las pruebas
+// DEBEN detectarlo (salir con fallos); si pasaran, no servirían. En ese modo sale con 0 solo si lo detectó.
+const MUTACION = process.argv.find((a) => a.startsWith("--mutacion="))?.slice("--mutacion=".length) ?? null;
+const MUTACIONES = {
+  divisor: ["const DIVISOR_DEGRADADO = 4;", "const DIVISOR_DEGRADADO = 1;"],
+  espera: ["const ESPERA_LIMITE_MS = 2000;", "const ESPERA_LIMITE_MS = 600000;"],
+  pausa: ["const PAUSA_TRAS_FALLO_MS = 30_000;", "const PAUSA_TRAS_FALLO_MS = 0;"],
+};
+if (MUTACION && !MUTACIONES[MUTACION]) {
+  console.error(`Mutación desconocida: ${MUTACION}`);
   process.exit(2);
 }
 const db = conectar(servidor);
@@ -47,6 +68,8 @@ delete process.env.BLUE_IA_MAX_DIA;
 delete process.env.BLUE_IA_MAX_HORA;
 
 let bdCaida = false;
+let bdLenta = 0; // milisegundos que tarda en contestar el límite compartido (0 = normal)
+let llamadasLimite = 0; // cuántas veces se pregunta al límite compartido
 let llamadasOpenAI = { moderacion: 0, chat: 0 };
 let ultimoChat = null;
 const USUARIOS = { "token-bueno-1": "11111111-1111-4111-8111-111111111111", "token-bueno-2": "22222222-2222-4222-8222-222222222222" };
@@ -65,6 +88,8 @@ globalThis.fetch = async (entrada, opciones) => {
   }
   if (url.origin !== FALSO) throw new Error(`prueba: salida de red inesperada a ${url.origin}`);
   if (url.pathname === "/rest/v1/rpc/consumir_limite") {
+    llamadasLimite++;
+    if (bdLenta) await new Promise((f) => setTimeout(f, bdLenta));
     if (bdCaida) return json({ message: "caída simulada" }, 500);
     const a = JSON.parse(opciones.body);
     const sql = `select public.consumir_limite('${String(a.p_clave).replace(/'/g, "''")}', ${Number(a.p_max)}, ${Number(a.p_ventana_segundos)})`;
@@ -78,21 +103,41 @@ globalThis.fetch = async (entrada, opciones) => {
   return json([]); // catálogo, redes, noticias, conocimiento: vacíos
 };
 const consolaError = console.error;
+const consolaAviso = console.warn;
 console.error = () => {};
+console.warn = () => {};
 
-const handler = (await import("../api/blue-ia.ts")).default;
+// Cada escenario del modo degradado usa su PROPIA copia del módulo (el estado de la pausa y de los contadores
+// vive en el módulo): la etiqueta distinta en la dirección hace que Node la cargue de nuevo. Con --mutacion se
+// carga una copia desde una carpeta temporal (con un enlace a node_modules para que encuentre sus paquetes).
+let carpetaMutada = null;
+async function cargarManejador(etiqueta) {
+  if (!MUTACION) return (await import(`../api/blue-ia.ts?${etiqueta}`)).default;
+  const [antes, despues] = MUTACIONES[MUTACION];
+  const original = readFileSync("api/blue-ia.ts", "utf8");
+  if (!original.includes(antes)) throw new Error(`la mutación «${MUTACION}» no encuentra «${antes}» en api/blue-ia.ts`);
+  if (!carpetaMutada) {
+    carpetaMutada = mkdtempSync(join(tmpdir(), "vz-blue-ia-mutada-"));
+    symlinkSync(resolve("node_modules"), join(carpetaMutada, "node_modules"));
+  }
+  const archivo = join(carpetaMutada, `blue-ia-${etiqueta}.ts`);
+  writeFileSync(archivo, original.replace(antes, despues));
+  return (await import(`${pathToFileURL(archivo).href}?${etiqueta}`)).default;
+}
+
+const handler = await cargarManejador("normal");
 const origenBueno = "https://videojuegoszaragoza.com";
 let n = 0;
 const ip = () => `203.0.113.${(n++ % 250) + 1}`;
 const mensaje = (extra = {}) => ({ message: "¿Qué consolas tenéis?", history: [], ...extra });
 
-async function preguntar({ cabeceras = {}, cuerpo = mensaje() } = {}) {
+async function preguntar({ cabeceras = {}, cuerpo = mensaje(), manejador = handler } = {}) {
   const req = { method: "POST", headers: { origin: origenBueno, ...cabeceras }, body: cuerpo, socket: { remoteAddress: "10.0.0.1" } };
   const res = { codigo: 200, cabeceras: {}, cuerpo: null };
   res.setHeader = (k, v) => void (res.cabeceras[k.toLowerCase()] = v);
   res.status = (c) => ((res.codigo = c), res);
   res.json = (b) => ((res.cuerpo = b), res);
-  await handler(req, res);
+  await manejador(req, res);
   return res;
 }
 const reiniciarMinuto = () => db.consulta(base, "update public.limites_peticiones set ventana_inicio = now() - interval '2 minutes' where clave like 'blue-ia:%:min'");
@@ -190,22 +235,60 @@ try {
     ok(pasan === 8 && contar().chat === 8, `40 peticiones SIMULTÁNEAS de la misma IP: pasan exactamente 8 y a OpenAI llegan 8 (${pasan} / ${contar().chat})`);
   }
 
-  // 8) Límite compartido caído o sin clave de servidor: memoria
+  // 8) Modo degradado: el límite compartido cae, tarda demasiado o no hay clave de servidor
   {
+    // 8a) Caído: los cupos pasan a la cuarta parte y solo se pregunta una vez (no una por petición).
     await reiniciarTodo();
     reiniciarContadores();
+    const caido = await cargarManejador("caido");
     bdCaida = true;
+    llamadasLimite = 0;
     const rs = [];
-    for (let i = 0; i < 12; i++) rs.push(await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.13" } }));
-    ok(rs.slice(0, 8).every((r) => r.codigo === 200) && rs.slice(8).every((r) => r.codigo === 429) && contar().chat === 8, `límite compartido caído: el de memoria sigue frenando (8 pasan, 4 bloqueadas, OpenAI ${contar().chat})`);
-    bdCaida = false;
+    for (let i = 0; i < 12; i++) rs.push(await preguntar({ manejador: caido, cabeceras: { "x-vercel-forwarded-for": "198.51.100.13" } }));
+    ok(rs.slice(0, 2).every((r) => r.codigo === 200) && rs.slice(2).every((r) => r.codigo === 429) && contar().chat === 2, `límite compartido caído: cupos a la cuarta parte (pasan 2, 10 bloqueadas, OpenAI ${contar().chat})`);
+    ok(llamadasLimite === 1, `y tras el primer fallo no se vuelve a preguntar al límite compartido durante la pausa (consultas: ${llamadasLimite})`);
+
+    // 8b) Lento: no se espera más de 2 s y las siguientes peticiones no esperan nada.
     reiniciarContadores();
+    const lento = await cargarManejador("lento");
+    bdCaida = true; // cuando por fin conteste, que sea con error: así no toca los contadores reales
+    bdLenta = 4500;
+    const t0 = Date.now();
+    const primera = await preguntar({ manejador: lento, cabeceras: { "x-vercel-forwarded-for": "198.51.100.16" } });
+    const tardo = Date.now() - t0;
+    ok(primera.codigo === 200 && tardo < 3600, `límite compartido lento (4,5 s): no se espera más de 2 s, se contesta en ${tardo} ms con el modo degradado`);
+    const t1 = Date.now();
+    await preguntar({ manejador: lento, cabeceras: { "x-vercel-forwarded-for": "198.51.100.16" } });
+    ok(Date.now() - t1 < 800, `y la siguiente petición no espera nada (${Date.now() - t1} ms)`);
+    bdLenta = 0;
+
+    // 8c) Con sesión y el límite compartido caído: 15 / 4 = 3 por minuto por usuario.
+    reiniciarContadores();
+    const conSesion = await cargarManejador("sesion");
+    const rs3 = [];
+    for (let i = 0; i < 6; i++) rs3.push(await preguntar({ manejador: conSesion, cabeceras: { authorization: "Bearer token-bueno-1", "x-vercel-forwarded-for": ip() } }));
+    ok(rs3.slice(0, 3).every((r) => r.codigo === 200) && rs3.slice(3).every((r) => r.codigo === 429), `con sesión y el límite compartido caído: 3 por minuto por usuario (${rs3.map((r) => r.codigo).join(",")})`);
+
+    // 8d) Pasada la pausa, si la base de datos vuelve, se usa otra vez el límite compartido.
+    process.env.LIMITE_PAUSA_MS = "300";
+    const recupera = await cargarManejador("recupera");
+    await preguntar({ manejador: recupera, cabeceras: { "x-vercel-forwarded-for": "198.51.100.17" } });
+    bdCaida = false;
+    await new Promise((f) => setTimeout(f, 450));
+    const antes = llamadasLimite;
+    const trasPausa = await preguntar({ manejador: recupera, cabeceras: { "x-vercel-forwarded-for": "198.51.100.17" } });
+    ok(trasPausa.codigo === 200 && llamadasLimite > antes, `pasada la pausa y con la base de datos de vuelta se usa otra vez el límite compartido (consultas ${antes} → ${llamadasLimite})`);
+    delete process.env.LIMITE_PAUSA_MS;
+
+    // 8e) Sin clave de servidor: también cupos a la cuarta parte, en memoria.
+    reiniciarContadores();
+    const sinClave = await cargarManejador("sinclave");
     const clave = process.env.SUPABASE_CLAVE_SERVIDOR;
     delete process.env.SUPABASE_CLAVE_SERVIDOR;
     const rs2 = [];
-    for (let i = 0; i < 12; i++) rs2.push(await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.14" } }));
+    for (let i = 0; i < 12; i++) rs2.push(await preguntar({ manejador: sinClave, cabeceras: { "x-vercel-forwarded-for": "198.51.100.14" } }));
     process.env.SUPABASE_CLAVE_SERVIDOR = clave;
-    ok(rs2.slice(8).every((r) => r.codigo === 429) && contar().chat === 8, "sin la clave de servidor configurada también frena con el límite en memoria");
+    ok(rs2.slice(0, 2).every((r) => r.codigo === 200) && rs2.slice(2).every((r) => r.codigo === 429) && contar().chat === 2, `sin la clave de servidor configurada también frena, a la cuarta parte (pasan 2, OpenAI ${contar().chat})`);
   }
 
   // 9) Tope al historial que se manda a OpenAI
@@ -242,8 +325,16 @@ try {
 } finally {
   globalThis.fetch = original;
   console.error = consolaError;
+  console.warn = consolaAviso;
+  if (carpetaMutada) rmSync(carpetaMutada, { recursive: true, force: true });
 }
 
+if (MUTACION) {
+  console.log(fallos.length
+    ? `MUTACIÓN DETECTADA («${MUTACION}»): las pruebas fallaron ${fallos.length} veces sin esa defensa (lo esperado: son sensibles a ella)`
+    : `MUTACIÓN NO DETECTADA («${MUTACION}»): las pruebas pasan sin esa defensa; NO la comprueban`);
+  process.exit(fallos.length ? 0 : 1);
+}
 for (const f of fallos) console.log(`FALLO ${f}`);
 console.log(fallos.length ? `${fallos.length} fallos` : "todo bien");
 process.exit(fallos.length ? 1 : 0);

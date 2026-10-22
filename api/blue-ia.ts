@@ -146,8 +146,9 @@ function isAllowedOrigin(req: any): boolean {
 //  · TOPE GLOBAL por hora y por día entre todos los visitantes: aunque alguien use miles de IP o de
 //    cuentas, el gasto máximo está acotado (BLUE_IA_MAX_HORA y BLUE_IA_MAX_DIA, ajustables en Vercel);
 //  · interruptor de emergencia: BLUE_IA_PAUSADA=1 en Vercel apaga las respuestas de IA al instante.
-// Si la función de límite aún no existe o la base de datos no responde, se usa un límite en memoria de
-// esta instancia (más estricto): nunca se deja pasar todo. (El bloque de ayudas está repetido en
+// Si la función de límite aún no existe o la base de datos no responde (o tarda más de 2 s), se usa un límite
+// en memoria de esta instancia con los cupos a la cuarta parte (modo degradado, más abajo): nunca se deja
+// pasar todo. El tope último del gasto es el límite mensual de la propia cuenta de OpenAI. (El bloque de ayudas está repetido en
 // api/escaparate-retorno.ts y api/noticias-gaming.ts: cada función es autónoma y no comparte archivos.)
 type LimiteCuenta = { max: number; ventanaSegundos: number };
 
@@ -182,23 +183,53 @@ function consumirEnMemoria(clave: string, { max, ventanaSegundos }: LimiteCuenta
   return { permitido: c.n <= max, reiniciaEn: Math.max(1, Math.ceil((c.inicio + ventanaSegundos * 1000 - ahora) / 1000)) };
 }
 
+// Modo degradado: sin límite compartido (la función aún no existe, la base de datos no responde o tarda
+// demasiado) cada instancia de Vercel cuenta sola y una instancia nueva empieza de cero, así que lo que
+// podría colarse crece con el número de instancias. Por eso, en ese modo: los cupos se reducen a la cuarta
+// parte (mínimo 1), la consulta compartida no espera más de 2 s y, tras un fallo, no se vuelve a intentar
+// durante 30 s para no frenar cada petición mientras dure la caída. (LIMITE_PAUSA_MS cambia esa pausa.)
+const DIVISOR_DEGRADADO = 4;
+const ESPERA_LIMITE_MS = 2000;
+const PAUSA_TRAS_FALLO_MS = 30_000;
+let sinLimiteCompartidoHasta = 0;
+let ultimoAvisoDegradado = 0;
+
+function cupoDegradado({ max, ventanaSegundos }: LimiteCuenta): LimiteCuenta {
+  return { max: Math.max(1, Math.floor(max / DIVISOR_DEGRADADO)), ventanaSegundos };
+}
+
 async function consumirLimite(
   supabase: SupabaseClient | null,
   clave: string,
   limite: LimiteCuenta
 ): Promise<{ permitido: boolean; reiniciaEn: number }> {
-  if (supabase) {
+  if (supabase && Date.now() >= sinLimiteCompartidoHasta) {
+    let temporizador: ReturnType<typeof setTimeout> | undefined;
     try {
-      const { data, error } = await supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos });
+      const esperar = new Promise<never>((_, rechazar) => {
+        temporizador = setTimeout(() => rechazar(new Error("el límite compartido tardó demasiado")), ESPERA_LIMITE_MS);
+      });
+      const { data, error } = await Promise.race([
+        supabase.rpc("consumir_limite", { p_clave: clave, p_max: limite.max, p_ventana_segundos: limite.ventanaSegundos }),
+        esperar,
+      ]);
       if (!error && data && typeof data === "object") {
         const d = data as { permitido?: boolean; reinicia_en?: number };
         return { permitido: d.permitido === true, reiniciaEn: Number(d.reinicia_en ?? limite.ventanaSegundos) };
       }
     } catch {
-      // sin límite compartido: se usa el de esta instancia
+      // sin límite compartido: modo degradado
+    } finally {
+      clearTimeout(temporizador);
+    }
+    const pausa = Number(process.env.LIMITE_PAUSA_MS);
+    sinLimiteCompartidoHasta = Date.now() + (Number.isFinite(pausa) && pausa >= 0 ? pausa : PAUSA_TRAS_FALLO_MS);
+    if (Date.now() - ultimoAvisoDegradado > 60_000) {
+      ultimoAvisoDegradado = Date.now();
+      console.warn("limite: el límite compartido no responde; se usa el de esta instancia con cupos reducidos");
     }
   }
-  return consumirEnMemoria(clave, limite);
+  return consumirEnMemoria(clave, cupoDegradado(limite));
 }
 
 function enteroDeEntorno(nombre: string, porDefecto: number): number {
