@@ -168,7 +168,8 @@ function SectionCard({
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   title: string;
-  count: number;
+  // Número (o texto corto) que sale a la derecha del título; sin él no sale nada.
+  count?: number | string;
   children: React.ReactNode;
 }) {
   return (
@@ -187,7 +188,7 @@ function SectionCard({
           <Ionicons name={icon} size={16} color={COLORS.accentDark} />
         </View>
         <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>{title}</Text>
-        <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>{count}</Text>
+        {count !== undefined ? <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>{count}</Text> : null}
       </View>
       {children}
     </View>
@@ -213,6 +214,8 @@ export default function ClienteFicha() {
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
   const [sellRequests, setSellRequests] = useState<SellRequestRow[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestRow[]>([]);
+  // Perfil que el cliente escribe en Mi cuenta (tabla perfiles_cliente). null = no lo ha rellenado o la tabla aún no existe.
+  const [perfil, setPerfil] = useState<{ nombre: string; usuario: string; pais: string; provincia: string; edad: number | null } | null>(null);
 
   const [notes, setNotes] = useState("");
   const [notesLoaded, setNotesLoaded] = useState(false);
@@ -270,6 +273,32 @@ export default function ClienteFicha() {
       setNotes(notesRes.data?.notes ?? "");
       setNotesUpdatedAt(notesRes.data?.updated_at ?? null);
       setNotesLoaded(true);
+
+      // Perfil (consulta aparte: si la migración aún no está aplicada, la ficha funciona igual sin esta tarjeta).
+      const perfilRes = await supabase
+        .from("perfiles_cliente")
+        .select("nombre,usuario,pais,provincia,fecha_nacimiento")
+        .eq("user_id", userId)
+        .maybeSingle<{ nombre: string | null; usuario: string | null; pais: string | null; provincia: string | null; fecha_nacimiento: string | null }>();
+      const p = perfilRes.error ? null : perfilRes.data;
+      if (p) {
+        const hoy = new Date();
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.fecha_nacimiento ?? "");
+        let edad: number | null = null;
+        if (m) {
+          edad = hoy.getFullYear() - Number(m[1]);
+          if (hoy.getMonth() + 1 < Number(m[2]) || (hoy.getMonth() + 1 === Number(m[2]) && hoy.getDate() < Number(m[3]))) edad -= 1;
+        }
+        setPerfil({
+          nombre: (p.nombre ?? "").trim(),
+          usuario: (p.usuario ?? "").trim(),
+          pais: (p.pais ?? "").trim(),
+          provincia: (p.provincia ?? "").trim(),
+          edad,
+        });
+      } else {
+        setPerfil(null);
+      }
     } catch (e) {
       console.error("Error cargando la ficha del cliente:", e);
     } finally {
@@ -370,6 +399,29 @@ export default function ClienteFicha() {
             keyboardDismissMode={CIERRE_TECLADO}
           >
             <View style={{ width: "100%", maxWidth: 720, gap: 16 }}>
+              <SectionCard icon="id-card-outline" title="Perfil">
+                {perfil ? (
+                  <View style={{ gap: 6 }}>
+                    {[
+                      ["Nombre", perfil.nombre],
+                      ["Usuario", perfil.usuario ? `@${perfil.usuario}` : ""],
+                      ["País", perfil.pais],
+                      ["Provincia", perfil.provincia],
+                      ["Edad", perfil.edad !== null ? `${perfil.edad} años` : ""],
+                    ].map(([etiqueta, valor]) => (
+                      <View key={etiqueta} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+                        <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12.5 }}>{etiqueta}</Text>
+                        <Text style={{ color: valor ? COLORS.text : COLORS.muted2, fontWeight: "800", fontSize: 13.5, flexShrink: 1, textAlign: "right" }}>
+                          {valor || "—"}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <EmptyRow text="Todavía no ha rellenado su perfil." />
+                )}
+              </SectionCard>
+
               <SectionCard icon="bag-check-outline" title="Compras a la tienda" count={purchases.length}>
                 {purchases.length === 0 ? (
                   <EmptyRow text="Todavía no le hemos vendido nada." />

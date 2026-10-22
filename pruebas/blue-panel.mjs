@@ -14,6 +14,9 @@
  *    y un aviso de mensajes sin leer (simulado) con su fila.
  *  - Reservas de la cesta (15 min): con tiempo salen como «Reservado para ti» (sin número rojo) y las vencidas no; la que vence
  *    en 4 min suma al número rojo, Blue lo dice una vez (el mensaje lleva a la cesta) y la fila del panel también.
+ *  - Avisos de estado (sesión simulada, pedidos y reparaciones FICTICIOS): avisa de lo que cambió desde la etapa que la persona ya
+ *    vio (2 pedidos, una reparación lista, una nota nueva) y de nada más; la primera vez no avisa de lo antiguo; suma al número rojo,
+ *    Blue lo dice una vez y los avisos desaparecen al abrir Perfil → Seguimientos.
  *  - Nada se ensancha y no hay errores de JavaScript.
  * NO toca producción: solo lecturas (GET); toda escritura se corta. No añade ningún aviso.
  *
@@ -488,6 +491,143 @@ try {
     // (se espera: el panel se cierra con una breve animación mientras cambia la pantalla)
     ok(await q.getByRole("tab", { name: /Asistente/ }).first().waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false), "R2: y el panel se cierra");
     ok(q.errores.length === 0, `R2: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+    await c.close();
+  }
+
+  // --- Avisos de estado de pedidos y reparaciones --------------------------------------------------------------------
+  // Con sesión SIMULADA y pedidos/reparaciones FICTICIOS (las lecturas de la base de datos se responden aquí): Blue avisa de lo
+  // que ha cambiado desde la última etapa que la persona vio (guardada en el móvil), no de lo antiguo ni de lo que no cambió,
+  // y el aviso desaparece al abrir «Seguimientos». Nada se escribe en ninguna base de datos.
+  const CLAVE_VISTOS = `videojuegoszaragoza:seguimientos_vistos:${USUARIO_FALSO.id}`;
+  const contextoSeg = async ({ pedidos, reparaciones, vistos }) => {
+    const c = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
+    await c.addInitScript(([usuario, previo, clave]) => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
+        localStorage.setItem("videojuegoos.analytics.consent", "declined");
+        const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+        const exp = Math.floor(Date.now() / 1000) + 3600;
+        const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: usuario.id, role: "authenticated", exp, aud: "authenticated", email: usuario.email })}.firma`;
+        localStorage.setItem("videojuegoos.supabase.auth", JSON.stringify({ access_token: jwt, refresh_token: "r", expires_at: exp, expires_in: 3600, token_type: "bearer", user: usuario }));
+        // Lo ya visto se siembra SOLO la primera vez (si no, cada carga de página borraría lo que Seguimientos marcó como visto).
+        if (previo && !localStorage.getItem(clave)) localStorage.setItem(clave, JSON.stringify(previo));
+      } catch {
+        // sin almacenamiento
+      }
+    }, [USUARIO_FALSO, vistos, CLAVE_VISTOS]);
+    await c.route("**/*", async (r) => {
+      const url = new URL(r.request().url());
+      const metodo = r.request().method();
+      const json = (cuerpo) => r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(cuerpo) });
+      if (url.pathname.endsWith("/auth/v1/user")) return json(USUARIO_FALSO);
+      if (url.pathname.endsWith("/rest/v1/profiles")) return json({ id: USUARIO_FALSO.id, role: "customer" });
+      if (url.pathname.endsWith("/rpc/get_unread_chat_count")) return json(0);
+      if (metodo === "GET" && url.pathname.endsWith("/rest/v1/pedidos")) return json(pedidos);
+      if (metodo === "GET" && url.pathname.endsWith("/rest/v1/pedido_items")) return json([]);
+      if (metodo === "GET" && url.pathname.endsWith("/rest/v1/service_requests")) return json(reparaciones);
+      if (!["GET", "HEAD", "OPTIONS"].includes(metodo)) return r.abort();
+      return r.continue();
+    });
+    return c;
+  };
+  const abrirSeg = async (c, ruta = "/") => {
+    const q = await c.newPage();
+    q.errores = [];
+    q.on("pageerror", (e) => q.errores.push(e.message.slice(0, 160)));
+    await q.goto(BASE + ruta, { waitUntil: "load", timeout: 60000 });
+    await q.waitForSelector("#blue-flotante", { timeout: 25000 });
+    return q;
+  };
+  const PEDIDOS_SEG = [
+    { id: "p1", numero: 12, estado: "enviado", entrega: "envio" }, // visto «confirmado»  → aviso
+    { id: "p2", numero: 13, estado: "pendiente", entrega: "recogida" }, // visto «pendiente» → nada
+    { id: "p3", numero: 14, estado: "pendiente", entrega: "envio" }, // nuevo y en su etapa inicial → nada
+    { id: "p4", numero: 15, estado: "enviado", entrega: "recogida" }, // visto «preparado»  → aviso («listo para recoger»)
+  ];
+  const REPARACIONES_SEG = [
+    { id: "r1", service_title: "Reparación de mando", seguimiento: "listo", seguimiento_actualizado: "2026-10-21T10:00:00+00:00" }, // visto «reparando» → aviso
+    { id: "r2", service_title: "Limpieza de consola", seguimiento: "reparando", seguimiento_actualizado: "2026-10-21T12:00:00+00:00" }, // misma etapa, nota nueva → aviso
+    { id: "r3", service_title: "Cambio de pantalla", seguimiento: "recibido", seguimiento_actualizado: "2026-10-21T08:00:00+00:00" }, // sin cambios → nada
+  ];
+  const VISTOS_SEG = {
+    p: { p1: "confirmado", p2: "pendiente", p4: "preparado" },
+    r: { r1: "reparando|2026-10-20T10:00:00+00:00", r2: "reparando|2026-10-21T09:00:00+00:00", r3: "recibido|2026-10-21T08:00:00+00:00" },
+  };
+
+  // S0) Sin pedidos ni reparaciones: el número rojo de partida (con esta sesión simulada).
+  let baseSeg = 0;
+  {
+    const c = await contextoSeg({ pedidos: [], reparaciones: [], vistos: { p: {}, r: {} } });
+    const q = await abrirSeg(c);
+    await q.waitForTimeout(2500);
+    await abrirPanelAvisos(q);
+    baseSeg = await insignia(q);
+    await c.close();
+  }
+
+  // S1) La primera vez en un dispositivo NO se avisa de lo antiguo: se apunta lo que hay.
+  {
+    const c = await contextoSeg({ pedidos: PEDIDOS_SEG, reparaciones: REPARACIONES_SEG, vistos: null });
+    const q = await abrirSeg(c);
+    await q.waitForTimeout(3000);
+    await abrirPanelAvisos(q);
+    const n = await insignia(q);
+    const t = await q.evaluate(() => document.body.innerText);
+    ok(n === baseSeg && !/Tu pedido nº|está lista para recoger|nota sobre tu/.test(t), `Seguimientos S1: la primera vez no avisa de lo antiguo (${n}, sin avisos: ${baseSeg})`);
+    const guardado = await q.evaluate((k) => localStorage.getItem(k), CLAVE_VISTOS);
+    ok(!!guardado && /"p1":"enviado"/.test(guardado), "Seguimientos S1: y apunta lo que hay como visto");
+    await c.close();
+  }
+
+  // S2) Con lo ya visto sembrado: avisa de lo que cambió (2 pedidos, una reparación lista y una nota nueva) y de nada más.
+  {
+    const c = await contextoSeg({ pedidos: PEDIDOS_SEG, reparaciones: REPARACIONES_SEG, vistos: VISTOS_SEG });
+    const q = await abrirSeg(c);
+    await q.waitForTimeout(3000);
+    await abrirPanelAvisos(q);
+    const n = await insignia(q);
+    ok(n === baseSeg + 4, `Seguimientos S2: 4 novedades suman 4 al número rojo (${n}, sin ellas: ${baseSeg})`);
+    const t = await q.evaluate(() => document.body.innerText);
+    ok(/Tu pedido nº 12 está enviado/.test(t), "Seguimientos S2: «Tu pedido nº 12 está enviado» (envío a domicilio)");
+    ok(/Tu pedido nº 15 está listo para recoger/.test(t), "Seguimientos S2: «Tu pedido nº 15 está listo para recoger» (recogida en tienda)");
+    ok(/Tu «Reparación de mando» está lista para recoger/.test(t), "Seguimientos S2: «Tu «Reparación de mando» está lista para recoger»");
+    ok(/El taller ha dejado una nota sobre tu «Limpieza de consola»/.test(t), "Seguimientos S2: si solo cambia la nota, «El taller ha dejado una nota…»");
+    ok(!/nº 13|nº 14|Cambio de pantalla/.test(t), "Seguimientos S2: ni lo que no cambió ni lo recién pedido en su etapa inicial");
+    const filas = await q.getByRole("button", { name: /Ver seguimiento/ }).evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(filas.length === 4 && filas.every((h) => h >= 47.5), `Seguimientos S2: 4 filas que se tocan de 48 px o más (${filas.join(", ")})`);
+    await capturar(q, "09-avisos-estado");
+    // Tocar un aviso lleva a Seguimientos y, al verlos, los avisos desaparecen.
+    await q.getByRole("button", { name: /Tu pedido nº 12/ }).first().tap();
+    await q.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
+      () => ok(true, "Seguimientos S2: tocar un aviso lleva a Perfil → Seguimientos"),
+      () => ok(false, `Seguimientos S2: debía llevar a Perfil → Seguimientos (está en ${q.url()})`)
+    );
+    ok(await q.getByText("Mis pedidos").first().waitFor({ timeout: 20000 }).then(() => true, () => false), "Seguimientos S2: se ve «Mis pedidos»");
+    await q.waitForTimeout(1500);
+    await abrirPanelAvisos(q);
+    const despues = await insignia(q);
+    const t2 = await q.evaluate(() => document.body.innerText);
+    ok(despues === baseSeg && !/Tu pedido nº|está lista para recoger|nota sobre tu/.test(t2), `Seguimientos S2: tras verlos, ya no hay avisos (${despues}, sin ellos: ${baseSeg})`);
+    ok(q.errores.length === 0, `Seguimientos S2: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+    await c.close();
+  }
+
+  // S3) Blue lo dice UNA vez en un mensaje que lleva a Seguimientos.
+  {
+    const c = await contextoSeg({ pedidos: PEDIDOS_SEG, reparaciones: REPARACIONES_SEG, vistos: VISTOS_SEG });
+    const q = await abrirSeg(c);
+    const dicho = await q
+      .waitForFunction(() => /Tu pedido nº 12 está enviado/.test(document.getElementById("blue-mensaje")?.textContent ?? ""), null, { timeout: 40000 })
+      .then(() => true, () => false);
+    ok(dicho, "Seguimientos S3: Blue dice «Tu pedido nº 12 está enviado.» en un mensaje");
+    if (dicho) {
+      await capturar(q, "10-mensaje-estado");
+      await q.locator("#blue-mensaje").tap();
+      await q.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
+        () => ok(true, "Seguimientos S3: tocar el mensaje lleva a Seguimientos"),
+        () => ok(false, `Seguimientos S3: tocar el mensaje debía llevar a Seguimientos (está en ${q.url()})`)
+      );
+    }
     await c.close();
   }
 } catch (e) {
