@@ -30,6 +30,14 @@
  * - Orden: por fecha de alta (más recientes primero, por defecto) o por
  *   participación total (suma de los tres contadores), para ver primero a
  *   quien más interactúa con la tienda.
+ * - PERFILES (seguimiento de lo que cada cliente escribe en Mi cuenta → Tu perfil: nombre,
+ *   usuario, país, provincia y edad): se leen de perfiles_cliente (el administrador las ve
+ *   todas, por su política; migración 20261022100000_perfiles_cliente.sql). Salen contadores
+ *   (con perfil, completos, edad media, provincias), chips con cuántos hay por tramo de edad,
+ *   provincia y país que a la vez FILTRAN la lista, el resumen de cada cliente en su fila y el
+ *   buscador también encuentra por nombre, usuario, provincia o país. Si la tabla aún no existe
+ *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
+ *   (no se enseña la fecha). Lee hasta 1.000 perfiles (límite por defecto de Supabase).
  *
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
  *   (app/admin/cliente/[userId].tsx), que junta compras, ventas a la tienda,
@@ -96,7 +104,58 @@ type UserRow = {
   store_reviews_count: number;
 };
 
+// Datos que cada cliente escribe en «Mi cuenta» → Tu perfil (tabla perfiles_cliente).
+type PerfilRow = {
+  user_id: string;
+  nombre: string;
+  usuario: string;
+  pais: string;
+  provincia: string;
+  fecha_nacimiento: string;
+};
+
 type SortMode = "recent" | "participation";
+
+// Tramos de edad para contar y filtrar.
+const TRAMOS_EDAD: { id: string; label: string; min: number; max: number }[] = [
+  { id: "14-17", label: "14–17", min: 14, max: 17 },
+  { id: "18-24", label: "18–24", min: 18, max: 24 },
+  { id: "25-34", label: "25–34", min: 25, max: 34 },
+  { id: "35-44", label: "35–44", min: 35, max: 44 },
+  { id: "45+", label: "45 o más", min: 45, max: 150 },
+];
+
+// Edad cumplida a partir de «AAAA-MM-DD» (null si no hay fecha o no es válida).
+function edadDe(fecha: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  if (!m) return null;
+  const [a, mes, dia] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - a;
+  if (hoy.getMonth() + 1 < mes || (hoy.getMonth() + 1 === mes && hoy.getDate() < dia)) edad -= 1;
+  return edad >= 0 && edad < 150 ? edad : null;
+}
+
+// Un perfil está completo con los cinco datos.
+function perfilCompleto(p: PerfilRow | undefined): boolean {
+  return !!p && !!p.nombre && !!p.usuario && !!p.pais && !!p.provincia && edadDe(p.fecha_nacimiento) !== null;
+}
+
+// «Dani · @dani · Zaragoza (España) · 22 años», o «Perfil sin completar».
+function resumenDePerfil(p: PerfilRow | undefined): string {
+  if (!p) return "Perfil sin completar";
+  const edad = edadDe(p.fecha_nacimiento);
+  const lugar = p.provincia && p.pais ? `${p.provincia} (${p.pais})` : p.provincia || p.pais;
+  const partes = [p.nombre, p.usuario ? `@${p.usuario}` : "", lugar, edad !== null ? `${edad} años` : ""].filter(Boolean);
+  return partes.length ? partes.join(" · ") : "Perfil sin completar";
+}
+
+// Cuántos hay de cada valor, de más a menos (para los contadores que también sirven de filtro).
+function contarPor(valores: string[]): { valor: string; n: number }[] {
+  const mapa = new Map<string, number>();
+  for (const v of valores) if (v) mapa.set(v, (mapa.get(v) ?? 0) + 1);
+  return [...mapa.entries()].map(([valor, n]) => ({ valor, n })).sort((a, b) => b.n - a.n || a.valor.localeCompare(b.valor, "es"));
+}
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
@@ -229,17 +288,49 @@ export default function AdminUsers() {
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("recent");
 
+  // Perfiles de los clientes (nombre, usuario, país, provincia y edad) y filtros. `perfilesOk` = la tabla existe
+  // (si la migración aún no está aplicada, esta parte no se enseña y el resto de la pantalla funciona igual).
+  const [perfiles, setPerfiles] = useState<Record<string, PerfilRow>>({});
+  const [perfilesOk, setPerfilesOk] = useState(false);
+  const [filtroProvincia, setFiltroProvincia] = useState<string | null>(null);
+  const [filtroPais, setFiltroPais] = useState<string | null>(null);
+  const [filtroTramo, setFiltroTramo] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setScreenErr(null);
 
     try {
-      const [usersRes, sellRes, serviceRes, reviewsRes] = await Promise.all([
+      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesRes] = await Promise.all([
         supabase.rpc("admin_list_users_with_stats"),
         supabase.from("sell_requests").select("id", { count: "exact", head: true }),
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
         supabase.from("store_reviews").select("rating"),
+        // El administrador puede leer todos (política de la tabla). Si la tabla no existe todavía, no es un error de la pantalla.
+        supabase.from("perfiles_cliente").select("user_id,nombre,usuario,pais,provincia,fecha_nacimiento").limit(5000),
       ]);
+
+      if (perfilesRes.error) {
+        setPerfilesOk(false);
+        setPerfiles({});
+      } else {
+        const mapa: Record<string, PerfilRow> = {};
+        for (const r of (perfilesRes.data ?? []) as Record<string, unknown>[]) {
+          const id = String(r.user_id ?? "");
+          if (!id) continue;
+          const t = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+          mapa[id] = {
+            user_id: id,
+            nombre: t(r.nombre),
+            usuario: t(r.usuario),
+            pais: t(r.pais),
+            provincia: t(r.provincia),
+            fecha_nacimiento: t(r.fecha_nacimiento),
+          };
+        }
+        setPerfiles(mapa);
+        setPerfilesOk(true);
+      }
 
       if (usersRes.error) throw usersRes.error;
       if (sellRes.error) throw sellRes.error;
@@ -288,9 +379,42 @@ export default function AdminUsers() {
     return { total, admins, active };
   }, [users]);
 
+  // Contadores del perfil (solo de las cuentas que hay ahora en la lista).
+  const resumenPerfiles = useMemo(() => {
+    const delosUsuarios = users.map((u) => perfiles[u.user_id]).filter((p): p is PerfilRow => !!p);
+    const conAlgo = delosUsuarios.filter((p) => p.nombre || p.usuario || p.pais || p.provincia || p.fecha_nacimiento).length;
+    const completos = delosUsuarios.filter((p) => perfilCompleto(p)).length;
+    const porProvincia = contarPor(delosUsuarios.map((p) => p.provincia));
+    const porPais = contarPor(delosUsuarios.map((p) => p.pais));
+    const porTramo = TRAMOS_EDAD.map((t) => ({
+      ...t,
+      n: delosUsuarios.filter((p) => {
+        const e = edadDe(p.fecha_nacimiento);
+        return e !== null && e >= t.min && e <= t.max;
+      }).length,
+    }));
+    const edades = delosUsuarios.map((p) => edadDe(p.fecha_nacimiento)).filter((e): e is number => e !== null);
+    const media = edades.length ? edades.reduce((a, b) => a + b, 0) / edades.length : null;
+    return { conAlgo, completos, porProvincia, porPais, porTramo, media };
+  }, [users, perfiles]);
+
+  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo;
+
   const visibleUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = q ? users.filter((u) => (u.email ?? "").toLowerCase().includes(q)) : users;
+    const tramo = TRAMOS_EDAD.find((t) => t.id === filtroTramo) ?? null;
+    const filtered = users.filter((u) => {
+      const p = perfiles[u.user_id];
+      if (filtroProvincia && p?.provincia !== filtroProvincia) return false;
+      if (filtroPais && p?.pais !== filtroPais) return false;
+      if (tramo) {
+        const e = p ? edadDe(p.fecha_nacimiento) : null;
+        if (e === null || e < tramo.min || e > tramo.max) return false;
+      }
+      if (!q) return true;
+      const texto = [u.email, p?.nombre, p?.usuario, p?.provincia, p?.pais].filter(Boolean).join(" ").toLowerCase();
+      return texto.includes(q);
+    });
 
     const sorted = [...filtered].sort((a, b) => {
       if (sortMode === "participation") return totalParticipation(b) - totalParticipation(a);
@@ -298,7 +422,7 @@ export default function AdminUsers() {
     });
 
     return sorted;
-  }, [users, search, sortMode]);
+  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -375,11 +499,99 @@ export default function AdminUsers() {
               <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
             </View>
 
+            {/* Seguimiento de los perfiles (lo que cada cliente escribe en Mi cuenta → Tu perfil). Los contadores también
+                sirven de filtro: tocar uno filtra la lista de abajo y volver a tocarlo lo quita. */}
+            {perfilesOk ? (
+              <View style={{ gap: 12 }} nativeID="admin-perfiles">
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Perfiles de clientes</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
+                  <StatCard label="Con perfil" value={`${resumenPerfiles.conAlgo} de ${stats.total}`} icon="id-card-outline" isMobile={isMobile} />
+                  <StatCard label="Perfil completo" value={String(resumenPerfiles.completos)} icon="checkmark-done-outline" isMobile={isMobile} />
+                  <StatCard
+                    label="Edad media"
+                    value={resumenPerfiles.media != null ? `${Math.round(resumenPerfiles.media)} años` : "—"}
+                    icon="calendar-outline"
+                    isMobile={isMobile}
+                  />
+                  <StatCard label="Provincias" value={String(resumenPerfiles.porProvincia.length)} icon="location-outline" isMobile={isMobile} />
+                </View>
+
+                {resumenPerfiles.conAlgo === 0 ? (
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                    Todavía nadie ha rellenado su perfil. Cuando lo hagan, aquí verás de dónde son y qué edad tienen.
+                  </Text>
+                ) : (
+                  <>
+                    <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>EDAD</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                      {resumenPerfiles.porTramo.map((t) => (
+                        <ChipButton
+                          key={t.id}
+                          label={`${t.label} (${t.n})`}
+                          active={filtroTramo === t.id}
+                          onPress={() => setFiltroTramo((v) => (v === t.id ? null : t.id))}
+                          isMobile={isMobile}
+                        />
+                      ))}
+                    </View>
+
+                    {resumenPerfiles.porProvincia.length > 0 ? (
+                      <>
+                        <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>PROVINCIA</Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                          {resumenPerfiles.porProvincia.slice(0, 10).map((p) => (
+                            <ChipButton
+                              key={p.valor}
+                              label={`${p.valor} (${p.n})`}
+                              active={filtroProvincia === p.valor}
+                              onPress={() => setFiltroProvincia((v) => (v === p.valor ? null : p.valor))}
+                              isMobile={isMobile}
+                            />
+                          ))}
+                        </View>
+                      </>
+                    ) : null}
+
+                    {resumenPerfiles.porPais.length > 1 ? (
+                      <>
+                        <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>PAÍS</Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                          {resumenPerfiles.porPais.slice(0, 8).map((p) => (
+                            <ChipButton
+                              key={p.valor}
+                              label={`${p.valor} (${p.n})`}
+                              active={filtroPais === p.valor}
+                              onPress={() => setFiltroPais((v) => (v === p.valor ? null : p.valor))}
+                              isMobile={isMobile}
+                            />
+                          ))}
+                        </View>
+                      </>
+                    ) : null}
+
+                    {hayFiltros ? (
+                      <View style={{ alignItems: "center" }}>
+                        <ChipButton
+                          label="Quitar filtros"
+                          onPress={() => {
+                            setFiltroProvincia(null);
+                            setFiltroPais(null);
+                            setFiltroTramo(null);
+                          }}
+                          isMobile={isMobile}
+                        />
+                      </View>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            ) : null}
+
             <View style={{ gap: 10 }}>
               <TextInput
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Buscar por email…"
+                placeholder={perfilesOk ? "Buscar por email, nombre, usuario o provincia…" : "Buscar por email…"}
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 autoCapitalize="none"
                 style={{
@@ -496,6 +708,12 @@ export default function AdminUsers() {
                     <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
                       Alta: {fmtDate(u.created_at)}
                     </Text>
+
+                    {perfilesOk ? (
+                      <Text style={{ color: perfiles[u.user_id] ? COLORS.text : COLORS.muted2, fontSize: 13, fontWeight: "800", lineHeight: 18 }}>
+                        {resumenDePerfil(perfiles[u.user_id])}
+                      </Text>
+                    ) : null}
 
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                       <MetricPill icon="chatbubbles-outline" label="mensajes en el foro" value={u.chat_messages_count} />

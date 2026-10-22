@@ -63,6 +63,11 @@
  *   · «Avísame cuando llegue» (con sesión): el cliente apunta hasta 10 búsquedas
  *     (tabla avisos_busqueda; también desde el catálogo sin resultados con
  *     crearAvisoBusqueda) y Blue le avisa cuando entra un artículo con todas esas palabras.
+ *   · Estado de tus pedidos y reparaciones (con sesión): si la tienda cambia la etapa de un pedido o de una
+ *     reparación (tablas pedidos y service_requests, las mismas que enseña Perfil → Seguimientos) sale un
+ *     aviso con icono, suma al número rojo y Blue lo dice una vez en un mensaje que lleva a Seguimientos. Se
+ *     compara con la etapa que ya viste (guardada por cuenta en el móvil, SEG_VISTOS_PREFIJO) y desaparece al abrir
+ *     Seguimientos (marcarSeguimientosVistos). La primera vez en un dispositivo no avisa de lo antiguo.
  *   · Reserva que vence: cada artículo de la cesta (CART_KEY, campo reservedUntil de lib/reservas.ts:
  *     15 minutos) sale como aviso con lo que le queda; con 5 minutos o menos suma al número rojo y
  *     Blue lo dice una vez en un mensaje que lleva a la cesta (no en la propia Cesta ni en el pedido).
@@ -173,6 +178,125 @@ const RESERVA_AVISO_MS = 5 * 60 * 1000;
 const RELOJ_RESERVAS_MS = 15000;
 // Minutos que quedan, redondeando hacia arriba (nunca «0 min»).
 const minutosQueQuedan = (ms: number) => Math.max(1, Math.ceil(ms / 60000));
+
+// --- Avisos de estado de pedidos y reparaciones (las etapas que ve el cliente en Perfil → Seguimientos) -------------
+// Blue guarda en el móvil, por cuenta, la etapa que la persona ya ha visto de cada pedido y reparación; si la tienda la
+// cambia, sale un aviso hasta que la persona abre «Seguimientos» (marcarSeguimientosVistos). La primera vez que se mira
+// en un dispositivo solo se apunta lo que hay (no se avisa de lo antiguo).
+type VistosSeg = { p: Record<string, string>; r: Record<string, string> };
+type SegAviso = { clave: string; tipo: "pedido" | "reparacion"; texto: string };
+type PedidoSegDato = { id: string; numero: number | null; estado: string; entrega: string | null };
+type ReparacionSegDato = { id: string; titulo: string; etapa: string; actualizado: string };
+const SEG_VISTOS_PREFIJO = "videojuegoszaragoza:seguimientos_vistos:";
+const RELOJ_SEGUIMIENTOS_MS = 120000;
+// Quien escucha cuando el cliente ya ha visto sus seguimientos (Perfil), para quitar el aviso sin volver a pedir nada.
+const oyentesSeguimientos = new Set<() => void>();
+
+function avisoPedido(p: PedidoSegDato): string | null {
+  const n = p.numero ?? "";
+  switch (p.estado) {
+    case "confirmado":
+      return `Tu pedido nº ${n} está confirmado`;
+    case "preparado":
+      return `Estamos preparando tu pedido nº ${n}`;
+    case "enviado":
+      return p.entrega === "recogida" ? `Tu pedido nº ${n} está listo para recoger` : `Tu pedido nº ${n} está enviado`;
+    case "entregado":
+      return `Tu pedido nº ${n} está entregado`;
+    case "cancelado":
+      return `Tu pedido nº ${n} se ha cancelado`;
+    default:
+      return null; // «pendiente»: es como queda al pedirlo, no es una novedad
+  }
+}
+
+function avisoReparacion(r: ReparacionSegDato, soloNota: boolean): string | null {
+  const t = `«${r.titulo}»`;
+  if (soloNota) return `El taller ha dejado una nota sobre tu ${t}`;
+  switch (r.etapa) {
+    case "recibido":
+      return `Hemos recibido tu ${t}`;
+    case "diagnostico":
+      return `Estamos diagnosticando tu ${t}`;
+    case "reparando":
+      return `Tu ${t} está en reparación`;
+    case "listo":
+      return `Tu ${t} está lista para recoger`;
+    case "entregado":
+      return `Tu ${t} está entregada`;
+    case "cancelado":
+      return `Tu solicitud de ${t} se ha cancelado`;
+    default:
+      return null; // «solicitado»: es como queda al pedirla
+  }
+}
+
+// Qué ha cambiado respecto a lo que la persona ya vio. `adoptar` = lo nuevo que no es novedad (un pedido o una reparación
+// recién creados) y que se da por visto para no volver a mirarlo.
+function calcularSegAvisos(
+  pedidos: PedidoSegDato[],
+  reparaciones: ReparacionSegDato[],
+  vistos: VistosSeg
+): { avisos: SegAviso[]; adoptar: VistosSeg } {
+  const avisos: SegAviso[] = [];
+  const adoptar: VistosSeg = { p: {}, r: {} };
+  for (const p of pedidos) {
+    const antes = vistos.p[p.id];
+    if (antes === p.estado) continue;
+    const texto = avisoPedido(p);
+    if (antes === undefined && !texto) {
+      adoptar.p[p.id] = p.estado;
+      continue;
+    }
+    if (texto) avisos.push({ clave: `p:${p.id}:${p.estado}`, tipo: "pedido", texto });
+  }
+  for (const r of reparaciones) {
+    const firma = `${r.etapa}|${r.actualizado}`;
+    const antes = vistos.r[r.id];
+    if (antes === firma) continue;
+    const etapaAntes = antes?.split("|")[0];
+    const soloNota = antes !== undefined && etapaAntes === r.etapa;
+    const texto = avisoReparacion(r, soloNota);
+    if (antes === undefined && !texto) {
+      adoptar.r[r.id] = firma;
+      continue;
+    }
+    if (texto) avisos.push({ clave: `r:${r.id}:${firma}`, tipo: "reparacion", texto });
+  }
+  return { avisos, adoptar };
+}
+
+async function leerVistosSeg(uid: string): Promise<VistosSeg | null> {
+  try {
+    const raw = await AsyncStorage.getItem(SEG_VISTOS_PREFIJO + uid);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<VistosSeg>;
+    return { p: v.p && typeof v.p === "object" ? v.p : {}, r: v.r && typeof v.r === "object" ? v.r : {} };
+  } catch {
+    return null;
+  }
+}
+
+async function guardarVistosSeg(uid: string, v: VistosSeg): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SEG_VISTOS_PREFIJO + uid, JSON.stringify(v));
+  } catch {
+    // sin memoria local: el aviso saldrá otra vez, no pasa nada
+  }
+}
+
+// Perfil → Seguimientos llama aquí con lo que acaba de enseñar: eso ya está visto y se quitan los avisos.
+export async function marcarSeguimientosVistos(
+  uid: string,
+  pedidos: { id: string; estado: string }[],
+  reparaciones: { id: string; etapa: string; actualizado: string }[]
+): Promise<void> {
+  const vistos: VistosSeg = { p: {}, r: {} };
+  for (const p of pedidos) vistos.p[p.id] = p.estado;
+  for (const r of reparaciones) vistos.r[r.id] = `${r.etapa}|${r.actualizado}`;
+  await guardarVistosSeg(uid, vistos);
+  oyentesSeguimientos.forEach((f) => f());
+}
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(value: number) {
@@ -617,6 +741,9 @@ export default function Campanita() {
   // Reservas de la cesta en marcha y el reloj con el que se cuenta lo que les queda.
   const [reservas, setReservas] = useState<ReservaAviso[]>([]);
   const [reloj, setReloj] = useState(() => Date.now());
+  // Novedades de tus pedidos y reparaciones (etapa que ha cambiado desde la última vez que los viste en Seguimientos).
+  const [segAvisos, setSegAvisos] = useState<SegAviso[]>([]);
+  const segActualRef = useRef<{ uid: string; pedidos: PedidoSegDato[]; reparaciones: ReparacionSegDato[] } | null>(null);
   const [salidaPendiente, setSalidaPendiente] = useState(0);
   const [textoAviso, setTextoAviso] = useState("");
   const [msgAviso, setMsgAviso] = useState<string | null>(null);
@@ -1052,13 +1179,99 @@ export default function Campanita() {
     if (lista.length) setReloj(ahora);
   }, []);
 
+  // Compara lo último que se leyó de pedidos y reparaciones con lo que la persona ya vio (sin pedir nada a la red).
+  const recalcularSeguimientos = useCallback(async () => {
+    const actual = segActualRef.current;
+    if (!actual) {
+      setSegAvisos([]);
+      return;
+    }
+    const vistos = await leerVistosSeg(actual.uid);
+    if (!vistos) {
+      // Primera vez en este dispositivo: se apunta lo que hay y no se avisa de lo antiguo.
+      const base: VistosSeg = { p: {}, r: {} };
+      for (const p of actual.pedidos) base.p[p.id] = p.estado;
+      for (const r of actual.reparaciones) base.r[r.id] = `${r.etapa}|${r.actualizado}`;
+      await guardarVistosSeg(actual.uid, base);
+      setSegAvisos([]);
+      return;
+    }
+    const { avisos, adoptar } = calcularSegAvisos(actual.pedidos, actual.reparaciones, vistos);
+    if (Object.keys(adoptar.p).length || Object.keys(adoptar.r).length) {
+      await guardarVistosSeg(actual.uid, { p: { ...vistos.p, ...adoptar.p }, r: { ...vistos.r, ...adoptar.r } });
+    }
+    setSegAvisos((previos) =>
+      previos.length === avisos.length && previos.every((a, i) => a.clave === avisos[i].clave) ? previos : avisos
+    );
+  }, []);
+
+  // Pedidos y reparaciones de la persona (solo con sesión; cada una ve lo suyo). Si faltan las tablas o las columnas de
+  // seguimiento (migración sin aplicar) no hay avisos y no se rompe nada.
+  const refreshSeguimientos = useCallback(async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData.session?.user?.id;
+      if (!uid) {
+        segActualRef.current = null;
+        setSegAvisos([]);
+        return;
+      }
+      const [ped, rep] = await Promise.all([
+        supabase.from("pedidos").select("id,numero,estado,entrega").eq("user_id", uid).limit(50),
+        supabase
+          .from("service_requests")
+          .select("id,service_title,seguimiento,seguimiento_actualizado")
+          .eq("customer_user_id", uid)
+          .limit(50),
+      ]);
+      segActualRef.current = {
+        uid,
+        pedidos: ped.error
+          ? []
+          : ((ped.data ?? []) as { id: string; numero: number | null; estado: string | null; entrega: string | null }[]).map((p) => ({
+              id: String(p.id),
+              numero: p.numero ?? null,
+              estado: String(p.estado ?? "pendiente"),
+              entrega: p.entrega ?? null,
+            })),
+        reparaciones: rep.error
+          ? []
+          : ((rep.data ?? []) as { id: string; service_title: string | null; seguimiento: string | null; seguimiento_actualizado: string | null }[]).map(
+              (r) => ({
+                id: String(r.id),
+                titulo: String(r.service_title ?? "").trim() || "Servicio",
+                etapa: String(r.seguimiento ?? "solicitado"),
+                actualizado: String(r.seguimiento_actualizado ?? ""),
+              })
+            ),
+      };
+      await recalcularSeguimientos();
+    } catch {
+      // sin conexión: se deja como estaba
+    }
+  }, [recalcularSeguimientos]);
+
   const refreshAvisosTienda = useCallback(() => {
     refreshNovedadesTienda();
     refreshAvisosBusqueda();
     refreshBajadas();
     refreshSalida();
     refreshReservas();
-  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida, refreshReservas]);
+    refreshSeguimientos();
+  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida, refreshReservas, refreshSeguimientos]);
+
+  // Perfil → Seguimientos ha enseñado las novedades: se quitan los avisos sin volver a pedir nada. Y cada 2 minutos (con la
+  // pestaña visible) se miran los cambios de la tienda.
+  useEffect(() => {
+    oyentesSeguimientos.add(recalcularSeguimientos);
+    const t = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") refreshSeguimientos();
+    }, RELOJ_SEGUIMIENTOS_MS);
+    return () => {
+      oyentesSeguimientos.delete(recalcularSeguimientos);
+      clearInterval(t);
+    };
+  }, [recalcularSeguimientos, refreshSeguimientos]);
 
   // Cuenta atrás de las reservas: se relee la cesta al cambiar de pantalla y cada 15 s (con la pestaña oculta, no).
   useEffect(() => {
@@ -1196,6 +1409,7 @@ export default function Campanita() {
     llegadas.length +
     bajadas.length +
     reservasPorVencer.length +
+    segAvisos.length +
     (isAdmin && salidaPendiente > 0 ? 1 : 0);
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
@@ -1314,6 +1528,24 @@ export default function Campanita() {
       vivo = false;
     };
   }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, reservasPorVencer]);
+
+  // Una novedad de tu pedido o reparación: un mensaje de Blue, UNA vez por cambio y solo si Blue no está diciendo otra cosa. No
+  // sale en Perfil (allí están los seguimientos), ni en el pedido; con el aviso de cookies sin contestar Blue no habla.
+  useEffect(() => {
+    if (!enPantalla || enAdmin || guiaAbierta || panelOpen || bocadillo) return;
+    if (pathname.startsWith("/perfil") || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
+    const a = segAvisos.find((x) => !yaDicho.has(`s:${x.clave}`));
+    if (!a) return;
+    let vivo = true;
+    (async () => {
+      if ((await getAnalyticsConsent()) === null || !vivo) return;
+      yaDicho.add(`s:${a.clave}`);
+      setBocadillo({ id: `s:${a.clave}`, texto: `${a.texto}.`, accion: "ruta", ruta: "/perfil?tab=seguimientos" });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, segAvisos]);
 
   // Oferta de instalar la tienda como app: un mensaje de Blue, una vez cada 7 días como mucho,
   // cuando ya lleva un rato en pantalla, no está hablando de otra cosa y la persona ya
@@ -2117,6 +2349,16 @@ export default function Campanita() {
                   <FilaBlue icono="checkmark-circle-outline" titulo="Estás al día: no tienes avisos nuevos." />
                 ) : (
                   <>
+                    {/* Novedades de tus pedidos y reparaciones (la etapa cambió desde la última vez que los viste). */}
+                    {segAvisos.map((a) => (
+                      <Aviso
+                        icono={a.tipo === "pedido" ? "cube-outline" : "construct-outline"}
+                        key={a.clave}
+                        titulo={a.texto}
+                        accion="Ver seguimiento"
+                        onPress={() => ir("/perfil?tab=seguimientos")}
+                      />
+                    ))}
                     {/* Reservas de la cesta (15 minutos): las que vencen en 5 o menos avisan; las demás, solo informan. */}
                     {reservasActivas.map((r) => {
                       const falta = r.hasta - reloj;
