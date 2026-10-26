@@ -26,6 +26,12 @@ funcionaría (no modifica nada): `npm ci --dry-run`.
 Si una prueba no puede comprobar nada (por ejemplo, Blue no se pinta en una página), lo dice con `AVISO` y falla si
 no llegó a medir ninguna página: un «todo bien» sin haber medido no vale.
 
+**Ninguna prueba descarga fotos reales.** Todas abren el navegador con `lanzarNavegador(ok)` de
+`pruebas/sin-fotos-reales.mjs` (nunca con `chromium.launch()`): cada foto de Supabase (y del optimizador de Vercel)
+llega como una imagen falsa de 1 × 1 píxel, y si se colara una real la prueba falla. Motivo: en octubre de 2026 las
+pruebas gastaron la cuota de salida del plan gratuito y Supabase cortó la tienda. `node pruebas/sin-fotos-reales.mjs`
+comprueba que ninguna prueba se lo salta (y está en `pruebas/todas.mjs`).
+
 ## Pruebas que llegan con otras PR
 
 Cada una se documenta en su cabecera: `pruebas/pedido-idempotente.mjs` (checkout), `pruebas/interaccion-cliente.mjs`

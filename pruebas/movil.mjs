@@ -25,7 +25,7 @@
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
+import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
 const BASE = (process.argv[2] ?? "https://videojuegoszaragoza.com").replace(/\/$/, "");
 // Fuera del repositorio por defecto: las capturas no se suben.
@@ -158,7 +158,8 @@ async function revisarBlueYGuia(contexto) {
   await pagina.close();
 }
 
-const navegador = await chromium.launch();
+// Fotos de Supabase sustituidas por una falsa (pruebas/sin-fotos-reales.mjs): las pruebas no gastan la cuota.
+const navegador = await lanzarNavegador((cond, msg) => (cond ? console.log(`OK    ${msg}`) : fallos.push(msg)));
 try {
   const contexto = await navegador.newContext(IPHONE);
   // La guía automática ya vista y la analítica RECHAZADA: así no tapan las capturas y las
