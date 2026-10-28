@@ -23,6 +23,7 @@ const PAGINAS_FIJAS: { ruta: string; prioridad: string; cambio: string }[] = [
   { ruta: "/servicios", prioridad: "0.8", cambio: "weekly" },
   { ruta: "/vender", prioridad: "0.8", cambio: "monthly" },
   { ruta: "/blog", prioridad: "0.6", cambio: "weekly" },
+  { ruta: "/quienes-somos", prioridad: "0.7", cambio: "monthly" },
   { ruta: "/politicas/envios", prioridad: "0.4", cambio: "monthly" },
   { ruta: "/politicas/devoluciones", prioridad: "0.4", cambio: "monthly" },
   { ruta: "/politicas/privacidad", prioridad: "0.3", cambio: "yearly" },

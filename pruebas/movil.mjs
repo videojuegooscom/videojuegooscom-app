@@ -41,6 +41,7 @@ const PAGINAS = [
   ["foro", "/chat-global"],
   ["servicios", "/servicios"],
   ["envios", "/politicas/envios"],
+  ["quienes-somos", "/quienes-somos"],
 ];
 
 const IPHONE = {

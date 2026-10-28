@@ -798,7 +798,8 @@ const TRUST_INFO: TrustInfoItem[] = [
   {
     icon: "cube-outline",
     title: "Envíos en España",
-    detail: "Enviamos a toda España bien protegido y con seguimiento. También puedes recoger en tienda.",
+    detail:
+      "Enviamos a toda España bien protegido y con seguimiento: sale en 1-2 días y llega en 72 horas como máximo. En Zaragoza te lo llevamos el mismo día, a domicilio o en mano en Cuarte de Huerva.",
   },
   {
     icon: "shield-checkmark-outline",

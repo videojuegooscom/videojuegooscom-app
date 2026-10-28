@@ -1,0 +1,33 @@
+# Videojuegoszaragoza.com
+
+> Tienda online de Zaragoza (España): compraventa de consolas, videojuegos y electrónica, con reparación, limpieza y mantenimiento. Envíos a toda España. Es una tienda solo online, sin tienda física.
+
+## Qué hacemos
+
+- Compramos y vendemos consolas, videojuegos y electrónica. Si tienes algo que ya no usas, te lo compramos al mejor precio o lo intercambiamos.
+- Reparamos, limpiamos y mantenemos consolas y dispositivos.
+
+## Cómo trabajamos
+
+- Cada artículo se prueba y se testea antes de entregarlo o enviarlo, y se limpia para que llegue en un estado impecable.
+- La mayoría de los artículos tienen 1 año de garantía, salvo que su descripción diga lo contrario.
+
+## Entregas
+
+- En Zaragoza: entrega a domicilio en el mismo día, o entrega en mano en Cuarte de Huerva.
+- Resto de España: el pedido sale del almacén en 1-2 días y llega a destino en 72 horas como máximo.
+
+## Horario de atención
+
+- De lunes a sábado: 10:00-14:00 y 17:00-19:00.
+- Domingos: 10:00-13:00.
+
+## Páginas
+
+- [Catálogo](https://videojuegoszaragoza.com/catalogo): consolas, videojuegos y electrónica a la venta.
+- [Reparación y mantenimiento](https://videojuegoszaragoza.com/servicios): servicios de reparación, limpieza y mantenimiento.
+- [Vender o intercambiar](https://videojuegoszaragoza.com/vender): formulario para vendernos o intercambiar tu consola o dispositivo.
+- [Quiénes somos](https://videojuegoszaragoza.com/quienes-somos): quién está detrás de la tienda y cómo trabajamos.
+- [Blue IA](https://videojuegoszaragoza.com/blue-ia): asistente de la tienda; desde ahí también se habla con el equipo.
+- [Política de envíos](https://videojuegoszaragoza.com/politicas/envios)
+- [Política de devoluciones](https://videojuegoszaragoza.com/politicas/devoluciones)

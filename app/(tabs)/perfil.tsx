@@ -1606,7 +1606,7 @@ function SeguimientosSeccion() {
                 ) : null}
                 {p.entrega ? (
                   <Text style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center" }}>
-                    {p.entrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
+                    {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                   </Text>
                 ) : null}
                 <LineaProgreso

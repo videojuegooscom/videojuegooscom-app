@@ -4,7 +4,9 @@
  * Es la misma que Expo usa por defecto (charset, viewport, X-UA-Compatible y el reset de
  * ScrollView), con dos cambios: el idioma del documento es español (`lang="es"`), para que
  * Google, los lectores de pantalla y el navegador traten la tienda como contenido en español,
- * y `viewport-fit=cover` para conocer la zona segura del iPhone. El título y las meta de SEO
+ * y `viewport-fit=cover` para conocer la zona segura del iPhone. Además, para Google y las IA:
+ * la ficha de la tienda en datos estructurados (JSON-LD) y un resumen en <noscript> para quien
+ * no ejecuta JavaScript (sin él solo verían la pantalla de carga). El título y las meta de SEO
  * los añaden scripts/inject-seo-html.js y SiteHead. Para cargar antes: preconnect/dns-prefetch
  * a Supabase (datos y fotos) y fondo blanco inline en body/#root (sin parpadeo inicial).
  */
@@ -30,6 +32,62 @@ const BOOT_CSS =
   "html,body,#root{background-color:#FFFFFF;overflow-x:hidden;max-width:100%;}" +
   "html,body{overscroll-behavior-y:none;}" +
   "body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}";
+
+// Ficha de la tienda para Google y las IA (datos estructurados de schema.org), en todas las páginas. La
+// tienda es SOLO ONLINE: sin dirección (el domicilio fiscal solo va en los textos legales). Solo datos que ha
+// dado el dueño; lo mismo que dicen app/quienes-somos.tsx y public/llms.txt.
+const DOMINIO = "https://videojuegoszaragoza.com";
+const DATOS_ESTRUCTURADOS = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "OnlineStore",
+      "@id": `${DOMINIO}/#tienda`,
+      name: "Videojuegoszaragoza.com",
+      url: `${DOMINIO}/`,
+      logo: `${DOMINIO}/icono-512.png`,
+      description:
+        "Tienda online de Zaragoza: compraventa de consolas, videojuegos y electrónica, con reparación y mantenimiento. Envíos a toda España.",
+      areaServed: { "@type": "Country", name: "España" },
+      sameAs: [
+        "https://www.instagram.com/videojuegoszaragoza/",
+        "https://www.tiktok.com/@videojuegoszaragoza",
+        "https://www.wallapop.com/user/enriquem-481793070",
+      ],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer service",
+        availableLanguage: "es",
+        url: `${DOMINIO}/blue-ia`,
+        hoursAvailable: [
+          { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], opens: "10:00", closes: "14:00" },
+          { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], opens: "17:00", closes: "19:00" },
+          { "@type": "OpeningHoursSpecification", dayOfWeek: "Sunday", opens: "10:00", closes: "13:00" },
+        ],
+      },
+      makesOffer: [
+        "Compraventa de consolas, videojuegos y electrónica",
+        "Reparación de consolas y dispositivos",
+        "Limpieza y mantenimiento de consolas",
+      ].map((name) => ({ "@type": "Offer", itemOffered: { "@type": "Service", name } })),
+    },
+    { "@type": "WebSite", "@id": `${DOMINIO}/#web`, name: "Videojuegoszaragoza.com", url: `${DOMINIO}/`, inLanguage: "es", publisher: { "@id": `${DOMINIO}/#tienda` } },
+  ],
+};
+// En JSON dentro de <script>, «<» se escapa para que ningún texto pueda cerrar la etiqueta.
+const DATOS_ESTRUCTURADOS_JSON = JSON.stringify(DATOS_ESTRUCTURADOS).replace(/</g, "\\u003c");
+
+// Lo que ve quien abre la tienda SIN JavaScript (muchos lectores de IA y algunos buscadores): sin esto solo
+// verían «Cargando tienda…». Con JavaScript no se muestra nunca. Lo mismo que dice app/quienes-somos.tsx.
+const ENLACES_SIN_JS: [string, string][] = [
+  ["/catalogo", "Catálogo"],
+  ["/servicios", "Reparación y mantenimiento"],
+  ["/vender", "Vender o intercambiar tu consola"],
+  ["/quienes-somos", "Quiénes somos"],
+  ["/blog", "Blog"],
+  ["/politicas/envios", "Envíos"],
+  ["/politicas/devoluciones", "Devoluciones"],
+];
 
 export default function Root({ children }: PropsWithChildren) {
   return (
@@ -70,8 +128,32 @@ export default function Root({ children }: PropsWithChildren) {
         <ScrollViewStyleReset />
         {/* Fondo blanco desde el primer pintado, para que no haya parpadeo antes de montar la app. */}
         <style dangerouslySetInnerHTML={{ __html: BOOT_CSS }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: DATOS_ESTRUCTURADOS_JSON }} />
       </head>
-      <body style={{ backgroundColor: "#FFFFFF" }}>{children}</body>
+      <body style={{ backgroundColor: "#FFFFFF" }}>
+        {children}
+        <noscript>
+          <main style={{ maxWidth: 640, margin: "0 auto", padding: 16, fontFamily: "system-ui, sans-serif", color: "#0B2138", textAlign: "center" }}>
+            <h1>Videojuegoszaragoza.com</h1>
+            <p>
+              Tienda online de Zaragoza: compramos y vendemos consolas, videojuegos y electrónica, y los reparamos y
+              mantenemos. Cada artículo se prueba y se limpia antes de entregarlo, y la mayoría tienen 1 año de garantía.
+            </p>
+            <p>
+              En Zaragoza entregamos el mismo día, a domicilio o en mano en Cuarte de Huerva. Al resto de España el
+              pedido sale en 1-2 días y llega en 72 horas como máximo.
+            </p>
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {ENLACES_SIN_JS.map(([ruta, texto]) => (
+                <li key={ruta}>
+                  <a href={ruta}>{texto}</a>
+                </li>
+              ))}
+            </ul>
+            <p>Para comprar, vender o hablar con nosotros, activa JavaScript en tu navegador.</p>
+          </main>
+        </noscript>
+      </body>
     </html>
   );
 }

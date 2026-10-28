@@ -55,6 +55,11 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  "/quienes-somos": {
+    titulo: "Quiénes somos",
+    descripcion:
+      "Tienda online de Zaragoza: compraventa, reparación y mantenimiento de consolas y videojuegos. Envíos a toda España y 1 año de garantía en la mayoría de artículos.",
+  },
   "/politicas/envios": { titulo: "Política de envíos" },
   "/politicas/devoluciones": { titulo: "Política de devoluciones" },
   "/politicas/privacidad": { titulo: "Política de privacidad" },

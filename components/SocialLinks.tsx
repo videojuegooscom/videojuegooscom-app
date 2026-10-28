@@ -188,6 +188,15 @@ export function buildSocialHref(platform: SocialPlatform, raw: string): string |
 
   // instagram / tiktok / youtube / facebook_marketplace / wallapop / vinted
   if (/^https?:\/\//i.test(value)) return value;
+  // Solo el nombre de usuario (p. ej. «Videojuegoszaragoza» o «@Videojuegoszaragoza»): antes salía
+  // «https://Videojuegoszaragoza», que no abre nada. Se arma el enlace del perfil en su red.
+  const usuario = value.replace(/^@/, "");
+  const esNombreDeUsuario = /^[A-Za-z0-9._-]+$/.test(usuario) && !/\.[a-z]{2,}$/i.test(usuario);
+  if (esNombreDeUsuario) {
+    if (platform === "instagram") return `https://www.instagram.com/${usuario}/`;
+    if (platform === "tiktok") return `https://www.tiktok.com/@${usuario}`;
+    if (platform === "youtube") return `https://www.youtube.com/@${usuario}`;
+  }
   return `https://${value}`;
 }
 

@@ -209,6 +209,7 @@ export default function RootLayout() {
         <Stack.Screen name="servicios" />
         <Stack.Screen name="checkout" />
         <Stack.Screen name="vender" />
+        <Stack.Screen name="quienes-somos" />
         <Stack.Screen name="reset-password" />
 
         {/* Políticas (envíos, devoluciones, privacidad, términos) y Blog */}
