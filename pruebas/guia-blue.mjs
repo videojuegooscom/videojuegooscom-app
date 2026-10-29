@@ -36,7 +36,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
 const argumentos = process.argv.slice(2);
 const opciones = Object.fromEntries(
@@ -211,7 +211,7 @@ async function abrirGuia(ctx, ruta = "/") {
   return p;
 }
 
-const navegador = await chromium.launch();
+const navegador = await lanzarNavegador(ok);
 try {
   const ctx = await contexto(navegador);
   const p = await abrirGuia(ctx);

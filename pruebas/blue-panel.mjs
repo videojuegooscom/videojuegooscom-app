@@ -26,7 +26,7 @@
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
 const argumentos = process.argv.slice(2);
 const SESION = argumentos.includes("--sesion");
@@ -126,7 +126,7 @@ async function contexto(navegador, carrito = null) {
 
 const rect = async (loc) => (await loc.first().boundingBox().catch(() => null)) ?? null;
 
-const navegador = await chromium.launch();
+const navegador = await lanzarNavegador(ok);
 try {
   const ctx = await contexto(navegador);
   const p = await ctx.newPage();

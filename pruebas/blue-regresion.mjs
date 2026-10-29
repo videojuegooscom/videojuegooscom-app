@@ -25,7 +25,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
 const ARG = process.argv[2] ?? "https://videojuegoszaragoza.com";
 const SALIDA = process.argv[3] ?? join(tmpdir(), "capturas-blue");
@@ -231,7 +231,7 @@ async function revisarPagina(ctx, t, ruta, etiqueta, espera = 6000) {
 
 // --- pruebas -----------------------------------------------------------------------------
 
-const navegador = await chromium.launch();
+const navegador = await lanzarNavegador(ok);
 try {
   // 1) y 2) con una posición antigua abajo a la derecha, en móvil y escritorio.
   for (const t of toca("posicion") ? [TAMANOS[1], TAMANOS[3]] : []) {

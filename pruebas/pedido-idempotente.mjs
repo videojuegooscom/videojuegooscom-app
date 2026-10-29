@@ -24,7 +24,7 @@
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { lanzarNavegador } from "./sin-fotos-reales.mjs";
 
 const ARG = process.argv[2] ?? "dist";
 const TIPOS = {
@@ -150,7 +150,7 @@ async function rellenarYEnviar(p, { doble = false, envio = false } = {}) {
   else await boton.click();
 }
 
-const navegador = await chromium.launch();
+const navegador = await lanzarNavegador(ok);
 try {
   // 1) Doble toque: una sola petición, una sola aviso a VeoAura.
   {

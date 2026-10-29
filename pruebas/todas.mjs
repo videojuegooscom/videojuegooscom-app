@@ -87,6 +87,8 @@ const CATALOGO = [
   { nombre: "lint", grupo: "estatica", cmd: ["npm", ["run", "lint"]] },
   { nombre: "escaparate-registro", grupo: "api", archivo: P("escaparate-registro") },
   { nombre: "escaparate-caracteristicas", grupo: "api", archivo: P("escaparate-caracteristicas") },
+  // Ninguna prueba de navegador descarga fotos reales de Supabase (cuota de salida del plan): se comprueba aquí.
+  { nombre: "sin-fotos-reales", grupo: "api", archivo: P("sin-fotos-reales") },
   { nombre: "lecciones-sql", grupo: "sql", archivo: P("lecciones-sql"), args: (c) => [c.servidor] },
   {
     nombre: "lecciones-orden", grupo: "sql", archivo: P("lecciones-orden"), args: (c) => [c.servidor],
