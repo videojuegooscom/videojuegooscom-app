@@ -58,7 +58,7 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/quienes-somos": {
     titulo: "Quiénes somos",
     descripcion:
-      "Tienda online de Zaragoza: compraventa, reparación y mantenimiento de consolas y videojuegos. Envíos a toda España y 1 año de garantía en la mayoría de artículos.",
+      "Desde 2022, compraventa de consolas y electrónica, con reparación de consolas, mandos, móviles, portátiles y PC. Tienda online de Zaragoza con envíos a toda España.",
   },
   "/politicas/envios": { titulo: "Política de envíos" },
   "/politicas/devoluciones": { titulo: "Política de devoluciones" },

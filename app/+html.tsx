@@ -47,7 +47,10 @@ const DATOS_ESTRUCTURADOS = {
       url: `${DOMINIO}/`,
       logo: `${DOMINIO}/icono-512.png`,
       description:
-        "Tienda online de Zaragoza: compraventa de consolas, videojuegos y electrónica, con reparación y mantenimiento. Envíos a toda España.",
+        "Tienda online de Zaragoza: compraventa de consolas, videojuegos y electrónica desde 2022, con reparación y mantenimiento de consolas, mandos, móviles, portátiles y PC. Envíos a toda España.",
+      foundingDate: "2022",
+      founder: { "@type": "Person", name: "Daniel Enrique Gutiérrez Mejía", alternateName: "Daniel Gutiérrez" },
+      numberOfEmployees: { "@type": "QuantitativeValue", value: 4 },
       areaServed: { "@type": "Country", name: "España" },
       sameAs: [
         "https://www.instagram.com/videojuegoszaragoza/",
@@ -67,8 +70,8 @@ const DATOS_ESTRUCTURADOS = {
       },
       makesOffer: [
         "Compraventa de consolas, videojuegos y electrónica",
-        "Reparación de consolas y dispositivos",
-        "Limpieza y mantenimiento de consolas",
+        "Reparación de consolas, mandos, móviles, portátiles y PC",
+        "Limpieza y mantenimiento de consolas y electrónica",
       ].map((name) => ({ "@type": "Offer", itemOffered: { "@type": "Service", name } })),
     },
     { "@type": "WebSite", "@id": `${DOMINIO}/#web`, name: "Videojuegoszaragoza.com", url: `${DOMINIO}/`, inLanguage: "es", publisher: { "@id": `${DOMINIO}/#tienda` } },
@@ -136,8 +139,9 @@ export default function Root({ children }: PropsWithChildren) {
           <main style={{ maxWidth: 640, margin: "0 auto", padding: 16, fontFamily: "system-ui, sans-serif", color: "#0B2138", textAlign: "center" }}>
             <h1>Videojuegoszaragoza.com</h1>
             <p>
-              Tienda online de Zaragoza: compramos y vendemos consolas, videojuegos y electrónica, y los reparamos y
-              mantenemos. Cada artículo se prueba y se limpia antes de entregarlo, y la mayoría tienen 1 año de garantía.
+              Tienda online de Zaragoza fundada en 2022 por Daniel Gutiérrez: compramos y vendemos consolas, videojuegos
+              y electrónica, y reparamos y mantenemos consolas, mandos, móviles, portátiles y PC. Cada artículo se prueba
+              y se limpia antes de entregarlo, y la mayoría tienen 1 año de garantía.
             </p>
             <p>
               En Zaragoza entregamos el mismo día, a domicilio o en mano en Cuarte de Huerva. Al resto de España el

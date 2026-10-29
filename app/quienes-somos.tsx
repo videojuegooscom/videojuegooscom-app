@@ -5,9 +5,10 @@
  *
  * Reglas del contenido (lecciones «No inventar datos del negocio» y «Solo se menciona lo que existe»): cada
  * frase sale de lo que ha dicho el dueño (Marca y SEO, «Lo que Blue sabe», la descripción fija de los artículos,
- * entregas y plazos del 2026-10-28). La tienda es SOLO ONLINE: no hay tienda física y no se publica ninguna
- * dirección (el domicilio fiscal solo va en los textos legales). La historia y el equipo los escribe el dueño:
- * mientras HISTORIA y EQUIPO estén vacíos, esas partes no salen.
+ * entregas y plazos del 2026-10-28, historia y equipo del 2026-10-29). La tienda es SOLO ONLINE: no hay tienda
+ * física y no se publica ninguna dirección (el domicilio fiscal solo va en los textos legales). El dueño se llama
+ * «Daniel Enrique Gutiérrez Mejía» la primera vez y «Daniel Gutiérrez» en el resto. Si HISTORIA o EQUIPO se
+ * quedan vacíos, esa parte no sale.
  *
  * Para Google y las IA esta página es texto normal para personas; lo «técnico» (datos estructurados de la
  * tienda, resumen sin JavaScript) va aparte en app/+html.tsx y public/llms.txt, que deben decir lo mismo.
@@ -35,10 +36,16 @@ const columnStyle = { width: "100%", maxWidth: 720, alignSelf: "center" } as con
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 type Punto = { icono: IoniconName; titulo: string; texto: string };
 
-// Lo escribe el dueño (cómo empezó, desde cuándo, qué nos diferencia). Vacío = no sale.
-const HISTORIA: string[] = [];
+// Con las palabras del dueño (2026-10-29). El nombre completo sale UNA vez; después, siempre «Daniel Gutiérrez».
+const HISTORIA: string[] = [
+  "Videojuegoszaragoza.com nació en 2022 como una tienda de compraventa de videoconsolas y artículos de electrónica, fundada por Daniel Enrique Gutiérrez Mejía.",
+  "A finales de 2023 dimos un paso más y empezamos a ofrecer reparación y mantenimiento. Hoy tenemos una amplia experiencia reparando electrónica de todo tipo: consolas, mandos, móviles, portátiles y PC.",
+  "Con todo lo aprendido, también desarrollamos software propio y para otros negocios, algo que seguimos haciendo hoy.",
+];
 // Quién está detrás y qué hace cada uno. Vacío = no sale.
-const EQUIPO: { nombre: string; papel: string }[] = [];
+const EQUIPO: { nombre: string; papel: string }[] = [
+  { nombre: "Daniel Gutiérrez", papel: "Fundador. Gestiona la tienda junto a un equipo de tres profesionales." },
+];
 
 const QUE_HACEMOS: Punto[] = [
   {
@@ -49,7 +56,7 @@ const QUE_HACEMOS: Punto[] = [
   {
     icono: "construct-outline",
     titulo: "Reparamos y mantenemos",
-    texto: "Reparación, limpieza y mantenimiento de consolas y dispositivos.",
+    texto: "Reparación, limpieza y mantenimiento de consolas, mandos, móviles, portátiles y PC.",
   },
 ];
 
