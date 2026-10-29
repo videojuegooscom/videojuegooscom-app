@@ -36,6 +36,7 @@ import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
+import { useRecarga } from "../components/TirarParaActualizar";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -197,8 +198,9 @@ export default function ServiciosScreen() {
   const [services, setServices] = useState<Service[]>([]);
   const [search, setSearch] = useState("");
 
-  async function load() {
-    setLoading(true);
+  // silencioso («Desliza para actualizar»): sin volver a enseñar la carga.
+  async function load(silencioso = false) {
+    if (!silencioso) setLoading(true);
     setErr(null);
     try {
       const rows = await loadServices();
@@ -212,9 +214,10 @@ export default function ServiciosScreen() {
     }
   }
 
+  const recarga = useRecarga();
   useEffect(() => {
-    load();
-  }, []);
+    load(recarga > 0);
+  }, [recarga]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -301,7 +304,7 @@ export default function ServiciosScreen() {
               <Ionicons name="alert-circle-outline" size={24} color={COLORS.muted} />
               <Text style={{ color: COLORS.text, textAlign: "center", lineHeight: 20 }}>{err}</Text>
               <Pressable
-                onPress={load}
+                onPress={() => load()}
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.85 : 1,
                   borderRadius: 999,

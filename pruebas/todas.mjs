@@ -86,6 +86,7 @@ const CATALOGO = [
   { nombre: "tipos (tsc)", grupo: "estatica", cmd: ["npx", ["--no-install", "tsc", "--noEmit"]] },
   { nombre: "lint", grupo: "estatica", cmd: ["npm", ["run", "lint"]] },
   { nombre: "escaparate-registro", grupo: "api", archivo: P("escaparate-registro") },
+  { nombre: "escaparate-caracteristicas", grupo: "api", archivo: P("escaparate-caracteristicas") },
   // Ninguna prueba de navegador descarga fotos reales de Supabase (cuota de salida del plan): se comprueba aquí.
   { nombre: "sin-fotos-reales", grupo: "api", archivo: P("sin-fotos-reales") },
   { nombre: "lecciones-sql", grupo: "sql", archivo: P("lecciones-sql"), args: (c) => [c.servidor] },
@@ -115,6 +116,7 @@ const CATALOGO = [
   { nombre: "blue-regresion", grupo: "navegador", archivo: P("blue-regresion"), args: (c) => [c.dist, join(c.salida, "capturas-blue")] },
   { nombre: "pedido-idempotente", grupo: "navegador", archivo: P("pedido-idempotente"), args: (c) => [c.dist] },
   { nombre: "interaccion-cliente", grupo: "navegador", archivo: P("interaccion-cliente"), args: (c) => [c.dist] },
+  { nombre: "desliza-para-actualizar", grupo: "navegador", archivo: P("desliza-para-actualizar"), args: (c) => [c.dist] },
   { nombre: "movil", grupo: "navegador", archivo: P("movil"), args: (c) => [c.urlMovil, join(c.salida, "capturas-movil")], necesitaUrl: true },
   {
     nombre: "control: pedidos-sql sin bloqueos",

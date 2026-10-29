@@ -66,6 +66,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import SmartImage from "./SmartImage";
+import { useRecarga } from "./TirarParaActualizar";
 import { supabase } from "../lib/supabase";
 
 const COLORS = {
@@ -293,10 +294,11 @@ async function fetchShelfProductsSafe(modo: ShelfModo): Promise<ShelfProduct[]> 
 // todavía es reciente (SHELF_CACHE_TTL_MS) y compartiendo la misma petición
 // en vuelo si Perfil y Cesta llegan a pedirla casi a la vez (por ejemplo, al
 // recargar la página con las dos montadas).
-async function getShelfProductsCached(modo: ShelfModo): Promise<ShelfProduct[]> {
+// forzar=true («Desliza para actualizar»): no se usa la copia guardada.
+async function getShelfProductsCached(modo: ShelfModo, forzar = false): Promise<ShelfProduct[]> {
   const now = Date.now();
   const cache = shelfCache.get(modo);
-  if (cache && now - cache.fetchedAt < SHELF_CACHE_TTL_MS) {
+  if (!forzar && cache && now - cache.fetchedAt < SHELF_CACHE_TTL_MS) {
     return cache.data;
   }
 
@@ -340,17 +342,19 @@ export default function CategoryProductsShelf({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  // «Desliza para actualizar»: con recarga > 0 se piden de nuevo, sin la copia guardada.
+  const recarga = useRecarga({ parte: true });
   useEffect(() => {
     let alive = true;
 
-    getShelfProductsCached(modo).then((rows) => {
+    getShelfProductsCached(modo, recarga > 0).then((rows) => {
       if (alive) setProducts(rows);
     });
 
     return () => {
       alive = false;
     };
-  }, [modo]);
+  }, [modo, recarga]);
 
   // Movimiento automático: cada AUTO_PASO_MS avanza una tarjeta (tiempo de sobra para verla);
   // al llegar al final vuelve al principio. Si la persona toca o desliza el carrusel, se para

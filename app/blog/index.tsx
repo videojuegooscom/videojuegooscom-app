@@ -36,6 +36,7 @@ import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import CabeceraMarca from "../../components/CabeceraMarca";
+import { useRecarga } from "../../components/TirarParaActualizar";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -185,6 +186,8 @@ export default function BlogScreen() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(initialOpen);
 
+  // También con «Desliza para actualizar» (recarga): los artículos se sustituyen sin volver a la carga.
+  const recarga = useRecarga();
   useEffect(() => {
     let alive = true;
 
@@ -197,7 +200,7 @@ export default function BlogScreen() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [recarga]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>

@@ -101,7 +101,9 @@ try {
   try {
     const viejo = execFileSync("git", ["show", "origin/main:api/escaparate-veoaura.ts"], { encoding: "utf8" });
     const nuevo = (await import("node:fs")).readFileSync("api/escaparate-veoaura.ts", "utf8");
-    if (viejo !== nuevo) {
+    // Solo si origin/main aún NO trae esta corrección (sin la marca «autenticado»): una vez fusionada, el
+    // receptor cambia por otros motivos y el control ya no demostraría nada (fallaría siempre).
+    if (viejo !== nuevo && !viejo.includes("let autenticado = false")) {
       const carpeta = mkdtempSync(join(tmpdir(), "vz-viejo-"));
       mkdirSync(join(carpeta, "api"));
       symlinkSync(resolve("node_modules"), join(carpeta, "node_modules"));

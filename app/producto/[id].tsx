@@ -111,6 +111,7 @@ import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbo
 import SmartImage from "../../components/SmartImage";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
+import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 
 const COLORS = {
@@ -162,9 +163,13 @@ type ProductMedia = {
   durationSeconds: number | null;
 };
 
+// Ficha técnica («características») que envía VeoAura: etiqueta y valor, en el orden en que llegan.
+type Caracteristica = { etiqueta: string; valor: string };
+
 type ProductDbRow = {
   id: string;
   title: string;
+  caracteristicas: Caracteristica[];
   description: string | null;
   price_eur: number | null;
   status: DbStatus;
@@ -182,6 +187,7 @@ type ProductDbRow = {
 type Product = {
   id: string;
   title: string;
+  caracteristicas: Caracteristica[];
   description: string | null;
   priceEUR: number;
   status: UiStatus;
@@ -346,6 +352,24 @@ function asCategory(value: unknown): Category | null {
   return { id, name, slug };
 }
 
+// La ficha técnica tal cual la guardó api/escaparate-veoaura.ts (que ya la valida). Aquí se vuelve a
+// comprobar por si acaso: solo pares de texto, como mucho 30. Se muestra con <Text>, nunca como HTML.
+function asCaracteristicas(value: unknown): Caracteristica[] {
+  if (!Array.isArray(value)) return [];
+  const lista: Caracteristica[] = [];
+  for (const el of value) {
+    if (lista.length >= 30) break;
+    if (!el || typeof el !== "object") continue;
+    const etiqueta = (el as Record<string, unknown>).etiqueta;
+    const valor = (el as Record<string, unknown>).valor;
+    if (typeof etiqueta !== "string" || typeof valor !== "string") continue;
+    const e = etiqueta.trim().slice(0, 40);
+    const v = valor.trim().slice(0, 80);
+    if (e && v) lista.push({ etiqueta: e, valor: v });
+  }
+  return lista;
+}
+
 function asProductDbRow(value: unknown): ProductDbRow | null {
   if (!value || typeof value !== "object") return null;
 
@@ -360,6 +384,7 @@ function asProductDbRow(value: unknown): ProductDbRow | null {
   return {
     id,
     title,
+    caracteristicas: asCaracteristicas(row.caracteristicas),
     description: typeof row.description === "string" ? row.description : null,
     price_eur: typeof row.price_eur === "number" ? row.price_eur : Number(row.price_eur ?? 0),
     status: statusRaw as DbStatus,
@@ -532,19 +557,34 @@ async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[
 // Columnas reales de products (todas existen ya en Supabase) + su categoría
 // con un join, en UNA sola consulta (antes había hasta 16 variantes con
 // reintentos en cadena por si faltaba alguna columna).
-const PRODUCT_SELECT =
+const PRODUCT_SELECT_BASE =
   "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition,like_count,reference,category:categories(id,name,slug)";
+// Con la ficha técnica (supabase/migrations/20261029110000_productos_caracteristicas.sql). Si esa
+// columna aún no existe, se pide sin ella: la ficha del producto nunca se rompe por eso.
+const PRODUCT_SELECT = `${PRODUCT_SELECT_BASE},caracteristicas`;
+let hayColumnaCaracteristicas = true;
+
+function faltaColumnaCaracteristicas(error: unknown): boolean {
+  const msg = String((error as { message?: unknown })?.message ?? "");
+  return /caracteristicas/i.test(msg) && /does not exist|could not find/i.test(msg);
+}
 
 // publicOnly=true añade el filtro de "solo publicados y activos" (lo que ve
 // un cliente); el admin puede abrir también borradores y productos ocultos.
 async function fetchProductRow(productId: string, publicOnly: boolean): Promise<ProductDbRow | null> {
-  let query = supabase.from("products").select(PRODUCT_SELECT).eq("id", productId);
+  const consultar = (columnas: string) => {
+    let query = supabase.from("products").select(columnas).eq("id", productId);
+    if (publicOnly) {
+      query = query.eq("is_active", true).eq("status", "PUBLISHED");
+    }
+    return query.maybeSingle();
+  };
 
-  if (publicOnly) {
-    query = query.eq("is_active", true).eq("status", "PUBLISHED");
+  let res = await consultar(hayColumnaCaracteristicas ? PRODUCT_SELECT : PRODUCT_SELECT_BASE);
+  if (res.error && hayColumnaCaracteristicas && faltaColumnaCaracteristicas(res.error)) {
+    hayColumnaCaracteristicas = false;
+    res = await consultar(PRODUCT_SELECT_BASE);
   }
-
-  const res = await query.maybeSingle();
   if (res.error) throw res.error;
   return asProductDbRow(res.data);
 }
@@ -618,7 +658,8 @@ export default function ProductoScreen() {
     return parts.join(" · ");
   }, [p, isAdmin]);
 
-  async function loadProduct() {
+  // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
+  async function loadProduct(silencioso = false) {
     const seq = ++reqSeqRef.current;
 
     if (!productId) {
@@ -629,10 +670,11 @@ export default function ProductoScreen() {
       return;
     }
 
-    setLoading(true);
+    if (!silencioso) {
+      setLoading(true);
+      setViewCount(null);
+    }
     setErr(null);
-
-    setViewCount(null);
 
     // Lo secundario (¿eres admin?) arranca ya, en paralelo, pero no bloquea
     // el pintado de la ficha.
@@ -678,6 +720,7 @@ export default function ProductoScreen() {
       const mapped: Product = {
         id: productRow.id,
         title: productRow.title,
+        caracteristicas: productRow.caracteristicas,
         description: productRow.description ?? null,
         priceEUR: Number(productRow.price_eur ?? 0),
         status: mapDbStatusToUi(productRow.status),
@@ -701,7 +744,7 @@ export default function ProductoScreen() {
       adminPromise.then((adminFlag) => {
         if (seq !== reqSeqRef.current) return;
         setIsAdmin(adminFlag);
-        if (adminFlag || params.guia === "1") return;
+        if (adminFlag || params.guia === "1" || silencioso) return;
 
         // Contador de visitas REAL (ver sql/product_views.sql): se suma 1 en
         // cada carga real de la ficha, salvo cuando la abre el propio admin
@@ -736,6 +779,13 @@ export default function ProductoScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
+  // «Desliza para actualizar»: precio, ficha, fotos… al día sin volver a la pantalla de carga.
+  const recarga = useRecarga();
+  useEffect(() => {
+    if (recarga > 0) loadProduct(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recarga]);
+
   useEffect(() => {
     if (!p) {
       setSelectedImageUrl(null);
@@ -753,6 +803,52 @@ export default function ProductoScreen() {
       setSelectedImageUrl(validUrls[0]);
     }
   }, [p, selectedImageUrl]);
+
+  // Datos estructurados del producto para Google (schema.org Product), con la ficha técnica como
+  // additionalProperty. Solo web; se escribe con textContent (nunca como HTML) y se quita al salir.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined" || !p) return;
+    const fotos = p.media.filter((m) => m.kind === "image").map((m) => m.publicUrl);
+    const disponible = p.status === "PUBLICADA" && p.isActive;
+    const estado =
+      p.condition === "NEW"
+        ? "https://schema.org/NewCondition"
+        : p.condition === "PARTS"
+        ? "https://schema.org/DamagedCondition"
+        : "https://schema.org/UsedCondition";
+    const url = `https://videojuegoszaragoza.com/producto/${p.id}`;
+    const datos: Record<string, unknown> = {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      name: p.title,
+      url,
+      ...(fotos.length ? { image: fotos } : p.imageUrl ? { image: [p.imageUrl] } : {}),
+      ...(p.description?.trim() ? { description: p.description.trim() } : {}),
+      ...(p.reference ? { sku: p.reference } : {}),
+      ...(p.category?.name ? { category: p.category.name } : {}),
+      offers: {
+        "@type": "Offer",
+        url,
+        price: p.priceEUR.toFixed(2),
+        priceCurrency: "EUR",
+        itemCondition: estado,
+        availability: disponible ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+        seller: { "@type": "Organization", name: "Videojuegoszaragoza.com" },
+      },
+      ...(p.caracteristicas.length
+        ? { additionalProperty: p.caracteristicas.map((c) => ({ "@type": "PropertyValue", name: c.etiqueta, value: c.valor })) }
+        : {}),
+    };
+    const script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "datos-producto";
+    script.textContent = JSON.stringify(datos).replace(/</g, "\\u003c");
+    document.getElementById("datos-producto")?.remove();
+    document.head.appendChild(script);
+    return () => {
+      script.remove();
+    };
+  }, [p]);
 
   const imageGallery = useMemo(() => {
     if (!p) return [];
@@ -1020,7 +1116,7 @@ export default function ProductoScreen() {
             }}
           >
             <Pressable
-              onPress={loadProduct}
+              onPress={() => loadProduct()}
               style={({ pressed }) => ({
                 opacity: pressed ? 0.88 : 1,
                 borderRadius: 18,
@@ -1474,6 +1570,46 @@ export default function ProductoScreen() {
                     </Text>
                   </Pressable>
                 </View>
+
+                {/* Ficha técnica de VeoAura, tal cual llega y en su orden. Sin lista, no sale. */}
+                {p.caracteristicas.length > 0 && (
+                  <View
+                    nativeID="producto-caracteristicas"
+                    style={{ width: "100%", gap: 8, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}
+                  >
+                    <Text
+                      accessibilityRole="header"
+                      {...({ "aria-level": 2 } as object)}
+                      style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}
+                    >
+                      Características
+                    </Text>
+                    <View style={{ width: "100%", maxWidth: 520 }}>
+                      {p.caracteristicas.map((c, i) => (
+                        <View
+                          key={`${i}-${c.etiqueta}`}
+                          accessible
+                          accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "flex-start",
+                            gap: 12,
+                            paddingVertical: 9,
+                            borderBottomWidth: i === p.caracteristicas.length - 1 ? 0 : 1,
+                            borderBottomColor: COLORS.borderSoft,
+                          }}
+                        >
+                          <Text style={{ flex: 1, color: COLORS.muted, fontWeight: "700", fontSize: 14, lineHeight: 20 }}>
+                            {c.etiqueta}
+                          </Text>
+                          <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "right" }}>
+                            {c.valor}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
 
                 {/* Sin recuadros: secciones separadas solo por una línea fina. */}
                 <View style={{ width: "100%", gap: 8, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}>

@@ -57,6 +57,7 @@ import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
 import SiteHead from "../components/SiteHead";
+import TirarParaActualizar from "../components/TirarParaActualizar";
 import { trackEvent } from "../lib/analytics";
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
@@ -241,6 +242,9 @@ export default function RootLayout() {
 
       {/* «Volver» a mano del pulgar derecho en las páginas de lectura. */}
       <BotonAtrasAlcance />
+
+      {/* «Desliza para actualizar» con la mascota, en toda la tienda (cada pantalla dice qué recarga). */}
+      <TirarParaActualizar />
 
       {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}
       <CookieConsentBanner />
