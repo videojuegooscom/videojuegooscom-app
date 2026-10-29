@@ -1,14 +1,17 @@
 // app/quienes-somos.tsx
 /**
- * Qué hace: página «Quiénes somos»: quién está detrás de la tienda, qué hacemos, cómo trabajamos, cómo
- * entregamos y cuándo atendemos, con botones para dar el siguiente paso (catálogo, vender, servicios, hablar).
+ * Qué hace: página «Quiénes somos»: quién está detrás de la tienda, su historia, qué hacemos, cómo revisamos cada
+ * consola, por qué elegirnos, cómo compramos en persona, entregas y horario, con botones para dar el siguiente paso.
  *
- * Reglas del contenido (lecciones «No inventar datos del negocio» y «Solo se menciona lo que existe»): cada
- * frase sale de lo que ha dicho el dueño (Marca y SEO, «Lo que Blue sabe», la descripción fija de los artículos,
- * entregas y plazos del 2026-10-28, historia y equipo del 2026-10-29). La tienda es SOLO ONLINE: no hay tienda
- * física y no se publica ninguna dirección (el domicilio fiscal solo va en los textos legales). El dueño se llama
- * «Daniel Enrique Gutiérrez Mejía» la primera vez y «Daniel Gutiérrez» en el resto. Si HISTORIA o EQUIPO se
- * quedan vacíos, esa parte no sale.
+ * Reglas del contenido (lecciones «No inventar datos del negocio» y «Solo se menciona lo que existe»): sale de lo
+ * que ha dicho el dueño (Marca y SEO, «Lo que Blue sabe», la descripción fija de los artículos, entregas y plazos
+ * del 2026-10-28, historia, equipo, diferencias y compra en persona del 2026-10-29). El proceso de revisión
+ * (REVISION) lo redactó Claude como un proceso estándar a petición del dueño («será prácticamente lo mismo que
+ * haga yo»): si cambia lo que hacéis, se cambia aquí. Texto más desarrollado, como el de otras tiendas, también a
+ * petición suya. La tienda es SOLO ONLINE: no hay tienda física ni se publica ninguna dirección (el domicilio
+ * fiscal solo va en los textos legales). El dueño se llama «Daniel Enrique Gutiérrez Mejía» la primera vez y
+ * «Daniel Gutiérrez» en el resto. Su edad se calcula sola con el mes y el año de nacimiento (no se publica la
+ * fecha exacta: el repositorio es público).
  *
  * Para Google y las IA esta página es texto normal para personas; lo «técnico» (datos estructurados de la
  * tienda, resumen sin JavaScript) va aparte en app/+html.tsx y public/llms.txt, que deben decir lo mismo.
@@ -36,15 +39,23 @@ const columnStyle = { width: "100%", maxWidth: 720, alignSelf: "center" } as con
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 type Punto = { icono: IoniconName; titulo: string; texto: string };
 
-// Con las palabras del dueño (2026-10-29). El nombre completo sale UNA vez; después, siempre «Daniel Gutiérrez».
-const HISTORIA: string[] = [
+// Solo mes y año (agosto de 2003): la edad cambia el 1 de agosto, y no se publica el día exacto.
+const NACIMIENTO_FUNDADOR = { anio: 2003, mes: 8 };
+function edadFundador(hoy = new Date()): number {
+  const mes = hoy.getMonth() + 1;
+  return hoy.getFullYear() - NACIMIENTO_FUNDADOR.anio - (mes < NACIMIENTO_FUNDADOR.mes ? 1 : 0);
+}
+
+const INTRO = [
+  "En Videojuegoszaragoza.com nos apasionan los videojuegos y la tecnología. Somos una tienda online de Zaragoza especializada en la compraventa de consolas, videojuegos y electrónica, y en su reparación y mantenimiento, con envíos a toda España.",
+  "Nuestro objetivo es que comprar, vender o reparar tecnología de segunda mano sea fácil, seguro y rápido, con la tranquilidad de tratar con profesionales que conocen bien lo que venden.",
+];
+
+// El nombre completo sale UNA vez; después, siempre «Daniel Gutiérrez».
+const HISTORIA = [
   "Videojuegoszaragoza.com nació en 2022 como una tienda de compraventa de videoconsolas y artículos de electrónica, fundada por Daniel Enrique Gutiérrez Mejía.",
   "A finales de 2023 dimos un paso más y empezamos a ofrecer reparación y mantenimiento. Hoy tenemos una amplia experiencia reparando electrónica de todo tipo: consolas, mandos, móviles, portátiles y PC.",
-  "Con todo lo aprendido, también desarrollamos software propio y para otros negocios, algo que seguimos haciendo hoy.",
-];
-// Quién está detrás y qué hace cada uno. Vacío = no sale.
-const EQUIPO: { nombre: string; papel: string }[] = [
-  { nombre: "Daniel Gutiérrez", papel: "Fundador. Gestiona la tienda junto a un equipo de tres profesionales." },
+  "Con todo lo aprendido, también desarrollamos software propio y para otros negocios, algo que seguimos haciendo hoy. Esa misma forma de trabajar, cuidando cada detalle, es la que aplicamos a cada artículo que pasa por nuestras manos.",
 ];
 
 const QUE_HACEMOS: Punto[] = [
@@ -60,22 +71,66 @@ const QUE_HACEMOS: Punto[] = [
   },
 ];
 
-const COMO_TRABAJAMOS: Punto[] = [
+// Proceso estándar redactado a petición del dueño (ver cabecera).
+const REVISION: Punto[] = [
   {
-    icono: "checkmark-done-outline",
-    titulo: "Probado antes de entregarlo",
-    texto: "Cada artículo se prueba y se testea antes de entregarlo o enviarlo.",
+    icono: "document-text-outline",
+    titulo: "1. Procedencia y estado",
+    texto: "Comprobamos que la consola tiene una procedencia legal, revisamos su estado exterior y que puede conectarse a sus servicios online.",
+  },
+  {
+    icono: "pulse-outline",
+    titulo: "2. Diagnóstico completo",
+    texto: "Probamos el encendido, la imagen y el sonido, los puertos HDMI y USB, el wifi y el bluetooth, el lector de discos, el almacenamiento y los mandos.",
   },
   {
     icono: "sparkles-outline",
-    titulo: "Limpio y a punto",
-    texto: "Lo limpiamos para que te llegue en un estado impecable.",
+    titulo: "3. Limpieza a fondo",
+    texto: "Limpiamos el exterior y el interior: polvo, ventiladores y rejillas. Si hace falta, renovamos la pasta térmica para que trabaje fresca y silenciosa.",
   },
   {
+    icono: "refresh-outline",
+    titulo: "4. Datos borrados y sistema al día",
+    texto: "Restablecemos la consola de fábrica, borramos cualquier dato del anterior propietario y la actualizamos a la última versión del sistema.",
+  },
+  {
+    icono: "game-controller-outline",
+    titulo: "5. Prueba de juego",
+    texto: "La ponemos a prueba jugando durante un buen rato para asegurarnos de que no se calienta, no hace ruidos extraños y no se apaga.",
+  },
+  {
+    icono: "cube-outline",
+    titulo: "6. Lista para ti",
+    texto: "La preparamos y embalamos con cuidado para que te llegue en perfecto estado, con su garantía.",
+  },
+];
+
+const POR_QUE: Punto[] = [
+  {
     icono: "shield-checkmark-outline",
+    titulo: "Damos la cara",
+    texto: "Nos hacemos responsables de todo lo que compramos y vendemos. Si algo no va bien, lo solucionamos contigo.",
+  },
+  {
+    icono: "chatbubble-ellipses-outline",
+    titulo: "Te asesoramos",
+    texto: "¿Dudas antes de comprar? Te asesoramos de forma personalizada y rápida para que aciertes a la primera.",
+  },
+  {
+    icono: "ribbon-outline",
     titulo: "1 año de garantía",
     texto: "La mayoría de nuestros artículos tienen 1 año de garantía, salvo que su descripción diga lo contrario.",
   },
+  {
+    icono: "heart-outline",
+    titulo: "Para que vuelvas",
+    texto: "Cuidamos cada compra, cada reparación y cada mantenimiento para que tu experiencia sea la mejor y te acuerdes de nosotros.",
+  },
+];
+
+const VENDER = [
+  "Compramos consolas, videojuegos y electrónica: cuéntanos qué tienes desde «Vender mi artículo» y te damos un precio. En Zaragoza, además, lo hacemos en persona: puedes traernos tu artículo al punto que acordemos o vamos nosotros a tu domicilio.",
+  "Te pagamos en el momento y como te resulte más cómodo (efectivo, Bizum, transferencia o PayPal) y firmamos un contrato de compraventa para que todo quede claro y por escrito.",
 ];
 
 const ENTREGAS: Punto[] = [
@@ -85,7 +140,7 @@ const ENTREGAS: Punto[] = [
     texto: "Te lo llevamos a casa en el mismo día, o te lo entregamos en mano en Cuarte de Huerva.",
   },
   {
-    icono: "cube-outline",
+    icono: "map-outline",
     titulo: "A toda España",
     texto: "Sale de nuestro almacén en 1-2 días y llega a destino en 72 horas como máximo.",
   },
@@ -124,11 +179,36 @@ function Seccion({ titulo, children }: { titulo: string; children: React.ReactNo
   );
 }
 
-function Puntos({ puntos, enFila }: { puntos: Punto[]; enFila: boolean }) {
+function Parrafos({ textos }: { textos: string[] }) {
   return (
-    <View style={{ flexDirection: enFila ? "row" : "column", gap: enFila ? 24 : 18, width: "100%" }}>
+    <>
+      {textos.map((t) => (
+        <Text key={t} style={{ color: COLORS.muted, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 560 }}>
+          {t}
+        </Text>
+      ))}
+    </>
+  );
+}
+
+// En el ordenador, `columnas` por fila; en el móvil, uno debajo de otro.
+function Puntos({ puntos, columnas }: { puntos: Punto[]; columnas: number }) {
+  const enFila = columnas > 1;
+  return (
+    <View
+      style={{
+        flexDirection: enFila ? "row" : "column",
+        flexWrap: enFila ? "wrap" : "nowrap",
+        justifyContent: "center",
+        rowGap: enFila ? 22 : 18,
+        width: "100%",
+      }}
+    >
       {puntos.map((p) => (
-        <View key={p.titulo} style={{ flex: enFila ? 1 : undefined, alignItems: "center", gap: 6 }}>
+        <View
+          key={p.titulo}
+          style={{ width: enFila ? `${100 / columnas}%` : "100%", paddingHorizontal: enFila ? 10 : 0, alignItems: "center", gap: 6 }}
+        >
           <Ionicons name={p.icono} size={24} color={COLORS.accent} />
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>{p.titulo}</Text>
           <Text style={{ color: COLORS.muted, fontSize: 14.5, lineHeight: 21, textAlign: "center", maxWidth: 420 }}>
@@ -145,6 +225,7 @@ export default function QuienesSomosScreen() {
   const widthSafe = width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 16 : 24;
+  const cols = (n: number) => (isMobile ? 1 : n);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -168,48 +249,59 @@ export default function QuienesSomosScreen() {
             >
               Quiénes somos
             </Text>
-            <Text style={{ color: COLORS.muted, fontSize: 16, lineHeight: 24, textAlign: "center", maxWidth: 560 }}>
-              Somos Videojuegoszaragoza.com, una tienda online de Zaragoza: compramos y vendemos consolas, videojuegos
-              y electrónica, y los reparamos y mantenemos. Enviamos a toda España.
-            </Text>
+            {INTRO.map((t, i) => (
+              <Text
+                key={t}
+                style={{
+                  color: i === 0 ? COLORS.text : COLORS.muted,
+                  fontSize: i === 0 ? 16.5 : 15,
+                  lineHeight: i === 0 ? 25 : 23,
+                  textAlign: "center",
+                  maxWidth: 580,
+                }}
+              >
+                {t}
+              </Text>
+            ))}
           </View>
 
-          {HISTORIA.length > 0 && (
-            <Seccion titulo="Nuestra historia">
-              {HISTORIA.map((parrafo) => (
-                <Text
-                  key={parrafo}
-                  style={{ color: COLORS.muted, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 560 }}
-                >
-                  {parrafo}
-                </Text>
-              ))}
-            </Seccion>
-          )}
-
-          {EQUIPO.length > 0 && (
-            <Seccion titulo="Quién está detrás">
-              <View style={{ flexDirection: isMobile ? "column" : "row", gap: 18, justifyContent: "center" }}>
-                {EQUIPO.map((persona) => (
-                  <View key={persona.nombre} style={{ alignItems: "center", gap: 4 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{persona.nombre}</Text>
-                    <Text style={{ color: COLORS.muted, fontSize: 14.5, textAlign: "center" }}>{persona.papel}</Text>
-                  </View>
-                ))}
-              </View>
-            </Seccion>
-          )}
-
-          <Seccion titulo="Qué hacemos">
-            <Puntos puntos={QUE_HACEMOS} enFila={!isMobile} />
+          <Seccion titulo="Nuestra historia">
+            <Parrafos textos={HISTORIA} />
           </Seccion>
 
-          <Seccion titulo="Cómo trabajamos">
-            <Puntos puntos={COMO_TRABAJAMOS} enFila={!isMobile} />
+          <Seccion titulo="Quién está detrás">
+            <View style={{ alignItems: "center", gap: 4 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17 }}>Daniel Gutiérrez</Text>
+              <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14 }}>Fundador</Text>
+            </View>
+            <Parrafos
+              textos={[
+                `Con ${edadFundador()} años, Daniel Gutiérrez dirige la tienda junto a un equipo de tres profesionales. Entre todos nos encargamos de cada compra, cada venta, cada reparación y de atenderte cuando lo necesites.`,
+              ]}
+            />
+          </Seccion>
+
+          <Seccion titulo="Qué hacemos">
+            <Puntos puntos={QUE_HACEMOS} columnas={cols(2)} />
+          </Seccion>
+
+          <Seccion titulo="Cómo revisamos cada consola">
+            <Parrafos
+              textos={["Antes de ponerla a la venta, cada consola de segunda mano pasa por nuestra revisión. Así es como la preparamos:"]}
+            />
+            <Puntos puntos={REVISION} columnas={cols(3)} />
+          </Seccion>
+
+          <Seccion titulo="Por qué elegirnos">
+            <Puntos puntos={POR_QUE} columnas={cols(2)} />
+          </Seccion>
+
+          <Seccion titulo="¿Quieres vendernos tu consola?">
+            <Parrafos textos={VENDER} />
           </Seccion>
 
           <Seccion titulo="Entregas">
-            <Puntos puntos={ENTREGAS} enFila={!isMobile} />
+            <Puntos puntos={ENTREGAS} columnas={cols(2)} />
           </Seccion>
 
           <Seccion titulo="Horario de atención">
@@ -224,9 +316,9 @@ export default function QuienesSomosScreen() {
           </Seccion>
 
           <Seccion titulo="¿Hablamos?">
-            <Text style={{ color: COLORS.muted, fontSize: 15, lineHeight: 22, textAlign: "center", maxWidth: 480 }}>
-              Pregunta lo que quieras a Blue, nuestro asistente, o habla directamente con nosotros por el chat de la tienda.
-            </Text>
+            <Parrafos
+              textos={["Pregunta lo que quieras a Blue, nuestro asistente, o habla directamente con nosotros por el chat de la tienda. Te respondemos encantados."]}
+            />
             <View style={{ width: "100%", maxWidth: 420, gap: 10 }}>
               {BOTONES.map((b) => (
                 <Pressable
