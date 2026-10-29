@@ -14,7 +14,9 @@
  *   5. Nonce no usado en los últimos 10 minutos (tabla public.escaparate_nonces) → 401.
  *   6. version = 1 y evento «publicar», «vendido» o «retirar» → 400.
  *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// (texto guardado como texto
- *      plano: la app lo muestra con <Text>, nunca como HTML).
+ *      plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
+ *      ≤ 30 de { etiqueta ≤ 40, valor ≤ 80 }) nunca rechaza el mensaje: lo que no cumple se descarta
+ *      y cada «publicar» sustituye la lista entera. Los campos desconocidos se ignoran.
  *   8. Guarda por id_veoaura: crea o actualiza, nunca duplica (índice único).
  *   9. Responde 200 {ok:true, id_tienda} solo después de guardar; si falla, {ok:false, error}.
  *  10. Nunca redirige (la dirección buena es sin www: https://videojuegoszaragoza.com/...).
@@ -51,6 +53,8 @@ const TIPOS_FOTO: Record<string, string> = { "image/jpeg": "jpg", "image/png": "
 type Evento = "publicar" | "vendido" | "retirar";
 const EVENTOS: Evento[] = ["publicar", "vendido", "retirar"];
 
+type Caracteristica = { etiqueta: string; valor: string };
+
 type Producto = {
   titulo: string;
   categoria: string | null;
@@ -59,6 +63,7 @@ type Producto = {
   accesorios: string[];
   precio: number;
   fotos: string[];
+  caracteristicas: Caracteristica[];
 };
 
 class Rechazo extends Error {
@@ -169,6 +174,32 @@ function texto(v: unknown, max: number): string | null {
   return limpio || null;
 }
 
+// «caracteristicas» (ficha técnica): lista ordenada de { etiqueta ≤ 40, valor ≤ 80 }, como mucho 30. Las
+// etiquetas NO son fijas (cambian por categoría y el dueño las edita en VeoAura): se guarda la lista tal
+// cual llega, en su orden. Si falta o no es una lista, es []. Un elemento que no cumple el formato se
+// descarta SIN rechazar el mensaje, y de cada elemento solo se guardan etiqueta y valor (cualquier otro
+// campo se ignora). Texto plano: sin caracteres de control ni saltos de línea; la app lo muestra con
+// <Text>, nunca como HTML.
+const MAX_CARACTERISTICAS = 30;
+function textoFicha(v: unknown, max: number): string | null {
+  if (typeof v !== "string") return null;
+  const limpio = v.replace(/[\t\r\n]+/g, " ").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  if (!limpio || Array.from(limpio).length > max) return null;
+  return limpio;
+}
+function caracteristicasValidas(v: unknown): Caracteristica[] {
+  if (!Array.isArray(v)) return [];
+  const lista: Caracteristica[] = [];
+  for (const el of v) {
+    if (lista.length >= MAX_CARACTERISTICAS) break;
+    if (!el || typeof el !== "object" || Array.isArray(el)) continue;
+    const etiqueta = textoFicha((el as Record<string, unknown>).etiqueta, 40);
+    const valor = textoFicha((el as Record<string, unknown>).valor, 80);
+    if (etiqueta && valor) lista.push({ etiqueta, valor });
+  }
+  return lista;
+}
+
 function urlFotoSegura(u: string): boolean {
   let url: URL;
   try {
@@ -211,6 +242,7 @@ function validarProducto(p: any): Producto {
     accesorios: accesorios.map((a: unknown) => texto(a, 100)).filter((a: string | null): a is string => !!a),
     precio: Math.round(precio * 100) / 100,
     fotos,
+    caracteristicas: caracteristicasValidas(p.caracteristicas),
   };
 }
 
@@ -287,10 +319,22 @@ async function descargarFoto(url: string): Promise<FotoDescargada | null> {
 
 // --- eventos ---------------------------------------------------------------------------
 
+// La columna products.caracteristicas llega con supabase/migrations/20261029110000_productos_caracteristicas.sql.
+// Si aún no está aplicada, PostgREST responde que no la encuentra: entonces se guarda el resto igualmente, para
+// que el puente nunca se caiga por el orden en que se publiquen el código y la migración.
+function faltaColumnaCaracteristicas(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  const m = String(error.message ?? "");
+  return /caracteristicas/i.test(m) && (error.code === "PGRST204" || error.code === "42703" || /could not find|does not exist/i.test(m));
+}
+
 async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto, sello: string): Promise<string> {
   // Solo los datos del producto (rápido). Las fotos se copian después de responder.
   // Si estaba vendido o retirado, vuelve a estar a la venta y visible.
-  const campos = {
+  // La ficha técnica se SUSTITUYE entera en cada «publicar» (nunca se mezcla con la anterior): si en VeoAura
+  // se quita o renombra un recuadro, desaparece o cambia aquí. Sin el campo, la lista queda vacía.
+  const ahora = new Date().toISOString();
+  let campos: Record<string, unknown> = {
     title: p.titulo,
     description: DESCRIPCION_VEOAURA,
     price_eur: p.precio,
@@ -300,9 +344,20 @@ async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto
     is_active: true,
     vendido_en: null,
     retirado_en: null,
+    caracteristicas: p.caracteristicas,
     ...(p.fotos.length ? { veoaura_envio: sello } : {}),
-    updated_at: new Date().toISOString(),
+    updated_at: ahora,
   };
+  // Escribe con la ficha y, si la columna aún no existe, repite sin ella (y ya sin ella en adelante).
+  async function escribir<T extends { error: { code?: string; message?: string } | null }>(
+    hacer: (c: Record<string, unknown>) => PromiseLike<T>
+  ): Promise<T> {
+    const r = await hacer(campos);
+    if (!faltaColumnaCaracteristicas(r.error)) return r;
+    const { caracteristicas: _sinColumna, ...resto } = campos;
+    campos = resto;
+    return hacer(campos);
+  }
 
   const { data: existente, error: errBuscar } = await supabase
     .from("products")
@@ -315,21 +370,25 @@ async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto
   if (idTienda) {
     // Si vuelve a la venta (estaba vendido o retirado), cuenta otra vez como novedad
     // (estante «Recién llegado», avisos de novedades y «Avísame cuando llegue»).
-    const vuelve = existente?.is_active === false ? { novedad_en: campos.updated_at } : {};
-    const { error } = await supabase.from("products").update({ ...campos, ...vuelve }).eq("id", idTienda);
+    const vuelve = existente?.is_active === false ? { novedad_en: ahora } : {};
+    const id = idTienda;
+    const { error } = await escribir((c) => supabase.from("products").update({ ...c, ...vuelve }).eq("id", id));
     if (error) throw new Rechazo(500, "no se pudo actualizar el producto");
   } else {
-    const { data, error } = await supabase
-      .from("products")
-      .insert({ ...campos, id_veoaura: idVeoaura })
-      .select("id")
-      .single<{ id: string }>();
-    if (error) {
+    const { data, error } = await escribir((c) =>
+      supabase
+        .from("products")
+        .insert({ ...c, id_veoaura: idVeoaura })
+        .select("id")
+        .single<{ id: string }>()
+    );
+    if (error || !data) {
       // Dos mensajes a la vez: el índice único lo impide; se usa el que ya se creó.
       const { data: otro } = await supabase.from("products").select("id").eq("id_veoaura", idVeoaura).maybeSingle<{ id: string }>();
       if (!otro?.id) throw new Rechazo(500, "no se pudo crear el producto");
       idTienda = otro.id;
-      await supabase.from("products").update(campos).eq("id", idTienda);
+      const id = idTienda;
+      await escribir((c) => supabase.from("products").update(c).eq("id", id));
     } else {
       idTienda = data.id;
     }

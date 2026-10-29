@@ -86,6 +86,7 @@ const CATALOGO = [
   { nombre: "tipos (tsc)", grupo: "estatica", cmd: ["npx", ["--no-install", "tsc", "--noEmit"]] },
   { nombre: "lint", grupo: "estatica", cmd: ["npm", ["run", "lint"]] },
   { nombre: "escaparate-registro", grupo: "api", archivo: P("escaparate-registro") },
+  { nombre: "escaparate-caracteristicas", grupo: "api", archivo: P("escaparate-caracteristicas") },
   { nombre: "lecciones-sql", grupo: "sql", archivo: P("lecciones-sql"), args: (c) => [c.servidor] },
   {
     nombre: "lecciones-orden", grupo: "sql", archivo: P("lecciones-orden"), args: (c) => [c.servidor],
