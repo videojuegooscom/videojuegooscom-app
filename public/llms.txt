@@ -1,0 +1,55 @@
+# Videojuegoszaragoza.com
+
+> Tienda online de Zaragoza (España): compraventa de consolas, videojuegos y electrónica, con reparación, limpieza y mantenimiento. Envíos a toda España. Es una tienda solo online, sin tienda física.
+
+## Quiénes somos
+
+- Fundada en 2022 por Daniel Enrique Gutiérrez Mejía (Daniel Gutiérrez) como tienda de compraventa de videoconsolas y artículos de electrónica.
+- La gestiona Daniel Gutiérrez junto a un equipo de tres profesionales.
+- Desde finales de 2023 ofrecemos reparación y mantenimiento, con amplia experiencia en electrónica de todo tipo.
+- También desarrollamos software propio y para otros negocios.
+
+## Qué hacemos
+
+- Compramos y vendemos consolas, videojuegos y electrónica. Si tienes algo que ya no usas, te lo compramos al mejor precio o lo intercambiamos.
+- Reparamos, limpiamos y mantenemos consolas, mandos, móviles, portátiles y PC.
+
+## Cómo revisamos cada consola de segunda mano
+
+1. Procedencia y estado: procedencia legal, estado exterior y conexión a sus servicios online.
+2. Diagnóstico completo: encendido, imagen y sonido, puertos HDMI y USB, wifi y bluetooth, lector de discos, almacenamiento y mandos.
+3. Limpieza a fondo, por fuera y por dentro (polvo, ventiladores y rejillas) y pasta térmica nueva si hace falta.
+4. Restablecimiento de fábrica, borrado de los datos del anterior propietario y sistema actualizado.
+5. Prueba de juego prolongada.
+6. Embalaje cuidado y garantía.
+
+## Por qué elegirnos
+
+- Nos hacemos responsables de todo lo que compramos y vendemos.
+- Asesoramiento personalizado y rápido antes de comprar.
+- La mayoría de los artículos tienen 1 año de garantía, salvo que su descripción diga lo contrario.
+
+## Vender tu consola
+
+- Compramos consolas, videojuegos y electrónica desde el formulario «Vender mi artículo».
+- En Zaragoza también en persona (en un punto acordado o en tu domicilio): pago en el momento (efectivo, Bizum, transferencia o PayPal) y contrato de compraventa firmado.
+
+## Entregas
+
+- En Zaragoza: entrega a domicilio en el mismo día, o entrega en mano en Cuarte de Huerva.
+- Resto de España: el pedido sale del almacén en 1-2 días y llega a destino en 72 horas como máximo.
+
+## Horario de atención
+
+- De lunes a sábado: 10:00-14:00 y 17:00-19:00.
+- Domingos: 10:00-13:00.
+
+## Páginas
+
+- [Catálogo](https://videojuegoszaragoza.com/catalogo): consolas, videojuegos y electrónica a la venta.
+- [Reparación y mantenimiento](https://videojuegoszaragoza.com/servicios): servicios de reparación, limpieza y mantenimiento.
+- [Vender o intercambiar](https://videojuegoszaragoza.com/vender): formulario para vendernos o intercambiar tu consola o dispositivo.
+- [Quiénes somos](https://videojuegoszaragoza.com/quienes-somos): quién está detrás de la tienda y cómo trabajamos.
+- [Blue IA](https://videojuegoszaragoza.com/blue-ia): asistente de la tienda; desde ahí también se habla con el equipo.
+- [Política de envíos](https://videojuegoszaragoza.com/politicas/envios)
+- [Política de devoluciones](https://videojuegoszaragoza.com/politicas/devoluciones)

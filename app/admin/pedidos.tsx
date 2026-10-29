@@ -258,7 +258,7 @@ export default function PedidosAdmin() {
                   Pedido nº {p.numero} · {fmtEUR(p.total_eur)}
                 </Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-                  {fmtFecha(p.created_at)} · {p.entrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
+                  {fmtFecha(p.created_at)} · {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
 
                 {(p.pedido_items ?? []).map((it) => (

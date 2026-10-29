@@ -282,7 +282,8 @@ export default function CheckoutScreen() {
   const [postalCode, setPostalCode] = useState("");
   const [city, setCity] = useState("");
   const [notes, setNotes] = useState("");
-  // Envío a casa o recogida en tienda (Zaragoza): con recogida no se pide dirección.
+  // Envío a domicilio o entrega en mano en Cuarte de Huerva (la tienda es solo online: no hay tienda física). En la
+  // base de datos la entrega en mano sigue llamándose «recogida»; con ella no se pide dirección.
   const [entrega, setEntrega] = useState<"envio" | "recogida">("envio");
   // Número del pedido ya registrado (pantalla de confirmación).
   const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; texto: string } | null>(null);
@@ -326,7 +327,7 @@ export default function CheckoutScreen() {
         : "¡Hola! Quiero hacer un pedido desde Videojuegoszaragoza.com 👇"
     );
     lines.push("");
-    lines.push(entrega === "recogida" ? "🏪 Entrega: recogida en tienda" : "🚚 Entrega: envío a domicilio");
+    lines.push(entrega === "recogida" ? "🤝 Entrega: en mano en Cuarte de Huerva" : "🚚 Entrega: envío a domicilio");
     lines.push("");
     if (items.length > 0) {
       lines.push("🛒 Pedido:");
@@ -680,8 +681,8 @@ export default function CheckoutScreen() {
               <View style={{ height: 1, alignSelf: "stretch", backgroundColor: "#E3EAF2" }} />
               <Row label="Subtotal" value={fmtEUR(subtotal)} />
               <Row
-                label={entrega === "recogida" ? "Recogida" : "Envío"}
-                value={entrega === "recogida" ? "En tienda" : shipping === 0 ? "Gratis" : fmtEUR(shipping)}
+                label={entrega === "recogida" ? "Entrega" : "Envío"}
+                value={entrega === "recogida" ? "En mano" : shipping === 0 ? "Gratis" : fmtEUR(shipping)}
               />
               <Row label="Total" value={fmtEUR(total)} strong />
             </View>
@@ -690,12 +691,12 @@ export default function CheckoutScreen() {
             <View style={{ gap: 10, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Entrega</Text>
 
-              {/* Envío a casa o recogida en tienda: dos opciones claras, una pulsada. */}
+              {/* Envío a domicilio o entrega en mano: dos opciones claras, una pulsada. */}
               <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
                 {(
                   [
                     { key: "envio", label: "Envío a domicilio", icon: "cube-outline" },
-                    { key: "recogida", label: "Recogida en tienda", icon: "storefront-outline" },
+                    { key: "recogida", label: "Entrega en mano", icon: "hand-left-outline" },
                   ] as const
                 ).map((op) => {
                   const activa = entrega === op.key;
@@ -739,8 +740,8 @@ export default function CheckoutScreen() {
 
               <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
                 {entrega === "recogida"
-                  ? "Te avisamos por el chat de la tienda cuando esté listo para recoger."
-                  : "Esto es lo mínimo que necesitamos para preparar tu envío."}
+                  ? "Te lo entregamos en mano en Cuarte de Huerva. Te avisamos por el chat de la tienda cuando esté listo."
+                  : "En Zaragoza te lo llevamos el mismo día. Al resto de España sale en 1-2 días y llega en 72 horas como máximo."}
               </Text>
 
               <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />

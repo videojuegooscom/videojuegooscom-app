@@ -209,6 +209,7 @@ export default function SiteFooter({
               <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
               <FooterLink label="Foro" onPress={() => pushRoute("/chat-global" as Href)} />
               <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
+              <FooterLink label="Quiénes somos" onPress={() => pushRoute("/quienes-somos" as Href)} />
             </FooterAccordionSection>
 
             <FooterAccordionSection

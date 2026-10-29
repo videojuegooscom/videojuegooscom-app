@@ -66,7 +66,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
   envios: {
     title: "Política de envíos",
     intro:
-      "Enviamos a toda España, bien protegido y con seguimiento. Si lo prefieres, también puedes recoger tu pedido en tienda sin coste.",
+      "Enviamos a toda España, bien protegido y con seguimiento. En Zaragoza te lo llevamos el mismo día, a domicilio o en mano en Cuarte de Huerva.",
     sections: [
       {
         heading: "Zonas de envío",
@@ -76,7 +76,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Plazos de preparación y entrega",
         body:
-          "Preparamos cada pedido en 24–48h laborables tras confirmarse el pago. El transporte añade normalmente 24–72h laborables adicionales en península. Te avisamos por email o WhatsApp en cuanto el pedido sale de tienda, con su número de seguimiento.",
+          "El pedido sale de nuestro almacén en 1-2 días tras confirmarse el pago y llega a destino en 72 horas como máximo. Te avisamos en cuanto sale, con su número de seguimiento.",
       },
       {
         heading: "Coste de envío",
@@ -84,9 +84,9 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
           "El coste se calcula automáticamente en el checkout según el destino y el peso/volumen del pedido, antes de confirmar la compra.",
       },
       {
-        heading: "Recogida en tienda",
+        heading: "Entregas en Zaragoza",
         body:
-          "Puedes elegir recoger tu pedido en nuestra tienda física sin coste de envío. Te avisamos en cuanto esté listo para recoger.",
+          "Somos una tienda online, sin tienda física. En Zaragoza te llevamos el pedido a casa el mismo día, o te lo entregamos en mano en Cuarte de Huerva. Te avisamos por el chat de la tienda cuando esté listo.",
       },
       {
         heading: "Embalaje",

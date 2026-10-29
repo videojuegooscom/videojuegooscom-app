@@ -55,6 +55,11 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  "/quienes-somos": {
+    titulo: "Quiénes somos",
+    descripcion:
+      "Desde 2022, compraventa de consolas y electrónica, con reparación de consolas, mandos, móviles, portátiles y PC. Tienda online de Zaragoza con envíos a toda España.",
+  },
   "/politicas/envios": { titulo: "Política de envíos" },
   "/politicas/devoluciones": { titulo: "Política de devoluciones" },
   "/politicas/privacidad": { titulo: "Política de privacidad" },
