@@ -50,6 +50,7 @@ import ContratarServicioModal from "../../components/ContratarServicioModal";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
+import { useRecarga } from "../../components/TirarParaActualizar";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -186,7 +187,8 @@ export default function ServicioScreen() {
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [contratarOpen, setContratarOpen] = useState(false);
 
-  async function load() {
+  // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
+  async function load(silencioso = false) {
     if (!serviceId) {
       setErr("No hemos podido encontrar este servicio.");
       setS(null);
@@ -194,7 +196,7 @@ export default function ServicioScreen() {
       return;
     }
 
-    setLoading(true);
+    if (!silencioso) setLoading(true);
     setErr(null);
     try {
       const row = await fetchService(serviceId);
@@ -208,9 +210,11 @@ export default function ServicioScreen() {
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
       setSelectedImageUrl(cover?.publicUrl ?? null);
 
-      contarVistaServicio(row.id).then((total) => {
-        if (typeof total === "number") setViewCount(total);
-      });
+      if (!silencioso) {
+        contarVistaServicio(row.id).then((total) => {
+          if (typeof total === "number") setViewCount(total);
+        });
+      }
     } catch (e) {
       console.error("Error cargando el servicio:", e);
       setErr("No hemos podido cargar este servicio en este momento. Inténtalo de nuevo en unos instantes.");
@@ -224,6 +228,12 @@ export default function ServicioScreen() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId]);
+
+  const recarga = useRecarga();
+  useEffect(() => {
+    if (recarga > 0) load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recarga]);
 
   const whatsappText = `Hola, vengo desde Videojuegoszaragoza.com.
 
@@ -303,7 +313,7 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
             <Text style={{ color: "#7A271A", lineHeight: 20, textAlign: "center" }}>{err}</Text>
           </View>
           <Pressable
-            onPress={load}
+            onPress={() => load()}
             style={({ pressed }) => ({
               opacity: pressed ? 0.88 : 1,
               alignSelf: "center",

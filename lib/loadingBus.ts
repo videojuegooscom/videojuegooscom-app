@@ -167,6 +167,11 @@ function getServerSnapshot(): boolean {
   return false;
 }
 
+/** Lo mismo que useGlobalLoading() pero fuera de React (p. ej. para esperar a que acabe una recarga). */
+export function estaCargando(): boolean {
+  return activeCount > 0;
+}
+
 /** true mientras haya algo en marcha (contador > 0), sin umbrales. */
 export function useGlobalLoading(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

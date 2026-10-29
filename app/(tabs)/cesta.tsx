@@ -41,6 +41,7 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
+import { useRecarga } from "../../components/TirarParaActualizar";
 import {
   formatoCuentaAtras,
   liberarReserva,
@@ -592,9 +593,10 @@ export default function CestaScreen() {
     );
   }, [now, items, persist]);
 
-  const bootstrap = useCallback(async () => {
+  // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga.
+  const bootstrap = useCallback(async (silencioso = false) => {
     setErr(null);
-    setLoading(true);
+    if (!silencioso) setLoading(true);
 
     try {
       // Cestas guardadas antes de este cambio podían tener más de 1 unidad: se deja en 1.
@@ -665,6 +667,12 @@ export default function CestaScreen() {
     bootedRef.current = true;
     bootstrap();
   }, [bootstrap]);
+
+  // «Desliza para actualizar»: vuelve a leer la cesta guardada (y sus reservas).
+  const recarga = useRecarga();
+  useEffect(() => {
+    if (recarga > 0) bootstrap(true);
+  }, [recarga, bootstrap]);
 
   useEffect(() => {
     if (!addId) return;

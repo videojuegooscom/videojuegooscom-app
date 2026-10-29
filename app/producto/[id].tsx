@@ -111,6 +111,7 @@ import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbo
 import SmartImage from "../../components/SmartImage";
 import CargaMarca from "../../components/marca/CargaMarca";
 import CabeceraMarca from "../../components/CabeceraMarca";
+import { useRecarga } from "../../components/TirarParaActualizar";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 
 const COLORS = {
@@ -657,7 +658,8 @@ export default function ProductoScreen() {
     return parts.join(" · ");
   }, [p, isAdmin]);
 
-  async function loadProduct() {
+  // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
+  async function loadProduct(silencioso = false) {
     const seq = ++reqSeqRef.current;
 
     if (!productId) {
@@ -668,10 +670,11 @@ export default function ProductoScreen() {
       return;
     }
 
-    setLoading(true);
+    if (!silencioso) {
+      setLoading(true);
+      setViewCount(null);
+    }
     setErr(null);
-
-    setViewCount(null);
 
     // Lo secundario (¿eres admin?) arranca ya, en paralelo, pero no bloquea
     // el pintado de la ficha.
@@ -741,7 +744,7 @@ export default function ProductoScreen() {
       adminPromise.then((adminFlag) => {
         if (seq !== reqSeqRef.current) return;
         setIsAdmin(adminFlag);
-        if (adminFlag || params.guia === "1") return;
+        if (adminFlag || params.guia === "1" || silencioso) return;
 
         // Contador de visitas REAL (ver sql/product_views.sql): se suma 1 en
         // cada carga real de la ficha, salvo cuando la abre el propio admin
@@ -775,6 +778,13 @@ export default function ProductoScreen() {
     loadProduct();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
+
+  // «Desliza para actualizar»: precio, ficha, fotos… al día sin volver a la pantalla de carga.
+  const recarga = useRecarga();
+  useEffect(() => {
+    if (recarga > 0) loadProduct(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recarga]);
 
   useEffect(() => {
     if (!p) {
@@ -1106,7 +1116,7 @@ export default function ProductoScreen() {
             }}
           >
             <Pressable
-              onPress={loadProduct}
+              onPress={() => loadProduct()}
               style={({ pressed }) => ({
                 opacity: pressed ? 0.88 : 1,
                 borderRadius: 18,

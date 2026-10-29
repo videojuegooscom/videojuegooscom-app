@@ -63,6 +63,7 @@ import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
+import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/Campanita";
 import CatalogFilters, {
   Chip,
@@ -592,11 +593,12 @@ export default function CatalogoScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cualquier cambio de filtro/orden/búsqueda → primera página de nuevo.
+  // Cualquier cambio de filtro/orden/búsqueda (o «Desliza para actualizar») → primera página de nuevo.
+  const recarga = useRecarga();
   useEffect(() => {
     if (!ready) return;
     loadFirstPage(currentFilters);
-  }, [ready, currentFilters, loadFirstPage]);
+  }, [ready, currentFilters, loadFirstPage, recarga]);
 
   // Si cambia la URL estando ya en la pantalla (?cat= / ?query=), se respeta.
   useEffect(() => {

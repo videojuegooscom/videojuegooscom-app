@@ -33,7 +33,7 @@
  * - app/(tabs)/index.tsx → el acordeón "Políticas" del pie de página enlaza
  *   aquí (uno por slug: envios, devoluciones, privacidad, terminos).
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -45,6 +45,7 @@ import {
 import { useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import CabeceraMarca from "../../components/CabeceraMarca";
+import { useRecarga } from "../../components/TirarParaActualizar";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -270,9 +271,14 @@ export default function PoliticaScreen() {
   const [loading, setLoading] = useState(true);
   const [policy, setPolicy] = useState<Policy | null>(null);
 
+  // También con «Desliza para actualizar» (recarga), sin volver a la carga.
+  const recarga = useRecarga();
+  const ultimaRecarga = useRef(0);
   useEffect(() => {
     let alive = true;
-    setLoading(true);
+    const porRecarga = recarga !== ultimaRecarga.current;
+    ultimaRecarga.current = recarga;
+    if (!porRecarga) setLoading(true);
 
     fetchPolicySafe(slug).then((fromDb) => {
       if (!alive) return;
@@ -283,7 +289,7 @@ export default function PoliticaScreen() {
     return () => {
       alive = false;
     };
-  }, [slug]);
+  }, [slug, recarga]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
