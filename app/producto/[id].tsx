@@ -469,19 +469,6 @@ function firstImageFromAnyRow(row: ProductDbRow | null | undefined): string | nu
   return null;
 }
 
-function productHintByCategory(name?: string | null) {
-  if (!name) return "Producto de segunda mano revisado";
-
-  const n = name.toLowerCase();
-
-  if (n.includes("videojuego")) return "Videojuego listo para enviar";
-  if (n.includes("mando") || n.includes("accesorio")) return "Accesorio listo para usar";
-  if (n.includes("electr")) return "Electrónica seleccionada";
-  if (n.includes("repar")) return "Servicio especializado";
-
-  return "Producto de segunda mano revisado";
-}
-
 function normalizeDuration(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -518,18 +505,6 @@ function pickInitialHeroImage(productRow: ProductDbRow, media: ProductMedia[]): 
   if (coverImage?.publicUrl) return coverImage.publicUrl;
 
   return firstImageFromAnyRow(productRow);
-}
-
-function mediaCountLabel(media: ProductMedia[]) {
-  const images = media.filter((m) => m.kind === "image").length;
-  const videos = media.filter((m) => m.kind === "video").length;
-
-  if (!images && !videos) return "Sin imágenes disponibles";
-  if (images && videos) {
-    return `${images} foto${images === 1 ? "" : "s"} + ${videos} vídeo${videos === 1 ? "" : "s"}`;
-  }
-  if (images) return `${images} foto${images === 1 ? "" : "s"}`;
-  return `${videos} vídeo${videos === 1 ? "" : "s"}`;
 }
 
 async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[]> {
@@ -639,23 +614,12 @@ export default function ProductoScreen() {
     };
   }, [loadedId]);
 
+  // Debajo del título, solo lo que importa al cliente: el estado del artículo (petición del dueño: sin
+  // «Disponible para compra» ni el número de fotos). El admin ve además que está en su vista.
   const heroSubcopy = useMemo(() => {
     if (!p) return "Ficha de producto";
-
-    const parts: string[] = [];
-    parts.push(productHintByCategory(p.category?.name));
-
-    if (!isAdmin && p.status === "PUBLICADA" && p.isActive) {
-      parts.push("Disponible para compra");
-    }
-
-    if (p.media.length > 0) {
-      parts.push(mediaCountLabel(p.media));
-    }
-
-    if (isAdmin) parts.push("Vista admin");
-
-    return parts.join(" · ");
+    const estado = p.condition === "NEW" ? "Nuevo · unidad única" : `Segunda mano · ${labelCondition(p.condition)} · unidad única`;
+    return isAdmin ? `${estado} · Vista admin` : estado;
   }, [p, isAdmin]);
 
   // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
@@ -1443,22 +1407,7 @@ export default function ProductoScreen() {
                     gap: 14,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Ionicons name="shield-checkmark-outline" size={14} color={COLORS.accent} />
-                    <Text
-                      style={{
-                        color: COLORS.text,
-                        fontWeight: "900",
-                        fontSize: 12,
-                        letterSpacing: 0.2,
-                      }}
-                    >
-                      {p.condition === "NEW"
-                        ? "Nuevo · unidad única"
-                        : `Segunda mano · ${labelCondition(p.condition)} · unidad única`}
-                    </Text>
-                  </View>
-
+                  {/* El estado («Segunda mano · … · unidad única») va ya debajo del título. */}
                   {viewCount !== null && (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
                       <Ionicons name="eye-outline" size={14} color={COLORS.muted} />

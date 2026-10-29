@@ -231,70 +231,72 @@ export default function ServiciosScreen() {
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#F6FAFD",
-          paddingHorizontal: pagePadding,
-          paddingTop: isMobile ? 12 : 14,
-          paddingBottom: 14,
-        }}
-      >
-        <View style={{ ...columnStyle, gap: 12 }}>
-          <CabeceraMarca />
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <MarcaAnimada cual="taller" ancho={isMobile ? 140 : 160} />
-              <Text
-                accessibilityRole="header"
-                {...({ "aria-level": 1 } as object)}
-                style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900", textAlign: "center" }}
-              >
-                Reparación y limpieza
-              </Text>
-              <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2, textAlign: "center" }}>
-                Servicios profesionales para tus dispositivos: repara, limpia o dales mantenimiento.
-              </Text>
-            </View>
-            {/* Hueco del mismo ancho que el botón de volver: así el título queda centrado de verdad */}
-            <View style={{ width: 36 }} />
-          </View>
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 999,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              backgroundColor: COLORS.bg,
-            }}
-          >
-            <Ionicons name="search" size={16} color={COLORS.muted2} />
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar un servicio…"
-              placeholderTextColor={COLORS.muted2}
-              style={{ flex: 1, fontSize: 15, color: COLORS.text }}
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* 96 abajo: la última tarjeta queda por encima del asistente flotante Blue.
-          Con el buscador abierto, tocar una tarjeta funciona al primer toque y arrastrar cierra el teclado. */}
+      {/* Como en el resto de la tienda (Catálogo, Inicio…), la cabecera va DENTRO del desplazamiento: toda la
+          página se desliza junta, en vez de quedarse una cabecera grande fija y la lista en un hueco pequeño.
+          96 abajo: la última tarjeta queda por encima del asistente flotante Blue. Con el buscador abierto,
+          tocar una tarjeta funciona al primer toque y arrastrar cierra el teclado. */}
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={{ padding: pagePadding, paddingBottom: 96 }}
+        contentContainerStyle={{ paddingBottom: 96 }}
       >
-        <View style={{ ...columnStyle }}>
+        <View
+          style={{
+            backgroundColor: COLORS.bg2,
+            borderBottomWidth: 1,
+            borderBottomColor: "#F6FAFD",
+            paddingHorizontal: pagePadding,
+            paddingTop: isMobile ? 12 : 14,
+            paddingBottom: 14,
+          }}
+        >
+          <View style={{ ...columnStyle, gap: 12 }}>
+            <CabeceraMarca />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ flex: 1, alignItems: "center" }}>
+                <MarcaAnimada cual="taller" ancho={isMobile ? 140 : 160} />
+                <Text
+                  accessibilityRole="header"
+                  {...({ "aria-level": 1 } as object)}
+                  style={{ color: COLORS.text, fontSize: isMobile ? 20 : 22, fontWeight: "900", textAlign: "center" }}
+                >
+                  Reparación y limpieza
+                </Text>
+                <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2, textAlign: "center" }}>
+                  Servicios profesionales para tus dispositivos: repara, limpia o dales mantenimiento.
+                </Text>
+              </View>
+              {/* Hueco del mismo ancho que el botón de volver: así el título queda centrado de verdad */}
+              <View style={{ width: 36 }} />
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 999,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                backgroundColor: COLORS.bg,
+              }}
+            >
+              <Ionicons name="search" size={16} color={COLORS.muted2} />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Buscar un servicio…"
+                placeholderTextColor={COLORS.muted2}
+                style={{ flex: 1, fontSize: 15, color: COLORS.text }}
+              />
+            </View>
+          </View>
+        </View>
+
+        <View style={{ ...columnStyle, padding: pagePadding }}>
           {loading ? (
             <View style={{ alignItems: "center", paddingVertical: 24 }}>
               <CargaMarca texto="Cargando servicios…" />
