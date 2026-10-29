@@ -926,8 +926,9 @@ function PrimaryButton({
   // Lo usa la guía de Blue para señalar el botón.
   testID?: string;
   // Con icono, el botón es el «destacado» de la cabecera de Inicio («Ver categorías» y «Vender
-  // ahora»): más alto, con icono, sombra azul y una «respiración» muy suave. Así el cliente
-  // sabe siempre por dónde empezar, sin competir con el brillo de «Oferta de la semana».
+  // ahora»): con icono, sombra azul y una «respiración» muy suave (algo más compacto desde el
+  // 2026-10-29). Así el cliente sabe siempre por dónde empezar, sin competir con el brillo de
+  // «Oferta de la semana».
   icono?: IoniconName;
 }) {
   const respiracion = useRef(new Animated.Value(0)).current;
@@ -956,16 +957,17 @@ function PrimaryButton({
         borderWidth: 1,
         borderColor: COLORS.accentDark,
         backgroundColor: COLORS.accent,
-        paddingVertical: icono ? (isMobile ? 18 : 20) : isMobile ? 13 : 14,
+        // Destacados algo más compactos (petición del dueño: se veían muy grandes), sin bajar de 44 px.
+        paddingVertical: icono ? (isMobile ? 11 : 13) : isMobile ? 13 : 14,
         paddingHorizontal: isMobile ? 14 : 16,
         opacity: pressed ? 0.9 : 1,
         ...(icono
           ? {
               shadowColor: COLORS.accent,
-              shadowOpacity: 0.5,
-              shadowRadius: 16,
-              shadowOffset: { width: 0, height: 7 },
-              elevation: 8,
+              shadowOpacity: 0.4,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 5 },
+              elevation: 6,
             }
           : softShadow()),
       })}
@@ -973,13 +975,13 @@ function PrimaryButton({
       {/* Todo apilado y centrado; la pista ("Ir →") va como texto simple
           debajo, sin pastilla ni pegada a la derecha. */}
       <View style={{ alignItems: "center" }}>
-        {icono ? <Ionicons name={icono} size={isMobile ? 22 : 24} color={COLORS.onAccent} style={{ marginBottom: 4 }} /> : null}
+        {icono ? <Ionicons name={icono} size={isMobile ? 19 : 21} color={COLORS.onAccent} style={{ marginBottom: 2 }} /> : null}
         <Text
           style={{
             color: COLORS.onAccent,
             fontWeight: "900",
-            fontSize: icono ? (isMobile ? 17 : 18) : isMobile ? 15 : 16,
-            lineHeight: icono ? (isMobile ? 22 : 24) : isMobile ? 20 : 22,
+            fontSize: icono ? (isMobile ? 15.5 : 16.5) : isMobile ? 15 : 16,
+            lineHeight: icono ? (isMobile ? 20 : 22) : isMobile ? 20 : 22,
             textAlign: "center",
           }}
         >

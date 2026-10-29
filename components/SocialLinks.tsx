@@ -289,20 +289,18 @@ export default function SocialLinks({
               onPress={() => openSocialLink(r.href as string)}
               accessibilityRole="link"
               accessibilityLabel={r.label}
+              // Solo el icono, sin burbuja ni borde alrededor (petición del dueño); la zona que se toca sigue
+              // siendo de 46 × 46 px.
               style={({ pressed }) => ({
                 width: 46,
                 height: 46,
-                borderRadius: 23,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: meta.bg,
-                borderWidth: 1,
-                borderColor: "#E3EAF2",
-                opacity: pressed ? 0.82 : 1,
-                transform: [{ scale: pressed ? 0.96 : 1 }],
+                opacity: pressed ? 0.7 : 1,
+                transform: [{ scale: pressed ? 0.94 : 1 }],
               })}
             >
-              {meta.render(meta.color, 22)}
+              {meta.render(meta.color, 26)}
             </Pressable>
           );
         })}
