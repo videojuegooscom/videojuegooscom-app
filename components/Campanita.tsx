@@ -122,6 +122,7 @@ import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaCon
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
+import { alRecargar } from "./TirarParaActualizar";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -1362,10 +1363,19 @@ export default function Campanita() {
       refreshAvisosTienda();
     });
 
+    // «Desliza para actualizar» (components/TirarParaActualizar.tsx): también se ponen al día los avisos y noticias.
+    const quitarRecarga = alRecargar(() => {
+      refreshChats();
+      refreshNoticiasNuevas();
+      refreshAvisosTienda();
+      refreshNovedadesTienda();
+    });
+
     return () => {
       clearInterval(interval);
       if (hasDocument && onVisibilityChange) document.removeEventListener("visibilitychange", onVisibilityChange);
       authSub?.subscription?.unsubscribe?.();
+      quitarRecarga();
     };
   }, [
     refreshAuth,

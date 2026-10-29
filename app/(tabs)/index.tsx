@@ -88,6 +88,7 @@ import {
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
@@ -1765,11 +1766,13 @@ export default function HomeScreen() {
     }
   }, [featured, featuredChatBusy]);
 
+  // «Desliza para actualizar»: vuelve a pedir la oferta destacada (sin volver a enseñar la carga).
+  const recarga = useRecarga();
   useEffect(() => {
     let alive = true;
 
     async function loadFeatured() {
-      setFeaturedLoading(true);
+      if (recarga === 0) setFeaturedLoading(true);
 
       try {
         const data = await fetchFeaturedProductSafe();
@@ -1826,7 +1829,7 @@ export default function HomeScreen() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [recarga]);
 
   // Analítica: registra la visita a "Inicio" en cuanto se monta la pantalla.
   useEffect(() => {

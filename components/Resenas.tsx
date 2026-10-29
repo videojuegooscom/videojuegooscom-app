@@ -33,6 +33,7 @@ import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
 import ReviewModal, { type PublishedReview } from "./ReviewModal";
 import SmartImage from "./SmartImage";
+import { useRecarga } from "./TirarParaActualizar";
 
 // Mismo texto que labelCondition() en app/producto/[id].tsx (duplicado a
 // propósito, como el resto de textos de estado en este proyecto).
@@ -195,9 +196,11 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
     }
   }, []);
 
+  // «Desliza para actualizar»: también se vuelven a pedir las reseñas.
+  const recarga = useRecarga({ parte: true });
   useEffect(() => {
     loadReviews();
-  }, [loadReviews]);
+  }, [loadReviews, recarga]);
 
   const count = reviews.length;
   const average = count ? reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / count : 0;

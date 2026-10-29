@@ -114,6 +114,7 @@ const CATALOGO = [
   { nombre: "blue-regresion", grupo: "navegador", archivo: P("blue-regresion"), args: (c) => [c.dist, join(c.salida, "capturas-blue")] },
   { nombre: "pedido-idempotente", grupo: "navegador", archivo: P("pedido-idempotente"), args: (c) => [c.dist] },
   { nombre: "interaccion-cliente", grupo: "navegador", archivo: P("interaccion-cliente"), args: (c) => [c.dist] },
+  { nombre: "desliza-para-actualizar", grupo: "navegador", archivo: P("desliza-para-actualizar"), args: (c) => [c.dist] },
   { nombre: "movil", grupo: "navegador", archivo: P("movil"), args: (c) => [c.urlMovil, join(c.salida, "capturas-movil")], necesitaUrl: true },
   {
     nombre: "control: pedidos-sql sin bloqueos",
