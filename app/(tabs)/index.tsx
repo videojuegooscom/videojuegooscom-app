@@ -88,6 +88,7 @@ import {
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import PortadasCategoria, { usePortadasCategorias } from "../../components/PortadasCategoria";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
@@ -1086,16 +1087,23 @@ function CategoryCard({
   cta,
   widthPercent,
   isMobile,
+  portadas,
+  testID,
 }: {
+  testID?: string;
   title: string;
   icon: IoniconName;
   onPress: () => void;
   cta?: string;
   widthPercent?: DimensionValue;
   isMobile?: boolean;
+  /** Portadas de la categoría (panel → Categorías): si hay, van arriba en carrusel en vez del icono. */
+  portadas?: string[];
 }) {
+  const conPortadas = !!portadas?.length;
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       style={({ pressed }) => ({
         width: widthPercent ?? "48.8%",
@@ -1104,31 +1112,39 @@ function CategoryCard({
         borderWidth: 1,
         borderColor: COLORS.tileBorder,
         backgroundColor: COLORS.tile,
-        padding: isMobile ? 12 : 14,
+        padding: conPortadas ? (isMobile ? 8 : 10) : isMobile ? 12 : 14,
         opacity: pressed ? 0.9 : 1,
-        // Icono, título y enlace centrados en todos los tamaños.
+        // Icono (o portadas), título y enlace centrados en todos los tamaños.
         alignItems: "center",
         justifyContent: "center",
       })}
     >
-      <View
-        style={{
-          width: isMobile ? 38 : 40,
-          height: isMobile ? 38 : 40,
-          borderRadius: 12,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: COLORS.accent2,
-        }}
-      >
-        <Ionicons name={icon} size={isMobile ? 20 : 21} color={COLORS.accentDark} />
-      </View>
+      {conPortadas ? (
+        <PortadasCategoria
+          imagenes={portadas!}
+          alt={title}
+          style={{ width: "100%", height: isMobile ? 100 : 130, borderRadius: 13 }}
+        />
+      ) : (
+        <View
+          style={{
+            width: isMobile ? 38 : 40,
+            height: isMobile ? 38 : 40,
+            borderRadius: 12,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: COLORS.accent2,
+          }}
+        >
+          <Ionicons name={icon} size={isMobile ? 20 : 21} color={COLORS.accentDark} />
+        </View>
+      )}
 
       <Text
         style={{
           color: COLORS.text,
           fontWeight: "900",
-          marginTop: 6,
+          marginTop: conPortadas ? 8 : 6,
           lineHeight: 20,
           fontSize: isMobile ? 14 : 15,
           textAlign: "center",
@@ -1538,6 +1554,8 @@ export default function HomeScreen() {
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [categoriesY, setCategoriesY] = useState(0);
+  // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
+  const portadasCategorias = usePortadasCategorias();
 
   // Ocultar/mostrar la barra de búsqueda flotante
   // según la dirección del scroll: al bajar se ocultan (más sitio para ver
@@ -1985,6 +2003,8 @@ export default function HomeScreen() {
                     onPress={onPress}
                     widthPercent={categoryCardWidth(category.span)}
                     isMobile={isMobile}
+                    portadas={portadasCategorias[category.cat]}
+                    testID={`categoria-${category.cat}`}
                   />
                 );
               })}

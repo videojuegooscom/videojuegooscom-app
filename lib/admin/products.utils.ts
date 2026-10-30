@@ -303,6 +303,40 @@ function blobToFile(blob: Blob, fileName: string, mimeType: string) {
   });
 }
 
+// Reduce una foto antes de subirla (web): como mucho `lado` px por el lado mayor, en JPEG con fondo blanco. Así cada
+// portada pesa unos cientos de KB en vez de varios MB (menos salida de Supabase). Si no se puede reducir o no gana
+// nada, devuelve la original.
+export async function reducirImagenWeb(file: File, lado = 1600, calidad = 0.85): Promise<File> {
+  if (Platform.OS !== "web" || typeof document === "undefined") return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, mal) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = () => mal(new Error("No se pudo leer la imagen."));
+      i.src = url;
+    });
+    const escala = Math.min(1, lado / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+    const w = Math.max(1, Math.round(img.naturalWidth * escala));
+    const h = Math.max(1, Math.round(img.naturalHeight * escala));
+    const lienzo = document.createElement("canvas");
+    lienzo.width = w;
+    lienzo.height = h;
+    const ctx = lienzo.getContext("2d");
+    if (!ctx) return file;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, "image/jpeg", calidad));
+    if (!blob || (escala === 1 && blob.size >= file.size)) return file;
+    return blobToFile(blob, replaceExtension(file.name, "jpg"), "image/jpeg");
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // Nota para desarrolladores: la conversión de HEIC a JPEG depende del
 // paquete opcional "heic2any" (npm install heic2any). Si no está
 // disponible, se informa al usuario con un mensaje en español sin
@@ -411,17 +445,20 @@ export type PickMediaResult = {
   skipped: SkippedPickedFile[];
 };
 
-export async function pickMediaFilesWeb(): Promise<PickMediaResult> {
+// soloImagenes: el selector solo ofrece fotos y los vídeos se descartan (portadas de categorías).
+export async function pickMediaFilesWeb(opciones?: { soloImagenes?: boolean }): Promise<PickMediaResult> {
   if (Platform.OS !== "web" || typeof document === "undefined") {
     throw new Error("La subida de archivos solo está disponible desde la versión web del panel.");
   }
+  const soloImagenes = !!opciones?.soloImagenes;
 
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
-    input.accept =
-      "image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif,video/mp4,video/webm,video/quicktime,.mov";
+    input.accept = soloImagenes
+      ? "image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif"
+      : "image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif,video/mp4,video/webm,video/quicktime,.mov";
 
     // Si el usuario abre el selector de archivos del sistema y lo cierra sin
     // elegir nada (pulsa "Cancelar", o simplemente lo cierra), muchos
@@ -485,6 +522,7 @@ export async function pickMediaFilesWeb(): Promise<PickMediaResult> {
             String(file.type ?? "").toLowerCase() || inferMimeTypeFromName(file.name).toLowerCase();
 
           const isVideo = mimeType.startsWith("video/");
+          if (isVideo && soloImagenes) throw new Error("Aquí solo se pueden subir fotos.");
           const kind: ProductMediaKind = isVideo ? "video" : "image";
 
           let durationSeconds: number | null = null;
