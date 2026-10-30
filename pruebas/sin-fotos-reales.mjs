@@ -49,6 +49,8 @@ export const fotos = { falsas: 0, reales: [] };
 
 const coincide = (url) => esFoto(url.href);
 const servirFalsa = (ruta) => {
+  // Solo las descargas: una subida (POST/PUT, p. ej. la foto de perfil) sigue a las rutas de la prueba, que la simulan.
+  if (!["GET", "HEAD"].includes(ruta.request().method())) return ruta.fallback();
   fotos.falsas += 1;
   return ruta.fulfill({
     status: 200,
@@ -74,7 +76,7 @@ async function proteger(objetivo) {
 // Apunta toda foto que llegue de la red (sin la marca de la falsa).
 export function vigilarFugas(contexto, registro = fotos.reales) {
   contexto.on("response", (res) => {
-    if (esFoto(res.url()) && res.headers()[MARCA] !== "1") registro.push(res.url());
+    if (esFoto(res.url()) && res.request().method() === "GET" && res.headers()[MARCA] !== "1") registro.push(res.url());
   });
 }
 

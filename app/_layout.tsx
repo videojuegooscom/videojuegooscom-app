@@ -25,6 +25,9 @@
  * - components/Campanita.tsx → campanita flotante de notificaciones, se
  *   monta aquí UNA sola vez (fuera y por encima del Stack) para que
  *   aparezca en todas las pantallas y no se reinicie al navegar.
+ * - components/PerfilPublico.tsx (PerfilObligatorio) → «Completa tu perfil»,
+ *   montado igual que la campanita: con sesión y el perfil a medias tapa la
+ *   tienda hasta guardarlo completo (no en Mi cuenta ni en las políticas).
  * - components/CookieConsentBanner.tsx → aviso de analítica/cookies, montado
  *   igual que la campanita (una sola vez, fuera del Stack); se oculta solo
  *   en /admin y desaparece en cuanto el visitante contesta.
@@ -56,6 +59,7 @@ import BrandLoadingScreen from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
+import { PerfilObligatorio } from "../components/PerfilPublico";
 import SiteHead from "../components/SiteHead";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { trackEvent } from "../lib/analytics";
@@ -249,6 +253,9 @@ export default function RootLayout() {
 
       {/* Aviso de cookies/analítica: por encima de todo salvo /admin. */}
       <CookieConsentBanner />
+
+      {/* «Completa tu perfil»: con sesión y el perfil sin completar, tapa la tienda hasta que se guarde (no en Mi cuenta). */}
+      <PerfilObligatorio />
 
       {/* Barra "Pensando": se enciende sola mientras algo carga. */}
       <LineaPensadoraEfectoSiri />

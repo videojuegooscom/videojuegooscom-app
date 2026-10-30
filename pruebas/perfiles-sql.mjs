@@ -1,14 +1,18 @@
 /**
- * pruebas/perfiles-sql.mjs — prueba la migración de datos de perfil (supabase/migrations/20261022100000_perfiles_cliente.sql)
- * en un PostgreSQL LOCAL y de usar y tirar. NUNCA toca producción: arranca su propio servidor en 127.0.0.1, con una base nueva
- * y un esqueleto mínimo de Supabase (roles anon/authenticated, auth.uid(), is_admin(), touch_updated_at), y al terminar lo para
- * y borra su carpeta de datos.
+ * pruebas/perfiles-sql.mjs — prueba la migración del «Perfil público» (supabase/migrations/20261030150000_perfiles_cliente_completo.sql,
+ * que sustituye a 20261022100000_perfiles_cliente.sql y añade la foto) en un PostgreSQL LOCAL y de usar y tirar. NUNCA toca
+ * producción: arranca su propio servidor en 127.0.0.1, con una base nueva y un esqueleto mínimo de Supabase (roles
+ * anon/authenticated, auth.uid(), is_admin(), touch_updated_at, storage.buckets/objects y storage.foldername), y al terminar lo
+ * para y borra su carpeta de datos.
  *
  * Comprueba (con roles y «token» de verdad, no solo leyendo el SQL):
- *  - La migración se aplica y se puede repetir sin error (idempotente).
+ *  - La migración se aplica y se puede repetir sin error (idempotente), también encima de la anterior (20261022100000).
  *  - Permisos: visitantes (anon) y PUBLIC no tocan nada; los clientes leen, crean y editan pero NO borran.
  *  - Cada cliente solo ve, crea y edita SU fila; el administrador lee todas y no puede editar ni crear las de otros.
- *  - Reglas de los datos: usuario único sin distinguir mayúsculas y con formato; edad mínima 14 años; largos; campos vacíos.
+ *  - Reglas de los datos: usuario único sin distinguir mayúsculas y con formato; edad mínima 14 años; largos; campos vacíos;
+ *    foto solo https:// y de como mucho 500 caracteres.
+ *  - Fotos de perfil: almacén «avatares» público, 2 MB, solo JPG/PNG/WEBP; cada cliente sube solo a SU carpeta; ni visitantes
+ *    ni otra carpeta ni otro almacén.
  *  - Al borrar la cuenta desaparece su fila.
  *  - «Prueba de las pruebas»: con una versión rota de la migración (cualquiera lee todas las filas) la comprobación de
  *    privacidad FALLA, así que de verdad detecta el problema.
@@ -24,7 +28,8 @@ import pg from "pg";
 
 const RAIZ = resolve(".");
 const NATIVO = join(RAIZ, "node_modules/@embedded-postgres/linux-x64/native");
-const MIGRACION = readFileSync("supabase/migrations/20261022100000_perfiles_cliente.sql", "utf8");
+const MIGRACION = readFileSync("supabase/migrations/20261030150000_perfiles_cliente_completo.sql", "utf8");
+const ANTERIOR = readFileSync("supabase/migrations/20261022100000_perfiles_cliente.sql", "utf8");
 const PUERTO = 55451;
 
 const fallos = [];
@@ -79,6 +84,17 @@ create function public.is_admin() returns boolean language sql stable security d
   select exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') $f$;
 create function public.touch_updated_at() returns trigger language plpgsql as $f$
 begin new.updated_at = now(); return new; end $f$;
+-- Almacenamiento (lo justo): almacenes, archivos con RLS (como en Supabase) y storage.foldername.
+create schema storage;
+grant usage on schema storage to anon, authenticated;
+create table storage.buckets (id text primary key, name text not null, public boolean default false, file_size_limit bigint, allowed_mime_types text[]);
+create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets (id), name text not null, owner uuid);
+alter table storage.objects enable row level security;
+grant all on storage.objects to anon, authenticated;
+create function storage.foldername(name text) returns text[] language plpgsql immutable as $f$
+declare _parts text[];
+begin _parts := string_to_array(name, '/'); return _parts[1:array_length(_parts, 1) - 1]; end $f$;
+insert into storage.buckets (id, name, public) values ('product-media', 'product-media', true);
 `;
 
 const U1 = "11111111-1111-4111-8111-111111111111";
@@ -132,6 +148,10 @@ try {
   const politicas = (await c.query("select policyname from pg_policies where schemaname='public' and tablename='perfiles_cliente' order by 1")).rows.map((r) => r.policyname);
   ok(politicas.length === 3, `Tiene las 3 políticas, sin duplicar tras repetirla (${politicas.join(", ")})`);
   ok((await c.query("select relrowsecurity from pg_class where oid='public.perfiles_cliente'::regclass")).rows[0].relrowsecurity === true, "La seguridad por filas (RLS) está activada");
+  const almacen = (await c.query("select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'avatares'")).rows[0];
+  ok(!!almacen && almacen.public === true && Number(almacen.file_size_limit) === 2097152 && almacen.allowed_mime_types.join(",") === "image/jpeg,image/png,image/webp", `Almacén «avatares»: público, 2 MB y solo JPG/PNG/WEBP (${JSON.stringify(almacen ?? null)})`);
+  const politicasFotos = (await c.query("select policyname, cmd from pg_policies where schemaname='storage' and tablename='objects' order by 1")).rows;
+  ok(politicasFotos.length === 1 && politicasFotos[0].policyname === "avatares_subir_propia" && politicasFotos[0].cmd === "INSERT", `Fotos: una sola regla (subir a la carpeta propia), sin duplicar tras repetirla (${politicasFotos.map((p) => p.policyname).join(", ")})`);
 
   // 2) Permisos de las tablas.
   const priv = async (rol, p) => (await c.query("select has_table_privilege($1, 'public.perfiles_cliente', $2) as t", [rol, p])).rows[0].t;
@@ -193,6 +213,24 @@ try {
   ok(vacio.ok, "Todos los campos se pueden dejar vacíos (perfil incompleto)");
   const nombreCorto = await como(c, "authenticated", U2, `update public.perfiles_cliente set nombre = 'A' where user_id = '${U2}'`);
   ok(!nombreCorto.ok && nombreCorto.codigo === "23514", `Nombre de 1 letra: rechazado (${nombreCorto.codigo})`);
+  const fotoBien = await como(c, "authenticated", U2, `update public.perfiles_cliente set foto_url = 'https://fotos.ejemplo.invalid/avatares/${U2}/1.jpg' where user_id = '${U2}'`);
+  ok(fotoBien.ok && fotoBien.cuantas === 1, "Foto con dirección https://: aceptada");
+  for (const [foto, motivo] of [["http://fotos.ejemplo.invalid/1.jpg", "sin https"], ["javascript:alert(1)", "que no es una dirección"], [`https://fotos.ejemplo.invalid/${"a".repeat(500)}.jpg`, "de más de 500 caracteres"]]) {
+    const r = await como(c, "authenticated", U2, `update public.perfiles_cliente set foto_url = '${foto}' where user_id = '${U2}'`);
+    ok(!r.ok && r.codigo === "23514", `Foto ${motivo}: rechazada (${r.codigo})`);
+  }
+
+  // Fotos de perfil en el almacenamiento: cada cliente solo en su carpeta.
+  const subeSuya = await como(c, "authenticated", U1, `insert into storage.objects (bucket_id, name) values ('avatares', '${U1}/1793390000000.jpg')`);
+  ok(subeSuya.ok, "Un cliente sube su foto a SU carpeta de «avatares»");
+  const subeAjena = await como(c, "authenticated", U1, `insert into storage.objects (bucket_id, name) values ('avatares', '${U2}/1793390000000.jpg')`);
+  ok(!subeAjena.ok && subeAjena.codigo === "42501", `NO puede subirla a la carpeta de otra persona (${subeAjena.codigo})`);
+  const subeSuelta = await como(c, "authenticated", U1, `insert into storage.objects (bucket_id, name) values ('avatares', 'suelta.jpg')`);
+  ok(!subeSuelta.ok && subeSuelta.codigo === "42501", `NI fuera de una carpeta (${subeSuelta.codigo})`);
+  const subeOtroAlmacen = await como(c, "authenticated", U1, `insert into storage.objects (bucket_id, name) values ('product-media', '${U1}/1.jpg')`);
+  ok(!subeOtroAlmacen.ok && subeOtroAlmacen.codigo === "42501", `NI en otro almacén (product-media) (${subeOtroAlmacen.codigo})`);
+  const subeVisitante = await como(c, "anon", null, `insert into storage.objects (bucket_id, name) values ('avatares', '${U1}/2.jpg')`);
+  ok(!subeVisitante.ok && subeVisitante.codigo === "42501", `Un visitante sin sesión NO sube nada (${subeVisitante.codigo})`);
 
   // 6) Al borrar la cuenta desaparece su perfil.
   await c.query(`delete from auth.users where id = '${U2}'`);
@@ -208,6 +246,22 @@ try {
   const ve = await como(c2, "authenticated", U1, "select user_id from public.perfiles_cliente");
   ok(ve.ok && ve.cuantas === 2, `(control) con la política rota un cliente ve filas ajenas (${ve.cuantas}): la comprobación de privacidad SÍ lo detecta`);
   await c2.end();
+
+  // 8) Encima de la migración anterior (por si llegara a aplicarse antes): añade la foto y no duplica nada.
+  const c3 = await nuevaBase("vz_aislada_perfiles_encima", ANTERIOR);
+  await como(c3, "authenticated", U1, `insert into public.perfiles_cliente (user_id, nombre) values ('${U1}', 'Dani')`, { confirmar: true });
+  let encima = true;
+  try {
+    await c3.query(MIGRACION);
+  } catch (e) {
+    encima = false;
+    console.log(String(e.message));
+  }
+  const columnas = (await c3.query("select column_name from information_schema.columns where table_schema='public' and table_name='perfiles_cliente'")).rows.map((r) => r.column_name);
+  const politicas3 = (await c3.query("select count(*)::int as n from pg_policies where schemaname='public' and tablename='perfiles_cliente'")).rows[0].n;
+  const conserva = (await c3.query(`select nombre from public.perfiles_cliente where user_id = '${U1}'`)).rows[0]?.nombre;
+  ok(encima && columnas.includes("foto_url") && politicas3 === 3 && conserva === "Dani", `Encima de la anterior: sin error, añade foto_url, 3 políticas y conserva los datos (${columnas.length} columnas, ${politicas3} políticas)`);
+  await c3.end();
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {

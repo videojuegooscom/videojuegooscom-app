@@ -6,11 +6,17 @@
  * (se comprueba lo que la tienda MANDARÍA guardar); nada llega a ninguna base de datos ni a la cuenta real de nadie.
  *
  * Comprueba:
- *  - Tu perfil: se rellena con lo que la persona escribió al registrarse; desplegables de país y de provincia (52 provincias de
- *    España; con otro país la provincia pasa a ser un texto), fecha de nacimiento y edad calculada («23 Años»); ✓ verde cuando está
- *    bien; usuario con formato; menos de 14 años no se puede guardar; «Guardar perfil» manda lo escrito, confirma, y actualiza
- *    también los datos de la cuenta (el Foro enseña de ahí el nombre); usuario repetido, «Deshacer», perfil ya guardado y tabla
- *    todavía sin crear (la tarjeta no sale y el resto de Mi cuenta sigue igual).
+ *  - Perfil público (Mi cuenta): cabecera plegable «Perfil público · @usuario · Completo/Faltan datos» (abierta si faltan datos,
+ *    plegada si está completo); se rellena con lo que la persona escribió al registrarse; desplegables de país y de provincia
+ *    (52 provincias de España; con otro país la provincia pasa a ser un texto), fecha de nacimiento y edad calculada («23 Años»);
+ *    ✓ verde cuando está bien; usuario con formato; menos de 14 años no se puede guardar; «Guardar perfil» manda lo escrito,
+ *    confirma, y actualiza también los datos de la cuenta (el Foro enseña de ahí el nombre); usuario repetido, «Deshacer», perfil
+ *    ya guardado y tabla todavía sin crear (la tarjeta no sale y el resto de Mi cuenta sigue igual).
+ *  - Foto (opcional): se elige, se reduce a JPEG y se sube a la carpeta del cliente en «avatares»; al guardar va en foto_url y
+ *    en los datos de la cuenta; «Quitar foto».
+ *  - «Completa tu perfil» (obligatorio): con sesión y el perfil a medias tapa Inicio; «Guardar y continuar» solo con todo lo
+ *    obligatorio; al guardar desaparece; «Cerrar sesión» sale; Blue no se ve mientras tanto; no sale en Mi cuenta, en las
+ *    políticas, con el perfil completo ni sin la tabla.
  *  - Administración → Usuarios: contadores (con perfil, completos, edad media, provincias), chips por edad, provincia y país que
  *    filtran la lista, el resumen de cada cliente, el buscador por nombre/usuario/provincia, y la ficha con el perfil. Sin la
  *    tabla, nada de eso sale y la lista funciona igual.
@@ -119,7 +125,18 @@ async function contexto(navegador, usuario, rol, estado) {
     const url = new URL(peticion.url());
     const metodo = peticion.method();
     const json = (cuerpo, status = 200, extra = {}) => r.fulfill({ status, contentType: "application/json", headers: { ...CORS, ...extra }, body: JSON.stringify(cuerpo) });
-    if (metodo === "OPTIONS" && /\/(rest|auth)\/v1\//.test(url.pathname)) return r.fulfill({ status: 204, headers: CORS });
+    if (metodo === "OPTIONS" && /\/(rest|auth|storage)\/v1\//.test(url.pathname)) return r.fulfill({ status: 204, headers: CORS });
+    if (url.pathname.endsWith("/auth/v1/logout")) {
+      estado.salio = true;
+      return r.fulfill({ status: 204, headers: CORS, body: "" });
+    }
+    // Subida de la foto de perfil (nada llega a ningún almacén): se apunta qué se mandaría.
+    if (url.pathname.startsWith("/storage/v1/object/avatares/") && metodo === "POST") {
+      const cuerpo = peticion.postDataBuffer() ?? Buffer.alloc(0);
+      const texto = cuerpo.toString("latin1");
+      estado.subidas = [...(estado.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: (texto.match(/Content-Type:\s*(image\/[a-z]+)/i) ?? [null, peticion.headers()["content-type"] ?? ""])[1] }];
+      return json({ Key: url.pathname.slice("/storage/v1/object/".length) });
+    }
     if (url.pathname.endsWith("/auth/v1/user")) {
       if (metodo === "PUT") {
         estado.cuenta = JSON.parse(peticion.postData() ?? "{}");
@@ -132,8 +149,12 @@ async function contexto(navegador, usuario, rol, estado) {
     if (url.pathname.endsWith("/rpc/admin_list_users_with_stats")) return json(estado.usuarios ?? []);
     if (url.pathname.endsWith("/rest/v1/perfiles_cliente")) {
       if (metodo === "POST") {
-        estado.guardados.push({ cuerpo: JSON.parse(peticion.postData() ?? "{}"), url: peticion.url(), prefer: peticion.headers()["prefer"] ?? "" });
-        return estado.respuestaGuardar ? json(estado.respuestaGuardar.cuerpo, estado.respuestaGuardar.status) : r.fulfill({ status: 201, headers: CORS, body: "" });
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        estado.guardados.push({ cuerpo, url: peticion.url(), prefer: peticion.headers()["prefer"] ?? "" });
+        if (estado.respuestaGuardar) return json(estado.respuestaGuardar.cuerpo, estado.respuestaGuardar.status);
+        // Como la base de datos: queda guardado (lo vuelve a leer «Completa tu perfil»).
+        estado.filas = [...(estado.filas ?? []).filter((f) => f.user_id && f.user_id !== cuerpo.user_id), cuerpo];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
       }
       if (estado.sinTabla) return json({ code: "PGRST205", message: "Could not find the table 'public.perfiles_cliente' in the schema cache" }, 404);
       // Como la base de datos: con «user_id=eq.<id>» solo la fila de esa persona.
@@ -173,7 +194,12 @@ try {
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-datos").waitFor({ timeout: 30000 });
     const t = await p.locator("#perfil-datos").innerText();
-    ok(/Tu perfil/.test(t), "A: sale la tarjeta «Tu perfil» en Mi cuenta");
+    ok(/Perfil público/.test(t), "A: sale la tarjeta «Perfil público» en Mi cuenta");
+    ok(/Sin usuario · Faltan datos/.test(await p.locator("#perfil-cabecera").innerText()), `A: la cabecera dice «Sin usuario · Faltan datos» (${(await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ")})`);
+    ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "true", "A: con datos pendientes la tarjeta sale abierta");
+    ok(/Falta: provincia, fecha de nacimiento/.test(t), "A: dice qué falta («Falta: provincia, fecha de nacimiento»)");
+    ok(/Toca para añadir tu foto \(opcional\)/.test(t) && (await p.locator("#perfil-foto").count()) === 1, "A: la foto es opcional y se toca para añadirla");
+    ok((await p.locator("#perfil-obligatorio").count()) === 0, "A: en Mi cuenta NO sale «Completa tu perfil» (aquí está la tarjeta)");
     const valor = (etiqueta) => p.locator(`#perfil-datos [aria-label="${etiqueta}"]`).first();
     ok((await valor("Nombre").inputValue()) === "Dani" && (await valor("Nombre de usuario").inputValue()) === "dani", "A: nombre y usuario salen rellenados con lo que escribió al registrarse");
     ok(/España/.test(t), "A: y el país también (España)");
@@ -218,6 +244,7 @@ try {
     ok(/on_conflict=user_id/.test(g?.url ?? "") && /merge-duplicates/.test(g?.prefer ?? ""), "A: y lo hace sobre SU fila (si ya existe la actualiza; no crea otra)");
     ok(!!estado.cuenta && estado.cuenta.data?.full_name === "Dani" && estado.cuenta.data?.username === "dani_zgz" && estado.cuenta.data?.country === "España", `A: actualiza también los datos de la cuenta (de ahí saca el Foro el nombre): ${JSON.stringify(estado.cuenta?.data ?? null)}`);
     ok((await guardar.getAttribute("aria-disabled")) === "true", "A: tras guardar no hay nada pendiente: «Guardar perfil» se desactiva");
+    ok(/@dani_zgz · Completo/.test(await p.locator("#perfil-cabecera").innerText()), "A: la cabecera pasa a «@dani_zgz · Completo»");
     ok(p.errores.length === 0, `A: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
 
     // Deshacer.
@@ -269,6 +296,12 @@ try {
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-datos").waitFor({ timeout: 30000 });
+    const cabecera = (await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ");
+    ok(/Perfil público/.test(cabecera) && /@ana_g · Completo/.test(cabecera), `C: la cabecera dice «Perfil público · @ana_g · Completo» (${cabecera})`);
+    ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "false" && (await p.locator('#perfil-datos [aria-label="Nombre"]').count()) === 0, "C: completo, la tarjeta sale plegada");
+    await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "true", "C: al tocar la cabecera se abre");
     const v = async (e) => p.locator(`#perfil-datos [aria-label="${e}"]`).first().inputValue();
     ok((await v("Nombre")) === "Ana" && (await v("Nombre de usuario")) === "ana_g" && (await v("Provincia o región")) === "Lyon", "C: con un perfil ya guardado salen sus datos (no los del registro)");
     const t = await p.locator("#perfil-datos").innerText();
@@ -291,6 +324,97 @@ try {
     await ctx.close();
   }
 
+  // ===== H) Foto de perfil (opcional) ==============================================================================
+  {
+    const estado = { filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 });
+    await p.locator("#perfil-cabecera").click();
+    await p.locator("#perfil-foto").waitFor({ timeout: 5000 });
+    // Una foto PNG de 900 × 600: la tienda la reduce y la sube como JPEG.
+    const png = await p.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 900;
+      c.height = 600;
+      const x = c.getContext("2d");
+      x.fillStyle = "#1EA7E8";
+      x.fillRect(0, 0, 900, 600);
+      return c.toDataURL("image/png").split(",")[1];
+    });
+    const [selector] = await Promise.all([p.waitForEvent("filechooser"), p.locator("#perfil-foto").click()]);
+    await selector.setFiles({ name: "yo.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    await p.getByText("Toca la foto para cambiarla").waitFor({ timeout: 15000 }).catch(() => {});
+    const subida = (estado.subidas ?? [])[0];
+    ok(!!subida && new RegExp(`^avatares/${CLIENTE.id}/\\d+\\.jpg$`).test(subida.ruta) && subida.tipo === "image/jpeg", `H: la foto se sube reducida a JPEG a la carpeta del cliente (${JSON.stringify(subida ?? null)})`);
+    ok((await p.getByText("Toca la foto para cambiarla").count()) === 1 && (await p.getByText("Quitar foto").count()) === 1, "H: con foto dice «Toca la foto para cambiarla» y ofrece «Quitar foto»");
+    await p.getByRole("button", { name: "Guardar perfil" }).click();
+    await p.waitForFunction(() => /Perfil guardado/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => {});
+    const g = estado.guardados.at(-1)?.cuerpo;
+    ok(!!g && new RegExp(`/storage/v1/object/public/avatares/${CLIENTE.id}/\\d+\\.jpg$`).test(g.foto_url ?? ""), `H: al guardar, la foto va en foto_url (${g?.foto_url})`);
+    ok(estado.cuenta?.data?.avatar_url === g?.foto_url, "H: y en los datos de la cuenta (avatar_url)");
+    await capturar(p, "H-perfil-foto");
+    await p.getByText("Quitar foto").click();
+    await p.getByRole("button", { name: "Guardar perfil" }).click();
+    await p.waitForTimeout(1200);
+    ok(estado.guardados.at(-1)?.cuerpo.foto_url === null, "H: «Quitar foto» y guardar la deja sin foto (foto_url vacío)");
+    ok(p.errores.length === 0, `H: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // ===== G) «Completa tu perfil» (obligatorio) ====================================================================
+  {
+    // G1: perfil a medias (lo del registro) en Inicio: la pantalla tapa la tienda hasta guardarlo completo.
+    const estado = { filas: [], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#perfil-obligatorio").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#perfil-obligatorio").count()) === 1, "G: con sesión y el perfil a medias, en Inicio sale «Completa tu perfil»");
+    const t = await p.locator("#perfil-obligatorio").innerText();
+    ok(/Completa tu perfil/.test(t) && /La foto es opcional/.test(t) && /Cómo tratamos tus datos/.test(t) && /Cerrar sesión/.test(t), "G: título, «La foto es opcional», enlace a la política y «Cerrar sesión»");
+    const seguir = p.getByRole("button", { name: "Guardar y continuar" });
+    ok((await seguir.getAttribute("aria-disabled")) === "true", "G: «Guardar y continuar» está desactivado mientras falte algo obligatorio");
+    ok((await p.locator('#perfil-obligatorio [aria-label="Deshacer los cambios"]').count()) === 0 && (await p.locator("#perfil-obligatorio #perfil-cabecera").count()) === 0, "G: sin «Deshacer» ni cabecera plegable (no se puede esconder)");
+    await capturar(p, "G1-completa-tu-perfil");
+    await p.locator('#perfil-obligatorio select[aria-label="Provincia"]').selectOption("Zaragoza");
+    await p.locator('#perfil-obligatorio input[aria-label="Fecha de nacimiento"]').fill("2003-08-19");
+    await p.waitForTimeout(300);
+    ok((await seguir.getAttribute("aria-disabled")) !== "true", "G: con todo lo obligatorio (sin foto) se puede continuar");
+    await seguir.click();
+    await p.waitForFunction(() => !document.getElementById("perfil-obligatorio"), null, { timeout: 10000 }).catch(() => {});
+    const g = estado.guardados.at(-1)?.cuerpo;
+    ok(!!g && g.usuario === "dani" && g.nombre === "Dani" && g.pais === "España" && g.provincia === "Zaragoza" && g.fecha_nacimiento === "2003-08-19", `G: guarda el perfil completo (${JSON.stringify(g ?? null)})`);
+    ok((await p.locator("#perfil-obligatorio").count()) === 0, "G: al guardarlo completo, la pantalla desaparece y se sigue en la tienda");
+    ok(p.errores.length === 0, `G: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+  {
+    // G2: mientras está abierta Blue no se ve; «Cerrar sesión» la quita.
+    const estado = { filas: [], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/catalogo");
+    await p.locator("#perfil-obligatorio").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#perfil-obligatorio").count()) === 1, "G: también en el catálogo (en cualquier pantalla de la tienda)");
+    await p.waitForTimeout(11500);
+    ok((await p.locator("#blue-flotante").count()) === 0, "G: pasados 10 s, Blue no aparece encima");
+    await p.getByText("Cerrar sesión").click();
+    await p.waitForFunction(() => !document.getElementById("perfil-obligatorio"), null, { timeout: 10000 }).catch(() => {});
+    ok(estado.salio === true && (await p.locator("#perfil-obligatorio").count()) === 0, "G: «Cerrar sesión» cierra la sesión y la pantalla desaparece");
+    await ctx.close();
+  }
+  for (const [nombre, ruta, estado] of [
+    ["en las políticas (se pueden leer antes de dar los datos)", "/politicas/privacidad", { filas: [], guardados: [] }],
+    ["con el perfil completo", "/", { filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }], guardados: [] }],
+    ["sin la tabla (migración sin aplicar)", "/", { sinTabla: true, guardados: [] }],
+  ]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, ruta);
+    await p.waitForTimeout(4000);
+    ok((await p.locator("#perfil-obligatorio").count()) === 0, `G: NO sale ${nombre}`);
+    ok(p.errores.length === 0, `G: sin errores de JavaScript ${nombre} (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
   // ===== E) Administración → Usuarios ============================================================================
   const U = [
     { user_id: "u1000000-0000-4000-8000-000000000001", email: "dani@example.com", role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 3, product_chats_count: 0, store_reviews_count: 0 },
@@ -308,6 +432,7 @@ try {
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/users");
     await p.locator("#admin-perfiles").waitFor({ timeout: 40000 });
+    ok((await p.locator("#perfil-obligatorio").count()) === 0, "E: en el panel de administración no se exige el perfil de cliente");
     const t = await p.locator("#admin-perfiles").innerText();
     ok(/Perfiles de clientes/.test(t), "E: Administración → Usuarios enseña «Perfiles de clientes»");
     ok(/Con perfil\s*3 de 4/.test(t.replace(/\n/g, " ")), "E: «Con perfil: 3 de 4»");

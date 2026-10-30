@@ -305,8 +305,8 @@ function blobToFile(blob: Blob, fileName: string, mimeType: string) {
 
 // Reduce una foto antes de subirla (web): como mucho `lado` px por el lado mayor, en JPEG con fondo blanco. Así cada
 // portada pesa unos cientos de KB en vez de varios MB (menos salida de Supabase). Si no se puede reducir o no gana
-// nada, devuelve la original.
-export async function reducirImagenWeb(file: File, lado = 1600, calidad = 0.85): Promise<File> {
+// nada, devuelve la original (salvo con `siempreJpeg`, para almacenes que solo admiten JPEG/PNG/WEBP: fotos de perfil).
+export async function reducirImagenWeb(file: File, lado = 1600, calidad = 0.85, siempreJpeg = false): Promise<File> {
   if (Platform.OS !== "web" || typeof document === "undefined") return file;
   const url = URL.createObjectURL(file);
   try {
@@ -328,7 +328,7 @@ export async function reducirImagenWeb(file: File, lado = 1600, calidad = 0.85):
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0, w, h);
     const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, "image/jpeg", calidad));
-    if (!blob || (escala === 1 && blob.size >= file.size)) return file;
+    if (!blob || (!siempreJpeg && escala === 1 && blob.size >= file.size)) return file;
     return blobToFile(blob, replaceExtension(file.name, "jpg"), "image/jpeg");
   } catch {
     return file;
