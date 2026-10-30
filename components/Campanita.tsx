@@ -123,6 +123,7 @@ import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificacion
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
 import { alRecargar } from "./TirarParaActualizar";
+import { usePerfilObligatorioVisible } from "./PerfilPublico";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -1914,12 +1915,14 @@ export default function Campanita() {
     return () => clearTimeout(t);
   }, [abrirGuia]);
 
+  // Con «Completa tu perfil» abierta (components/PerfilPublico.tsx) Blue se esconde y la guía espera.
+  const perfilObligatorio = usePerfilObligatorioVisible();
   useEffect(() => {
-    if (guiaPendienteRef.current && !sitioSinGuia) {
+    if (guiaPendienteRef.current && !sitioSinGuia && !perfilObligatorio) {
       guiaPendienteRef.current = false;
       abrirGuia();
     }
-  }, [sitioSinGuia, abrirGuia]);
+  }, [sitioSinGuia, abrirGuia, perfilObligatorio]);
 
   // volver = true (Saltar, «Ahora no», atrás del móvil): se vuelve a la pantalla donde estaba la persona al abrirse la
   // guía. Con una acción (Crear cuenta, Instalar…) no: esa acción lleva a otro sitio.
@@ -2112,7 +2115,7 @@ export default function Campanita() {
   // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
   // En el panel de administración Blue solo aparece para el dueño (propone información de la
   // tienda); a cualquier otra persona no se le monta nunca allí.
-  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido) return null;
+  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || (perfilObligatorio && !guiaAbierta)) return null;
 
   const derecha = sitio.lado === "r";
   // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
