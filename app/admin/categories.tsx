@@ -6,12 +6,18 @@
  *
  * Cómo funciona:
  * - Lee/escribe directamente en la tabla "categories" de Supabase
- *   (columnas: id, name, slug, sort_order, is_active, image_url,
+ *   (columnas: id, name, slug, sort_order, is_active, image_url, imagenes,
  *   created_at, updated_at).
- * - Si la columna "image_url" no existe todavía en Supabase, hace un
- *   fallback automático a una consulta sin esa columna (supportsImageUrl).
- * - El modal de creación/edición valida nombre, slug (autogenerado desde el
- *   nombre) y URL de imagen antes de guardar con insert/update.
+ * - Portadas: hasta 3 fotos por categoría que se suben desde el formulario
+ *   (selector de archivos del panel, reducidas a 1600 px en JPEG) al
+ *   almacenamiento product-media, carpeta categorias/. Se guardan en
+ *   "imagenes" (y la primera también en "image_url") y en la tienda se pasan
+ *   solas en carrusel (components/PortadasCategoria.tsx).
+ * - Si las columnas "imagenes" o "image_url" no existen todavía en Supabase,
+ *   hace un fallback automático a una consulta sin ellas (supportsImagenes /
+ *   supportsImageUrl); sin "imagenes" solo se guarda una portada.
+ * - El modal de creación/edición valida nombre y slug (autogenerado desde el
+ *   nombre) antes de guardar con insert/update.
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
  *   Supabase devuelve error.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
@@ -32,6 +38,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -48,6 +55,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
+import PortadasCategoria, {
+  MAX_PORTADAS,
+  faltaColumnaPortadas,
+  olvidarPortadasCategorias,
+  portadasDe,
+} from "../../components/PortadasCategoria";
 import {
   AdminHeader,
   AdminLoading,
@@ -56,7 +69,8 @@ import {
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
-import { CIERRE_TECLADO } from "../../lib/admin/products.utils";
+import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/products.utils";
+import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -88,9 +102,29 @@ type CategoryRow = {
   sort_order: number;
   is_active: boolean;
   image_url?: string | null;
+  imagenes?: unknown;
   created_at: string;
   updated_at: string;
 };
+
+const COLUMNAS_BASE = "id,name,slug,sort_order,is_active,created_at,updated_at";
+
+async function consultarCategorias(columnas: string) {
+  const res = await supabase
+    .from("categories")
+    .select(columnas)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  return { data: (res.data ?? null) as unknown as CategoryRow[] | null, error: res.error };
+}
+
+// Extensión del archivo que se sube (las reducidas siempre son JPEG).
+function extensionDe(tipo: string) {
+  if (tipo === "image/png") return "png";
+  if (tipo === "image/webp") return "webp";
+  if (tipo === "image/avif") return "avif";
+  return "jpg";
+}
 
 // Campo de texto del formulario: 16 px para que Safari en iPhone no haga
 // zoom automático de toda la pantalla al enfocarlo.
@@ -122,12 +156,6 @@ function toIntSafe(v: string, fallback = 0) {
   const n = Number(raw.replace(",", "."));
   if (!Number.isFinite(n)) return fallback;
   return Math.trunc(n);
-}
-
-function isValidHttpUrl(value: string) {
-  const url = String(value ?? "").trim();
-  if (!url) return false;
-  return /^https?:\/\/\S+$/i.test(url);
 }
 
 function ChipButton({
@@ -208,6 +236,9 @@ export default function AdminCategories() {
   }, [items]);
 
   const [supportsImageUrl, setSupportsImageUrl] = useState(true);
+  const [supportsImagenes, setSupportsImagenes] = useState(true);
+  // Sin la columna "imagenes" (migración pendiente) solo cabe una portada, la de image_url.
+  const maxPortadas = supportsImagenes ? MAX_PORTADAS : supportsImageUrl ? 1 : 0;
 
   const [search, setSearch] = useState("");
 
@@ -223,7 +254,9 @@ export default function AdminCategories() {
   const [slug, setSlug] = useState("");
   const [sortOrder, setSortOrder] = useState("0");
   const [isActive, setIsActive] = useState(true);
-  const [imageUrl, setImageUrl] = useState("");
+  const [portadas, setPortadas] = useState<string[]>([]);
+  const [subiendo, setSubiendo] = useState(false);
+  const [avisoPortadas, setAvisoPortadas] = useState<string | null>(null);
 
   const modalTitle = useMemo(
     () => (isEdit ? "Editar categoría" : "Nueva categoría"),
@@ -255,41 +288,24 @@ export default function AdminCategories() {
     setScreenErr(null);
 
     try {
-      const res = await supabase
-        .from("categories")
-        .select("id,name,slug,sort_order,is_active,image_url,created_at,updated_at")
-        .order("sort_order", { ascending: true })
-        .order("name", { ascending: true });
-
-      if (res.error) {
-        const msg = String(res.error.message ?? "");
-        const imageColumnMissing =
-          msg.includes("image_url") && (msg.includes("column") || msg.includes("does not exist"));
-
-        if (imageColumnMissing) {
-          const fallback = await supabase
-            .from("categories")
-            .select("id,name,slug,sort_order,is_active,created_at,updated_at")
-            .order("sort_order", { ascending: true })
-            .order("name", { ascending: true });
-
-          if (fallback.error) throw fallback.error;
-
-          setSupportsImageUrl(false);
-          setItems(
-            ((fallback.data ?? []) as CategoryRow[]).map((row) => ({
-              ...row,
-              image_url: null,
-            }))
-          );
-          return;
-        }
-
-        throw res.error;
+      // Con las portadas; si aún falta alguna columna (migración pendiente), sin ella.
+      let conImagenes = true;
+      let conImageUrl = true;
+      let res = await consultarCategorias(`${COLUMNAS_BASE},image_url,imagenes`);
+      if (res.error && faltaColumnaPortadas(res.error) && String(res.error.message ?? "").includes("imagenes")) {
+        conImagenes = false;
+        res = await consultarCategorias(`${COLUMNAS_BASE},image_url`);
       }
+      if (res.error && faltaColumnaPortadas(res.error)) {
+        conImagenes = false;
+        conImageUrl = false;
+        res = await consultarCategorias(COLUMNAS_BASE);
+      }
+      if (res.error) throw res.error;
 
-      setSupportsImageUrl(true);
-      setItems((res.data ?? []) as CategoryRow[]);
+      setSupportsImagenes(conImagenes);
+      setSupportsImageUrl(conImageUrl);
+      setItems(res.data ?? []);
     } catch (e: any) {
       console.error("Error cargando categorías:", e);
       setScreenErr("No se han podido cargar las categorías. Inténtalo de nuevo.");
@@ -309,7 +325,8 @@ export default function AdminCategories() {
     setSlug("");
     setSortOrder("0");
     setIsActive(true);
-    setImageUrl("");
+    setPortadas([]);
+    setAvisoPortadas(null);
     setModalErr(null);
   }
 
@@ -324,9 +341,76 @@ export default function AdminCategories() {
     setSlug(c.slug ?? "");
     setSortOrder(String(c.sort_order ?? 0));
     setIsActive(!!c.is_active);
-    setImageUrl(c.image_url ?? "");
+    setPortadas(portadasDe(c));
+    setAvisoPortadas(null);
     setModalErr(null);
     setOpen(true);
+  }
+
+  // Sube las fotos elegidas (reducidas) a product-media/categorias/ y las añade a la lista, hasta el máximo.
+  async function subirPortadas() {
+    if (subiendo) return;
+    const libres = maxPortadas - portadas.length;
+    if (libres <= 0) return;
+    setModalErr(null);
+    setAvisoPortadas(null);
+
+    let elegidas: Awaited<ReturnType<typeof pickMediaFilesWeb>>;
+    try {
+      elegidas = await pickMediaFilesWeb({ soloImagenes: true });
+    } catch (e: any) {
+      setModalErr(String(e?.message ?? "No se pudo abrir el selector de fotos."));
+      return;
+    }
+    for (const it of elegidas.items) {
+      try {
+        URL.revokeObjectURL(it.previewUrl);
+      } catch {}
+    }
+    const fotos = elegidas.items.filter((it) => it.kind === "image").slice(0, libres);
+    const avisos: string[] = [];
+    if (elegidas.skipped.length) avisos.push(`No se han podido usar: ${elegidas.skipped.map((s) => s.name).join(", ")}.`);
+    if (elegidas.items.length > libres) avisos.push(`Caben ${maxPortadas} portadas: se han añadido las ${libres === 1 ? "primera" : `${libres} primeras`}.`);
+    if (!fotos.length) {
+      if (avisos.length) setAvisoPortadas(avisos.join(" "));
+      return;
+    }
+
+    setSubiendo(true);
+    const nuevas: string[] = [];
+    try {
+      for (const it of fotos) {
+        const archivo = await reducirImagenWeb(it.file);
+        const ruta = `categorias/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extensionDe(archivo.type)}`;
+        // Nombre único por foto: se puede guardar en caché un año sin miedo a ver una versión vieja.
+        const { error } = await supabase.storage
+          .from(MEDIA_BUCKET)
+          .upload(ruta, archivo, { cacheControl: "31536000", upsert: false, contentType: archivo.type || undefined });
+        if (error) throw error;
+        const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(ruta);
+        if (data?.publicUrl) nuevas.push(data.publicUrl);
+      }
+    } catch (e: any) {
+      console.error("Error subiendo portada:", e);
+      avisos.push("Alguna foto no se ha podido subir. Inténtalo de nuevo.");
+    } finally {
+      if (nuevas.length) setPortadas((prev) => [...prev, ...nuevas].slice(0, maxPortadas));
+      if (avisos.length) setAvisoPortadas(avisos.join(" "));
+      setSubiendo(false);
+    }
+  }
+
+  function quitarPortada(i: number) {
+    setPortadas((prev) => prev.filter((_, k) => k !== i));
+  }
+
+  function adelantarPortada(i: number) {
+    if (i <= 0) return;
+    setPortadas((prev) => {
+      const next = [...prev];
+      [next[i - 1], next[i]] = [next[i], next[i - 1]];
+      return next;
+    });
   }
 
   async function save() {
@@ -338,7 +422,6 @@ export default function AdminCategories() {
     const cleanName = name.trim();
     const cleanSlug = slugify(slug || cleanName);
     const so = toIntSafe(sortOrder, 0);
-    const cleanImg = String(imageUrl ?? "").trim();
 
     if (!cleanName) {
       setModalErr("Introduce un nombre de categoría.");
@@ -358,8 +441,8 @@ export default function AdminCategories() {
       return;
     }
 
-    if (cleanImg && !isValidHttpUrl(cleanImg)) {
-      setModalErr("La URL de imagen debe empezar por http:// o https://");
+    if (subiendo) {
+      setModalErr("Espera a que terminen de subirse las portadas.");
       setSaving(false);
       return;
     }
@@ -372,22 +455,25 @@ export default function AdminCategories() {
         is_active: isActive,
       };
 
-      if (supportsImageUrl) {
-        payload.image_url = cleanImg || null;
+      const fotos = portadas.slice(0, maxPortadas);
+      if (supportsImagenes) payload.imagenes = fotos;
+      if (supportsImageUrl) payload.image_url = fotos[0] ?? null;
+
+      const escribir = (datos: any) =>
+        editing
+          ? supabase.from("categories").update(datos).eq("id", editing.id)
+          : supabase.from("categories").insert(datos);
+
+      let { error } = await escribir(payload);
+      // Si la columna de portadas aún no existe, se guarda el resto (y la primera portada en image_url).
+      if (error && "imagenes" in payload && faltaColumnaPortadas(error)) {
+        delete payload.imagenes;
+        setSupportsImagenes(false);
+        ({ error } = await escribir(payload));
       }
+      if (error) throw error;
 
-      if (editing) {
-        const { error } = await supabase
-          .from("categories")
-          .update(payload)
-          .eq("id", editing.id);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("categories").insert(payload);
-        if (error) throw error;
-      }
-
+      olvidarPortadasCategorias();
       setOpen(false);
       resetForm();
       await load();
@@ -523,8 +609,8 @@ export default function AdminCategories() {
                 >
                   <View
                     style={{
-                      width: isDesktopish ? 92 : "100%",
-                      height: isDesktopish ? 92 : isMobile ? 180 : 210,
+                      width: isDesktopish ? 160 : "100%",
+                      height: isDesktopish ? 100 : isMobile ? 180 : 210,
                       borderRadius: 16,
                       overflow: "hidden",
                       borderWidth: 1,
@@ -534,14 +620,13 @@ export default function AdminCategories() {
                       justifyContent: "center",
                     }}
                   >
-                    {c.image_url ? (
-                      <SmartImage
-                        uri={c.image_url}
-                        contentFit="cover"
-                        style={{ width: "100%", height: "100%" }}
-                      />
+                    {portadasDe(c).length ? (
+                      <PortadasCategoria imagenes={portadasDe(c)} alt={c.name} style={{ width: "100%", height: "100%" }} />
                     ) : (
-                      <Ionicons name="folder-outline" size={28} color={COLORS.muted2} />
+                      <View style={{ alignItems: "center", gap: 6 }}>
+                        <Ionicons name="images-outline" size={28} color={COLORS.muted2} />
+                        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12.5 }}>Sin portada</Text>
+                      </View>
                     )}
                   </View>
 
@@ -709,40 +794,134 @@ export default function AdminCategories() {
                 style={inputStyle}
               />
 
-              {supportsImageUrl ? (
-                <>
-                  <TextInput
-                    value={imageUrl}
-                    onChangeText={(v) => {
-                      setImageUrl(v);
-                      setModalErr(null);
-                    }}
-                    placeholder="Imagen URL (https://...)"
-                    placeholderTextColor="rgba(11,33,56,0.40)"
-                    autoCapitalize="none"
-                    style={inputStyle}
-                  />
+              {maxPortadas > 0 ? (
+                <View nativeID="categoria-portadas" style={{ gap: 10, alignItems: "center", paddingTop: 2 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
+                    Portadas ({portadas.length}/{maxPortadas})
+                  </Text>
+                  <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center" }}>
+                    {maxPortadas > 1
+                      ? "Se pasan solas en la tienda; la primera es la principal. Mejor fotos horizontales."
+                      : "De momento cabe una portada (falta activar las 3 en la base de datos)."}
+                  </Text>
 
-                  {isValidHttpUrl(imageUrl) ? (
-                    <View
-                      style={{
-                        width: "100%",
-                        height: isMobile ? 150 : 160,
-                        borderRadius: 16,
-                        overflow: "hidden",
-                        borderWidth: 1,
-                        borderColor: COLORS.border,
-                        backgroundColor: "#F8FBFE",
-                      }}
-                    >
-                      <SmartImage
-                        uri={imageUrl.trim()}
-                        contentFit="cover"
-                        style={{ width: "100%", height: "100%" }}
-                      />
-                    </View>
-                  ) : null}
-                </>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+                    {portadas.map((url, i) => (
+                      <View
+                        key={url}
+                        style={{
+                          width: isMobile ? 132 : 150,
+                          height: isMobile ? 88 : 100,
+                          borderRadius: 14,
+                          overflow: "hidden",
+                          borderWidth: 1,
+                          borderColor: i === 0 ? COLORS.accent : COLORS.border,
+                          backgroundColor: "#F8FBFE",
+                        }}
+                      >
+                        <SmartImage uri={url} contentFit="cover" ancho={150} alt={`Portada ${i + 1}`} style={{ width: "100%", height: "100%" }} />
+                        {i === 0 && (
+                          <Text
+                            style={{
+                              position: "absolute",
+                              left: 6,
+                              bottom: 6,
+                              paddingHorizontal: 7,
+                              paddingVertical: 2,
+                              borderRadius: 8,
+                              overflow: "hidden",
+                              backgroundColor: "rgba(11,33,56,0.72)",
+                              color: "#FFFFFF",
+                              fontSize: 11,
+                              fontWeight: "800",
+                            }}
+                          >
+                            Principal
+                          </Text>
+                        )}
+                        {i > 0 && (
+                          <Pressable
+                            onPress={() => adelantarPortada(i)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Pasar la portada ${i + 1} delante`}
+                            style={({ pressed }) => ({
+                              position: "absolute",
+                              left: 4,
+                              top: 4,
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              backgroundColor: "rgba(11,33,56,0.72)",
+                              opacity: pressed ? 0.8 : 1,
+                            })}
+                          >
+                            <Ionicons name="arrow-back" size={17} color="#FFFFFF" />
+                          </Pressable>
+                        )}
+                        <Pressable
+                          onPress={() => quitarPortada(i)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Quitar la portada ${i + 1}`}
+                          style={({ pressed }) => ({
+                            position: "absolute",
+                            right: 4,
+                            top: 4,
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: "rgba(11,33,56,0.72)",
+                            opacity: pressed ? 0.8 : 1,
+                          })}
+                        >
+                          <Ionicons name="close" size={18} color="#FFFFFF" />
+                        </Pressable>
+                      </View>
+                    ))}
+
+                    {portadas.length < maxPortadas && (
+                      <Pressable
+                        nativeID="categoria-subir-portada"
+                        onPress={subirPortadas}
+                        disabled={subiendo}
+                        accessibilityRole="button"
+                        accessibilityLabel="Subir fotos de portada"
+                        style={({ pressed }) => ({
+                          width: isMobile ? 132 : 150,
+                          height: isMobile ? 88 : 100,
+                          borderRadius: 14,
+                          borderWidth: 1.5,
+                          borderStyle: "dashed",
+                          borderColor: COLORS.accentBorder,
+                          backgroundColor: COLORS.accent2,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 4,
+                          opacity: pressed ? 0.85 : 1,
+                        })}
+                      >
+                        {subiendo ? (
+                          <>
+                            <ActivityIndicator color={COLORS.accent} />
+                            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12 }}>Subiendo…</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Ionicons name="cloud-upload-outline" size={24} color={COLORS.accent} />
+                            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12.5 }}>
+                              {portadas.length ? "Añadir foto" : "Subir fotos"}
+                            </Text>
+                          </>
+                        )}
+                      </Pressable>
+                    )}
+                  </View>
+
+                  {!!avisoPortadas && <AdminNotice tone="warning" text={avisoPortadas} />}
+                </View>
               ) : null}
 
               <View

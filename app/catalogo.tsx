@@ -63,6 +63,7 @@ import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
+import PortadasCategoria, { faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/Campanita";
 import CatalogFilters, {
@@ -105,6 +106,9 @@ type CategoryRow = {
   slug: string;
   is_active: boolean;
   sort_order: number;
+  // Portadas (panel → Categorías); la cabecera de la categoría las pasa en carrusel.
+  image_url?: string | null;
+  imagenes?: unknown;
 };
 
 type ProductDbRow = {
@@ -281,11 +285,17 @@ async function detectAdmin(): Promise<boolean> {
 }
 
 async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
-  const { data, error } = await supabase
-    .from("categories")
-    .select("id,name,slug,is_active,sort_order")
-    .order("sort_order", { ascending: true })
-    .order("name", { ascending: true });
+  const consultar = (columnas: string) =>
+    supabase
+      .from("categories")
+      .select(columnas)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+
+  // Con las portadas; si aún falta la columna (migración pendiente), sin ellas.
+  const conPortadas = await consultar("id,name,slug,is_active,sort_order,image_url,imagenes");
+  const { data, error } =
+    conPortadas.error && faltaColumnaPortadas(conPortadas.error) ? await consultar("id,name,slug,is_active,sort_order") : conPortadas;
 
   if (error) throw error;
 
@@ -460,6 +470,8 @@ export default function CatalogoScreen() {
     () => categories.find((c) => c.id === categoryId),
     [categories, categoryId]
   );
+
+  const portadasCategoria = useMemo(() => portadasDe(selectedCategory), [selectedCategory]);
 
   const categoryOptions: CatalogCategoryOption[] = useMemo(
     () => categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
@@ -719,6 +731,19 @@ export default function CatalogoScreen() {
                 {pageTitle}
               </Text>
             </View>
+
+            {/* Portadas de la categoría elegida (panel → Categorías), en carrusel. */}
+            {portadasCategoria.length ? (
+              <View nativeID="catalogo-portada" style={{ width: "100%", maxWidth: 960, alignSelf: "center" }}>
+                <PortadasCategoria
+                  key={selectedCategory?.id}
+                  imagenes={portadasCategoria}
+                  alt={`Portada de ${selectedCategory?.name ?? "la categoría"}`}
+                  prioridad="high"
+                  style={{ width: "100%", aspectRatio: isMobile ? 16 / 7 : 3, borderRadius: isMobile ? 16 : 20 }}
+                />
+              </View>
+            ) : null}
 
             {/* Buscador compartido (components/Barramagic.tsx), modo "input":
                 busca al pulsar intro y limpia con la "x". */}
