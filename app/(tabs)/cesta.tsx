@@ -436,6 +436,8 @@ async function fetchProductMediaForCart(productId: string): Promise<ProductMedia
     .from("product_media")
     .select(selectStr)
     .eq("product_id", productId)
+    // Solo hace falta la portada (marcada o la primera): no se bajan las filas de todas las fotos (hasta 30).
+    .or("is_cover.eq.true,sort_order.eq.0")
     .limit(200);
 
   if (res.error) {

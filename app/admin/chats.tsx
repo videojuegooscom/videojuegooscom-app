@@ -196,6 +196,8 @@ export default function AdminChats() {
           .select("product_id,public_url,is_cover,sort_order")
           .in("product_id", productIds)
           .eq("kind", "image")
+          // Solo la portada (marcada o la primera), no las filas de todas las fotos (hasta 30 por producto).
+          .or("is_cover.eq.true,sort_order.eq.0")
           .order("is_cover", { ascending: false })
           .order("sort_order", { ascending: true }),
         supabase.from("sell_requests").select("id,articulo").in("id", sellRequestIds),

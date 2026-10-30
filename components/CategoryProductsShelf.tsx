@@ -213,6 +213,8 @@ async function fetchCoverImageMapSafe(productIds: string[]): Promise<Map<string,
       .from("product_media")
       .select("product_id,kind,public_url,sort_order,is_cover")
       .in("product_id", productIds)
+      // Solo la portada (marcada o la primera), no las filas de todas las fotos (hasta 30 por producto).
+      .or("is_cover.eq.true,sort_order.eq.0")
       .limit(4000);
 
     if (error || !Array.isArray(data)) return map;

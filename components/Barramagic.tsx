@@ -322,7 +322,9 @@ async function buscarProductosInicio(texto: string, intencion: IntencionBusqueda
         .from("product_media")
         .select("product_id,public_url,sort_order,is_cover")
         .eq("kind", "image")
-        .in("product_id", filas.map((f) => f.id));
+        .in("product_id", filas.map((f) => f.id))
+        // Solo la portada (marcada o la primera), no las filas de todas las fotos (hasta 30 por producto).
+        .or("is_cover.eq.true,sort_order.eq.0");
       if (!errorMedios && Array.isArray(medios)) {
         const ordenados = [...(medios as { product_id: string; public_url?: string | null; sort_order?: number | null; is_cover?: boolean | null }[])].sort(
           (a, b) => Number(!!b.is_cover) - Number(!!a.is_cover) || (a.sort_order ?? 9999) - (b.sort_order ?? 9999)

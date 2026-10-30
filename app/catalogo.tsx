@@ -373,7 +373,9 @@ async function fetchCoverMap(productIds: string[]) {
     .from("product_media")
     .select("product_id,public_url,sort_order,is_cover")
     .eq("kind", "image")
-    .in("product_id", productIds);
+    .in("product_id", productIds)
+    // Solo la portada de cada producto (marcada o la primera), no las filas de todas sus fotos (hasta 30).
+    .or("is_cover.eq.true,sort_order.eq.0");
 
   // Si falla, las tarjetas usan products.images como respaldo: no se rompe
   // la página por las fotos.
