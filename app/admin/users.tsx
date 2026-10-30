@@ -30,7 +30,7 @@
  * - Orden: por fecha de alta (más recientes primero, por defecto) o por
  *   participación total (suma de los tres contadores), para ver primero a
  *   quien más interactúa con la tienda.
- * - PERFILES (seguimiento del «Perfil público» que cada cliente rellena en Mi cuenta, obligatorio
+ * - PERFILES (seguimiento de «Mi perfil», lo que cada cliente rellena en Mi cuenta, obligatorio
  *   al iniciar sesión: foto opcional, nombre, usuario, país, provincia y edad): se leen de
  *   perfiles_cliente (el administrador las ve todas, por su política; migración
  *   20261030150000_perfiles_cliente_completo.sql). Salen contadores (con perfil, completos,
@@ -109,7 +109,7 @@ type UserRow = {
   store_reviews_count: number;
 };
 
-// Datos que cada cliente escribe en «Mi cuenta» → Perfil público (tabla perfiles_cliente).
+// Datos que cada cliente escribe en «Mi cuenta» → Mi perfil (tabla perfiles_cliente).
 type PerfilRow = {
   user_id: string;
   nombre: string;

@@ -119,6 +119,8 @@ import {
 } from "react-native";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
+import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
+import SmartImage from "../../components/SmartImage";
 import { markEnd, markStart } from "../../lib/loadingBus";
 import { supabase } from "../../lib/supabase";
 
@@ -147,11 +149,14 @@ type MessageItem = {
   id: string;
   type: "message" | "gif" | "system";
   userId: string;
-  // username se guarda (llega de la base de datos) pero ya NO se muestra en
-  // el chat: es un dato privado del usuario, solo pensado para que un
-  // administrador pueda identificarlo si hace falta moderar.
+  // username es el que guardó el trigger al escribir (si la persona no tenía
+  // usuario, es la parte de su email antes de la @): por eso NO se muestra.
+  // Lo que se enseña es displayName: el usuario de «Mi perfil» cuando lo hay
+  // (perfilesPublicos, components/PerfilPublico.tsx) y, si no, el nombre.
   username: string;
   displayName: string;
+  // Foto de «Mi perfil» (si tiene); sin ella, la inicial.
+  foto?: string;
   role?: "viewer" | "member" | "vip" | "admin";
   time: string;
   text: string;
@@ -440,9 +445,44 @@ export default function ChatGlobalScreen() {
   // de inicio de sesión en vez de quedarse mudo.
   const canSend = isLoggedIn ? trimmedDraftLength > 3 : true;
 
+  // Usuario y foto de «Mi perfil» de quien escribe (se piden solo los que faltan; si la función de la base de datos aún no
+  // existe, no llega nada y se ve el nombre con la inicial, como antes).
+  const [perfilesForo, setPerfilesForo] = useState<Record<string, PerfilForo>>({});
+  useEffect(() => {
+    const ids = messages.map((m) => m.userId);
+    if (!ids.length) return;
+    let vivo = true;
+    perfilesPublicos(ids)
+      .then((encontrados) => {
+        if (!vivo) return;
+        setPerfilesForo((prev) => {
+          let cambia = false;
+          const sig = { ...prev };
+          for (const [id, p] of encontrados) {
+            if (prev[id]?.usuario === p.usuario && prev[id]?.foto === p.foto) continue;
+            sig[id] = p;
+            cambia = true;
+          }
+          return cambia ? sig : prev;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [messages]);
+  const mensajesConPerfil = useMemo(
+    () =>
+      messages.map((m) => {
+        const p = perfilesForo[m.userId];
+        return p ? { ...m, displayName: p.usuario, foto: p.foto || undefined } : m;
+      }),
+    [messages, perfilesForo]
+  );
+
   const visibleMessages = useMemo(
-    () => messages.filter((message) => message.type !== "system"),
-    [messages]
+    () => mensajesConPerfil.filter((message) => message.type !== "system"),
+    [mensajesConPerfil]
   );
 
   // Agrupa las filas sueltas de chat_message_reactions en: cuántas veces
@@ -1135,7 +1175,7 @@ export default function ChatGlobalScreen() {
                 prev.userId === message.userId;
 
               const replyPreview = message.replyToId
-                ? messages.find((m) => m.id === message.replyToId) ?? null
+                ? mensajesConPerfil.find((m) => m.id === message.replyToId) ?? null
                 : null;
               const noticiaId = idNoticiaDeTexto(message.text);
 
@@ -1519,11 +1559,20 @@ function HubTabButton({
 
 function AvatarCircle({
   username,
+  foto,
   size = 42,
 }: {
   username: string;
+  foto?: string;
   size?: number;
 }) {
+  if (foto) {
+    return (
+      <View style={{ width: size, height: size, borderRadius: 999, overflow: "hidden", borderWidth: 1, borderColor: "#E3EAF2", backgroundColor: "#F1F6FA" }}>
+        <SmartImage uri={foto} alt={`Foto de ${username}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+      </View>
+    );
+  }
   const palette = [
     "rgba(0,170,228,0.20)",
     "rgba(34,197,94,0.18)",
@@ -1665,16 +1714,15 @@ const MessageBubble = React.memo(function MessageBubble({
             gap: 10,
           }}
         >
-          <AvatarCircle username={item.displayName} />
+          <AvatarCircle username={item.displayName} foto={item.foto} />
 
           <View style={{ gap: 4 }}>
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>{item.displayName}</Text>
 
             {/*
-              El "@usuario" se quitó del chat: es un dato privado, pensado
-              solo para que un administrador pueda identificar a alguien si
-              hace falta moderar — no para que lo vea todo el mundo. El rol
-              (MIEMBRO/ADMIN) va debajo del nombre, como texto sin pastilla.
+              Nombre: el usuario de «Mi perfil» (público, lo elige la persona)
+              y, si aún no tiene, el nombre de su cuenta. El rol
+              (MIEMBRO/ADMIN) va debajo, como texto sin pastilla.
             */}
             <Text style={{ color: roleTone.text, fontSize: 10, fontWeight: "900" }}>
               {roleTone.label}

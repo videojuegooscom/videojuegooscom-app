@@ -1,11 +1,12 @@
 /**
  * Qué hace: pantalla "Mi cuenta" (pestaña Perfil). Antes de iniciar sesión
- * muestra un formulario de acceso/registro; una vez hay sesión, muestra el
- * «Perfil público» (foto, usuario, nombre, país, provincia y edad:
+ * muestra un formulario de acceso/registro; una vez hay sesión, muestra
+ * «Mi perfil» (foto, usuario, nombre, país, provincia y edad:
  * components/PerfilPublico.tsx, que también obliga a completarlo en el resto
- * de la tienda), el email conectado, el botón de cerrar sesión y (si el rol es
- * admin) el acceso al panel de control. Al final, el pie de página (con las
- * redes sociales, una sola vez).
+ * de la tienda) con la cuenta dentro (email conectado y botón de cerrar
+ * sesión), la pestaña «Mis seguimientos» y (si el rol es admin) el acceso al
+ * panel de control. Al final, el pie de página (con las redes sociales, una
+ * sola vez).
  *
  * Cómo funciona:
  * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
@@ -528,7 +529,7 @@ export default function PerfilScreen() {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<SessionRole>("guest");
 
-  // Pestañas del perfil con sesión: "Mi cuenta" | "Seguimientos" (?tab=seguimientos)
+  // Pestañas del perfil con sesión: "Mi cuenta" | "Mis seguimientos" (?tab=seguimientos)
   // ?aviso=… lo manda quien trae aquí para iniciar sesión (p. ej. "Hablar con el equipo").
   // ?acceso=registro | entrar → abre directamente el formulario de crear cuenta o de iniciar
   // sesión (lo usa la guía de Blue, components/Campanita.tsx).
@@ -552,6 +553,8 @@ export default function PerfilScreen() {
   }, [tabParam]);
   const isLogged = sessionRole !== "guest";
   const showSeguimientos = isLogged && perfilTab === "seguimientos";
+  // ¿Se enseña «Mi perfil»? (null mientras carga; false si la tabla aún no existe: entonces la cuenta sale en su tarjeta).
+  const [perfilDisponible, setPerfilDisponible] = useState<boolean | null>(null);
 
   const isChecking = state === "checking";
   const isSubmitting = state === "submitting";
@@ -913,6 +916,31 @@ export default function PerfilScreen() {
     router.push("/admin");
   }, []);
 
+  // «Tu cuenta está activa» (sesión y «Cerrar sesión»): va dentro de «Mi perfil», debajo de los datos.
+  const cuentaActiva = (
+    <View nativeID="perfil-cuenta" style={{ gap: 6, alignItems: "center" }}>
+      <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>Tu cuenta está activa</Text>
+      <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800", textAlign: "center" }}>SESIÓN ACTUAL</Text>
+      <Text style={{ color: COLORS.text, fontSize: 15.5, fontWeight: "900", textAlign: "center" }}>
+        {sessionEmail || "No hay sesión iniciada"}
+      </Text>
+      <Text style={{ color: COLORS.mutedSoft, lineHeight: 19, textAlign: "center" }}>
+        {sessionRole === "admin"
+          ? "Has iniciado sesión. Esta cuenta tiene acceso al panel de administración."
+          : "Has iniciado sesión correctamente."}
+      </Text>
+      <View style={{ alignSelf: "stretch", marginTop: 6 }}>
+        <ActionButton
+          title="Cerrar sesión"
+          onPress={signOut}
+          variant="secondary"
+          loading={isSigningOut}
+          loadingText="Cerrando sesión..."
+        />
+      </View>
+    </View>
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -958,13 +986,20 @@ export default function PerfilScreen() {
                 </SectionCard>
               ) : (
               <>
-              {/* Perfil público (foto, usuario, nombre, país, provincia y edad): primero lo tuyo, después la sesión. La tarjeta
-                  se oculta sola si la tabla perfiles_cliente aún no está creada (migración sin aplicar). */}
+              {/* «Mi perfil» (foto, usuario, nombre, país, provincia y edad) con la cuenta dentro, debajo de los datos. Si la
+                  tabla perfiles_cliente aún no está creada (migración sin aplicar), se oculta y la cuenta sale en su tarjeta. */}
               {isLogged && sessionUserId ? (
                 <SectionCard padding={cardPadding}>
-                  <PerfilPublico uid={sessionUserId} />
+                  {perfilDisponible ? (
+                    <>
+                      {msg ? <InfoMessage text={msg} tone="error" /> : null}
+                      {okMsg ? <InfoMessage text={okMsg} tone="success" /> : null}
+                    </>
+                  ) : null}
+                  <PerfilPublico uid={sessionUserId} cuenta={cuentaActiva} onDisponible={setPerfilDisponible} />
                 </SectionCard>
               ) : null}
+              {!isLogged || !sessionUserId || perfilDisponible === false ? (
               <SectionCard padding={cardPadding}>
                 <View style={{ gap: 12, alignItems: "center" }}>
                     {sessionRole === "guest" ? <MarcaAnimada cual="logo-mini" ancho={96} /> : null}
@@ -1226,6 +1261,7 @@ export default function PerfilScreen() {
                   </View>
                 )}
               </SectionCard>
+              ) : null}
               </>
               )}
               </View>
@@ -1249,7 +1285,7 @@ export default function PerfilScreen() {
 }
 
 // ============================================================================
-// Pestañas del perfil y sección "Seguimientos" (pedidos + reparaciones)
+// Pestañas del perfil y sección "Mis seguimientos" (pedidos + reparaciones)
 // ----------------------------------------------------------------------------
 // Lee "pedidos" + "pedido_items" (user_id = cliente): si la tabla aún no existe
 // (migración pendiente) esa parte se oculta sin error. Lee "service_requests"
@@ -1272,7 +1308,7 @@ const SEG = {
 function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: PerfilTab) => void }) {
   const tabs: { key: PerfilTab; label: string }[] = [
     { key: "cuenta", label: "Mi cuenta" },
-    { key: "seguimientos", label: "Seguimientos" },
+    { key: "seguimientos", label: "Mis seguimientos" },
   ];
   return (
     // nativeID: la guía de Blue (components/Campanita.tsx) enmarca estas pestañas.

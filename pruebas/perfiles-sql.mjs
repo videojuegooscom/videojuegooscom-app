@@ -16,6 +16,9 @@
  *  - Al borrar la cuenta desaparece su fila.
  *  - «Prueba de las pruebas»: con una versión rota de la migración (cualquiera lee todas las filas) la comprobación de
  *    privacidad FALLA, así que de verdad detecta el problema.
+ *  - El Foro (20261030200000_perfiles_publicos.sql): la función perfiles_publicos da SOLO id, usuario y foto, solo de quien
+ *    ha escrito en el Foro y tiene usuario, como mucho 200 a la vez; la tabla sigue cerrada y PUBLIC no la ejecuta (con su
+ *    «prueba de las pruebas»: sin el filtro del Foro, la comprobación falla).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -30,6 +33,7 @@ const RAIZ = resolve(".");
 const NATIVO = join(RAIZ, "node_modules/@embedded-postgres/linux-x64/native");
 const MIGRACION = readFileSync("supabase/migrations/20261030150000_perfiles_cliente_completo.sql", "utf8");
 const ANTERIOR = readFileSync("supabase/migrations/20261022100000_perfiles_cliente.sql", "utf8");
+const PUBLICOS = readFileSync("supabase/migrations/20261030200000_perfiles_publicos.sql", "utf8");
 const PUERTO = 55451;
 
 const fallos = [];
@@ -262,6 +266,60 @@ try {
   const conserva = (await c3.query(`select nombre from public.perfiles_cliente where user_id = '${U1}'`)).rows[0]?.nombre;
   ok(encima && columnas.includes("foto_url") && politicas3 === 3 && conserva === "Dani", `Encima de la anterior: sin error, añade foto_url, 3 políticas y conserva los datos (${columnas.length} columnas, ${politicas3} políticas)`);
   await c3.end();
+
+  // 9) El Foro: perfiles_publicos (20261030200000) da SOLO usuario y foto de quien ha escrito en el Foro.
+  const FORO = `create table public.chat_messages (id uuid primary key default gen_random_uuid(), user_id uuid not null, body text);
+    alter table public.chat_messages enable row level security;`;
+  const U3 = "33333333-3333-4333-8333-333333333333";
+  const prepararForo = async (nombre, publicos) => {
+    const b = await nuevaBase(nombre, MIGRACION);
+    await b.query(FORO);
+    await b.query(`insert into auth.users (id, email) values ('${U3}', 'u3@example.com')`);
+    await b.query(`insert into public.perfiles_cliente (user_id, nombre, usuario, pais, provincia, fecha_nacimiento, foto_url) values
+      ('${U1}', 'Dani García López', 'dani', 'España', 'Zaragoza', '2003-08-19', 'https://fotos.ejemplo.invalid/avatares/${U1}/1.jpg'),
+      ('${U2}', 'Sin Foro', 'callado', 'España', 'Huesca', '1990-01-01', null),
+      ('${U3}', 'Sin Usuario', null, 'España', 'Teruel', '1990-01-01', null)`);
+    await b.query(`insert into public.chat_messages (user_id, body) values ('${U1}', 'hola'), ('${U3}', 'buenas')`);
+    await b.query(publicos);
+    return b;
+  };
+  const c4 = await prepararForo("vz_aislada_perfiles_foro", PUBLICOS);
+  let repetidaForo = true;
+  try {
+    await c4.query(PUBLICOS);
+  } catch (e) {
+    repetidaForo = false;
+    console.log(String(e.message));
+  }
+  ok(repetidaForo, "Foro: la función se puede aplicar dos veces sin error (idempotente)");
+  const todos = `select * from public.perfiles_publicos(array['${U1}', '${U2}', '${U3}']::uuid[])`;
+  const visitante = await como(c4, "anon", null, todos);
+  ok(visitante.ok && visitante.cuantas === 1 && visitante.filas[0].user_id === U1 && visitante.filas[0].usuario === "dani" && /\/1\.jpg$/.test(visitante.filas[0].foto_url ?? ""), `Foro: un visitante ve el usuario y la foto de quien ha escrito (${JSON.stringify(visitante.filas ?? visitante.mensaje)})`);
+  ok(visitante.ok && Object.keys(visitante.filas[0] ?? {}).sort().join(",") === "foto_url,user_id,usuario", `Foro: solo tres datos (id, usuario y foto), nunca nombre, país, provincia ni fecha (${Object.keys(visitante.filas?.[0] ?? {}).join(", ")})`);
+  ok(visitante.ok && !visitante.filas.some((f) => f.user_id === U2), "Foro: de quien NO ha escrito en el Foro no sale nada");
+  ok(visitante.ok && !visitante.filas.some((f) => f.user_id === U3), "Foro: de quien no tiene usuario no sale nada");
+  const cliente = await como(c4, "authenticated", U2, todos);
+  ok(cliente.ok && cliente.cuantas === 1, `Foro: un cliente con sesión ve lo mismo (${cliente.cuantas})`);
+  const muchos = await como(c4, "anon", null, `select count(*)::int as n from public.perfiles_publicos(array_append(array_fill('${U2}'::uuid, array[200]), '${U1}'::uuid))`);
+  ok(muchos.ok && muchos.filas[0].n === 0, `Foro: como mucho 200 personas por consulta (la 201 no sale: ${muchos.filas?.[0]?.n})`);
+  const vacia = await como(c4, "anon", null, "select count(*)::int as n from public.perfiles_publicos(null)");
+  ok(vacia.ok && vacia.filas[0].n === 0, "Foro: sin ids no devuelve nada (ni falla)");
+  const sigueCerrada = await como(c4, "anon", null, "select * from public.perfiles_cliente");
+  ok(!sigueCerrada.ok && sigueCerrada.codigo === "42501", `Foro: la tabla de perfiles sigue cerrada para visitantes (${sigueCerrada.codigo})`);
+  await c4.query("create role vz_ajeno nologin");
+  const ajenoEjecuta = (await c4.query("select has_function_privilege('vz_ajeno', 'public.perfiles_publicos(uuid[])', 'execute') as t")).rows[0].t;
+  ok(!ajenoEjecuta, "Foro: PUBLIC (cualquier otro rol) no puede ejecutarla");
+  const ficha = (await c4.query("select prosecdef, proconfig from pg_proc where proname = 'perfiles_publicos'")).rows[0];
+  ok(ficha.prosecdef === true && (ficha.proconfig ?? []).some((s) => s.startsWith("search_path=")), `Foro: lee por su cuenta con el search_path fijado (${JSON.stringify(ficha)})`);
+  await c4.end();
+
+  // PRUEBA DE LAS PRUEBAS: sin el filtro del Foro, la comprobación «quien no ha escrito no sale» tiene que fallar.
+  const sinFiltro = PUBLICOS.replace("\n    and exists (select 1 from public.chat_messages m where m.user_id = p.user_id);", ";");
+  ok(sinFiltro !== PUBLICOS, "(control) se ha podido quitar el filtro del Foro en la copia de prueba");
+  const c5 = await prepararForo("vz_aislada_perfiles_foro_rota", sinFiltro);
+  const rotaForo = await como(c5, "anon", null, todos);
+  ok(rotaForo.ok && rotaForo.filas.some((f) => f.user_id === U2), "(control) sin el filtro sale quien no ha escrito: la comprobación SÍ lo detecta");
+  await c5.end();
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {
