@@ -145,6 +145,7 @@ async function contexto(navegador, usuario, rol, estado) {
       return json(usuario);
     }
     if (url.pathname.endsWith("/rest/v1/profiles")) return json({ id: usuario.id, role: rol });
+    if (url.pathname.endsWith("/rest/v1/analytics_events") && metodo === "GET") return json(estado.eventos ?? []);
     if (url.pathname.endsWith("/rpc/get_unread_chat_count")) return json(0);
     if (url.pathname.endsWith("/rpc/admin_list_users_with_stats")) return json(estado.usuarios ?? []);
     if (url.pathname.endsWith("/rest/v1/perfiles_cliente")) {
@@ -423,12 +424,21 @@ try {
     { user_id: "u4000000-0000-4000-8000-000000000004", email: "sin-perfil@example.com", role: "user", created_at: "2026-10-04T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
   ];
   const PERFILES = [
-    { user_id: U[0].user_id, nombre: "Dani", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2003-08-19" },
+    { user_id: U[0].user_id, nombre: "Dani", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2003-08-19", foto_url: "https://fotos.ejemplo.invalid/storage/v1/object/public/avatares/u1/1.jpg", updated_at: "2026-10-30T18:00:00Z" },
     { user_id: U[1].user_id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" },
     { user_id: U[2].user_id, nombre: "", usuario: "", pais: "Francia", provincia: "Zaragoza", fecha_nacimiento: null },
   ];
+  // Analítica propia de «Completa tu perfil»: Luis y el de sin perfil la vieron (este, dos veces), Dani la completó y el
+  // de sin perfil cerró sesión.
+  const EVENTOS = [
+    { event_name: "perfil_obligatorio_visto", user_id: U[2].user_id, session_id: "s3" },
+    { event_name: "perfil_obligatorio_visto", user_id: U[3].user_id, session_id: "s4" },
+    { event_name: "perfil_obligatorio_visto", user_id: U[3].user_id, session_id: "s4" },
+    { event_name: "perfil_guardado", user_id: U[0].user_id, session_id: "s1" },
+    { event_name: "perfil_obligatorio_salir", user_id: U[3].user_id, session_id: "s4" },
+  ];
   {
-    const estado = { usuarios: U, filas: PERFILES, guardados: [] };
+    const estado = { usuarios: U, filas: PERFILES, guardados: [], eventos: EVENTOS };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/users");
     await p.locator("#admin-perfiles").waitFor({ timeout: 40000 });
@@ -449,7 +459,27 @@ try {
     ok(lista.includes("Dani · @dani · Zaragoza (España)") && lista.includes(`${edades[0]} años`), "E: cada cliente enseña su resumen («Dani · @dani · Zaragoza (España) · N años»)");
     ok(lista.includes("Zaragoza (Francia)") || lista.includes("Zaragoza · "), "E: también si el perfil está a medias (provincia y país sin nombre)");
     ok(lista.includes("Perfil sin completar"), "E: y «Perfil sin completar» para quien no ha escrito nada");
+    const plano = t.replace(/\n/g, " ");
+    ok(/Faltan datos\s*2/.test(plano) && /Con foto\s*1/.test(plano), "E: contadores nuevos: «Faltan datos: 2» (a quienes les sale «Completa tu perfil») y «Con foto: 1»");
+    ok(/«Completa tu perfil» \(30 días\): la vieron 2 · la completaron 1 · cerraron sesión 1/.test(plano), `E: seguimiento de «Completa tu perfil» (personas distintas, 30 días): ${(plano.match(/«Completa tu perfil».{0,80}/) ?? [""])[0]}`);
+    ok(t.includes("Completo (2)") && t.includes("Faltan datos (2)") && t.includes("Con foto (1)"), "E: chips de estado con su recuento");
+    ok(lista.includes("Perfil completo · actualizado 30/10/2026") && lista.includes("Faltan: usuario, nombre, edad") && lista.includes("Aún no ha completado su perfil"), "E: cada fila dice si el perfil está completo (y cuándo se actualizó) o qué le falta");
+    ok((await p.locator('img[alt="Foto de Dani"]').count()) === 1, "E: la fila enseña la foto del cliente que la tiene");
     await capturar(p, "E1-admin-perfiles");
+
+    // Filtrar por estado: «Faltan datos» deja solo a quien aún tiene que completar el perfil.
+    await p.getByText("Faltan datos (2)").click();
+    await p.waitForTimeout(400);
+    const pendientes = await p.evaluate(() => document.body.innerText);
+    ok(pendientes.includes("luis@example.com") && pendientes.includes("sin-perfil@example.com") && !pendientes.includes("dani@example.com") && !pendientes.includes("ana@example.com"), "E: el chip «Faltan datos» deja solo a los que tienen que completarlo");
+    await p.getByText("Quitar filtros").click();
+    await p.waitForTimeout(300);
+    await p.getByText("Con foto (1)").click();
+    await p.waitForTimeout(400);
+    const conFoto = await p.evaluate(() => document.body.innerText);
+    ok(conFoto.includes("dani@example.com") && !conFoto.includes("ana@example.com"), "E: el chip «Con foto» deja solo a quien tiene foto");
+    await p.getByText("Quitar filtros").click();
+    await p.waitForTimeout(300);
 
     // Filtrar por provincia (los contadores filtran).
     await p.getByText("Zaragoza (2)").click();
@@ -481,6 +511,7 @@ try {
     const tf = (await f.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
     ok(/Perfil/.test(tf) && /Nombre\s*Dani/.test(tf) && /Usuario\s*@dani/.test(tf) && /País\s*España/.test(tf) && /Provincia\s*Zaragoza/.test(tf), "E: la ficha del cliente enseña su perfil (nombre, usuario, país y provincia)");
     ok(new RegExp(`Edad\\s*${edades[0]} años`).test(tf) && !/2003/.test(tf), "E: y su edad, sin enseñar la fecha de nacimiento");
+    ok(/Perfil completo · actualizado 30\/10\/2026/.test(tf) && (await f.locator('img[alt="Foto de perfil del cliente"]').count()) === 1, "E: la ficha enseña su foto y «Perfil completo · actualizado …»");
     await capturar(f, "E2-admin-ficha");
     await ctx.close();
   }

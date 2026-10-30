@@ -25,6 +25,7 @@ has apuntado y que queda pendiente de aplicar.
 ## Hábitos obligatorios
 
 - **Formato de respuesta (dueño, 2026-10-20): SOLO 4 apartados, con estos títulos en mayúsculas y en viñetas de una línea: RESUMEN, RECOMENDACIONES, TRABAJO PENDIENTE, MODELO RECOMENDADO.** Los pasos y autorizaciones que necesita el dueño y los comandos de Termius van en TRABAJO PENDIENTE; la lección apuntada (pendiente de aplicar) y los permisos especiales usados, en una línea del RESUMEN.
+- **Toda novedad de la tienda tiene su parte en Administración (dueño, 2026-10-30, OBLIGATORIO).** Cada cambio que toque a los clientes (datos que rellenan, pantallas o pasos obligatorios nuevos, funciones, avisos) se refleja en la MISMA PR en su apartado de Administración (p. ej. Usuarios y la ficha del cliente para el perfil): verlo, contarlo, filtrarlo y medir su uso con la analítica propia. Siempre dentro de lo legal: solo datos que cubre la política de privacidad, edad en vez de fecha de nacimiento, agregados cuando basten y nada de quien rechazó la analítica. Si no hay apartado, va al más afín. Se prueba igual que la tienda.
 - **Un comando simple por llamada.** Nada de `cd … &&`, tuberías `|`, `;`, heredocs (`python3 -`, `cat >>`) ni `sed -i`. Si hacen falta varios pasos, varias llamadas.
 - **Editar archivos solo con las herramientas Edit y Write**, nunca desde Bash.
 - **Leer archivos fuera del repo con la herramienta Read**, no con Bash (la política solo está en `/etc/claude-code`).

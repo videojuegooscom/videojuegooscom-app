@@ -30,14 +30,18 @@
  * - Orden: por fecha de alta (más recientes primero, por defecto) o por
  *   participación total (suma de los tres contadores), para ver primero a
  *   quien más interactúa con la tienda.
- * - PERFILES (seguimiento de lo que cada cliente escribe en Mi cuenta → Tu perfil: nombre,
- *   usuario, país, provincia y edad): se leen de perfiles_cliente (el administrador las ve
- *   todas, por su política; migración 20261022100000_perfiles_cliente.sql). Salen contadores
- *   (con perfil, completos, edad media, provincias), chips con cuántos hay por tramo de edad,
- *   provincia y país que a la vez FILTRAN la lista, el resumen de cada cliente en su fila y el
- *   buscador también encuentra por nombre, usuario, provincia o país. Si la tabla aún no existe
+ * - PERFILES (seguimiento del «Perfil público» que cada cliente rellena en Mi cuenta, obligatorio
+ *   al iniciar sesión: foto opcional, nombre, usuario, país, provincia y edad): se leen de
+ *   perfiles_cliente (el administrador las ve todas, por su política; migración
+ *   20261030150000_perfiles_cliente_completo.sql). Salen contadores (con perfil, completos,
+ *   clientes con datos pendientes, con foto, edad media, provincias), chips por estado (completo,
+ *   faltan datos, con foto), tramo de edad, provincia y país que a la vez FILTRAN la lista, y
+ *   cuántos vieron, completaron o abandonaron «Completa tu perfil» en los últimos 30 días
+ *   (analítica propia: perfil_obligatorio_visto / perfil_guardado / perfil_obligatorio_salir,
+ *   solo de quien no rechazó la analítica). Cada fila lleva la foto, el resumen y qué le falta;
+ *   el buscador también encuentra por nombre, usuario, provincia o país. Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
- *   (no se enseña la fecha). Lee hasta 1.000 perfiles (límite por defecto de Supabase).
+ *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
  *
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
  *   (app/admin/cliente/[userId].tsx), que junta compras, ventas a la tienda,
@@ -69,6 +73,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
+import SmartImage from "../../components/SmartImage";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -104,7 +109,7 @@ type UserRow = {
   store_reviews_count: number;
 };
 
-// Datos que cada cliente escribe en «Mi cuenta» → Tu perfil (tabla perfiles_cliente).
+// Datos que cada cliente escribe en «Mi cuenta» → Perfil público (tabla perfiles_cliente).
 type PerfilRow = {
   user_id: string;
   nombre: string;
@@ -112,7 +117,15 @@ type PerfilRow = {
   pais: string;
   provincia: string;
   fecha_nacimiento: string;
+  foto_url: string;
+  updated_at: string;
 };
+
+// Filtro por estado del perfil.
+type EstadoPerfil = "completo" | "pendiente" | "foto";
+
+// Lo que mide la analítica propia de «Completa tu perfil» (components/PerfilPublico.tsx).
+const EVENTOS_PERFIL = ["perfil_obligatorio_visto", "perfil_guardado", "perfil_obligatorio_salir"] as const;
 
 type SortMode = "recent" | "participation";
 
@@ -136,9 +149,21 @@ function edadDe(fecha: string): number | null {
   return edad >= 0 && edad < 150 ? edad : null;
 }
 
-// Un perfil está completo con los cinco datos.
+// Un perfil está completo con los cinco datos obligatorios (la foto es opcional).
 function perfilCompleto(p: PerfilRow | undefined): boolean {
   return !!p && !!p.nombre && !!p.usuario && !!p.pais && !!p.provincia && edadDe(p.fecha_nacimiento) !== null;
+}
+
+// Qué le falta (para la fila de cada cliente): «Faltan: provincia, edad».
+function faltaDelPerfil(p: PerfilRow | undefined): string[] {
+  if (!p) return ["todo"];
+  return [
+    !p.usuario ? "usuario" : "",
+    !p.nombre ? "nombre" : "",
+    !p.pais ? "país" : "",
+    !p.provincia ? "provincia" : "",
+    edadDe(p.fecha_nacimiento) === null ? "edad" : "",
+  ].filter(Boolean);
 }
 
 // «Dani · @dani · Zaragoza (España) · 22 años», o «Perfil sin completar».
@@ -295,20 +320,52 @@ export default function AdminUsers() {
   const [filtroProvincia, setFiltroProvincia] = useState<string | null>(null);
   const [filtroPais, setFiltroPais] = useState<string | null>(null);
   const [filtroTramo, setFiltroTramo] = useState<string | null>(null);
+  const [filtroEstado, setFiltroEstado] = useState<EstadoPerfil | null>(null);
+  // «Completa tu perfil» en los últimos 30 días: personas distintas que la vieron, la completaron o cerraron sesión.
+  const [embudoPerfil, setEmbudoPerfil] = useState<{ vistos: number; completados: number; salieron: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setScreenErr(null);
 
     try {
-      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesRes] = await Promise.all([
+      const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes] = await Promise.all([
         supabase.rpc("admin_list_users_with_stats"),
         supabase.from("sell_requests").select("id", { count: "exact", head: true }),
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
         supabase.from("store_reviews").select("rating"),
         // El administrador puede leer todos (política de la tabla). Si la tabla no existe todavía, no es un error de la pantalla.
-        supabase.from("perfiles_cliente").select("user_id,nombre,usuario,pais,provincia,fecha_nacimiento").limit(5000),
+        supabase.from("perfiles_cliente").select("user_id,nombre,usuario,pais,provincia,fecha_nacimiento,foto_url,updated_at").limit(5000),
+        supabase
+          .from("analytics_events")
+          .select("event_name,user_id,session_id")
+          .in("event_name", [...EVENTOS_PERFIL])
+          .gte("created_at", desde)
+          .limit(5000),
       ]);
+      // Tabla creada con la migración antigua (sin foto): se pide sin esas columnas.
+      const perfilesRes =
+        perfilesConFoto.error && /foto_url|updated_at/.test(String(perfilesConFoto.error.message ?? ""))
+          ? await supabase.from("perfiles_cliente").select("user_id,nombre,usuario,pais,provincia,fecha_nacimiento").limit(5000)
+          : perfilesConFoto;
+
+      if (eventosRes.error) {
+        setEmbudoPerfil(null);
+      } else {
+        const personas = (nombre: string) =>
+          new Set(
+            ((eventosRes.data ?? []) as { event_name: string; user_id: string | null; session_id: string | null }[])
+              .filter((e) => e.event_name === nombre)
+              .map((e) => e.user_id || e.session_id || "")
+              .filter(Boolean)
+          ).size;
+        setEmbudoPerfil({
+          vistos: personas("perfil_obligatorio_visto"),
+          completados: personas("perfil_guardado"),
+          salieron: personas("perfil_obligatorio_salir"),
+        });
+      }
 
       if (perfilesRes.error) {
         setPerfilesOk(false);
@@ -326,6 +383,8 @@ export default function AdminUsers() {
             pais: t(r.pais),
             provincia: t(r.provincia),
             fecha_nacimiento: t(r.fecha_nacimiento),
+            foto_url: t(r.foto_url),
+            updated_at: t(r.updated_at),
           };
         }
         setPerfiles(mapa);
@@ -395,10 +454,13 @@ export default function AdminUsers() {
     }));
     const edades = delosUsuarios.map((p) => edadDe(p.fecha_nacimiento)).filter((e): e is number => e !== null);
     const media = edades.length ? edades.reduce((a, b) => a + b, 0) / edades.length : null;
-    return { conAlgo, completos, porProvincia, porPais, porTramo, media };
+    // Clientes (no administradores) a los que aún les sale «Completa tu perfil».
+    const pendientes = users.filter((u) => (u.role ?? "").toLowerCase() !== "admin" && !perfilCompleto(perfiles[u.user_id])).length;
+    const conFoto = delosUsuarios.filter((p) => !!p.foto_url).length;
+    return { conAlgo, completos, pendientes, conFoto, porProvincia, porPais, porTramo, media };
   }, [users, perfiles]);
 
-  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo;
+  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado;
 
   const visibleUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -407,6 +469,9 @@ export default function AdminUsers() {
       const p = perfiles[u.user_id];
       if (filtroProvincia && p?.provincia !== filtroProvincia) return false;
       if (filtroPais && p?.pais !== filtroPais) return false;
+      if (filtroEstado === "completo" && !perfilCompleto(p)) return false;
+      if (filtroEstado === "pendiente" && ((u.role ?? "").toLowerCase() === "admin" || perfilCompleto(p))) return false;
+      if (filtroEstado === "foto" && !p?.foto_url) return false;
       if (tramo) {
         const e = p ? edadDe(p.fecha_nacimiento) : null;
         if (e === null || e < tramo.min || e > tramo.max) return false;
@@ -422,7 +487,7 @@ export default function AdminUsers() {
     });
 
     return sorted;
-  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo]);
+  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo, filtroEstado]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -507,6 +572,8 @@ export default function AdminUsers() {
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
                   <StatCard label="Con perfil" value={`${resumenPerfiles.conAlgo} de ${stats.total}`} icon="id-card-outline" isMobile={isMobile} />
                   <StatCard label="Perfil completo" value={String(resumenPerfiles.completos)} icon="checkmark-done-outline" isMobile={isMobile} />
+                  <StatCard label="Faltan datos" value={String(resumenPerfiles.pendientes)} icon="alert-circle-outline" isMobile={isMobile} />
+                  <StatCard label="Con foto" value={String(resumenPerfiles.conFoto)} icon="camera-outline" isMobile={isMobile} />
                   <StatCard
                     label="Edad media"
                     value={resumenPerfiles.media != null ? `${Math.round(resumenPerfiles.media)} años` : "—"}
@@ -514,6 +581,33 @@ export default function AdminUsers() {
                     isMobile={isMobile}
                   />
                   <StatCard label="Provincias" value={String(resumenPerfiles.porProvincia.length)} icon="location-outline" isMobile={isMobile} />
+                </View>
+
+                {/* «Completa tu perfil» (obligatorio al iniciar sesión): analítica propia de los últimos 30 días. */}
+                {embudoPerfil ? (
+                  <Text nativeID="admin-perfiles-embudo" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    «Completa tu perfil» (30 días): la vieron {embudoPerfil.vistos} · la completaron {embudoPerfil.completados} · cerraron sesión{" "}
+                    {embudoPerfil.salieron}
+                  </Text>
+                ) : null}
+
+                <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>ESTADO</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                  {(
+                    [
+                      ["completo", `Completo (${resumenPerfiles.completos})`],
+                      ["pendiente", `Faltan datos (${resumenPerfiles.pendientes})`],
+                      ["foto", `Con foto (${resumenPerfiles.conFoto})`],
+                    ] as [EstadoPerfil, string][]
+                  ).map(([id, label]) => (
+                    <ChipButton
+                      key={id}
+                      label={label}
+                      active={filtroEstado === id}
+                      onPress={() => setFiltroEstado((v) => (v === id ? null : id))}
+                      isMobile={isMobile}
+                    />
+                  ))}
                 </View>
 
                 {resumenPerfiles.conAlgo === 0 ? (
@@ -569,21 +663,23 @@ export default function AdminUsers() {
                       </>
                     ) : null}
 
-                    {hayFiltros ? (
-                      <View style={{ alignItems: "center" }}>
-                        <ChipButton
-                          label="Quitar filtros"
-                          onPress={() => {
-                            setFiltroProvincia(null);
-                            setFiltroPais(null);
-                            setFiltroTramo(null);
-                          }}
-                          isMobile={isMobile}
-                        />
-                      </View>
-                    ) : null}
                   </>
                 )}
+
+                {hayFiltros ? (
+                  <View style={{ alignItems: "center" }}>
+                    <ChipButton
+                      label="Quitar filtros"
+                      onPress={() => {
+                        setFiltroProvincia(null);
+                        setFiltroPais(null);
+                        setFiltroTramo(null);
+                        setFiltroEstado(null);
+                      }}
+                      isMobile={isMobile}
+                    />
+                  </View>
+                ) : null}
               </View>
             ) : null}
 
@@ -676,13 +772,23 @@ export default function AdminUsers() {
                           style={{
                             width: 34,
                             height: 34,
-                            borderRadius: 12,
+                            borderRadius: 17,
+                            overflow: "hidden",
                             backgroundColor: COLORS.accent2,
                             alignItems: "center",
                             justifyContent: "center",
                           }}
                         >
-                          <Ionicons name="person-outline" size={16} color={COLORS.accentDark} />
+                          {perfiles[u.user_id]?.foto_url ? (
+                            <SmartImage
+                              uri={perfiles[u.user_id].foto_url}
+                              alt={`Foto de ${perfiles[u.user_id].nombre || u.email || "cliente"}`}
+                              contentFit="cover"
+                              style={{ width: "100%", height: "100%" }}
+                            />
+                          ) : (
+                            <Ionicons name="person-outline" size={16} color={COLORS.accentDark} />
+                          )}
                         </View>
                         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }} numberOfLines={1}>
                           {u.email ?? "Sin email"}
@@ -710,9 +816,23 @@ export default function AdminUsers() {
                     </Text>
 
                     {perfilesOk ? (
-                      <Text style={{ color: perfiles[u.user_id] ? COLORS.text : COLORS.muted2, fontSize: 13, fontWeight: "800", lineHeight: 18 }}>
-                        {resumenDePerfil(perfiles[u.user_id])}
-                      </Text>
+                      <>
+                        <Text style={{ color: perfiles[u.user_id] ? COLORS.text : COLORS.muted2, fontSize: 13, fontWeight: "800", lineHeight: 18 }}>
+                          {resumenDePerfil(perfiles[u.user_id])}
+                        </Text>
+                        {/* Estado del perfil obligatorio, como texto de color (sin recuadro). */}
+                        {!isAdmin ? (
+                          perfilCompleto(perfiles[u.user_id]) ? (
+                            <Text style={{ color: COLORS.success, fontSize: 12, fontWeight: "800" }}>
+                              Perfil completo{perfiles[u.user_id]?.updated_at ? ` · actualizado ${fmtDate(perfiles[u.user_id].updated_at)}` : ""}
+                            </Text>
+                          ) : (
+                            <Text style={{ color: COLORS.danger, fontSize: 12, fontWeight: "800" }}>
+                              {perfiles[u.user_id] ? `Faltan: ${faltaDelPerfil(perfiles[u.user_id]).join(", ")}` : "Aún no ha completado su perfil"}
+                            </Text>
+                          )
+                        ) : null}
+                      </>
                     ) : null}
 
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
