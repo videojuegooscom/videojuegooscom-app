@@ -15,8 +15,9 @@
  *   6. version = 1 y evento «publicar», «vendido» o «retirar» → 400.
  *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// (texto guardado como texto
  *      plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
- *      ≤ 30 de { etiqueta ≤ 40, valor ≤ 80 }) nunca rechaza el mensaje: lo que no cumple se descarta
- *      y cada «publicar» sustituye la lista entera. Los campos desconocidos se ignoran.
+ *      ≤ 30 de { etiqueta ≤ 40, valor ≤ 80 }) y «mantenimiento» ({ titulo ≤ 60, nota ≤ 300, ≤ 30 puntos
+ *      de { etiqueta ≤ 60, valor ≤ 20 } } o null) nunca rechazan el mensaje: lo que no cumple se descarta
+ *      y cada «publicar» los sustituye enteros (null quita el mantenimiento). Los campos desconocidos se ignoran.
  *   8. Guarda por id_veoaura: crea o actualiza, nunca duplica (índice único).
  *   9. Responde 200 {ok:true, id_tienda} solo después de guardar; si falla, {ok:false, error}.
  *  10. Nunca redirige (la dirección buena es sin www: https://videojuegoszaragoza.com/...).
@@ -54,6 +55,7 @@ type Evento = "publicar" | "vendido" | "retirar";
 const EVENTOS: Evento[] = ["publicar", "vendido", "retirar"];
 
 type Caracteristica = { etiqueta: string; valor: string };
+type Mantenimiento = { titulo: string | null; nota: string | null; puntos: Caracteristica[] };
 
 type Producto = {
   titulo: string;
@@ -64,6 +66,7 @@ type Producto = {
   precio: number;
   fotos: string[];
   caracteristicas: Caracteristica[];
+  mantenimiento: Mantenimiento | null;
 };
 
 class Rechazo extends Error {
@@ -187,17 +190,35 @@ function textoFicha(v: unknown, max: number): string | null {
   if (!limpio || Array.from(limpio).length > max) return null;
   return limpio;
 }
-function caracteristicasValidas(v: unknown): Caracteristica[] {
+function paresValidos(v: unknown, maxEtiqueta: number, maxValor: number): Caracteristica[] {
   if (!Array.isArray(v)) return [];
   const lista: Caracteristica[] = [];
   for (const el of v) {
     if (lista.length >= MAX_CARACTERISTICAS) break;
     if (!el || typeof el !== "object" || Array.isArray(el)) continue;
-    const etiqueta = textoFicha((el as Record<string, unknown>).etiqueta, 40);
-    const valor = textoFicha((el as Record<string, unknown>).valor, 80);
+    const etiqueta = textoFicha((el as Record<string, unknown>).etiqueta, maxEtiqueta);
+    const valor = textoFicha((el as Record<string, unknown>).valor, maxValor);
     if (etiqueta && valor) lista.push({ etiqueta, valor });
   }
   return lista;
+}
+function caracteristicasValidas(v: unknown): Caracteristica[] {
+  return paresValidos(v, 40, 80);
+}
+
+// «mantenimiento» («Mantenimiento básico realizado»): { titulo ≤ 60, nota ≤ 300, puntos ≤ 30 de { etiqueta ≤ 60,
+// valor ≤ 20 } }. Los puntos NO son fijos: se guardan tal cual llegan. null, ausente o algo que no es un objeto =
+// sin mantenimiento. Nunca rechaza el mensaje: un título o una nota que no cumplen se quedan en null y los
+// puntos mal formados se descartan; los campos desconocidos se ignoran. Si no queda nada que enseñar, null.
+function mantenimientoValido(v: unknown): Mantenimiento | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const m = v as Record<string, unknown>;
+  const bloque: Mantenimiento = {
+    titulo: textoFicha(m.titulo, 60),
+    nota: textoFicha(m.nota, 300),
+    puntos: paresValidos(m.puntos, 60, 20),
+  };
+  return bloque.titulo || bloque.nota || bloque.puntos.length ? bloque : null;
 }
 
 function urlFotoSegura(u: string): boolean {
@@ -243,6 +264,7 @@ function validarProducto(p: any): Producto {
     precio: Math.round(precio * 100) / 100,
     fotos,
     caracteristicas: caracteristicasValidas(p.caracteristicas),
+    mantenimiento: mantenimientoValido(p.mantenimiento),
   };
 }
 
@@ -319,20 +341,24 @@ async function descargarFoto(url: string): Promise<FotoDescargada | null> {
 
 // --- eventos ---------------------------------------------------------------------------
 
-// La columna products.caracteristicas llega con supabase/migrations/20261029110000_productos_caracteristicas.sql.
-// Si aún no está aplicada, PostgREST responde que no la encuentra: entonces se guarda el resto igualmente, para
-// que el puente nunca se caiga por el orden en que se publiquen el código y la migración.
-function faltaColumnaCaracteristicas(error: { code?: string; message?: string } | null | undefined): boolean {
-  if (!error) return false;
+// Columnas que llegan con su propia migración (products.caracteristicas: 20261029110000_productos_caracteristicas.sql;
+// products.mantenimiento: 20261030100000_productos_mantenimiento.sql). Si alguna aún no está aplicada, PostgREST
+// responde que no la encuentra: entonces se guarda el resto igualmente, para que el puente nunca se caiga por el
+// orden en que se publiquen el código y la migración. Devuelve la columna que falta (o null).
+const COLUMNAS_OPCIONALES = ["caracteristicas", "mantenimiento"] as const;
+function columnaQueFalta(error: { code?: string; message?: string } | null | undefined): string | null {
+  if (!error) return null;
   const m = String(error.message ?? "");
-  return /caracteristicas/i.test(m) && (error.code === "PGRST204" || error.code === "42703" || /could not find|does not exist/i.test(m));
+  if (!(error.code === "PGRST204" || error.code === "42703" || /could not find|does not exist/i.test(m))) return null;
+  return COLUMNAS_OPCIONALES.find((c) => m.includes(c)) ?? null;
 }
 
 async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto, sello: string): Promise<string> {
   // Solo los datos del producto (rápido). Las fotos se copian después de responder.
   // Si estaba vendido o retirado, vuelve a estar a la venta y visible.
-  // La ficha técnica se SUSTITUYE entera en cada «publicar» (nunca se mezcla con la anterior): si en VeoAura
-  // se quita o renombra un recuadro, desaparece o cambia aquí. Sin el campo, la lista queda vacía.
+  // La ficha técnica y el mantenimiento se SUSTITUYEN enteros en cada «publicar» (nunca se mezclan con lo
+  // anterior): si en VeoAura se quita o renombra un recuadro, desaparece o cambia aquí. Sin el campo, la lista
+  // queda vacía y el mantenimiento en null (se quita).
   const ahora = new Date().toISOString();
   let campos: Record<string, unknown> = {
     title: p.titulo,
@@ -345,18 +371,24 @@ async function publicar(supabase: SupabaseClient, idVeoaura: string, p: Producto
     vendido_en: null,
     retirado_en: null,
     caracteristicas: p.caracteristicas,
+    mantenimiento: p.mantenimiento,
     ...(p.fotos.length ? { veoaura_envio: sello } : {}),
     updated_at: ahora,
   };
-  // Escribe con la ficha y, si la columna aún no existe, repite sin ella (y ya sin ella en adelante).
+  // Escribe con la ficha y el mantenimiento y, si alguna de esas columnas aún no existe, repite sin ella (y ya
+  // sin ella en adelante). Como mucho una vez por columna opcional.
   async function escribir<T extends { error: { code?: string; message?: string } | null }>(
     hacer: (c: Record<string, unknown>) => PromiseLike<T>
   ): Promise<T> {
-    const r = await hacer(campos);
-    if (!faltaColumnaCaracteristicas(r.error)) return r;
-    const { caracteristicas: _sinColumna, ...resto } = campos;
-    campos = resto;
-    return hacer(campos);
+    let r = await hacer(campos);
+    for (let i = 0; i < COLUMNAS_OPCIONALES.length; i++) {
+      const falta = columnaQueFalta(r.error);
+      if (!falta || !(falta in campos)) return r;
+      const { [falta]: _sinColumna, ...resto } = campos;
+      campos = resto;
+      r = await hacer(campos);
+    }
+    return r;
   }
 
   const { data: existente, error: errBuscar } = await supabase

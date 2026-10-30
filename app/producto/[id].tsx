@@ -165,11 +165,14 @@ type ProductMedia = {
 
 // Ficha técnica («características») que envía VeoAura: etiqueta y valor, en el orden en que llegan.
 type Caracteristica = { etiqueta: string; valor: string };
+// «Mantenimiento básico realizado» que envía VeoAura: título, nota y puntos (etiqueta y valor), tal cual llegan.
+type Mantenimiento = { titulo: string; nota: string | null; puntos: Caracteristica[] };
 
 type ProductDbRow = {
   id: string;
   title: string;
   caracteristicas: Caracteristica[];
+  mantenimiento: Mantenimiento | null;
   description: string | null;
   price_eur: number | null;
   status: DbStatus;
@@ -188,6 +191,7 @@ type Product = {
   id: string;
   title: string;
   caracteristicas: Caracteristica[];
+  mantenimiento: Mantenimiento | null;
   description: string | null;
   priceEUR: number;
   status: UiStatus;
@@ -354,7 +358,7 @@ function asCategory(value: unknown): Category | null {
 
 // La ficha técnica tal cual la guardó api/escaparate-veoaura.ts (que ya la valida). Aquí se vuelve a
 // comprobar por si acaso: solo pares de texto, como mucho 30. Se muestra con <Text>, nunca como HTML.
-function asCaracteristicas(value: unknown): Caracteristica[] {
+function asCaracteristicas(value: unknown, maxEtiqueta = 40, maxValor = 80): Caracteristica[] {
   if (!Array.isArray(value)) return [];
   const lista: Caracteristica[] = [];
   for (const el of value) {
@@ -363,11 +367,22 @@ function asCaracteristicas(value: unknown): Caracteristica[] {
     const etiqueta = (el as Record<string, unknown>).etiqueta;
     const valor = (el as Record<string, unknown>).valor;
     if (typeof etiqueta !== "string" || typeof valor !== "string") continue;
-    const e = etiqueta.trim().slice(0, 40);
-    const v = valor.trim().slice(0, 80);
+    const e = etiqueta.trim().slice(0, maxEtiqueta);
+    const v = valor.trim().slice(0, maxValor);
     if (e && v) lista.push({ etiqueta: e, valor: v });
   }
   return lista;
+}
+
+// El mantenimiento tal cual lo guardó el receptor (que ya lo valida); aquí se vuelve a comprobar. Sin título se
+// usa el de siempre. Sin nota ni puntos, no hay nada que enseñar (null).
+function asMantenimiento(value: unknown): Mantenimiento | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const m = value as Record<string, unknown>;
+  const titulo = typeof m.titulo === "string" && m.titulo.trim() ? m.titulo.trim().slice(0, 60) : "Mantenimiento básico realizado";
+  const nota = typeof m.nota === "string" && m.nota.trim() ? m.nota.trim().slice(0, 300) : null;
+  const puntos = asCaracteristicas(m.puntos, 60, 20);
+  return nota || puntos.length ? { titulo, nota, puntos } : null;
 }
 
 function asProductDbRow(value: unknown): ProductDbRow | null {
@@ -385,6 +400,7 @@ function asProductDbRow(value: unknown): ProductDbRow | null {
     id,
     title,
     caracteristicas: asCaracteristicas(row.caracteristicas),
+    mantenimiento: asMantenimiento(row.mantenimiento),
     description: typeof row.description === "string" ? row.description : null,
     price_eur: typeof row.price_eur === "number" ? row.price_eur : Number(row.price_eur ?? 0),
     status: statusRaw as DbStatus,
@@ -534,20 +550,23 @@ async function loadProductMediaRows(productId: string): Promise<ProductMediaRow[
 // reintentos en cadena por si faltaba alguna columna).
 const PRODUCT_SELECT_BASE =
   "id,title,description,price_eur,status,is_active,category_id,images,updated_at,created_at,condition,like_count,reference,category:categories(id,name,slug)";
-// Con la ficha técnica (supabase/migrations/20261029110000_productos_caracteristicas.sql). Si esa
-// columna aún no existe, se pide sin ella: la ficha del producto nunca se rompe por eso.
-const PRODUCT_SELECT = `${PRODUCT_SELECT_BASE},caracteristicas`;
-let hayColumnaCaracteristicas = true;
+// Columnas que llegan con su propia migración: la ficha técnica (20261029110000_productos_caracteristicas.sql) y el
+// mantenimiento (20261030100000_productos_mantenimiento.sql). Si alguna aún no existe, se pide sin ella (y ya sin
+// ella en adelante): la ficha del producto nunca se rompe por eso.
+const COLUMNAS_OPCIONALES = ["caracteristicas", "mantenimiento"];
+const columnasQueFaltan = new Set<string>();
 
-function faltaColumnaCaracteristicas(error: unknown): boolean {
+function columnaQueFalta(error: unknown): string | null {
   const msg = String((error as { message?: unknown })?.message ?? "");
-  return /caracteristicas/i.test(msg) && /does not exist|could not find/i.test(msg);
+  if (!/does not exist|could not find/i.test(msg)) return null;
+  return COLUMNAS_OPCIONALES.find((c) => msg.includes(c)) ?? null;
 }
 
 // publicOnly=true añade el filtro de "solo publicados y activos" (lo que ve
 // un cliente); el admin puede abrir también borradores y productos ocultos.
 async function fetchProductRow(productId: string, publicOnly: boolean): Promise<ProductDbRow | null> {
-  const consultar = (columnas: string) => {
+  const consultar = () => {
+    const columnas = [PRODUCT_SELECT_BASE, ...COLUMNAS_OPCIONALES.filter((c) => !columnasQueFaltan.has(c))].join(",");
     let query = supabase.from("products").select(columnas).eq("id", productId);
     if (publicOnly) {
       query = query.eq("is_active", true).eq("status", "PUBLISHED");
@@ -555,10 +574,12 @@ async function fetchProductRow(productId: string, publicOnly: boolean): Promise<
     return query.maybeSingle();
   };
 
-  let res = await consultar(hayColumnaCaracteristicas ? PRODUCT_SELECT : PRODUCT_SELECT_BASE);
-  if (res.error && hayColumnaCaracteristicas && faltaColumnaCaracteristicas(res.error)) {
-    hayColumnaCaracteristicas = false;
-    res = await consultar(PRODUCT_SELECT_BASE);
+  let res = await consultar();
+  for (let i = 0; i < COLUMNAS_OPCIONALES.length && res.error; i++) {
+    const falta = columnaQueFalta(res.error);
+    if (!falta || columnasQueFaltan.has(falta)) break;
+    columnasQueFaltan.add(falta);
+    res = await consultar();
   }
   if (res.error) throw res.error;
   return asProductDbRow(res.data);
@@ -685,6 +706,7 @@ export default function ProductoScreen() {
         id: productRow.id,
         title: productRow.title,
         caracteristicas: productRow.caracteristicas,
+        mantenimiento: productRow.mantenimiento,
         description: productRow.description ?? null,
         priceEUR: Number(productRow.price_eur ?? 0),
         status: mapDbStatusToUi(productRow.status),
@@ -1520,45 +1542,9 @@ export default function ProductoScreen() {
                   </Pressable>
                 </View>
 
-                {/* Ficha técnica de VeoAura, tal cual llega y en su orden. Sin lista, no sale. */}
-                {p.caracteristicas.length > 0 && (
-                  <View
-                    nativeID="producto-caracteristicas"
-                    style={{ width: "100%", gap: 8, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}
-                  >
-                    <Text
-                      accessibilityRole="header"
-                      {...({ "aria-level": 2 } as object)}
-                      style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}
-                    >
-                      Características
-                    </Text>
-                    <View style={{ width: "100%", maxWidth: 520 }}>
-                      {p.caracteristicas.map((c, i) => (
-                        <View
-                          key={`${i}-${c.etiqueta}`}
-                          accessible
-                          accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "flex-start",
-                            gap: 12,
-                            paddingVertical: 9,
-                            borderBottomWidth: i === p.caracteristicas.length - 1 ? 0 : 1,
-                            borderBottomColor: COLORS.borderSoft,
-                          }}
-                        >
-                          <Text style={{ flex: 1, color: COLORS.muted, fontWeight: "700", fontSize: 14, lineHeight: 20 }}>
-                            {c.etiqueta}
-                          </Text>
-                          <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "right" }}>
-                            {c.valor}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                )}
+                {/* Ficha técnica y mantenimiento de VeoAura: con los dos, un carrusel que se desliza; con uno, solo él. */}
+                <FichaYMantenimiento caracteristicas={p.caracteristicas} mantenimiento={p.mantenimiento} />
+
 
                 {/* Sin recuadros: secciones separadas solo por una línea fina. */}
                 <View style={{ width: "100%", gap: 8, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft }}>
@@ -1619,6 +1605,194 @@ export default function ProductoScreen() {
         initialIndex={lightboxIndex}
         onClose={() => setLightboxOpen(false)}
       />
+    </View>
+  );
+}
+
+// --- «Características» y «Mantenimiento básico realizado» --------------------------------------------------------
+// Con las dos, son dos pantallas en un carrusel horizontal: se pasa de una a otra deslizando el dedo (en la web, el
+// desplazamiento con «encaje» por páginas), o con las pestañas de arriba (ratón y teclado); los puntos de debajo dicen
+// en cuál se está. Con una sola, se ve solo esa, sin carrusel. Todo el texto con <Text> (nunca HTML).
+
+const VERDE_OK = "#16A34A";
+
+function ListaPares({ pares }: { pares: Caracteristica[] }) {
+  return (
+    <View style={{ width: "100%" }}>
+      {pares.map((c, i) => (
+        <View
+          key={`${i}-${c.etiqueta}`}
+          accessible
+          accessibilityLabel={`${c.etiqueta}: ${c.valor}`}
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-start",
+            gap: 12,
+            paddingVertical: 9,
+            borderBottomWidth: i === pares.length - 1 ? 0 : 1,
+            borderBottomColor: COLORS.borderSoft,
+          }}
+        >
+          <Text style={{ flex: 1, color: COLORS.muted, fontWeight: "700", fontSize: 14, lineHeight: 20 }}>{c.etiqueta}</Text>
+          <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "right" }}>{c.valor}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ✓ verde para «Sí»/«Completo»; indicador neutro para «Parcial» y «No»; el resto, solo el texto.
+function iconoPunto(valor: string): { nombre: React.ComponentProps<typeof Ionicons>["name"]; color: string } | null {
+  const v = valor.trim().toLowerCase();
+  if (v === "sí" || v === "si" || v === "completo" || v === "completa") return { nombre: "checkmark-circle", color: VERDE_OK };
+  if (v === "parcial") return { nombre: "contrast-outline", color: COLORS.muted };
+  if (v === "no") return { nombre: "remove-circle-outline", color: COLORS.muted };
+  return null;
+}
+
+function BloqueMantenimiento({ m }: { m: Mantenimiento }) {
+  return (
+    <View style={{ width: "100%", gap: 10 }}>
+      {!!m.nota && (
+        <Text style={{ color: COLORS.muted, fontSize: 13.5, lineHeight: 20, textAlign: "center" }}>{m.nota}</Text>
+      )}
+      <View style={{ width: "100%" }}>
+        {m.puntos.map((pt, i) => {
+          const icono = iconoPunto(pt.valor);
+          return (
+            <View
+              key={`${i}-${pt.etiqueta}`}
+              accessible
+              accessibilityLabel={`${pt.etiqueta}: ${pt.valor}`}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                paddingVertical: 9,
+                borderBottomWidth: i === m.puntos.length - 1 ? 0 : 1,
+                borderBottomColor: COLORS.borderSoft,
+              }}
+            >
+              <Text style={{ flex: 1, color: COLORS.muted, fontWeight: "700", fontSize: 14, lineHeight: 20 }}>{pt.etiqueta}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                {icono && <Ionicons name={icono.nombre} size={18} color={icono.color} />}
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 20 }}>{pt.valor}</Text>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function FichaYMantenimiento({ caracteristicas, mantenimiento }: { caracteristicas: Caracteristica[]; mantenimiento: Mantenimiento | null }) {
+  const pantallas: ("caracteristicas" | "mantenimiento")[] = [];
+  if (caracteristicas.length) pantallas.push("caracteristicas");
+  if (mantenimiento) pantallas.push("mantenimiento");
+
+  const [ancho, setAncho] = useState(0);
+  const [activa, setActiva] = useState(0);
+  const [altos, setAltos] = useState<number[]>([]);
+  const carruselRef = useRef<ScrollView>(null);
+
+  if (!pantallas.length) return null;
+
+  const titulo = (cual: "caracteristicas" | "mantenimiento") => (cual === "caracteristicas" ? "Características" : mantenimiento?.titulo ?? "");
+  const contenido = (cual: "caracteristicas" | "mantenimiento") =>
+    cual === "caracteristicas" ? <ListaPares pares={caracteristicas} /> : mantenimiento ? <BloqueMantenimiento m={mantenimiento} /> : null;
+  const idDe = (cual: "caracteristicas" | "mantenimiento") => (cual === "caracteristicas" ? "producto-caracteristicas" : "producto-mantenimiento");
+  const seccion = { width: "100%", gap: 10, alignItems: "center", paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.borderSoft } as const;
+
+  // Una sola pantalla: sin carrusel.
+  if (pantallas.length === 1) {
+    const cual = pantallas[0];
+    return (
+      <View nativeID={idDe(cual)} style={seccion}>
+        <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+          {titulo(cual)}
+        </Text>
+        <View style={{ width: "100%", maxWidth: 520 }}>{contenido(cual)}</View>
+      </View>
+    );
+  }
+
+  const ir = (i: number) => {
+    setActiva(i);
+    carruselRef.current?.scrollTo({ x: i * ancho, animated: true });
+  };
+
+  return (
+    <View nativeID="producto-ficha-carrusel" style={seccion}>
+      {/* Pestañas (ordenador, teclado y lectores de pantalla); en el móvil, además, se desliza con el dedo. */}
+      <View accessibilityRole="tablist" style={{ flexDirection: "row", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+        {pantallas.map((cual, i) => {
+          const sel = i === activa;
+          return (
+            <Pressable
+              key={cual}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: sel }}
+              {...({ "aria-selected": sel } as object)}
+              onPress={() => ir(i)}
+              style={({ pressed }) => ({
+                minHeight: 44,
+                paddingHorizontal: 10,
+                justifyContent: "center",
+                borderBottomWidth: 2,
+                borderBottomColor: sel ? COLORS.accent : "transparent",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Text style={{ color: sel ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: 15, textAlign: "center" }}>{titulo(cual)}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={{ width: "100%", maxWidth: 520 }} onLayout={(e) => setAncho(e.nativeEvent.layout.width)}>
+        {ancho > 0 && (
+          <ScrollView
+            ref={carruselRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={32}
+            onScroll={(e) => {
+              const i = Math.round(e.nativeEvent.contentOffset.x / ancho);
+              if (i !== activa && i >= 0 && i < pantallas.length) setActiva(i);
+            }}
+            // Cada pantalla con su alto natural; el carrusel toma el alto de la que se ve.
+            contentContainerStyle={{ alignItems: "flex-start" }}
+            style={altos[activa] ? { height: altos[activa] } : undefined}
+          >
+            {pantallas.map((cual, i) => (
+              <View
+                key={cual}
+                nativeID={idDe(cual)}
+                {...({ role: "tabpanel" } as object)}
+                style={{ width: ancho }}
+                onLayout={(e) => {
+                  const alto = Math.ceil(e.nativeEvent.layout.height);
+                  setAltos((prev) => (prev[i] === alto ? prev : Object.assign([...prev], { [i]: alto })));
+                }}
+              >
+                {contenido(cual)}
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </View>
+
+      {/* Puntos indicadores. */}
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", gap: 7, justifyContent: "center", paddingTop: 2 }}>
+        {pantallas.map((cual, i) => (
+          <View
+            key={cual}
+            style={{ width: i === activa ? 18 : 7, height: 7, borderRadius: 4, backgroundColor: i === activa ? COLORS.accent : COLORS.border }}
+          />
+        ))}
+      </View>
     </View>
   );
 }
