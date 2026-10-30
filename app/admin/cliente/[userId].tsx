@@ -55,6 +55,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
+import SmartImage from "../../../components/SmartImage";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
@@ -215,7 +216,15 @@ export default function ClienteFicha() {
   const [sellRequests, setSellRequests] = useState<SellRequestRow[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestRow[]>([]);
   // Perfil que el cliente escribe en Mi cuenta (tabla perfiles_cliente). null = no lo ha rellenado o la tabla aún no existe.
-  const [perfil, setPerfil] = useState<{ nombre: string; usuario: string; pais: string; provincia: string; edad: number | null } | null>(null);
+  const [perfil, setPerfil] = useState<{
+    nombre: string;
+    usuario: string;
+    pais: string;
+    provincia: string;
+    edad: number | null;
+    foto: string;
+    actualizado: string;
+  } | null>(null);
 
   const [notes, setNotes] = useState("");
   const [notesLoaded, setNotesLoaded] = useState(false);
@@ -275,11 +284,22 @@ export default function ClienteFicha() {
       setNotesLoaded(true);
 
       // Perfil (consulta aparte: si la migración aún no está aplicada, la ficha funciona igual sin esta tarjeta).
-      const perfilRes = await supabase
-        .from("perfiles_cliente")
-        .select("nombre,usuario,pais,provincia,fecha_nacimiento")
-        .eq("user_id", userId)
-        .maybeSingle<{ nombre: string | null; usuario: string | null; pais: string | null; provincia: string | null; fecha_nacimiento: string | null }>();
+      type FilaPerfil = {
+        nombre: string | null;
+        usuario: string | null;
+        pais: string | null;
+        provincia: string | null;
+        fecha_nacimiento: string | null;
+        foto_url?: string | null;
+        updated_at?: string | null;
+      };
+      const pedirPerfil = (columnas: string) =>
+        supabase.from("perfiles_cliente").select(columnas).eq("user_id", userId).maybeSingle<FilaPerfil>();
+      let perfilRes = await pedirPerfil("nombre,usuario,pais,provincia,fecha_nacimiento,foto_url,updated_at");
+      // Tabla de la migración antigua (sin foto): se pide sin esas columnas.
+      if (perfilRes.error && /foto_url|updated_at/.test(String(perfilRes.error.message ?? ""))) {
+        perfilRes = await pedirPerfil("nombre,usuario,pais,provincia,fecha_nacimiento");
+      }
       const p = perfilRes.error ? null : perfilRes.data;
       if (p) {
         const hoy = new Date();
@@ -295,6 +315,8 @@ export default function ClienteFicha() {
           pais: (p.pais ?? "").trim(),
           provincia: (p.provincia ?? "").trim(),
           edad,
+          foto: (p.foto_url ?? "").trim(),
+          actualizado: (p.updated_at ?? "").trim(),
         });
       } else {
         setPerfil(null);
@@ -402,6 +424,29 @@ export default function ClienteFicha() {
               <SectionCard icon="id-card-outline" title="Perfil">
                 {perfil ? (
                   <View style={{ gap: 6 }}>
+                    {perfil.foto ? (
+                      <View style={{ alignItems: "center", paddingBottom: 4 }}>
+                        <View style={{ width: 88, height: 88, borderRadius: 44, overflow: "hidden", backgroundColor: COLORS.bg2 }}>
+                          <SmartImage uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                        </View>
+                      </View>
+                    ) : null}
+                    {(() => {
+                      // Estado del perfil obligatorio («Completa tu perfil»): la foto no cuenta.
+                      const faltan = [
+                        !perfil.usuario ? "usuario" : "",
+                        !perfil.nombre ? "nombre" : "",
+                        !perfil.pais ? "país" : "",
+                        !perfil.provincia ? "provincia" : "",
+                        perfil.edad === null ? "edad" : "",
+                      ].filter(Boolean);
+                      return (
+                        <Text style={{ color: faltan.length ? COLORS.danger : COLORS.success, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
+                          {faltan.length ? `Faltan: ${faltan.join(", ")}` : "Perfil completo"}
+                          {perfil.actualizado ? ` · actualizado ${new Date(perfil.actualizado).toLocaleDateString("es-ES", { timeZone: "Europe/Madrid" })}` : ""}
+                        </Text>
+                      );
+                    })()}
                     {[
                       ["Nombre", perfil.nombre],
                       ["Usuario", perfil.usuario ? `@${perfil.usuario}` : ""],
