@@ -50,6 +50,12 @@
  *   · En el resto de la tienda, tras 12 s: una de las "Noticias Flash" activas
  *     (tabla flash_news, se editan en app/admin/flash-news.tsx).
  *   Cada bocadillo sale una sola vez por visita y se cierra con la X.
+ *   TODOS los que Blue dice por su cuenta pasan por una cola (`decir`, petición del dueño 2026-10-30): el
+ *   primero, como pronto a los 15 s de entrar en la pantalla (antes se deja leer lo que hay) y entre uno y
+ *   el siguiente, al menos 15 s; al cambiar de pantalla la cola se vacía.
+ * - Si la persona mueve a Blue, se queda FIJO donde lo dejó (ya no se aparta solo) hasta que cierra la
+ *   sesión del navegador (sessionStorage BLUE_FIJO_KEY); siguen las reglas de siempre (nunca abajo a la
+ *   derecha; en la ficha de producto, nunca en la mitad de abajo).
  * - Al tocar a Blue se abre su panel con 2 pestañas: "Asistente" (UN solo botón «Hablar con
  *   Blue IA o el equipo» —Blue IA responde primero y desde ese chat se pasa al equipo—, la guía,
  *   "Vender", instalar) y "Noticias y avisos" (antes eran dos pestañas, «Notificaciones» y «Noticias»:
@@ -355,6 +361,13 @@ const POLL_MS = 45000;
 const PRODUCTO_ESPERA_MS = 8000;
 const SEGUNDO_MENSAJE_MS = 7000;
 const NOTICIA_ESPERA_MS = 12000;
+// Mensajes de Blue (petición del dueño, 2026-10-30): ninguno antes de 15 s en la pantalla (primero se lee lo que hay) y
+// al menos 15 s entre uno y el siguiente. Los que llegan antes esperan su turno, en orden (cola de «decir»).
+const MENSAJE_TRAS_ENTRAR_MS = 15000;
+const ENTRE_MENSAJES_MS = 15000;
+// Si la persona mueve a Blue, se queda FIJO donde lo dejó (ya no se aparta solo) hasta que cierra la sesión del navegador
+// (sessionStorage). Las reglas de siempre siguen: nunca abajo a la derecha y, en la ficha, nunca en la mitad de abajo.
+const BLUE_FIJO_KEY = "videojuegoszaragoza:blue_fijo";
 // Blue aparece 10 s después de entrar en la web; el saludo se ve unos segundos.
 const APARECER_MS = 10000;
 // Guía de bienvenida: a los 15 s, una sola vez, para quien entra sin cuenta.
@@ -722,6 +735,15 @@ export default function Campanita() {
   // En la ficha de producto, Blue solo puede estar en la mitad de arriba (FY_MAX_FICHA).
   const enFichaRef = useRef(esFichaProducto(pathname));
   enFichaRef.current = esFichaProducto(pathname);
+  // Movido por la persona en esta sesión del navegador: fijo donde lo dejó (no se aparta solo).
+  const fijoRef = useRef(false);
+  useEffect(() => {
+    try {
+      fijoRef.current = typeof sessionStorage !== "undefined" && sessionStorage.getItem(BLUE_FIJO_KEY) === "1";
+    } catch {
+      // sin sesión del navegador: se aparta como siempre
+    }
+  }, []);
   const arrastrandoRef = useRef(false);
   const posRef = useRef({ x: 0, y: 0 });
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -793,6 +815,35 @@ export default function Campanita() {
   const bocadilloRef = useRef<Bocadillo | null>(null);
   bocadilloRef.current = bocadillo;
   const propuestaAbiertaRef = useRef(false);
+
+  // Cola de los mensajes que Blue dice por su cuenta: el primero, como pronto a los 15 s de entrar en la pantalla; entre
+  // uno y otro, 15 s. Al cambiar de pantalla la cola se vacía (cada pantalla vuelve a pedir los suyos).
+  const entradaPantallaRef = useRef(Date.now());
+  const ultimoMensajeRef = useRef(0);
+  const colaMensajesRef = useRef<Bocadillo[]>([]);
+  const turnoMensajeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const atenderColaRef = useRef<() => void>(() => {});
+  atenderColaRef.current = () => {
+    if (turnoMensajeRef.current) clearTimeout(turnoMensajeRef.current);
+    turnoMensajeRef.current = null;
+    const siguiente = colaMensajesRef.current[0];
+    if (!siguiente) return;
+    const ahora = Date.now();
+    const listo = Math.max(entradaPantallaRef.current + MENSAJE_TRAS_ENTRAR_MS, ultimoMensajeRef.current + ENTRE_MENSAJES_MS);
+    if (ahora < listo) {
+      turnoMensajeRef.current = setTimeout(() => atenderColaRef.current(), listo - ahora);
+      return;
+    }
+    colaMensajesRef.current.shift();
+    ultimoMensajeRef.current = ahora;
+    setBocadillo(siguiente);
+    if (colaMensajesRef.current.length) turnoMensajeRef.current = setTimeout(() => atenderColaRef.current(), ENTRE_MENSAJES_MS);
+  };
+  const decir = useCallback((b: Bocadillo) => {
+    if (colaMensajesRef.current.some((x) => x.id === b.id)) return;
+    colaMensajesRef.current.push(b);
+    atenderColaRef.current();
+  }, []);
   // Instalar la tienda como app: cómo se ofrece en este dispositivo y los pasos de iPhone.
   const [modoInst, setModoInst] = useState<"prompt" | "ios" | null>(null);
   const [pasosIosAbiertos, setPasosIosAbiertos] = useState(false);
@@ -1481,6 +1532,21 @@ export default function Campanita() {
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
   // --- bocadillos según la pantalla --------------------------------------------
+  // Pantalla nueva: vuelven a contar los 15 s antes del primer mensaje y se olvida lo que esperaba turno.
+  useEffect(() => {
+    entradaPantallaRef.current = Date.now();
+    colaMensajesRef.current = [];
+    if (turnoMensajeRef.current) clearTimeout(turnoMensajeRef.current);
+    turnoMensajeRef.current = null;
+  }, [pathname]);
+  useEffect(
+    () => () => {
+      const turno = turnoMensajeRef;
+      if (turno.current) clearTimeout(turno.current);
+    },
+    []
+  );
+
   useEffect(() => {
     setBocadillo(null);
     if (enAdmin || guiaAbierta || pathname.startsWith("/checkout") || pathname.startsWith("/blue-ia")) return;
@@ -1506,12 +1572,12 @@ export default function Campanita() {
             yaDicho.add(`p:${id}`);
             const titulo = data.title.trim();
             const ruta = `/blue-ia?producto=${id}`;
-            setBocadillo({ id: `p1:${id}`, texto: mensajeProducto(titulo, data.description), accion: "chat", ruta });
+            decir({ id: `p1:${id}`, texto: mensajeProducto(titulo, data.description), accion: "chat", ruta });
             timers.push(
               setTimeout(() => {
                 if (!vivo) return;
-                // Habla de entregas y envíos: al tocarlo, la política de envíos.
-                setBocadillo({
+                // Habla de entregas y envíos: al tocarlo, la política de envíos (espera su turno: 15 s tras el anterior).
+                decir({
                   id: `p2:${id}`,
                   texto: "Realizamos entregas en persona en la ciudad de Zaragoza o envíos a toda España.",
                   accion: "ruta",
@@ -1532,7 +1598,7 @@ export default function Campanita() {
             // Con el aviso de cookies aún sin contestar, Blue no habla (lo taparía).
             if (!vivo || (await getAnalyticsConsent()) === null || !vivo) return;
             yaDicho.add(`n:${pendiente}`);
-            setBocadillo({ id: `n:${pendiente}`, texto: pendiente, ...destinoDeAviso(pendiente) });
+            decir({ id: `n:${pendiente}`, texto: pendiente, ...destinoDeAviso(pendiente) });
           }, NOTICIA_ESPERA_MS)
         );
       }
@@ -1542,7 +1608,7 @@ export default function Campanita() {
       vivo = false;
       timers.forEach(clearTimeout);
     };
-  }, [pathname, enAdmin, noticias, guiaAbierta]);
+  }, [pathname, enAdmin, noticias, guiaAbierta, decir]);
 
   // Animación de entrada del bocadillo.
   const bocAnim = useRef(new Animated.Value(0)).current;
@@ -1584,7 +1650,7 @@ export default function Campanita() {
       if ((await getAnalyticsConsent()) === null || !vivo) return;
       yaDicho.add(`r:${r.id}:${r.hasta}`);
       const titulo = r.title.length > 40 ? `${r.title.slice(0, 39).trimEnd()}…` : r.title;
-      setBocadillo({
+      decir({
         id: `r:${r.id}`,
         texto: `Tu reserva de «${titulo}» vence en ${minutosQueQuedan(r.hasta - Date.now())} min.`,
         accion: "ruta",
@@ -1594,7 +1660,7 @@ export default function Campanita() {
     return () => {
       vivo = false;
     };
-  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, reservasPorVencer]);
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, reservasPorVencer, decir]);
 
   // Una novedad de tu pedido o reparación: un mensaje de Blue, UNA vez por cambio y solo si Blue no está diciendo otra cosa. No
   // sale en Perfil (allí están los seguimientos), ni en el pedido; con el aviso de cookies sin contestar Blue no habla.
@@ -1607,12 +1673,12 @@ export default function Campanita() {
     (async () => {
       if ((await getAnalyticsConsent()) === null || !vivo) return;
       yaDicho.add(`s:${a.clave}`);
-      setBocadillo({ id: `s:${a.clave}`, texto: `${a.texto}.`, accion: "ruta", ruta: "/perfil?tab=seguimientos" });
+      decir({ id: `s:${a.clave}`, texto: `${a.texto}.`, accion: "ruta", ruta: "/perfil?tab=seguimientos" });
     })();
     return () => {
       vivo = false;
     };
-  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, segAvisos]);
+  }, [enPantalla, enAdmin, guiaAbierta, panelOpen, bocadillo, pathname, segAvisos, decir]);
 
   // Oferta de instalar la tienda como app: un mensaje de Blue, una vez cada 7 días como mucho,
   // cuando ya lleva un rato en pantalla, no está hablando de otra cosa y la persona ya
@@ -1634,7 +1700,7 @@ export default function Campanita() {
         await AsyncStorage.setItem(INSTALAR_KEY, String(Date.now()));
         if (!vivo) return;
         trackEvent("instalar_oferta", "Instalar app: oferta");
-        setBocadillo({
+        decir({
           id: "instalar",
           texto: "Instala la tienda en tu móvil y ábrela con un toque desde la pantalla de inicio.",
           accion: "instalar",
@@ -1648,7 +1714,7 @@ export default function Campanita() {
       vivo = false;
       clearTimeout(t);
     };
-  }, [modoInst, enPantalla, enAdmin, guiaAbierta, pathname]);
+  }, [modoInst, enPantalla, enAdmin, guiaAbierta, pathname, decir]);
 
   // Blue propone información de la tienda al dueño, dentro del panel de administración: a los
   // 25 s de entrar y después cada 10 min mira si toca (de 9 a 21 h, hueco de 45 min, hasta 8 al
@@ -1668,7 +1734,7 @@ export default function Campanita() {
         );
         if (!vivo || !siguiente || bocadilloRef.current) return;
         await guardarEstadoProp({ ...estado, n: estado.n + 1, ultima: Date.now() });
-        setBocadillo({
+        decir({
           id: `prop:${siguiente.tema}`,
           texto: `${siguiente.tema}: ¿me lo cuentas para responder mejor a tus clientes?`,
           accion: "conocimiento",
@@ -1685,7 +1751,7 @@ export default function Campanita() {
       clearTimeout(primera);
       clearInterval(cada);
     };
-  }, [enAdmin, isAdmin, enPantalla, guiaAbierta]);
+  }, [enAdmin, isAdmin, enPantalla, guiaAbierta, decir]);
 
   // Entrada (una sola vez, la primera vez que se ve): rebote de escala y saludo
   // moviéndose de lado a lado.
@@ -1828,8 +1894,11 @@ export default function Campanita() {
   const comprobarSitio = useCallback(() => {
     if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
     const actual = sitioRef.current;
-    // Si no hay un hueco mejor, al menos un sitio permitido en esta pantalla.
-    const libre = buscarSitioLibre(preferidoRef.current, actual, enFichaRef.current) ?? sitioPermitido(actual, enFichaRef.current);
+    // Movido por la persona: su sitio, sin apartarse (solo las reglas de siempre de esta pantalla). Si no, el hueco libre
+    // más cercano; y si no hay uno mejor, al menos un sitio permitido en esta pantalla.
+    const libre = fijoRef.current
+      ? sitioPermitido(preferidoRef.current, enFichaRef.current)
+      : buscarSitioLibre(preferidoRef.current, actual, enFichaRef.current) ?? sitioPermitido(actual, enFichaRef.current);
     if (libre.lado !== actual.lado || Math.abs(libre.fy - actual.fy) > 0.01) moverA(libre);
   }, [moverA]);
 
@@ -1979,6 +2048,13 @@ export default function Campanita() {
         });
         preferidoRef.current = next;
         AsyncStorage.setItem(CORNER_KEY, JSON.stringify(next)).catch(() => {});
+        // Desde ahora, en esta sesión del navegador, se queda fijo ahí (no se aparta solo).
+        fijoRef.current = true;
+        try {
+          sessionStorage.setItem(BLUE_FIJO_KEY, "1");
+        } catch {
+          // sin sesión del navegador: fijo hasta recargar
+        }
         // En la ficha de producto, si se suelta en la mitad de abajo, sube a media pantalla en ese lado.
         moverAReflejo.current(sitioPermitido(next, enFichaRef.current));
       },
