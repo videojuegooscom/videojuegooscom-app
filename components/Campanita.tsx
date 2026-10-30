@@ -379,6 +379,11 @@ type Sitio = { lado: Lado; fy: number };
 // arriba, «Volver» y el de enviar, y es donde llega el pulgar. En el lado derecho solo
 // puede estar de la mitad de la pantalla hacia arriba.
 const FY_MAX_DERECHA = 0.5;
+// En la ficha de producto Blue no baja NUNCA a la mitad de abajo, en ninguno de los dos lados (petición del dueño,
+// 2026-10-30): ahí están la galería, «Comprar ya», la ficha y «Volver atrás». Su sitio preferido no cambia: al salir
+// de la ficha vuelve a él.
+const FY_MAX_FICHA = 0.5;
+const esFichaProducto = (pathname: string) => pathname.startsWith("/producto/");
 const SITIO_INICIAL: Sitio = { lado: "l", fy: 1 };
 // Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
 const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
@@ -489,9 +494,11 @@ function limitar(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
 }
 
-// Un sitio permitido: nunca abajo a la derecha. Si cae ahí, sube en el mismo lado.
-function sitioPermitido(s: Sitio): Sitio {
-  return s.lado === "r" && s.fy > FY_MAX_DERECHA ? { lado: "r", fy: FY_MAX_DERECHA } : s;
+// Un sitio permitido: nunca abajo a la derecha y, en la ficha de producto, nunca en la mitad de abajo. Si cae ahí,
+// sube en el mismo lado.
+function sitioPermitido(s: Sitio, enFicha = false): Sitio {
+  const max = Math.min(s.lado === "r" ? FY_MAX_DERECHA : 1, enFicha ? FY_MAX_FICHA : 1);
+  return s.fy > max ? { lado: s.lado, fy: max } : s;
 }
 
 function sitioToXY(s: Sitio) {
@@ -612,8 +619,11 @@ function contenidoDebajoDelMensaje(s: Sitio, x: number, y: number): number {
 }
 
 // Mejor sitio libre: primero el que eligió la persona; si tapa algo, el hueco más vacío
-// (mismo lado antes que el otro, y lo más cerca posible de donde estaba).
-function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
+// (mismo lado antes que el otro, y lo más cerca posible de donde estaba). Solo entre los
+// sitios permitidos en esa pantalla (en la ficha de producto, nunca la mitad de abajo).
+function buscarSitioLibre(preferidoElegido: Sitio, actualAhora: Sitio, enFicha = false): Sitio | null {
+  const preferido = sitioPermitido(preferidoElegido, enFicha);
+  const actual = sitioPermitido(actualAhora, enFicha);
   const puntuar = (s: Sitio) => {
     const { x, y } = sitioToXY(s);
     return contenidoDebajo(x, y) * PESO_BLUE + contenidoDebajoDelMensaje(s, x, y);
@@ -627,8 +637,8 @@ function buscarSitioLibre(preferido: Sitio, actual: Sitio): Sitio | null {
   for (const lado of [preferido.lado, preferido.lado === "r" ? "l" : "r"] as Lado[]) {
     for (const fy of alturas) {
       const s = { lado, fy };
-      // Abajo a la derecha no se pone nunca, ni siquiera para apartarse.
-      if (sitioPermitido(s) !== s) continue;
+      // Abajo a la derecha (y en la ficha, abajo en ningún lado) no se pone nunca, ni siquiera para apartarse.
+      if (sitioPermitido(s, enFicha) !== s) continue;
       const tapados = puntuar(s);
       const distancia = Math.abs(fy - preferido.fy) + (lado === preferido.lado ? 0 : 0.5);
       if (!mejor || tapados < mejor.tapados || (tapados === mejor.tapados && distancia < mejor.distancia)) {
@@ -708,6 +718,9 @@ export default function Campanita() {
   const sitioRef = useRef<Sitio>(SITIO_INICIAL);
   const preferidoRef = useRef<Sitio>(SITIO_INICIAL);
   const [sitio, setSitio] = useState<Sitio>(SITIO_INICIAL);
+  // En la ficha de producto, Blue solo puede estar en la mitad de arriba (FY_MAX_FICHA).
+  const enFichaRef = useRef(esFichaProducto(pathname));
+  enFichaRef.current = esFichaProducto(pathname);
   const arrastrandoRef = useRef(false);
   const posRef = useRef({ x: 0, y: 0 });
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -861,8 +874,10 @@ export default function Campanita() {
         // se queda abajo a la derecha
       }
       if (!alive) return;
-      sitioRef.current = initial;
+      // Se recuerda el sitio elegido; si se entra por una ficha de producto, se enseña en la mitad de arriba.
       preferidoRef.current = initial;
+      initial = sitioPermitido(initial, enFichaRef.current);
+      sitioRef.current = initial;
       setSitio(initial);
       const xy = sitioToXY(initial);
       posRef.current = xy;
@@ -886,6 +901,20 @@ export default function Campanita() {
     },
     [pan]
   );
+
+  // Al entrar en una ficha de producto, si Blue está en la mitad de abajo sube ya, sin animación ni espera (al salir,
+  // la comprobación de siempre lo devuelve a su sitio preferido en cuanto no tapa nada).
+  useEffect(() => {
+    if (!ready) return;
+    const actual = sitioRef.current;
+    const permitido = sitioPermitido(actual, esFichaProducto(pathname));
+    if (permitido === actual) return;
+    sitioRef.current = permitido;
+    setSitio(permitido);
+    const xy = sitioToXY(permitido);
+    posRef.current = xy;
+    pan.setValue(xy);
+  }, [pathname, ready, pan]);
 
   useEffect(() => {
     const sub = Dimensions.addEventListener("change", () => {
@@ -1797,9 +1826,9 @@ export default function Campanita() {
   enPantallaRef.current = enPantalla && !oculto && !panelOpen && !guiaAbierta;
   const comprobarSitio = useCallback(() => {
     if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
-    const libre = buscarSitioLibre(preferidoRef.current, sitioRef.current);
-    if (!libre) return;
     const actual = sitioRef.current;
+    // Si no hay un hueco mejor, al menos un sitio permitido en esta pantalla.
+    const libre = buscarSitioLibre(preferidoRef.current, actual, enFichaRef.current) ?? sitioPermitido(actual, enFichaRef.current);
     if (libre.lado !== actual.lado || Math.abs(libre.fy - actual.fy) > 0.01) moverA(libre);
   }, [moverA]);
 
@@ -1947,7 +1976,8 @@ export default function Campanita() {
         });
         preferidoRef.current = next;
         AsyncStorage.setItem(CORNER_KEY, JSON.stringify(next)).catch(() => {});
-        moverAReflejo.current(next);
+        // En la ficha de producto, si se suelta en la mitad de abajo, sube a media pantalla en ese lado.
+        moverAReflejo.current(sitioPermitido(next, enFichaRef.current));
       },
       onPanResponderTerminate: () => {
         arrastrandoRef.current = false;
