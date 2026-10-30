@@ -328,29 +328,33 @@ export default function ImageLightbox({
             <Ionicons name="chevron-forward" size={24} color="#FFFFFF" />
           </Pressable>
 
-          <View
-            style={{
-              position: "absolute",
-              bottom: 20,
-              left: 0,
-              right: 0,
-              flexDirection: "row",
-              justifyContent: "center",
-              gap: 6,
-            }}
-          >
-            {images.map((img, i) => (
-              <View
-                key={img.id}
-                style={{
-                  width: i === index ? 18 : 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: i === index ? "#FFFFFF" : "rgba(255,255,255,0.4)",
-                }}
-              />
-            ))}
-          </View>
+          {/* Puntos solo con pocas fotos: con muchas (VeoAura manda hasta 30) no caben en un móvil estrecho y ya
+              está el contador «n / N» arriba. */}
+          {images.length <= 12 ? (
+            <View
+              style={{
+                position: "absolute",
+                bottom: 20,
+                left: 0,
+                right: 0,
+                flexDirection: "row",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              {images.map((img, i) => (
+                <View
+                  key={img.id}
+                  style={{
+                    width: i === index ? 18 : 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: i === index ? "#FFFFFF" : "rgba(255,255,255,0.4)",
+                  }}
+                />
+              ))}
+            </View>
+          ) : null}
         </>
       ) : null}
     </View>

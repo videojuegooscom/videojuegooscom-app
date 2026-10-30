@@ -879,6 +879,26 @@ export default function ProductoScreen() {
     setSelectedImageUrl(imageGallery[next].publicUrl);
   }
 
+  // Galería con muchas fotos (VeoAura manda hasta 30): posición actual («3 / 30»), miniaturas que solo se descargan
+  // cuando van a verse (las demás esperan con su hueco) y la miniatura activa siempre a la vista.
+  const fotoActual = Math.max(0, imageGallery.findIndex((m) => m.publicUrl === selectedImageUrl));
+  const ladoMiniatura = isMobile ? 74 : 88;
+  const pasoMiniatura = ladoMiniatura + 10;
+  const miniaturasRef = useRef<ScrollView>(null);
+  const [anchoMiniaturas, setAnchoMiniaturas] = useState(0);
+  const [miniaturasCargadas, setMiniaturasCargadas] = useState(0);
+  const cargarMiniaturasHasta = useCallback(
+    (px: number) => setMiniaturasCargadas((v) => Math.max(v, Math.ceil(px / pasoMiniatura) + 3)),
+    [pasoMiniatura]
+  );
+  useEffect(() => {
+    if (!anchoMiniaturas || imageGallery.length < 2) return;
+    const izquierda = fotoActual * pasoMiniatura;
+    const destino = Math.max(0, izquierda - (anchoMiniaturas - ladoMiniatura) / 2);
+    cargarMiniaturasHasta(destino + anchoMiniaturas);
+    miniaturasRef.current?.scrollTo({ x: destino, animated: true });
+  }, [fotoActual, anchoMiniaturas, pasoMiniatura, ladoMiniatura, imageGallery.length, cargarMiniaturasHasta]);
+
   // Un toque corto (sin apenas movimiento) abre el visor a pantalla
   // completa; un arrastre horizontal claro cambia de foto tipo carrusel. Se
   // crea de nuevo en cada render (a propósito, no con useRef) para que
@@ -1292,6 +1312,52 @@ export default function ProductoScreen() {
                   </View>
                 )}
 
+                {/* Con varias fotos: en qué foto se está y, en ordenador, flechas (en el móvil se desliza). */}
+                {selectedImageUrl && imageGallery.length > 1 ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: 12,
+                      top: 12,
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(11,33,56,0.60)",
+                    }}
+                  >
+                    <Text nativeID="galeria-posicion" style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12 }}>
+                      {fotoActual + 1} / {imageGallery.length}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {selectedImageUrl && imageGallery.length > 1 && !isMobile
+                  ? ([-1, 1] as const).map((paso) => (
+                      <Pressable
+                        key={paso}
+                        onPress={() => stepImage(paso)}
+                        accessibilityRole="button"
+                        accessibilityLabel={paso < 0 ? "Foto anterior" : "Foto siguiente"}
+                        style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+                          position: "absolute",
+                          top: "50%",
+                          marginTop: -22,
+                          [paso < 0 ? "left" : "right"]: 12,
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: hovered ? "rgba(11,33,56,0.72)" : "rgba(11,33,56,0.48)",
+                          opacity: pressed ? 0.85 : 1,
+                        })}
+                      >
+                        <Ionicons name={paso < 0 ? "chevron-back" : "chevron-forward"} size={22} color="#FFFFFF" />
+                      </Pressable>
+                    ))
+                  : null}
+
                 {shareFeedback ? (
                   <View
                     style={{
@@ -1366,11 +1432,19 @@ export default function ProductoScreen() {
 
               {imageGallery.length > 1 ? (
                 <ScrollView
+                  ref={miniaturasRef}
+                  nativeID="galeria-miniaturas"
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   // Miniaturas de ancho fijo: el carrusel encaja en cada una (ancho + hueco de 10).
-                  snapToInterval={(isMobile ? 74 : 88) + 10}
+                  snapToInterval={pasoMiniatura}
                   decelerationRate="fast"
+                  onLayout={(e) => {
+                    setAnchoMiniaturas(e.nativeEvent.layout.width);
+                    cargarMiniaturasHasta(e.nativeEvent.layout.width);
+                  }}
+                  onScroll={(e) => cargarMiniaturasHasta(e.nativeEvent.contentOffset.x + e.nativeEvent.layoutMeasurement.width)}
+                  scrollEventThrottle={64}
                   contentContainerStyle={{
                     gap: 10,
                     paddingTop: 10,
@@ -1378,17 +1452,19 @@ export default function ProductoScreen() {
                     justifyContent: "center",
                   }}
                 >
-                  {imageGallery.map((media) => {
+                  {imageGallery.map((media, i) => {
                     const active = selectedImageUrl === media.publicUrl;
 
                     return (
                       <Pressable
                         key={media.id}
                         onPress={() => setSelectedImageUrl(media.publicUrl)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Ver la foto ${i + 1} de ${imageGallery.length}`}
                         style={({ pressed }) => ({
                           opacity: pressed ? 0.88 : 1,
-                          width: isMobile ? 74 : 88,
-                          height: isMobile ? 74 : 88,
+                          width: ladoMiniatura,
+                          height: ladoMiniatura,
                           borderRadius: 16,
                           overflow: "hidden",
                           borderWidth: 2,
@@ -1396,13 +1472,16 @@ export default function ProductoScreen() {
                           backgroundColor: "#F6FAFD",
                         })}
                       >
-                        <SmartImage
-                          uri={media.publicUrl}
-                          alt={`${p.title} (miniatura)`}
-                          ancho={90}
-                          contentFit="cover"
-                          style={{ width: "100%", height: "100%" }}
-                        />
+                        {/* Carga diferida: solo las miniaturas que se ven (y unas pocas más) piden su foto. */}
+                        {i < miniaturasCargadas ? (
+                          <SmartImage
+                            uri={media.publicUrl}
+                            alt={`${p.title} (miniatura ${i + 1})`}
+                            ancho={90}
+                            contentFit="cover"
+                            style={{ width: "100%", height: "100%" }}
+                          />
+                        ) : null}
                       </Pressable>
                     );
                   })}

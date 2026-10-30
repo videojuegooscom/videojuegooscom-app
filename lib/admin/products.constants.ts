@@ -17,7 +17,8 @@
 export const MEDIA_BUCKET = "product-media";
 
 // Límites funcionales
-export const MAX_IMAGES = 15;
+// 30: lo mismo que puede mandar VeoAura (api/escaparate-veoaura.ts), para poder editar esos productos en el panel.
+export const MAX_IMAGES = 30;
 export const MAX_VIDEO_SECONDS = 15;
 
 // Límite de peso por archivo

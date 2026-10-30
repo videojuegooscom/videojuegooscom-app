@@ -13,8 +13,9 @@
  *   4. HMAC-SHA256 de «fecha.nonce.cuerpo» con el secreto, comparado en tiempo constante → 401.
  *   5. Nonce no usado en los últimos 10 minutos (tabla public.escaparate_nonces) → 401.
  *   6. version = 1 y evento «publicar», «vendido» o «retirar» → 400.
- *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// (texto guardado como texto
- *      plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
+ *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// y como mucho 30 en orden (la
+ *      primera es la portada; si llegan más se usan las 30 primeras, sin rechazar el mensaje) (texto
+ *      guardado como texto plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
  *      ≤ 30 de { etiqueta ≤ 40, valor ≤ 80 }) y «mantenimiento» ({ titulo ≤ 60, nota ≤ 300, ≤ 30 puntos
  *      de { etiqueta ≤ 60, valor ≤ 20 } } o null) nunca rechazan el mensaje: lo que no cumple se descarta
  *      y cada «publicar» los sustituye enteros (null quita el mantenimiento). Los campos desconocidos se ignoran.
@@ -24,11 +25,14 @@
  *  11. Registra cada mensaje (fecha, evento, id_veoaura, resultado) en public.escaparate_registro,
  *      nunca la firma ni el secreto.
  * Responder rápido: VeoAura espera como mucho 8 s. Se guarda el producto, se responde y las
- * fotos (enlaces temporales de 1 h) se descargan justo después, con waitUntil de Vercel. La
- * copia propia va al bucket product-media (carpeta veoaura/<id_veoaura>/) con su fila en
- * product_media. Cada envío lleva un sello (products.veoaura_envio): si mientras se copian las
- * fotos llega otro envío del mismo artículo, gana el último y las fotos del anterior se
- * descartan, así un reintento nunca duplica ni mezcla fotos.
+ * fotos (enlaces temporales de 1 h) se descargan justo después, con waitUntil de Vercel (6 a la
+ * vez, con un reintento). Cada «publicar» trae la lista COMPLETA de fotos y la galería queda
+ * igual que en VeoAura: mismas fotos, mismo orden y misma portada; las que ya no vienen se
+ * quitan. La copia propia va al bucket product-media (carpeta veoaura/<id_veoaura>/) con su fila
+ * en product_media, y cada archivo se llama por la huella de su contenido: la misma foto (aunque
+ * llegue con otro enlace) no se duplica ni se vuelve a subir y su dirección no cambia. Cada envío
+ * lleva un sello (products.veoaura_envio): si mientras se copian las fotos llega otro envío del
+ * mismo artículo, gana el último y el anterior no aplica nada, así un reintento nunca mezcla fotos.
  *
  * Variables de entorno (Vercel → Settings → Environment Variables, solo servidor):
  * - VEOAURA_ESCAPARATE_SECRETO: el secreto del puente (lo pone el dueño; Claude no lo ve).
@@ -46,6 +50,8 @@ const codificar = new TextEncoder();
 
 const MAX_CUERPO = 100 * 1024;
 const MAX_FOTO = 10 * 1024 * 1024;
+const MAX_FOTOS_VEOAURA = 30;
+const FOTOS_A_LA_VEZ = 6;
 const VENTANA_SEGUNDOS = 300;
 const BUCKET = "product-media";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -248,8 +254,9 @@ function validarProducto(p: any): Producto {
   if (p.moneda !== undefined && p.moneda !== "EUR") throw new Rechazo(400, "moneda no admitida");
   const accesorios = Array.isArray(p.accesorios) ? p.accesorios : [];
   if (accesorios.length > 50) throw new Rechazo(400, "demasiados accesorios");
-  const fotos = Array.isArray(p.fotos) ? p.fotos : [];
-  if (fotos.length > 10) throw new Rechazo(400, "más de 10 fotos");
+  // Hasta 30 fotos, en orden (la primera es la portada). Si llegan más, se usan las 30 primeras: nunca se rechaza
+  // el mensaje por eso.
+  const fotos = (Array.isArray(p.fotos) ? p.fotos : []).slice(0, MAX_FOTOS_VEOAURA);
   for (const f of fotos) {
     if (typeof f !== "string" || !f.startsWith("https://") || !urlFotoSegura(f)) {
       throw new Rechazo(400, "foto con enlace no válido");
@@ -316,7 +323,7 @@ const DESCRIPCION_VEOAURA = [
   "Envíos y Entregas Rápidas.",
 ].join("\n\n");
 
-type FotoDescargada = { datos: Uint8Array; tipo: string; ext: string };
+type FotoDescargada = { datos: Uint8Array<ArrayBuffer>; tipo: string; ext: string };
 
 async function descargarFoto(url: string): Promise<FotoDescargada | null> {
   const ctrl = new AbortController();
@@ -434,68 +441,124 @@ async function envioVigente(supabase: SupabaseClient, idTienda: string, sello: s
   return data?.veoaura_envio === sello;
 }
 
-// Se ejecuta DESPUÉS de responder a VeoAura: descarga las fotos y sustituye las copias
-// anteriores. Si entretanto llegó otro envío del mismo artículo (otro sello), este se descarta.
-async function copiarFotos(supabase: SupabaseClient, idTienda: string, idVeoaura: string, fotos: string[], sello: string) {
-  const descargadas = (await Promise.all(fotos.map(descargarFoto))).filter((f): f is FotoDescargada => !!f);
-  if (!descargadas.length) throw new Error("no se pudieron descargar las fotos");
-  if (!(await envioVigente(supabase, idTienda, sello))) return;
+// Huella del contenido (SHA-256, 32 cifras hex): es el nombre del archivo. La misma foto, aunque llegue con otro
+// enlace temporal, se llama siempre igual: no se duplica, no se vuelve a subir y su dirección no cambia (la caché
+// del optimizador de fotos de Vercel sigue valiendo).
+async function huella(datos: Uint8Array<ArrayBuffer>): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", datos));
+  return Array.from(h.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-  const nuevas: { storage_path: string; public_url: string; mime_type: string }[] = [];
-  for (let i = 0; i < descargadas.length; i++) {
-    const f = descargadas[i];
-    const ruta = `veoaura/${idVeoaura}/${sello}-${i + 1}.${f.ext}`;
-    const { error } = await supabase.storage.from(BUCKET).upload(ruta, f.datos, {
-      contentType: f.tipo,
-      cacheControl: "31536000",
-      upsert: true,
-    });
-    if (error) continue;
-    nuevas.push({ storage_path: ruta, public_url: supabase.storage.from(BUCKET).getPublicUrl(ruta).data.publicUrl, mime_type: f.tipo });
-  }
-  if (!nuevas.length) throw new Error("no se pudieron guardar las fotos");
-  const rutasNuevas = nuevas.map((n) => n.storage_path);
+// Ejecuta la tarea sobre cada elemento, como mucho `cuantos` a la vez, y devuelve los resultados en su orden.
+async function enParalelo<T, R>(lista: T[], cuantos: number, tarea: (x: T) => Promise<R>): Promise<R[]> {
+  const salida = new Array<R>(lista.length);
+  let siguiente = 0;
+  const trabajador = async () => {
+    while (siguiente < lista.length) {
+      const i = siguiente++;
+      salida[i] = await tarea(lista[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(cuantos, lista.length) }, trabajador));
+  return salida;
+}
 
-  const { error: errMedia } = await supabase.from("product_media").insert(
-    nuevas.map((n, i) => ({
-      product_id: idTienda,
-      kind: "image",
-      storage_path: n.storage_path,
-      public_url: n.public_url,
-      mime_type: n.mime_type,
-      file_name: n.storage_path.split("/").pop(),
-      sort_order: i,
-      is_cover: i === 0,
-    }))
-  );
-  if (errMedia) {
-    await supabase.storage.from(BUCKET).remove(rutasNuevas);
-    throw new Error("no se pudieron registrar las fotos");
-  }
+type FotoGuardada = { ruta: string; tipo: string };
 
-  // Solo se aplican si este envío sigue siendo el último; si no, se quitan las suyas.
-  const { data: aplicado } = await supabase
-    .from("products")
-    .update({ images: nuevas.map((n) => n.public_url) })
-    .eq("id", idTienda)
-    .eq("veoaura_envio", sello)
-    .select("id");
-  if (!(aplicado ?? []).length) {
-    await supabase.from("product_media").delete().eq("product_id", idTienda).in("storage_path", rutasNuevas);
-    await supabase.storage.from(BUCKET).remove(rutasNuevas);
-    return;
-  }
-
-  const { data: anteriores } = await supabase
+// Se ejecuta DESPUÉS de responder a VeoAura. La lista que llega es la COMPLETA: la galería queda igual que en
+// VeoAura (mismas fotos, mismo orden, la primera de portada) y las que ya no vienen se quitan. Solo se suben las
+// fotos que el producto aún no tiene. Si entretanto llegó otro envío del mismo artículo (otro sello), este no aplica
+// nada (el nuevo pondrá las suyas). Devuelve un resumen para el registro.
+async function copiarFotos(supabase: SupabaseClient, idTienda: string, idVeoaura: string, fotos: string[], sello: string): Promise<string> {
+  const carpeta = `veoaura/${idVeoaura}`;
+  const { data: previas, error: errPrevias } = await supabase
     .from("product_media")
     .select("id,storage_path")
     .eq("product_id", idTienda)
     .like("storage_path", "veoaura/%");
-  const viejas = ((anteriores ?? []) as { id: string; storage_path: string }[]).filter((v) => !rutasNuevas.includes(v.storage_path));
-  if (viejas.length) {
-    await supabase.from("product_media").delete().in("id", viejas.map((v) => v.id));
-    await supabase.storage.from(BUCKET).remove(viejas.map((v) => v.storage_path));
+  if (errPrevias) throw new Error("no se pudieron leer las fotos anteriores");
+  const anteriores = (previas ?? []) as { id: string; storage_path: string }[];
+  const yaEstan = new Set(anteriores.map((f) => f.storage_path));
+
+  // Descargar (con un reintento si aún hay tiempo), nombrar por huella y subir solo las que no estén ya.
+  const inicio = Date.now();
+  let subidas = 0;
+  const resultado = await enParalelo(fotos, FOTOS_A_LA_VEZ, async (url): Promise<FotoGuardada | null> => {
+    let f = await descargarFoto(url);
+    if (!f && Date.now() - inicio < 30_000) f = await descargarFoto(url);
+    if (!f) return null;
+    const ruta = `${carpeta}/${await huella(f.datos)}.${f.ext}`;
+    if (!yaEstan.has(ruta)) {
+      const { error } = await supabase.storage.from(BUCKET).upload(ruta, f.datos, {
+        contentType: f.tipo,
+        cacheControl: "31536000",
+        upsert: true,
+      });
+      if (error) return null;
+      subidas++;
+    }
+    return { ruta, tipo: f.tipo };
+  });
+
+  // En el orden de VeoAura y sin repetidas.
+  const vistas = new Set<string>();
+  const lista: FotoGuardada[] = [];
+  for (const x of resultado) {
+    if (x && !vistas.has(x.ruta)) {
+      vistas.add(x.ruta);
+      lista.push(x);
+    }
   }
+  if (!lista.length) throw new Error("no se pudieron descargar las fotos");
+  const fallidas = resultado.filter((x) => !x).length;
+  const rutas = lista.map((x) => x.ruta);
+  const urlDe = (ruta: string) => supabase.storage.from(BUCKET).getPublicUrl(ruta).data.publicUrl;
+
+  // Solo si este envío sigue siendo el último.
+  const { data: aplicado, error: errAplicar } = await supabase
+    .from("products")
+    .update({ images: rutas.map(urlDe) })
+    .eq("id", idTienda)
+    .eq("veoaura_envio", sello)
+    .select("id");
+  if (errAplicar) throw new Error("no se pudieron aplicar las fotos");
+  if (!(aplicado ?? []).length) return "descartadas: llegó un envío más nuevo del mismo artículo";
+
+  // Galería: las que siguen se reordenan, las nuevas se crean (una sola escritura) y las que ya no vienen se quitan.
+  const { error: errFilas } = await supabase.from("product_media").upsert(
+    lista.map((x, i) => ({
+      product_id: idTienda,
+      kind: "image",
+      storage_path: x.ruta,
+      public_url: urlDe(x.ruta),
+      mime_type: x.tipo,
+      file_name: x.ruta.split("/").pop(),
+      sort_order: i,
+      is_cover: i === 0,
+    })),
+    { onConflict: "storage_path" }
+  );
+  if (errFilas) throw new Error("no se pudieron registrar las fotos");
+
+  const quitar = anteriores.filter((f) => !vistas.has(f.storage_path));
+  let sobran: string[] = [];
+  // Antes de borrar nada, se comprueba otra vez que no ha llegado un envío más nuevo (que podría usar esos archivos).
+  if (await envioVigente(supabase, idTienda, sello)) {
+    if (quitar.length) await supabase.from("product_media").delete().in("id", quitar.map((f) => f.id));
+    // Archivos de la carpeta que ya no usa la galería: fotos quitadas, copias antiguas o de envíos descartados.
+    const { data: archivos } = await supabase.storage.from(BUCKET).list(carpeta, { limit: 1000 });
+    sobran = ((archivos ?? []) as { name: string }[]).map((a) => `${carpeta}/${a.name}`).filter((r) => !vistas.has(r));
+    if (sobran.length) await supabase.storage.from(BUCKET).remove(sobran);
+  }
+
+  return [
+    `${lista.length} fotos`,
+    `${subidas} subidas`,
+    fallidas ? `${fallidas} sin descargar` : "",
+    quitar.length ? `${quitar.length} quitadas` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 // vendido: sin stock y no comprable. retirar: oculto (no se ve ni se compra), sin borrarlo.
@@ -612,8 +675,8 @@ export default async function handler(req: any, res: any) {
       const idV = idVeoaura;
       await despuesDeResponder(async () => {
         try {
-          await copiarFotos(supabase, id, idV, fotos, sello);
-          await registrar(supabase, { evento: "fotos", id_veoaura: idV, resultado: "ok", http: 200 });
+          const resumen = await copiarFotos(supabase, id, idV, fotos, sello);
+          await registrar(supabase, { evento: "fotos", id_veoaura: idV, resultado: "ok", http: 200, detalle: resumen });
         } catch (e: unknown) {
           const motivo = e instanceof Error ? e.message : "error al copiar las fotos";
           await registrar(supabase, { evento: "fotos", id_veoaura: idV, resultado: "error", http: 502, detalle: motivo });
