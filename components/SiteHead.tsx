@@ -64,6 +64,7 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/politicas/devoluciones": { titulo: "Política de devoluciones" },
   "/politicas/privacidad": { titulo: "Política de privacidad" },
   "/politicas/terminos": { titulo: "Términos y condiciones" },
+  "/politicas/normas-foro": { titulo: "Normas del Foro", descripcion: "Cómo participar en el Foro y en los comentarios de las noticias." },
 };
 
 type Ajustes = { title: string; description: string; logoUrl: string };

@@ -32,6 +32,8 @@
  *   (crear, editar secciones, publicar/ocultar, borrar).
  * - app/(tabs)/index.tsx → el acordeón "Políticas" del pie de página enlaza
  *   aquí (uno por slug: envios, devoluciones, privacidad, terminos).
+ * - app/(tabs)/chat-global.tsx → el aviso de silencio del Foro enlaza a
+ *   /politicas/normas-foro (Normas del Foro).
  */
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -171,6 +173,35 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
         heading: "Tus derechos",
         body:
           "Puedes solicitar acceso, rectificación, supresión, oposición, limitación o portabilidad de tus datos escribiendo a [EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS]. También tienes derecho a reclamar ante la Agencia Española de Protección de Datos (aepd.es).",
+      },
+    ],
+  },
+  // Normas del Foro (2026-10-31): el aviso de silencio del Foro enlaza aquí. El texto bueno vive en policy_pages
+  // (migración 20261031150000) y se edita en Administración → Políticas; este es el mismo, por si la base de datos falla.
+  "normas-foro": {
+    title: "Normas del Foro",
+    intro:
+      "El Foro es el sitio para hablar de videojuegos y consolas con otros clientes de la tienda. Estas normas valen para el Foro y para los comentarios de las noticias. Son pocas y sencillas.",
+    sections: [
+      {
+        heading: "Respeto ante todo",
+        body: "Nada de insultos, amenazas, acoso ni mensajes que ataquen a alguien por quién es. Se puede no estar de acuerdo sin faltar a nadie.",
+      },
+      {
+        heading: "Sin spam ni publicidad",
+        body: "No publiques anuncios, enlaces repetidos ni promociones de otras tiendas o servicios. Si quieres vendernos tu consola, usa «Vender» en la tienda.",
+      },
+      {
+        heading: "Tus datos, a salvo",
+        body: "No compartas teléfonos, direcciones, correos ni otros datos personales, tuyos o de otras personas. Para hablar de un pedido o de una reparación, escríbenos desde «Hablar con Blue IA o el equipo».",
+      },
+      {
+        heading: "Contenido apropiado",
+        body: "Nada de contenido sexual, violento u ofensivo, ni nada ilegal, como piratería o cuentas robadas.",
+      },
+      {
+        heading: "Si no se cumplen",
+        body: "Un administrador puede eliminar mensajes y comentarios y, si hace falta, silenciar a una persona durante unos días (1, 3 o 7): mientras dure no podrá escribir en el Foro ni comentar noticias, aunque sí seguir usando la tienda con normalidad. Si crees que ha sido un error, escríbenos desde «Hablar con Blue IA o el equipo».",
       },
     ],
   },

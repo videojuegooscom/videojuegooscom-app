@@ -22,7 +22,8 @@
  *  - Moderación del Foro: un administrador toca un mensaje → «Eliminar mensaje» → confirma (con «Cancelar» no pasa nada) y se
  *    borra de la base de datos y de la pantalla; si la base de datos no lo permite, lo dice y el mensaje se queda; los
  *    comentarios de noticias se eliminan igual (se marcan ocultos); un cliente no ve ninguna papelera; Administración →
- *    Usuarios cuenta los comentarios eliminados («Moderación del Foro», con datos de la base de datos).
+ *    Usuarios cuenta los comentarios eliminados («Moderación del Foro», con datos de la base de datos). El aviso de
+ *    silencio enlaza a las Normas del Foro (/politicas/normas-foro) y Usuarios cuenta quién las abre desde el aviso.
  *  - Perfil: deslizar el dedo a la izquierda abre «Mis seguimientos» y a la derecha vuelve a «Mi cuenta» (tocar las
  *    pestañas sigue funcionando); un gesto vertical no cambia de pestaña; «Reparaciones y Mantenimientos» con su texto
  *    nuevo; Administración → Usuarios cuenta quién abre «Mis seguimientos» y cuántos deslizando.
@@ -226,6 +227,8 @@ async function contexto(navegador, usuario, rol, estado) {
       return json(estado.moderacion.filter((m) => !uid || m.user_id === uid));
     }
     if (url.pathname.endsWith("/rest/v1/store_reviews") && metodo === "GET" && estado.resenas) return json(estado.resenas);
+    // Políticas: sin filas (la página usa su texto de reserva, el mismo que pone la migración), salvo que la prueba las dé.
+    if (url.pathname.endsWith("/rest/v1/policy_pages") && metodo === "GET") return json(estado.politicas ?? []);
     // Ficha de producto ficticia (sección N) y sus fotos (las fotos llegan falsas: pruebas/sin-fotos-reales.mjs).
     if (estado.producto && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.producto) : json([estado.producto]);
@@ -808,7 +811,15 @@ try {
     await elegir();
     const vista = p.locator('#perfil-recorte [aria-label="Arrastra la foto para encuadrarla"]');
     const anchoFoto = async () => p.evaluate(() => Math.round(document.querySelector('#perfil-recorte img')?.getBoundingClientRect().width ?? 0));
-    const antes = await anchoFoto();
+    // La ventana entra con una animación: se mide cuando la foto ya no cambia de tamaño (con el servidor cargado, medir a
+    // la primera daba un tamaño a medio camino y la comprobación de «Alejar» fallaba sin motivo).
+    let antes = await anchoFoto();
+    for (let i = 0; i < 20; i++) {
+      await p.waitForTimeout(100);
+      const ahora = await anchoFoto();
+      if (ahora === antes && ahora > 0) break;
+      antes = ahora;
+    }
     await p.locator("#perfil-recorte").getByRole("button", { name: "Acercar" }).click();
     const acercada = await anchoFoto();
     ok(acercada > antes * 1.2 && Number(await p.locator('#perfil-recorte input[type="range"]').inputValue()) > 1.2, `H: «Acercar» agranda la foto (${antes} → ${acercada} px)`);
@@ -1095,7 +1106,17 @@ try {
     await p3.waitForTimeout(800);
     ok(!(estado3.mensajesEnviados ?? []).length, "L: y si lo intenta, no se envía nada");
     ok(!/silenciado/i.test(JSON.stringify(estado3.mensajesEnviados ?? [])) && (await p3.getByText(/te ha silenciado/).count()) === 1, "L: el aviso sigue a la vista");
+    const enlaceNormas = p3.getByRole("link", { name: "Leer las normas del Foro" });
+    const altoEnlace = await enlaceNormas.boundingBox().then((b) => Math.round(b?.height ?? 0), () => 0);
+    ok((await enlaceNormas.count()) === 1 && altoEnlace >= 44, `L: junto al aviso sale «Leer las normas del Foro», que se toca bien (${altoEnlace} px)`);
     await capturar(p3, "L3-silenciado");
+    await enlaceNormas.click();
+    await p3.waitForURL(/\/politicas\/normas-foro$/, { timeout: 15000 }).catch(() => {});
+    await p3.getByText("Si no se cumplen").waitFor({ timeout: 15000 }).catch(() => {});
+    const normas = (await p3.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/\/politicas\/normas-foro$/.test(p3.url()) && /Normas del Foro/.test(normas) && /Respeto ante todo/.test(normas) && /silenciar a una persona durante unos días \(1, 3 o 7\)/.test(normas), `L: el enlace abre las Normas del Foro, que explican por qué y qué pasa (${p3.url()})`);
+    await capturar(p3, "L3-normas-foro");
+    ok(p3.errores.length === 0, `L: sin errores de JavaScript en las normas (${p3.errores.length}${p3.errores[0] ? ": " + p3.errores[0] : ""})`);
     await ctx3.close();
 
     // L4: si la base de datos lo rechaza (silenciado desde otro dispositivo), se explica.
@@ -1107,6 +1128,7 @@ try {
     await p4.getByRole("button", { name: "Enviar mensaje" }).click();
     await p4.getByText(/no puedes escribir en el Foro/).waitFor({ timeout: 8000 }).catch(() => {});
     ok((estado4.mensajesEnviados ?? []).length === 1 && (await p4.getByText("Ahora mismo no puedes escribir en el Foro: un administrador te ha silenciado durante unos días.").count()) === 1, "L: si la base de datos lo rechaza, dice que está silenciado (no un error raro)");
+    ok((await p4.getByRole("link", { name: "Leer las normas del Foro" }).count()) === 1, "L: y también enlaza a las Normas del Foro");
     await ctx4.close();
 
     // L5: usuario y foto en los comentarios de las noticias…
@@ -1147,12 +1169,19 @@ try {
         { id: "x3", created_at: reciente, accion: "comentario_eliminado", user_id: U[1].user_id, detalle: "otro spam" },
         { id: "x4", created_at: reciente, accion: "silenciado", user_id: U[1].user_id, detalle: "Hasta el 02/11/2026 12:00 · Spam" },
       ],
+      // Ana abrió las normas desde el aviso dos veces (cuenta como una persona).
+      eventos: [
+        { event_name: "foro_normas_abiertas", user_id: U[1].user_id, session_id: "s2", metadata: { desde: "foro" } },
+        { event_name: "foro_normas_abiertas", user_id: U[1].user_id, session_id: "s2", metadata: { desde: "comentarios" } },
+      ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/users");
     await p.locator("#admin-foro-moderacion").waitFor({ timeout: 40000 }).catch(() => {});
     const linea = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/Moderación del Foro \(30 días\) · mensajes eliminados: 2 · comentarios eliminados: 1 · silencios: 1 · silenciados ahora: 1/.test(linea), `M: Usuarios cuenta la moderación con el registro de la base de datos (${linea})`);
+    ok(/leyeron las normas desde el aviso: 1/.test(linea), `M: y cuántas personas abrieron las Normas del Foro desde el aviso (${linea})`);
+    ok((await p.getByRole("link", { name: "Ver o editar las Normas del Foro" }).count()) === 1, "M: con un acceso para ver o editar las Normas del Foro (Políticas)");
     const lista = (await p.locator("#admin-silenciados").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/Silenciados en el Foro/.test(lista) && /@ana_g/.test(lista) && /Spam/.test(lista), `M: y la lista de silenciados (quién, hasta cuándo y por qué) (${lista.slice(0, 120)})`);
     await capturar(p, "M1-admin-moderacion");
