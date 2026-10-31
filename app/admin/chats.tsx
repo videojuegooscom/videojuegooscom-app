@@ -40,6 +40,10 @@
  *   desde "Comprar ya"). Si ese producto ya tiene una venta registrada para
  *   esa misma persona, el botón se sustituye por un aviso "Ya vendido ✓" en
  *   vez de dejar duplicar la fila sin querer.
+ * - «Asignar seguimiento a este cliente» (bajo la cabecera de cada conversación, salvo las ventas de clientes): crea su
+ *   pedido o su reparación YA en su cuenta (api/asignar-seguimiento.ts) y le avisa en el chat con su número de
+ *   seguimiento. Para escribir aquí hace falta cuenta, así que el cliente ya está registrado. Arriba de la lista, la
+ *   invitación a registrarse para quien escribe por WhatsApp o Instagram (copiar o abrir WhatsApp).
  * - Nombre del cliente en la lista: se pide con admin_users_by_ids (ver
  *   sql/admin_users_by_ids.sql), que devuelve el nombre real aunque esa
  *   persona no haya escrito ni un mensaje. Si esa función todavía no existe
@@ -64,12 +68,14 @@ import {
   ScrollView,
   StatusBar,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 import ProductChatThread, { TITULO_ATENCION_CLIENTE } from "../../components/ProductChatThread";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -109,6 +115,8 @@ type ProductGroup = {
   product_id: string;
   product_title: string;
   product_image: string | null;
+  // Precio del artículo: rellena el importe al asignarle el seguimiento de un pedido.
+  product_price: number | null;
   chats: ChatRow[];
 };
 
@@ -122,6 +130,342 @@ function formatDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "short", year: "numeric" });
+}
+
+// --- Asignar seguimiento al cliente de la conversación ---------------------------------------------------------------
+// Para escribir en el chat de la tienda hace falta cuenta: el cliente de cualquier conversación ya está registrado. El
+// administrador crea aquí su pedido o su reparación YA en su cuenta (api/asignar-seguimiento.ts): el cliente lo ve en
+// Perfil → «Mis seguimientos» con su número, y se le avisa con un mensaje en esta misma conversación.
+type TipoSeguimiento = "pedido" | "reparacion";
+const ETAPAS_ASIGNAR: Record<TipoSeguimiento, { valor: string; etiqueta: (recogida: boolean) => string }[]> = {
+  pedido: [
+    { valor: "pendiente", etiqueta: () => "Pendiente" },
+    { valor: "confirmado", etiqueta: () => "Confirmado" },
+    { valor: "preparado", etiqueta: () => "Preparando" },
+    { valor: "enviado", etiqueta: (recogida) => (recogida ? "Listo para recoger" : "Enviado") },
+    { valor: "entregado", etiqueta: () => "Entregado" },
+  ],
+  reparacion: [
+    { valor: "recibido", etiqueta: () => "Recibida" },
+    { valor: "diagnostico", etiqueta: () => "Diagnóstico" },
+    { valor: "reparando", etiqueta: () => "En reparación" },
+    { valor: "listo", etiqueta: () => "Lista para recoger" },
+    { valor: "entregado", etiqueta: () => "Entregada" },
+  ],
+};
+const ERRORES_ASIGNAR: Record<string, string> = {
+  "falta el título": "Escribe qué es (por ejemplo, «Reparación de mando PS5»).",
+  "importe no válido": "Escribe el importe del pedido (por ejemplo, 249,99).",
+  "teléfono no válido": "El teléfono es demasiado corto.",
+  "el cliente no tiene correo": "Esta cuenta no tiene correo: no se puede crear un pedido a su nombre.",
+  "falta activar los números de seguimiento": "Falta activar los números de seguimiento en la base de datos.",
+  "solo para administradores": "Solo un administrador puede asignar seguimientos.",
+};
+
+function Chip({ activo, texto, onPress }: { activo: boolean; texto: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: activo }}
+      style={({ pressed }) => ({
+        minHeight: 40,
+        justifyContent: "center",
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: activo ? COLORS.accent : COLORS.border,
+        backgroundColor: activo ? COLORS.accent2 : "#FFFFFF",
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Text style={{ color: activo ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>{texto}</Text>
+    </Pressable>
+  );
+}
+
+const estiloCampo = {
+  minHeight: 44,
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  borderRadius: 12,
+  paddingHorizontal: 12,
+  fontSize: 16,
+  color: COLORS.text,
+  backgroundColor: "#FFFFFF",
+} as const;
+
+function AsignarSeguimiento({
+  chatId,
+  esProducto,
+  tituloInicial,
+  precioInicial,
+}: {
+  chatId: string;
+  esProducto: boolean;
+  tituloInicial: string;
+  precioInicial: number | null;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [tipo, setTipo] = useState<TipoSeguimiento>(esProducto ? "pedido" : "reparacion");
+  const [titulo, setTitulo] = useState(tituloInicial);
+  const [etapa, setEtapa] = useState(esProducto ? "confirmado" : "recibido");
+  const [entrega, setEntrega] = useState<"envio" | "recogida">("envio");
+  const [importe, setImporte] = useState(precioInicial != null ? String(precioInicial).replace(".", ",") : "");
+  const [telefono, setTelefono] = useState("");
+  const [nota, setNota] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  function cambiarTipo(t: TipoSeguimiento) {
+    setTipo(t);
+    setEtapa(t === "pedido" ? "confirmado" : "recibido");
+    setAviso(null);
+  }
+
+  async function asignar() {
+    if (enviando) return;
+    setEnviando(true);
+    setAviso(null);
+    try {
+      const { data: sesion } = await supabase.auth.getSession();
+      const token = sesion.session?.access_token;
+      if (!token) throw new Error("sin sesión");
+      const total = Number(importe.replace(/\./g, "").replace(",", ".").trim());
+      const r = await fetch("/api/asignar-seguimiento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          chat_id: chatId,
+          tipo,
+          titulo,
+          etapa,
+          ...(tipo === "pedido" ? { entrega, total_eur: Number.isFinite(total) ? total : -1, telefono: telefono.trim() || null } : { nota: nota.trim() || null }),
+        }),
+      });
+      const datos = (await r.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        tipo?: TipoSeguimiento;
+        titulo?: string;
+        codigo_seguimiento?: string;
+        numero_pedido?: number;
+      } | null;
+      if (!r.ok || !datos?.ok || !datos.codigo_seguimiento) {
+        setAviso({ ok: false, texto: ERRORES_ASIGNAR[datos?.error ?? ""] ?? "No se ha podido asignar. Inténtalo de nuevo." });
+        return;
+      }
+      // Aviso al cliente en esta misma conversación (lo escribe el administrador, como cualquier mensaje suyo).
+      const mensaje =
+        datos.tipo === "pedido"
+          ? `Te he asignado el seguimiento de tu pedido nº ${datos.numero_pedido} («${datos.titulo}»). Lo tienes en Perfil → Mis seguimientos, con el número ${datos.codigo_seguimiento}.`
+          : `Te he asignado el seguimiento de «${datos.titulo}». Lo tienes en Perfil → Mis seguimientos, con el número ${datos.codigo_seguimiento}.`;
+      const { error: errMensaje } = await supabase.from("product_chat_messages").insert({ chat_id: chatId, body: mensaje });
+      setAviso({
+        ok: true,
+        texto: `Asignado ✓ Nº ${datos.codigo_seguimiento}. El cliente ya lo ve en «Mis seguimientos»${errMensaje ? " (el aviso por el chat no se ha podido enviar: escríbeselo tú)" : " y se lo hemos dicho en el chat"}.`,
+      });
+      setAbierto(false);
+    } catch (e) {
+      console.error("Error asignando el seguimiento:", e);
+      setAviso({ ok: false, texto: "No se ha podido asignar. Inténtalo de nuevo." });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <View
+      nativeID="chat-asignar-seguimiento"
+      style={{ borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: COLORS.cardSoft, paddingHorizontal: 12, paddingVertical: 8, gap: 8 }}
+    >
+      {!abierto ? (
+        <Pressable
+          onPress={() => {
+            setAbierto(true);
+            setAviso(null);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Asignar seguimiento a este cliente"
+          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, opacity: pressed ? 0.8 : 1 })}
+        >
+          <Ionicons name="git-network-outline" size={18} color={COLORS.accent} />
+          <Text style={{ color: COLORS.text, fontWeight: "900" }}>Asignar seguimiento a este cliente</Text>
+        </Pressable>
+      ) : (
+        <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: 10, paddingVertical: 4 }} keyboardShouldPersistTaps="handled">
+          <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center", lineHeight: 18 }}>
+            Ya tiene cuenta: lo verá al momento en «Mis seguimientos», con su número, y le avisaremos aquí.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+            <Chip activo={tipo === "pedido"} texto="Pedido" onPress={() => cambiarTipo("pedido")} />
+            <Chip activo={tipo === "reparacion"} texto="Reparación o mantenimiento" onPress={() => cambiarTipo("reparacion")} />
+          </View>
+          <TextInput
+            value={titulo}
+            onChangeText={(t) => setTitulo(t.slice(0, 120))}
+            placeholder={tipo === "pedido" ? "Artículo (p. ej. Nintendo Switch OLED)" : "Qué es (p. ej. Reparación de mando PS5)"}
+            placeholderTextColor={COLORS.muted2}
+            accessibilityLabel="Título del seguimiento"
+            style={estiloCampo}
+          />
+          {tipo === "pedido" ? (
+            <>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                <Chip activo={entrega === "envio"} texto="Envío" onPress={() => setEntrega("envio")} />
+                <Chip activo={entrega === "recogida"} texto="Entrega en mano" onPress={() => setEntrega("recogida")} />
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  value={importe}
+                  onChangeText={(t) => setImporte(t.replace(/[^0-9.,]/g, "").slice(0, 12))}
+                  placeholder="Importe (€)"
+                  placeholderTextColor={COLORS.muted2}
+                  keyboardType="decimal-pad"
+                  accessibilityLabel="Importe del pedido"
+                  style={{ ...estiloCampo, flex: 1, minWidth: 0 }}
+                />
+                <TextInput
+                  value={telefono}
+                  onChangeText={(t) => setTelefono(t.slice(0, 30))}
+                  placeholder="Teléfono (opcional)"
+                  placeholderTextColor={COLORS.muted2}
+                  keyboardType="phone-pad"
+                  accessibilityLabel="Teléfono del cliente"
+                  style={{ ...estiloCampo, flex: 1, minWidth: 0 }}
+                />
+              </View>
+            </>
+          ) : (
+            <TextInput
+              value={nota}
+              onChangeText={(t) => setNota(t.slice(0, 500))}
+              placeholder="Nota para el cliente (opcional)"
+              placeholderTextColor={COLORS.muted2}
+              accessibilityLabel="Nota para el cliente"
+              style={estiloCampo}
+            />
+          )}
+          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>ETAPA</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+            {ETAPAS_ASIGNAR[tipo].map((e) => (
+              <Chip key={e.valor} activo={etapa === e.valor} texto={e.etiqueta(entrega === "recogida")} onPress={() => setEtapa(e.valor)} />
+            ))}
+          </View>
+          <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
+            <Pressable
+              onPress={() => setAbierto(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                minHeight: 44,
+                justifyContent: "center",
+                paddingHorizontal: 16,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "#FFFFFF",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "800" }}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              onPress={asignar}
+              disabled={enviando || !titulo.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Asignar y avisar al cliente"
+              style={({ pressed }) => ({
+                minHeight: 44,
+                justifyContent: "center",
+                paddingHorizontal: 18,
+                borderRadius: 999,
+                backgroundColor: COLORS.accentDark,
+                opacity: enviando || !titulo.trim() ? 0.5 : pressed ? 0.88 : 1,
+              })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{enviando ? "Asignando…" : "Asignar y avisar al cliente"}</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      )}
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : "#B91C1C", fontWeight: "800", fontSize: 12.5, textAlign: "center", lineHeight: 18 }}>
+          {aviso.texto}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// --- Invitar a registrarse a quien escribe por WhatsApp o Instagram ---------------------------------------------------
+// Para asignarle un seguimiento, el cliente tiene que tener cuenta y escribir por el chat de la tienda. Este texto se copia
+// (o se abre en WhatsApp) para mandárselo.
+const INVITACION_REGISTRO =
+  "¡Hola! Para darte un número de seguimiento de tu pedido o de tu reparación, crea tu cuenta en la tienda: https://videojuegoszaragoza.com/perfil?acceso=registro y escríbenos desde allí (Blue IA → «Hablar con Blue IA o el equipo»). Así verás en todo momento cómo va en «Mis seguimientos».";
+
+function InvitarRegistro() {
+  const [copiado, setCopiado] = useState(false);
+  async function copiar() {
+    try {
+      const nav = (globalThis as { navigator?: { clipboard?: { writeText?: (t: string) => Promise<void> } } }).navigator;
+      if (!nav?.clipboard?.writeText) return;
+      await nav.clipboard.writeText(INVITACION_REGISTRO);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      // sin portapapeles: queda el botón de WhatsApp
+    }
+  }
+  return (
+    <View nativeID="chat-invitar-registro" style={{ borderRadius: 16, backgroundColor: COLORS.card, padding: 12, gap: 8 }}>
+      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>¿Te escriben por WhatsApp o Instagram?</Text>
+      <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+        Mándales esta invitación: cuando creen su cuenta y te escriban aquí, podrás asignarles su seguimiento.
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+        <Pressable
+          onPress={copiar}
+          accessibilityRole="button"
+          accessibilityLabel="Copiar la invitación a registrarse"
+          style={({ pressed }) => ({
+            minHeight: 44,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: "#FFFFFF",
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Ionicons name={copiado ? "checkmark" : "copy-outline"} size={16} color={COLORS.text} />
+          <Text style={{ color: COLORS.text, fontWeight: "800" }}>{copiado ? "Copiada" : "Copiar invitación"}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => openExternalLink(`https://wa.me/?text=${encodeURIComponent(INVITACION_REGISTRO)}`)}
+          accessibilityRole="button"
+          accessibilityLabel="Enviar la invitación por WhatsApp"
+          style={({ pressed }) => ({
+            minHeight: 44,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            backgroundColor: "#FFFFFF",
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
+          <Text style={{ color: COLORS.text, fontWeight: "800" }}>Enviar por WhatsApp</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 export default function AdminChats() {
@@ -190,7 +534,7 @@ export default function AdminChats() {
         { data: sales },
         { data: realUsers },
       ] = await Promise.all([
-        supabase.from("products").select("id,title,images").in("id", productIds),
+        supabase.from("products").select("id,title,images,price_eur").in("id", productIds),
         supabase
           .from("product_media")
           .select("product_id,public_url,is_cover,sort_order")
@@ -220,9 +564,11 @@ export default function AdminChats() {
 
       const titleById: Record<string, string> = {};
       const imageById: Record<string, string | null> = {};
+      const priceById: Record<string, number | null> = {};
       for (const row of (products ?? []) as any[]) {
         titleById[row.id] = row.title ?? "Producto";
         imageById[row.id] = row.images?.[0] ?? null;
+        priceById[row.id] = Number.isFinite(Number(row.price_eur)) ? Number(row.price_eur) : null;
       }
       for (const row of (media ?? []) as any[]) {
         if (!imageById[row.product_id]) imageById[row.product_id] = row.public_url;
@@ -268,6 +614,7 @@ export default function AdminChats() {
               product_id: c.product_id,
               product_title: titleById[c.product_id] ?? "Producto",
               product_image: imageById[c.product_id] ?? null,
+              product_price: priceById[c.product_id] ?? null,
               chats: [],
             });
           group.chats.push(chatWithName);
@@ -390,6 +737,7 @@ export default function AdminChats() {
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
+      <InvitarRegistro />
       {loading ? (
         <View style={{ alignItems: "center", paddingVertical: 24 }}>
           <CargaMarca texto="Cargando conversaciones…" />
@@ -696,6 +1044,18 @@ export default function AdminChats() {
     <View style={{ flex: 1, minHeight: 0, paddingBottom: insets.bottom, backgroundColor: COLORS.bg }}>
       <ProductChatThread
         chatId={selectedChat.id}
+        bajoCabecera={
+          // Ventas de clientes (nos venden ellos): sin seguimiento. En las demás, asignar uno a este cliente.
+          selectedChat.sell_request_id ? undefined : (
+            <AsignarSeguimiento
+              key={selectedChat.id}
+              chatId={selectedChat.id}
+              esProducto={!!selectedChat.product_id}
+              tituloInicial={selectedChat.product_id ? selectedProduct?.product_title ?? "" : ""}
+              precioInicial={selectedChat.product_id ? selectedProduct?.product_price ?? null : null}
+            />
+          )
+        }
         onDeleted={() => {
           // Igual que la papelera de cada fila: solo desaparece de esta
           // bandeja (admin); recargar trae la lista al día por si acaso.
@@ -787,6 +1147,9 @@ export default function AdminChats() {
                 top: 0,
                 bottom: 0,
                 width: 40,
+                // Por encima del título (que ocupa todo el ancho y va después): si no, el título se quedaba el toque y
+                // «Volver» no respondía en el móvil.
+                zIndex: 1,
                 alignItems: "center",
                 justifyContent: "center",
                 opacity: pressed ? 0.7 : 1,
@@ -800,7 +1163,7 @@ export default function AdminChats() {
                 Chat
               </Text>
               <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>
-                {totalChats} conversación{totalChats === 1 ? "" : "es"}
+                {totalChats} {totalChats === 1 ? "conversación" : "conversaciones"}
               </Text>
             </View>
           </View>

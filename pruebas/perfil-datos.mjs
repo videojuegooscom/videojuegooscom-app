@@ -50,8 +50,13 @@
  *    de cada uno, si es de VeoAura y si el cliente ya lo tiene (recuento y filtro «Sin cuenta»), y Usuarios cuenta los
  *    números añadidos y los intentos fallidos.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P]
- * Con «N» o «P» de cuarto argumento solo se ejecuta esa sección (el visor o los números de seguimiento).
+ *  - Q) Administración → Chat: arriba, la invitación a registrarse (copiar o WhatsApp); en cada conversación, «Asignar
+ *    seguimiento a este cliente» (pedido en la de un artículo, con su título y precio; reparación en las generales; no en
+ *    las ventas de clientes), que manda la conversación y la sesión del administrador, avisa al cliente en el chat con el
+ *    número y explica los errores sin avisar de nada; Pedidos cuenta y marca lo asignado desde el chat.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q]
+ * Con «N», «P» o «Q» de cuarto argumento solo se ejecuta esa sección (visor, números de seguimiento o chat).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -183,6 +188,28 @@ async function contexto(navegador, usuario, rol, estado) {
       const n = url.pathname.endsWith("/pedidos") ? estado.olvidados.pedidos : estado.olvidados.reparaciones;
       estado.consultasOlvidados = [...(estado.consultasOlvidados ?? []), `${url.pathname.split("/").pop()}?${decodeURIComponent(url.search.slice(1))}`];
       return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+    }
+    // Administración → Chat (sección Q): conversaciones y mensajes ficticios; «Asignar seguimiento» (api) simulado.
+    if (estado.chats && url.pathname.endsWith("/rest/v1/product_chats") && metodo === "GET") {
+      const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+      const filas = estado.chats.filter((c) => !id || c.id === id);
+      return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(filas[0] ?? null) : json(filas);
+    }
+    if (estado.chats && url.pathname.endsWith("/rest/v1/product_chat_messages")) {
+      if (metodo === "POST") {
+        estado.mensajesChatEnviados = [...(estado.mensajesChatEnviados ?? []), JSON.parse(peticion.postData() ?? "{}")];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "GET") {
+        const chatId = (url.searchParams.get("chat_id") ?? "").replace(/^eq\./, "");
+        return json((estado.mensajesChat ?? []).filter((m) => !chatId || m.chat_id === chatId));
+      }
+    }
+    if (url.pathname === "/api/asignar-seguimiento" && estado.asignar) {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.asignaciones = [...(estado.asignaciones ?? []), { cuerpo, auth: peticion.headers()["authorization"] ?? "" }];
+      const resp = estado.asignar(cuerpo);
+      return r.fulfill({ status: resp.status ?? 200, contentType: "application/json", body: JSON.stringify(resp.cuerpo) });
     }
     // Números de seguimiento (sección P): pedidos y reparaciones con su número y «vincular_seguimiento» como la base de
     // datos (sin la migración: columna y función inexistentes).
@@ -718,10 +745,150 @@ async function seccionP() {
   }
 }
 
+// ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
+async function seccionQ() {
+  const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
+  const CHAT_PRODUCTO = "c0000000-0000-4000-8000-000000000001";
+  const CHAT_GENERAL = "c0000000-0000-4000-8000-000000000002";
+  const CHAT_VENTA = "c0000000-0000-4000-8000-000000000003";
+  const ahora = new Date().toISOString();
+  const chat = (id, extra, vista) => ({
+    id, product_id: null, sell_request_id: null, customer_user_id: CLIENTE.id, last_message_at: ahora, last_message_preview: vista,
+    customer_last_read_at: ahora, admin_last_read_at: ahora, ...extra,
+  });
+  const estado = {
+    usuarios: [],
+    filas: [],
+    guardados: [],
+    producto: { id: PRODUCTO, title: "Nintendo Switch OLED", images: [], price_eur: 249.99, status: "PUBLISHED", is_active: true },
+    fotosProducto: [],
+    chats: [
+      chat(CHAT_PRODUCTO, { product_id: PRODUCTO }, "¿Sigue disponible la Switch?"),
+      chat(CHAT_GENERAL, {}, "Tengo un mando que no carga"),
+      chat(CHAT_VENTA, { sell_request_id: "d0000000-0000-4000-8000-000000000001" }, "Os vendo mi PS4"),
+    ],
+    mensajesChat: [
+      { id: "mq1", created_at: ahora, chat_id: CHAT_PRODUCTO, sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "¿Sigue disponible la Switch?" },
+      { id: "mq2", created_at: ahora, chat_id: CHAT_GENERAL, sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "Tengo un mando que no carga" },
+      { id: "mq3", created_at: ahora, chat_id: CHAT_VENTA, sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "Os vendo mi PS4" },
+    ],
+    asignar: (cuerpo) =>
+      cuerpo.tipo === "pedido"
+        ? { cuerpo: { ok: true, tipo: "pedido", titulo: cuerpo.titulo, codigo_seguimiento: "VZ-AB2C-D3EF", numero_pedido: 31 } }
+        : cuerpo.titulo === "Falla"
+          ? { status: 503, cuerpo: { ok: false, error: "falta activar los números de seguimiento" } }
+          : { cuerpo: { ok: true, tipo: "reparacion", titulo: cuerpo.titulo, codigo_seguimiento: "VZ-7K3M-9QPD" } },
+  };
+  const ctx = await contexto(navegador, ADMIN, "admin", estado);
+  const p = await pagina(ctx, "/admin/chats");
+  await p.getByText("¿Te escriben por WhatsApp o Instagram?").waitFor({ timeout: 30000 }).catch(() => {});
+  const copiar = p.getByRole("button", { name: "Copiar la invitación a registrarse" });
+  const whatsapp = p.getByRole("button", { name: "Enviar la invitación por WhatsApp" });
+  const altos = [await copiar.boundingBox(), await whatsapp.boundingBox()].map((b) => Math.round(b?.height ?? 0));
+  ok((await copiar.count()) === 1 && (await whatsapp.count()) === 1 && altos.every((h) => h >= 44), `Q: arriba de la lista, la invitación a registrarse para WhatsApp o Instagram (copiar o enviar; ${altos.join(", ")} px)`);
+  await capturar(p, "Q1-chats-invitacion");
+
+  // Conversación de un artículo: pedido, con el título y el precio del artículo ya puestos.
+  await p.getByText("¿Sigue disponible la Switch?").first().click();
+  const boton = p.getByRole("button", { name: "Asignar seguimiento a este cliente" });
+  await boton.waitFor({ timeout: 15000 }).catch(() => {});
+  ok((await boton.count()) === 1, "Q: en la conversación sale «Asignar seguimiento a este cliente»");
+  await boton.click();
+  const titulo = p.getByLabel("Título del seguimiento");
+  ok((await titulo.inputValue().catch(() => "")) === "Nintendo Switch OLED" && (await p.getByLabel("Importe del pedido").inputValue().catch(() => "")) === "249,99", "Q: en la de un artículo se propone un pedido con su título y su precio");
+  await capturar(p, "Q2-asignar-pedido");
+  await p.getByRole("button", { name: "Asignar y avisar al cliente" }).click();
+  await p.getByText(/Asignado ✓ Nº VZ-AB2C-D3EF/).waitFor({ timeout: 10000 }).catch(() => {});
+  const a1 = (estado.asignaciones ?? [])[0];
+  ok(!!a1 && a1.cuerpo.chat_id === CHAT_PRODUCTO && a1.cuerpo.tipo === "pedido" && a1.cuerpo.etapa === "confirmado" && a1.cuerpo.total_eur === 249.99 && a1.cuerpo.entrega === "envio" && /^Bearer .+/.test(a1.auth) && !("customer_user_id" in a1.cuerpo), `Q: manda la conversación (no el cliente), el pedido confirmado, el importe y la sesión del administrador (${JSON.stringify(a1?.cuerpo ?? null)})`);
+  const m1 = (estado.mensajesChatEnviados ?? [])[0];
+  ok(!!m1 && m1.chat_id === CHAT_PRODUCTO && /pedido nº 31/.test(m1.body) && /VZ-AB2C-D3EF/.test(m1.body) && /Mis seguimientos/.test(m1.body), `Q: y le avisa en el chat con el número (${m1?.body?.slice(0, 90)})`);
+  ok((await p.getByText(/Asignado ✓ Nº VZ-AB2C-D3EF\. El cliente ya lo ve en «Mis seguimientos» y se lo hemos dicho en el chat\./).count()) === 1, "Q: y confirma que el cliente ya lo ve");
+
+  // Consulta general: reparación; sin título no se puede; con un error se explica.
+  await p.getByRole("button", { name: "Volver a las conversaciones" }).click();
+  await p.getByText("Tengo un mando que no carga").first().click();
+  await p.getByRole("button", { name: "Asignar seguimiento a este cliente" }).click();
+  const asignarBoton = p.getByRole("button", { name: "Asignar y avisar al cliente" });
+  ok((await p.getByLabel("Título del seguimiento").inputValue().catch(() => "x")) === "" && (await asignarBoton.getAttribute("aria-disabled")) === "true", "Q: en una consulta general se propone una reparación y sin título no se puede asignar");
+  await p.getByLabel("Título del seguimiento").fill("Falla");
+  await asignarBoton.click();
+  await p.getByText("Falta activar los números de seguimiento en la base de datos.").waitFor({ timeout: 10000 }).catch(() => {});
+  ok((await p.getByText("Falta activar los números de seguimiento en la base de datos.").count()) === 1 && (estado.mensajesChatEnviados ?? []).length === 1, "Q: si no se puede, se explica y no se avisa al cliente de nada");
+  await p.getByLabel("Título del seguimiento").fill("Reparación de mando PS5");
+  await p.getByRole("button", { name: "En reparación" }).click();
+  await p.getByLabel("Nota para el cliente").fill("Cambiamos el joystick");
+  await asignarBoton.click();
+  await p.getByText(/Asignado ✓ Nº VZ-7K3M-9QPD/).waitFor({ timeout: 10000 }).catch(() => {});
+  const a3 = (estado.asignaciones ?? []).at(-1);
+  const m3 = (estado.mensajesChatEnviados ?? []).at(-1);
+  ok(a3?.cuerpo.tipo === "reparacion" && a3?.cuerpo.etapa === "reparando" && a3?.cuerpo.nota === "Cambiamos el joystick" && /«Reparación de mando PS5»/.test(m3?.body ?? "") && /VZ-7K3M-9QPD/.test(m3?.body ?? ""), `Q: la reparación se asigna con su etapa y su nota, y se avisa al cliente (${m3?.body?.slice(0, 80)})`);
+  await capturar(p, "Q3-asignada-reparacion");
+
+  // Venta de un cliente (nos vende él): sin seguimiento.
+  await p.getByRole("button", { name: "Volver a las conversaciones" }).click();
+  await p.getByText("Os vendo mi PS4").first().click();
+  await p.waitForTimeout(800);
+  ok((await p.getByRole("button", { name: "Asignar seguimiento a este cliente" }).count()) === 0, "Q: en una venta de un cliente (nos vende él) no se ofrece");
+  ok(p.errores.length === 0, `Q: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+  ok(ancho.a <= ancho.p + 1, `Q: la página no se ensancha (${ancho.a}/${ancho.p})`);
+  await ctx.close();
+
+  // Pedidos y Servicios cuentan lo asignado desde el chat.
+  const estadoN = {
+    usuarios: [],
+    filas: [],
+    guardados: [],
+    numeros: {
+      pedidos: [
+        {
+          id: "pq000000-0000-4000-8000-000000000031", numero: 31, created_at: ahora, estado: "confirmado", entrega: "envio", total_eur: 249.99,
+          user_id: CLIENTE.id, codigo_seguimiento: "VZ-AB2C-D3EF", id_veoaura: null, vinculado_en: null, nota_admin: "Asignado desde el chat",
+          nombre: "Ana", email: "ana@example.com", telefono: "sin teléfono", direccion: null, codigo_postal: null, ciudad: null, notas: null,
+          pedido_items: [{ id: "itq", product_id: PRODUCTO, titulo: "Nintendo Switch OLED", precio_eur: 249.99 }],
+        },
+      ],
+      reparaciones: [],
+      items: [],
+      intentos: [],
+    },
+  };
+  const ctxN = await contexto(navegador, ADMIN, "admin", estadoN);
+  const pp = await pagina(ctxN, "/admin/pedidos");
+  await pp.locator("#pedidos-numeros").waitFor({ timeout: 30000 }).catch(() => {});
+  const resumen = (await pp.locator("#pedidos-numeros").innerText().catch(() => "")).replace(/\n/g, " ");
+  const tp = (await pp.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+  ok(/asignados desde el chat: 1/.test(resumen) && /Asignado desde el chat: ya está en la cuenta del cliente/.test(tp), `Q: Pedidos cuenta y marca los asignados desde el chat (${resumen})`);
+
+  // En todas las pantallas del panel, «Volver al panel» recibe el toque (en Chat, el título de la cabecera lo tapaba).
+  const tapados = [];
+  const pantallas = [
+    ...["analytics", "aprendizajes", "auditorias", "blog", "chats", "conocimiento", "escaparate", "flash-news", "marca-seo", "pedidos", "policies", "redes-sociales", "users"].map((r) => [`/admin/${r}`, "Volver al panel"]),
+    [`/admin/cliente/${CLIENTE.id}?email=cliente%40example.com`, "Volver a usuarios"],
+  ];
+  for (const [ruta, etiqueta] of pantallas) {
+    const pa = await pagina(ctxN, ruta);
+    await pa.locator(`[aria-label="${etiqueta}"]`).first().waitFor({ timeout: 30000 }).catch(() => {});
+    const recibe = await pa.evaluate((et) => {
+      const b = document.querySelector(`[aria-label="${et}"]`);
+      if (!b) return "sin botón";
+      const r = b.getBoundingClientRect();
+      const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return e && b.contains(e) ? "sí" : "tapado";
+    }, etiqueta);
+    if (recibe !== "sí") tapados.push(`${ruta}: ${recibe}`);
+    await pa.close();
+  }
+  ok(tapados.length === 0, `Q: en las ${pantallas.length} pantallas del panel el botón de volver recibe el toque${tapados.length ? ` (falla en ${tapados.join(", ")})` : ""}`);
+  await ctxN.close();
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
+  if (SOLO === "Q") await seccionQ();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -1635,6 +1802,7 @@ try {
 
   await seccionN();
   await seccionP();
+  await seccionQ();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
