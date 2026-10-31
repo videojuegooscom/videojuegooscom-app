@@ -5,6 +5,9 @@
  * condición, navegación "volver" inteligente, estilos de la insignia de
  * estado (statusVisual) y todo el flujo de selección/validación/conversión
  * de imágenes y vídeos que sube el admin (incluida la conversión HEIC→JPEG).
+ * Al final, las fechas de «visto» de las secciones del Panel de control, con
+ * las que sus recuadros cuentan las novedades (leerPanelVistos /
+ * marcarPanelVisto: app/admin/index.tsx y app/admin/_layout.tsx).
  *
  * Cómo funciona: pickMediaFilesWeb() abre el selector de archivos del
  * navegador (solo funciona en web, no en la app nativa), valida cada
@@ -18,8 +21,10 @@
  * - app/admin/products.tsx → usa todas estas funciones para el formulario
  *   de alta/edición de productos y la subida de media.
  */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { Platform } from "react-native";
+import { supabase } from "../supabase";
 import type {
   LocalPickedMedia,
   ProductCondition,
@@ -559,4 +564,51 @@ export async function pickMediaFilesWeb(opciones?: { soloImagenes?: boolean }): 
 
     input.click();
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Novedades del Panel de control: cada recuadro (app/admin/index.tsx) enseña cuántas cosas nuevas hay desde la última vez
+// que el administrador abrió esa sección. Esa fecha se guarda en el móvil, por cuenta (como los avisos de Blue), y la
+// marca app/admin/_layout.tsx al entrar en la sección, se llegue desde el recuadro o desde un aviso.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Secciones del panel que cuentan novedades (la clave es su ruta: /admin/<clave>). */
+export const SECCIONES_CON_NOVEDADES = ["pedidos", "services", "cotizaciones", "chats", "products", "escaparate", "users", "auditorias"] as const;
+export type SeccionConNovedades = (typeof SECCIONES_CON_NOVEDADES)[number];
+export type PanelVistos = Partial<Record<SeccionConNovedades, string>>;
+
+const PANEL_VISTOS_PREFIJO = "videojuegoszaragoza:panel_vistos:";
+
+async function cuentaAdmin(): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cuándo abrió el administrador cada sección por última vez en este móvil (fecha ISO). */
+export async function leerPanelVistos(): Promise<PanelVistos> {
+  const uid = await cuentaAdmin();
+  if (!uid) return {};
+  try {
+    const guardado = JSON.parse((await AsyncStorage.getItem(PANEL_VISTOS_PREFIJO + uid)) ?? "{}");
+    return guardado && typeof guardado === "object" ? (guardado as PanelVistos) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Apunta que el administrador acaba de abrir esa sección: lo anterior ya está visto. */
+export async function marcarPanelVisto(seccion: SeccionConNovedades): Promise<void> {
+  const uid = await cuentaAdmin();
+  if (!uid) return;
+  try {
+    const vistos = await leerPanelVistos();
+    vistos[seccion] = new Date().toISOString();
+    await AsyncStorage.setItem(PANEL_VISTOS_PREFIJO + uid, JSON.stringify(vistos));
+  } catch {
+    // sin almacenamiento: el contador seguirá enseñando lo de los últimos días
+  }
 }

@@ -26,6 +26,16 @@
  * acentos azul claro) con contenido centrado en pantallas anchas
  * (columnStyle, maxWidth 1040).
  *
+ * Novedades: cada recuadro con movimiento de fuera lleva en su esquina un
+ * número rojo (como el de Blue) con lo nuevo desde la última vez que se abrió
+ * esa sección en este móvil: pedidos, solicitudes de servicio, cotizaciones,
+ * artículos llegados de VeoAura, ventas o errores de VeoAura, usuarios y
+ * reseñas nuevos y revisiones; el chat, las conversaciones sin leer. Se
+ * cuenta al abrir el panel, al volver a él y cada 2 minutos (contarNovedades)
+ * y la sección queda vista al entrar (app/admin/_layout.tsx). Los recuadros
+ * sin movimiento de fuera (Categorías, Inventario, Políticas…) no llevan
+ * número.
+ *
  * Cabecera y scroll: la cabecera es la misma franja fija y compacta que en
  * el resto de pestañas del panel (AdminHeader: flecha para volver —aquí, a
  * la tienda— y título centrado); el subtítulo y la rejilla van debajo, en
@@ -42,8 +52,9 @@
  *   (sin sesión) o a / (sesión sin rol admin).
  * - app/admin/products/products.components.tsx → AdminHeader (cabecera común).
  */
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Pressable,
   ScrollView,
   StatusBar,
@@ -53,9 +64,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { AdminHeader } from "../../lib/admin/products.components";
+import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/products.utils";
+import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -77,6 +90,8 @@ const COLORS = {
   warningBorder: "#FDE68A",
   dangerBg: "#FFE4E6",
   dangerBorder: "#FDA4AF",
+  // El rojo del número de novedades (el mismo que el de Blue).
+  danger: "#DC2626",
 };
 
 // Ancho máximo centrado para pantallas grandes (web/tablet); en móvil ocupa el 100%.
@@ -95,24 +110,124 @@ function softShadow() {
   });
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Novedades de cada recuadro: solo lo que llega de fuera (clientes, VeoAura o la revisión automática) desde la última vez
+// que se abrió esa sección en este móvil (lib/admin/products.utils.ts; la primera vez, lo de los últimos 7 días). El chat
+// cuenta las conversaciones con mensajes del cliente sin leer, como la campanita (get_unread_chat_count), se haya abierto
+// o no la sección. Se cuenta sin descargar filas (solo el número). Si algo falla, ese recuadro no enseña nada: nunca un
+// número inventado. Los recuadros sin movimiento de fuera (Categorías, Inventario, Políticas…) no llevan contador.
+// ---------------------------------------------------------------------------------------------------------------------
+type Novedad = { n: number; texto: string };
+type Novedades = Partial<Record<SeccionConNovedades, Novedad>>;
+
+const DIAS_PRIMERA_VEZ = 7;
+const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+
+async function contarNovedades(): Promise<Novedades> {
+  const vistos = await leerPanelVistos();
+  const haceDias = new Date(Date.now() - DIAS_PRIMERA_VEZ * 86400000).toISOString();
+  const desde = (s: SeccionConNovedades) => vistos[s] ?? haceDias;
+  const cuantos = async (consulta: PromiseLike<{ count: number | null; error: unknown }>) => {
+    try {
+      const { count, error } = await consulta;
+      return error ? 0 : Math.max(0, count ?? 0);
+    } catch {
+      return 0;
+    }
+  };
+  const solo = { count: "exact" as const, head: true };
+  const [pedidos, servicios, cotizaciones, chats, productos, escaparate, registros, resenas, revisiones] = await Promise.all([
+    cuantos(supabase.from("pedidos").select("id", solo).gt("created_at", desde("pedidos"))),
+    cuantos(supabase.from("service_requests").select("id", solo).gt("created_at", desde("services"))),
+    cuantos(supabase.from("sell_requests").select("id", solo).gt("created_at", desde("cotizaciones"))),
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("get_unread_chat_count");
+        return error ? 0 : Math.max(0, Number(data) || 0);
+      } catch {
+        return 0;
+      }
+    })(),
+    // Artículos que han llegado de VeoAura (los que crea el administrador no son novedad para él).
+    cuantos(supabase.from("products").select("id", solo).not("id_veoaura", "is", null).gt("created_at", desde("products"))),
+    // De VeoAura: artículos vendidos allí y avisos que no se pudieron guardar.
+    cuantos(supabase.from("escaparate_registro").select("id", solo).or("resultado.eq.error,evento.eq.vendido").gt("recibido_en", desde("escaparate"))),
+    cuantos(supabase.from("profiles").select("id", solo).or("role.is.null,role.neq.admin").gt("created_at", desde("users"))),
+    cuantos(supabase.from("store_reviews").select("id", solo).gt("created_at", desde("users"))),
+    cuantos(supabase.from("auditorias_web").select("id", solo).gt("ejecutada_en", desde("auditorias"))),
+  ]);
+  const novedad = (n: number, texto: string): Novedad | undefined => (n > 0 ? { n, texto } : undefined);
+  const participacion = [
+    registros ? plural(registros, "usuario nuevo", "usuarios nuevos") : "",
+    resenas ? plural(resenas, "reseña nueva", "reseñas nuevas") : "",
+  ].filter(Boolean);
+  return {
+    pedidos: novedad(pedidos, plural(pedidos, "pedido nuevo", "pedidos nuevos")),
+    services: novedad(servicios, plural(servicios, "solicitud de servicio nueva", "solicitudes de servicio nuevas")),
+    cotizaciones: novedad(cotizaciones, plural(cotizaciones, "cotización nueva", "cotizaciones nuevas")),
+    chats: novedad(chats, plural(chats, "conversación sin leer", "conversaciones sin leer")),
+    products: novedad(productos, plural(productos, "artículo nuevo de VeoAura", "artículos nuevos de VeoAura")),
+    escaparate: novedad(escaparate, plural(escaparate, "aviso de VeoAura (venta o error)", "avisos de VeoAura (ventas o errores)")),
+    users: novedad(registros + resenas, participacion.join(" y ")),
+    auditorias: novedad(revisiones, plural(revisiones, "revisión nueva", "revisiones nuevas")),
+  };
+}
+
+// El número rojo de un recuadro (como el de Blue): aparece con un pequeño salto y vuelve a saltar si cambia.
+function InsigniaNovedades({ seccion, n, enLinea }: { seccion: string; n: number; enLinea?: boolean }) {
+  const escala = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    escala.setValue(0.4);
+    Animated.spring(escala, { toValue: 1, useNativeDriver: Platform.OS !== "web", speed: 14, bounciness: 12 }).start();
+  }, [n, escala]);
+  return (
+    <Animated.View
+      nativeID={`novedades-${seccion}`}
+      pointerEvents="none"
+      // Lo dice el propio recuadro («Pedidos, 3 pedidos nuevos»): el número no se lee dos veces.
+      aria-hidden
+      style={{
+        ...(enLinea ? {} : { position: "absolute" as const, top: 8, right: 8 }),
+        minWidth: 26,
+        height: 26,
+        borderRadius: 13,
+        paddingHorizontal: 6,
+        backgroundColor: COLORS.danger,
+        borderWidth: 2,
+        borderColor: "#FFFFFF",
+        alignItems: "center",
+        justifyContent: "center",
+        transform: [{ scale: escala }],
+      }}
+    >
+      <Text style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "900" }}>{n > 99 ? "99+" : String(n)}</Text>
+    </Animated.View>
+  );
+}
+
 function CardButton({
+  seccion,
   title,
   subtitle,
   onPress,
   icon,
   isMobile,
+  novedad,
 }: {
+  seccion: string;
   title: string;
   subtitle: string;
   onPress: () => void;
   icon?: IoniconName;
   isMobile?: boolean;
+  novedad?: Novedad;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      // La descripción ya no se pinta (el panel va limpio); queda para lectores de pantalla.
+      // La descripción ya no se pinta (el panel va limpio); queda para lectores de pantalla, igual que lo nuevo.
       accessibilityRole="button"
+      accessibilityLabel={novedad ? `${title}, ${novedad.texto}` : title}
       accessibilityHint={subtitle}
       style={
         ({ pressed }) =>
@@ -172,7 +287,14 @@ function CardButton({
         </View>
       </View>
 
-      {!isMobile && <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />}
+      {/* En el móvil, el número va en la esquina del recuadro; en pantallas anchas, antes de la flecha. */}
+      {novedad && isMobile ? <InsigniaNovedades seccion={seccion} n={novedad.n} /> : null}
+      {!isMobile ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {novedad ? <InsigniaNovedades seccion={seccion} n={novedad.n} enLinea /> : null}
+          <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -183,6 +305,30 @@ export default function AdminHome() {
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
+
+  // Novedades: se cuentan al abrir el panel, al volver a él desde una sección y cada 2 minutos mientras está abierto.
+  const [novedades, setNovedades] = useState<Novedades>({});
+  useFocusEffect(
+    useCallback(() => {
+      let vivo = true;
+      const contar = () => {
+        void contarNovedades().then((n) => {
+          if (vivo) setNovedades(n);
+        });
+      };
+      contar();
+      const cada = setInterval(contar, 120000);
+      return () => {
+        vivo = false;
+        clearInterval(cada);
+      };
+    }, [])
+  );
+  // Al tocar un recuadro su número se va enseguida (al entrar, la sección queda vista: app/admin/_layout.tsx).
+  const abrir = useCallback((seccion: string, abrirSeccion: () => void) => {
+    setNovedades((v) => ({ ...v, [seccion]: undefined }));
+    abrirSeccion();
+  }, []);
 
   const actions = useMemo(
     () => [
@@ -371,11 +517,13 @@ export default function AdminHome() {
               {actions.map((a) => (
                 <CardButton
                   key={a.key}
+                  seccion={a.key}
                   title={a.title}
                   subtitle={a.subtitle}
                   icon={a.icon}
-                  onPress={a.onPress}
+                  onPress={() => abrir(a.key, a.onPress)}
                   isMobile={isMobile}
+                  novedad={novedades[a.key as SeccionConNovedades]}
                 />
               ))}
             </View>

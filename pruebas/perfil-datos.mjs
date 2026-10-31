@@ -63,8 +63,15 @@
  *    rápido y corto; medio y lento; poco y despacio no cambia; hacia donde no hay pestaña no hace nada; en vertical la
  *    página se desplaza. Siempre marca la pestaña buena y el contenido vuelve a su sitio.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R]
- * Con «N», «P», «Q» o «R» de cuarto argumento solo se ejecuta esa sección (visor, números, chat o cabecera y gesto).
+ *  - S) Panel de control: el número rojo de novedades en la esquina de cada recuadro (lo nuevo desde que se abrió la
+ *    sección; la primera vez, lo de los últimos 7 días; «99+»), solo lo que llega de fuera y sin descargar filas; los
+ *    recuadros sin movimiento no llevan número; al entrar (desde el recuadro o por un enlace) se va y vuelve con lo que
+ *    llegue después; el chat cuenta lo sin leer; si una consulta falla no se inventa nada; en pantalla ancha va antes de
+ *    la flecha; lo que dice el lector de pantalla.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S]
+ * Con «N», «P», «Q», «R» o «S» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, o
+ * novedades del panel).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -349,9 +356,16 @@ async function contexto(navegador, usuario, rol, estado) {
       }
       return json(usuario);
     }
+    // Usuarios nuevos del Panel de control (sección S): se cuentan con HEAD y la fecha «gt», como la base de datos.
+    if (url.pathname.endsWith("/rest/v1/profiles") && metodo === "HEAD" && estado.novedades) {
+      estado.consultasNovedades = [...(estado.consultasNovedades ?? []), `profiles?${decodeURIComponent(url.search.slice(1))}`];
+      const desde = (url.searchParams.get("created_at") ?? "").replace(/^gt\./, "");
+      const n = (estado.novedades.profiles ?? []).filter((f) => f > desde).length;
+      return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+    }
     if (url.pathname.endsWith("/rest/v1/profiles")) return json({ id: usuario.id, role: rol });
     if (url.pathname.endsWith("/rest/v1/analytics_events") && metodo === "GET") return json(estado.eventos ?? []);
-    if (url.pathname.endsWith("/rpc/get_unread_chat_count")) return json(0);
+    if (url.pathname.endsWith("/rpc/get_unread_chat_count")) return json(estado.novedades?.chatsSinLeer ?? 0);
     if (url.pathname.endsWith("/rpc/admin_list_users_with_stats")) return json(estado.usuarios ?? []);
     if (url.pathname.endsWith("/rest/v1/perfiles_cliente")) {
       if (metodo === "POST") {
@@ -367,6 +381,20 @@ async function contexto(navegador, usuario, rol, estado) {
       const filtro = url.searchParams.get("user_id");
       const filas = estado.filas ?? [];
       return json(filtro?.startsWith("eq.") ? filas.filter((f) => !f.user_id || f.user_id === filtro.slice(3)) : filas);
+    }
+    // Novedades del Panel de control (sección S): cuántas filas hay después de la fecha pedida («gt»), como la base de
+    // datos; se apunta cada consulta para mirar sus filtros. Sin datos de la prueba, cero (nada llega a la base de datos real).
+    if (metodo === "HEAD" && /\/rest\/v1\/(pedidos|service_requests|sell_requests|products|escaparate_registro|store_reviews|auditorias_web)$/.test(url.pathname)) {
+      const tabla = url.pathname.split("/").pop();
+      if (estado.novedades) {
+        estado.consultasNovedades = [...(estado.consultasNovedades ?? []), `${tabla}?${decodeURIComponent(url.search.slice(1))}`];
+        if ((estado.novedades.fallan ?? []).includes(tabla)) return json({ code: "XX000", message: "fallo de prueba" }, 500);
+        const col = ["created_at", "recibido_en", "ejecutada_en"].find((c) => url.searchParams.get(c));
+        const desde = (url.searchParams.get(col) ?? "").replace(/^gt\./, "");
+        const n = (estado.novedades[tabla] ?? []).filter((f) => f > desde).length;
+        return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
+      }
+      if (!estado.olvidados) return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
@@ -958,6 +986,117 @@ async function seccionR() {
   }
 }
 
+// ===== S) Panel de control: el número de novedades de cada recuadro ===============================================
+async function seccionS() {
+  const hace = (ms) => new Date(Date.now() - ms).toISOString();
+  const H = 3600000;
+  const D = 24 * H;
+  const estado = {
+    filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    // Administración → Chat sin conversaciones (ficticias: nada se pide a la base de datos real).
+    chats: [],
+    novedades: {
+      // Fechas de cada fila: la primera vez cuenta lo de los últimos 7 días (lo de hace 10 días, no).
+      pedidos: [hace(H), hace(2 * D), hace(10 * D)],
+      service_requests: [hace(3 * H)],
+      sell_requests: [hace(9 * D)],
+      products: [hace(H)],
+      escaparate_registro: Array.from({ length: 120 }, (_, i) => hace(i * 60000 + 1000)),
+      profiles: [hace(H), hace(2 * H), hace(3 * D)],
+      store_reviews: [hace(5 * H)],
+      auditorias_web: [],
+      chatsSinLeer: 2,
+    },
+  };
+  const ctx = await contexto(navegador, ADMIN, "admin", estado);
+  const p = await pagina(ctx, "/admin");
+  await p.locator("#novedades-pedidos").waitFor({ timeout: 30000 }).catch(() => {});
+  // Solo el panel que se ve (al volver desde una sección, el anterior puede seguir montado y oculto).
+  const numero = async (s) => ((await p.locator(`#novedades-${s}:visible`).count()) ? (await p.locator(`#novedades-${s}:visible`).first().innerText()).trim() : "");
+  // El número aparece con un salto: se mide cuando ya ha terminado.
+  await p.waitForFunction(() => (document.getElementById("novedades-pedidos")?.getBoundingClientRect().width ?? 0) >= 25, null, { timeout: 8000 }).catch(() => {});
+  const leidos = {};
+  for (const s of ["pedidos", "services", "cotizaciones", "chats", "products", "escaparate", "users", "auditorias", "categories", "inventario", "policies"]) leidos[s] = await numero(s);
+  ok(leidos.pedidos === "2" && leidos.services === "1" && leidos.chats === "2" && leidos.products === "1" && leidos.users === "4", `S: cada recuadro enseña sus novedades (${JSON.stringify(leidos)})`);
+  ok(leidos.escaparate === "99+", `S: más de 99 se lee «99+» (${leidos.escaparate})`);
+  ok(!leidos.cotizaciones && !leidos.auditorias, "S: sin nada nuevo (o solo de hace más de 7 días la primera vez) no sale ningún número");
+  ok(!leidos.categories && !leidos.inventario && !leidos.policies, "S: los recuadros sin movimiento de fuera (Categorías, Inventario, Políticas) no llevan número");
+  const etiqueta = async (t) => p.locator(`[role="button"][aria-label^="${t}"]:visible`).first().getAttribute("aria-label").catch(() => "");
+  ok((await etiqueta("Pedidos")) === "Pedidos, 2 pedidos nuevos" && (await etiqueta("Usuarios y participación")) === "Usuarios y participación, 3 usuarios nuevos y 1 reseña nueva" && (await etiqueta("Chat")) === "Chat, 2 conversaciones sin leer", "S: un lector de pantalla dice qué es lo nuevo («Pedidos, 2 pedidos nuevos»)");
+  const q = estado.consultasNovedades ?? [];
+  const con = (t, re) => q.some((c) => c.startsWith(`${t}?`) && re.test(c));
+  ok(con("products", /id_veoaura=not\.is\.null/) && con("escaparate_registro", /or=\(resultado\.eq\.error,evento\.eq\.vendido\)/) && con("profiles", /or=\(role\.is\.null,role\.neq\.admin\)/), "S: cuenta solo lo que llega de fuera (artículos de VeoAura, ventas o errores de VeoAura y usuarios que no son administradores)");
+  ok(q.length > 0 && q.every((c) => /select=id/.test(c)), "S: solo pide el número (sin descargar filas)");
+  const medidas = await p.evaluate(() => {
+    const b = document.getElementById("novedades-pedidos")?.getBoundingClientRect();
+    let t = document.getElementById("novedades-pedidos");
+    while (t && t.getAttribute("role") !== "button") t = t.parentElement;
+    const r = t?.getBoundingClientRect();
+    return { b: b && { x: b.x, y: b.y, w: b.width, h: b.height }, t: r && { x: r.x, y: r.y, w: r.width, h: r.height }, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth };
+  });
+  const esquina = !!medidas.b && !!medidas.t && medidas.b.x + medidas.b.w <= medidas.t.x + medidas.t.w + 1 && medidas.b.x + medidas.b.w >= medidas.t.x + medidas.t.w - 16 && medidas.b.y >= medidas.t.y - 1 && medidas.b.y <= medidas.t.y + 16;
+  ok(esquina && medidas.b.h >= 24, `S: el número va en la esquina de arriba a la derecha de su recuadro, sin salirse (${JSON.stringify(medidas)})`);
+  ok(medidas.ancho <= medidas.pantalla + 1, `S: la página no se ensancha (${medidas.ancho}/${medidas.pantalla})`);
+  await capturar(p, "S1-panel-novedades");
+
+  // Entrar en Pedidos: al volver, su número ya no está; lo que llegue después sí cuenta.
+  await p.locator('[role="button"][aria-label^="Pedidos"]:visible').first().click();
+  await p.waitForURL(/\/admin\/pedidos/, { timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(800);
+  const guardado = await p.evaluate((id) => JSON.parse(localStorage.getItem(`videojuegoszaragoza:panel_vistos:${id}`) ?? "{}"), ADMIN.id);
+  ok(!!guardado.pedidos && Math.abs(Date.parse(guardado.pedidos) - Date.now()) < 120000, `S: al entrar en Pedidos queda apuntado en el móvil que ya están vistos (${guardado.pedidos ?? "nada"})`);
+  // Vuelta con su botón (sin recargar): el panel vuelve a contar al aparecer.
+  await p.locator('[aria-label="Volver al panel"]:visible').first().click();
+  await p.waitForURL(/\/admin\/?$/, { timeout: 15000 }).catch(() => {});
+  await p.locator("#novedades-services:visible").first().waitFor({ timeout: 30000 }).catch(() => {});
+  await p.waitForTimeout(800);
+  ok((await numero("pedidos")) === "" && (await numero("services")) === "1", `S: al volver, Pedidos ya no tiene número y el resto sigue (${await numero("pedidos")}/${await numero("services")})`);
+  estado.novedades.pedidos.push(new Date(Date.now() + 60000).toISOString());
+  await p.goto(`${BASE}/admin`, { waitUntil: "load" });
+  await p.locator("#novedades-pedidos").waitFor({ timeout: 30000 }).catch(() => {});
+  ok((await numero("pedidos")) === "1", `S: un pedido que llega después vuelve a sacar el número («1»: ${await numero("pedidos")})`);
+
+  // Entrar por un enlace (sin tocar el recuadro) también cuenta como visto.
+  await p.goto(`${BASE}/admin/services`, { waitUntil: "load" });
+  await p.waitForTimeout(1500);
+  await p.goto(`${BASE}/admin`, { waitUntil: "load" });
+  await p.locator("#novedades-pedidos").waitFor({ timeout: 30000 }).catch(() => {});
+  ok((await numero("services")) === "", "S: entrar en Servicios por un enlace también los da por vistos");
+
+  // El chat cuenta lo que está sin leer, aunque se haya entrado: se va cuando se leen las conversaciones.
+  await p.goto(`${BASE}/admin/chats`, { waitUntil: "load" });
+  await p.waitForTimeout(1500);
+  await p.goto(`${BASE}/admin`, { waitUntil: "load" });
+  await p.locator("#novedades-chats").waitFor({ timeout: 30000 }).catch(() => {});
+  ok((await numero("chats")) === "2", "S: el chat sigue con su número mientras haya conversaciones sin leer");
+  estado.novedades.chatsSinLeer = 0;
+  await p.goto(`${BASE}/admin`, { waitUntil: "load" });
+  await p.locator("#novedades-users").waitFor({ timeout: 30000 }).catch(() => {});
+  ok((await numero("chats")) === "", "S: leídas, el número del chat se va");
+
+  // Si una consulta falla, ese dato no cuenta (nunca un número inventado) y el resto sigue.
+  estado.novedades.fallan = ["store_reviews"];
+  await p.goto(`${BASE}/admin`, { waitUntil: "load" });
+  await p.locator("#novedades-users").waitFor({ timeout: 30000 }).catch(() => {});
+  ok((await numero("users")) === "3" && (await etiqueta("Usuarios y participación")) === "Usuarios y participación, 3 usuarios nuevos", `S: si fallan las reseñas, Usuarios cuenta solo los registros (${await numero("users")})`);
+
+  // Pantalla ancha: el número va antes de la flecha, dentro de su fila.
+  await p.setViewportSize({ width: 1100, height: 800 });
+  await p.waitForTimeout(600);
+  const ancho = await p.evaluate(() => {
+    const b = document.getElementById("novedades-users")?.getBoundingClientRect();
+    let t = document.getElementById("novedades-users");
+    while (t && t.getAttribute("role") !== "button") t = t.parentElement;
+    const r = t?.getBoundingClientRect();
+    return b && r ? { dentro: b.x >= r.x && b.x + b.width <= r.x + r.width && b.y >= r.y && b.y + b.height <= r.y + r.height, derecha: b.x > r.x + r.width / 2 } : null;
+  });
+  ok(!!ancho && ancho.dentro && ancho.derecha, `S: en pantalla ancha el número va a la derecha, dentro de la fila (${JSON.stringify(ancho)})`);
+  await capturar(p, "S2-panel-ancho");
+  ok(p.errores.length === 0, `S: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  await ctx.close();
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -1103,6 +1242,7 @@ try {
   if (SOLO === "P") await seccionP();
   if (SOLO === "Q") await seccionQ();
   if (SOLO === "R") await seccionR();
+  if (SOLO === "S") await seccionS();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2021,6 +2161,7 @@ try {
   await seccionP();
   await seccionQ();
   await seccionR();
+  await seccionS();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

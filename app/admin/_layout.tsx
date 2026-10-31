@@ -17,6 +17,9 @@
  * - Sigue el tema claro global en su pantalla de carga: fondo blanco, la
  *   mascota de "cargando" (CargaMarca, como en el resto de la tienda) y el
  *   texto centrado, sin recuadro alrededor.
+ * - Al entrar en una sección con novedades (Pedidos, Servicios, Chat…)
+ *   apunta que ya está vista, para que su contador del Panel de control
+ *   vuelva a empezar (marcarPanelVisto).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para sesión y perfil.
@@ -33,8 +36,9 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StatusBar, Text, View } from "react-native";
-import { Stack, router } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { marcarPanelVisto, SECCIONES_CON_NOVEDADES, type SeccionConNovedades } from "../../lib/admin/products.utils";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 const COLORS = {
@@ -134,6 +138,16 @@ export default function AdminLayout() {
       authListener?.subscription?.unsubscribe?.();
     };
   }, [validateAccess]);
+
+  // Al entrar en una sección con novedades (desde su recuadro o desde un aviso), lo que había ya está visto: su
+  // contador del Panel de control vuelve a empezar (lib/admin/products.utils.ts).
+  const ruta = usePathname();
+  useEffect(() => {
+    const seccion = /^\/admin\/([^/?#]+)/.exec(ruta ?? "")?.[1];
+    if (guard.isAdmin && seccion && (SECCIONES_CON_NOVEDADES as readonly string[]).includes(seccion)) {
+      void marcarPanelVisto(seccion as SeccionConNovedades);
+    }
+  }, [ruta, guard.isAdmin]);
 
   // Mientras se comprueba (o mientras se redirige a quien no es admin) no se
   // monta ninguna pantalla del panel.
