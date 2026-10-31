@@ -25,11 +25,14 @@
  *   ficha de cliente (app/admin/cliente/[userId].tsx).
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
  *   cualquiera igual que las reseñas de Inicio).
- * - "Moderación del Foro": mensajes que los administradores han eliminado en
- *   los últimos 30 días (analítica propia foro_mensaje_eliminado; solo cuenta
- *   si ese navegador aceptó la analítica) y comentarios de noticias eliminados
- *   (ocultos en noticias_comentarios, contados en la base de datos). Se
- *   eliminan desde el propio Foro: tocar el mensaje → papelera.
+ * - "Moderación del Foro": comentarios de noticias eliminados (ocultos en
+ *   noticias_comentarios, contados en la base de datos). Se eliminan desde el
+ *   propio Foro: tocar el mensaje → papelera. Lo que hace un administrador no
+ *   se cuenta con la analítica propia (lib/analytics.ts no le registra), así
+ *   que no se usa para esto.
+ * - "«Mis seguimientos» (30 días)": personas distintas que abrieron esa
+ *   pestaña de Perfil y cuántas lo hicieron deslizando (analítica propia
+ *   seguimientos_abiertos, solo de quien aceptó la analítica).
  * - Buscador: filtra la lista ya cargada por email (no vuelve a pedir nada a
  *   Supabase, la lista de usuarios registrados no suele ser tan grande).
  * - Orden: por fecha de alta (más recientes primero, por defecto) o por
@@ -139,8 +142,10 @@ const EVENTOS_PERFIL = [
   "perfil_foto_cancelada",
 ] as const;
 
-// Moderación del Foro (app/(tabs)/chat-global.tsx): mensajes y comentarios que eliminan los administradores.
-const EVENTOS_FORO = ["foro_mensaje_eliminado", "foro_comentario_eliminado"] as const;
+// Perfil → «Mis seguimientos» (app/(tabs)/perfil.tsx): quién lo abre y si lo hace deslizando o tocando la pestaña.
+// (Lo que hace un administrador no se mide con la analítica propia, que no le cuenta: la moderación del Foro se cuenta
+// con datos de la base de datos.)
+const EVENTOS_SEGUIMIENTOS = ["seguimientos_abiertos"] as const;
 
 type SortMode = "recent" | "participation";
 
@@ -344,12 +349,11 @@ export default function AdminUsers() {
     fotosEncuadradas: number;
     fotosCanceladas: number;
   } | null>(null);
-  // Moderación del Foro: mensajes eliminados en 30 días (analítica propia) y comentarios de noticias eliminados (ocultos,
-  // contados en la base de datos). null = no se ha podido leer.
-  const [moderacionForo, setModeracionForo] = useState<{ mensajes: number | null; comentarios: number | null }>({
-    mensajes: null,
-    comentarios: null,
-  });
+  // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
+  // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
+  const [comentariosEliminados, setComentariosEliminados] = useState<number | null>(null);
+  // «Mis seguimientos» en los últimos 30 días: personas distintas que lo abrieron y, de ellas, cuántas deslizando.
+  const [usoSeguimientos, setUsoSeguimientos] = useState<{ personas: number; deslizando: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -366,18 +370,24 @@ export default function AdminUsers() {
         supabase.from("perfiles_cliente").select("user_id,nombre,usuario,pais,provincia,fecha_nacimiento,foto_url,updated_at").limit(5000),
         supabase
           .from("analytics_events")
-          .select("event_name,user_id,session_id")
-          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_FORO])
+          .select("event_name,user_id,session_id,metadata")
+          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS])
           .gte("created_at", desde)
           .limit(5000),
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
       ]);
-      setModeracionForo({
-        mensajes: eventosRes.error
-          ? null
-          : ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "foro_mensaje_eliminado").length,
-        comentarios: comentariosOcultosRes.error ? null : comentariosOcultosRes.count ?? 0,
-      });
+      setComentariosEliminados(comentariosOcultosRes.error ? null : comentariosOcultosRes.count ?? 0);
+      if (eventosRes.error) {
+        setUsoSeguimientos(null);
+      } else {
+        type FilaUso = { event_name: string; user_id: string | null; session_id: string | null; metadata: { como?: unknown } | null };
+        const aperturas = ((eventosRes.data ?? []) as FilaUso[]).filter((e) => e.event_name === "seguimientos_abiertos");
+        const quien = (e: FilaUso) => e.user_id || e.session_id || "";
+        setUsoSeguimientos({
+          personas: new Set(aperturas.map(quien).filter(Boolean)).size,
+          deslizando: new Set(aperturas.filter((e) => e.metadata?.como === "deslizar").map(quien).filter(Boolean)).size,
+        });
+      }
       // Tabla creada con la migración antigua (sin foto): se pide sin esas columnas.
       const perfilesRes =
         perfilesConFoto.error && /foto_url|updated_at/.test(String(perfilesConFoto.error.message ?? ""))
@@ -601,11 +611,16 @@ export default function AdminUsers() {
             </View>
 
             {/* Moderación del Foro: lo que eliminan los administradores (tocando un mensaje → papelera). */}
-            {moderacionForo.mensajes !== null || moderacionForo.comentarios !== null ? (
+            {comentariosEliminados !== null ? (
               <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                Moderación del Foro
-                {moderacionForo.mensajes !== null ? ` · mensajes eliminados (30 días): ${moderacionForo.mensajes}` : ""}
-                {moderacionForo.comentarios !== null ? ` · comentarios de noticias eliminados: ${moderacionForo.comentarios}` : ""}
+                Moderación del Foro · comentarios de noticias eliminados: {comentariosEliminados}
+              </Text>
+            ) : null}
+
+            {/* Perfil → «Mis seguimientos»: quién lo abre (analítica propia, 30 días) y cuántos deslizando la pestaña. */}
+            {usoSeguimientos ? (
+              <Text nativeID="admin-uso-seguimientos" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                «Mis seguimientos» (30 días): lo abrieron {usoSeguimientos.personas} · deslizando {usoSeguimientos.deslizando}
               </Text>
             ) : null}
 

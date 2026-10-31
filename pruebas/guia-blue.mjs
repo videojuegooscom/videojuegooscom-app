@@ -533,7 +533,7 @@ try {
     if (titulo === "Mis seguimientos") {
       // La guía pulsa la pestaña «Mis seguimientos» y se ve su contenido; el puntero apunta a esa pestaña.
       // (con el cliente falso la lista puede quedarse en «Cargando tus seguimientos…»: también es su contenido)
-      const visto = await p.waitForFunction(() => /Cargando tus seguimientos|Reparaciones con seguimiento|Pedidos/.test(document.getElementById("root")?.innerText ?? ""), null, { timeout: 8000 }).then(() => true, () => false);
+      const visto = await p.waitForFunction(() => /Cargando tus seguimientos|Reparaciones y Mantenimientos|Pedidos/.test(document.getElementById("root")?.innerText ?? ""), null, { timeout: 8000 }).then(() => true, () => false);
       ok(visto, "Mis seguimientos: la guía pulsa la pestaña y se ve su contenido (seguimientos de reparaciones y pedidos)");
       await capturar(p, "10b-seguimientos");
       const pestana = await p.evaluate(() => {
