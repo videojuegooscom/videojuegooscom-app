@@ -373,12 +373,12 @@ export default function ContratarServicioModal({
                       backgroundColor: COLORS.accentDark,
                     }}
                   >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ver en Seguimientos</Text>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Ver en Mis seguimientos</Text>
                   </View>
                 </AnimatedPressable>
               ) : (
                 <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
-                  Inicia sesión para seguir tu reparación en Perfil → Seguimientos
+                  Inicia sesión para seguir tu reparación en Perfil → Mis seguimientos
                 </Text>
               )}
               <AnimatedPressable onPress={handleClose}>
@@ -445,7 +445,7 @@ export default function ContratarServicioModal({
 
               {!userId ? (
                 <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
-                  Inicia sesión para seguir tu reparación en Perfil → Seguimientos
+                  Inicia sesión para seguir tu reparación en Perfil → Mis seguimientos
                 </Text>
               ) : null}
 

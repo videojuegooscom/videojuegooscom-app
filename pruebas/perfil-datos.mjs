@@ -6,21 +6,26 @@
  * (se comprueba lo que la tienda MANDARÍA guardar); nada llega a ninguna base de datos ni a la cuenta real de nadie.
  *
  * Comprueba:
- *  - Perfil público (Mi cuenta): cabecera plegable «Perfil público · @usuario · Completo/Faltan datos» (abierta si faltan datos,
- *    plegada si está completo); se rellena con lo que la persona escribió al registrarse; desplegables de país y de provincia
- *    (52 provincias de España; con otro país la provincia pasa a ser un texto), fecha de nacimiento y edad calculada («23 Años»);
- *    ✓ verde cuando está bien; usuario con formato; menos de 14 años no se puede guardar; «Guardar perfil» manda lo escrito,
- *    confirma, y actualiza también los datos de la cuenta (el Foro enseña de ahí el nombre); usuario repetido, «Deshacer», perfil
- *    ya guardado y tabla todavía sin crear (la tarjeta no sale y el resto de Mi cuenta sigue igual).
- *  - Foto (opcional): se elige, se reduce a JPEG y se sube a la carpeta del cliente en «avatares»; al guardar va en foto_url y
- *    en los datos de la cuenta; «Quitar foto».
+ *  - Mi perfil (Mi cuenta): cabecera plegable «Mi perfil · @usuario · Completo/Faltan datos» (abierta si faltan datos,
+ *    plegada si está completo, y se pliega sola al guardarlo completo); dentro, la cuenta («Tu cuenta está activa», la sesión y
+ *    «Cerrar sesión»), sin otra tarjeta aparte; se rellena con lo que la persona escribió al registrarse; usuario y «Nombre y
+ *    apellidos» a lo ancho; desplegables de país y de provincia (52 provincias de España; con otro país la provincia pasa a ser
+ *    un texto), fecha de nacimiento y, a su lado, la edad calculada («23 Años»); ✓ verde cuando está bien; usuario con formato;
+ *    menos de 14 años no se puede guardar; «Guardar perfil» manda lo escrito, confirma, y actualiza también los datos de la
+ *    cuenta; usuario repetido, «Deshacer», perfil ya guardado y tabla todavía sin crear (la tarjeta no sale y la cuenta sale en
+ *    su tarjeta de siempre).
+ *  - Foto (opcional): se elige, se ENCUADRA (arrastrar, acercar o alejar; «Cancelar» no sube nada) y se sube recortada
+ *    (cuadrado de 320 px en JPEG, con lo que se dejó en el centro) a la carpeta del cliente en «avatares»; al guardar va en
+ *    foto_url y en los datos de la cuenta; «Quitar foto».
+ *  - Foro: cada mensaje enseña el usuario y la foto de «Mi perfil» de quien escribe (función perfiles_publicos), no su nombre
+ *    completo; quien no tiene perfil sigue con su nombre y la inicial; sin la función, el Foro sigue como antes.
  *  - «Completa tu perfil» (obligatorio): con sesión y el perfil a medias tapa Inicio; «Guardar y continuar» solo con todo lo
  *    obligatorio; al guardar desaparece; «Cerrar sesión» sale; Blue no se ve mientras tanto; no sale en Mi cuenta, en las
  *    políticas, con el perfil completo ni sin la tabla.
- *  - Administración → Usuarios: contadores (con perfil, completos, edad media, provincias), chips por edad, provincia y país que
- *    filtran la lista, el resumen de cada cliente, el buscador por nombre/usuario/provincia, y la ficha con el perfil. Sin la
+ *  - Administración → Usuarios: contadores (con perfil, completos, edad media, provincias), cuántos encuadraron su foto o dejaron
+ *    el recorte (30 días), chips por edad, provincia y país que filtran la lista, el resumen de cada cliente, el buscador por nombre/usuario/provincia, y la ficha con el perfil. Sin la
  *    tabla, nada de eso sale y la lista funciona igual.
- *  - Diseño: nada se ensancha, campos y botones de 56 px, sin errores de JavaScript.
+ *  - Diseño: nada se ensancha, campos y botones compactos pero de 44 px o más (se tocan bien), sin errores de JavaScript.
  *
  * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas]
  * Requisitos: playwright-core y npm run build hecho.
@@ -130,12 +135,22 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.salio = true;
       return r.fulfill({ status: 204, headers: CORS, body: "" });
     }
-    // Subida de la foto de perfil (nada llega a ningún almacén): se apunta qué se mandaría.
+    // Subida de la foto de perfil (nada llega a ningún almacén): se apunta qué se mandaría (y la foto, para mirarla).
     if (url.pathname.startsWith("/storage/v1/object/avatares/") && metodo === "POST") {
       const cuerpo = peticion.postDataBuffer() ?? Buffer.alloc(0);
       const texto = cuerpo.toString("latin1");
-      estado.subidas = [...(estado.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: (texto.match(/Content-Type:\s*(image\/[a-z]+)/i) ?? [null, peticion.headers()["content-type"] ?? ""])[1] }];
+      const inicio = cuerpo.indexOf(Buffer.from([0xff, 0xd8, 0xff]));
+      const fin = cuerpo.lastIndexOf(Buffer.from([0xff, 0xd9]));
+      const jpeg = inicio >= 0 && fin > inicio ? cuerpo.subarray(inicio, fin + 2).toString("base64") : "";
+      estado.subidas = [...(estado.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: (texto.match(/Content-Type:\s*(image\/[a-z]+)/i) ?? [null, peticion.headers()["content-type"] ?? ""])[1], jpeg }];
       return json({ Key: url.pathname.slice("/storage/v1/object/".length) });
+    }
+    // Foro: mensajes ficticios y la función perfiles_publicos (usuario y foto de quien escribe).
+    if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "GET") return json(estado.mensajes ?? []);
+    if (url.pathname.endsWith("/rpc/perfiles_publicos")) {
+      estado.pedidosPerfilesForo = [...(estado.pedidosPerfilesForo ?? []), JSON.parse(peticion.postData() ?? "{}")];
+      if (!estado.perfilesForo) return json({ code: "PGRST202", message: "Could not find the function public.perfiles_publicos(ids) in the schema cache" }, 404);
+      return json(estado.perfilesForo);
     }
     if (url.pathname.endsWith("/auth/v1/user")) {
       if (metodo === "PUT") {
@@ -165,7 +180,7 @@ async function contexto(navegador, usuario, rol, estado) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -195,7 +210,10 @@ try {
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-datos").waitFor({ timeout: 30000 });
     const t = await p.locator("#perfil-datos").innerText();
-    ok(/Perfil público/.test(t), "A: sale la tarjeta «Perfil público» en Mi cuenta");
+    ok(/Mi perfil/.test(t) && !/Perfil público/.test(t), "A: sale la tarjeta «Mi perfil» en Mi cuenta (ya no «Perfil público»)");
+    ok(/Tu cuenta está activa/.test(t) && /SESIÓN ACTUAL/.test(t) && t.includes(CLIENTE.email) && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 1, "A: la cuenta («Tu cuenta está activa», la sesión y «Cerrar sesión») va DENTRO de «Mi perfil»");
+    ok((await p.getByText("SESIÓN ACTUAL").count()) === 1 && (await p.getByText("Tu cuenta está activa").count()) === 1, "A: y no hay otra tarjeta de la cuenta aparte");
+    ok((await p.getByText("Mis seguimientos").count()) >= 1 && (await p.locator("#perfil-pestanas").getByText("Seguimientos", { exact: true }).count()) === 0, "A: la pestaña se llama «Mis seguimientos»");
     ok(/Sin usuario · Faltan datos/.test(await p.locator("#perfil-cabecera").innerText()), `A: la cabecera dice «Sin usuario · Faltan datos» (${(await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ")})`);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "true", "A: con datos pendientes la tarjeta sale abierta");
     ok(/Falta: provincia, fecha de nacimiento/.test(t), "A: dice qué falta («Falta: provincia, fecha de nacimiento»)");
@@ -204,7 +222,22 @@ try {
     const valor = (etiqueta) => p.locator(`#perfil-datos [aria-label="${etiqueta}"]`).first();
     ok((await valor("Nombre").inputValue()) === "Dani" && (await valor("Nombre de usuario").inputValue()) === "dani", "A: nombre y usuario salen rellenados con lo que escribió al registrarse");
     ok(/España/.test(t), "A: y el país también (España)");
-    ok(/Provincia/.test(t) && /Fecha de nacimiento/.test(t) && /Edad/.test(t), "A: faltan la provincia, la fecha y la edad (se ven los textos de ayuda)");
+    ok(/Provincia/.test(t) && /Fecha de nacimiento/.test(t) && !/ Años/.test(t), "A: faltan la provincia y la fecha (se ven los textos de ayuda; la edad sale al elegir la fecha)");
+    // Ancho del texto escribible: a lo ancho es casi toda la fila (en dos columnas no llegaría a la mitad).
+    const anchos = await p.evaluate(() => {
+      const medir = (e) => document.querySelector(`#perfil-datos [aria-label="${e}"]`)?.getBoundingClientRect().width ?? 0;
+      const caja = document.querySelector("#perfil-datos [aria-label=\"Nombre\"]");
+      return { usuario: Math.round(medir("Nombre de usuario")), nombre: Math.round(medir("Nombre")), marcador: caja?.getAttribute("placeholder") ?? "", formulario: Math.round(document.getElementById("perfil-datos")?.getBoundingClientRect().width ?? 0) };
+    });
+    ok(anchos.marcador === "Nombre y apellidos", `A: el nombre pide «Nombre y apellidos» (${anchos.marcador})`);
+    ok(anchos.nombre >= anchos.formulario * 0.6 && anchos.usuario >= anchos.formulario * 0.6, `A: usuario y nombre ocupan toda la fila, para que se lean enteros (${anchos.usuario} y ${anchos.nombre} px de texto en ${anchos.formulario} px)`);
+    await valor("Nombre").fill("Daniel Gutiérrez Martínez");
+    const cabe = await p.evaluate(() => {
+      const i = document.querySelector('#perfil-datos [aria-label="Nombre"]');
+      return { cabe: i.scrollWidth <= i.clientWidth + 1, texto: i.scrollWidth, sitio: i.clientWidth };
+    });
+    ok(cabe.cabe, `A: un nombre con dos apellidos («Daniel Gutiérrez Martínez») se lee entero (${cabe.texto}/${cabe.sitio} px)`);
+    await valor("Nombre").fill("Dani");
     const guardar = p.getByRole("button", { name: "Guardar perfil" });
     ok((await guardar.getAttribute("aria-disabled")) !== "true", "A: «Guardar perfil» está activo (lo del registro está sin guardar)");
     ok((await p.getByRole("button", { name: "Deshacer los cambios" }).count()) === 1, "A: está «Deshacer»");
@@ -221,6 +254,14 @@ try {
     ok(/Zaragoza/.test(t2), "A: la provincia elegida se ve en el campo");
     ok(/19 ago 2003/.test(t2), "A: la fecha se ve así: «19 ago 2003»");
     ok(t2.includes(`${edadHoy("2003-08-19")} Años`), `A: la edad se calcula sola («${edadHoy("2003-08-19")} Años»)`);
+    const fila = await p.evaluate(() => {
+      const r = (n) => n?.getBoundingClientRect();
+      const fecha = r(document.querySelector('#perfil-datos input[aria-label="Fecha de nacimiento"]'));
+      const edad = r(document.querySelector('#perfil-datos [aria-label="Edad"]'));
+      const textoEdad = document.querySelector('#perfil-datos [aria-label="Edad"]');
+      return fecha && edad ? { mismaFila: Math.abs(fecha.top + fecha.height / 2 - (edad.top + edad.height / 2)) < 6, aLaDerecha: edad.left > fecha.right - 2, cortada: textoEdad.scrollWidth > textoEdad.clientWidth + 1 } : null;
+    });
+    ok(!!fila && fila.mismaFila && fila.aLaDerecha && !fila.cortada, `A: en el iPhone la edad va al lado de la fecha, entera (${JSON.stringify(fila)})`);
     await capturar(p, "A2-perfil-relleno");
 
     // Validaciones.
@@ -243,9 +284,15 @@ try {
     const g = estado.guardados.at(-1);
     ok(!!g && g.cuerpo.user_id === CLIENTE.id && g.cuerpo.nombre === "Dani" && g.cuerpo.usuario === "dani_zgz" && g.cuerpo.pais === "España" && g.cuerpo.provincia === "Zaragoza" && g.cuerpo.fecha_nacimiento === "2003-08-19", `A: manda guardar lo escrito (${JSON.stringify(g?.cuerpo ?? null)})`);
     ok(/on_conflict=user_id/.test(g?.url ?? "") && /merge-duplicates/.test(g?.prefer ?? ""), "A: y lo hace sobre SU fila (si ya existe la actualiza; no crea otra)");
-    ok(!!estado.cuenta && estado.cuenta.data?.full_name === "Dani" && estado.cuenta.data?.username === "dani_zgz" && estado.cuenta.data?.country === "España", `A: actualiza también los datos de la cuenta (de ahí saca el Foro el nombre): ${JSON.stringify(estado.cuenta?.data ?? null)}`);
-    ok((await guardar.getAttribute("aria-disabled")) === "true", "A: tras guardar no hay nada pendiente: «Guardar perfil» se desactiva");
+    ok(!!estado.cuenta && estado.cuenta.data?.full_name === "Dani" && estado.cuenta.data?.username === "dani_zgz" && estado.cuenta.data?.country === "España", `A: actualiza también los datos de la cuenta: ${JSON.stringify(estado.cuenta?.data ?? null)}`);
     ok(/@dani_zgz · Completo/.test(await p.locator("#perfil-cabecera").innerText()), "A: la cabecera pasa a «@dani_zgz · Completo»");
+    await p.waitForTimeout(300);
+    ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "false" && (await p.locator('#perfil-datos [aria-label="Nombre"]').count()) === 0, "A: al guardarlo completo, el desplegable se cierra solo");
+    ok((await p.locator("#perfil-datos").getByText("Perfil guardado.").count()) === 1, "A: y debajo de la cabecera se lee «Perfil guardado.»");
+    await capturar(p, "A3-perfil-guardado-plegado");
+    await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(300);
+    ok((await guardar.getAttribute("aria-disabled")) === "true", "A: al abrirlo otra vez no hay nada pendiente: «Guardar perfil» está desactivado");
     ok(p.errores.length === 0, `A: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
 
     // Deshacer.
@@ -264,7 +311,9 @@ try {
     await p.waitForFunction(() => /Perfil guardado/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => {});
     ok(estado.guardados.at(-1)?.cuerpo.pais === "Francia" && estado.guardados.at(-1)?.cuerpo.provincia === "Lyon", "A: con otro país guarda la región escrita");
 
-    // Diseño.
+    // Diseño (con el desplegable abierto).
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(300);
     const medidas = await p.evaluate(() => {
       const caja = (document.getElementById("perfil-datos") ?? document.body).getBoundingClientRect();
       const botones = Array.from(document.querySelectorAll('#perfil-datos [role="button"]')).map((b) => Math.round(b.getBoundingClientRect().height));
@@ -272,9 +321,18 @@ try {
       return { ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth, caja: Math.round(caja.width), botones, nativos };
     });
     ok(medidas.ancho <= medidas.pantalla + 1, `A: la página no se ensancha (${medidas.ancho}/${medidas.pantalla})`);
-    ok(medidas.botones.length >= 2 && medidas.botones.every((h) => h >= 55), `A: los botones miden 56 px (${medidas.botones.join(", ")})`);
-    // (el campo mide 56 px con su borde; el control nativo cubre lo de dentro)
-    ok(medidas.nativos.length >= 2 && medidas.nativos.every((h) => h >= 52), `A: los desplegables y la fecha se tocan en todo el campo, de 52 px o más (${medidas.nativos.join(", ")})`);
+    ok(medidas.botones.length >= 3 && medidas.botones.every((h) => h >= 44), `A: los botones se tocan bien, de 44 px o más (${medidas.botones.join(", ")})`);
+    ok(medidas.botones.filter((h) => h < 100).every((h) => h <= 64), `A: y son compactos (ninguno pasa de 64 px salvo la foto: ${medidas.botones.join(", ")})`);
+    // (el campo mide 48 px con su borde; el control nativo cubre lo de dentro)
+    ok(medidas.nativos.length >= 2 && medidas.nativos.every((h) => h >= 44 && h <= 50), `A: los desplegables y la fecha, compactos y tocables en todo el campo, de 44 a 50 px (${medidas.nativos.join(", ")})`);
+    await capturar(p, "A4-perfil-abierto");
+
+    // «Cerrar sesión» dentro de «Mi perfil».
+    const salir = await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).boundingBox();
+    ok(!!salir && salir.height > 0, "A: «Cerrar sesión» se ve al final de «Mi perfil»");
+    await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).click();
+    await p.getByText("Inicia sesión o regístrate").waitFor({ timeout: 10000 }).catch(() => {});
+    ok(estado.salio === true && (await p.locator("#perfil-datos").count()) === 0 && (await p.getByText("Inicia sesión o regístrate").count()) === 1, "A: «Cerrar sesión» (dentro de «Mi perfil») cierra la sesión y vuelve el acceso");
     await ctx.close();
   }
 
@@ -298,8 +356,10 @@ try {
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-datos").waitFor({ timeout: 30000 });
     const cabecera = (await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ");
-    ok(/Perfil público/.test(cabecera) && /@ana_g · Completo/.test(cabecera), `C: la cabecera dice «Perfil público · @ana_g · Completo» (${cabecera})`);
+    ok(/Mi perfil/.test(cabecera) && /@ana_g · Completo/.test(cabecera), `C: la cabecera dice «Mi perfil · @ana_g · Completo» (${cabecera})`);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "false" && (await p.locator('#perfil-datos [aria-label="Nombre"]').count()) === 0, "C: completo, la tarjeta sale plegada");
+    ok((await p.getByText("SESIÓN ACTUAL").count()) === 0, "C: plegada, la cuenta también queda dentro (no sale una tarjeta aparte)");
+    await capturar(p, "C0-perfil-plegado");
     await p.locator("#perfil-cabecera").click();
     await p.waitForTimeout(300);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "true", "C: al tocar la cabecera se abre");
@@ -319,8 +379,8 @@ try {
     const p = await pagina(ctx, "/perfil");
     await p.getByText("SESIÓN ACTUAL").waitFor({ timeout: 30000 });
     await p.waitForTimeout(1500);
-    ok((await p.locator("#perfil-datos").count()) === 0, "D: sin la tabla, «Tu perfil» no sale");
-    ok((await p.getByText("Cerrar sesión").count()) >= 1, "D: y el resto de Mi cuenta sigue igual (sesión y «Cerrar sesión»)");
+    ok((await p.locator("#perfil-datos").count()) === 0, "D: sin la tabla, «Mi perfil» no sale");
+    ok((await p.getByText("Cerrar sesión").count()) >= 1 && (await p.getByText("Tu cuenta está activa").count()) === 1, "D: y la cuenta sale en su tarjeta de siempre («Tu cuenta está activa», sesión y «Cerrar sesión»)");
     ok(p.errores.length === 0, `D: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -333,34 +393,139 @@ try {
     await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 });
     await p.locator("#perfil-cabecera").click();
     await p.locator("#perfil-foto").waitFor({ timeout: 5000 });
-    // Una foto PNG de 900 × 600: la tienda la reduce y la sube como JPEG.
+    // Una foto PNG de 900 × 600, mitad izquierda roja y mitad derecha azul: se encuadra, se recorta y se sube como JPEG.
     const png = await p.evaluate(() => {
       const c = document.createElement("canvas");
       c.width = 900;
       c.height = 600;
       const x = c.getContext("2d");
-      x.fillStyle = "#1EA7E8";
-      x.fillRect(0, 0, 900, 600);
+      x.fillStyle = "#FF0000";
+      x.fillRect(0, 0, 450, 600);
+      x.fillStyle = "#0000FF";
+      x.fillRect(450, 0, 450, 600);
       return c.toDataURL("image/png").split(",")[1];
     });
-    const [selector] = await Promise.all([p.waitForEvent("filechooser"), p.locator("#perfil-foto").click()]);
-    await selector.setFiles({ name: "yo.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    const elegir = async () => {
+      const [selector] = await Promise.all([p.waitForEvent("filechooser"), p.locator("#perfil-foto").click()]);
+      await selector.setFiles({ name: "yo.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+      await p.locator('#perfil-recorte [aria-label="Arrastra la foto para encuadrarla"]').waitFor({ timeout: 10000 }).catch(() => {});
+    };
+    await elegir();
+    const ventana = await p.locator("#perfil-recorte").innerText().catch(() => "");
+    ok(/Encuadra tu foto/.test(ventana) && /Usar foto/.test(ventana) && /Cancelar/.test(ventana), "H: al elegir la foto se abre «Encuadra tu foto» (con «Usar foto» y «Cancelar»)");
+    ok((estado.subidas ?? []).length === 0, "H: y todavía no se ha subido nada");
+    await capturar(p, "H1-encuadrar");
+    // Cancelar: no sube nada.
+    await p.locator("#perfil-recorte").getByText("Cancelar").click();
+    await p.waitForTimeout(400);
+    ok((await p.locator("#perfil-recorte").count()) === 0 && (estado.subidas ?? []).length === 0, "H: «Cancelar» cierra sin subir nada");
+    // Otra vez: acercar y alejar, y arrastrar la foto hacia la derecha (se ve más de la parte roja).
+    await elegir();
+    const vista = p.locator('#perfil-recorte [aria-label="Arrastra la foto para encuadrarla"]');
+    const anchoFoto = async () => p.evaluate(() => Math.round(document.querySelector('#perfil-recorte img')?.getBoundingClientRect().width ?? 0));
+    const antes = await anchoFoto();
+    await p.locator("#perfil-recorte").getByRole("button", { name: "Acercar" }).click();
+    const acercada = await anchoFoto();
+    ok(acercada > antes * 1.2 && Number(await p.locator('#perfil-recorte input[type="range"]').inputValue()) > 1.2, `H: «Acercar» agranda la foto (${antes} → ${acercada} px)`);
+    await p.locator("#perfil-recorte").getByRole("button", { name: "Alejar" }).click();
+    ok(Math.abs((await anchoFoto()) - antes) <= 2, "H: y «Alejar» la deja como estaba (no se puede alejar más que el cuadrado: nunca quedan huecos)");
+    const caja = await vista.boundingBox();
+    await p.mouse.move(caja.x + caja.width / 2, caja.y + caja.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(caja.x + caja.width / 2 + 60, caja.y + caja.height / 2, { steps: 6 });
+    await p.mouse.move(caja.x + caja.width / 2 + 400, caja.y + caja.height / 2 + 300, { steps: 6 });
+    await p.mouse.up();
+    const sitioFoto = await p.evaluate(() => {
+      const v = document.querySelector('#perfil-recorte [aria-label="Arrastra la foto para encuadrarla"]').getBoundingClientRect();
+      const i = document.querySelector("#perfil-recorte img").getBoundingClientRect();
+      return { izquierda: Math.round(i.left - v.left), arriba: Math.round(i.top - v.top), abajo: Math.round(i.bottom - v.bottom) };
+    });
+    ok(sitioFoto.izquierda === 0 && sitioFoto.arriba === 0 && sitioFoto.abajo === 0, `H: al arrastrarla se mueve, pero sin dejar huecos (se para en el borde: ${JSON.stringify(sitioFoto)})`);
+    await capturar(p, "H2-encuadrada");
+    await p.locator("#perfil-recorte").getByText("Usar foto").click();
     await p.getByText("Toca la foto para cambiarla").waitFor({ timeout: 15000 }).catch(() => {});
     const subida = (estado.subidas ?? [])[0];
-    ok(!!subida && new RegExp(`^avatares/${CLIENTE.id}/\\d+\\.jpg$`).test(subida.ruta) && subida.tipo === "image/jpeg", `H: la foto se sube reducida a JPEG a la carpeta del cliente (${JSON.stringify(subida ?? null)})`);
+    ok(!!subida && new RegExp(`^avatares/${CLIENTE.id}/\\d+\\.jpg$`).test(subida.ruta) && subida.tipo === "image/jpeg", `H: «Usar foto» la sube recortada en JPEG a la carpeta del cliente (${JSON.stringify(subida ? { ruta: subida.ruta, tipo: subida.tipo } : null)})`);
+    // Lo que se ha subido: cuadrado de 320 px con el encuadre elegido (izquierda y centro rojos, borde derecho azul).
+    const recorte = subida?.jpeg
+      ? await p.evaluate(async (b64) => {
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const bmp = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+          const c = document.createElement("canvas");
+          c.width = bmp.width;
+          c.height = bmp.height;
+          const x = c.getContext("2d");
+          x.drawImage(bmp, 0, 0);
+          const color = (u, v) => {
+            const [r, , b] = x.getImageData(Math.round(u), Math.round(v), 1, 1).data;
+            return r > 150 && b < 100 ? "rojo" : b > 150 && r < 100 ? "azul" : `otro(${r},${b})`;
+          };
+          return { ancho: bmp.width, alto: bmp.height, izquierda: color(6, bmp.height / 2), centro: color(bmp.width / 2, bmp.height / 2), derecha: color(bmp.width - 6, bmp.height / 2) };
+        }, subida.jpeg)
+      : null;
+    ok(!!recorte && recorte.ancho === 320 && recorte.alto === 320, `H: la foto subida es un cuadrado de 320 × 320 px (${recorte ? `${recorte.ancho} × ${recorte.alto}` : "sin foto"})`);
+    ok(!!recorte && recorte.izquierda === "rojo" && recorte.centro === "rojo" && recorte.derecha === "azul", `H: y es justo el encuadre elegido (izquierda ${recorte?.izquierda}, centro ${recorte?.centro}, derecha ${recorte?.derecha})`);
     ok((await p.getByText("Toca la foto para cambiarla").count()) === 1 && (await p.getByText("Quitar foto").count()) === 1, "H: con foto dice «Toca la foto para cambiarla» y ofrece «Quitar foto»");
     await p.getByRole("button", { name: "Guardar perfil" }).click();
     await p.waitForFunction(() => /Perfil guardado/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => {});
     const g = estado.guardados.at(-1)?.cuerpo;
     ok(!!g && new RegExp(`/storage/v1/object/public/avatares/${CLIENTE.id}/\\d+\\.jpg$`).test(g.foto_url ?? ""), `H: al guardar, la foto va en foto_url (${g?.foto_url})`);
     ok(estado.cuenta?.data?.avatar_url === g?.foto_url, "H: y en los datos de la cuenta (avatar_url)");
-    await capturar(p, "H-perfil-foto");
+    await capturar(p, "H3-perfil-foto");
+    await p.waitForTimeout(300);
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) !== "true") await p.locator("#perfil-cabecera").click();
     await p.getByText("Quitar foto").click();
     await p.getByRole("button", { name: "Guardar perfil" }).click();
     await p.waitForTimeout(1200);
     ok(estado.guardados.at(-1)?.cuerpo.foto_url === null, "H: «Quitar foto» y guardar la deja sin foto (foto_url vacío)");
     ok(p.errores.length === 0, `H: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
+  }
+
+  // ===== I) Foro: el usuario y la foto de «Mi perfil» de quien escribe ===========================================
+  {
+    const ANA = "22222222-2222-4222-8222-222222222222";
+    const LUIS = "33333333-3333-4333-8333-333333333333";
+    const mensaje = (id, user_id, display_name, username, body, minuto) => ({ id, created_at: `2026-10-30T18:${minuto}:00Z`, user_id, username, display_name, role: "member", body, reply_to_id: null });
+    const MENSAJES = [
+      mensaje("m1000000-0000-4000-8000-000000000001", CLIENTE.id, "Daniel García López", "cliente", "¿Alguien tiene la Switch OLED?", "03"),
+      mensaje("m2000000-0000-4000-8000-000000000002", ANA, "Ana Pérez Gil", "ana", "Yo la compré aquí, va genial", "02"),
+      mensaje("m3000000-0000-4000-8000-000000000003", LUIS, "Luis Romero", "luis", "Buenas a todos", "01"),
+    ];
+    const PERFIL_COMPLETO = [{ user_id: CLIENTE.id, nombre: "Daniel García López", usuario: "dani_zgz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2003-08-19" }];
+    const FOTO_DANI = `https://fotos.ejemplo.invalid/storage/v1/object/public/avatares/${CLIENTE.id}/1.jpg`;
+    const estado = {
+      filas: PERFIL_COMPLETO,
+      guardados: [],
+      mensajes: MENSAJES,
+      perfilesForo: [{ user_id: CLIENTE.id, usuario: "dani_zgz", foto_url: FOTO_DANI }, { user_id: ANA, usuario: "ana_g", foto_url: null }],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/chat-global?tab=chat");
+    await p.getByText("Buenas a todos").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForFunction(() => /dani_zgz/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => {});
+    const t = await p.evaluate(() => document.body.innerText);
+    ok(t.includes("dani_zgz") && t.includes("ana_g"), "I: en el Foro cada mensaje enseña el usuario de «Mi perfil» de quien escribe");
+    ok(!t.includes("Daniel García López") && !t.includes("Ana Pérez Gil"), "I: y ya no su nombre y apellidos");
+    ok(t.includes("Luis Romero"), "I: quien aún no tiene usuario sigue saliendo con su nombre");
+    ok((await p.locator('img[alt="Foto de dani_zgz"]').count()) >= 1, "I: con su foto de perfil al lado del usuario");
+    ok((await p.locator('img[alt="Foto de ana_g"]').count()) === 0, "I: quien no tiene foto sigue con la inicial");
+    const pedidos = (estado.pedidosPerfilesForo ?? []).flatMap((b) => b.ids ?? []);
+    ok([CLIENTE.id, ANA, LUIS].every((id) => pedidos.includes(id)) && (estado.pedidosPerfilesForo ?? []).length <= 2, `I: lo pide de una vez para quienes han escrito (${(estado.pedidosPerfilesForo ?? []).length} peticiones)`);
+    ok(p.errores.length === 0, `I: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "I1-foro-usuario-foto");
+    await ctx.close();
+
+    // Sin la función (migración sin aplicar): el Foro sigue como antes.
+    const estado2 = { filas: PERFIL_COMPLETO, guardados: [], mensajes: MENSAJES };
+    const ctx2 = await contexto(navegador, CLIENTE, "user", estado2);
+    const p2 = await pagina(ctx2, "/chat-global?tab=chat");
+    await p2.getByText("Buenas a todos").waitFor({ timeout: 30000 }).catch(() => {});
+    await p2.waitForTimeout(1500);
+    const t2 = await p2.evaluate(() => document.body.innerText);
+    ok(t2.includes("Daniel García López") && t2.includes("Ana Pérez Gil") && t2.includes("Luis Romero"), "I: sin la función de la base de datos, el Foro sigue enseñando el nombre como antes");
+    ok(p2.errores.length === 0, `I: y sin errores de JavaScript (${p2.errores.length}${p2.errores[0] ? ": " + p2.errores[0] : ""})`);
+    await ctx2.close();
   }
 
   // ===== G) «Completa tu perfil» (obligatorio) ====================================================================
@@ -436,6 +601,10 @@ try {
     { event_name: "perfil_obligatorio_visto", user_id: U[3].user_id, session_id: "s4" },
     { event_name: "perfil_guardado", user_id: U[0].user_id, session_id: "s1" },
     { event_name: "perfil_obligatorio_salir", user_id: U[3].user_id, session_id: "s4" },
+    // Foto de perfil: Dani la encuadró y Ana dejó el recorte dos veces (cuenta como una persona).
+    { event_name: "perfil_foto_encuadrada", user_id: U[0].user_id, session_id: "s1" },
+    { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
+    { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
   ];
   {
     const estado = { usuarios: U, filas: PERFILES, guardados: [], eventos: EVENTOS };
@@ -462,6 +631,7 @@ try {
     const plano = t.replace(/\n/g, " ");
     ok(/Faltan datos\s*2/.test(plano) && /Con foto\s*1/.test(plano), "E: contadores nuevos: «Faltan datos: 2» (a quienes les sale «Completa tu perfil») y «Con foto: 1»");
     ok(/«Completa tu perfil» \(30 días\): la vieron 2 · la completaron 1 · cerraron sesión 1/.test(plano), `E: seguimiento de «Completa tu perfil» (personas distintas, 30 días): ${(plano.match(/«Completa tu perfil».{0,80}/) ?? [""])[0]}`);
+    ok(/Foto de perfil \(30 días\): la encuadraron 1 · dejaron el recorte 1/.test(plano), `E: seguimiento del recorte de la foto (personas distintas, 30 días): ${(plano.match(/Foto de perfil \(30 días\).{0,50}/) ?? [""])[0]}`);
     ok(t.includes("Completo (2)") && t.includes("Faltan datos (2)") && t.includes("Con foto (1)"), "E: chips de estado con su recuento");
     ok(lista.includes("Perfil completo · actualizado 30/10/2026") && lista.includes("Faltan: usuario, nombre, edad") && lista.includes("Aún no ha completado su perfil"), "E: cada fila dice si el perfil está completo (y cuándo se actualizó) o qué le falta");
     ok((await p.locator('img[alt="Foto de Dani"]').count()) === 1, "E: la fila enseña la foto del cliente que la tiene");

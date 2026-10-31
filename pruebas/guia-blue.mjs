@@ -28,7 +28,7 @@
  *   --real=https://…       prueba la tienda REAL (solo lecturas: toda petición que no sea GET se corta) en vez de dist
  *   --movimiento-reducido  el navegador pide «reducir movimiento»
  *   --sesion               con una sesión iniciada SIMULADA (cliente falso, sin tocar la base de datos): sale el paso
- *                          «Seguimientos», no sale «Tu cuenta» y el último botón es «Terminar»
+ *                          «Mis seguimientos», no sale «Tu cuenta» y el último botón es «Terminar»
  *   --sin-extra            solo el recorrido principal (sin atrás, deslizar, saltar ni primera visita)
  * Requisitos: playwright-core y, sin --real, npm run build hecho.
  */
@@ -223,19 +223,19 @@ try {
 
   const TITULOS = [
     "¡Hola! Soy Blue", "Las 5 secciones", "Inicio", "Ver categorías", "Las categorías", "Filtros y orden", "Un artículo", "Vender ahora",
-    "Vender mi artículo", "Para salir", "El buscador", "Perfil", "Seguimientos", "Cesta", "Cómo se compra", "Las pestañas del Foro",
+    "Vender mi artículo", "Para salir", "El buscador", "Perfil", "Mis seguimientos", "Cesta", "Cómo se compra", "Las pestañas del Foro",
     "Reacciona y responde", "Foro", "Blue IA", "Hablar con el equipo", "Este soy yo", "Instala la tienda", "Reparación y limpieza", "Tu cuenta",
   ]; // los que contienen otro título («Las pestañas del Foro», «Foro»…) van antes: sus botones se llaman igual
-  const GESTO_TOQUE = ["Inicio", "Ver categorías", "Vender ahora", "Para salir", "Seguimientos", "Cesta", "Foro", "Las pestañas del Foro", "Blue IA", "Hablar con el equipo", "Este soy yo"];
+  const GESTO_TOQUE = ["Inicio", "Ver categorías", "Vender ahora", "Para salir", "Mis seguimientos", "Cesta", "Foro", "Las pestañas del Foro", "Blue IA", "Hablar con el equipo", "Este soy yo"];
   // Los pasos que enseñan OTRA página llevan la tarjeta baja (para que se vea la página); el resto, la grande.
-  const COMPACTAS = ["Filtros y orden", "Un artículo", "Vender mi artículo", "Para salir", "Perfil", "Seguimientos", "Cesta", "Foro", "Blue IA", "Hablar con el equipo", "Reparación y limpieza"];
+  const COMPACTAS = ["Filtros y orden", "Un artículo", "Vender mi artículo", "Para salir", "Perfil", "Mis seguimientos", "Cesta", "Foro", "Blue IA", "Hablar con el equipo", "Reparación y limpieza"];
   const ALTO_GRANDE = 292;
   const ALTO_COMPACTA = 212;
   // Qué se enmarca como título de cada página («Estás aquí»): su nombre en la barra de abajo o su h1.
   const TITULO_DE = {
     "Inicio": '[data-testid="pestana-index"]', "Ver categorías": '[data-testid="pestana-index"]', "Las categorías": '[data-testid="pestana-index"]',
     "Vender ahora": '[data-testid="pestana-index"]', "Vender mi artículo": "h1", "Para salir": "h1", "El buscador": '[data-testid="pestana-index"]',
-    "Perfil": '[data-testid="pestana-perfil"]', "Seguimientos": '[data-testid="pestana-perfil"]', "Cesta": '[data-testid="pestana-cesta"]',
+    "Perfil": '[data-testid="pestana-perfil"]', "Mis seguimientos": '[data-testid="pestana-perfil"]', "Cesta": '[data-testid="pestana-cesta"]',
     "Foro": '[data-testid="pestana-foro"]', "Las pestañas del Foro": '[data-testid="pestana-foro"]', "Blue IA": '[data-testid="pestana-blue-ia"]',
     "Este soy yo": '[data-testid="pestana-index"]', "Reparación y limpieza": "h1", "Filtros y orden": "h1", "Un artículo": "h1",
     "Cómo se compra": '[data-testid="pestana-cesta"]', "Reacciona y responde": '[data-testid="pestana-foro"]', "Hablar con el equipo": '[data-testid="pestana-blue-ia"]',
@@ -523,30 +523,30 @@ try {
         `Perfil: el recuadro rodea las pestañas de la cuenta (recuadro ${caja(aro)}, pestañas ${caja(pestanas)})`);
       const textoPerfil = await tarjeta.innerText();
       if (SESION) {
-        ok(await p.evaluate(() => !!document.getElementById("perfil-pestanas")), "Perfil (con sesión): se ven las pestañas «Mi cuenta» y «Seguimientos»");
+        ok(await p.evaluate(() => !!document.getElementById("perfil-pestanas")), "Perfil (con sesión): se ven las pestañas «Mi cuenta» y «Mis seguimientos»");
         ok(textoPerfil.includes("Mi cuenta"), "Perfil (con sesión): la tarjeta habla de «Mi cuenta»");
       } else {
         ok(textoPerfil.includes("entras o creas tu cuenta"), "Perfil (sin sesión): la tarjeta habla de entrar o crear la cuenta");
       }
     }
 
-    if (titulo === "Seguimientos") {
-      // La guía pulsa la pestaña «Seguimientos» y se ve su contenido; el puntero apunta a esa pestaña.
+    if (titulo === "Mis seguimientos") {
+      // La guía pulsa la pestaña «Mis seguimientos» y se ve su contenido; el puntero apunta a esa pestaña.
       // (con el cliente falso la lista puede quedarse en «Cargando tus seguimientos…»: también es su contenido)
       const visto = await p.waitForFunction(() => /Cargando tus seguimientos|Reparaciones con seguimiento|Pedidos/.test(document.getElementById("root")?.innerText ?? ""), null, { timeout: 8000 }).then(() => true, () => false);
-      ok(visto, "Seguimientos: la guía pulsa la pestaña y se ve su contenido (seguimientos de reparaciones y pedidos)");
+      ok(visto, "Mis seguimientos: la guía pulsa la pestaña y se ve su contenido (seguimientos de reparaciones y pedidos)");
       await capturar(p, "10b-seguimientos");
       const pestana = await p.evaluate(() => {
         // (la página de Perfil existe dos veces en el documento: una oculta de 0×0)
         const r = Array.from(document.querySelectorAll("#perfil-pestanas *"))
-          .filter((n) => n.children.length === 0 && n.textContent.trim() === "Seguimientos")
+          .filter((n) => n.children.length === 0 && n.textContent.trim() === "Mis seguimientos")
           .map((n) => n.getBoundingClientRect())
           .find((b) => b.width > 4);
         return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
       });
       const mano = await rect(manos);
       ok(!!pestana && !!mano && Math.abs(centro(mano).x - centro(pestana).x) < 60 && Math.abs(centro(mano).y - centro(pestana).y) < 60,
-        `Seguimientos: el puntero apunta a la pestaña (puntero ${mano ? Math.round(centro(mano).x) + "," + Math.round(centro(mano).y) : "—"}, pestaña ${pestana ? Math.round(centro(pestana).x) + "," + Math.round(centro(pestana).y) : "—"})`);
+        `Mis seguimientos: el puntero apunta a la pestaña (puntero ${mano ? Math.round(centro(mano).x) + "," + Math.round(centro(mano).y) : "—"}, pestaña ${pestana ? Math.round(centro(pestana).x) + "," + Math.round(centro(pestana).y) : "—"})`);
     }
 
     if (titulo === "Las pestañas del Foro") {

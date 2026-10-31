@@ -222,7 +222,7 @@ try {
     Catálogo: ["Filtros y orden"],
     Artículo: ["Un artículo"],
     Vender: ["Vender mi artículo", "Para salir"],
-    Perfil: SESION ? ["Perfil", "Seguimientos"] : ["Perfil"],
+    Perfil: SESION ? ["Perfil", "Mis seguimientos"] : ["Perfil"],
     Cesta: ["Cesta", "Cómo se compra"],
     Foro: ["Foro", "Las pestañas del Foro", "Reacciona y responde"],
     "Blue IA": ["Blue IA", "Hablar con el equipo"],

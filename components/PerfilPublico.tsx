@@ -1,12 +1,16 @@
 // components/PerfilPublico.tsx
 /**
- * Qué hace: el «Perfil público» del cliente y su obligación de completarlo.
+ * Qué hace: «Mi perfil» del cliente (su perfil público: usuario y foto se ven en el Foro) y su obligación de completarlo.
  *
- * - PerfilPublico (Mi cuenta → app/(tabs)/perfil.tsx): tarjeta plegable con la foto pequeña, «Perfil público» y
- *   «@usuario · Completo» (o «Faltan datos»); dentro, la foto grande («Toca la foto para cambiarla», opcional), usuario,
- *   nombre, país, provincia o región, fecha de nacimiento (la edad se calcula; mínimo 14 años) y «Guardar perfil» /
- *   «Deshacer». Campos redondeados y centrados con ✓ verde cuando están bien; desplegables con ⌃⌄ (los nativos del móvil,
- *   invisibles encima del campo).
+ * - PerfilPublico (Mi cuenta → app/(tabs)/perfil.tsx): tarjeta plegable con la foto pequeña, «Mi perfil» y
+ *   «@usuario · Completo» (o «Faltan datos»); sale plegada si ya está completo y se pliega sola al guardarlo completo.
+ *   Dentro: la foto grande («Toca la foto para cambiarla», opcional, con su recorte: RecortarFoto), usuario, nombre y
+ *   apellidos (a lo ancho, para que se lean enteros), país y provincia o región, fecha de nacimiento y edad (se calcula;
+ *   mínimo 14 años), «Guardar perfil» / «Deshacer» y, debajo, la cuenta (la sesión y «Cerrar sesión», que le pasa la
+ *   pantalla en `cuenta`). Campos compactos, redondeados y centrados con ✓ verde cuando están bien; desplegables con ⌃⌄
+ *   (los nativos del móvil, invisibles encima del campo).
+ * - perfilesPublicos(ids): usuario y foto de varias personas para el Foro (función perfiles_publicos de la base de datos,
+ *   que solo devuelve eso; si aún no existe, el Foro sigue como antes).
  * - PerfilObligatorio (montado una vez en app/_layout.tsx): con sesión iniciada y el perfil sin completar, una pantalla
  *   «Completa tu perfil» tapa la tienda hasta que se guarda completo (o se cierra la sesión). No sale en Mi cuenta (allí está
  *   la tarjeta), ni en las políticas (se pueden leer antes de dar los datos), ni al cambiar la contraseña, ni en el panel de
@@ -19,8 +23,8 @@
  * Foro saca el nombre. Si la tabla aún no existe (migración sin aplicar), no se enseña nada ni se exige nada; si existe sin la
  * columna de la foto, todo funciona sin foto.
  */
-import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -165,6 +169,43 @@ async function leerPerfil(uid: string): Promise<Lectura> {
   };
 }
 
+// --- usuario y foto para el Foro ----------------------------------------------------------------------------------
+
+export type PerfilForo = { usuario: string; foto: string };
+// Lo ya pedido (null = esa persona no tiene usuario o no ha escrito en el Foro); se vuelve a pedir pasados 5 minutos.
+const perfilesForo = new Map<string, { perfil: PerfilForo | null; hasta: number }>();
+const VIGENCIA_PERFIL_FORO_MS = 5 * 60 * 1000;
+let funcionForoDisponible = true;
+
+// Usuario y foto de «Mi perfil» de quienes escriben en el Foro (función perfiles_publicos: solo esos dos datos y solo de
+// quien ha escrito allí). Si la función aún no existe (migración sin aplicar), devuelve vacío y el Foro sigue como antes.
+export async function perfilesPublicos(ids: string[]): Promise<Map<string, PerfilForo>> {
+  const ahora = Date.now();
+  const unicos = Array.from(new Set(ids.filter(Boolean)));
+  const pedir = unicos.filter((id) => (perfilesForo.get(id)?.hasta ?? 0) <= ahora);
+  for (let i = 0; funcionForoDisponible && i < pedir.length; i += 200) {
+    const lote = pedir.slice(i, i + 200);
+    const { data, error } = await supabase.rpc("perfiles_publicos", { ids: lote });
+    if (error) {
+      const codigo = String((error as { code?: unknown }).code ?? "");
+      if (["PGRST202", "42883", "42501", "PGRST205"].includes(codigo)) funcionForoDisponible = false;
+      break;
+    }
+    const hasta = Date.now() + VIGENCIA_PERFIL_FORO_MS;
+    for (const id of lote) perfilesForo.set(id, { perfil: null, hasta });
+    for (const fila of (Array.isArray(data) ? data : []) as { user_id?: unknown; usuario?: unknown; foto_url?: unknown }[]) {
+      const usuario = textoDe(fila.usuario);
+      if (typeof fila.user_id === "string" && usuario) perfilesForo.set(fila.user_id, { perfil: { usuario, foto: textoDe(fila.foto_url) }, hasta });
+    }
+  }
+  const encontrados = new Map<string, PerfilForo>();
+  for (const id of unicos) {
+    const p = perfilesForo.get(id)?.perfil;
+    if (p) encontrados.set(id, p);
+  }
+  return encontrados;
+}
+
 // Al guardar el perfil en cualquier sitio, la pantalla obligatoria vuelve a mirar si ya está completo.
 const oyentesGuardado = new Set<() => void>();
 const avisarPerfilGuardado = () => oyentesGuardado.forEach((f) => f());
@@ -197,6 +238,8 @@ function CajaPerfil({
   enfocado,
   error,
   encima,
+  ancho,
+  sinHuecoDerecho,
   children,
 }: {
   valido?: boolean;
@@ -204,15 +247,19 @@ function CajaPerfil({
   enfocado?: boolean;
   error?: boolean;
   encima?: React.ReactNode;
+  /** Ancho fijo (la edad, junto a la fecha); sin él, ocupa lo que queda de la fila. */
+  ancho?: number;
+  /** Sin el hueco de las flechas (caja estrecha que no es desplegable). */
+  sinHuecoDerecho?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <View
       style={{
-        flex: 1,
+        ...(ancho ? { width: ancho } : { flex: 1 }),
         minWidth: 0,
-        minHeight: 56,
-        borderRadius: 18,
+        minHeight: 48,
+        borderRadius: 16,
         borderWidth: 1.5,
         borderColor: error ? P.danger : enfocado ? P.accent : P.line,
         backgroundColor: "#FFFFFF",
@@ -225,7 +272,9 @@ function CajaPerfil({
     >
       <View style={{ width: 22, alignItems: "center" }}>{valido ? <Ionicons name="checkmark" size={20} color={P.ok} /> : null}</View>
       <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>{children}</View>
-      <View style={{ width: 22, alignItems: "center" }}>{desplegable ? <Ionicons name="chevron-expand" size={18} color={P.text} /> : null}</View>
+      {sinHuecoDerecho && !desplegable ? null : (
+        <View style={{ width: 22, alignItems: "center" }}>{desplegable ? <Ionicons name="chevron-expand" size={18} color={P.text} /> : null}</View>
+      )}
       {encima}
     </View>
   );
@@ -243,7 +292,7 @@ const ESTILO_NATIVO_INVISIBLE = {
   fontSize: 16,
 };
 
-const ESTILO_TEXTO_PERFIL = { textAlign: "center" as const, fontSize: 17, fontWeight: "800" as const, color: P.text };
+const ESTILO_TEXTO_PERFIL = { textAlign: "center" as const, fontSize: 15.5, fontWeight: "800" as const, color: P.text };
 
 // Foto redonda (o silueta si no hay).
 function Foto({ uri, lado, alt }: { uri: string; lado: number; alt: string }) {
@@ -276,14 +325,24 @@ export default function PerfilPublico({
   uid,
   modo = "tarjeta",
   alCompletar,
+  cuenta,
+  onDisponible,
 }: {
   uid: string;
   /** «tarjeta»: en Mi cuenta, plegable. «obligatorio»: dentro de «Completa tu perfil». */
   modo?: "tarjeta" | "obligatorio";
   alCompletar?: () => void;
+  /** La cuenta (sesión y «Cerrar sesión»): va dentro de «Mi perfil», debajo de los datos. */
+  cuenta?: React.ReactNode;
+  /** Dice si «Mi perfil» se puede enseñar (si la tabla aún no existe, la pantalla enseña la cuenta por su cuenta). */
+  onDisponible?: (disponible: boolean) => void;
 }) {
   const obligatorio = modo === "obligatorio";
   const [estado, setEstado] = useState<"cargando" | "no-disponible" | "listo">("cargando");
+  const [recorte, setRecorte] = useState<string | null>(null); // foto elegida, a la espera de recortarla
+  useEffect(() => {
+    if (estado !== "cargando") onDisponible?.(estado === "listo");
+  }, [estado, onDisponible]);
   const [conFoto, setConFoto] = useState(true);
   const [datos, setDatos] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardado, setGuardado] = useState<DatosPerfil>(DATOS_VACIOS);
@@ -292,6 +351,8 @@ export default function PerfilPublico({
   const [aviso, setAviso] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [enfocado, setEnfocado] = useState<keyof DatosPerfil | null>(null);
   const [abierto, setAbierto] = useState(true);
+  // Fecha y edad en la misma fila a partir de este ancho de pantalla (más estrecha, la fecha no se leería entera).
+  const fechaYEdadJuntas = useWindowDimensions().width >= 370;
 
   useEffect(() => {
     let vivo = true;
@@ -348,7 +409,8 @@ export default function PerfilPublico({
     });
   }, []);
 
-  // Foto: se elige, se reduce a 512 px en JPEG y se sube a la carpeta del cliente; se guarda con «Guardar perfil».
+  // Foto: se elige, se recorta (RecortarFoto: encuadre cuadrado de 320 px en JPEG) y se sube a la carpeta del cliente; se
+  // guarda con «Guardar perfil».
   const elegirFoto = async () => {
     if (subiendoFoto || guardando) return;
     setAviso(null);
@@ -359,21 +421,30 @@ export default function PerfilPublico({
       setAviso({ tipo: "error", texto: e instanceof Error ? e.message : "No se ha podido abrir el selector de fotos." });
       return;
     }
+    const foto = elegidas.items.find((it) => it.kind === "image");
     for (const it of elegidas.items) {
+      if (it === foto) continue;
       try {
         URL.revokeObjectURL(it.previewUrl);
       } catch {
         // nada
       }
     }
-    const foto = elegidas.items.find((it) => it.kind === "image");
     if (!foto) {
       if (elegidas.skipped.length) setAviso({ tipo: "error", texto: "Esa foto no se puede usar. Prueba con una JPG o PNG." });
       return;
     }
+    // En la web se recorta antes de subirla; fuera de la web, se reduce tal cual.
+    if (Platform.OS === "web") {
+      setRecorte(foto.previewUrl);
+      return;
+    }
+    await subirFoto(await reducirImagenWeb(foto.file, LADO_FOTO, 0.85, true));
+  };
+
+  const subirFoto = async (archivo: File) => {
     setSubiendoFoto(true);
     try {
-      const archivo = await reducirImagenWeb(foto.file, 512, 0.85, true);
       const ruta = `${uid}/${Date.now()}.jpg`;
       const { error } = await supabase.storage
         .from(ALMACEN_FOTOS)
@@ -442,10 +513,15 @@ export default function PerfilPublico({
       }
       setDatos(limpio);
       setGuardado(limpio);
+      perfilesForo.delete(uid); // el Foro vuelve a pedir su usuario y su foto
       setAviso({ tipo: "ok", texto: "Perfil guardado." });
       trackEvent("perfil_guardado", "Perfil: guardado");
       avisarPerfilGuardado();
-      if (perfilCompleto(limpio)) alCompletar?.();
+      if (perfilCompleto(limpio)) {
+        alCompletar?.();
+        // Guardado completo: en Mi cuenta el desplegable se cierra solo (si falta algo, se queda abierto para verlo).
+        if (!obligatorio) setAbierto(false);
+      }
     } catch {
       setAviso({ tipo: "error", texto: "No se ha podido guardar. Inténtalo de nuevo." });
     } finally {
@@ -475,7 +551,7 @@ export default function PerfilPublico({
         maxLength={campo === "usuario" ? 24 : 60}
         autoCapitalize={campo === "usuario" ? "none" : "words"}
         autoCorrect={false}
-        style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 10, ...sinOutline }]}
+        style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, ...sinOutline }]}
       />
     </CajaPerfil>
   );
@@ -505,16 +581,25 @@ export default function PerfilPublico({
         ) : null
       }
     >
-      <Text numberOfLines={1} style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 10, color: datos[campo] ? P.text : marcador }]}>
+      <Text numberOfLines={1} style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, color: datos[campo] ? P.text : marcador }]}>
         {datos[campo] || placeholder}
       </Text>
     </CajaPerfil>
   );
 
+  const cajaEdad =
+    edad !== null && edad >= 0 ? (
+      <CajaPerfil valido={edad >= EDAD_MINIMA} ancho={fechaYEdadJuntas ? 112 : undefined} sinHuecoDerecho={fechaYEdadJuntas}>
+        <Text accessibilityLabel="Edad" numberOfLines={1} style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7 }]}>
+          {`${edad} Años`}
+        </Text>
+      </CajaPerfil>
+    ) : null;
+
   const formulario = (
-    <View style={{ width: "100%", maxWidth: 460, gap: 12 }}>
+    <View style={{ width: "100%", maxWidth: 460, gap: 10 }}>
       {conFoto ? (
-        <View style={{ alignItems: "center", gap: 8, paddingBottom: 4 }}>
+        <View style={{ alignItems: "center", gap: 6, paddingBottom: 2 }}>
           <Pressable
             nativeID="perfil-foto"
             onPress={elegirFoto}
@@ -523,15 +608,15 @@ export default function PerfilPublico({
             accessibilityLabel={datos.foto ? "Cambiar la foto de perfil" : "Añadir una foto de perfil"}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, position: "relative" })}
           >
-            <Foto uri={datos.foto} lado={132} alt="Tu foto de perfil" />
+            <Foto uri={datos.foto} lado={104} alt="Tu foto de perfil" />
             <View
               style={{
                 position: "absolute",
-                right: 4,
-                bottom: 4,
-                width: 36,
-                height: 36,
-                borderRadius: 18,
+                right: 0,
+                bottom: 0,
+                width: 34,
+                height: 34,
+                borderRadius: 17,
                 backgroundColor: P.accent,
                 borderWidth: 2,
                 borderColor: "#FFFFFF",
@@ -542,23 +627,24 @@ export default function PerfilPublico({
               {subiendoFoto ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Ionicons name="camera" size={18} color="#FFFFFF" />}
             </View>
           </Pressable>
-          <Text style={{ color: P.muted, fontWeight: "800", textAlign: "center" }}>
-            {subiendoFoto ? "Subiendo la foto…" : datos.foto ? "Toca la foto para cambiarla" : "Toca para añadir tu foto (opcional)"}
-          </Text>
-          {datos.foto && !subiendoFoto ? (
-            <Pressable onPress={() => cambiar("foto", "")} accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 12 }}>
-              <Text style={{ color: P.muted, fontWeight: "800", textDecorationLine: "underline" }}>Quitar foto</Text>
-            </Pressable>
-          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", minHeight: datos.foto ? 44 : 0 }}>
+            <Text style={{ color: P.muted, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>
+              {subiendoFoto ? "Subiendo la foto…" : datos.foto ? "Toca la foto para cambiarla" : "Toca para añadir tu foto (opcional)"}
+            </Text>
+            {datos.foto && !subiendoFoto ? (
+              <Pressable onPress={() => cambiar("foto", "")} accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}>
+                <Text style={{ color: P.muted, fontWeight: "800", fontSize: 13.5, textDecorationLine: "underline" }}>Quitar foto</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       ) : null}
 
-      <View style={{ flexDirection: "row", gap: 12 }}>
-        {campoTexto("usuario", "Usuario", "Nombre de usuario")}
-        {campoTexto("nombre", "Nombre", "Nombre")}
-      </View>
+      {/* Usuario y nombre a lo ancho: así el nombre y los apellidos se leen enteros. */}
+      <View style={{ flexDirection: "row" }}>{campoTexto("usuario", "Usuario", "Nombre de usuario")}</View>
+      <View style={{ flexDirection: "row" }}>{campoTexto("nombre", "Nombre y apellidos", "Nombre")}</View>
 
-      <View style={{ flexDirection: "row", gap: 12 }}>
+      <View style={{ flexDirection: "row", gap: 10 }}>
         {campoSelector("pais", "País", "País", opcionesPais)}
         {esEspana || !datos.pais ? (
           campoSelector("provincia", "Provincia", "Provincia", opcionesProvincia)
@@ -574,13 +660,14 @@ export default function PerfilPublico({
               accessibilityLabel="Provincia o región"
               maxLength={60}
               autoCapitalize="words"
-              style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 10, ...sinOutline }]}
+              style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, ...sinOutline }]}
             />
           </CajaPerfil>
         )}
       </View>
 
-      <View style={{ flexDirection: "row" }}>
+      {/* La edad sale al elegir la fecha: a su lado si cabe; en pantallas estrechas, debajo. */}
+      <View style={{ flexDirection: "row", gap: 10 }}>
         <CajaPerfil
           valido={!!datos.fecha && !errores.fecha}
           desplegable
@@ -602,19 +689,13 @@ export default function PerfilPublico({
             ) : null
           }
         >
-          <Text numberOfLines={1} style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 10, color: datos.fecha ? P.text : marcador }]}>
+          <Text numberOfLines={1} style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, color: datos.fecha ? P.text : marcador }]}>
             {datos.fecha ? fechaBonita(datos.fecha) : "Fecha de nacimiento"}
           </Text>
         </CajaPerfil>
+        {fechaYEdadJuntas ? cajaEdad : null}
       </View>
-
-      <View style={{ flexDirection: "row" }}>
-        <CajaPerfil valido={edad !== null && edad >= EDAD_MINIMA}>
-          <Text accessibilityLabel="Edad" style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 10, color: edad !== null ? P.text : marcador }]}>
-            {edad !== null && edad >= 0 ? `${edad} Años` : "Edad"}
-          </Text>
-        </CajaPerfil>
-      </View>
+      {!fechaYEdadJuntas && cajaEdad ? <View style={{ flexDirection: "row" }}>{cajaEdad}</View> : null}
 
       {primerError ? (
         <Text style={{ color: P.danger, fontWeight: "800", textAlign: "center", lineHeight: 19 }}>{primerError}</Text>
@@ -634,7 +715,7 @@ export default function PerfilPublico({
           accessibilityLabel={obligatorio ? "Guardar y continuar" : "Guardar perfil"}
           style={({ pressed }) => ({
             flex: 1,
-            minHeight: 56,
+            minHeight: 48,
             borderRadius: 999,
             alignItems: "center",
             justifyContent: "center",
@@ -642,7 +723,7 @@ export default function PerfilPublico({
             opacity: !puedeGuardar ? 0.5 : pressed ? 0.88 : 1,
           })}
         >
-          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 }}>
+          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>
             {guardando ? "Guardando…" : obligatorio ? "Guardar y continuar" : "Guardar perfil"}
           </Text>
         </Pressable>
@@ -656,7 +737,7 @@ export default function PerfilPublico({
             accessibilityRole="button"
             accessibilityLabel="Deshacer los cambios"
             style={({ pressed }) => ({
-              minHeight: 56,
+              minHeight: 48,
               paddingHorizontal: 22,
               borderRadius: 999,
               alignItems: "center",
@@ -674,22 +755,47 @@ export default function PerfilPublico({
     </View>
   );
 
-  if (obligatorio) return <View nativeID="perfil-obligatorio-formulario" style={{ width: "100%", alignItems: "center" }}>{formulario}</View>;
+  const ventanaRecorte = recorte ? (
+    <RecortarFoto
+      uri={recorte}
+      onCancelar={() => {
+        revocar(recorte);
+        setRecorte(null);
+        // Analítica propia (Administración → Usuarios): cuántos encuadran su foto y cuántos lo dejan.
+        trackEvent("perfil_foto_cancelada", "Perfil: recorte de foto cancelado");
+      }}
+      onListo={(archivo) => {
+        revocar(recorte);
+        setRecorte(null);
+        trackEvent("perfil_foto_encuadrada", "Perfil: foto encuadrada");
+        void subirFoto(archivo);
+      }}
+    />
+  ) : null;
+
+  if (obligatorio) {
+    return (
+      <View nativeID="perfil-obligatorio-formulario" style={{ width: "100%", alignItems: "center" }}>
+        {formulario}
+        {ventanaRecorte}
+      </View>
+    );
+  }
 
   return (
-    <View nativeID="perfil-datos" style={{ gap: 18, alignItems: "center" }}>
-      {/* Cabecera plegable: foto pequeña, «Perfil público» y «@usuario · Completo». */}
+    <View nativeID="perfil-datos" style={{ gap: 14, alignItems: "center" }}>
+      {/* Cabecera plegable: foto pequeña, «Mi perfil» y «@usuario · Completo». */}
       <Pressable
         nativeID="perfil-cabecera"
         onPress={() => setAbierto((v) => !v)}
         accessibilityRole="button"
-        accessibilityLabel={abierto ? "Plegar el perfil público" : "Abrir el perfil público"}
+        accessibilityLabel={abierto ? "Plegar mi perfil" : "Abrir mi perfil"}
         {...({ "aria-expanded": abierto } as object)}
         style={({ pressed }) => ({
           width: "100%",
           maxWidth: 460,
-          minHeight: 76,
-          borderRadius: 22,
+          minHeight: 62,
+          borderRadius: 20,
           borderWidth: 1.5,
           borderColor: abierto ? P.accent : P.line,
           backgroundColor: "#FFFFFF",
@@ -700,19 +806,286 @@ export default function PerfilPublico({
           opacity: pressed ? 0.9 : 1,
         })}
       >
-        <Foto uri={guardado.foto} lado={48} alt="Foto de perfil" />
+        <Foto uri={guardado.foto} lado={40} alt="Foto de perfil" />
         <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
-          <Text style={{ color: P.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>Perfil público</Text>
-          <Text numberOfLines={1} style={{ color: P.muted, fontWeight: "800", textAlign: "center", marginTop: 2 }}>
+          <Text style={{ color: P.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Mi perfil</Text>
+          <Text numberOfLines={1} style={{ color: P.muted, fontWeight: "800", fontSize: 13.5, textAlign: "center", marginTop: 1 }}>
             {guardado.usuario ? `@${guardado.usuario}` : "Sin usuario"} · {guardadoCompleto ? "Completo" : "Faltan datos"}
           </Text>
         </View>
-        <View style={{ width: 48, alignItems: "center" }}>
-          <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={22} color={P.muted} />
+        <View style={{ width: 40, alignItems: "center" }}>
+          <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={20} color={P.muted} />
         </View>
       </Pressable>
-      {abierto ? formulario : null}
+      {/* Recién guardado y ya plegado: se dice aquí (dentro ya no se ve). */}
+      {!abierto && aviso?.tipo === "ok" ? (
+        <Text accessibilityRole="alert" style={{ color: P.ok, fontWeight: "800", textAlign: "center" }}>
+          {aviso.texto}
+        </Text>
+      ) : null}
+      {abierto ? (
+        <>
+          {formulario}
+          {cuenta ? (
+            <View style={{ width: "100%", maxWidth: 460, borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 }}>{cuenta}</View>
+          ) : null}
+        </>
+      ) : null}
+      {ventanaRecorte}
     </View>
+  );
+}
+
+function revocar(url: string) {
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    // nada
+  }
+}
+
+// --- recortar la foto (web) ---------------------------------------------------------------------------------------
+
+// La foto que se guarda: 320 × 320 px en JPEG (nítida en la foto grande de «Mi perfil» y ligera para el Foro, que enseña
+// muchas a la vez).
+const LADO_FOTO = 320;
+const ZOOM_MAX = 4;
+
+// La persona encuadra su foto: la arrastra para moverla y la acerca o aleja (− / + o la barra). El círculo marca lo que
+// se verá en el Foro y en su perfil; se guarda el cuadrado entero (LADO_FOTO px, JPEG, fondo blanco si la foto tiene huecos).
+function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: () => void; onListo: (archivo: File) => void }) {
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [fallo, setFallo] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [desplazamiento, setDesplazamiento] = useState({ x: 0, y: 0 }); // en px de la vista, desde el centro
+  const [lado, setLado] = useState(280); // lado de la vista cuadrada en pantalla
+  const [preparando, setPreparando] = useState(false);
+  const arrastre = useRef<{ id: number; x: number; y: number; dx: number; dy: number } | null>(null);
+
+  useEffect(() => {
+    const i = new window.Image();
+    i.onload = () => setImg(i);
+    i.onerror = () => setFallo(true);
+    i.src = uri;
+  }, [uri]);
+
+  // Tamaño de la foto en la vista: a zoom 1 la cubre entera (el lado corto mide lo que la vista).
+  const base = img ? lado / Math.min(img.naturalWidth || 1, img.naturalHeight || 1) : 1;
+  const ancho = img ? img.naturalWidth * base * zoom : lado;
+  const alto = img ? img.naturalHeight * base * zoom : lado;
+  // Sin dejar huecos: la foto siempre cubre el cuadrado.
+  const limitar = useCallback(
+    (d: { x: number; y: number }, z: number) => {
+      if (!img) return { x: 0, y: 0 };
+      const w = img.naturalWidth * base * z;
+      const h = img.naturalHeight * base * z;
+      const mx = Math.max(0, (w - lado) / 2);
+      const my = Math.max(0, (h - lado) / 2);
+      return { x: Math.min(mx, Math.max(-mx, d.x)), y: Math.min(my, Math.max(-my, d.y)) };
+    },
+    [img, base, lado]
+  );
+  const cambiarZoom = (z: number) => {
+    const nuevo = Math.min(ZOOM_MAX, Math.max(1, Math.round(z * 100) / 100));
+    setZoom(nuevo);
+    setDesplazamiento((d) => limitar({ x: (d.x * nuevo) / zoom, y: (d.y * nuevo) / zoom }, nuevo));
+  };
+
+  const usar = async () => {
+    if (!img || preparando) return;
+    setPreparando(true);
+    try {
+      const lienzo = document.createElement("canvas");
+      lienzo.width = LADO_FOTO;
+      lienzo.height = LADO_FOTO;
+      const ctx = lienzo.getContext("2d");
+      if (!ctx) throw new Error("sin lienzo");
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, LADO_FOTO, LADO_FOTO);
+      ctx.imageSmoothingQuality = "high";
+      const escala = LADO_FOTO / lado;
+      const x = (lado - ancho) / 2 + desplazamiento.x;
+      const y = (lado - alto) / 2 + desplazamiento.y;
+      ctx.drawImage(img, x * escala, y * escala, ancho * escala, alto * escala);
+      const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, "image/jpeg", 0.88));
+      if (!blob) throw new Error("sin foto");
+      onListo(new File([blob], "perfil.jpg", { type: "image/jpeg" }));
+    } catch {
+      setFallo(true);
+      setPreparando(false);
+    }
+  };
+
+  const vista = (
+    <div
+      onPointerDown={(e) => {
+        if (!img) return;
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        arrastre.current = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: desplazamiento.x, dy: desplazamiento.y };
+      }}
+      onPointerMove={(e) => {
+        const a = arrastre.current;
+        if (!a || a.id !== e.pointerId) return;
+        setDesplazamiento(limitar({ x: a.dx + e.clientX - a.x, y: a.dy + e.clientY - a.y }, zoom));
+      }}
+      onPointerUp={() => {
+        arrastre.current = null;
+      }}
+      onPointerCancel={() => {
+        arrastre.current = null;
+      }}
+      onWheel={(e) => cambiarZoom(zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08))}
+      aria-label="Arrastra la foto para encuadrarla"
+      style={{
+        position: "relative",
+        width: lado,
+        height: lado,
+        overflow: "hidden",
+        borderRadius: 18,
+        background: "#0B2138",
+        touchAction: "none",
+        cursor: img ? "grab" : "default",
+        userSelect: "none",
+      }}
+    >
+      {img ? (
+        <img
+          src={uri}
+          alt=""
+          draggable={false}
+          style={{
+            position: "absolute",
+            left: (lado - ancho) / 2 + desplazamiento.x,
+            top: (lado - alto) / 2 + desplazamiento.y,
+            width: ancho,
+            height: alto,
+            maxWidth: "none",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+      {/* Fuera del círculo, oscurecido: lo de dentro es lo que se verá. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          boxShadow: "0 0 0 999px rgba(11,33,56,0.55)",
+          border: "2px solid rgba(255,255,255,0.9)",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
+
+  const botonZoom = (icono: "remove" | "add", etiqueta: string, z: number) => (
+    <Pressable
+      onPress={() => cambiarZoom(z)}
+      accessibilityRole="button"
+      accessibilityLabel={etiqueta}
+      style={({ pressed }) => ({
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        borderWidth: 1.5,
+        borderColor: P.line,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#FFFFFF",
+        opacity: pressed ? 0.8 : 1,
+      })}
+    >
+      <Ionicons name={icono} size={22} color={P.text} />
+    </Pressable>
+  );
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCancelar}>
+      <View
+        nativeID="perfil-recorte"
+        style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", alignItems: "center", justifyContent: "center", padding: 16 }}
+      >
+        <View
+          onLayout={(e) => {
+            const nuevo = Math.max(200, Math.min(320, Math.floor(e.nativeEvent.layout.width - 32)));
+            if (nuevo === lado) return;
+            setLado(nuevo);
+            setDesplazamiento({ x: 0, y: 0 });
+          }}
+          style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 16, gap: 12, alignItems: "center" }}
+        >
+          <Text accessibilityRole="header" style={{ color: P.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+            Encuadra tu foto
+          </Text>
+          <Text style={{ color: P.muted, fontWeight: "700", textAlign: "center", lineHeight: 19 }}>
+            Arrástrala para moverla y acércala o aléjala. Se verá lo que queda dentro del círculo.
+          </Text>
+          {fallo ? (
+            <Text accessibilityRole="alert" style={{ color: P.danger, fontWeight: "800", textAlign: "center" }}>
+              No se ha podido preparar esta foto. Prueba con otra.
+            </Text>
+          ) : img ? (
+            vista
+          ) : (
+            <View style={{ width: lado, height: lado, alignItems: "center", justifyContent: "center" }}>
+              <ActivityIndicator color={P.accent} />
+            </View>
+          )}
+          {!fallo ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, alignSelf: "stretch" }}>
+              {botonZoom("remove", "Alejar", zoom / 1.25)}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  type="range"
+                  aria-label="Acercar o alejar"
+                  min={1}
+                  max={ZOOM_MAX}
+                  step={0.01}
+                  value={zoom}
+                  onChange={(e) => cambiarZoom(Number(e.target.value))}
+                  style={{ width: "100%", accentColor: P.accent, cursor: "pointer" }}
+                />
+              </View>
+              {botonZoom("add", "Acercar", zoom * 1.25)}
+            </View>
+          ) : null}
+          <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
+            <Pressable
+              onPress={onCancelar}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                minHeight: 46,
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: P.line,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: P.text, fontWeight: "900", fontSize: 15.5 }}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              onPress={usar}
+              disabled={!img || fallo || preparando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                minHeight: 46,
+                borderRadius: 999,
+                backgroundColor: P.accent,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: !img || fallo || preparando ? 0.5 : pressed ? 0.88 : 1,
+              })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{preparando ? "Preparando…" : "Usar foto"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 

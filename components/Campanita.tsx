@@ -3013,7 +3013,7 @@ type DemoGuia =
   | "formulario" // el formulario se desplaza un poco para enseñar que hay más abajo
   | "salir-formulario" // se señala cómo salir del formulario
   | "perfil-cuenta" // en Perfil con sesión, se pone la pestaña «Mi cuenta»
-  | "perfil-seguimientos" // en Perfil con sesión, la guía pulsa la pestaña «Seguimientos» y se ve su contenido
+  | "perfil-seguimientos" // en Perfil con sesión, la guía pulsa la pestaña «Mis seguimientos» y se ve su contenido
   | "foro-pestanas" // la guía despliega el selector del Foro y enseña cada pestaña, una por una
   | "foro-chat" // la guía abre la pestaña «Foro» (los mensajes) y la tarjeta enseña cómo reaccionar y responder
   | "capacidades" // lo que Blue sabe hacer (iconos en la tarjeta)
@@ -3177,8 +3177,8 @@ const PASOS_GUIA: PasoGuia[] = [
     icono: "person-outline",
     titulo: "Perfil",
     seccion: "perfil",
-    // Con sesión se enseña la pestaña «Mi cuenta» (y en el paso siguiente «Seguimientos»); sin sesión, el acceso.
-    texto: (conSesion) => (conSesion ? "«Mi cuenta»: tu sesión iniciada." : "Aquí entras o creas tu cuenta."),
+    // Con sesión se enseña la pestaña «Mi cuenta» (y en el paso siguiente «Mis seguimientos»); sin sesión, el acceso.
+    texto: (conSesion) => (conSesion ? "«Mi cuenta»: tu perfil y tu sesión." : "Aquí entras o creas tu cuenta."),
     objetivo: ["#perfil-pestanas", "#perfil-acceso"],
     ruta: "/perfil",
     demo: "perfil-cuenta",
@@ -3186,7 +3186,7 @@ const PASOS_GUIA: PasoGuia[] = [
   },
   {
     icono: "file-tray-full-outline",
-    titulo: "Seguimientos",
+    titulo: "Mis seguimientos",
     seccion: "perfil",
     texto: "Aquí ves tus reparaciones y pedidos.",
     objetivo: ["#perfil-pestanas"],
@@ -3859,7 +3859,7 @@ function GuiaBlue({
   onInstalar: () => void;
   // El paso «Instala la tienda» solo sale si se puede instalar en este dispositivo.
   instalable: boolean;
-  // Con sesión iniciada: sale «Seguimientos» y no sale «Tu cuenta» (crear cuenta).
+  // Con sesión iniciada: sale «Mis seguimientos» y no sale «Tu cuenta» (crear cuenta).
   conSesion: boolean;
   // Avisa a Blue de si este paso le señala a él (mientras no, se esconde para no tapar la guía).
   onSenalaBlue: (si: boolean) => void;
@@ -3957,7 +3957,7 @@ function GuiaBlue({
   // Pestaña del Foro que se está enseñando y si la persona ha tomado el mando (entonces la guía deja de moverlas).
   const [pestanaForo, setPestanaForo] = useState(0);
   const [foroManual, setForoManual] = useState(false);
-  // Dónde apunta el puntero en los pasos de «tocar» cuando no es el centro del recuadro (la pestaña «Seguimientos»).
+  // Dónde apunta el puntero en los pasos de «tocar» cuando no es el centro del recuadro (la pestaña «Mis seguimientos»).
   const [puntoToque, setPuntoToque] = useState<{ x: number; y: number } | null>(null);
   const [anchoSiguiente, setAnchoSiguiente] = useState(0);
   useEffect(() => {
@@ -4180,10 +4180,10 @@ function GuiaBlue({
     };
   }, [p.demo, ejemploElegido, ejemplos]);
 
-  // Perfil con sesión: se pulsa de verdad «Mi cuenta» o «Seguimientos» para que se vea el contenido de cada una.
+  // Perfil con sesión: se pulsa de verdad «Mi cuenta» o «Mis seguimientos» para que se vea el contenido de cada una.
   useEffect(() => {
     if ((p.demo !== "perfil-cuenta" && p.demo !== "perfil-seguimientos") || Platform.OS !== "web" || typeof document === "undefined") return;
-    const nombre = p.demo === "perfil-seguimientos" ? "Seguimientos" : "Mi cuenta";
+    const nombre = p.demo === "perfil-seguimientos" ? "Mis seguimientos" : "Mi cuenta";
     // Ojo: la página de Perfil existe dos veces en el documento (una oculta): se coge la pestaña que se ve.
     const pestana = () =>
       Array.from(document.querySelectorAll("#perfil-pestanas *")).find((n) => {
