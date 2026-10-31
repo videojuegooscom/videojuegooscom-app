@@ -194,6 +194,36 @@ async function contexto(navegador, usuario, rol, estado) {
       }
       if (metodo === "GET") return json(estado.serviciosFicha);
     }
+    // Foro, parte 2: silencios y registro de moderación. Sin datos en la prueba, «la tabla aún no existe» (antes de la
+    // migración), igual que en producción hasta que el dueño la aplique.
+    if (url.pathname.endsWith("/rest/v1/foro_silencios")) {
+      if (!estado.silencios) return json({ code: "PGRST205", message: "Could not find the table 'public.foro_silencios' in the schema cache" }, 404);
+      if (metodo === "POST" || metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        const id = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "") || cuerpo.user_id;
+        estado.silenciosEscritos = [...(estado.silenciosEscritos ?? []), { metodo, id, cuerpo, prefer: peticion.headers()["prefer"] ?? "" }];
+        estado.silencios = [...estado.silencios.filter((s) => s.user_id !== id), { user_id: id, motivo: null, ...cuerpo }];
+        return json([{ user_id: id }]);
+      }
+      if (metodo === "GET") {
+        const uid = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
+        const filas = estado.silencios.filter((s) => (!uid || s.user_id === uid) && (!url.searchParams.get("hasta") || new Date(s.hasta) > new Date()));
+        const objeto = /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "");
+        return objeto ? json(filas[0] ?? null, filas[0] ? 200 : 406) : json(filas);
+      }
+    }
+    if (url.pathname.endsWith("/rest/v1/foro_moderacion") && metodo === "GET") {
+      if (!estado.moderacion) return json({ code: "PGRST205", message: "Could not find the table 'public.foro_moderacion' in the schema cache" }, 404);
+      const uid = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
+      return json(estado.moderacion.filter((m) => !uid || m.user_id === uid));
+    }
+    if (url.pathname.endsWith("/rest/v1/store_reviews") && metodo === "GET" && estado.resenas) return json(estado.resenas);
+    if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "POST") {
+      estado.mensajesEnviados = [...(estado.mensajesEnviados ?? []), JSON.parse(peticion.postData() ?? "{}")];
+      return estado.bloqueoForo
+        ? json({ code: "42501", message: "new row violates row-level security policy for table \"chat_messages\"" }, 403)
+        : r.fulfill({ status: 201, headers: CORS, body: "" });
+    }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticias) return json(estado.noticias);
     if (url.pathname.endsWith("/rest/v1/noticias_comentarios")) {
@@ -733,6 +763,168 @@ try {
     await ctxC.close();
   }
 
+  // ===== L) Foro, parte 2: «Silenciar usuario», la persona silenciada, y usuario y foto en comentarios y reseñas ======
+  {
+    const ANA = "22222222-2222-4222-8222-222222222222";
+    const NOTICIA = "abcd1111-0000-4000-8000-000000000002";
+    const FOTO_ANA = `https://fotos.ejemplo.invalid/storage/v1/object/public/avatares/${ANA}/1.jpg`;
+    const mensaje = (id, user_id, display_name, body, minuto, role = "member") => ({ id, created_at: `2026-10-30T18:${minuto}:00Z`, user_id, username: "x", display_name, role, body, reply_to_id: null });
+    const base = (uid, extra = {}) => ({
+      filas: [{ user_id: uid, nombre: "Persona de Prueba", usuario: "persona_prueba", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+      guardados: [],
+      mensajes: [
+        mensaje("m2000000-0000-4000-8000-000000000002", ANA, "Ana Pérez Gil", "Mensaje de Ana", "01"),
+        mensaje("m9000000-0000-4000-8000-000000000009", ADMIN.id, "Tienda", "Mensaje de la tienda", "02", "admin"),
+      ],
+      perfilesForo: [{ user_id: ANA, usuario: "ana_g", foto_url: FOTO_ANA }],
+      noticias: [
+        {
+          id: NOTICIA, fuente: "Prueba", titulo: "Noticia con comentarios", imagen_url: null, categoria: "Consolas", resumen: "Resumen.",
+          puntos_clave: [], datos: [], por_que_importa: null, afecta_a: null, publicada_en: "2026-10-30T18:00:00Z", created_at: "2026-10-30T18:00:00Z",
+          imagenes: [], imagenes_verificadas: false, imagenes_meta: [], me_gusta: 0,
+        },
+      ],
+      comentarios: [{ id: "c2000000-0000-4000-8000-000000000002", noticia_id: NOTICIA, user_id: ANA, created_at: "2026-10-30T18:05:00Z", autor: "Ana Pérez Gil", texto: "Muy buena noticia" }],
+      ...extra,
+    });
+    const tocarMensaje = async (p, texto) => {
+      await p.getByText(texto, { exact: true }).click();
+      await p.waitForTimeout(500);
+    };
+
+    // L1: el administrador silencia a Ana 7 días con un motivo.
+    const estado = base(ADMIN.id, { silencios: [] });
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/chat-global?tab=chat");
+    await p.getByText("Mensaje de Ana").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    await tocarMensaje(p, "Mensaje de Ana");
+    ok((await p.getByRole("button", { name: "Silenciar a esta persona" }).count()) === 1, "L: el administrador, al tocar el mensaje de un cliente, tiene «Silenciar a esta persona»");
+    await p.getByRole("button", { name: "Silenciar a esta persona" }).click();
+    const v = p.locator("#foro-silenciar");
+    await v.waitFor({ timeout: 5000 }).catch(() => {});
+    ok(/Silenciar a ana_g/.test(await v.innerText().catch(() => "")), "L: la ventana dice a quién (su usuario)");
+    await v.getByRole("button", { name: "7 días" }).click();
+    await v.getByLabel("Motivo del silencio").fill("Insultos repetidos");
+    await p.waitForTimeout(400);
+    await capturar(p, "L1-silenciar");
+    await v.getByRole("button", { name: "Silenciar", exact: true }).click();
+    await v.getByText(/no podrá escribir en el Foro/).waitFor({ timeout: 8000 }).catch(() => {});
+    const escrito = (estado.silenciosEscritos ?? [])[0];
+    const dias = escrito ? (new Date(escrito.cuerpo.hasta).getTime() - Date.now()) / 86400000 : 0;
+    ok(!!escrito && escrito.id === ANA && Math.abs(dias - 7) < 0.1 && escrito.cuerpo.motivo === "Insultos repetidos" && /merge-duplicates/.test(escrito.prefer), `L: guarda el silencio de 7 días con su motivo (si ya tenía uno, lo cambia) (${JSON.stringify(escrito?.cuerpo ?? null)})`);
+    ok((await v.getByText(/ana_g no podrá escribir en el Foro ni comentar noticias hasta el/).count()) === 1, "L: y confirma hasta cuándo");
+    await v.getByRole("button", { name: "Cerrar" }).click();
+    await tocarMensaje(p, "Mensaje de la tienda");
+    ok((await p.getByRole("button", { name: "Eliminar mensaje" }).count()) === 1 && (await p.getByRole("button", { name: "Silenciar a esta persona" }).count()) === 0, "L: a un administrador no se le puede silenciar (no sale el botón)");
+    ok(p.errores.length === 0, `L: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+
+    // L2: sin la migración (sin tabla de silencios) no sale «Silenciar».
+    const ctx2 = await contexto(navegador, ADMIN, "admin", base(ADMIN.id));
+    const p2 = await pagina(ctx2, "/chat-global?tab=chat");
+    await p2.getByText("Mensaje de Ana").waitFor({ timeout: 30000 }).catch(() => {});
+    await p2.waitForTimeout(800);
+    await tocarMensaje(p2, "Mensaje de Ana");
+    ok((await p2.getByRole("button", { name: "Eliminar mensaje" }).count()) === 1 && (await p2.getByRole("button", { name: "Silenciar a esta persona" }).count()) === 0, "L: sin la base de datos de silencios, no se ofrece «Silenciar» (eliminar sí)");
+    await ctx2.close();
+
+    // L3: la persona silenciada lo ve junto al cuadro de escribir y no puede enviar.
+    const hasta = new Date(Date.now() + 3 * 86400000).toISOString();
+    const estado3 = base(CLIENTE.id, { silencios: [{ user_id: CLIENTE.id, hasta, motivo: "spam" }] });
+    const ctx3 = await contexto(navegador, CLIENTE, "user", estado3);
+    const p3 = await pagina(ctx3, "/chat-global?tab=chat");
+    await p3.getByText(/te ha silenciado en el Foro hasta el/).waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p3.getByText(/Un administrador te ha silenciado en el Foro hasta el .*: hasta entonces no puedes escribir ni comentar noticias\./).count()) === 1, "L: la persona silenciada ve junto al cuadro de escribir hasta cuándo no puede escribir");
+    await p3.getByPlaceholder("Escribe un mensaje…").fill("Hola a todos otra vez");
+    await p3.getByRole("button", { name: "Enviar mensaje" }).click();
+    await p3.waitForTimeout(800);
+    ok(!(estado3.mensajesEnviados ?? []).length, "L: y si lo intenta, no se envía nada");
+    ok(!/silenciado/i.test(JSON.stringify(estado3.mensajesEnviados ?? [])) && (await p3.getByText(/te ha silenciado/).count()) === 1, "L: el aviso sigue a la vista");
+    await capturar(p3, "L3-silenciado");
+    await ctx3.close();
+
+    // L4: si la base de datos lo rechaza (silenciado desde otro dispositivo), se explica.
+    const estado4 = base(CLIENTE.id, { silencios: [], bloqueoForo: true });
+    const ctx4 = await contexto(navegador, CLIENTE, "user", estado4);
+    const p4 = await pagina(ctx4, "/chat-global?tab=chat");
+    await p4.getByText("Mensaje de Ana").waitFor({ timeout: 30000 }).catch(() => {});
+    await p4.getByPlaceholder("Escribe un mensaje…").fill("Hola a todos otra vez");
+    await p4.getByRole("button", { name: "Enviar mensaje" }).click();
+    await p4.getByText(/no puedes escribir en el Foro/).waitFor({ timeout: 8000 }).catch(() => {});
+    ok((estado4.mensajesEnviados ?? []).length === 1 && (await p4.getByText("Ahora mismo no puedes escribir en el Foro: un administrador te ha silenciado durante unos días.").count()) === 1, "L: si la base de datos lo rechaza, dice que está silenciado (no un error raro)");
+    await ctx4.close();
+
+    // L5: usuario y foto en los comentarios de las noticias…
+    const estado5 = base(CLIENTE.id, { silencios: [] });
+    const ctx5 = await contexto(navegador, CLIENTE, "user", estado5);
+    const n = await pagina(ctx5, "/chat-global?tab=news");
+    await n.getByText("Noticia con comentarios").waitFor({ timeout: 30000 }).catch(() => {});
+    await n.getByRole("button", { name: "Comentarios", exact: true }).first().click();
+    await n.getByText("Muy buena noticia").waitFor({ timeout: 10000 }).catch(() => {});
+    await n.waitForTimeout(800);
+    const tc = await n.evaluate(() => document.body.innerText);
+    ok(tc.includes("ana_g") && !tc.includes("Ana Pérez Gil") && (await n.locator('img[alt="Foto de ana_g"]').count()) >= 1, "L: los comentarios de las noticias enseñan el usuario y la foto de quien comenta (no su nombre y apellidos)");
+    await capturar(n, "L5-comentario-usuario");
+    // …y en las reseñas de la tienda (Inicio).
+    estado5.resenas = [{ id: "r1", created_at: "2026-10-29T10:00:00Z", user_id: ANA, display_name: "Ana Pérez Gil", rating: 5, comment: "Todo perfecto" }];
+    const i = await pagina(ctx5, "/");
+    await i.getByText("Todo perfecto", { exact: false }).first().waitFor({ timeout: 40000 }).catch(() => {});
+    await i.waitForTimeout(1000);
+    const ti = await i.evaluate(() => document.body.innerText);
+    ok(ti.includes("ana_g") && !ti.includes("Ana Pérez Gil") && (await i.locator('img[alt="Foto de ana_g"]').count()) >= 1, "L: las reseñas de la tienda también enseñan el usuario y la foto");
+    ok(i.errores.length === 0 && n.errores.length === 0, `L: sin errores de JavaScript (${i.errores[0] ?? n.errores[0] ?? 0})`);
+    await ctx5.close();
+  }
+
+  // ===== M) Administración: moderación del Foro y silenciados (Usuarios y ficha del cliente) =====================
+  // (se ejecuta después de la sección E, que es donde se definen los usuarios de prueba U y sus perfiles)
+  const seccionM = async () => {
+    const hasta = new Date(Date.now() + 2 * 86400000).toISOString();
+    const reciente = new Date(Date.now() - 86400000).toISOString();
+    const estado = {
+      usuarios: U,
+      filas: PERFILES,
+      guardados: [],
+      silencios: [{ user_id: U[1].user_id, hasta, motivo: "Spam" }],
+      moderacion: [
+        { id: "x1", created_at: reciente, accion: "mensaje_eliminado", user_id: U[0].user_id, detalle: "compra aquí barato" },
+        { id: "x2", created_at: reciente, accion: "mensaje_eliminado", user_id: U[1].user_id, detalle: "spam" },
+        { id: "x3", created_at: reciente, accion: "comentario_eliminado", user_id: U[1].user_id, detalle: "otro spam" },
+        { id: "x4", created_at: reciente, accion: "silenciado", user_id: U[1].user_id, detalle: "Hasta el 02/11/2026 12:00 · Spam" },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-foro-moderacion").waitFor({ timeout: 40000 }).catch(() => {});
+    const linea = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Moderación del Foro \(30 días\) · mensajes eliminados: 2 · comentarios eliminados: 1 · silencios: 1 · silenciados ahora: 1/.test(linea), `M: Usuarios cuenta la moderación con el registro de la base de datos (${linea})`);
+    const lista = (await p.locator("#admin-silenciados").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Silenciados en el Foro/.test(lista) && /@ana_g/.test(lista) && /Spam/.test(lista), `M: y la lista de silenciados (quién, hasta cuándo y por qué) (${lista.slice(0, 120)})`);
+    await capturar(p, "M1-admin-moderacion");
+    await p.getByRole("button", { name: "Quitar el silencio de @ana_g" }).click();
+    await p.waitForTimeout(800);
+    const quita = (estado.silenciosEscritos ?? []).find((s) => s.metodo === "PATCH");
+    ok(!!quita && quita.id === U[1].user_id && Math.abs(new Date(quita.cuerpo.hasta).getTime() - Date.now()) < 60000, `M: «Quitar silencio» lo termina ahora mismo (${JSON.stringify(quita?.cuerpo ?? null)})`);
+    ok((await p.locator("#admin-silenciados").count()) === 0, "M: y desaparece de la lista");
+    ok(p.errores.length === 0, `M: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+
+    // Ficha del cliente: su Foro (historial y silenciar desde aquí).
+    const f = await pagina(ctx, `/admin/cliente/${U[0].user_id}?email=dani%40example.com&createdAt=2026-10-01T10%3A00%3A00Z`);
+    await f.locator("#ficha-foro").waitFor({ timeout: 40000 }).catch(() => {});
+    const tf = (await f.locator("#ficha-foro").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Puede escribir en el Foro/.test(tf) && /Mensaje del Foro eliminado/.test(tf) && /compra aquí barato/.test(tf), `M: la ficha enseña su historial de moderación (${tf.slice(0, 140)})`);
+    await f.locator("#ficha-foro").getByRole("button", { name: "3 días" }).click();
+    await f.getByText(/Silenciado hasta el/).first().waitFor({ timeout: 8000 }).catch(() => {});
+    const desdeFicha = (estado.silenciosEscritos ?? []).filter((s) => s.id === U[0].user_id).at(-1);
+    const dias = desdeFicha ? (new Date(desdeFicha.cuerpo.hasta).getTime() - Date.now()) / 86400000 : 0;
+    ok(!!desdeFicha && Math.abs(dias - 3) < 0.1, `M: desde la ficha se le silencia 3 días (${JSON.stringify(desdeFicha?.cuerpo ?? null)})`);
+    ok((await f.locator("#ficha-foro").getByRole("button", { name: "Quitar silencio" }).count()) === 1, "M: y luego sale «Quitar silencio»");
+    await capturar(f, "M2-ficha-foro");
+    ok(f.errores.length === 0, `M: la ficha sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
+    await ctx.close();
+  };
+
   // ===== G) «Completa tu perfil» (obligatorio) ====================================================================
   {
     // G1: perfil a medias (lo del registro) en Inicio: la pantalla tapa la tienda hasta guardarlo completo.
@@ -970,6 +1162,8 @@ try {
     ok(p.errores.length === 0, `K: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
+
+  await seccionM();
 
   // ===== F) Administración sin la tabla: la lista funciona y no sale nada de perfiles ============================
   {

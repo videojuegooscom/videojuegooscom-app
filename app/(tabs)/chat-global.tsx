@@ -186,6 +186,183 @@ function useEsAdminForo(): boolean {
   return esAdmin;
 }
 
+// --- Silenciar usuario (administradores) ---------------------------------------------------------------------------
+// Tabla foro_silencios (supabase/migrations/20261031110000_foro_silencios_y_moderacion.sql): hasta cuándo una persona no
+// puede escribir en el Foro ni comentar noticias. Lo hace cumplir la base de datos; aquí solo se elige y se avisa.
+
+const DIAS_SILENCIO = [1, 3, 7] as const;
+
+function fechaHoraCorta(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).replace(/\./g, "");
+}
+
+// Lo que ve la persona silenciada junto al cuadro de escribir.
+function textoSilencio(hasta: string): string {
+  return `Un administrador te ha silenciado en el Foro hasta el ${fechaHoraCorta(hasta)}: hasta entonces no puedes escribir ni comentar noticias.`;
+}
+
+// ¿Existe ya la tabla de silencios? (si la migración aún no está aplicada, no se ofrece «Silenciar»)
+function faltaTablaSilencios(error: unknown): boolean {
+  const code = String((error as { code?: unknown } | null)?.code ?? "");
+  return code === "PGRST205" || code === "42P01" || /foro_silencios/.test(String((error as { message?: unknown } | null)?.message ?? ""));
+}
+
+function SilenciarUsuario({
+  usuario,
+  userId,
+  onCerrar,
+}: {
+  usuario: string;
+  userId: string;
+  onCerrar: () => void;
+}) {
+  const [dias, setDias] = useState<(typeof DIAS_SILENCIO)[number]>(3);
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [hecho, setHecho] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const silenciar = async () => {
+    if (guardando) return;
+    setGuardando(true);
+    setError(null);
+    const hasta = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error: fallo } = await supabase
+      .from("foro_silencios")
+      .upsert({ user_id: userId, hasta, motivo: motivo.trim() || null }, { onConflict: "user_id" })
+      .select("user_id");
+    setGuardando(false);
+    if (fallo || !Array.isArray(data) || data.length === 0) {
+      console.error("Error silenciando en el Foro:", fallo);
+      setError(
+        faltaTablaSilencios(fallo)
+          ? "Falta preparar la base de datos para silenciar (el SQL que pega el dueño)."
+          : "No se ha podido silenciar. Inténtalo de nuevo."
+      );
+      return;
+    }
+    setHecho(`${usuario} no podrá escribir en el Foro ni comentar noticias hasta el ${fechaHoraCorta(hasta)}.`);
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
+      <View
+        nativeID="foro-silenciar"
+        style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", alignItems: "center", justifyContent: "center", padding: 16 }}
+      >
+        <View style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 18, gap: 12, alignItems: "center" }}>
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(30,167,232,0.12)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="volume-mute-outline" size={24} color="#1EA7E8" />
+          </View>
+          <Text accessibilityRole="header" style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+            Silenciar a {usuario}
+          </Text>
+          {hecho ? (
+            <Text accessibilityRole="alert" style={{ color: "#15803D", fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+              {hecho}
+            </Text>
+          ) : (
+            <>
+              <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
+                No podrá escribir en el Foro ni comentar noticias. Sus mensajes siguen ahí (elimínalos aparte si hace falta).
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8, alignSelf: "stretch" }}>
+                {DIAS_SILENCIO.map((d) => {
+                  const activo = dias === d;
+                  return (
+                    <Pressable
+                      key={d}
+                      onPress={() => setDias(d)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: activo }}
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        minHeight: 44,
+                        borderRadius: 999,
+                        borderWidth: 1.5,
+                        borderColor: activo ? "#1EA7E8" : "#E3EAF2",
+                        backgroundColor: activo ? "#EAF6FD" : "#FFFFFF",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: pressed ? 0.85 : 1,
+                      })}
+                    >
+                      <Text style={{ color: activo ? "#1EA7E8" : "#0B2138", fontWeight: "900" }}>{d === 1 ? "1 día" : `${d} días`}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={motivo}
+                onChangeText={(t) => setMotivo(t.slice(0, 200))}
+                placeholder="Motivo (opcional, solo lo ve la tienda)"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                accessibilityLabel="Motivo del silencio"
+                maxLength={200}
+                style={{
+                  alignSelf: "stretch",
+                  minHeight: 44,
+                  borderWidth: 1,
+                  borderColor: "#E3EAF2",
+                  borderRadius: 14,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontSize: 16,
+                  color: "#0B2138",
+                }}
+              />
+            </>
+          )}
+          {error ? (
+            <Text accessibilityRole="alert" style={{ color: "#DC2626", fontWeight: "800", textAlign: "center" }}>
+              {error}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
+            <Pressable
+              onPress={onCerrar}
+              disabled={guardando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                minHeight: 46,
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: "#E3EAF2",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 15.5 }}>{hecho ? "Cerrar" : "Cancelar"}</Text>
+            </Pressable>
+            {hecho ? null : (
+              <Pressable
+                onPress={silenciar}
+                disabled={guardando}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  flex: 1,
+                  minHeight: 46,
+                  borderRadius: 999,
+                  backgroundColor: "#1EA7E8",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: guardando ? 0.6 : pressed ? 0.88 : 1,
+                })}
+              >
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{guardando ? "Silenciando…" : "Silenciar"}</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // «¿Eliminar…?»: confirma antes de borrar (no se puede deshacer) y enseña qué se va a borrar.
 function ConfirmarEliminar({
   que,
@@ -545,6 +722,9 @@ export default function ChatGlobalScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Si un administrador ha silenciado a esta persona en el Foro: hasta cuándo (null = no está silenciada). Se avisa
+  // junto al cuadro de escribir; quien de verdad lo impide es la base de datos.
+  const [miSilencio, setMiSilencio] = useState<string | null>(null);
   const [justSent, setJustSent] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [reactionRows, setReactionRows] = useState<ReactionRow[]>([]);
@@ -679,6 +859,25 @@ export default function ChatGlobalScreen() {
       authListener?.subscription?.unsubscribe?.();
     };
   }, []);
+
+  // ¿Está silenciada esta persona en el Foro? (solo ve su propia fila; sin la tabla, nada)
+  useEffect(() => {
+    if (!currentUserId) {
+      setMiSilencio(null);
+      return;
+    }
+    let vivo = true;
+    Promise.resolve(supabase.from("foro_silencios").select("hasta").eq("user_id", currentUserId).maybeSingle<{ hasta: string }>())
+      .then(({ data }) => {
+        if (!vivo) return;
+        const hasta = data?.hasta ?? null;
+        setMiSilencio(hasta && new Date(hasta).getTime() > Date.now() ? hasta : null);
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [currentUserId]);
 
   // Si la URL cambia con la pantalla ya abierta (?tab=… o ?noticia=…), se obedece.
   useEffect(() => {
@@ -1069,6 +1268,10 @@ export default function ChatGlobalScreen() {
       setShowAuthModal(true);
       return;
     }
+    if (miSilencio && new Date(miSilencio).getTime() > Date.now()) {
+      setSendError(textoSilencio(miSilencio));
+      return;
+    }
 
     const clean = draft.trim();
     // El botón ya está desactivado por debajo de 4 caracteres, pero lo
@@ -1112,11 +1315,18 @@ export default function ChatGlobalScreen() {
       }, 900);
     } catch (e: any) {
       console.error("Error enviando mensaje al chat:", e);
-      if (mountedRef.current) setSendError("No se pudo enviar el mensaje. Inténtalo de nuevo.");
+      // 42501 = la base de datos no lo deja: la persona está silenciada en el Foro.
+      if (mountedRef.current) {
+        setSendError(
+          String(e?.code ?? "") === "42501"
+            ? "Ahora mismo no puedes escribir en el Foro: un administrador te ha silenciado durante unos días."
+            : "No se pudo enviar el mensaje. Inténtalo de nuevo."
+        );
+      }
     } finally {
       if (mountedRef.current) setSending(false);
     }
-  }, [draft, isLoggedIn, replyTarget]);
+  }, [draft, isLoggedIn, replyTarget, miSilencio]);
 
   // Un toque en un mensaje = abrir el selector de reacciones para ESE
   // mensaje (ver MessageBubble); tocar un emoji del selector llama aquí.
@@ -1175,6 +1385,26 @@ export default function ChatGlobalScreen() {
   // Administradores: tocar un mensaje → «Eliminar» (en el selector de reacciones) → confirmar. Se borra de verdad en la
   // base de datos (solo se lo permite a ellos) y desaparece para todos al momento (tiempo real).
   const esAdmin = useEsAdminForo();
+  // «Silenciar usuario»: solo si ya existe la tabla de silencios (migración aplicada).
+  const [silenciosDisponibles, setSilenciosDisponibles] = useState(false);
+  const [aSilenciar, setASilenciar] = useState<MessageItem | null>(null);
+  useEffect(() => {
+    if (!esAdmin) {
+      setSilenciosDisponibles(false);
+      return;
+    }
+    let vivo = true;
+    // (una lectura normal, no «head»: sin cuerpo no se sabría si falta la tabla)
+    Promise.resolve(supabase.from("foro_silencios").select("user_id").limit(1))
+      .then(({ error }) => {
+        if (vivo) setSilenciosDisponibles(!error || !faltaTablaSilencios(error));
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [esAdmin]);
+  const pedirSilenciar = useCallback((item: MessageItem) => setASilenciar(item), []);
   const [aEliminar, setAEliminar] = useState<MessageItem | null>(null);
   const [eliminando, setEliminando] = useState(false);
   const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
@@ -1403,6 +1633,7 @@ export default function ChatGlobalScreen() {
                   onReact={handleReact}
                   onReply={handleReply}
                   onEliminar={esAdmin ? pedirEliminar : undefined}
+                  onSilenciar={esAdmin && silenciosDisponibles ? pedirSilenciar : undefined}
                 />
               );
             })}
@@ -1623,7 +1854,7 @@ export default function ChatGlobalScreen() {
           sending={sending}
           justSent={justSent}
           canSend={canSend}
-          errorText={sendError}
+          errorText={sendError ?? (miSilencio ? textoSilencio(miSilencio) : null)}
           replyTarget={replyTarget}
           onCancelReply={() => setReplyTarget(null)}
           activeTab={activeTab}
@@ -1649,6 +1880,10 @@ export default function ChatGlobalScreen() {
         />
 
         <InfoModal visible={showInfoModal} onClose={() => setShowInfoModal(false)} />
+
+        {aSilenciar ? (
+          <SilenciarUsuario usuario={aSilenciar.displayName} userId={aSilenciar.userId} onCerrar={() => setASilenciar(null)} />
+        ) : null}
 
         {aEliminar ? (
           <ConfirmarEliminar
@@ -1841,6 +2076,7 @@ const MessageBubble = React.memo(function MessageBubble({
   onReact,
   onReply,
   onEliminar,
+  onSilenciar,
   noticiaId,
   noticiaCompartida,
   onAbrirNoticia,
@@ -1848,6 +2084,8 @@ const MessageBubble = React.memo(function MessageBubble({
   item: MessageItem;
   // Solo para administradores: «Eliminar» en el selector que se abre al tocar el mensaje.
   onEliminar?: (item: MessageItem) => void;
+  // Solo para administradores (y nunca sobre un administrador ni sobre uno mismo): «Silenciar a esta persona».
+  onSilenciar?: (item: MessageItem) => void;
   // Mensaje con [noticia:<id>]: se pinta como mini tarjeta de la noticia.
   noticiaId?: string | null;
   noticiaCompartida?: NoticiaMini | null;
@@ -2094,6 +2332,9 @@ const MessageBubble = React.memo(function MessageBubble({
         <View
           style={{
             flexDirection: "row",
+            // Con las herramientas del administrador no cabe en un móvil estrecho: pasa a dos filas sin salirse.
+            flexWrap: "wrap",
+            maxWidth: "100%",
             alignItems: "center",
             gap: 4,
             alignSelf: mine ? "flex-end" : "flex-start",
@@ -2151,6 +2392,27 @@ const MessageBubble = React.memo(function MessageBubble({
                 <Ionicons name="trash-outline" size={19} color="#DC2626" />
               </Pressable>
             </>
+          ) : null}
+          {onSilenciar && !mine && item.role !== "admin" ? (
+            <Pressable
+              onPress={() => {
+                setPickerOpen(false);
+                onSilenciar(item);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Silenciar a esta persona"
+              hitSlop={6}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: pressed ? "rgba(30,167,232,0.12)" : "transparent",
+              })}
+            >
+              <Ionicons name="volume-mute-outline" size={19} color="#1EA7E8" />
+            </Pressable>
           ) : null}
         </View>
       ) : null}
@@ -2219,6 +2481,8 @@ function ComposerSendButton({
       disabled={disabled}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel="Enviar mensaje"
     >
       <Animated.View
         style={{
@@ -4650,7 +4914,7 @@ function BotonNoticia({
 // administrador ve una papelera en cada comentario: lo elimina para todos
 // (se marca oculto; la base de datos solo deja hacerlo a administradores).
 
-type ComentarioNoticia = { id: string; created_at: string; autor: string; texto: string };
+type ComentarioNoticia = { id: string; created_at: string; autor: string; texto: string; user_id?: string | null };
 
 const MAX_COMENTARIO = 1000;
 
@@ -4704,7 +4968,7 @@ function ComentariosNoticia({
     (async () => {
       const { data, error: fallo } = await supabase
         .from("noticias_comentarios")
-        .select("id,created_at,autor,texto")
+        .select("id,created_at,autor,texto,user_id")
         .eq("noticia_id", noticiaId)
         .eq("oculto", false)
         .order("created_at", { ascending: true })
@@ -4718,6 +4982,22 @@ function ComentariosNoticia({
       vivo.current = false;
     };
   }, [noticiaId]);
+
+  // Usuario y foto de «Mi perfil» de quien comenta (como en el Foro; sin ellos, su nombre y la inicial).
+  const [perfilesComentarios, setPerfilesComentarios] = useState<Record<string, PerfilForo>>({});
+  useEffect(() => {
+    const ids = lista.map((c) => c.user_id).filter((id): id is string => Boolean(id));
+    if (!ids.length) return;
+    let sigue = true;
+    perfilesPublicos(ids)
+      .then((encontrados) => {
+        if (sigue) setPerfilesComentarios(Object.fromEntries(encontrados));
+      })
+      .catch(() => {});
+    return () => {
+      sigue = false;
+    };
+  }, [lista]);
 
   const limpio = texto.trim();
   const puedeEnviar = limpio.length >= 1 && limpio.length <= MAX_COMENTARIO && !enviando;
@@ -4736,7 +5016,7 @@ function ComentariosNoticia({
       const { data, error: fallo } = await supabase
         .from("noticias_comentarios")
         .insert({ noticia_id: noticiaId, autor: nombreVisibleForo(user), texto: limpio })
-        .select("id,created_at,autor,texto")
+        .select("id,created_at,autor,texto,user_id")
         .single();
       if (fallo) throw fallo;
       if (!vivo.current) return;
@@ -4745,7 +5025,15 @@ function ComentariosNoticia({
       onComentado(noticiaId);
     } catch (e) {
       console.error("Error enviando el comentario:", e);
-      if (vivo.current) setError("No se pudo enviar el comentario. Inténtalo de nuevo.");
+      // 42501 = la base de datos no lo deja: la persona está silenciada en el Foro.
+      const silenciado = String((e as { code?: unknown } | null)?.code ?? "") === "42501";
+      if (vivo.current) {
+        setError(
+          silenciado
+            ? "Ahora mismo no puedes comentar: un administrador te ha silenciado en el Foro durante unos días."
+            : "No se pudo enviar el comentario. Inténtalo de nuevo."
+        );
+      }
     } finally {
       if (vivo.current) setEnviando(false);
     }
@@ -4785,10 +5073,19 @@ function ComentariosNoticia({
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: COLORS.soft, fontSize: 12 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.autor}</Text>
-                {` · ${haceTiempo(c.created_at)}`}
-              </Text>
+              {(() => {
+                const perfil = c.user_id ? perfilesComentarios[c.user_id] : undefined;
+                const nombre = perfil?.usuario || c.autor;
+                return (
+                  <>
+                    <AvatarCircle username={nombre} foto={perfil?.foto || undefined} size={26} />
+                    <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: COLORS.soft, fontSize: 12 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900" }}>{nombre}</Text>
+                      {` · ${haceTiempo(c.created_at)}`}
+                    </Text>
+                  </>
+                );
+              })()}
               {esAdmin ? (
                 <Pressable
                   onPress={() => {

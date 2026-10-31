@@ -33,6 +33,9 @@
  *   y «nota del taller», como en Administración → Servicios → Solicitudes):
  *   al guardarlo, el cliente lo ve en Perfil → «Mis seguimientos» y Blue le
  *   avisa. Así no hace falta ir de pantalla en pantalla.
+ * - Foro (ForoCliente): si está silenciado y hasta cuándo («Quitar silencio»), o silenciarlo 1, 3 o 7 días, y su
+ *   historial de moderación (mensajes y comentarios eliminados, silencios), de las tablas foro_silencios y
+ *   foro_moderacion. Sin esa migración la tarjeta no sale.
  * - Notas internas: tabla customer_notes (una fila por cliente, clave
  *   primaria customer_user_id). Es un cuadro de texto libre pensado para
  *   todo lo que NO tiene una tabla propia: intercambios, garantías dadas de
@@ -682,6 +685,8 @@ export default function ClienteFicha() {
                 )}
               </SectionCard>
 
+              <ForoCliente userId={userId} />
+
               <View style={{ borderRadius: 18, backgroundColor: COLORS.card, padding: 14, gap: 10 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <View
@@ -763,6 +768,120 @@ export default function ClienteFicha() {
           </KeyboardAvoidingView>
         )}
       </View>
+    </View>
+  );
+}
+
+// --- Foro: silencio e historial de moderación de este cliente --------------------------------------------------------
+// Tablas foro_silencios y foro_moderacion (supabase/migrations/20261031110000_foro_silencios_y_moderacion.sql). Si aún no
+// existen, esta tarjeta no sale. Silenciar aquí es lo mismo que desde el Foro (lo hace cumplir la base de datos).
+
+const ACCION_MODERACION: Record<string, string> = {
+  mensaje_eliminado: "Mensaje del Foro eliminado",
+  comentario_eliminado: "Comentario de noticia eliminado",
+  silenciado: "Silenciado",
+  silencio_quitado: "Silencio quitado",
+};
+
+function fechaHora(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function ForoCliente({ userId }: { userId: string }) {
+  const [disponible, setDisponible] = useState(false);
+  const [silencio, setSilencio] = useState<{ hasta: string; motivo: string | null } | null>(null);
+  const [historial, setHistorial] = useState<{ id: string; created_at: string; accion: string; detalle: string | null }[]>([]);
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const cargar = useCallback(async () => {
+    const [sil, mod] = await Promise.all([
+      supabase.from("foro_silencios").select("hasta,motivo").eq("user_id", userId).maybeSingle<{ hasta: string; motivo: string | null }>(),
+      supabase.from("foro_moderacion").select("id,created_at,accion,detalle").eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
+    ]);
+    if (sil.error || mod.error) {
+      setDisponible(false);
+      return;
+    }
+    setDisponible(true);
+    setSilencio(sil.data && new Date(sil.data.hasta).getTime() > Date.now() ? sil.data : null);
+    setHistorial((mod.data ?? []) as { id: string; created_at: string; accion: string; detalle: string | null }[]);
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId) cargar();
+  }, [userId, cargar]);
+
+  async function silenciar(dias: number | null) {
+    if (guardando) return;
+    setGuardando(true);
+    setAviso(null);
+    // dias = null → quitar el silencio (hasta ahora mismo).
+    const hasta = dias ? new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toISOString() : new Date().toISOString();
+    const { data, error } = await supabase
+      .from("foro_silencios")
+      .upsert({ user_id: userId, hasta }, { onConflict: "user_id" })
+      .select("user_id");
+    setGuardando(false);
+    if (error || !Array.isArray(data) || data.length === 0) {
+      setAviso({ ok: false, texto: "No se ha podido guardar (a un administrador no se le puede silenciar)." });
+      return;
+    }
+    // Al silenciar ya lo dice la línea de arriba («Silenciado hasta…»); al quitarlo, se confirma.
+    setAviso(dias ? null : { ok: true, texto: "Silencio quitado: ya puede escribir." });
+    cargar();
+  }
+
+  if (!disponible) return null;
+
+  return (
+    <View nativeID="ficha-foro">
+      <SectionCard icon="chatbubbles-outline" title="Foro" count={historial.length ? `${historial.length} en el registro` : undefined}>
+        {silencio ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Text style={{ flex: 1, minWidth: 180, color: COLORS.danger, fontWeight: "800", fontSize: 13 }}>
+              Silenciado hasta el {fechaHora(silencio.hasta)}
+              {silencio.motivo ? ` · ${silencio.motivo}` : ""}
+            </Text>
+            <EtapaChip etiqueta="Quitar silencio" activa={false} disabled={guardando} onPress={() => silenciar(null)} />
+          </View>
+        ) : (
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Puede escribir en el Foro. Silenciar (no podrá escribir ni comentar):</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {[1, 3, 7].map((d) => (
+                <EtapaChip key={d} etiqueta={d === 1 ? "1 día" : `${d} días`} activa={false} disabled={guardando} onPress={() => silenciar(d)} />
+              ))}
+            </View>
+          </View>
+        )}
+        {aviso ? (
+          <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+            {aviso.texto}
+          </Text>
+        ) : null}
+        {historial.length ? (
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 11.5 }}>HISTORIAL DE MODERACIÓN</Text>
+            {historial.map((h) => (
+              <View key={h.id} style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 2 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                  {ACCION_MODERACION[h.accion] ?? h.accion} · <Text style={{ color: COLORS.muted2, fontWeight: "700" }}>{fechaHora(h.created_at)}</Text>
+                </Text>
+                {h.detalle ? (
+                  <Text numberOfLines={3} style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
+                    {h.detalle}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <EmptyRow text="Sin nada en el registro de moderación." />
+        )}
+      </SectionCard>
     </View>
   );
 }

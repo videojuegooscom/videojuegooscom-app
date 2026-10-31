@@ -19,6 +19,11 @@
  *  - El Foro (20261030200000_perfiles_publicos.sql): la función perfiles_publicos da SOLO id, usuario y foto, solo de quien
  *    ha escrito en el Foro y tiene usuario, como mucho 200 a la vez; la tabla sigue cerrada y PUBLIC no la ejecuta (con su
  *    «prueba de las pruebas»: sin el filtro del Foro, la comprobación falla).
+ *  - Foro, parte 2 (20261031110000_foro_silencios_y_moderacion.sql), con tablas y políticas como las de producción:
+ *    usuario y foto también de quien comenta (sin ocultar) o reseña; «Silenciar usuario» solo lo hace el administrador
+ *    (nunca a sí mismo ni a otro administrador, un mes como mucho), la persona silenciada no escribe en el Foro ni comenta
+ *    y no se lo puede quitar; el registro de moderación se rellena solo, solo lo lee el administrador y nadie lo escribe
+ *    ni lo borra a mano (con su «prueba de las pruebas»: sin el bloqueo, la persona silenciada escribiría).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -320,6 +325,134 @@ try {
   const rotaForo = await como(c5, "anon", null, todos);
   ok(rotaForo.ok && rotaForo.filas.some((f) => f.user_id === U2), "(control) sin el filtro sale quien no ha escrito: la comprobación SÍ lo detecta");
   await c5.end();
+
+  // 10) Foro, parte 2 (20261031110000): usuario y foto también de quien comenta o reseña, «Silenciar usuario» y el
+  //     registro de moderación. Tablas como las de producción (mismas políticas), en una base aislada.
+  const U4 = "44444444-4444-4444-8444-444444444444";
+  const ADMIN2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const FORO2 = `
+    create policy profiles_select_own_or_admin on public.profiles for select using ((auth.uid() = id) or public.is_admin());
+    create table public.chat_messages (id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid(), body text);
+    alter table public.chat_messages enable row level security;
+    create policy chat_messages_select_public on public.chat_messages for select to anon, authenticated using (true);
+    create policy chat_messages_insert_authenticated on public.chat_messages for insert to authenticated with check (user_id = auth.uid());
+    create policy chat_messages_delete_admin on public.chat_messages for delete to authenticated using (public.is_admin());
+    create table public.noticias_comentarios (id uuid primary key default gen_random_uuid(), created_at timestamptz default now(), noticia_id uuid,
+      user_id uuid default auth.uid(), autor text, texto text, oculto boolean not null default false);
+    alter table public.noticias_comentarios enable row level security;
+    create policy noticias_comentarios_lectura on public.noticias_comentarios for select to anon, authenticated using ((not oculto) or (select public.is_admin()));
+    create policy noticias_comentarios_insert on public.noticias_comentarios for insert to authenticated with check (user_id = (select auth.uid()) and not oculto);
+    create policy noticias_comentarios_admin_update on public.noticias_comentarios for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+    create table public.store_reviews (id uuid primary key default gen_random_uuid(), user_id uuid, rating smallint, comment text);
+    alter table public.store_reviews enable row level security;
+    create policy store_reviews_select_public on public.store_reviews for select to anon, authenticated using (true);`;
+  const MODERACION = readFileSync("supabase/migrations/20261031110000_foro_silencios_y_moderacion.sql", "utf8");
+  const prepararModeracion = async (nombre, migracion) => {
+    const b = await nuevaBase(nombre, MIGRACION);
+    await b.query(FORO2);
+    await b.query(`insert into auth.users (id, email) values ('${U3}', 'u3@example.com'), ('${U4}', 'u4@example.com'), ('${ADMIN2}', 'admin2@example.com')`);
+    await b.query(`insert into public.profiles (id, role) values ('${U3}', 'user'), ('${U4}', 'user'), ('${ADMIN2}', 'admin')`);
+    await b.query(`insert into public.perfiles_cliente (user_id, nombre, usuario, pais, provincia, fecha_nacimiento) values
+      ('${U1}', 'Dani', 'dani', 'España', 'Zaragoza', '2003-08-19'), ('${U2}', 'Ana', 'ana_g', 'España', 'Huesca', '1990-05-02'),
+      ('${U3}', 'Luis', 'luis', 'España', 'Teruel', '1990-01-01'), ('${U4}', 'Oculta', 'oculta', 'España', 'Teruel', '1990-01-01')`);
+    await b.query(`insert into public.chat_messages (user_id, body) values ('${U1}', 'hola'), ('${U2}', 'mensaje de ana')`);
+    await b.query(`insert into public.noticias_comentarios (user_id, autor, texto, oculto) values ('${U2}', 'Ana', 'comentario visible', false), ('${U4}', 'Oculta', 'comentario oculto', true)`);
+    await b.query(`insert into public.store_reviews (user_id, rating, comment) values ('${U3}', 5, 'genial')`);
+    await b.query(PUBLICOS);
+    await b.query(migracion);
+    return b;
+  };
+  const c6 = await prepararModeracion("vz_aislada_foro_moderacion", MODERACION);
+  let repetidaModeracion = true;
+  try {
+    await c6.query(MODERACION);
+  } catch (e) {
+    repetidaModeracion = false;
+    console.log(String(e.message));
+  }
+  ok(repetidaModeracion, "Parte 2: la migración se puede aplicar dos veces sin error (idempotente)");
+  const politicasForo2 = (await c6.query("select tablename, policyname, permissive from pg_policies where policyname in ('chat_messages_insert_no_silenciado','noticias_comentarios_insert_no_silenciado','foro_silencios_select','foro_silencios_insert_admin','foro_silencios_update_admin','foro_moderacion_select_admin')")).rows;
+  ok(politicasForo2.length === 6 && politicasForo2.filter((x) => x.permissive === "RESTRICTIVE").length === 2, `Parte 2: sus 6 políticas, sin duplicar tras repetirla (2 restrictivas: ${politicasForo2.map((x) => x.policyname).join(", ")})`);
+
+  // Usuario y foto: también de quien comenta (sin ocultar) o reseña.
+  const publicos2 = await como(c6, "anon", null, `select user_id from public.perfiles_publicos(array['${U1}','${U2}','${U3}','${U4}']::uuid[])`);
+  const ids2 = (publicos2.filas ?? []).map((x) => x.user_id);
+  ok(publicos2.ok && ids2.includes(U1) && ids2.includes(U2) && ids2.includes(U3), `Parte 2: usuario y foto de quien escribe en el Foro, comenta noticias o reseña la tienda (${ids2.length})`);
+  ok(publicos2.ok && !ids2.includes(U4), "Parte 2: de quien solo tiene un comentario eliminado (oculto) no sale nada");
+
+  // Silenciar: solo el administrador, nunca a sí mismo ni a otro administrador; un mes como mucho.
+  const enUnDia = "now() + interval '1 day'";
+  const clienteSilencia = await como(c6, "authenticated", U2, `insert into public.foro_silencios (user_id, hasta) values ('${U1}', ${enUnDia})`);
+  ok(!clienteSilencia.ok && clienteSilencia.codigo === "42501", `Silenciar: un cliente NO puede silenciar a nadie (${clienteSilencia.codigo})`);
+  const visitanteSilencia = await como(c6, "anon", null, `insert into public.foro_silencios (user_id, hasta) values ('${U1}', ${enUnDia})`);
+  ok(!visitanteSilencia.ok && visitanteSilencia.codigo === "42501", `Silenciar: un visitante tampoco (${visitanteSilencia.codigo})`);
+  const aSiMismo = await como(c6, "authenticated", ADMIN, `insert into public.foro_silencios (user_id, hasta) values ('${ADMIN}', ${enUnDia})`);
+  ok(!aSiMismo.ok && aSiMismo.codigo === "42501", `Silenciar: el administrador no se puede silenciar a sí mismo (${aSiMismo.codigo})`);
+  const aOtroAdmin = await como(c6, "authenticated", ADMIN, `insert into public.foro_silencios (user_id, hasta) values ('${ADMIN2}', ${enUnDia})`);
+  ok(!aOtroAdmin.ok && aOtroAdmin.codigo === "42501", `Silenciar: ni a otro administrador (${aOtroAdmin.codigo})`);
+  const demasiado = await como(c6, "authenticated", ADMIN, `insert into public.foro_silencios (user_id, hasta) values ('${U1}', now() + interval '40 days')`);
+  ok(!demasiado.ok && demasiado.codigo === "23514", `Silenciar: como mucho un mes de una vez (${demasiado.codigo})`);
+  const silencia = await como(c6, "authenticated", ADMIN, `insert into public.foro_silencios (user_id, hasta, motivo) values ('${U1}', ${enUnDia}, 'spam')`, { confirmar: true });
+  ok(silencia.ok, `Silenciar: el administrador silencia a un cliente un día (${silencia.mensaje ?? "ok"})`);
+  const veSuyo2 = await como(c6, "authenticated", U1, "select user_id, hasta from public.foro_silencios");
+  ok(veSuyo2.ok && veSuyo2.cuantas === 1, "Silenciar: la persona silenciada ve su silencio (para saber hasta cuándo)");
+  const veAjeno = await como(c6, "authenticated", U2, "select user_id from public.foro_silencios");
+  ok(veAjeno.ok && veAjeno.cuantas === 0, `Silenciar: otro cliente no ve los silencios de nadie (${veAjeno.cuantas})`);
+  const visitanteVe = await como(c6, "anon", null, "select user_id from public.foro_silencios");
+  ok(!visitanteVe.ok && visitanteVe.codigo === "42501", `Silenciar: un visitante no ve nada (${visitanteVe.codigo})`);
+
+  // Lo hace cumplir la base de datos.
+  const escribeSilenciado = await como(c6, "authenticated", U1, "insert into public.chat_messages (body) values ('vuelvo a escribir')");
+  ok(!escribeSilenciado.ok && escribeSilenciado.codigo === "42501", `Silenciar: la persona silenciada NO puede escribir en el Foro (${escribeSilenciado.codigo})`);
+  const comentaSilenciado = await como(c6, "authenticated", U1, "insert into public.noticias_comentarios (autor, texto) values ('Dani', 'comento')");
+  ok(!comentaSilenciado.ok && comentaSilenciado.codigo === "42501", `Silenciar: ni comentar noticias (${comentaSilenciado.codigo})`);
+  const escribeOtro = await como(c6, "authenticated", U2, "insert into public.chat_messages (body) values ('yo sí puedo')");
+  ok(escribeOtro.ok, "Silenciar: los demás escriben con normalidad");
+  const clienteQuita = await como(c6, "authenticated", U1, `update public.foro_silencios set hasta = now() - interval '1 minute' where user_id = '${U1}'`);
+  ok(clienteQuita.ok && clienteQuita.cuantas === 0, `Silenciar: la persona silenciada no puede quitarse el silencio (filas cambiadas: ${clienteQuita.cuantas})`);
+  const quita = await como(c6, "authenticated", ADMIN, `update public.foro_silencios set hasta = now() - interval '1 minute' where user_id = '${U1}'`, { confirmar: true });
+  ok(quita.ok && quita.cuantas === 1, "Silenciar: el administrador quita el silencio");
+  const vuelve = await como(c6, "authenticated", U1, "insert into public.chat_messages (body) values ('ya puedo')");
+  ok(vuelve.ok, "Silenciar: sin silencio, vuelve a poder escribir");
+
+  // Registro de moderación: se rellena solo y solo lo lee el administrador.
+  const mensajeAna = (await c6.query(`select id from public.chat_messages where body = 'mensaje de ana'`)).rows[0].id;
+  const borra2 = await como(c6, "authenticated", ADMIN, `delete from public.chat_messages where id = '${mensajeAna}'`, { confirmar: true });
+  ok(borra2.ok && borra2.cuantas === 1, "Moderación: el administrador elimina un mensaje del Foro");
+  const oculta2 = await como(c6, "authenticated", ADMIN, "update public.noticias_comentarios set oculto = true where texto = 'comentario visible'", { confirmar: true });
+  ok(oculta2.ok && oculta2.cuantas === 1, "Moderación: el administrador elimina (oculta) un comentario");
+  await c6.query("delete from public.chat_messages where body = 'hola'"); // sin sesión (como al eliminarse una cuenta): no se apunta
+  const registro = (await c6.query("select accion, admin_id, user_id, detalle from public.foro_moderacion order by created_at, accion")).rows;
+  const por = (a) => registro.filter((x) => x.accion === a);
+  ok(por("mensaje_eliminado").length === 1 && por("mensaje_eliminado")[0].admin_id === ADMIN && por("mensaje_eliminado")[0].user_id === U2 && por("mensaje_eliminado")[0].detalle === "mensaje de ana", `Moderación: apunta el mensaje eliminado, quién lo eliminó, de quién era y qué decía (${JSON.stringify(por("mensaje_eliminado"))})`);
+  ok(por("comentario_eliminado").length === 1 && por("comentario_eliminado")[0].user_id === U2, "Moderación: apunta el comentario eliminado");
+  ok(por("silenciado").length === 1 && /^Hasta el \d{2}\/\d{2}\/\d{4} \d{2}:\d{2} · spam$/.test(por("silenciado")[0].detalle ?? "") && por("silencio_quitado").length === 1, `Moderación: apunta el silencio (hasta cuándo y por qué) y cuándo se quitó (${JSON.stringify(por("silenciado").map((x) => x.detalle))})`);
+  ok(registro.length === 4, `Moderación: lo que desaparece sin sesión (al eliminarse una cuenta) no se apunta (${registro.length} filas)`);
+  const adminLeeReg = await como(c6, "authenticated", ADMIN, "select id from public.foro_moderacion");
+  ok(adminLeeReg.ok && adminLeeReg.cuantas === 4, `Moderación: el administrador lo lee (${adminLeeReg.cuantas})`);
+  const clienteLeeReg = await como(c6, "authenticated", U1, "select id from public.foro_moderacion");
+  ok(clienteLeeReg.ok && clienteLeeReg.cuantas === 0, `Moderación: un cliente no ve nada (${clienteLeeReg.cuantas})`);
+  const visitanteLeeReg = await como(c6, "anon", null, "select id from public.foro_moderacion");
+  ok(!visitanteLeeReg.ok && visitanteLeeReg.codigo === "42501", `Moderación: un visitante tampoco (${visitanteLeeReg.codigo})`);
+  const escribeReg = await como(c6, "authenticated", ADMIN, `insert into public.foro_moderacion (accion) values ('silenciado')`);
+  ok(!escribeReg.ok && escribeReg.codigo === "42501", `Moderación: nadie escribe en el registro a mano, ni el administrador (${escribeReg.codigo})`);
+  const borraReg = await como(c6, "authenticated", ADMIN, "delete from public.foro_moderacion");
+  ok(!borraReg.ok && borraReg.codigo === "42501", `Moderación: ni lo borra (${borraReg.codigo})`);
+  const fichaMod = (await c6.query("select prosecdef, proconfig from pg_proc where proname = 'foro_moderacion_apuntar'")).rows[0];
+  ok(fichaMod.prosecdef === true && (fichaMod.proconfig ?? []).some((s) => s.startsWith("search_path=")), "Moderación: la función del registro tiene el search_path fijado");
+  await c6.end();
+
+  // PRUEBA DE LAS PRUEBAS: sin la política restrictiva, la persona silenciada podría escribir y la comprobación lo detecta.
+  const sinBloqueo = MODERACION.replace(
+    "with check (not exists (select 1 from public.foro_silencios s where s.user_id = (select auth.uid()) and s.hasta > now()));\n  end if;\n\n  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'noticias_comentarios'",
+    "with check (true);\n  end if;\n\n  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'noticias_comentarios'"
+  );
+  ok(sinBloqueo !== MODERACION, "(control) se ha podido quitar el bloqueo del Foro en la copia de prueba");
+  const c7 = await prepararModeracion("vz_aislada_foro_moderacion_rota", sinBloqueo);
+  await como(c7, "authenticated", ADMIN, `insert into public.foro_silencios (user_id, hasta) values ('${U1}', now() + interval '1 day')`, { confirmar: true });
+  const cuela = await como(c7, "authenticated", U1, "insert into public.chat_messages (body) values ('me cuelo')");
+  ok(cuela.ok, "(control) sin el bloqueo, la persona silenciada escribe: la comprobación SÍ lo detecta");
+  await c7.end();
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {
