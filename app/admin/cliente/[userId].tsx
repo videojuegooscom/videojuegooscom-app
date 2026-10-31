@@ -21,9 +21,18 @@
  *   set_request_customer_user_id() en la migración) — las solicitudes
  *   anónimas de antes de este cambio, o enviadas sin iniciar sesión, no
  *   aparecerán aquí aunque sean de este cliente.
+ * - Pedidos: los de la tienda (pedidos + pedido_items) hechos con su cuenta
+ *   (user_id) y, aparte, los hechos SIN sesión con su mismo correo (esos no
+ *   los ve en «Mis seguimientos»). Desde aquí se cambia la etapa con un toque
+ *   (Pendiente → Confirmado → Preparado → Enviado / Listo para recoger →
+ *   Entregado, o Cancelado), igual que en Administración → Pedidos, y se avisa
+ *   a api/escaparate-retorno.ts por si lleva artículos de VeoAura.
  * - Servicio de reparación: service_requests donde customer_user_id = este
  *   cliente. Misma limitación que arriba (solo con sesión iniciada al
- *   enviar).
+ *   enviar). Cada solicitud tiene aquí su seguimiento para el cliente (etapa
+ *   y «nota del taller», como en Administración → Servicios → Solicitudes):
+ *   al guardarlo, el cliente lo ve en Perfil → «Mis seguimientos» y Blue le
+ *   avisa. Así no hace falta ir de pantalla en pantalla.
  * - Notas internas: tabla customer_notes (una fila por cliente, clave
  *   primaria customer_user_id). Es un cuadro de texto libre pensado para
  *   todo lo que NO tiene una tabla propia: intercambios, garantías dadas de
@@ -110,7 +119,36 @@ type ServiceRequestRow = {
   status: string;
   ciudad: string;
   seguimiento?: string | null; // etapa visible para el cliente (si ya existe la columna)
+  seguimiento_nota?: string | null;
+  seguimiento_actualizado?: string | null;
 };
+
+type EstadoPedido = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
+const ESTADOS_PEDIDO: EstadoPedido[] = ["pendiente", "confirmado", "preparado", "enviado", "entregado", "cancelado"];
+
+type PedidoFicha = {
+  id: string;
+  numero: number | null;
+  created_at: string;
+  estado: EstadoPedido;
+  entrega: "envio" | "recogida" | null;
+  total_eur: number | null;
+  user_id: string | null;
+  pedido_items: { id: string; titulo: string; precio_eur: number | null }[] | null;
+};
+
+// Etiqueta de cada etapa del pedido (con entrega en mano, «Enviado» es «Listo para recoger», como lo ve el cliente).
+function etiquetaEstadoPedido(e: EstadoPedido, entrega: PedidoFicha["entrega"]) {
+  if (e === "enviado") return entrega === "recogida" ? "Listo para recoger" : "Enviado";
+  return { pendiente: "Pendiente", confirmado: "Confirmado", preparado: "Preparado", entregado: "Entregado", cancelado: "Cancelado" }[e];
+}
+
+// 155,00€ · 1.299,00€
+function eur(n: number | null) {
+  if (n == null || !Number.isFinite(Number(n))) return "";
+  const [ent, dec] = Math.abs(Number(n)).toFixed(2).split(".");
+  return `${Number(n) < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
 
 const SEGUIMIENTO_LABEL: Record<string, string> = {
   solicitado: "Solicitada",
@@ -121,6 +159,7 @@ const SEGUIMIENTO_LABEL: Record<string, string> = {
   entregado: "Entregada",
   cancelado: "Cancelada",
 };
+const SEGUIMIENTO_ETAPAS = ["solicitado", "recibido", "diagnostico", "reparando", "listo", "entregado", "cancelado"];
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "warn" | "success" | "danger" }> = {
   nuevo: { label: "Nuevo", tone: "warn" },
@@ -215,6 +254,10 @@ export default function ClienteFicha() {
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
   const [sellRequests, setSellRequests] = useState<SellRequestRow[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestRow[]>([]);
+  // ¿Existen las columnas de seguimiento? (si no, la etapa no se puede cambiar desde aquí)
+  const [seguimientoDisponible, setSeguimientoDisponible] = useState(false);
+  // Pedidos de la tienda; null = la tabla aún no existe o no se ha podido leer.
+  const [pedidos, setPedidos] = useState<PedidoFicha[] | null>(null);
   // Perfil que el cliente escribe en Mi cuenta (tabla perfiles_cliente). null = no lo ha rellenado o la tabla aún no existe.
   const [perfil, setPerfil] = useState<{
     nombre: string;
@@ -266,19 +309,52 @@ export default function ClienteFicha() {
       setSellRequests((sellRes.data ?? []) as SellRequestRow[]);
       // Etapa de seguimiento: consulta aparte para no romper si falta la migración
       let servicios = (serviceRes.data ?? []) as ServiceRequestRow[];
+      let conSeguimiento = false;
       if (servicios.length) {
         const segRes = await supabase
           .from("service_requests")
-          .select("id,seguimiento")
+          .select("id,seguimiento,seguimiento_nota,seguimiento_actualizado")
           .eq("customer_user_id", userId);
         if (!segRes.error) {
-          const porId = new Map(
-            ((segRes.data ?? []) as { id: string; seguimiento: string | null }[]).map((x) => [x.id, x.seguimiento])
-          );
-          servicios = servicios.map((s) => ({ ...s, seguimiento: porId.get(s.id) ?? null }));
+          conSeguimiento = true;
+          type FilaSeg = { id: string; seguimiento: string | null; seguimiento_nota: string | null; seguimiento_actualizado: string | null };
+          const porId = new Map(((segRes.data ?? []) as FilaSeg[]).map((x) => [x.id, x]));
+          servicios = servicios.map((s) => {
+            const seg = porId.get(s.id);
+            return {
+              ...s,
+              seguimiento: seg?.seguimiento ?? null,
+              seguimiento_nota: seg?.seguimiento_nota ?? null,
+              seguimiento_actualizado: seg?.seguimiento_actualizado ?? null,
+            };
+          });
         }
       }
       setServiceRequests(servicios);
+      setSeguimientoDisponible(conSeguimiento);
+
+      // Pedidos: con su cuenta y, aparte, los hechos sin sesión con su mismo correo.
+      const COLUMNAS_PEDIDO = "id,numero,created_at,estado,entrega,total_eur,user_id,pedido_items(id,titulo,precio_eur)";
+      const [conCuenta, sinSesion] = await Promise.all([
+        supabase.from("pedidos").select(COLUMNAS_PEDIDO).eq("user_id", userId).order("created_at", { ascending: false }).limit(100),
+        email
+          ? supabase
+              .from("pedidos")
+              .select(COLUMNAS_PEDIDO)
+              .is("user_id", null)
+              // Mismo correo sin distinguir mayúsculas («%» y «_» del correo se buscan tal cual).
+              .ilike("email", email.trim().replace(/[\\%_]/g, (c) => `\\${c}`))
+              .order("created_at", { ascending: false })
+              .limit(100)
+          : Promise.resolve({ data: [] as unknown[], error: null }),
+      ]);
+      if (conCuenta.error) {
+        setPedidos(null);
+      } else {
+        const todos = [...((conCuenta.data ?? []) as unknown as PedidoFicha[]), ...((sinSesion.error ? [] : sinSesion.data ?? []) as unknown as PedidoFicha[])];
+        todos.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+        setPedidos(todos);
+      }
       setNotes(notesRes.data?.notes ?? "");
       setNotesUpdatedAt(notesRes.data?.updated_at ?? null);
       setNotesLoaded(true);
@@ -326,7 +402,7 @@ export default function ClienteFicha() {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, email]);
 
   useEffect(() => {
     load();
@@ -467,6 +543,26 @@ export default function ClienteFicha() {
                 )}
               </SectionCard>
 
+              {pedidos !== null ? (
+                <View nativeID="ficha-pedidos">
+                  <SectionCard icon="receipt-outline" title="Pedidos" count={pedidos.length}>
+                    {pedidos.length === 0 ? (
+                      <EmptyRow text="No ha hecho ningún pedido en la tienda." />
+                    ) : (
+                      <View style={{ gap: 8 }}>
+                        {pedidos.map((p) => (
+                          <PedidoEtapas
+                            key={p.id}
+                            pedido={p}
+                            onCambiado={(estado) => setPedidos((prev) => (prev ?? []).map((x) => (x.id === p.id ? { ...x, estado } : x)))}
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </SectionCard>
+                </View>
+              ) : null}
+
               <SectionCard icon="bag-check-outline" title="Compras a la tienda" count={purchases.length}>
                 {purchases.length === 0 ? (
                   <EmptyRow text="Todavía no le hemos vendido nada." />
@@ -572,6 +668,14 @@ export default function ClienteFicha() {
                             </Text>
                           ) : null}
                         </View>
+                        {seguimientoDisponible ? (
+                          <SeguimientoReparacion
+                            solicitud={s}
+                            onGuardado={(cambio) =>
+                              setServiceRequests((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...cambio } : x)))
+                            }
+                          />
+                        ) : null}
                       </View>
                     ))}
                   </View>
@@ -658,6 +762,212 @@ export default function ClienteFicha() {
           </ScrollView>
           </KeyboardAvoidingView>
         )}
+      </View>
+    </View>
+  );
+}
+
+// --- Etapas desde la ficha ------------------------------------------------------------------------------------------
+
+// Botón de etapa: la actual resaltada (en rojo si es la de cancelar). 44 px de alto para tocarlo bien.
+function EtapaChip({
+  etiqueta,
+  activa,
+  peligro,
+  disabled,
+  onPress,
+}: {
+  etiqueta: string;
+  activa: boolean;
+  peligro?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ selected: activa, disabled: !!disabled }}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        justifyContent: "center",
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: activa ? (peligro ? COLORS.danger : COLORS.accent) : COLORS.border,
+        backgroundColor: activa ? (peligro ? COLORS.dangerBg : COLORS.accent2) : "#FFFFFF",
+        opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+      })}
+    >
+      <Text style={{ color: activa ? (peligro ? COLORS.danger : COLORS.accentDark) : COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+        {etiqueta}
+      </Text>
+    </Pressable>
+  );
+}
+
+// Un pedido con sus etapas: un toque cambia la etapa (como en Administración → Pedidos).
+function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado: (estado: EstadoPedido) => void }) {
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  async function cambiar(estado: EstadoPedido) {
+    if (estado === pedido.estado || guardando) return;
+    setGuardando(true);
+    setAviso(null);
+    const { data, error } = await supabase.from("pedidos").update({ estado }).eq("id", pedido.id).select("id");
+    setGuardando(false);
+    if (error || !Array.isArray(data) || data.length === 0) {
+      setAviso({ ok: false, texto: "No se ha podido cambiar la etapa. Inténtalo de nuevo." });
+      return;
+    }
+    onCambiado(estado);
+    setAviso({
+      ok: true,
+      texto: pedido.user_id ? "Etapa guardada ✓ El cliente la ve en «Mis seguimientos»." : "Etapa guardada ✓",
+    });
+    // Si se cancela un pedido con artículos de VeoAura, el servidor se lo avisa a VeoAura (api/escaparate-retorno.ts).
+    if (Platform.OS === "web") fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
+  }
+
+  const items = pedido.pedido_items ?? [];
+  return (
+    <View style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
+          Pedido nº {pedido.numero ?? "—"}
+          {pedido.total_eur != null ? ` · ${eur(pedido.total_eur)}` : ""}
+        </Text>
+        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{fmtDate(pedido.created_at)}</Text>
+      </View>
+      {items.length ? (
+        <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>{items.map((it) => it.titulo).join(" · ")}</Text>
+      ) : null}
+      <Text style={{ color: COLORS.muted2, fontSize: 11.5, fontWeight: "700" }}>
+        {pedido.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
+        {pedido.user_id ? "" : " · Hecho sin sesión (con su correo): no lo ve en «Mis seguimientos»"}
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {ESTADOS_PEDIDO.map((e) => (
+          <EtapaChip
+            key={e}
+            etiqueta={etiquetaEstadoPedido(e, pedido.entrega)}
+            activa={pedido.estado === e}
+            peligro={e === "cancelado"}
+            disabled={guardando}
+            onPress={() => cambiar(e)}
+          />
+        ))}
+      </View>
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+          {aviso.texto}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// Seguimiento de una reparación para el cliente: etapa + «nota del taller» (como en Administración → Servicios).
+function SeguimientoReparacion({
+  solicitud,
+  onGuardado,
+}: {
+  solicitud: ServiceRequestRow;
+  onGuardado: (cambio: Pick<ServiceRequestRow, "seguimiento" | "seguimiento_nota" | "seguimiento_actualizado">) => void;
+}) {
+  const inicial = solicitud.seguimiento ?? "solicitado";
+  const [etapa, setEtapa] = useState(inicial);
+  const [nota, setNota] = useState(solicitud.seguimiento_nota ?? "");
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const cambiado = etapa !== inicial || nota.trim() !== (solicitud.seguimiento_nota ?? "");
+
+  async function guardar() {
+    if (!cambiado || guardando) return;
+    setGuardando(true);
+    setAviso(null);
+    const cambio = {
+      seguimiento: etapa,
+      seguimiento_nota: nota.trim() || null,
+      seguimiento_actualizado: new Date().toISOString(),
+    };
+    const { data, error } = await supabase.from("service_requests").update(cambio).eq("id", solicitud.id).select("id");
+    setGuardando(false);
+    if (error || !Array.isArray(data) || data.length === 0) {
+      setAviso({ ok: false, texto: "No se ha podido guardar el seguimiento. Inténtalo de nuevo." });
+      return;
+    }
+    onGuardado(cambio);
+    setAviso({ ok: true, texto: "Seguimiento guardado ✓ El cliente lo ve en «Mis seguimientos»." });
+  }
+
+  return (
+    <View style={{ gap: 6, paddingTop: 4 }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 11.5 }}>
+        SEGUIMIENTO PARA EL CLIENTE
+        {solicitud.seguimiento_actualizado ? ` · ${fmtDate(solicitud.seguimiento_actualizado)}` : ""}
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {SEGUIMIENTO_ETAPAS.map((e) => (
+          <EtapaChip
+            key={e}
+            etiqueta={SEGUIMIENTO_LABEL[e]}
+            activa={etapa === e}
+            peligro={e === "cancelado"}
+            disabled={guardando}
+            onPress={() => {
+              setEtapa(e);
+              setAviso(null);
+            }}
+          />
+        ))}
+      </View>
+      <TextInput
+        value={nota}
+        onChangeText={(t) => {
+          setNota(t.slice(0, 500));
+          setAviso(null);
+        }}
+        placeholder="Nota del taller para el cliente (opcional)"
+        placeholderTextColor="rgba(11,33,56,0.40)"
+        accessibilityLabel="Nota del taller para el cliente"
+        maxLength={500}
+        style={{
+          minHeight: 44,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          borderRadius: 14,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          color: COLORS.text,
+          backgroundColor: "#FFFFFF",
+          // 16 px: con menos, Safari (iPhone) hace zoom al enfocar.
+          fontSize: 16,
+        }}
+      />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <Pressable
+          onPress={guardar}
+          disabled={!cambiado || guardando}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            minHeight: 44,
+            justifyContent: "center",
+            paddingHorizontal: 18,
+            borderRadius: 999,
+            backgroundColor: COLORS.accentDark,
+            opacity: !cambiado || guardando ? 0.5 : pressed ? 0.88 : 1,
+          })}
+        >
+          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13.5 }}>{guardando ? "Guardando…" : "Guardar seguimiento"}</Text>
+        </Pressable>
+        {aviso ? (
+          <Text accessibilityRole="alert" style={{ flexShrink: 1, color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+            {aviso.texto}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

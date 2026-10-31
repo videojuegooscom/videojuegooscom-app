@@ -29,6 +29,9 @@
  *  - Administración → Usuarios: contadores (con perfil, completos, edad media, provincias), cuántos encuadraron su foto o dejaron
  *    el recorte (30 días), chips por edad, provincia y país que filtran la lista, el resumen de cada cliente, el buscador por nombre/usuario/provincia, y la ficha con el perfil. Sin la
  *    tabla, nada de eso sale y la lista funciona igual.
+ *  - Ficha del cliente: sus pedidos (con su cuenta y los hechos sin sesión con su correo, no los de otros) con sus etapas;
+ *    un toque cambia la etapa (y avisa al puente de VeoAura); cada reparación con su etapa, «nota del taller» y «Guardar
+ *    seguimiento», sin ir a Pedidos ni a Servicios.
  *  - Diseño: nada se ensancha, campos y botones compactos pero de 44 px o más (se tocan bien), sin errores de JavaScript.
  *
  * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas]
@@ -156,6 +159,31 @@ async function contexto(navegador, usuario, rol, estado) {
       const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
       estado.borrados = [...(estado.borrados ?? []), id];
       return json(estado.borrarSinPermiso ? [] : [{ id }]);
+    }
+    // Ficha del cliente: pedidos y reparaciones ficticios (solo si la prueba los da); se apunta lo que se mandaría cambiar.
+    if (url.pathname.endsWith("/rest/v1/pedidos") && estado.pedidosFicha) {
+      if (metodo === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        estado.cambiosPedido = [...(estado.cambiosPedido ?? []), { id, cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        return json([{ id }]);
+      }
+      if (metodo === "GET") {
+        const uid = url.searchParams.get("user_id") ?? "";
+        if (uid.startsWith("eq.")) return json(estado.pedidosFicha.filter((p) => p.user_id === uid.slice(3)));
+        if (uid === "is.null") {
+          const correo = (url.searchParams.get("email") ?? "").replace(/^ilike\./, "").replace(/\\(.)/g, "$1").toLowerCase();
+          return json(estado.pedidosFicha.filter((p) => !p.user_id && p.email.toLowerCase() === correo));
+        }
+        return json([]);
+      }
+    }
+    if (url.pathname.endsWith("/rest/v1/service_requests") && estado.serviciosFicha) {
+      if (metodo === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        estado.cambiosServicio = [...(estado.cambiosServicio ?? []), { id, cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        return json([{ id }]);
+      }
+      if (metodo === "GET") return json(estado.serviciosFicha);
     }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticias) return json(estado.noticias);
@@ -739,7 +767,22 @@ try {
     { event_name: "foro_mensaje_eliminado", user_id: ADMIN.id, session_id: "sa" },
   ];
   {
-    const estado = { usuarios: U, filas: PERFILES, guardados: [], eventos: EVENTOS, comentariosOcultos: 3 };
+    const estado = {
+      usuarios: U,
+      filas: PERFILES,
+      guardados: [],
+      eventos: EVENTOS,
+      comentariosOcultos: 3,
+      // Ficha de Dani: un pedido con su cuenta, otro sin sesión con su correo (en otras mayúsculas) y uno de otra persona.
+      pedidosFicha: [
+        { id: "p1000000-0000-4000-8000-000000000001", numero: 12, created_at: "2026-10-29T10:00:00Z", estado: "confirmado", entrega: "envio", total_eur: 155, user_id: U[0].user_id, email: "dani@example.com", pedido_items: [{ id: "i1", titulo: "PlayStation 5", precio_eur: 155 }] },
+        { id: "p2000000-0000-4000-8000-000000000002", numero: 15, created_at: "2026-10-30T10:00:00Z", estado: "pendiente", entrega: "recogida", total_eur: 30, user_id: null, email: "Dani@Example.com", pedido_items: [{ id: "i2", titulo: "Mando DualSense", precio_eur: 30 }] },
+        { id: "p3000000-0000-4000-8000-000000000003", numero: 20, created_at: "2026-10-30T11:00:00Z", estado: "pendiente", entrega: "envio", total_eur: 99, user_id: null, email: "otra@example.com", pedido_items: [] },
+      ],
+      serviciosFicha: [
+        { id: "s1000000-0000-4000-8000-000000000001", created_at: "2026-10-28T10:00:00Z", service_title: "Reparación de mando", status: "nuevo", ciudad: "Zaragoza", seguimiento: "recibido", seguimiento_nota: null, seguimiento_actualizado: null },
+      ],
+    };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/users");
     await p.locator("#admin-perfiles").waitFor({ timeout: 40000 });
@@ -817,6 +860,40 @@ try {
     ok(new RegExp(`Edad\\s*${edades[0]} años`).test(tf) && !/2003/.test(tf), "E: y su edad, sin enseñar la fecha de nacimiento");
     ok(/Perfil completo · actualizado 30\/10\/2026/.test(tf) && (await f.locator('img[alt="Foto de perfil del cliente"]').count()) === 1, "E: la ficha enseña su foto y «Perfil completo · actualizado …»");
     await capturar(f, "E2-admin-ficha");
+
+    // Etapas desde la ficha (sin ir a Pedidos ni a Servicios).
+    let avisosVeoAura = 0;
+    f.on("request", (r) => {
+      if (r.url().includes("/api/escaparate-retorno") && r.method() === "POST") avisosVeoAura += 1;
+    });
+    const fp = f.locator("#ficha-pedidos");
+    await fp.waitFor({ timeout: 10000 }).catch(() => {});
+    const tp = (await fp.innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Pedido nº 12 · 155,00€/.test(tp) && /PlayStation 5/.test(tp), `E: la ficha enseña sus pedidos con número, importe y artículos (${tp.slice(0, 90)})`);
+    ok(/Pedido nº 15/.test(tp) && /Hecho sin sesión/.test(tp), "E: también el que hizo sin sesión con su correo (avisando de que no lo ve en «Mis seguimientos»)");
+    ok(!/Pedido nº 20/.test(tp), "E: y no los de otras personas");
+    ok((await fp.getByRole("button", { name: "Listo para recoger", exact: true }).count()) === 1, "E: con entrega en mano, la etapa se llama «Listo para recoger» (como la ve el cliente)");
+    const altos = await fp.getByRole("button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().height)));
+    ok(altos.length >= 12 && altos.every((h) => h >= 44), `E: los botones de etapa se tocan bien, de 44 px o más (${[...new Set(altos)].join(", ")})`);
+    await fp.getByRole("button", { name: "Enviado", exact: true }).click();
+    await f.getByText(/Etapa guardada ✓/).waitFor({ timeout: 10000 }).catch(() => {});
+    const cp = (estado.cambiosPedido ?? [])[0];
+    ok(!!cp && cp.id === "p1000000-0000-4000-8000-000000000001" && cp.cuerpo.estado === "enviado", `E: un toque en «Enviado» cambia la etapa del pedido nº 12 (${JSON.stringify(cp ?? null)})`);
+    ok((await f.getByText("Etapa guardada ✓ El cliente la ve en «Mis seguimientos».").count()) === 1, "E: y lo confirma («el cliente la ve en Mis seguimientos»)");
+    await f.waitForTimeout(500);
+    ok(avisosVeoAura === 1, `E: y avisa al puente de VeoAura, como en Pedidos (${avisosVeoAura})`);
+
+    await f.getByRole("button", { name: "En reparación", exact: true }).click();
+    await f.getByLabel("Nota del taller para el cliente").fill("Cambiamos el joystick izquierdo");
+    await f.getByRole("button", { name: "Guardar seguimiento" }).click();
+    await f.getByText(/Seguimiento guardado ✓/).waitFor({ timeout: 10000 }).catch(() => {});
+    const cs = (estado.cambiosServicio ?? [])[0];
+    ok(!!cs && cs.id === "s1000000-0000-4000-8000-000000000001" && cs.cuerpo.seguimiento === "reparando" && cs.cuerpo.seguimiento_nota === "Cambiamos el joystick izquierdo" && !!cs.cuerpo.seguimiento_actualizado, `E: la reparación se pasa a «En reparación» con su nota del taller desde la ficha (${JSON.stringify(cs?.cuerpo ?? null)})`);
+    ok((await f.getByText("Seguimiento guardado ✓ El cliente lo ve en «Mis seguimientos».").count()) === 1, "E: y lo confirma");
+    ok(f.errores.length === 0, `E: la ficha sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
+    const anchoF = await f.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(anchoF.a <= anchoF.p + 1, `E: la ficha no se ensancha (${anchoF.a}/${anchoF.p})`);
+    await capturar(f, "E3-ficha-etapas");
     await ctx.close();
   }
 
