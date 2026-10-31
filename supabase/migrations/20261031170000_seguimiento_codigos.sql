@@ -103,17 +103,21 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_servidor boolean := coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') = 'service_role';
+  -- Un cliente de la web (visitante o con sesión) nunca pone ni cambia la ficha de VeoAura: eso solo lo hace el servidor.
+  -- Es cliente si lo dice su token o el rol con el que entra (cualquiera de los dos basta).
+  v_cliente boolean :=
+    coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') in ('anon', 'authenticated')
+    or coalesce(current_setting('role', true), '') in ('anon', 'authenticated');
 begin
   if tg_op = 'INSERT' then
     new.codigo_seguimiento := public.generar_codigo_seguimiento();
     new.vinculado_en := null;
-    if not v_servidor then
+    if v_cliente then
       new.id_veoaura := null;
     end if;
   else
     new.codigo_seguimiento := old.codigo_seguimiento;
-    if not v_servidor then
+    if v_cliente then
       new.id_veoaura := old.id_veoaura;
     end if;
   end if;

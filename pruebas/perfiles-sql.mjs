@@ -571,11 +571,12 @@ try {
   const U3 = "33333333-3333-4333-8333-333333333333";
   const ESQUEMA_NUMEROS = `
     do $$ begin
-      if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
+      if not exists (select 1 from pg_roles where rolname = 'puente_tienda') then create role puente_tienda nologin bypassrls; end if;
     end $$;
-    grant usage on schema public to service_role;
-    grant usage on schema auth to service_role;
-    alter default privileges in schema public grant all on tables to service_role;
+    -- El servidor (puente de VeoAura): un rol que no es de cliente y que se salta las políticas, como el de Supabase.
+    grant usage on schema public to puente_tienda;
+    grant usage on schema auth to puente_tienda;
+    alter default privileges in schema public grant all on tables to puente_tienda;
     insert into auth.users (id, email) values ('${U3}', 'u3@example.com');
     insert into public.profiles (id, role) values ('${U3}', 'user');
     create table public.service_requests (
@@ -635,8 +636,8 @@ try {
   const comoServidor = async (cs, consulta) => {
     await cs.query("begin");
     try {
-      await cs.query("set local role service_role");
-      await cs.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "service_role" })]);
+      await cs.query("set local role puente_tienda");
+      await cs.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "puente_tienda" })]);
       const r = await cs.query(consulta);
       await cs.query("commit");
       return { ok: true, filas: r.rows };
