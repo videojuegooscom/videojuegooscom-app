@@ -22,8 +22,8 @@
  *  - «Completa tu perfil» (obligatorio): con sesión y el perfil a medias tapa Inicio; «Guardar y continuar» solo con todo lo
  *    obligatorio; al guardar desaparece; «Cerrar sesión» sale; Blue no se ve mientras tanto; no sale en Mi cuenta, en las
  *    políticas, con el perfil completo ni sin la tabla.
- *  - Administración → Usuarios: contadores (con perfil, completos, edad media, provincias), chips por edad, provincia y país que
- *    filtran la lista, el resumen de cada cliente, el buscador por nombre/usuario/provincia, y la ficha con el perfil. Sin la
+ *  - Administración → Usuarios: contadores (con perfil, completos, edad media, provincias), cuántos encuadraron su foto o dejaron
+ *    el recorte (30 días), chips por edad, provincia y país que filtran la lista, el resumen de cada cliente, el buscador por nombre/usuario/provincia, y la ficha con el perfil. Sin la
  *    tabla, nada de eso sale y la lista funciona igual.
  *  - Diseño: nada se ensancha, campos y botones compactos pero de 44 px o más (se tocan bien), sin errores de JavaScript.
  *
@@ -601,6 +601,10 @@ try {
     { event_name: "perfil_obligatorio_visto", user_id: U[3].user_id, session_id: "s4" },
     { event_name: "perfil_guardado", user_id: U[0].user_id, session_id: "s1" },
     { event_name: "perfil_obligatorio_salir", user_id: U[3].user_id, session_id: "s4" },
+    // Foto de perfil: Dani la encuadró y Ana dejó el recorte dos veces (cuenta como una persona).
+    { event_name: "perfil_foto_encuadrada", user_id: U[0].user_id, session_id: "s1" },
+    { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
+    { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
   ];
   {
     const estado = { usuarios: U, filas: PERFILES, guardados: [], eventos: EVENTOS };
@@ -627,6 +631,7 @@ try {
     const plano = t.replace(/\n/g, " ");
     ok(/Faltan datos\s*2/.test(plano) && /Con foto\s*1/.test(plano), "E: contadores nuevos: «Faltan datos: 2» (a quienes les sale «Completa tu perfil») y «Con foto: 1»");
     ok(/«Completa tu perfil» \(30 días\): la vieron 2 · la completaron 1 · cerraron sesión 1/.test(plano), `E: seguimiento de «Completa tu perfil» (personas distintas, 30 días): ${(plano.match(/«Completa tu perfil».{0,80}/) ?? [""])[0]}`);
+    ok(/Foto de perfil \(30 días\): la encuadraron 1 · dejaron el recorte 1/.test(plano), `E: seguimiento del recorte de la foto (personas distintas, 30 días): ${(plano.match(/Foto de perfil \(30 días\).{0,50}/) ?? [""])[0]}`);
     ok(t.includes("Completo (2)") && t.includes("Faltan datos (2)") && t.includes("Con foto (1)"), "E: chips de estado con su recuento");
     ok(lista.includes("Perfil completo · actualizado 30/10/2026") && lista.includes("Faltan: usuario, nombre, edad") && lista.includes("Aún no ha completado su perfil"), "E: cada fila dice si el perfil está completo (y cuándo se actualizó) o qué le falta");
     ok((await p.locator('img[alt="Foto de Dani"]').count()) === 1, "E: la fila enseña la foto del cliente que la tiene");

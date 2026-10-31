@@ -38,7 +38,8 @@
  *   faltan datos, con foto), tramo de edad, provincia y país que a la vez FILTRAN la lista, y
  *   cuántos vieron, completaron o abandonaron «Completa tu perfil» en los últimos 30 días
  *   (analítica propia: perfil_obligatorio_visto / perfil_guardado / perfil_obligatorio_salir,
- *   solo de quien no rechazó la analítica). Cada fila lleva la foto, el resumen y qué le falta;
+ *   solo de quien no rechazó la analítica), y cuántos encuadraron su foto o dejaron el recorte a
+ *   medias (perfil_foto_encuadrada / perfil_foto_cancelada). Cada fila lleva la foto, el resumen y qué le falta;
  *   el buscador también encuentra por nombre, usuario, provincia o país. Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
@@ -125,7 +126,13 @@ type PerfilRow = {
 type EstadoPerfil = "completo" | "pendiente" | "foto";
 
 // Lo que mide la analítica propia de «Completa tu perfil» (components/PerfilPublico.tsx).
-const EVENTOS_PERFIL = ["perfil_obligatorio_visto", "perfil_guardado", "perfil_obligatorio_salir"] as const;
+const EVENTOS_PERFIL = [
+  "perfil_obligatorio_visto",
+  "perfil_guardado",
+  "perfil_obligatorio_salir",
+  "perfil_foto_encuadrada",
+  "perfil_foto_cancelada",
+] as const;
 
 type SortMode = "recent" | "participation";
 
@@ -322,7 +329,13 @@ export default function AdminUsers() {
   const [filtroTramo, setFiltroTramo] = useState<string | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<EstadoPerfil | null>(null);
   // «Completa tu perfil» en los últimos 30 días: personas distintas que la vieron, la completaron o cerraron sesión.
-  const [embudoPerfil, setEmbudoPerfil] = useState<{ vistos: number; completados: number; salieron: number } | null>(null);
+  const [embudoPerfil, setEmbudoPerfil] = useState<{
+    vistos: number;
+    completados: number;
+    salieron: number;
+    fotosEncuadradas: number;
+    fotosCanceladas: number;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -364,6 +377,8 @@ export default function AdminUsers() {
           vistos: personas("perfil_obligatorio_visto"),
           completados: personas("perfil_guardado"),
           salieron: personas("perfil_obligatorio_salir"),
+          fotosEncuadradas: personas("perfil_foto_encuadrada"),
+          fotosCanceladas: personas("perfil_foto_cancelada"),
         });
       }
 
@@ -588,6 +603,12 @@ export default function AdminUsers() {
                   <Text nativeID="admin-perfiles-embudo" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                     «Completa tu perfil» (30 días): la vieron {embudoPerfil.vistos} · la completaron {embudoPerfil.completados} · cerraron sesión{" "}
                     {embudoPerfil.salieron}
+                  </Text>
+                ) : null}
+                {/* Foto de perfil: quién la encuadra y la usa, y quién deja el recorte a medias (30 días). */}
+                {embudoPerfil ? (
+                  <Text nativeID="admin-perfiles-fotos" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    Foto de perfil (30 días): la encuadraron {embudoPerfil.fotosEncuadradas} · dejaron el recorte {embudoPerfil.fotosCanceladas}
                   </Text>
                 ) : null}
 

@@ -761,10 +761,13 @@ export default function PerfilPublico({
       onCancelar={() => {
         revocar(recorte);
         setRecorte(null);
+        // Analítica propia (Administración → Usuarios): cuántos encuadran su foto y cuántos lo dejan.
+        trackEvent("perfil_foto_cancelada", "Perfil: recorte de foto cancelado");
       }}
       onListo={(archivo) => {
         revocar(recorte);
         setRecorte(null);
+        trackEvent("perfil_foto_encuadrada", "Perfil: foto encuadrada");
         void subirFoto(archivo);
       }}
     />
