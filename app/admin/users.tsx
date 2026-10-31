@@ -25,6 +25,11 @@
  *   ficha de cliente (app/admin/cliente/[userId].tsx).
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
  *   cualquiera igual que las reseñas de Inicio).
+ * - "Moderación del Foro": mensajes que los administradores han eliminado en
+ *   los últimos 30 días (analítica propia foro_mensaje_eliminado; solo cuenta
+ *   si ese navegador aceptó la analítica) y comentarios de noticias eliminados
+ *   (ocultos en noticias_comentarios, contados en la base de datos). Se
+ *   eliminan desde el propio Foro: tocar el mensaje → papelera.
  * - Buscador: filtra la lista ya cargada por email (no vuelve a pedir nada a
  *   Supabase, la lista de usuarios registrados no suele ser tan grande).
  * - Orden: por fecha de alta (más recientes primero, por defecto) o por
@@ -133,6 +138,9 @@ const EVENTOS_PERFIL = [
   "perfil_foto_encuadrada",
   "perfil_foto_cancelada",
 ] as const;
+
+// Moderación del Foro (app/(tabs)/chat-global.tsx): mensajes y comentarios que eliminan los administradores.
+const EVENTOS_FORO = ["foro_mensaje_eliminado", "foro_comentario_eliminado"] as const;
 
 type SortMode = "recent" | "participation";
 
@@ -336,6 +344,12 @@ export default function AdminUsers() {
     fotosEncuadradas: number;
     fotosCanceladas: number;
   } | null>(null);
+  // Moderación del Foro: mensajes eliminados en 30 días (analítica propia) y comentarios de noticias eliminados (ocultos,
+  // contados en la base de datos). null = no se ha podido leer.
+  const [moderacionForo, setModeracionForo] = useState<{ mensajes: number | null; comentarios: number | null }>({
+    mensajes: null,
+    comentarios: null,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -343,7 +357,7 @@ export default function AdminUsers() {
 
     try {
       const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes] = await Promise.all([
+      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes] = await Promise.all([
         supabase.rpc("admin_list_users_with_stats"),
         supabase.from("sell_requests").select("id", { count: "exact", head: true }),
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
@@ -353,10 +367,17 @@ export default function AdminUsers() {
         supabase
           .from("analytics_events")
           .select("event_name,user_id,session_id")
-          .in("event_name", [...EVENTOS_PERFIL])
+          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_FORO])
           .gte("created_at", desde)
           .limit(5000),
+        supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
       ]);
+      setModeracionForo({
+        mensajes: eventosRes.error
+          ? null
+          : ((eventosRes.data ?? []) as { event_name: string }[]).filter((e) => e.event_name === "foro_mensaje_eliminado").length,
+        comentarios: comentariosOcultosRes.error ? null : comentariosOcultosRes.count ?? 0,
+      });
       // Tabla creada con la migración antigua (sin foto): se pide sin esas columnas.
       const perfilesRes =
         perfilesConFoto.error && /foto_url|updated_at/.test(String(perfilesConFoto.error.message ?? ""))
@@ -578,6 +599,15 @@ export default function AdminUsers() {
               <StatCard label="Solicitudes venta" value={String(sellRequestsCount)} icon="pricetags-outline" isMobile={isMobile} />
               <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
             </View>
+
+            {/* Moderación del Foro: lo que eliminan los administradores (tocando un mensaje → papelera). */}
+            {moderacionForo.mensajes !== null || moderacionForo.comentarios !== null ? (
+              <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Moderación del Foro
+                {moderacionForo.mensajes !== null ? ` · mensajes eliminados (30 días): ${moderacionForo.mensajes}` : ""}
+                {moderacionForo.comentarios !== null ? ` · comentarios de noticias eliminados: ${moderacionForo.comentarios}` : ""}
+              </Text>
+            ) : null}
 
             {/* Seguimiento de los perfiles (lo que cada cliente escribe en Mi cuenta → Tu perfil). Los contadores también
                 sirven de filtro: tocar uno filtra la lista de abajo y volver a tocarlo lo quita. */}

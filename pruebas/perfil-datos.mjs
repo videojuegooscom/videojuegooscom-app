@@ -19,6 +19,10 @@
  *    foto_url y en los datos de la cuenta; «Quitar foto».
  *  - Foro: cada mensaje enseña el usuario y la foto de «Mi perfil» de quien escribe (función perfiles_publicos), no su nombre
  *    completo; quien no tiene perfil sigue con su nombre y la inicial; sin la función, el Foro sigue como antes.
+ *  - Moderación del Foro: un administrador toca un mensaje → «Eliminar mensaje» → confirma (con «Cancelar» no pasa nada) y se
+ *    borra de la base de datos y de la pantalla; si la base de datos no lo permite, lo dice y el mensaje se queda; los
+ *    comentarios de noticias se eliminan igual (se marcan ocultos); un cliente no ve ninguna papelera; Administración →
+ *    Usuarios cuenta lo eliminado («Moderación del Foro»).
  *  - «Completa tu perfil» (obligatorio): con sesión y el perfil a medias tapa Inicio; «Guardar y continuar» solo con todo lo
  *    obligatorio; al guardar desaparece; «Cerrar sesión» sale; Blue no se ve mientras tanto; no sale en Mi cuenta, en las
  *    políticas, con el perfil completo ni sin la tabla.
@@ -147,6 +151,27 @@ async function contexto(navegador, usuario, rol, estado) {
     }
     // Foro: mensajes ficticios y la función perfiles_publicos (usuario y foto de quien escribe).
     if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "GET") return json(estado.mensajes ?? []);
+    // Moderación: un administrador elimina un mensaje (la base de datos devuelve lo borrado; [] = no se lo ha permitido).
+    if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "DELETE") {
+      const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+      estado.borrados = [...(estado.borrados ?? []), id];
+      return json(estado.borrarSinPermiso ? [] : [{ id }]);
+    }
+    // Noticias y sus comentarios ficticios (solo si la prueba los da).
+    if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticias) return json(estado.noticias);
+    if (url.pathname.endsWith("/rest/v1/noticias_comentarios")) {
+      if (metodo === "HEAD") return json([], 200, { "content-range": `*/${estado.comentariosOcultos ?? 0}`, "access-control-expose-headers": "*" });
+      if (metodo === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        estado.ocultados = [...(estado.ocultados ?? []), { id, cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+        return json([{ id }]);
+      }
+      if (metodo === "GET" && estado.comentarios) {
+        const visibles = estado.comentarios.filter((c) => !(estado.ocultados ?? []).some((o) => o.id === c.id));
+        if ((url.searchParams.get("select") ?? "").startsWith("noticia_id")) return json(visibles.map((c) => ({ noticia_id: c.noticia_id })));
+        return json(visibles.map(({ noticia_id: _n, ...c }) => c));
+      }
+    }
     if (url.pathname.endsWith("/rpc/perfiles_publicos")) {
       estado.pedidosPerfilesForo = [...(estado.pedidosPerfilesForo ?? []), JSON.parse(peticion.postData() ?? "{}")];
       if (!estado.perfilesForo) return json({ code: "PGRST202", message: "Could not find the function public.perfiles_publicos(ids) in the schema cache" }, 404);
@@ -528,6 +553,110 @@ try {
     await ctx2.close();
   }
 
+  // ===== J) Foro: un administrador elimina mensajes y comentarios de noticias ====================================
+  {
+    const ANA = "22222222-2222-4222-8222-222222222222";
+    const LUIS = "33333333-3333-4333-8333-333333333333";
+    const NOTICIA = "abcd1111-0000-4000-8000-000000000001";
+    const mensaje = (id, user_id, display_name, body, minuto) => ({ id, created_at: `2026-10-30T18:${minuto}:00Z`, user_id, username: "x", display_name, role: "member", body, reply_to_id: null });
+    const M_LUIS = "m3000000-0000-4000-8000-000000000003";
+    const M_ANA = "m2000000-0000-4000-8000-000000000002";
+    const datosForo = (uid) => ({
+      filas: [{ user_id: uid, nombre: "Persona de Prueba", usuario: "persona_prueba", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+      guardados: [],
+      mensajes: [mensaje(M_LUIS, LUIS, "Luis Romero", "Buenas a todos", "01"), mensaje(M_ANA, ANA, "Ana Pérez Gil", "Yo la compré aquí, va genial", "02")],
+      noticias: [
+        {
+          id: NOTICIA, fuente: "Prueba", titulo: "Noticia de prueba del Foro", imagen_url: null, categoria: "Consolas", resumen: "Resumen de prueba.",
+          puntos_clave: [], datos: [], por_que_importa: null, afecta_a: null, publicada_en: "2026-10-30T18:00:00Z", created_at: "2026-10-30T18:00:00Z",
+          imagenes: [], imagenes_verificadas: false, imagenes_meta: [], me_gusta: 0,
+        },
+      ],
+      comentarios: [{ id: "c1000000-0000-4000-8000-000000000001", noticia_id: NOTICIA, created_at: "2026-10-30T18:05:00Z", autor: "Luis Romero", texto: "Comentario que sobra" }],
+    });
+    // Toca un mensaje (un toque abre el selector de reacciones; el doble toque es responder).
+    const tocarMensaje = async (p, texto) => {
+      await p.getByText(texto, { exact: true }).click();
+      await p.waitForTimeout(500);
+    };
+
+    const estado = datosForo(ADMIN.id);
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/chat-global?tab=chat");
+    await p.getByText("Buenas a todos").waitFor({ timeout: 30000 }).catch(() => {});
+    await tocarMensaje(p, "Buenas a todos");
+    const papelera = p.getByRole("button", { name: "Eliminar mensaje" });
+    ok((await papelera.count()) === 1, "J: un administrador, al tocar un mensaje, tiene «Eliminar mensaje» junto a las reacciones");
+    const alto = await papelera.boundingBox();
+    ok(!!alto && alto.height >= 32, `J: la papelera se toca bien (${alto ? Math.round(alto.height) : "—"} px + margen de toque)`);
+    await capturar(p, "J1-foro-admin-papelera");
+    await papelera.click();
+    const ventana = p.locator("#foro-confirmar-eliminar");
+    await ventana.waitFor({ timeout: 5000 }).catch(() => {});
+    const tv = await ventana.innerText().catch(() => "");
+    ok(/¿Eliminar este mensaje\?/.test(tv) && /Luis Romero/.test(tv) && /Buenas a todos/.test(tv) && /No se puede deshacer/.test(tv), "J: antes de borrar pide confirmación y enseña quién lo escribió y qué dice");
+    await p.waitForTimeout(500); // (la ventana entra con un fundido)
+    await capturar(p, "J2-foro-confirmar");
+    await ventana.getByText("Cancelar", { exact: true }).click();
+    await p.waitForTimeout(400);
+    ok((await ventana.count()) === 0 && !(estado.borrados ?? []).length && (await p.getByText("Buenas a todos", { exact: true }).count()) === 1, "J: «Cancelar» no borra nada");
+
+    await tocarMensaje(p, "Buenas a todos");
+    await p.getByRole("button", { name: "Eliminar mensaje" }).click();
+    await ventana.getByText("Eliminar", { exact: true }).click();
+    await p.waitForFunction(() => !document.getElementById("foro-confirmar-eliminar"), null, { timeout: 10000 }).catch(() => {});
+    ok((estado.borrados ?? []).includes(M_LUIS), `J: «Eliminar» lo borra en la base de datos (${JSON.stringify(estado.borrados ?? [])})`);
+    ok((await p.getByText("Buenas a todos", { exact: true }).count()) === 0 && (await p.getByText("Yo la compré aquí, va genial").count()) === 1, "J: el mensaje desaparece del Foro y los demás siguen");
+
+    // Si la base de datos no lo permite (no es administrador de verdad o ya no existía), se dice y el mensaje se queda.
+    estado.borrarSinPermiso = true;
+    await tocarMensaje(p, "Yo la compré aquí, va genial");
+    await p.getByRole("button", { name: "Eliminar mensaje" }).click();
+    await ventana.getByText("Eliminar", { exact: true }).click();
+    await p.getByText("No se ha podido eliminar el mensaje. Inténtalo de nuevo.").waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.getByText("No se ha podido eliminar el mensaje. Inténtalo de nuevo.").count()) === 1, "J: si la base de datos no lo permite, lo dice");
+    await ventana.getByText("Cancelar", { exact: true }).click();
+    await p.waitForTimeout(300);
+    ok((await p.getByText("Yo la compré aquí, va genial").count()) === 1, "J: y el mensaje se queda");
+    // (el aviso «Error eliminando el mensaje» de la consola es el del rechazo provocado arriba)
+    const erroresJ = p.errores.filter((e) => !/Error eliminando el mensaje/.test(e));
+    ok(erroresJ.length === 0, `J: sin errores de JavaScript inesperados (${erroresJ.length}${erroresJ[0] ? ": " + erroresJ[0] : ""})`);
+
+    // Comentarios de una noticia.
+    const n = await pagina(ctx, "/chat-global?tab=news");
+    await n.getByText("Noticia de prueba del Foro").waitFor({ timeout: 30000 }).catch(() => {});
+    await n.getByRole("button", { name: "Comentarios", exact: true }).first().click();
+    await n.getByText("Comentario que sobra").waitFor({ timeout: 10000 }).catch(() => {});
+    const papeleraComentario = n.getByRole("button", { name: "Eliminar comentario" });
+    ok((await papeleraComentario.count()) === 1, "J: en los comentarios de una noticia, el administrador tiene «Eliminar comentario»");
+    await papeleraComentario.click();
+    const ventanaN = n.locator("#foro-confirmar-eliminar");
+    await ventanaN.waitFor({ timeout: 5000 }).catch(() => {});
+    ok(/¿Eliminar este comentario\?/.test(await ventanaN.innerText().catch(() => "")), "J: también pide confirmación");
+    await ventanaN.getByText("Eliminar", { exact: true }).click();
+    await n.waitForFunction(() => !document.getElementById("foro-confirmar-eliminar"), null, { timeout: 10000 }).catch(() => {});
+    const oculto = (estado.ocultados ?? [])[0];
+    ok(!!oculto && oculto.id === "c1000000-0000-4000-8000-000000000001" && oculto.cuerpo.oculto === true, `J: el comentario se marca oculto en la base de datos (${JSON.stringify(oculto ?? null)})`);
+    ok((await n.getByText("Comentario que sobra").count()) === 0, "J: y desaparece de la noticia");
+    ok(n.errores.length === 0, `J: sin errores de JavaScript en las noticias (${n.errores.length}${n.errores[0] ? ": " + n.errores[0] : ""})`);
+    await capturar(n, "J3-noticia-sin-comentario");
+    await ctx.close();
+
+    // Un cliente (no administrador) no ve ninguna papelera.
+    const estadoC = datosForo(CLIENTE.id);
+    const ctxC = await contexto(navegador, CLIENTE, "user", estadoC);
+    const c = await pagina(ctxC, "/chat-global?tab=chat");
+    await c.getByText("Buenas a todos").waitFor({ timeout: 30000 }).catch(() => {});
+    await tocarMensaje(c, "Buenas a todos");
+    ok((await c.getByText("👍").count()) >= 1 && (await c.getByRole("button", { name: "Eliminar mensaje" }).count()) === 0, "J: un cliente, al tocar un mensaje, solo ve las reacciones (sin «Eliminar mensaje»)");
+    const cn = await pagina(ctxC, "/chat-global?tab=news");
+    await cn.getByText("Noticia de prueba del Foro").waitFor({ timeout: 30000 }).catch(() => {});
+    await cn.getByRole("button", { name: "Comentarios", exact: true }).first().click();
+    await cn.getByText("Comentario que sobra").waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await cn.getByText("Comentario que sobra").count()) === 1 && (await cn.getByRole("button", { name: "Eliminar comentario" }).count()) === 0, "J: ni en los comentarios de las noticias");
+    await ctxC.close();
+  }
+
   // ===== G) «Completa tu perfil» (obligatorio) ====================================================================
   {
     // G1: perfil a medias (lo del registro) en Inicio: la pantalla tapa la tienda hasta guardarlo completo.
@@ -605,13 +734,18 @@ try {
     { event_name: "perfil_foto_encuadrada", user_id: U[0].user_id, session_id: "s1" },
     { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
     { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
+    // Moderación del Foro: el administrador eliminó 2 mensajes.
+    { event_name: "foro_mensaje_eliminado", user_id: ADMIN.id, session_id: "sa" },
+    { event_name: "foro_mensaje_eliminado", user_id: ADMIN.id, session_id: "sa" },
   ];
   {
-    const estado = { usuarios: U, filas: PERFILES, guardados: [], eventos: EVENTOS };
+    const estado = { usuarios: U, filas: PERFILES, guardados: [], eventos: EVENTOS, comentariosOcultos: 3 };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/users");
     await p.locator("#admin-perfiles").waitFor({ timeout: 40000 });
     ok((await p.locator("#perfil-obligatorio").count()) === 0, "E: en el panel de administración no se exige el perfil de cliente");
+    const moderacion = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Moderación del Foro · mensajes eliminados \(30 días\): 2 · comentarios de noticias eliminados: 3/.test(moderacion), `E: «Moderación del Foro» cuenta los mensajes y comentarios eliminados (${moderacion})`);
     const t = await p.locator("#admin-perfiles").innerText();
     ok(/Perfiles de clientes/.test(t), "E: Administración → Usuarios enseña «Perfiles de clientes»");
     ok(/Con perfil\s*3 de 4/.test(t.replace(/\n/g, " ")), "E: «Con perfil: 3 de 4»");

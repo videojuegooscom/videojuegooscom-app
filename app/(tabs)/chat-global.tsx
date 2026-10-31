@@ -64,6 +64,13 @@
  *   política RLS extra para esto, es solo por socket. El listado de
  *   "quién está conectado" que se despliega al tocarlo sigue siendo de
  *   ejemplo (array `viewers` fijo en este archivo).
+ * - Moderación: un administrador toca un mensaje y, en el selector de
+ *   reacciones, tiene una papelera «Eliminar mensaje»; tras confirmarlo
+ *   (ConfirmarEliminar) se borra de chat_messages (solo los administradores
+ *   pueden, por su política) y desaparece al momento para todos (evento
+ *   DELETE en tiempo real). Los comentarios de noticias tienen su papelera
+ *   para administradores y se ocultan (oculto = true). Administración →
+ *   Usuarios cuenta lo eliminado («Moderación del Foro»).
  * - El botón de enviar solo se activa a partir de 4 caracteres escritos, y
  *   hace un pequeño "pop" al pulsarlo y otro más marcado (con un check)
  *   justo al enviarse, estilo WhatsApp.
@@ -121,11 +128,153 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import SmartImage from "../../components/SmartImage";
+import { trackEvent } from "../../lib/analytics";
 import { markEnd, markStart } from "../../lib/loadingBus";
 import { supabase } from "../../lib/supabase";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// --- Moderación: los administradores pueden eliminar mensajes del Foro y comentarios de noticias ------------------
+// (la base de datos solo se lo deja a ellos: política chat_messages_delete_admin y noticias_comentarios_admin_update).
+
+// ¿La sesión es de un administrador? (profiles.role; se pregunta una vez por cuenta).
+const rolesAdminForo = new Map<string, Promise<boolean>>();
+function useEsAdminForo(): boolean {
+  const [esAdmin, setEsAdmin] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    const mirar = (uid: string | null) => {
+      if (!uid) {
+        setEsAdmin(false);
+        return;
+      }
+      let pregunta = rolesAdminForo.get(uid);
+      if (!pregunta) {
+        pregunta = Promise.resolve(
+          supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", uid)
+            .maybeSingle<{ role: string | null }>()
+        ).then(
+          ({ data, error }) => {
+            if (error) rolesAdminForo.delete(uid); // se vuelve a preguntar la próxima vez
+            return String(data?.role ?? "").trim().toLowerCase() === "admin";
+          },
+          () => {
+            rolesAdminForo.delete(uid);
+            return false;
+          }
+        );
+        rolesAdminForo.set(uid, pregunta);
+      }
+      pregunta.then((v) => {
+        if (vivo) setEsAdmin(v);
+      });
+    };
+    supabase.auth
+      .getSession()
+      .then(({ data }) => mirar(data.session?.user?.id ?? null))
+      .catch(() => {});
+    const { data } = supabase.auth.onAuthStateChange((_evento, sesion) => mirar(sesion?.user?.id ?? null));
+    return () => {
+      vivo = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+  return esAdmin;
+}
+
+// «¿Eliminar…?»: confirma antes de borrar (no se puede deshacer) y enseña qué se va a borrar.
+function ConfirmarEliminar({
+  que,
+  autor,
+  texto,
+  eliminando,
+  error,
+  onCancelar,
+  onConfirmar,
+}: {
+  que: "mensaje" | "comentario";
+  autor: string;
+  texto: string;
+  eliminando: boolean;
+  error: string | null;
+  onCancelar: () => void;
+  onConfirmar: () => void;
+}) {
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCancelar}>
+      <View
+        nativeID="foro-confirmar-eliminar"
+        style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", alignItems: "center", justifyContent: "center", padding: 16 }}
+      >
+        <View style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 18, gap: 12, alignItems: "center" }}>
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(220,38,38,0.10)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="trash-outline" size={24} color="#DC2626" />
+          </View>
+          <Text accessibilityRole="header" style={{ color: "#0B2138", fontWeight: "900", fontSize: 18, textAlign: "center" }}>
+            {que === "mensaje" ? "¿Eliminar este mensaje?" : "¿Eliminar este comentario?"}
+          </Text>
+          <View style={{ alignSelf: "stretch", backgroundColor: "#F1F6FA", borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, gap: 2 }}>
+            <Text numberOfLines={1} style={{ color: "#0B2138", fontWeight: "900", textAlign: "center" }}>
+              {autor}
+            </Text>
+            <Text numberOfLines={3} style={{ color: "rgba(11,33,56,0.62)", lineHeight: 20, textAlign: "center" }}>
+              {texto}
+            </Text>
+          </View>
+          <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
+            {que === "mensaje"
+              ? "Desaparece del Foro para todos, con sus reacciones. No se puede deshacer."
+              : "Desaparece de la noticia para todos."}
+          </Text>
+          {error ? (
+            <Text accessibilityRole="alert" style={{ color: "#DC2626", fontWeight: "800", textAlign: "center" }}>
+              {error}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
+            <Pressable
+              onPress={onCancelar}
+              disabled={eliminando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                minHeight: 46,
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: "#E3EAF2",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: "#0B2138", fontWeight: "900", fontSize: 15.5 }}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              onPress={onConfirmar}
+              disabled={eliminando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flex: 1,
+                minHeight: 46,
+                borderRadius: 999,
+                backgroundColor: "#DC2626",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: eliminando ? 0.6 : pressed ? 0.88 : 1,
+              })}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{eliminando ? "Eliminando…" : "Eliminar"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 const COLORS = {
@@ -649,6 +798,19 @@ export default function ChatGlobalScreen() {
     }
   }, [activeTab]);
 
+  // Un mensaje eliminado (por un administrador, aquí o en otro dispositivo) se
+  // quita de la lista con sus reacciones; las respuestas a él se quedan sin cita
+  // (como en la base de datos: reply_to_id pasa a vacío).
+  const quitarMensaje = useCallback((id: string) => {
+    setMessages((prev) =>
+      prev.some((m) => m.id === id || m.replyToId === id)
+        ? prev.filter((m) => m.id !== id).map((m) => (m.replyToId === id ? { ...m, replyToId: null } : m))
+        : prev
+    );
+    setReactionRows((prev) => (prev.some((r) => r.message_id === id) ? prev.filter((r) => r.message_id !== id) : prev));
+    setReplyTarget((prev) => (prev?.id === id ? null : prev));
+  }, []);
+
   // Mensajes reales: carga los últimos 100 al entrar (y sus reacciones) y
   // luego escucha en directo los mensajes y reacciones nuevos de cualquier
   // usuario (tiempo real).
@@ -700,6 +862,15 @@ export default function ChatGlobalScreen() {
         )
         .on(
           "postgres_changes",
+          { event: "DELETE", schema: "public", table: "chat_messages" },
+          (payload) => {
+            if (!active) return;
+            const id = (payload.old as { id?: string } | null)?.id;
+            if (id) quitarMensaje(id);
+          }
+        )
+        .on(
+          "postgres_changes",
           { event: "*", schema: "public", table: "chat_message_reactions" },
           (payload) => {
             if (!active) return;
@@ -728,7 +899,7 @@ export default function ChatGlobalScreen() {
         active = false;
         supabase.removeChannel(channel);
       };
-    }, [])
+    }, [quitarMensaje])
   );
 
   // Cuando llega un mensaje nuevo (o se entra en la pestaña Chat), baja la
@@ -1002,6 +1173,36 @@ export default function ChatGlobalScreen() {
     [isLoggedIn]
   );
 
+  // Administradores: tocar un mensaje → «Eliminar» (en el selector de reacciones) → confirmar. Se borra de verdad en la
+  // base de datos (solo se lo permite a ellos) y desaparece para todos al momento (tiempo real).
+  const esAdmin = useEsAdminForo();
+  const [aEliminar, setAEliminar] = useState<MessageItem | null>(null);
+  const [eliminando, setEliminando] = useState(false);
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
+  const pedirEliminar = useCallback((item: MessageItem) => {
+    setErrorEliminar(null);
+    setAEliminar(item);
+  }, []);
+  const confirmarEliminar = async () => {
+    if (!aEliminar || eliminando) return;
+    setEliminando(true);
+    setErrorEliminar(null);
+    try {
+      const { data, error } = await supabase.from("chat_messages").delete().eq("id", aEliminar.id).select("id");
+      if (error) throw error;
+      // Sin filas borradas = la base de datos no lo ha permitido (no es administrador o ya no existía).
+      if (!Array.isArray(data) || data.length === 0) throw new Error("no borrado");
+      quitarMensaje(aEliminar.id);
+      trackEvent("foro_mensaje_eliminado", "Foro: mensaje eliminado por un administrador");
+      setAEliminar(null);
+    } catch (e) {
+      console.error("Error eliminando el mensaje del Foro:", e);
+      if (mountedRef.current) setErrorEliminar("No se ha podido eliminar el mensaje. Inténtalo de nuevo.");
+    } finally {
+      if (mountedRef.current) setEliminando(false);
+    }
+  };
+
   // «Compartir en el Foro»: publica «📰 título + [noticia:id]» como un
   // mensaje normal del Foro (el remitente lo pone el trigger) y abre el Foro.
   const handleCompartirEnForo = useCallback(
@@ -1203,6 +1404,7 @@ export default function ChatGlobalScreen() {
                   // render, memo nunca podría evitar el repintado.
                   onReact={handleReact}
                   onReply={handleReply}
+                  onEliminar={esAdmin ? pedirEliminar : undefined}
                 />
               );
             })}
@@ -1450,6 +1652,20 @@ export default function ChatGlobalScreen() {
 
         <InfoModal visible={showInfoModal} onClose={() => setShowInfoModal(false)} />
 
+        {aEliminar ? (
+          <ConfirmarEliminar
+            que="mensaje"
+            autor={aEliminar.displayName}
+            texto={textoSinMarca(aEliminar.text) || aEliminar.text}
+            eliminando={eliminando}
+            error={errorEliminar}
+            onCancelar={() => {
+              if (!eliminando) setAEliminar(null);
+            }}
+            onConfirmar={confirmarEliminar}
+          />
+        ) : null}
+
         <AvisosNoticiasModal
           visible={showAvisosModal}
           onClose={() => setShowAvisosModal(false)}
@@ -1626,11 +1842,14 @@ const MessageBubble = React.memo(function MessageBubble({
   myReaction,
   onReact,
   onReply,
+  onEliminar,
   noticiaId,
   noticiaCompartida,
   onAbrirNoticia,
 }: {
   item: MessageItem;
+  // Solo para administradores: «Eliminar» en el selector que se abre al tocar el mensaje.
+  onEliminar?: (item: MessageItem) => void;
   // Mensaje con [noticia:<id>]: se pinta como mini tarjeta de la noticia.
   noticiaId?: string | null;
   noticiaCompartida?: NoticiaMini | null;
@@ -1911,6 +2130,30 @@ const MessageBubble = React.memo(function MessageBubble({
               <Text style={{ fontSize: 18 }}>{emoji}</Text>
             </Pressable>
           ))}
+          {onEliminar ? (
+            <>
+              <View style={{ width: 1, height: 22, backgroundColor: COLORS.border, marginHorizontal: 2 }} />
+              <Pressable
+                onPress={() => {
+                  setPickerOpen(false);
+                  onEliminar(item);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Eliminar mensaje"
+                hitSlop={6}
+                style={({ pressed }) => ({
+                  width: 32,
+                  height: 32,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: pressed ? "rgba(220,38,38,0.12)" : "transparent",
+                })}
+              >
+                <Ionicons name="trash-outline" size={19} color="#DC2626" />
+              </Pressable>
+            </>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -3439,8 +3682,9 @@ function NoticiasGamingPanel({
     posiciones.current[id] = y;
   }, []);
 
-  const sumarComentario = useCallback((id: string) => {
-    setComentarios((prev) => (prev ? { ...prev, [id]: (prev[id] ?? 0) + 1 } : prev));
+  // +1 al comentar; -1 cuando un administrador elimina un comentario.
+  const sumarComentario = useCallback((id: string, cambio = 1) => {
+    setComentarios((prev) => (prev ? { ...prev, [id]: Math.max(0, (prev[id] ?? 0) + cambio) } : prev));
   }, []);
 
   const abrirCompartir = useCallback((n: Noticia) => setACompartir(n), []);
@@ -3636,7 +3880,7 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
   onAlternar: (id: string) => void;
   onLike: (id: string) => void;
   onCompartir: (n: Noticia) => void;
-  onComentado: (id: string) => void;
+  onComentado: (id: string, cambio?: number) => void;
   onPosicion: (id: string, y: number) => void;
 }) {
   const [verComentarios, setVerComentarios] = useState(false);
@@ -4404,7 +4648,9 @@ function BotonNoticia({
 
 // --- Comentarios de una noticia ---------------------------------------------
 // Se abren bajo la tarjeta. Leer es público (noticias_comentarios); escribir
-// pide sesión. El autor es el mismo nombre visible que usa el Foro.
+// pide sesión. El autor es el mismo nombre visible que usa el Foro. Un
+// administrador ve una papelera en cada comentario: lo elimina para todos
+// (se marca oculto; la base de datos solo deja hacerlo a administradores).
 
 type ComentarioNoticia = { id: string; created_at: string; autor: string; texto: string };
 
@@ -4417,7 +4663,7 @@ function ComentariosNoticia({
 }: {
   noticiaId: string;
   isLoggedIn: boolean;
-  onComentado: (id: string) => void;
+  onComentado: (id: string, cambio?: number) => void;
 }) {
   const [lista, setLista] = useState<ComentarioNoticia[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -4425,6 +4671,36 @@ function ComentariosNoticia({
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const vivo = useRef(true);
+  const esAdmin = useEsAdminForo();
+  const [aEliminar, setAEliminar] = useState<ComentarioNoticia | null>(null);
+  const [eliminando, setEliminando] = useState(false);
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
+
+  const confirmarEliminar = async () => {
+    if (!aEliminar || eliminando) return;
+    setEliminando(true);
+    setErrorEliminar(null);
+    try {
+      const { data, error: fallo } = await supabase
+        .from("noticias_comentarios")
+        .update({ oculto: true })
+        .eq("id", aEliminar.id)
+        .select("id");
+      if (fallo) throw fallo;
+      if (!Array.isArray(data) || data.length === 0) throw new Error("no borrado");
+      if (!vivo.current) return;
+      const id = aEliminar.id;
+      setLista((prev) => prev.filter((c) => c.id !== id));
+      onComentado(noticiaId, -1);
+      trackEvent("foro_comentario_eliminado", "Foro: comentario de noticia eliminado por un administrador");
+      setAEliminar(null);
+    } catch (e) {
+      console.error("Error eliminando el comentario:", e);
+      if (vivo.current) setErrorEliminar("No se ha podido eliminar el comentario. Inténtalo de nuevo.");
+    } finally {
+      if (vivo.current) setEliminando(false);
+    }
+  };
 
   useEffect(() => {
     vivo.current = true;
@@ -4511,14 +4787,52 @@ function ComentariosNoticia({
               gap: 4,
             }}
           >
-            <Text numberOfLines={1} style={{ color: COLORS.soft, fontSize: 12 }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.autor}</Text>
-              {` · ${haceTiempo(c.created_at)}`}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: COLORS.soft, fontSize: 12 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900" }}>{c.autor}</Text>
+                {` · ${haceTiempo(c.created_at)}`}
+              </Text>
+              {esAdmin ? (
+                <Pressable
+                  onPress={() => {
+                    setErrorEliminar(null);
+                    setAEliminar(c);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Eliminar comentario"
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    width: 30,
+                    height: 30,
+                    marginVertical: -6,
+                    borderRadius: 15,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: pressed ? "rgba(220,38,38,0.12)" : "transparent",
+                  })}
+                >
+                  <Ionicons name="trash-outline" size={17} color="#DC2626" />
+                </Pressable>
+              ) : null}
+            </View>
             <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 21 }}>{c.texto}</Text>
           </View>
         ))
       )}
+
+      {aEliminar ? (
+        <ConfirmarEliminar
+          que="comentario"
+          autor={aEliminar.autor}
+          texto={aEliminar.texto}
+          eliminando={eliminando}
+          error={errorEliminar}
+          onCancelar={() => {
+            if (!eliminando) setAEliminar(null);
+          }}
+          onConfirmar={confirmarEliminar}
+        />
+      ) : null}
 
       {error ? (
         <Text style={{ color: "#B91C1C", fontSize: 13, fontWeight: "700", textAlign: "center" }}>
