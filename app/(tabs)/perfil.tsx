@@ -70,6 +70,7 @@ import {
   Animated,
   Easing,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   SafeAreaView,
@@ -87,6 +88,7 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
 import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { trackEvent } from "../../lib/analytics";
 import { supabase } from "../../lib/supabase";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
@@ -553,6 +555,48 @@ export default function PerfilScreen() {
   }, [tabParam]);
   const isLogged = sessionRole !== "guest";
   const showSeguimientos = isLogged && perfilTab === "seguimientos";
+
+  // Cambiar de pestaña tocándola o deslizando el dedo sobre su contenido: hacia la izquierda, «Mis seguimientos»; hacia
+  // la derecha, «Mi cuenta». Abrir «Mis seguimientos» se mide (analítica propia, Administración → Usuarios).
+  const [desliz] = useState(() => new Animated.Value(0));
+  const perfilTabRef = useRef<PerfilTab>(perfilTab);
+  useEffect(() => {
+    perfilTabRef.current = perfilTab;
+  }, [perfilTab]);
+  const cambiarPestana = useCallback((t: PerfilTab, como: "tocar" | "deslizar") => {
+    if (perfilTabRef.current !== t && t === "seguimientos") {
+      trackEvent("seguimientos_abiertos", "Perfil: Mis seguimientos", { metadata: { como } });
+    }
+    perfilTabRef.current = t;
+    setPerfilTab(t);
+  }, []);
+  const gestoPestanas = useMemo(
+    () =>
+      PanResponder.create({
+        // Solo un gesto claramente horizontal: el desplazamiento vertical de la página sigue igual.
+        onMoveShouldSetPanResponder: (_e, g) => isLogged && Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+        onPanResponderMove: (_e, g) => {
+          // El contenido acompaña un poco al dedo (con resistencia) para que se note que se puede deslizar.
+          const haciaSeguimientos = g.dx < 0;
+          const posible = haciaSeguimientos ? perfilTabRef.current === "cuenta" : perfilTabRef.current === "seguimientos";
+          desliz.setValue(Math.max(-90, Math.min(90, g.dx * (posible ? 0.35 : 0.12))));
+        },
+        onPanResponderRelease: (_e, g) => {
+          const decidido = Math.abs(g.dx) > 60 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5;
+          const destino: PerfilTab | null = !decidido ? null : g.dx < 0 ? "seguimientos" : "cuenta";
+          if (destino && destino !== perfilTabRef.current) {
+            cambiarPestana(destino, "deslizar");
+            // Entra desde el lado del gesto.
+            desliz.setValue(destino === "seguimientos" ? 70 : -70);
+          }
+          Animated.spring(desliz, { toValue: 0, useNativeDriver: false, speed: 18, bounciness: 4 }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(desliz, { toValue: 0, useNativeDriver: false }).start();
+        },
+      }),
+    [isLogged, desliz, cambiarPestana]
+  );
   // ¿Se enseña «Mi perfil»? (null mientras carga; false si la tabla aún no existe: entonces la cuenta sale en su tarjeta).
   const [perfilDisponible, setPerfilDisponible] = useState<boolean | null>(null);
 
@@ -976,9 +1020,14 @@ export default function PerfilScreen() {
                 gap: sectionGap,
               }}
             >
-              {/* Las pestañas van pegadas a su contenido (no cuentan como apartado). */}
-              <View style={{ gap: 18 }}>
-              {isLogged ? <PerfilTabs value={perfilTab} onChange={setPerfilTab} /> : null}
+              {/* Las pestañas van pegadas a su contenido (no cuentan como apartado). Con sesión, deslizar el dedo a la
+                  izquierda o a la derecha sobre esta zona cambia de pestaña (gestoPestanas). */}
+              <Animated.View
+                nativeID="perfil-deslizable"
+                {...gestoPestanas.panHandlers}
+                style={{ gap: 18, transform: [{ translateX: desliz }] }}
+              >
+              {isLogged ? <PerfilTabs value={perfilTab} onChange={(t) => cambiarPestana(t, "tocar")} /> : null}
 
               {showSeguimientos ? (
                 <SectionCard padding={cardPadding}>
@@ -1264,7 +1313,7 @@ export default function PerfilScreen() {
               ) : null}
               </>
               )}
-              </View>
+              </Animated.View>
 
               {!showSeguimientos && sessionRole === "admin" ? (
                 <SectionCard padding={cardPadding}>
@@ -1659,11 +1708,11 @@ function SeguimientosSeccion() {
       ) : null}
 
       <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
-        <SegTitulo>Reparaciones con seguimiento</SegTitulo>
+        <SegTitulo>Reparaciones y Mantenimientos</SegTitulo>
         {reparaciones.length === 0 ? (
           <SegVacio
             cual="taller"
-            texto="No tienes reparaciones en curso. Pide un servicio con tu sesión iniciada y verás aquí cada etapa."
+            texto="No tienes ninguna Reparación o Mantenimiento en curso. Solicita un servicio con tu sesión iniciada y verás aquí el estado actual."
             boton="Ver servicios"
             destino="/servicios"
           />

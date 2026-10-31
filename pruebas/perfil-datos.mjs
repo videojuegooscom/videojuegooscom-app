@@ -22,7 +22,10 @@
  *  - Moderación del Foro: un administrador toca un mensaje → «Eliminar mensaje» → confirma (con «Cancelar» no pasa nada) y se
  *    borra de la base de datos y de la pantalla; si la base de datos no lo permite, lo dice y el mensaje se queda; los
  *    comentarios de noticias se eliminan igual (se marcan ocultos); un cliente no ve ninguna papelera; Administración →
- *    Usuarios cuenta lo eliminado («Moderación del Foro»).
+ *    Usuarios cuenta los comentarios eliminados («Moderación del Foro», con datos de la base de datos).
+ *  - Perfil: deslizar el dedo a la izquierda abre «Mis seguimientos» y a la derecha vuelve a «Mi cuenta» (tocar las
+ *    pestañas sigue funcionando); un gesto vertical no cambia de pestaña; «Reparaciones y Mantenimientos» con su texto
+ *    nuevo; Administración → Usuarios cuenta quién abre «Mis seguimientos» y cuántos deslizando.
  *  - «Completa tu perfil» (obligatorio): con sesión y el perfil a medias tapa Inicio; «Guardar y continuar» solo con todo lo
  *    obligatorio; al guardar desaparece; «Cerrar sesión» sale; Blue no se ve mientras tanto; no sale en Mi cuenta, en las
  *    políticas, con el perfil completo ni sin la tabla.
@@ -159,6 +162,12 @@ async function contexto(navegador, usuario, rol, estado) {
       const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
       estado.borrados = [...(estado.borrados ?? []), id];
       return json(estado.borrarSinPermiso ? [] : [{ id }]);
+    }
+    // Blue del administrador: pedidos y reparaciones olvidados (48 h sin cambios), contados sin descargar filas.
+    if (metodo === "HEAD" && estado.olvidados && /\/rest\/v1\/(pedidos|service_requests)$/.test(url.pathname)) {
+      const n = url.pathname.endsWith("/pedidos") ? estado.olvidados.pedidos : estado.olvidados.reparaciones;
+      estado.consultasOlvidados = [...(estado.consultasOlvidados ?? []), `${url.pathname.split("/").pop()}?${decodeURIComponent(url.search.slice(1))}`];
+      return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
     }
     // Ficha del cliente: pedidos y reparaciones ficticios (solo si la prueba los da); se apunta lo que se mandaría cambiar.
     if (url.pathname.endsWith("/rest/v1/pedidos") && estado.pedidosFicha) {
@@ -422,6 +431,45 @@ try {
     ok(/Francia/.test(t) && /2 may 1990/.test(t) && t.includes(`${edadHoy("1990-05-02")} Años`), `C: país, fecha («2 may 1990») y edad («${edadHoy("1990-05-02")} Años») correctos`);
     ok((await p.getByRole("button", { name: "Guardar perfil" }).getAttribute("aria-disabled")) === "true", "C: sin cambios, «Guardar perfil» está desactivado");
     await capturar(p, "C-perfil-guardado");
+
+    // Deslizar con el dedo (toques reales) sobre la zona de las pestañas.
+    const deslizar = async (dx, dy) => {
+      // El dedo empieza siempre a la vista, justo debajo de las pestañas.
+      await p.locator("#perfil-pestanas").scrollIntoViewIfNeeded();
+      const pestanas = await p.locator("#perfil-pestanas").boundingBox();
+      const caja = await p.locator("#perfil-deslizable").boundingBox();
+      const x = caja.x + caja.width / 2;
+      const y = pestanas.y + pestanas.height + 40;
+      const cdp = await p.context().newCDPSession(p);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let i = 1; i <= 10; i++) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + (dx * i) / 10, y: y + (dy * i) / 10 }] });
+        await p.waitForTimeout(16);
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await cdp.detach();
+      await p.waitForTimeout(700);
+    };
+    const enSeguimientos = async () => (await p.getByText("Reparaciones y Mantenimientos").count()) === 1;
+    await deslizar(-220, 6);
+    await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
+    ok(await enSeguimientos(), "C: deslizar el dedo hacia la izquierda abre «Mis seguimientos»");
+    ok(
+      (await p.getByText("No tienes ninguna Reparación o Mantenimiento en curso. Solicita un servicio con tu sesión iniciada y verás aquí el estado actual.").count()) === 1,
+      "C: con el título «Reparaciones y Mantenimientos» y su texto nuevo"
+    );
+    await capturar(p, "C2-mis-seguimientos-deslizando");
+    await deslizar(220, -4);
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 8000 }).catch(() => {});
+    ok(!(await enSeguimientos()) && (await p.locator("#perfil-cabecera").count()) === 1, "C: deslizar hacia la derecha vuelve a «Mi cuenta»");
+    await deslizar(8, -220);
+    ok(!(await enSeguimientos()) && (await p.locator("#perfil-cabecera").count()) === 1, "C: un gesto vertical no cambia de pestaña");
+    await p.locator("#perfil-pestanas").getByText("Mis seguimientos", { exact: true }).click();
+    await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
+    ok(await enSeguimientos(), "C: tocar la pestaña sigue funcionando");
+    const anchoC = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(anchoC.a <= anchoC.p + 1, `C: al deslizar la página no se ensancha (${anchoC.a}/${anchoC.p})`);
+    ok(p.errores.length === 0, `C: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 
@@ -762,9 +810,10 @@ try {
     { event_name: "perfil_foto_encuadrada", user_id: U[0].user_id, session_id: "s1" },
     { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
     { event_name: "perfil_foto_cancelada", user_id: U[1].user_id, session_id: "s2" },
-    // Moderación del Foro: el administrador eliminó 2 mensajes.
-    { event_name: "foro_mensaje_eliminado", user_id: ADMIN.id, session_id: "sa" },
-    { event_name: "foro_mensaje_eliminado", user_id: ADMIN.id, session_id: "sa" },
+    // «Mis seguimientos»: Dani lo abrió dos veces (una deslizando) y Ana una tocando la pestaña.
+    { event_name: "seguimientos_abiertos", user_id: U[0].user_id, session_id: "s1", metadata: { como: "deslizar" } },
+    { event_name: "seguimientos_abiertos", user_id: U[0].user_id, session_id: "s1", metadata: { como: "tocar" } },
+    { event_name: "seguimientos_abiertos", user_id: U[1].user_id, session_id: "s2", metadata: { como: "tocar" } },
   ];
   {
     const estado = {
@@ -788,7 +837,9 @@ try {
     await p.locator("#admin-perfiles").waitFor({ timeout: 40000 });
     ok((await p.locator("#perfil-obligatorio").count()) === 0, "E: en el panel de administración no se exige el perfil de cliente");
     const moderacion = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Moderación del Foro · mensajes eliminados \(30 días\): 2 · comentarios de noticias eliminados: 3/.test(moderacion), `E: «Moderación del Foro» cuenta los mensajes y comentarios eliminados (${moderacion})`);
+    ok(/Moderación del Foro · comentarios de noticias eliminados: 3/.test(moderacion) && !/mensajes eliminados/.test(moderacion), `E: «Moderación del Foro» cuenta los comentarios eliminados con datos de la base de datos (no con la analítica, que no cuenta al administrador) (${moderacion})`);
+    const uso = (await p.locator("#admin-uso-seguimientos").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/«Mis seguimientos» \(30 días\): lo abrieron 2 · deslizando 1/.test(uso), `E: cuántos abren «Mis seguimientos» y cuántos deslizando (personas distintas) (${uso})`);
     const t = await p.locator("#admin-perfiles").innerText();
     ok(/Perfiles de clientes/.test(t), "E: Administración → Usuarios enseña «Perfiles de clientes»");
     ok(/Con perfil\s*3 de 4/.test(t.replace(/\n/g, " ")), "E: «Con perfil: 3 de 4»");
@@ -894,6 +945,29 @@ try {
     const anchoF = await f.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
     ok(anchoF.a <= anchoF.p + 1, `E: la ficha no se ensancha (${anchoF.a}/${anchoF.p})`);
     await capturar(f, "E3-ficha-etapas");
+    await ctx.close();
+  }
+
+  // ===== K) Blue avisa al administrador de pedidos y reparaciones sin cambios en 48 h ============================
+  {
+    const estado = { usuarios: U, filas: PERFILES, guardados: [], olvidados: { pedidos: 1, reparaciones: 2 } };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.getByText(/llevan más de 48 h sin cambios/).first().waitFor({ timeout: 45000 }).catch(() => {});
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/1 pedido y 2 reparaciones llevan más de 48 h sin cambios: échales un vistazo\./.test(t), "K: dentro de Administración, Blue le dice al administrador «1 pedido y 2 reparaciones llevan más de 48 h sin cambios»");
+    const consultas = estado.consultasOlvidados ?? [];
+    const ped = consultas.find((c) => c.startsWith("pedidos?")) ?? "";
+    // (la pantalla de Usuarios también cuenta todas las solicitudes de servicio: se busca la consulta de Blue)
+    const rep = consultas.find((c) => c.startsWith("service_requests?") && c.includes("updated_at")) ?? "";
+    const hace = (c) => {
+      const m = /updated_at=lt\.([^&]+)/.exec(c);
+      return m ? (Date.now() - new Date(m[1]).getTime()) / 3600000 : 0;
+    };
+    ok(/estado=in\.\(pendiente,confirmado,preparado,enviado\)/.test(ped) && Math.abs(hace(ped) - 48) < 1, `K: cuenta solo los pedidos en curso sin cambios desde hace 48 h (${ped.slice(0, 120)})`);
+    ok(/status=neq\.descartado/.test(rep) && /seguimiento\.not\.in\.\(entregado,cancelado\)/.test(rep) && Math.abs(hace(rep) - 48) < 1, `K: y las reparaciones en curso igual (${rep.slice(0, 140)})`);
+    await capturar(p, "K-blue-olvidados");
+    ok(p.errores.length === 0, `K: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 

@@ -128,7 +128,6 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import SmartImage from "../../components/SmartImage";
-import { trackEvent } from "../../lib/analytics";
 import { markEnd, markStart } from "../../lib/loadingBus";
 import { supabase } from "../../lib/supabase";
 
@@ -1193,7 +1192,6 @@ export default function ChatGlobalScreen() {
       // Sin filas borradas = la base de datos no lo ha permitido (no es administrador o ya no existía).
       if (!Array.isArray(data) || data.length === 0) throw new Error("no borrado");
       quitarMensaje(aEliminar.id);
-      trackEvent("foro_mensaje_eliminado", "Foro: mensaje eliminado por un administrador");
       setAEliminar(null);
     } catch (e) {
       console.error("Error eliminando el mensaje del Foro:", e);
@@ -4692,7 +4690,6 @@ function ComentariosNoticia({
       const id = aEliminar.id;
       setLista((prev) => prev.filter((c) => c.id !== id));
       onComentado(noticiaId, -1);
-      trackEvent("foro_comentario_eliminado", "Foro: comentario de noticia eliminado por un administrador");
       setAEliminar(null);
     } catch (e) {
       console.error("Error eliminando el comentario:", e);

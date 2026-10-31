@@ -88,6 +88,9 @@
  *     (CART_KEY) se guarda en el móvil el precio visto (PRECIOS_VISTOS_KEY); si baja, avisa.
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
  *     VeoAura (tabla escaparate_salida) → panel Escaparate.
+ *   · Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h (updated_at de pedidos y
+ *     service_requests) → «N pedidos y M reparaciones llevan más de 48 h sin cambios» con «Revisar» (Pedidos o
+ *     Servicios); Blue lo dice además una vez al día dentro de Administración (OLVIDADOS_DICHO_KEY).
  *
  * Rendimiento: el sondeo (45 s) de mensajes sin leer y de noticias nuevas se pausa
  * con la pestaña en segundo plano (web). El recuento de noticias es head (sin
@@ -204,6 +207,18 @@ type PedidoSegDato = { id: string; numero: number | null; estado: string; entreg
 type ReparacionSegDato = { id: string; titulo: string; etapa: string; actualizado: string };
 const SEG_VISTOS_PREFIJO = "videojuegoszaragoza:seguimientos_vistos:";
 const RELOJ_SEGUIMIENTOS_MS = 120000;
+
+// Solo el admin: un pedido o una reparación en curso sin ningún cambio en 48 h se le recuerda (en el panel de Blue y, una
+// vez al día, en un mensaje dentro de Administración), para que ninguno se quede olvidado.
+const OLVIDO_MS = 48 * 60 * 60 * 1000;
+const OLVIDADOS_DICHO_KEY = "videojuegoszaragoza:olvidados_dicho";
+function textoOlvidados(o: { pedidos: number; reparaciones: number }): string {
+  const partes = [
+    o.pedidos ? (o.pedidos === 1 ? "1 pedido" : `${o.pedidos} pedidos`) : "",
+    o.reparaciones ? (o.reparaciones === 1 ? "1 reparación" : `${o.reparaciones} reparaciones`) : "",
+  ].filter(Boolean);
+  return partes.join(" y ");
+}
 // Quien escucha cuando el cliente ya ha visto sus seguimientos (Perfil), para quitar el aviso sin volver a pedir nada.
 const oyentesSeguimientos = new Set<() => void>();
 
@@ -809,6 +824,12 @@ export default function Campanita() {
   const [segAvisos, setSegAvisos] = useState<SegAviso[]>([]);
   const segActualRef = useRef<{ uid: string; pedidos: PedidoSegDato[]; reparaciones: ReparacionSegDato[] } | null>(null);
   const [salidaPendiente, setSalidaPendiente] = useState(0);
+  // Solo el admin: pedidos y reparaciones en curso que llevan 48 h o más sin ningún cambio (para que no se olviden).
+  const [olvidados, setOlvidados] = useState<{ pedidos: number; reparaciones: number }>({ pedidos: 0, reparaciones: 0 });
+  const isAdminRef = useRef(false);
+  useEffect(() => {
+    isAdminRef.current = isAdmin;
+  }, [isAdmin]);
   const [textoAviso, setTextoAviso] = useState("");
   const [msgAviso, setMsgAviso] = useState<string | null>(null);
   const [bocadillo, setBocadillo] = useState<Bocadillo | null>(null);
@@ -1268,6 +1289,36 @@ export default function Campanita() {
     }
   }, []);
 
+  // Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h o más (updated_at, que la base de
+  // datos pone al día en cada cambio). Cuenta sin descargar filas.
+  const refreshOlvidados = useCallback(async () => {
+    if (!isAdminRef.current) {
+      setOlvidados((o) => (o.pedidos || o.reparaciones ? { pedidos: 0, reparaciones: 0 } : o));
+      return;
+    }
+    try {
+      const limite = new Date(Date.now() - OLVIDO_MS).toISOString();
+      const [ped, rep] = await Promise.all([
+        supabase
+          .from("pedidos")
+          .select("id", { count: "exact", head: true })
+          .in("estado", ["pendiente", "confirmado", "preparado", "enviado"])
+          .lt("updated_at", limite),
+        supabase
+          .from("service_requests")
+          .select("id", { count: "exact", head: true })
+          .neq("status", "descartado")
+          .or("seguimiento.is.null,seguimiento.not.in.(entregado,cancelado)")
+          .lt("updated_at", limite),
+      ]);
+      const pedidos = ped.error ? 0 : ped.count ?? 0;
+      const reparaciones = rep.error ? 0 : rep.count ?? 0;
+      setOlvidados((o) => (o.pedidos === pedidos && o.reparaciones === reparaciones ? o : { pedidos, reparaciones }));
+    } catch {
+      // sin conexión: se deja como estaba
+    }
+  }, []);
+
   // Reservas de la cesta que siguen en marcha (la cesta guarda en el móvil hasta cuándo vale cada una). Las ya vencidas
   // no cuentan: la pantalla Cesta las retira cuando se abre.
   const refreshReservas = useCallback(async () => {
@@ -1365,9 +1416,20 @@ export default function Campanita() {
     refreshAvisosBusqueda();
     refreshBajadas();
     refreshSalida();
+    refreshOlvidados();
     refreshReservas();
     refreshSeguimientos();
-  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida, refreshReservas, refreshSeguimientos]);
+  }, [refreshNovedadesTienda, refreshAvisosBusqueda, refreshBajadas, refreshSalida, refreshOlvidados, refreshReservas, refreshSeguimientos]);
+
+  // En cuanto se sabe que es el admin, se miran los pedidos y reparaciones olvidados (y cada 10 minutos).
+  useEffect(() => {
+    if (!isAdmin) return;
+    refreshOlvidados();
+    const t = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") refreshOlvidados();
+    }, 10 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [isAdmin, refreshOlvidados]);
 
   // Perfil → Seguimientos ha enseñado las novedades: se quitan los avisos sin volver a pedir nada. Y cada 2 minutos (con la
   // pestaña visible) se miran los cambios de la tienda.
@@ -1528,7 +1590,8 @@ export default function Campanita() {
     bajadas.length +
     reservasPorVencer.length +
     segAvisos.length +
-    (isAdmin && salidaPendiente > 0 ? 1 : 0);
+    (isAdmin && salidaPendiente > 0 ? 1 : 0) +
+    (isAdmin && olvidados.pedidos + olvidados.reparaciones > 0 ? 1 : 0);
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
   // --- bocadillos según la pantalla --------------------------------------------
@@ -1715,6 +1778,34 @@ export default function Campanita() {
       clearTimeout(t);
     };
   }, [modoInst, enPantalla, enAdmin, guiaAbierta, pathname, decir]);
+
+  // Pedidos y reparaciones olvidados (48 h sin cambios): Blue se lo dice al dueño UNA vez al día, dentro de
+  // Administración (la cola de mensajes respeta los 15 s de rigor), y el aviso sigue en su panel hasta que se muevan.
+  useEffect(() => {
+    if (!enAdmin || !isAdmin || !enPantalla || guiaAbierta) return;
+    const total = olvidados.pedidos + olvidados.reparaciones;
+    if (!total) return;
+    let vivo = true;
+    (async () => {
+      const hoy = new Date().toISOString().slice(0, 10);
+      try {
+        if ((await AsyncStorage.getItem(OLVIDADOS_DICHO_KEY)) === hoy || !vivo) return;
+        await AsyncStorage.setItem(OLVIDADOS_DICHO_KEY, hoy);
+      } catch {
+        // sin almacenamiento: se dice igual
+      }
+      if (!vivo) return;
+      decir({
+        id: "olvidados",
+        texto: `${textoOlvidados(olvidados)} ${total === 1 ? "lleva" : "llevan"} más de 48 h sin cambios: échales un vistazo.`,
+        accion: "ruta",
+        ruta: olvidados.pedidos > 0 ? "/admin/pedidos" : "/admin/services",
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [olvidados, enAdmin, isAdmin, enPantalla, guiaAbierta, decir]);
 
   // Blue propone información de la tienda al dueño, dentro del panel de administración: a los
   // 25 s de entrar y después cada 10 min mira si toca (de 9 a 21 h, hueco de 45 min, hasta 8 al
@@ -2606,6 +2697,14 @@ export default function Campanita() {
                         }
                         accion="Ver escaparate"
                         onPress={() => ir("/admin/escaparate")}
+                      />
+                    ) : null}
+                    {isAdmin && olvidados.pedidos + olvidados.reparaciones > 0 ? (
+                      <Aviso
+                        icono="hourglass-outline"
+                        titulo={`${textoOlvidados(olvidados)} llevan más de 48 h sin cambios`}
+                        accion="Revisar"
+                        onPress={() => ir(olvidados.pedidos > 0 ? "/admin/pedidos" : "/admin/services")}
                       />
                     ) : null}
                     {novedadesTienda > 0 ? (
