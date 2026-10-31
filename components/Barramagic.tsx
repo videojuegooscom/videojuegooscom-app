@@ -237,6 +237,7 @@ export const SECCIONES_BUSQUEDA: SeccionBusqueda[] = [
   { titulo: "Política de devoluciones", descripcion: "Cómo devolver un pedido", ruta: "/politicas/devoluciones", icono: "return-down-back-outline", palabras: ["devoluciones", "devolucion", "devolver", "reembolso", "politica de devoluciones"] },
   { titulo: "Política de privacidad", descripcion: "Cómo tratamos tus datos", ruta: "/politicas/privacidad", icono: "shield-checkmark-outline", palabras: ["privacidad", "datos personales", "proteccion de datos", "rgpd", "politica de privacidad"] },
   { titulo: "Términos y condiciones", descripcion: "Condiciones de compra y uso", ruta: "/politicas/terminos", icono: "document-text-outline", palabras: ["terminos", "terminos y condiciones", "condiciones", "legal"] },
+  { titulo: "Normas del Foro", descripcion: "Cómo participar en el Foro", ruta: "/politicas/normas-foro", icono: "chatbubbles-outline", palabras: ["normas", "normas del foro", "reglas", "reglas del foro", "silenciado", "moderacion"] },
   { titulo: "Inicio", descripcion: "Volver a la portada", ruta: "/", icono: "home-outline", palabras: ["inicio", "home", "portada", "principal"] },
 ];
 

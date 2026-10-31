@@ -28,6 +28,7 @@ const PAGINAS_FIJAS: { ruta: string; prioridad: string; cambio: string }[] = [
   { ruta: "/politicas/devoluciones", prioridad: "0.4", cambio: "monthly" },
   { ruta: "/politicas/privacidad", prioridad: "0.3", cambio: "yearly" },
   { ruta: "/politicas/terminos", prioridad: "0.3", cambio: "yearly" },
+  { ruta: "/politicas/normas-foro", prioridad: "0.3", cambio: "yearly" },
 ];
 
 function escapar(texto: string): string {

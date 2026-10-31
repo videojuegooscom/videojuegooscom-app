@@ -24,6 +24,10 @@
  *    (nunca a sí mismo ni a otro administrador, un mes como mucho), la persona silenciada no escribe en el Foro ni comenta
  *    y no se lo puede quitar; el registro de moderación se rellena solo, solo lo lee el administrador y nadie lo escribe
  *    ni lo borra a mano (con su «prueba de las pruebas»: sin el bloqueo, la persona silenciada escribiría).
+ *  - Políticas (20261031150000_politicas_privacidad_y_normas_foro.sql), partiendo de la privacidad como está en producción:
+ *    cambia solo los 5 apartados que tocan (por su título) y deja igual el resto y su orden, ya no nombra un «proveedor de
+ *    pagos» que no existe, crea las Normas del Foro una vez, repetirla no cambia nada y respeta lo que edite el dueño (con
+ *    su «prueba de las pruebas»: con el cruce por título roto se perderían apartados).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -453,6 +457,107 @@ try {
   const cuela = await como(c7, "authenticated", U1, "insert into public.chat_messages (body) values ('me cuelo')");
   ok(cuela.ok, "(control) sin el bloqueo, la persona silenciada escribe: la comprobación SÍ lo detecta");
   await c7.end();
+
+  // 11) Políticas (20261031150000): privacidad al día y Normas del Foro. Se parte de la política de privacidad como está
+  // en producción (los 8 apartados con su título; el texto de los que no cambian da igual) y de las otras políticas.
+  // (En su propio bloque: sus nombres no se mezclan con los de las secciones de arriba.)
+  {
+  const POLITICAS = readFileSync("supabase/migrations/20261031150000_politicas_privacidad_y_normas_foro.sql", "utf8");
+  const TITULOS = [
+    "Responsable del tratamiento",
+    "Qué datos tratamos",
+    "Para qué usamos tus datos",
+    "Base legal",
+    "Con quién compartimos tus datos",
+    "Cuánto tiempo conservamos tus datos",
+    "Cookies y analítica propia",
+    "Tus derechos",
+  ];
+  const PRIVACIDAD_HOY = TITULOS.map((heading) =>
+    heading === "Con quién compartimos tus datos"
+      ? { heading, body: "Solo compartimos los datos estrictamente necesarios con empresas de transporte (para entregar tu pedido) y con nuestro proveedor de pagos (Supabase/Stripe u otro que uses), bajo sus propias políticas de privacidad. No vendemos tus datos a terceros." }
+      : { heading, body: `Texto de hoy de «${heading}».` }
+  );
+  const ESQUEMA_POLITICAS = `
+    create table public.policy_pages (
+      id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+      sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+      created_at timestamptz not null default now(), updated_at timestamptz not null default now());`;
+  const prepararPoliticas = async (nombre, privacidad) => {
+    const cp = await nuevaBase(nombre, ESQUEMA_POLITICAS);
+    await cp.query(
+      "insert into public.policy_pages (slug, title, intro, sections, sort_order, updated_at) values ('privacidad', 'Política de privacidad', 'Intro', $1::jsonb, 14, '2026-10-22T15:08:41Z'), ('terminos', 'Términos y condiciones', 'Intro', '[]'::jsonb, 30, '2026-10-16T18:49:06Z')",
+      [JSON.stringify(privacidad)]
+    );
+    return cp;
+  };
+  const leer = async (cp, slug) => (await cp.query("select * from public.policy_pages where slug = $1", [slug])).rows;
+  const cuerpo = (fila, titulo) => (fila.sections.find((s) => s.heading === titulo) ?? {}).body ?? "";
+
+  const c8 = await prepararPoliticas("vz_aislada_politicas", PRIVACIDAD_HOY);
+  await c8.query(POLITICAS);
+  let [priv] = await leer(c8, "privacidad");
+  ok(JSON.stringify(priv.sections.map((s) => s.heading)) === JSON.stringify(TITULOS), "Políticas: la privacidad conserva sus 8 apartados en el mismo orden");
+  ok(
+    /una foto si decides añadirla/.test(cuerpo(priv, "Qué datos tratamos")) &&
+      /comentarios de las noticias y en las reseñas/.test(cuerpo(priv, "Qué datos tratamos")) &&
+      /Tu nombre de usuario y tu foto, si la añades, se ven/.test(cuerpo(priv, "Para qué usamos tus datos")) &&
+      /registro interno de qué se hizo, a quién y cuándo/.test(cuerpo(priv, "Para qué usamos tus datos")) &&
+      /al menos 14 años/.test(cuerpo(priv, "Base legal")) &&
+      /deja de estar vinculado a ti/.test(cuerpo(priv, "Cuánto tiempo conservamos tus datos")),
+    "Políticas: dice que el usuario y la foto se ven, la foto es opcional, el perfil pide 14 años y que hay un registro de moderación"
+  );
+  ok(
+    /Supabase \(base de datos, cuentas y fotos\), Vercel/.test(cuerpo(priv, "Con quién compartimos tus datos")) &&
+      /OpenAI/.test(cuerpo(priv, "Con quién compartimos tus datos")) &&
+      !/Stripe|proveedor de pagos|u otro que uses/.test(JSON.stringify(priv.sections)),
+    "Políticas: ya no habla de un «proveedor de pagos (Supabase/Stripe u otro que uses)»: nombra los proveedores reales"
+  );
+  ok(
+    ["Responsable del tratamiento", "Cookies y analítica propia", "Tus derechos"].every((t) => cuerpo(priv, t) === `Texto de hoy de «${t}».`),
+    "Políticas: los apartados que no cambian se quedan exactamente como estaban (responsable, cookies, derechos)"
+  );
+  ok(new Date(priv.updated_at).getFullYear() > 2025 && priv.updated_at.toISOString() !== "2026-10-22T15:08:41.000Z", "Políticas: la fecha de actualización cambia");
+  const [terminos] = await leer(c8, "terminos");
+  ok(terminos.updated_at.toISOString() === "2026-10-16T18:49:06.000Z", "Políticas: las otras políticas no se tocan");
+  let normas = await leer(c8, "normas-foro");
+  ok(
+    normas.length === 1 && normas[0].is_active && normas[0].sort_order === 40 && normas[0].title === "Normas del Foro" && normas[0].sections.length === 5,
+    "Políticas: crea la página «Normas del Foro» publicada, con sus 5 apartados"
+  );
+  ok(/silenciar a una persona durante unos días \(1, 3 o 7\)/.test(cuerpo(normas[0], "Si no se cumplen")), "Políticas: las normas explican qué pasa si no se cumplen (silencio de 1, 3 o 7 días)");
+
+  // Idempotente y respetuosa con lo que edite el dueño después.
+  const antes = priv.updated_at.toISOString();
+  await c8.query("update public.policy_pages set intro = 'Intro editada por el dueño' where slug = 'normas-foro'");
+  await c8.query(
+    "update public.policy_pages set sections = jsonb_set(sections, '{7,body}', to_jsonb('Derechos editados por el dueño'::text)) where slug = 'privacidad'"
+  );
+  await c8.query("update public.policy_pages set updated_at = '2026-10-31T10:00:00Z' where slug = 'privacidad'");
+  await c8.query(POLITICAS);
+  [priv] = await leer(c8, "privacidad");
+  normas = await leer(c8, "normas-foro");
+  ok(priv.updated_at.toISOString() === "2026-10-31T10:00:00.000Z" && antes !== priv.updated_at.toISOString(), "Políticas: aplicarla otra vez no cambia nada (ya estaba al día)");
+  ok(cuerpo(priv, "Tus derechos") === "Derechos editados por el dueño" && normas.length === 1 && normas[0].intro === "Intro editada por el dueño", "Políticas: y respeta lo que el dueño haya editado después (no duplica las normas)");
+  await c8.end();
+
+  // Si al dueño le faltara un apartado, los demás se actualizan igual y no falla.
+  const sinBase = PRIVACIDAD_HOY.filter((s) => s.heading !== "Base legal");
+  const c9 = await prepararPoliticas("vz_aislada_politicas_incompleta", sinBase);
+  await c9.query(POLITICAS);
+  [priv] = await leer(c9, "privacidad");
+  ok(priv.sections.length === 7 && /una foto si decides añadirla/.test(cuerpo(priv, "Qué datos tratamos")), "Políticas: sin uno de los apartados, actualiza los demás y no añade ni quita nada");
+  await c9.end();
+
+  // PRUEBA DE LAS PRUEBAS: si el cruce por título se hiciera sin «left join», se perderían los apartados que no cambian.
+  const rotaPoliticas = POLITICAS.replace("left join nuevos n on", "join nuevos n on");
+  ok(rotaPoliticas !== POLITICAS, "(control) se ha podido romper el cruce por título en la copia de prueba");
+  const c10 = await prepararPoliticas("vz_aislada_politicas_rota", PRIVACIDAD_HOY);
+  await c10.query(rotaPoliticas);
+  [priv] = await leer(c10, "privacidad");
+  ok(priv.sections.length !== 8, `(control) con el cruce roto se pierden apartados y la comprobación SÍ lo detecta (${priv.sections.length} apartados)`);
+  await c10.end();
+  }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {

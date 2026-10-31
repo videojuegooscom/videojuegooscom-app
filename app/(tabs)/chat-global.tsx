@@ -128,6 +128,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import SmartImage from "../../components/SmartImage";
+import { trackEvent } from "../../lib/analytics";
 import { markEnd, markStart } from "../../lib/loadingBus";
 import { supabase } from "../../lib/supabase";
 
@@ -203,6 +204,35 @@ function textoSilencio(hasta: string): string {
   return `Un administrador te ha silenciado en el Foro hasta el ${fechaHoraCorta(hasta)}: hasta entonces no puedes escribir ni comentar noticias.`;
 }
 
+// Junto al aviso de silencio, el enlace a las Normas del Foro (app/politicas/[slug].tsx, «normas-foro»; se editan en
+// Administración → Políticas): así la persona sabe por qué. Administración → Usuarios cuenta quién las abre.
+function EnlaceNormasForo({ desde }: { desde: "foro" | "comentarios" }) {
+  return (
+    <Pressable
+      onPress={() => {
+        trackEvent("foro_normas_abiertas", "Foro: normas abiertas", { metadata: { desde } });
+        router.push("/politicas/normas-foro" as Href);
+      }}
+      accessibilityRole="link"
+      accessibilityLabel="Leer las normas del Foro"
+      style={({ pressed }) => ({
+        minHeight: 44,
+        alignSelf: "center",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 12,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Ionicons name="document-text-outline" size={17} color={COLORS.accent} />
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, textDecorationLine: "underline" }}>
+        Leer las normas del Foro
+      </Text>
+    </Pressable>
+  );
+}
+
 // ¿Existe ya la tabla de silencios? (si la migración aún no está aplicada, no se ofrece «Silenciar»)
 function faltaTablaSilencios(error: unknown): boolean {
   const code = String((error as { code?: unknown } | null)?.code ?? "");
@@ -266,7 +296,8 @@ function SilenciarUsuario({
           ) : (
             <>
               <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
-                No podrá escribir en el Foro ni comentar noticias. Sus mensajes siguen ahí (elimínalos aparte si hace falta).
+                No podrá escribir en el Foro ni comentar noticias, y verá un enlace a las Normas del Foro. Sus mensajes siguen ahí
+                (elimínalos aparte si hace falta).
               </Text>
               <View style={{ flexDirection: "row", gap: 8, alignSelf: "stretch" }}>
                 {DIAS_SILENCIO.map((d) => {
@@ -1855,6 +1886,7 @@ export default function ChatGlobalScreen() {
           justSent={justSent}
           canSend={canSend}
           errorText={sendError ?? (miSilencio ? textoSilencio(miSilencio) : null)}
+          normasForo={!!miSilencio || /silenciad/.test(sendError ?? "")}
           replyTarget={replyTarget}
           onCancelReply={() => setReplyTarget(null)}
           activeTab={activeTab}
@@ -2530,6 +2562,7 @@ function BottomBar({
   justSent,
   canSend,
   errorText,
+  normasForo,
   replyTarget,
   onCancelReply,
   activeTab,
@@ -2550,6 +2583,8 @@ function BottomBar({
   justSent?: boolean;
   canSend?: boolean;
   errorText?: string | null;
+  // Con el aviso de silencio, el enlace a las Normas del Foro.
+  normasForo?: boolean;
   replyTarget?: MessageItem | null;
   onCancelReply?: () => void;
   activeTab: HubTab;
@@ -2854,11 +2889,12 @@ function BottomBar({
       <>
       {!!errorText && (
         <Text
-          style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center", marginBottom: 8 }}
+          style={{ color: "#B91C1C", fontWeight: "800", textAlign: "center", marginBottom: normasForo ? 0 : 8 }}
         >
           {errorText}
         </Text>
       )}
+      {normasForo ? <EnlaceNormasForo desde="foro" /> : null}
 
       {!!replyTarget && (
         <View
@@ -5133,6 +5169,7 @@ function ComentariosNoticia({
           {error}
         </Text>
       ) : null}
+      {error && /silenciad/.test(error) ? <EnlaceNormasForo desde="comentarios" /> : null}
 
       {isLoggedIn ? (
         <View style={{ gap: 4 }}>

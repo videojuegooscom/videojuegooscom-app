@@ -149,6 +149,9 @@ const EVENTOS_PERFIL = [
 // (Lo que hace un administrador no se mide con la analítica propia, que no le cuenta: la moderación del Foro se cuenta
 // con datos de la base de datos.)
 const EVENTOS_SEGUIMIENTOS = ["seguimientos_abiertos"] as const;
+// Foro: quién abre las Normas del Foro desde el aviso de silencio (app/(tabs)/chat-global.tsx). Las abre el cliente
+// silenciado, así que sí lo cuenta la analítica propia (si la aceptó).
+const EVENTOS_FORO = ["foro_normas_abiertas"] as const;
 
 type SortMode = "recent" | "participation";
 
@@ -362,6 +365,8 @@ export default function AdminUsers() {
   const [quitandoSilencio, setQuitandoSilencio] = useState<string | null>(null);
   // «Mis seguimientos» en los últimos 30 días: personas distintas que lo abrieron y, de ellas, cuántas deslizando.
   const [usoSeguimientos, setUsoSeguimientos] = useState<{ personas: number; deslizando: number } | null>(null);
+  // Personas distintas que abrieron las Normas del Foro desde el aviso de silencio (30 días). null = sin analítica.
+  const [normasLeidas, setNormasLeidas] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -379,7 +384,7 @@ export default function AdminUsers() {
         supabase
           .from("analytics_events")
           .select("event_name,user_id,session_id,metadata")
-          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS])
+          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO])
           .gte("created_at", desde)
           .limit(5000),
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
@@ -402,14 +407,17 @@ export default function AdminUsers() {
       );
       if (eventosRes.error) {
         setUsoSeguimientos(null);
+        setNormasLeidas(null);
       } else {
         type FilaUso = { event_name: string; user_id: string | null; session_id: string | null; metadata: { como?: unknown } | null };
-        const aperturas = ((eventosRes.data ?? []) as FilaUso[]).filter((e) => e.event_name === "seguimientos_abiertos");
+        const filas = (eventosRes.data ?? []) as FilaUso[];
+        const aperturas = filas.filter((e) => e.event_name === "seguimientos_abiertos");
         const quien = (e: FilaUso) => e.user_id || e.session_id || "";
         setUsoSeguimientos({
           personas: new Set(aperturas.map(quien).filter(Boolean)).size,
           deslizando: new Set(aperturas.filter((e) => e.metadata?.como === "deslizar").map(quien).filter(Boolean)).size,
         });
+        setNormasLeidas(new Set(filas.filter((e) => e.event_name === "foro_normas_abiertas").map(quien).filter(Boolean)).size);
       }
       // Tabla creada con la migración antigua (sin foto): se pide sin esas columnas.
       const perfilesRes =
@@ -653,12 +661,24 @@ export default function AdminUsers() {
               <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                 Moderación del Foro (30 días) · mensajes eliminados: {moderacion.mensajes} · comentarios eliminados: {moderacion.comentarios} ·
                 silencios: {moderacion.silencios} · silenciados ahora: {silenciados?.length ?? 0}
+                {normasLeidas !== null ? ` · leyeron las normas desde el aviso: ${normasLeidas}` : ""}
               </Text>
             ) : comentariosEliminados !== null ? (
               <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                 Moderación del Foro · comentarios de noticias eliminados: {comentariosEliminados}
               </Text>
             ) : null}
+            {/* Las Normas del Foro (las que enlaza el aviso de silencio) se editan en Políticas, como las demás. */}
+            <Pressable
+              onPress={() => router.push("/admin/policies")}
+              accessibilityRole="link"
+              accessibilityLabel="Ver o editar las Normas del Foro"
+              style={({ pressed }) => ({ minHeight: 44, alignSelf: "center", justifyContent: "center", paddingHorizontal: 12, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5, textDecorationLine: "underline" }}>
+                Ver o editar las Normas del Foro
+              </Text>
+            </Pressable>
 
             {/* Quién está silenciado ahora en el Foro, hasta cuándo y por qué, con «Quitar silencio». */}
             {silenciados && silenciados.length ? (
