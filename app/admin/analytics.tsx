@@ -525,6 +525,9 @@ export default function AdminAnalytics() {
         dropPct: top > 0 ? Math.round((1 - s.sessions / top) * 100) : 0,
       })),
       scroll,
+      // Visor de fotos de la ficha (components/ImageLightbox.tsx): quién amplía y quién llega a usar el zoom.
+      fotoAmpliada: findExact("Ficha: foto ampliada"),
+      fotoZoom: findExact("Ficha: zoom en la foto"),
     };
   }, [funnel]);
 
@@ -823,6 +826,22 @@ export default function AdminAnalytics() {
                     <Ionicons name="swap-vertical-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Sesiones con scroll (en cualquier punto del recorrido): {coreFunnel.scroll}
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-visor-fotos"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="expand-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Fotos de la ficha ampliadas: {coreFunnel.fotoAmpliada} sesiones · con zoom: {coreFunnel.fotoZoom}
                     </Text>
                   </View>
                 </View>

@@ -40,6 +40,8 @@
  *   horizontales (no cambian scrollTop) no cuentan. Cerca del principio
  *   (scrollTop < 40) siempre se ve. No se oculta con su panel abierto, con un
  *   bocadillo o con el saludo a la vista, y vuelve a verse al cambiar de pantalla.
+ * - Visor de fotos (components/ImageLightbox.tsx, foto ampliada de la ficha): mientras está abierto Blue se esconde
+ *   del todo (dueño, 2026-10-31) y no dice nada: sus mensajes y su saludo esperan a que se cierre.
  * - Habla con bocadillos AL LADO de ella, en cristal transparente (se lee bien) y al
  *   tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
  *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
@@ -107,7 +109,7 @@
  *   tabla preferencias_usuario (cada usuario lee la suya).
  * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Animated,
   Dimensions,
@@ -133,6 +135,7 @@ import MarcaAnimada from "./marca/MarcaAnimada";
 import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
 import { alRecargar } from "./TirarParaActualizar";
 import { usePerfilObligatorioVisible } from "./PerfilPublico";
+import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -844,11 +847,13 @@ export default function Campanita() {
   const colaMensajesRef = useRef<Bocadillo[]>([]);
   const turnoMensajeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const atenderColaRef = useRef<() => void>(() => {});
+  // Con el visor de fotos abierto Blue no se ve: lo que tenga que decir espera a que se cierre.
+  const visorFotos = useSyncExternalStore(suscribirVisorFotos, visorFotosAbierto, () => false);
   atenderColaRef.current = () => {
     if (turnoMensajeRef.current) clearTimeout(turnoMensajeRef.current);
     turnoMensajeRef.current = null;
     const siguiente = colaMensajesRef.current[0];
-    if (!siguiente) return;
+    if (!siguiente || visorFotos) return;
     const ahora = Date.now();
     const listo = Math.max(entradaPantallaRef.current + MENSAJE_TRAS_ENTRAR_MS, ultimoMensajeRef.current + ENTRE_MENSAJES_MS);
     if (ahora < listo) {
@@ -865,6 +870,9 @@ export default function Campanita() {
     colaMensajesRef.current.push(b);
     atenderColaRef.current();
   }, []);
+  useEffect(() => {
+    if (!visorFotos) atenderColaRef.current();
+  }, [visorFotos]);
   // Instalar la tienda como app: cómo se ofrece en este dispositivo y los pasos de iPhone.
   const [modoInst, setModoInst] = useState<"prompt" | "ios" | null>(null);
   const [pasosIosAbiertos, setPasosIosAbiertos] = useState(false);
@@ -1847,7 +1855,7 @@ export default function Campanita() {
   // Entrada (una sola vez, la primera vez que se ve): rebote de escala y saludo
   // moviéndose de lado a lado.
   useEffect(() => {
-    if (!enPantalla || entradaHechaRef.current) return;
+    if (!enPantalla || visorFotos || entradaHechaRef.current) return;
     entradaHechaRef.current = true;
     entrada.setValue(0);
     saludo.setValue(0);
@@ -1856,7 +1864,7 @@ export default function Campanita() {
       Animated.timing(saludo, { toValue, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: USA_NATIVO });
     Animated.sequence([Animated.delay(420), paso(1, 130), paso(-1, 180), paso(0.7, 160), paso(-0.4, 140), paso(0, 130)]).start();
     setSaludando(true);
-  }, [enPantalla, entrada, saludo]);
+  }, [enPantalla, visorFotos, entrada, saludo]);
 
   // Mini bocadillo "¡Hola! Soy Blue": entra tras el rebote y se va solo.
   useEffect(() => {
@@ -1944,8 +1952,9 @@ export default function Campanita() {
     if (bocadilloVisible) ponerOcultoScroll(false);
   }, [bocadilloVisible, ponerOcultoScroll]);
 
-  // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote.
-  const oculto = ocultoScroll && !panelOpen && !saludando;
+  // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote. Con el visor de fotos abierto,
+  // siempre (la foto ampliada se ve entera).
+  const oculto = visorFotos || (ocultoScroll && !panelOpen && !saludando);
   useEffect(() => {
     Animated.timing(ocultar, {
       toValue: oculto ? 1 : 0,
@@ -2394,9 +2403,10 @@ export default function Campanita() {
               </Pressable>
             </Animated.View>
           ) : saludando ? (
-            // Mini saludo al aparecer (al tocarlo, abre el panel de Blue).
+            // Mini saludo al aparecer (al tocarlo, abre el panel de Blue). Escondido (visor de fotos), no se toca:
+            // «box-none» deja tocables a sus hijos aunque la capa de Blue no lo sea.
             <Animated.View
-              pointerEvents="box-none"
+              pointerEvents={oculto ? "none" : "box-none"}
               style={{
                 position: "absolute",
                 width: 176,

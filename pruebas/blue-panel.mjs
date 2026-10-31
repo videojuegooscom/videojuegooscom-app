@@ -596,8 +596,9 @@ try {
     const filas = await q.getByRole("button", { name: /Ver seguimiento/ }).evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
     ok(filas.length === 4 && filas.every((h) => h >= 47.5), `Seguimientos S2: 4 filas que se tocan de 48 px o más (${filas.join(", ")})`);
     await capturar(q, "09-avisos-estado");
-    // Tocar un aviso lleva a Seguimientos y, al verlos, los avisos desaparecen.
-    await q.getByRole("button", { name: /Tu pedido nº 12/ }).first().tap();
+    // Tocar un aviso lleva a Seguimientos y, al verlos, los avisos desaparecen. La fila del panel («Ver seguimiento»), no el
+    // mensaje de Blue que dice lo mismo y que, si ya ha salido, queda detrás del panel (antes la prueba cogía ese).
+    await q.getByRole("button", { name: /Ver seguimiento/ }).filter({ hasText: "Tu pedido nº 12" }).first().tap();
     await q.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
       () => ok(true, "Seguimientos S2: tocar un aviso lleva a Perfil → Seguimientos"),
       () => ok(false, `Seguimientos S2: debía llevar a Perfil → Seguimientos (está en ${q.url()})`)

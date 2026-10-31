@@ -866,6 +866,8 @@ export default function ProductoScreen() {
       : 0;
     setLightboxIndex(idx >= 0 ? idx : 0);
     setLightboxOpen(true);
+    // Uso del visor (Administración → Analítica → Recorrido principal). El zoom lo cuenta el propio visor.
+    trackEvent("foto_ampliada", "Ficha: foto ampliada", { metadata: { fotos: lightboxImages.length } });
   }
 
   // Desliza la foto principal como un carrusel (sin zoom: el zoom vive en

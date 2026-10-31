@@ -89,6 +89,8 @@ export type SmartImageProps = {
   ancho?: number;
   /** Prioridad de descarga (opcional): "high" para la foto principal visible al entrar. */
   priority?: ImagePriority;
+  /** Al cargar, el tamaño real de la foto en px (el visor lo usa para saber hasta dónde se puede mover). */
+  onTamano?: (ancho: number, alto: number) => void;
 };
 
 export default function SmartImage({
@@ -100,6 +102,7 @@ export default function SmartImage({
   alt,
   ancho,
   priority = "normal",
+  onTamano,
 }: SmartImageProps) {
   // Si la versión optimizada falla, se vuelve a la foto original.
   const [usarOriginal, setUsarOriginal] = useState(false);
@@ -154,6 +157,7 @@ export default function SmartImage({
       alt={alt ?? accessibilityLabel ?? ""}
       accessibilityLabel={accessibilityLabel ?? alt}
       onLoadStart={handleLoadStart}
+      onLoad={onTamano ? (e) => onTamano(e.source.width, e.source.height) : undefined}
       onLoadEnd={handleLoadEnd}
       onError={() => {
         if (origen !== uri) setUsarOriginal(true);

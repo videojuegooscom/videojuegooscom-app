@@ -36,8 +36,15 @@
  *    un toque cambia la etapa (y avisa al puente de VeoAura); cada reparación con su etapa, «nota del taller» y «Guardar
  *    seguimiento», sin ir a Pedidos ni a Servicios.
  *  - Diseño: nada se ensancha, campos y botones compactos pero de 44 px o más (se tocan bien), sin errores de JavaScript.
+ *  - N) Visor de fotos de la ficha (producto ficticio con 3 fotos): Blue, que se veía y se podía tocar, se esconde al
+ *    abrirlo (donde estaba se toca el visor) y vuelve al cerrarlo; su mensaje de la ficha espera a que se cierre. Pellizcar
+ *    acerca entre los dedos; mientras tanto solo cambia la capa de la foto (nada más del visor se vuelve a pintar); al
+ *    soltar un dedo la foto no salta; al soltar vuelve a sus bordes y baja la foto original; alejar de más vuelve al
+ *    tamaño normal; doble toque acerca donde se toca y vuelve; la rueda acerca sin mover la ficha de debajo; deslizar y
+ *    la flecha cambian de foto; la analítica cuenta una apertura y un zoom, y Administración → Analítica lo enseña.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N]
+ * Con «N» de cuarto argumento solo se ejecuta la sección N (el visor), sin repetir la batería entera.
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -52,6 +59,7 @@ if (!existsSync(join(raiz, "index.html"))) {
 }
 const SALIDA = process.argv[3] ? resolve(process.argv[3]) : null;
 if (SALIDA) mkdirSync(SALIDA, { recursive: true });
+const SOLO = (process.argv[4] ?? "").toUpperCase();
 
 const TIPOS = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
@@ -123,10 +131,10 @@ const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers
 // Contexto con sesión simulada. `estado` es lo que «responde» la base de datos ficticia y recoge lo que la tienda manda guardar.
 async function contexto(navegador, usuario, rol, estado) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
-  await ctx.addInitScript(([u]) => {
+  await ctx.addInitScript(([u, acepta]) => {
     try {
       localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
-      localStorage.setItem("videojuegoos.analytics.consent", "declined");
+      localStorage.setItem("videojuegoos.analytics.consent", acepta ? "accepted" : "declined");
       const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
       const exp = Math.floor(Date.now() / 1000) + 3600;
       const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: u.id, role: "authenticated", exp, aud: "authenticated", email: u.email })}.firma`;
@@ -134,7 +142,7 @@ async function contexto(navegador, usuario, rol, estado) {
     } catch {
       // sin almacenamiento
     }
-  }, [usuario]);
+  }, [usuario, estado.aceptaAnalitica === true]);
   await ctx.route("**/*", async (r) => {
     const peticion = r.request();
     const url = new URL(peticion.url());
@@ -218,6 +226,22 @@ async function contexto(navegador, usuario, rol, estado) {
       return json(estado.moderacion.filter((m) => !uid || m.user_id === uid));
     }
     if (url.pathname.endsWith("/rest/v1/store_reviews") && metodo === "GET" && estado.resenas) return json(estado.resenas);
+    // Ficha de producto ficticia (sección N) y sus fotos (las fotos llegan falsas: pruebas/sin-fotos-reales.mjs).
+    if (estado.producto && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.producto) : json([estado.producto]);
+    }
+    if (estado.producto && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.fotosProducto ?? []);
+    // Analítica propia (solo con aceptaAnalitica): se apunta lo que la tienda mandaría guardar.
+    if (url.pathname.endsWith("/rest/v1/analytics_events") && metodo === "POST") {
+      estado.eventosEnviados = [...(estado.eventosEnviados ?? []), ...[].concat(JSON.parse(peticion.postData() ?? "[]"))];
+      return r.fulfill({ status: 201, headers: CORS, body: "" });
+    }
+    // Administración → Analítica con un embudo ficticio.
+    if (estado.embudo && /\/rpc\/analytics_(totals|daily_visitors|funnel)$/.test(url.pathname)) {
+      if (url.pathname.endsWith("_funnel")) return json(estado.embudo);
+      if (url.pathname.endsWith("_totals")) return json([{ total_sessions: 10, total_pageviews: 20, total_events: 30, registered_visitors: 2 }]);
+      return json([]);
+    }
     if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "POST") {
       estado.mensajesEnviados = [...(estado.mensajesEnviados ?? []), JSON.parse(peticion.postData() ?? "{}")];
       return estado.bloqueoForo
@@ -293,8 +317,238 @@ async function pagina(ctx, ruta) {
   return p;
 }
 
+// ===== N) Visor de fotos de la ficha: Blue se esconde, zoom sin tirones y su uso en Administración ==================
+async function seccionN() {
+  const ID = "b7c1d2e3-0000-4000-8000-0000000000aa";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/visor/${n}.jpg`;
+  {
+    const estado = {
+      // Perfil completo: sin «Completa tu perfil» (que esconde a Blue por su cuenta).
+      filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+      guardados: [],
+      aceptaAnalitica: true,
+      producto: {
+        id: ID, title: "Nintendo Switch OLED", description: "Consola revisada.", price_eur: 249.99, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], updated_at: "2026-10-30T10:00:00Z", created_at: "2026-10-30T10:00:00Z", condition: "USED",
+        like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null,
+      },
+      fotosProducto: [1, 2, 3].map((n) => ({ id: `m${n}`, product_id: ID, kind: "image", public_url: foto(n), file_name: `${n}.jpg`, sort_order: n - 1, is_cover: n === 1, duration_seconds: null })),
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const inicio = Date.now();
+    const p = await pagina(ctx, `/producto/${ID}`);
+    const cdp = await ctx.newCDPSession(p);
+    // Dedos de verdad (eventos táctiles del navegador): [x, y, dedo].
+    const toque = (tipo, puntos) => cdp.send("Input.dispatchTouchEvent", { type: tipo, touchPoints: puntos.map(([x, y, id]) => ({ x, y, id: id ?? 0 })) });
+    const tocar = async (x, y) => {
+      await toque("touchStart", [[x, y]]);
+      await toque("touchEnd", []);
+    };
+    const vista = () =>
+      p.evaluate(() => {
+        const t = document.getElementById("visor-fotos-capa")?.style.transform ?? "";
+        const m = /translate3d\(([-\d.e+]+)px, ([-\d.e+]+)px, 0px\) scale\(([-\d.e+]+)\)/.exec(t);
+        return m ? { x: Math.round(+m[1] * 10) / 10, y: Math.round(+m[2] * 10) / 10, s: Math.round(+m[3] * 1000) / 1000 } : { x: 0, y: 0, s: 1, sin: t };
+      });
+    const blue = () =>
+      p.evaluate(() => {
+        const b = document.getElementById("blue-flotante");
+        if (!b) return { opacidad: -1, encima: "sin-blue" };
+        const r = b.getBoundingClientRect();
+        const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const encima = e?.closest("#blue-flotante") ? "blue" : e?.closest("#visor-fotos") ? "visor" : "otro";
+        const quien = e?.closest("button")?.getAttribute("aria-label") ?? e?.tagName.toLowerCase() ?? "";
+        return { opacidad: Math.round(Number(getComputedStyle(b.firstElementChild).opacity) * 100) / 100, encima, quien };
+      });
+    const cerca = (a, b, margen = 2) => Math.abs(a - b) <= margen;
+
+    // Blue aparece a los 10 s y se puede tocar.
+    await p.waitForFunction(() => !!document.getElementById("blue-flotante"), null, { timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const antes = await blue();
+    ok(antes.opacidad > 0.9 && antes.encima === "blue", `N: antes de abrir el visor Blue se ve y se puede tocar (${JSON.stringify(antes)})`);
+
+    // Abrir el visor tocando la foto principal (la más grande con el nombre del producto).
+    const principal = await p.evaluate(() => {
+      const imgs = [...document.querySelectorAll('img[alt="Nintendo Switch OLED"]')].map((i) => i.getBoundingClientRect()).sort((a, b) => b.width * b.height - a.width * a.height);
+      return imgs[0] ? { x: imgs[0].left + imgs[0].width / 2, y: imgs[0].top + imgs[0].height / 2 } : null;
+    });
+    ok(!!principal, "N: la ficha enseña la foto principal");
+    if (principal) await tocar(principal.x, principal.y);
+    await p.locator("#visor-fotos").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#visor-fotos").count()) === 1 && /1 \/ 3/.test(await p.locator("#visor-fotos").innerText()), "N: un toque en la foto abre el visor en la foto 1 de 3");
+    await p.waitForTimeout(450);
+    const durante = await blue();
+    ok(durante.opacidad < 0.05 && durante.encima === "visor", `N: con el visor abierto Blue desaparece y donde estaba se toca el visor (${JSON.stringify(durante)})`);
+    const fondo = await p.evaluate(() => getComputedStyle(document.getElementById("visor-fotos")).touchAction);
+    ok(fondo === "none", `N: el navegador no hace su propio zoom a la vez que el visor (touch-action: ${fondo})`);
+    await capturar(p, "N1-visor-sin-blue");
+
+    const caja = await p.locator("#visor-fotos").boundingBox();
+    const cx = caja.x + caja.width / 2;
+    const cy = caja.y + caja.height / 2;
+
+    // Pellizcar: x2 con los dedos 122 px por encima del centro. Solo debe cambiar la capa de la foto.
+    await p.evaluate(() => {
+      const capa = document.getElementById("visor-fotos-capa");
+      window.__mut = { capa: 0, resto: 0 };
+      window.__obs = new MutationObserver((ms) => {
+        for (const m of ms) {
+          if (m.target === capa && m.type === "attributes") window.__mut.capa += 1;
+          else window.__mut.resto += 1;
+        }
+      });
+      window.__obs.observe(document.getElementById("visor-fotos"), { subtree: true, attributes: true, childList: true, characterData: true });
+    });
+    const fy = cy - 122;
+    await toque("touchStart", [[cx - 50, fy, 0], [cx + 50, fy, 1]]);
+    for (let i = 1; i <= 10; i++) {
+      await toque("touchMove", [[cx - 50 - 5 * i, fy, 0], [cx + 50 + 5 * i, fy, 1]]);
+      await p.waitForTimeout(16);
+    }
+    await p.waitForTimeout(80);
+    const v1 = await vista();
+    const mut = await p.evaluate(() => {
+      window.__obs.disconnect();
+      return window.__mut;
+    });
+    ok(cerca(v1.s, 2, 0.02) && cerca(v1.x, 0) && cerca(v1.y, 122, 3), `N: pellizcar acerca x2 justo entre los dedos (el punto bajo los dedos no se mueve) (${JSON.stringify(v1)})`);
+    ok(mut.capa > 0 && mut.resto === 0, `N: mientras se pellizca solo cambia la capa de la foto: ni la foto ni nada más del visor se vuelve a pintar (${JSON.stringify(mut)})`);
+
+    // Soltar un dedo y seguir con el otro: la foto sigue al dedo sin saltar. (CDP: «touchEnd» con ese dedo suelta solo ese.)
+    await toque("touchEnd", [[cx + 100, fy, 1]]);
+    await p.waitForTimeout(50);
+    const v2 = await vista();
+    await toque("touchMove", [[cx - 130, fy - 20, 0]]);
+    await p.waitForTimeout(50);
+    const v3 = await vista();
+    ok(cerca(v2.x, v1.x) && cerca(v2.y, v1.y) && cerca(v3.x - v2.x, -30) && cerca(v3.y - v2.y, -20), `N: al soltar un dedo la foto no salta y sigue al otro (${JSON.stringify([v1, v2, v3])})`);
+    await toque("touchEnd", []);
+    await p.waitForTimeout(450);
+    const v4 = await vista();
+    const imgsCapa = await p.locator("#visor-fotos-capa img").count();
+    ok(cerca(v4.s, 2, 0.02) && cerca(v4.x, -30) && cerca(v4.y, 0), `N: al soltar, la foto vuelve a sus bordes (sin huecos arriba ni abajo) (${JSON.stringify(v4)})`);
+    ok(imgsCapa === 2, `N: con zoom se pide la foto original encima, para ver el detalle (${imgsCapa} fotos en la capa)`);
+    await capturar(p, "N2-visor-zoom");
+
+    // Doble toque: con zoom vuelve al tamaño normal; sin zoom acerca x2,5 donde se toca.
+    await tocar(cx, cy);
+    await p.waitForTimeout(80);
+    await tocar(cx, cy);
+    await p.waitForTimeout(400);
+    const v5 = await vista();
+    ok(cerca(v5.s, 1, 0.01) && cerca(v5.x, 0) && cerca(v5.y, 0), `N: doble toque con zoom vuelve al tamaño normal (${JSON.stringify(v5)})`);
+    await tocar(cx - 95, cy - 122);
+    await p.waitForTimeout(80);
+    await tocar(cx - 95, cy - 122);
+    await p.waitForTimeout(450);
+    const v6 = await vista();
+    const lado = Math.min(caja.width, caja.height * 0.86);
+    const esperadoY = Math.min(183, Math.max(0, (2.5 * lado - caja.height) / 2));
+    ok(cerca(v6.s, 2.5, 0.02) && cerca(v6.x, 142.5) && cerca(v6.y, esperadoY), `N: doble toque acerca x2,5 donde se toca (${JSON.stringify(v6)}; esperado x 142,5 y ${esperadoY})`);
+    await tocar(cx, cy);
+    await p.waitForTimeout(80);
+    await tocar(cx, cy);
+    await p.waitForTimeout(400);
+
+    // Rueda del ratón (escritorio): acerca donde está el puntero y no mueve la ficha de debajo.
+    const desplazado = () => p.evaluate(() => [...document.querySelectorAll("*")].reduce((t, e) => t + e.scrollTop, 0));
+    const scrollAntes = await desplazado();
+    // Lo que llega de verdad a la página (con pantalla de densidad 2 el navegador lo divide).
+    await p.evaluate(() => {
+      window.__rueda = 0;
+      window.addEventListener("wheel", (e) => (window.__rueda += e.deltaY), { capture: true, passive: true });
+    });
+    await p.mouse.move(cx, cy);
+    await p.mouse.wheel(0, -300);
+    await p.waitForTimeout(150);
+    const v7 = await vista();
+    const rueda = await p.evaluate(() => window.__rueda);
+    ok(rueda < 0 && v7.s > 1.1 && cerca(v7.s, Math.exp(-rueda * 0.002), 0.02) && cerca(v7.x, 0) && cerca(v7.y, 0), `N: la rueda acerca donde está el puntero (${JSON.stringify(v7)}; rueda ${rueda})`);
+    await p.mouse.wheel(0, 900);
+    await p.waitForTimeout(150);
+    const v8 = await vista();
+    ok(cerca(v8.s, 1, 0.01) && (await desplazado()) === scrollAntes, `N: y aleja hasta el tamaño normal sin mover la ficha de debajo (${JSON.stringify(v8)})`);
+
+    // Alejar de más con los dedos: al soltar vuelve al tamaño normal.
+    await toque("touchStart", [[cx - 100, cy, 0], [cx + 100, cy, 1]]);
+    for (let i = 1; i <= 10; i++) {
+      await toque("touchMove", [[cx - 100 + 5 * i, cy, 0], [cx + 100 - 5 * i, cy, 1]]);
+      await p.waitForTimeout(16);
+    }
+    await p.waitForTimeout(60);
+    const v9 = await vista();
+    await toque("touchEnd", []);
+    await p.waitForTimeout(400);
+    const v10 = await vista();
+    ok(v9.s < 1 && v9.s > 0.8 && cerca(v10.s, 1, 0.01) && cerca(v10.x, 0) && cerca(v10.y, 0), `N: alejar de más se nota como un muelle y vuelve solo al tamaño normal (${v9.s} → ${JSON.stringify(v10)})`);
+
+    // Deslizar a la izquierda sin zoom: foto siguiente; la flecha, la otra.
+    await toque("touchStart", [[cx + 100, cy]]);
+    for (let i = 1; i <= 8; i++) {
+      await toque("touchMove", [[cx + 100 - 25 * i, cy]]);
+      await p.waitForTimeout(16);
+    }
+    await toque("touchEnd", []);
+    await p.waitForTimeout(600);
+    const v11 = await vista();
+    ok(/2 \/ 3/.test(await p.locator("#visor-fotos").innerText()) && cerca(v11.x, 0) && cerca(v11.s, 1, 0.01), `N: deslizar a la izquierda pasa a la foto 2 de 3 y la deja centrada (${JSON.stringify(v11)})`);
+    ok((await p.locator("#visor-fotos-capa img").count()) === 1, "N: la foto nueva vuelve a la versión del tamaño de la pantalla (sin la original)");
+    await p.getByRole("button", { name: "Foto siguiente" }).click();
+    await p.waitForTimeout(400);
+    ok(/3 \/ 3/.test(await p.locator("#visor-fotos").innerText()), "N: la flecha pasa a la foto 3 de 3");
+
+    // El mensaje de Blue de la ficha (a los 15 s) espera a que se cierre el visor.
+    const falta = 18000 - (Date.now() - inicio);
+    if (falta > 0) await p.waitForTimeout(falta);
+    ok((await p.locator("#blue-mensaje").count()) === 0, "N: con el visor abierto Blue no dice nada (su mensaje de la ficha espera)");
+    await p.getByRole("button", { name: "Cerrar el visor de fotos" }).click();
+    await p.waitForTimeout(1500);
+    const despues = await blue();
+    ok((await p.locator("#visor-fotos").count()) === 0 && despues.opacidad > 0.9 && despues.encima === "blue", `N: al cerrar el visor Blue vuelve y se puede tocar (${JSON.stringify(despues)})`);
+    const mensaje = await p.locator("#blue-mensaje").innerText().catch(() => "");
+    ok(/¿Te gusta Nintendo Switch OLED\?/.test(mensaje), `N: y dice entonces el mensaje que tenía guardado (${mensaje.slice(0, 60)})`);
+
+    const eventos = estado.eventosEnviados ?? [];
+    const abiertos = eventos.filter((e) => e.event_name === "foto_ampliada");
+    const zooms = eventos.filter((e) => e.event_name === "foto_zoom");
+    ok(abiertos.length === 1 && abiertos[0].step_label === "Ficha: foto ampliada" && abiertos[0].metadata?.fotos === 3, `N: la analítica cuenta una apertura del visor (${JSON.stringify(abiertos)})`);
+    ok(zooms.length === 1 && zooms[0].step_label === "Ficha: zoom en la foto" && zooms[0].metadata?.como === "pellizco", `N: y un solo zoom por apertura, con cómo se hizo (${JSON.stringify(zooms)})`);
+    ok(p.errores.length === 0, `N: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(ancho.a <= ancho.p + 1, `N: la ficha no se ensancha (${ancho.a}/${ancho.p})`);
+    await ctx.close();
+  }
+  {
+    // Administración → Analítica → Recorrido principal: cuántas sesiones amplían fotos y cuántas usan el zoom.
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Producto Nintendo Switch OLED", sessions: 6 },
+        { step_label: "Ficha: foto ampliada", sessions: 4 },
+        { step_label: "Ficha: zoom en la foto", sessions: 3 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-visor-fotos").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-visor-fotos").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Fotos de la ficha ampliadas: 4 sesiones · con zoom: 3/.test(t), `N: Administración → Analítica enseña cuántas sesiones amplían las fotos y cuántas usan el zoom (${t})`);
+    const productos = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(!/Ficha: foto ampliada|Ficha: zoom/.test(productos), "N: y esos eventos no se cuelan como «productos» ni pasos del recorrido");
+    ok(p.errores.length === 0, `N: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "N3-admin-analitica-visor");
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "N") await seccionN();
+  // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
+  todas: {
+  if (SOLO) break todas;
   // ===== A) «Tu perfil»: rellenar con lo del registro, elegir, validar y guardar ====================================
   {
     const estado = { filas: [], guardados: [] };
@@ -1175,6 +1429,9 @@ try {
     ok((await p.evaluate(() => document.body.innerText)).includes("ana@example.com"), "F: y la lista de usuarios funciona igual");
     ok(p.errores.length === 0, `F: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
+  }
+
+  await seccionN();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
