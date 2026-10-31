@@ -1341,6 +1341,11 @@ export default function PerfilScreen() {
 // (customer_user_id = cliente): si faltan las columnas de seguimiento, usa solo
 // lo que exista. "Preguntar por esto" abre Blue IA con ?pedido= o ?reparacion=.
 // El panel admin (app/admin/services.tsx) cambia la etapa de cada reparación.
+// Números de seguimiento (migración 20261031170000): cada pedido y cada
+// reparación tiene el suyo («VZ-XXXX-XXXX»). Si la tienda se lo da al cliente
+// (p. ej. una ficha creada en VeoAura, api/escaparate-veoaura.ts), el cliente lo
+// escribe aquí y vincular_seguimiento lo pasa a su cuenta. Sin la migración no
+// sale el campo.
 // ============================================================================
 
 const SEG = {
@@ -1351,6 +1356,7 @@ const SEG = {
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
   danger: "#DC2626",
+  ok: "#15803D",
 };
 
 // Selector de pestañas centrado con subrayado azul en la activa.
@@ -1414,6 +1420,7 @@ type PedidoSeg = {
   entrega: "envio" | "recogida" | null;
   total_eur: number | null;
   items: string[];
+  codigo_seguimiento?: string | null;
 };
 
 type ReparacionSeg = {
@@ -1423,7 +1430,120 @@ type ReparacionSeg = {
   seguimiento: EtapaReparacion;
   seguimiento_nota: string | null;
   seguimiento_actualizado: string | null;
+  codigo_seguimiento?: string | null;
 };
+
+// Número de seguimiento que da la tienda (p. ej. al crear en VeoAura la ficha de una reparación o de un pedido): al
+// escribirlo, ese pedido o esa reparación pasan a esta cuenta (función vincular_seguimiento, migración 20261031170000).
+const MOTIVOS_SEGUIMIENTO: Record<string, string> = {
+  formato: "Ese número no tiene el formato de la tienda: «VZ-» y 8 letras o números (por ejemplo, VZ-7K3M-9QPD).",
+  no_existe: "No encontramos ese número. Revisa que esté bien escrito.",
+  otra_cuenta: "Ese número ya está añadido a otra cuenta. Si es tuyo, escríbenos desde Blue IA.",
+  demasiados_intentos: "Has hecho muchos intentos seguidos. Vuelve a probar dentro de una hora.",
+  sin_sesion: "Inicia sesión para añadirlo.",
+};
+
+function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
+  const [codigo, setCodigo] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const puede = codigo.replace(/[^A-Z0-9]/g, "").length >= 10 && !enviando;
+
+  async function anadir() {
+    if (!puede) return;
+    setEnviando(true);
+    setAviso(null);
+    try {
+      const { data, error } = await supabase.rpc("vincular_seguimiento", { p_codigo: codigo });
+      if (error) throw error;
+      const r = (data ?? {}) as { ok?: boolean; motivo?: string; tipo?: "pedido" | "reparacion"; titulo?: string; numero?: number };
+      if (r.ok && r.tipo) {
+        trackEvent("seguimiento_numero_anadido", "Perfil: número de seguimiento añadido", { metadata: { tipo: r.tipo } });
+        setCodigo("");
+        setAviso({
+          ok: true,
+          texto:
+            r.tipo === "pedido"
+              ? `Listo: el pedido nº ${r.numero ?? ""} ya está en «Mis pedidos».`
+              : `Listo: «${r.titulo ?? "tu reparación"}» ya está en «Reparaciones y Mantenimientos».`,
+        });
+        onAnadido();
+      } else {
+        trackEvent("seguimiento_numero_fallido", "Perfil: número de seguimiento no válido", { metadata: { motivo: r.motivo ?? "desconocido" } });
+        setAviso({ ok: false, texto: MOTIVOS_SEGUIMIENTO[r.motivo ?? ""] ?? "No se ha podido añadir. Inténtalo de nuevo." });
+      }
+    } catch (e) {
+      console.error("Error añadiendo el número de seguimiento:", e);
+      setAviso({ ok: false, texto: "No se ha podido añadir. Inténtalo de nuevo." });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <View style={{ width: "100%", maxWidth: 460, gap: 8, alignItems: "center" }}>
+      <Text style={{ color: SEG.muted, fontSize: 13.5, textAlign: "center" }}>¿Te hemos dado un número de seguimiento? Escríbelo aquí.</Text>
+      <View style={{ flexDirection: "row", gap: 8, width: "100%" }}>
+        <TextInput
+          value={codigo}
+          onChangeText={(t) => {
+            setCodigo(t.toUpperCase().slice(0, 16));
+            setAviso(null);
+          }}
+          onSubmitEditing={anadir}
+          placeholder="VZ-XXXX-XXXX"
+          placeholderTextColor={SEG.mutedSoft}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          accessibilityLabel="Número de seguimiento"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 48,
+            borderWidth: 1,
+            borderColor: SEG.line,
+            borderRadius: 14,
+            paddingHorizontal: 14,
+            fontSize: 16,
+            fontWeight: "800",
+            letterSpacing: 1,
+            color: SEG.text,
+            textAlign: "center",
+            backgroundColor: "#FFFFFF",
+          }}
+        />
+        <Pressable
+          onPress={anadir}
+          disabled={!puede}
+          accessibilityRole="button"
+          accessibilityLabel="Añadir el número de seguimiento"
+          style={({ pressed }) => ({
+            minHeight: 48,
+            paddingHorizontal: 18,
+            borderRadius: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: SEG.accentDark,
+            opacity: !puede ? 0.45 : pressed ? 0.85 : 1,
+          })}
+        >
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{enviando ? "Añadiendo…" : "Añadir"}</Text>
+        </Pressable>
+      </View>
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: aviso.ok ? SEG.ok : SEG.danger, fontWeight: "800", textAlign: "center", lineHeight: 19 }}>
+          {aviso.texto}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// El número de seguimiento de cada pedido o reparación (para dárselo a la tienda si pregunta por él).
+function NumeroSeguimiento({ codigo }: { codigo?: string | null }) {
+  if (!codigo) return null;
+  return <Text style={{ color: SEG.mutedSoft, fontSize: 12, fontWeight: "800", letterSpacing: 0.5 }}>Nº de seguimiento {codigo}</Text>;
+}
 
 function segFecha(iso: string | null) {
   if (!iso) return "";
@@ -1560,9 +1680,12 @@ function SeguimientosSeccion() {
   const [conSesion, setConSesion] = useState(false);
   const [pedidos, setPedidos] = useState<PedidoSeg[] | null>(null); // null = tabla aún no disponible
   const [reparaciones, setReparaciones] = useState<ReparacionSeg[]>([]);
+  // ¿Existen ya los números de seguimiento? (migración 20261031170000). Sin ellos no se ofrece añadir uno.
+  const [numerosOk, setNumerosOk] = useState(false);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
+  // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
+  const cargar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setCargando(true);
     try {
       const { data } = await supabase.auth.getSession();
       const uid = data.session?.user?.id;
@@ -1576,13 +1699,15 @@ function SeguimientosSeccion() {
       const vistosPedidos: { id: string; estado: string }[] = [];
       const vistasReparaciones: { id: string; etapa: string; actualizado: string }[] = [];
 
-      // Pedidos (la tabla puede no existir aún)
-      const pedRes = await supabase
-        .from("pedidos")
-        .select("id,numero,created_at,estado,entrega,total_eur")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(50);
+      // Pedidos (la tabla puede no existir aún; el número de seguimiento, tampoco)
+      const pedidosCon = (columnas: string) =>
+        supabase.from("pedidos").select(columnas).eq("user_id", uid).order("created_at", { ascending: false }).limit(50);
+      let pedRes: { data: any[] | null; error: any } = await pedidosCon("id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento");
+      let numeros = !pedRes.error;
+      if (pedRes.error && faltaEsquema(pedRes.error)) {
+        pedRes = await pedidosCon("id,numero,created_at,estado,entrega,total_eur");
+        numeros = false;
+      }
 
       if (pedRes.error) {
         if (!faltaEsquema(pedRes.error)) console.error("Error cargando pedidos:", pedRes.error);
@@ -1603,22 +1728,21 @@ function SeguimientosSeccion() {
         for (const p of filas) vistosPedidos.push({ id: p.id, estado: String(p.estado ?? "pendiente") });
       }
 
-      // Reparaciones (las columnas de seguimiento pueden no existir aún)
-      let repRes: { data: any[] | null; error: any } = await supabase
-        .from("service_requests")
-        .select("id,created_at,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado")
-        .eq("customer_user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(50);
-
+      // Reparaciones (las columnas de seguimiento y el número pueden no existir aún)
+      const reparacionesCon = (columnas: string) =>
+        supabase.from("service_requests").select(columnas).eq("customer_user_id", uid).order("created_at", { ascending: false }).limit(50);
+      let repRes: { data: any[] | null; error: any } = await reparacionesCon(
+        "id,created_at,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado,codigo_seguimiento"
+      );
       if (repRes.error && faltaEsquema(repRes.error)) {
-        repRes = await supabase
-          .from("service_requests")
-          .select("id,created_at,service_title,status")
-          .eq("customer_user_id", uid)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        numeros = false;
+        repRes = await reparacionesCon("id,created_at,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado");
       }
+      if (repRes.error && faltaEsquema(repRes.error)) {
+        repRes = await reparacionesCon("id,created_at,service_title,status");
+      }
+      if (repRes.error) numeros = false;
+      setNumerosOk(numeros);
 
       if (repRes.error) {
         console.error("Error cargando reparaciones:", repRes.error);
@@ -1637,6 +1761,7 @@ function SeguimientosSeccion() {
                 : "solicitado",
             seguimiento_nota: r.seguimiento_nota ?? null,
             seguimiento_actualizado: r.seguimiento_actualizado ?? null,
+            codigo_seguimiento: r.codigo_seguimiento ?? null,
           }))
         );
         for (const r of repRes.data ?? []) {
@@ -1669,6 +1794,7 @@ function SeguimientosSeccion() {
       {pedidos !== null ? (
         <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
           <SegTitulo>Mis pedidos</SegTitulo>
+          {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
           {pedidos.length === 0 ? (
             <SegVacio
               cual="tienda"
@@ -1685,6 +1811,7 @@ function SeguimientosSeccion() {
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
+                <NumeroSeguimiento codigo={p.codigo_seguimiento} />
                 {p.items.length ? (
                   <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 19, maxWidth: 460 }}>
                     {p.items.join(" · ")}
@@ -1709,6 +1836,7 @@ function SeguimientosSeccion() {
 
       <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
         <SegTitulo>Reparaciones y Mantenimientos</SegTitulo>
+        {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
         {reparaciones.length === 0 ? (
           <SegVacio
             cual="taller"
@@ -1723,6 +1851,7 @@ function SeguimientosSeccion() {
               <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
                 {r.service_title} · {segFecha(r.created_at)}
               </Text>
+              <NumeroSeguimiento codigo={r.codigo_seguimiento} />
               <LineaProgreso
                 etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_REPARACION[e])}
                 actual={Math.max(0, ETAPAS_REPARACION.indexOf(r.seguimiento))}

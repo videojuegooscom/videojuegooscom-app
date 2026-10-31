@@ -44,8 +44,14 @@
  *    tamaño normal; doble toque acerca donde se toca y vuelve; la rueda acerca sin mover la ficha de debajo; deslizar y
  *    la flecha cambian de foto; la analítica cuenta una apertura y un zoom, y Administración → Analítica lo enseña.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N]
- * Con «N» de cuarto argumento solo se ejecuta la sección N (el visor), sin repetir la batería entera.
+ *  - P) Números de seguimiento: en «Mis seguimientos» el cliente escribe el número (en cualquiera de los dos campos, en
+ *    minúsculas o con espacios) y el pedido o la reparación pasan a su cuenta con su número; los que no existen o son de
+ *    otra cuenta se explican; sin la migración no sale el campo. Administración → Pedidos y Servicios enseñan el número
+ *    de cada uno, si es de VeoAura y si el cliente ya lo tiene (recuento y filtro «Sin cuenta»), y Usuarios cuenta los
+ *    números añadidos y los intentos fallidos.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P]
+ * Con «N» o «P» de cuarto argumento solo se ejecuta esa sección (el visor o los números de seguimiento).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -178,6 +184,36 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.consultasOlvidados = [...(estado.consultasOlvidados ?? []), `${url.pathname.split("/").pop()}?${decodeURIComponent(url.search.slice(1))}`];
       return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
     }
+    // Números de seguimiento (sección P): pedidos y reparaciones con su número y «vincular_seguimiento» como la base de
+    // datos (sin la migración: columna y función inexistentes).
+    if (estado.numeros && /\/rest\/v1\/(pedidos|service_requests)$/.test(url.pathname) && metodo === "GET") {
+      const esPedido = url.pathname.endsWith("/pedidos");
+      if (estado.numeros.sinColumnas && /codigo_seguimiento/.test(url.searchParams.get("select") ?? "")) {
+        return json({ code: "42703", message: `column ${esPedido ? "pedidos" : "service_requests"}.codigo_seguimiento does not exist` }, 400);
+      }
+      const campo = esPedido ? "user_id" : "customer_user_id";
+      const dueno = (url.searchParams.get(campo) ?? "").replace(/^eq\./, "");
+      return json((esPedido ? estado.numeros.pedidos : estado.numeros.reparaciones).filter((f) => !dueno || f[campo] === dueno));
+    }
+    if (estado.numeros && url.pathname.endsWith("/rest/v1/pedido_items") && metodo === "GET") return json(estado.numeros.items ?? []);
+    if (estado.numeros && url.pathname.endsWith("/rest/v1/seguimiento_intentos") && metodo === "GET") return json(estado.numeros.intentos ?? []);
+    if (url.pathname.endsWith("/rpc/vincular_seguimiento")) {
+      if (!estado.numeros || estado.numeros.sinColumnas) return json({ code: "PGRST202", message: "Could not find the function public.vincular_seguimiento" }, 404);
+      const { p_codigo } = JSON.parse(peticion.postData() ?? "{}");
+      estado.vinculaciones = [...(estado.vinculaciones ?? []), p_codigo];
+      const limpio = String(p_codigo ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (!/^VZ[A-HJ-NP-Z2-9]{8}$/.test(limpio)) return json({ ok: false, motivo: "formato" });
+      const codigo = `VZ-${limpio.slice(2, 6)}-${limpio.slice(6)}`;
+      const rep = estado.numeros.reparaciones.find((f) => f.codigo_seguimiento === codigo);
+      const ped = estado.numeros.pedidos.find((f) => f.codigo_seguimiento === codigo);
+      const fila = rep ?? ped;
+      const campo = rep ? "customer_user_id" : "user_id";
+      if (!fila) return json({ ok: false, motivo: "no_existe" });
+      if (fila[campo] && fila[campo] !== usuario.id) return json({ ok: false, motivo: "otra_cuenta" });
+      fila[campo] = usuario.id;
+      fila.vinculado_en = new Date().toISOString();
+      return json(rep ? { ok: true, tipo: "reparacion", titulo: rep.service_title } : { ok: true, tipo: "pedido", numero: ped.numero });
+    }
     // Ficha del cliente: pedidos y reparaciones ficticios (solo si la prueba los da); se apunta lo que se mandaría cambiar.
     if (url.pathname.endsWith("/rest/v1/pedidos") && estado.pedidosFicha) {
       if (metodo === "PATCH") {
@@ -299,7 +335,7 @@ async function contexto(navegador, usuario, rol, estado) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions|services|service_media|seguimiento_intentos)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -546,9 +582,146 @@ async function seccionN() {
   }
 }
 
+// ===== P) Números de seguimiento: el cliente añade a su cuenta un pedido o una reparación con su número ==============
+async function seccionP() {
+  const COD_REP = "VZ-7K3M-9QPD";
+  const COD_PED = "VZ-AB2C-D3EF";
+  const COD_AJENO = "VZ-HJ4K-5LMN";
+  const OTRO = "99999999-9999-4999-8999-999999999999";
+  const datos = () => ({
+    pedidos: [
+      {
+        id: "pa000000-0000-4000-8000-000000000031", numero: 31, created_at: "2026-10-30T10:00:00Z", estado: "preparado", entrega: "recogida",
+        total_eur: 249.99, user_id: null, codigo_seguimiento: COD_PED, id_veoaura: "8a1b2c3d-0000-4000-8000-000000000001", vinculado_en: null,
+        nombre: "Luis Gil", email: "luis@example.com", telefono: "611222333", direccion: null, codigo_postal: null, ciudad: null, notas: null,
+        pedido_items: [{ id: "it31", product_id: null, titulo: "Nintendo Switch OLED", precio_eur: 249.99 }],
+      },
+      {
+        id: "pb000000-0000-4000-8000-000000000030", numero: 30, created_at: "2026-10-29T10:00:00Z", estado: "enviado", entrega: "envio",
+        total_eur: 30, user_id: OTRO, codigo_seguimiento: COD_AJENO, id_veoaura: null, vinculado_en: "2026-10-29T12:00:00Z",
+        nombre: "Otra persona", email: "otra@example.com", telefono: "600000000", direccion: "Calle 1", codigo_postal: "50001", ciudad: "Zaragoza", notas: null,
+        pedido_items: [{ id: "it30", product_id: null, titulo: "Mando", precio_eur: 30 }],
+      },
+    ],
+    reparaciones: [
+      {
+        id: "ra000000-0000-4000-8000-000000000001", created_at: "2026-10-28T10:00:00Z", service_id: null, service_title: "Reparación de mando PS5",
+        nombre: "Ana", apellido: "", metodo_contacto: null, contacto: "600111222", ciudad: "", direccion: null, disponibilidad: null, comentario: null,
+        status: "revisado", seguimiento: "reparando", seguimiento_nota: "Cambiamos el joystick izquierdo", seguimiento_actualizado: "2026-10-30T09:00:00Z",
+        customer_user_id: null, codigo_seguimiento: COD_REP, id_veoaura: "8a1b2c3d-0000-4000-8000-000000000002", vinculado_en: null,
+      },
+    ],
+    items: [{ pedido_id: "pa000000-0000-4000-8000-000000000031", titulo: "Nintendo Switch OLED" }],
+    intentos: [
+      { user_id: CLIENTE.id, acierto: true },
+      { user_id: CLIENTE.id, acierto: true },
+      { user_id: OTRO, acierto: false },
+    ],
+  });
+  const perfilCompleto = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  {
+    // P1) El cliente, en «Mis seguimientos».
+    const estado = { filas: perfilCompleto, guardados: [], numeros: datos() };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.getByText("Reparaciones y Mantenimientos").first().waitFor({ timeout: 30000 }).catch(() => {});
+    const campos = p.getByLabel("Número de seguimiento", { exact: true });
+    ok((await campos.count()) === 2, `P: en «Mis pedidos» y en «Reparaciones y Mantenimientos» sale «¿Te hemos dado un número de seguimiento?» (${await campos.count()} campos)`);
+    const altos = await campos.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+    ok(altos.every((h) => h >= 44), `P: los campos se tocan bien, de 44 px o más (${altos.join(", ")})`);
+    const botones = p.getByRole("button", { name: "Añadir el número de seguimiento" });
+    await campos.first().fill("hola");
+    ok((await botones.first().getAttribute("aria-disabled")) === "true", "P: con algo que no es un número, «Añadir» no se puede pulsar");
+    await capturar(p, "P1-mis-seguimientos");
+
+    // La reparación de VeoAura, escrita en minúsculas y con espacios en el campo de «Mis pedidos».
+    await campos.first().fill("vz 7k3m 9qpd");
+    await botones.first().click();
+    await p.getByText(/Listo: «Reparación de mando PS5» ya está en «Reparaciones y Mantenimientos»\./).waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.getByText("Listo: «Reparación de mando PS5» ya está en «Reparaciones y Mantenimientos».").count()) === 1, "P: un número bueno añade la reparación y dice dónde está");
+    await p.getByText(`Nº de seguimiento ${COD_REP}`).waitFor({ timeout: 10000 }).catch(() => {});
+    const t1 = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/Reparación de mando PS5/.test(t1) && t1.includes(`Nº de seguimiento ${COD_REP}`) && /Cambiamos el joystick izquierdo/.test(t1), "P: la reparación aparece en la lista con su número y la nota del taller");
+    ok(estado.numeros.reparaciones[0].customer_user_id === CLIENTE.id && estado.vinculaciones?.[0] === "VZ 7K3M 9QPD", `P: se manda tal cual lo escribió (la base de datos lo normaliza) (${estado.vinculaciones?.[0]})`);
+
+    // El pedido, en el campo de «Reparaciones y Mantenimientos» (da igual dónde se escriba).
+    await campos.nth(1).fill(COD_PED);
+    await botones.nth(1).click();
+    await p.getByText("Listo: el pedido nº 31 ya está en «Mis pedidos».").waitFor({ timeout: 10000 }).catch(() => {});
+    // La lista se vuelve a cargar justo después del «Listo»: se espera a que el pedido ya esté en ella.
+    await p.getByText(`Nº de seguimiento ${COD_PED}`).waitFor({ timeout: 10000 }).catch(() => {});
+    const t2 = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/Listo: el pedido nº 31 ya está en «Mis pedidos»\./.test(t2) && /Pedido nº 31/.test(t2) && t2.includes(`Nº de seguimiento ${COD_PED}`) && /Nintendo Switch OLED/.test(t2), "P: un pedido también, con su número y sus artículos");
+
+    // Errores: no existe y de otra cuenta.
+    await campos.first().fill("VZ-2222-2222");
+    await botones.first().click();
+    await p.getByText(/No encontramos ese número/).waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.getByText("No encontramos ese número. Revisa que esté bien escrito.").count()) === 1, "P: un número que no existe se explica");
+    await campos.first().fill(COD_AJENO);
+    await botones.first().click();
+    await p.getByText(/ya está añadido a otra cuenta/).waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.getByText(/Ese número ya está añadido a otra cuenta/).count()) === 1 && estado.numeros.pedidos[1].user_id === OTRO, "P: el de otra cuenta se explica y no se toca");
+    await capturar(p, "P2-numeros-anadidos");
+    ok(p.errores.length === 0, `P: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(ancho.a <= ancho.p + 1, `P: la página no se ensancha (${ancho.a}/${ancho.p})`);
+    await ctx.close();
+  }
+  {
+    // P2) Sin la migración: no se ofrece añadir números y los seguimientos se ven igual.
+    const estado = { filas: perfilCompleto, guardados: [], numeros: { ...datos(), sinColumnas: true } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.getByText("Reparaciones y Mantenimientos").first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await p.getByLabel("Número de seguimiento", { exact: true }).count()) === 0 && (await p.getByText("Mis pedidos").count()) >= 1, "P: sin la migración no sale el campo y «Mis seguimientos» funciona igual");
+    ok(p.errores.length === 0, `P: sin errores de JavaScript sin la migración (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+  {
+    // P3) Administración: Pedidos, Servicios y Usuarios.
+    const estado = { usuarios: [], filas: [], guardados: [], numeros: datos() };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedidos-numeros").waitFor({ timeout: 30000 }).catch(() => {});
+    const resumen = (await p.locator("#pedidos-numeros").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/de VeoAura: 1 \(en la cuenta del cliente: 0\) · añadidos con su número: 1 · sin cuenta: 1/.test(resumen), `P: Pedidos cuenta los números (de VeoAura, en la cuenta del cliente, añadidos con su número y sin cuenta) (${resumen})`);
+    await p.getByText("Todos", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const tp = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(tp.includes(`Nº de seguimiento ${COD_PED}`) && /Ficha de VeoAura · Aún no está en ninguna cuenta: dale este número al cliente/.test(tp), "P: cada pedido enseña su número, si es de VeoAura y si falta dárselo al cliente");
+    ok(tp.includes(`Nº de seguimiento ${COD_AJENO}`) && /El cliente lo añadió a su cuenta el/.test(tp), "P: y cuándo lo añadió el cliente a su cuenta");
+    await p.getByText("Sin cuenta (1)").click();
+    await p.waitForTimeout(300);
+    const sinCuenta = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/Pedido nº 31/.test(sinCuenta) && !/Pedido nº 30/.test(sinCuenta), "P: el filtro «Sin cuenta» deja los pedidos que aún no están en ninguna cuenta");
+    await capturar(p, "P3-admin-pedidos");
+    ok(p.errores.length === 0, `P: Pedidos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+
+    const s = await pagina(ctx, "/admin/services");
+    await s.getByText("Solicitudes", { exact: true }).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await s.getByText("Solicitudes", { exact: true }).first().click();
+    await s.locator("#servicios-numeros").waitFor({ timeout: 20000 }).catch(() => {});
+    const resumenS = (await s.locator("#servicios-numeros").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/de VeoAura: 1 \(en la cuenta del cliente: 0\) · añadidas con su número: 0 · sin cuenta: 1/.test(resumenS), `P: Servicios cuenta los números de las reparaciones (${resumenS})`);
+    const ts = (await s.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(ts.includes(`Nº de seguimiento ${COD_REP}`) && /Ficha de VeoAura/.test(ts) && /Contacto: 600111222/.test(ts) && !/Ciudad:\s*(Contacto|Disponibilidad|$)/.test(ts), "P: cada reparación enseña su número, que es de VeoAura y el contacto (sin una «Ciudad» vacía)");
+    await capturar(s, "P4-admin-servicios");
+    ok(s.errores.length === 0, `P: Servicios sin errores de JavaScript (${s.errores.length}${s.errores[0] ? ": " + s.errores[0] : ""})`);
+
+    const u = await pagina(ctx, "/admin/users");
+    await u.locator("#admin-numeros-seguimiento").waitFor({ timeout: 30000 }).catch(() => {});
+    const lineaU = (await u.locator("#admin-numeros-seguimiento").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Números de seguimiento \(30 días\): añadidos a una cuenta 2 \(por 1 persona\) · intentos fallidos 1/.test(lineaU), `P: Usuarios cuenta los números añadidos y los intentos fallidos (${lineaU})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "N") await seccionN();
+  if (SOLO === "P") await seccionP();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -1461,6 +1634,7 @@ try {
   }
 
   await seccionN();
+  await seccionP();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

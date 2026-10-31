@@ -28,6 +28,11 @@
  *    cambia solo los 5 apartados que tocan (por su título) y deja igual el resto y su orden, ya no nombra un «proveedor de
  *    pagos» que no existe, crea las Normas del Foro una vez, repetirla no cambia nada y respeta lo que edite el dueño (con
  *    su «prueba de las pruebas»: con el cruce por título roto se perderían apartados).
+ *  - Números de seguimiento (20261031170000_seguimiento_codigos.sql), sobre pedidos y reparaciones como en producción: lo
+ *    que ya existía recibe su número sin cambiar su fecha de actualización; el número lo pone siempre la base de datos
+ *    (nadie elige el suyo ni lo cambia) e id_veoaura solo el servidor; añadirlo a la cuenta solo con sesión, con formato,
+ *    sin quitárselo a otra persona y con un límite de 10 intentos fallidos por hora y persona; los intentos solo los lee
+ *    el administrador; la privacidad lo explica una vez (con su «prueba de las pruebas»: sin el límite, entra el 11.º).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -557,6 +562,186 @@ try {
   [priv] = await leer(c10, "privacidad");
   ok(priv.sections.length !== 8, `(control) con el cruce roto se pierden apartados y la comprobación SÍ lo detecta (${priv.sections.length} apartados)`);
   await c10.end();
+  }
+
+  // 12) Números de seguimiento (20261031170000), sobre pedidos y reparaciones como están en producción (columnas,
+  // disparadores y permisos copiados de la base de datos real).
+  {
+  const NUMEROS = readFileSync("supabase/migrations/20261031170000_seguimiento_codigos.sql", "utf8");
+  const U3 = "33333333-3333-4333-8333-333333333333";
+  const ESQUEMA_NUMEROS = `
+    do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'puente_tienda') then create role puente_tienda nologin bypassrls; end if;
+    end $$;
+    -- El servidor (puente de VeoAura): un rol que no es de cliente y que se salta las políticas, como el de Supabase.
+    grant usage on schema public to puente_tienda;
+    grant usage on schema auth to puente_tienda;
+    alter default privileges in schema public grant all on tables to puente_tienda;
+    insert into auth.users (id, email) values ('${U3}', 'u3@example.com');
+    insert into public.profiles (id, role) values ('${U3}', 'user');
+    create table public.service_requests (
+      id uuid primary key default gen_random_uuid(), created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+      service_id uuid, service_title text not null, nombre text not null, apellido text not null, metodo_contacto text, contacto text,
+      ciudad text not null, direccion text, disponibilidad text, comentario text, status text not null default 'nuevo', nota_admin text,
+      customer_user_id uuid references auth.users (id) on delete set null, seguimiento text not null default 'solicitado',
+      seguimiento_nota text, seguimiento_actualizado timestamptz not null default now());
+    create table public.pedidos (
+      id uuid primary key default gen_random_uuid(), numero bigint generated always as identity unique, created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(), user_id uuid references auth.users (id) on delete set null,
+      estado text not null default 'pendiente', entrega text not null default 'envio', nombre text not null, email text not null,
+      telefono text not null, direccion text, codigo_postal text, ciudad text, notas text, total_eur numeric not null default 0, nota_admin text);
+    create table public.policy_pages (
+      id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+      sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+      created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+    insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad',
+      '[{"heading":"Qué datos tratamos","body":"Datos."},{"heading":"Para qué usamos tus datos","body":"Para gestionar tu pedido."}]'::jsonb);
+    -- Disparadores de producción.
+    create function public.solicitudes_campos_internos() returns trigger language plpgsql security definer set search_path = public, pg_temp as $f$
+    begin
+      if not public.is_admin() then
+        new.status := 'nuevo'; new.nota_admin := null;
+        if tg_table_name = 'service_requests' then new.seguimiento := 'solicitado'; new.seguimiento_nota := null; new.seguimiento_actualizado := now(); end if;
+      end if;
+      return new;
+    end $f$;
+    create function public.set_request_customer_user_id() returns trigger language plpgsql security definer set search_path = public as $f$
+    begin new.customer_user_id := auth.uid(); return new; end $f$;
+    create function public.set_service_requests_updated_at() returns trigger language plpgsql set search_path = public, pg_temp as $f$
+    begin new.updated_at = now(); return new; end $f$;
+    create function public.set_pedidos_updated_at() returns trigger language plpgsql set search_path = public as $f$
+    begin new.updated_at := now(); return new; end $f$;
+    create trigger trg_service_requests_campos_internos before insert on public.service_requests for each row execute function public.solicitudes_campos_internos();
+    create trigger trg_service_requests_customer_user_id before insert on public.service_requests for each row execute function public.set_request_customer_user_id();
+    create trigger trg_service_requests_updated_at before update on public.service_requests for each row execute function public.set_service_requests_updated_at();
+    create trigger trg_pedidos_updated_at before update on public.pedidos for each row execute function public.set_pedidos_updated_at();
+    -- Permisos de producción (RLS).
+    alter table public.service_requests enable row level security;
+    alter table public.pedidos enable row level security;
+    create policy service_requests_insert_public on public.service_requests for insert to anon, authenticated with check (true);
+    create policy service_requests_select_own on public.service_requests for select to authenticated using (customer_user_id = auth.uid());
+    create policy service_requests_select_admin on public.service_requests for select to authenticated using (public.is_admin());
+    create policy service_requests_update_admin on public.service_requests for update to authenticated using (public.is_admin()) with check (public.is_admin());
+    create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+    create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+    create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+    -- Lo que ya existía antes de la migración (con fecha de actualización de hace 3 días).
+    insert into public.service_requests (service_title, nombre, apellido, ciudad, updated_at) values
+      ('Reparación de mando (sin cuenta)', 'Ana', 'Gil', 'Zaragoza', now() - interval '3 days'),
+      ('Limpieza de consola (sin cuenta)', 'Eva', 'Sanz', 'Huesca', now() - interval '3 days');
+    insert into public.pedidos (nombre, email, telefono, updated_at) values
+      ('Luis', 'luis@example.com', '600111222', now() - interval '3 days'),
+      ('Marta', 'marta@example.com', '600333444', now() - interval '3 days');`;
+  const FORMATO = /^VZ-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/;
+  const comoServidor = async (cs, consulta) => {
+    await cs.query("begin");
+    try {
+      await cs.query("set local role puente_tienda");
+      await cs.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "puente_tienda" })]);
+      const r = await cs.query(consulta);
+      await cs.query("commit");
+      return { ok: true, filas: r.rows };
+    } catch (e) {
+      await cs.query("rollback");
+      return { ok: false, codigo: e.code, mensaje: String(e.message) };
+    }
+  };
+  const vincular = async (cs, uid, codigo) => {
+    const r = await como(cs, "authenticated", uid, `select public.vincular_seguimiento('${codigo}') as r`, { confirmar: true });
+    return r.ok ? r.filas[0].r : { error: r.codigo };
+  };
+  const prepararNumeros = async (nombre, sql) => {
+    const cs = await nuevaBase(nombre, ESQUEMA_NUMEROS);
+    await cs.query(sql);
+    return cs;
+  };
+
+  const c11 = await prepararNumeros("vz_aislada_numeros", NUMEROS);
+  const codigos = async (cs) => (await cs.query("select codigo_seguimiento as c from public.service_requests union all select codigo_seguimiento from public.pedidos")).rows.map((x) => x.c);
+  const antesNumeros = await codigos(c11);
+  ok(antesNumeros.length === 4 && antesNumeros.every((x) => FORMATO.test(x ?? "")) && new Set(antesNumeros).size === 4, `Números: lo que ya existía recibe su número, con formato y sin repetir (${antesNumeros.join(", ")})`);
+  ok(antesNumeros.every((x) => !/[IO01]/.test(x.slice(3))), "Números: sin 0, O, 1 ni I (no se confunden al dictarlos)");
+  const fechas = (await c11.query("select updated_at < now() - interval '2 days' as vieja from public.service_requests union all select updated_at < now() - interval '2 days' from public.pedidos")).rows;
+  ok(fechas.every((f) => f.vieja), "Números: ponerlos no cambia la fecha de actualización (el aviso de «48 h sin cambios» sigue igual)");
+  const disparadores = (await c11.query("select tgname, tgenabled from pg_trigger where tgrelid in ('public.service_requests'::regclass, 'public.pedidos'::regclass) and not tgisinternal")).rows;
+  ok(disparadores.length === 6 && disparadores.every((t) => t.tgenabled === "O"), `Números: después, todos los disparadores vuelven a estar encendidos (${disparadores.map((t) => `${t.tgname}:${t.tgenabled}`).join(", ")})`);
+  let repetidaNumeros = true;
+  try {
+    await c11.query(NUMEROS);
+  } catch {
+    repetidaNumeros = false;
+  }
+  ok(repetidaNumeros && JSON.stringify(await codigos(c11)) === JSON.stringify(antesNumeros), "Números: la migración se puede aplicar dos veces y los números no cambian");
+
+  // El número lo pone siempre la base de datos; id_veoaura solo el servidor.
+  await como(c11, "anon", null, `insert into public.service_requests (service_title, nombre, apellido, ciudad, codigo_seguimiento, id_veoaura) values ('Formulario web', 'Pepe', 'Ruiz', 'Zaragoza', 'VZ-AAAA-AAAA', '${U2}')`, { confirmar: true });
+  const web = (await c11.query("select codigo_seguimiento, id_veoaura, customer_user_id from public.service_requests where service_title = 'Formulario web'")).rows[0];
+  ok(!!web && FORMATO.test(web.codigo_seguimiento) && web.codigo_seguimiento !== "VZ-AAAA-AAAA" && web.id_veoaura === null, `Números: un formulario de la web recibe su número aunque intente elegirlo, y no puede hacerse pasar por VeoAura (${web?.codigo_seguimiento}, id_veoaura ${web?.id_veoaura})`);
+  const ficha = await comoServidor(c11, "insert into public.service_requests (service_title, nombre, apellido, ciudad, id_veoaura) values ('Ficha de VeoAura', 'Cliente', '', '', 'veoaura-1') returning codigo_seguimiento, id_veoaura, customer_user_id");
+  ok(ficha.ok && FORMATO.test(ficha.filas[0].codigo_seguimiento) && ficha.filas[0].id_veoaura === "veoaura-1" && ficha.filas[0].customer_user_id === null, `Números: el servidor (puente de VeoAura) crea la ficha con su id_veoaura y recibe el número (${ficha.ok ? ficha.filas[0].codigo_seguimiento : ficha.mensaje})`);
+  const fichaPedido = await comoServidor(c11, "insert into public.pedidos (nombre, email, telefono, estado, id_veoaura) values ('Rosa', 'rosa@example.com', '600555666', 'preparado', 'veoaura-2') returning codigo_seguimiento, id_veoaura, numero");
+  ok(fichaPedido.ok && FORMATO.test(fichaPedido.filas[0].codigo_seguimiento) && fichaPedido.filas[0].id_veoaura === "veoaura-2", "Números: también un pedido de VeoAura");
+  const cambio = await como(c11, "authenticated", ADMIN, "update public.service_requests set codigo_seguimiento = 'VZ-BBBB-BBBB', id_veoaura = 'otro' where id_veoaura = 'veoaura-1'", { confirmar: true });
+  const trasCambio = (await c11.query("select codigo_seguimiento, id_veoaura from public.service_requests where service_title = 'Ficha de VeoAura'")).rows[0];
+  ok(cambio.ok && trasCambio.codigo_seguimiento === ficha.filas[0].codigo_seguimiento && trasCambio.id_veoaura === "veoaura-1", "Números: ni el administrador cambia el número ni la ficha de VeoAura");
+  const generarAnon = await como(c11, "anon", null, "select public.generar_codigo_seguimiento()");
+  const generarCliente = await como(c11, "authenticated", U1, "select public.generar_codigo_seguimiento()");
+  ok(!generarAnon.ok && !generarCliente.ok && generarAnon.codigo === "42501", "Números: nadie genera números por su cuenta (42501)");
+
+  // Añadir un número a la cuenta.
+  const reparacionSinCuenta = (await c11.query("select id, codigo_seguimiento as c from public.service_requests where service_title = 'Reparación de mando (sin cuenta)'")).rows[0];
+  const pedidoSinCuenta = (await c11.query("select id, numero, codigo_seguimiento as c from public.pedidos where nombre = 'Luis'")).rows[0];
+  const anonVincula = await como(c11, "anon", null, `select public.vincular_seguimiento('${reparacionSinCuenta.c}')`);
+  ok(!anonVincula.ok && anonVincula.codigo === "42501", "Vincular: un visitante sin sesión no puede (42501)");
+  const publicPuede = (await c11.query("select has_function_privilege('public', 'public.vincular_seguimiento(text)', 'execute') as p")).rows[0].p;
+  ok(publicPuede === false, "Vincular: PUBLIC tampoco la ejecuta");
+  const fmt = await vincular(c11, U2, "hola");
+  ok(fmt.ok === false && fmt.motivo === "formato", `Vincular: un texto sin el formato dice «formato» (${JSON.stringify(fmt)})`);
+  const noExiste = await vincular(c11, U2, "VZ-2222-2222");
+  ok(noExiste.ok === false && noExiste.motivo === "no_existe", "Vincular: un número que no existe dice «no_existe»");
+  const escrito = reparacionSinCuenta.c.toLowerCase().replace(/-/g, " ");
+  const bien = await vincular(c11, U2, escrito);
+  const trasVincular = (await c11.query(`select customer_user_id, vinculado_en from public.service_requests where id = '${reparacionSinCuenta.id}'`)).rows[0];
+  ok(bien.ok === true && bien.tipo === "reparacion" && bien.titulo === "Reparación de mando (sin cuenta)" && trasVincular.customer_user_id === U2 && !!trasVincular.vinculado_en, `Vincular: con su número (en minúsculas y con espacios: «${escrito}») la reparación pasa a la cuenta y se apunta cuándo`);
+  const otraVez = await vincular(c11, U2, reparacionSinCuenta.c);
+  ok(otraVez.ok === true && otraVez.ya_estaba === true, "Vincular: repetirlo no falla (ya estaba)");
+  const ajeno = await vincular(c11, U1, reparacionSinCuenta.c);
+  const sigue = (await c11.query(`select customer_user_id from public.service_requests where id = '${reparacionSinCuenta.id}'`)).rows[0];
+  ok(ajeno.ok === false && ajeno.motivo === "otra_cuenta" && sigue.customer_user_id === U2, "Vincular: otra persona no se la puede quitar (otra_cuenta)");
+  const pedidoBien = await vincular(c11, U2, pedidoSinCuenta.c);
+  ok(pedidoBien.ok === true && pedidoBien.tipo === "pedido" && Number(pedidoBien.numero) === Number(pedidoSinCuenta.numero), "Vincular: un pedido sin cuenta (hecho sin sesión o creado en VeoAura) también");
+  const veVinculados = await como(c11, "authenticated", U2, "select (select count(*) from public.service_requests) as r, (select count(*) from public.pedidos) as p");
+  const otroVe = await como(c11, "authenticated", U1, "select (select count(*) from public.service_requests) as r, (select count(*) from public.pedidos) as p");
+  ok(Number(veVinculados.filas[0].r) === 1 && Number(veVinculados.filas[0].p) === 1 && Number(otroVe.filas[0].r) === 0 && Number(otroVe.filas[0].p) === 0, "Vincular: desde ese momento el cliente los ve (y nadie más)");
+
+  // Límite: 10 intentos fallidos por hora (U1 ya lleva 1: «otra_cuenta»).
+  for (let i = 0; i < 9; i++) await vincular(c11, U1, `VZ-2222-22${"ABCDEFGHJ"[i]}${"ABCDEFGHJ"[i]}`);
+  const libre = (await c11.query("select codigo_seguimiento as c from public.service_requests where service_title = 'Limpieza de consola (sin cuenta)'")).rows[0].c;
+  const bloqueado = await vincular(c11, U1, libre);
+  const sigueLibre = (await c11.query("select customer_user_id from public.service_requests where service_title = 'Limpieza de consola (sin cuenta)'")).rows[0];
+  ok(bloqueado.ok === false && bloqueado.motivo === "demasiados_intentos" && sigueLibre.customer_user_id === null, "Vincular: tras 10 intentos fallidos en una hora no deja seguir (aunque el número sea bueno)");
+  const otroUsuario = await vincular(c11, U3, libre);
+  ok(otroUsuario.ok === true, "Vincular: el límite es por persona (otra persona sí puede)");
+  const intentosCliente = await como(c11, "authenticated", U1, "select count(*) as n from public.seguimiento_intentos");
+  const intentosAdmin = await como(c11, "authenticated", ADMIN, "select count(*) filter (where acierto) as si, count(*) filter (where not acierto) as no from public.seguimiento_intentos");
+  const escribeIntento = await como(c11, "authenticated", U1, `insert into public.seguimiento_intentos (user_id) values ('${U1}')`);
+  ok(Number(intentosCliente.filas[0].n) === 0 && Number(intentosAdmin.filas[0].si) === 4 && Number(intentosAdmin.filas[0].no) === 12 && !escribeIntento.ok, `Vincular: los intentos solo los lee el administrador (4 añadidos y 12 fallidos) y nadie los escribe a mano (${JSON.stringify(intentosAdmin.filas[0])})`);
+  const fichaVin = (await c11.query("select prosecdef, proconfig from pg_proc where proname = 'vincular_seguimiento'")).rows[0];
+  ok(fichaVin.prosecdef === true && (fichaVin.proconfig ?? []).some((s) => s.startsWith("search_path=")), "Vincular: la función tiene el search_path fijado");
+  const privNumeros = (await c11.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+  const frases = JSON.stringify(privNumeros).split("número de seguimiento").length - 1;
+  ok(frases === 1, `Números: la privacidad explica el número de seguimiento una sola vez aunque se repita la migración (${frases})`);
+  await c11.end();
+
+  // PRUEBA DE LAS PRUEBAS: sin el límite de intentos, la comprobación del límite falla.
+  const sinLimite = NUMEROS.replace("created_at > now() - interval '1 hour') >= 10 then", "created_at > now() - interval '1 hour') >= 1000 then");
+  ok(sinLimite !== NUMEROS, "(control) se ha podido quitar el límite de intentos en la copia de prueba");
+  const c12 = await prepararNumeros("vz_aislada_numeros_sin_limite", sinLimite);
+  for (let i = 0; i < 10; i++) await vincular(c12, U1, `VZ-2222-22${"ABCDEFGHJK"[i]}${"ABCDEFGHJK"[i]}`);
+  const libre2 = (await c12.query("select codigo_seguimiento as c from public.service_requests limit 1")).rows[0].c;
+  const sinFreno = await vincular(c12, U1, libre2);
+  ok(sinFreno.ok === true, "(control) sin el límite, el intento 11 entra: la comprobación SÍ lo detecta");
+  await c12.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

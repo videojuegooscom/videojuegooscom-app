@@ -12,7 +12,7 @@
  *   3. |ahora − fecha| ≤ 300 s; si no → 401.
  *   4. HMAC-SHA256 de «fecha.nonce.cuerpo» con el secreto, comparado en tiempo constante → 401.
  *   5. Nonce no usado en los últimos 10 minutos (tabla public.escaparate_nonces) → 401.
- *   6. version = 1 y evento «publicar», «vendido» o «retirar» → 400.
+ *   6. version = 1 y evento «publicar», «vendido», «retirar» o «seguimiento» → 400.
  *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// y como mucho 30 en orden (la
  *      primera es la portada; si llegan más se usan las 30 primeras, sin rechazar el mensaje) (texto
  *      guardado como texto plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
@@ -24,6 +24,24 @@
  *  10. Nunca redirige (la dirección buena es sin www: https://videojuegoszaragoza.com/...).
  *  11. Registra cada mensaje (fecha, evento, id_veoaura, resultado) en public.escaparate_registro,
  *      nunca la firma ni el secreto.
+ *
+ * Evento «seguimiento» (2026-10-31, ampliación del contrato; el mismo sobre firmado, version 1): la ficha de un cliente
+ * creada en VeoAura. La tienda le pone un número de seguimiento («VZ-XXXX-XXXX») y lo devuelve; el dueño se lo da al
+ * cliente, que lo escribe en Perfil → «Mis seguimientos» y desde entonces ve su etapa en su cuenta. Cuerpo:
+ *   { version: 1, evento: "seguimiento", id_veoaura: <uuid de la ficha en VeoAura>, seguimiento: {
+ *       tipo: "reparacion" | "pedido",
+ *       titulo: ≤ 120 (reparación: el servicio, p. ej. «Reparación de mando PS5»; pedido: el artículo si no hay lista),
+ *       etapa: reparación «solicitado|recibido|diagnostico|reparando|listo|entregado|cancelado»,
+ *              pedido «pendiente|confirmado|preparado|enviado|entregado|cancelado»,
+ *       nota: ≤ 500 o null (solo reparación: la «nota del taller» que ve el cliente),
+ *       cliente: { nombre ≤ 120, apellido ≤ 120, telefono ≤ 30, email ≤ 200 } (pedido: nombre, teléfono y email
+ *                obligatorios, como al comprar en la tienda; reparación: opcionales, para reconocerla en el panel),
+ *       entrega: "envio" | "recogida" (solo pedido; por defecto envío),
+ *       articulos: ≤ 20 de { titulo ≤ 200, precio_eur ≥ 0 } y total_eur (solo pedido; se guardan al crearlo) } }
+ *   Respuesta 200 { ok: true, id_tienda, tipo, codigo_seguimiento, vinculado (si el cliente ya lo añadió a su cuenta),
+ *   numero_pedido (solo pedido) }. Cada envío con el mismo id_veoaura pone al día la etapa (y la nota o la entrega) sin
+ *   duplicar ni cambiar el número. 409 si ese id_veoaura ya existe con el otro tipo; 503 si la tienda aún no tiene
+ *   activado el seguimiento (migración 20261031170000 sin aplicar: reintentar más tarde).
  * Responder rápido: VeoAura espera como mucho 8 s. Se guarda el producto, se responde y las
  * fotos (enlaces temporales de 1 h) se descargan justo después, con waitUntil de Vercel (6 a la
  * vez, con un reintento). Cada «publicar» trae la lista COMPLETA de fotos y la galería queda
@@ -57,8 +75,25 @@ const BUCKET = "product-media";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIPOS_FOTO: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-type Evento = "publicar" | "vendido" | "retirar";
-const EVENTOS: Evento[] = ["publicar", "vendido", "retirar"];
+type Evento = "publicar" | "vendido" | "retirar" | "seguimiento";
+const EVENTOS: Evento[] = ["publicar", "vendido", "retirar", "seguimiento"];
+
+// «seguimiento»: la ficha de un cliente creada en VeoAura (una reparación o mantenimiento, o un pedido). Las etapas son las
+// mismas que ve el cliente en Perfil → «Mis seguimientos».
+const ETAPAS_REPARACION = ["solicitado", "recibido", "diagnostico", "reparando", "listo", "entregado", "cancelado"];
+const ETAPAS_PEDIDO = ["pendiente", "confirmado", "preparado", "enviado", "entregado", "cancelado"];
+const MAX_ARTICULOS = 20;
+
+type FichaSeguimiento = {
+  tipo: "reparacion" | "pedido";
+  titulo: string;
+  etapa: string;
+  nota: string | null;
+  cliente: { nombre: string | null; apellido: string | null; telefono: string | null; email: string | null };
+  entrega: "envio" | "recogida";
+  articulos: { titulo: string; precio_eur: number }[];
+  total: number;
+};
 
 type Caracteristica = { etiqueta: string; valor: string };
 type Mantenimiento = { titulo: string | null; nota: string | null; puntos: Caracteristica[] };
@@ -561,6 +596,144 @@ async function copiarFotos(supabase: SupabaseClient, idTienda: string, idVeoaura
     .join(", ");
 }
 
+// --- seguimiento: fichas de clientes con número de seguimiento ------------------------------------------------------
+
+function validarSeguimiento(s: any): FichaSeguimiento {
+  if (!s || typeof s !== "object" || Array.isArray(s)) throw new Rechazo(400, "falta seguimiento");
+  const tipo = s.tipo === "pedido" ? "pedido" : s.tipo === "reparacion" ? "reparacion" : null;
+  if (!tipo) throw new Rechazo(400, "tipo no válido");
+  const titulo = texto(s.titulo, 120);
+  if (!titulo) throw new Rechazo(400, "título no válido");
+  const etapas = tipo === "pedido" ? ETAPAS_PEDIDO : ETAPAS_REPARACION;
+  const etapa = typeof s.etapa === "string" && etapas.includes(s.etapa) ? s.etapa : null;
+  if (!etapa) throw new Rechazo(400, "etapa no válida");
+  // La nota es la «nota del taller» que ve el cliente: solo en reparaciones.
+  const nota = tipo === "reparacion" ? texto(s.nota, 500) : null;
+  const c = s.cliente && typeof s.cliente === "object" && !Array.isArray(s.cliente) ? s.cliente : {};
+  const cliente = {
+    nombre: texto(c.nombre, 120),
+    apellido: texto(c.apellido, 120),
+    telefono: texto(c.telefono, 30),
+    email: texto(c.email, 200),
+  };
+  // Un pedido necesita los mismos datos de contacto que pide la tienda al comprar.
+  if (tipo === "pedido") {
+    if (!cliente.nombre || cliente.nombre.length < 2) throw new Rechazo(400, "falta el nombre del cliente");
+    if (!cliente.telefono || cliente.telefono.length < 6) throw new Rechazo(400, "falta el teléfono del cliente");
+    if (!cliente.email || cliente.email.length < 5 || !cliente.email.includes("@")) throw new Rechazo(400, "falta el email del cliente");
+  }
+  const entrega = s.entrega === "recogida" ? "recogida" : "envio";
+  const redondear = (n: number) => Math.round(n * 100) / 100;
+  const articulos: { titulo: string; precio_eur: number }[] = [];
+  for (const a of Array.isArray(s.articulos) ? s.articulos.slice(0, MAX_ARTICULOS) : []) {
+    if (!a || typeof a !== "object") continue;
+    const t = typeof a.titulo === "string" ? texto(a.titulo, 200) : null;
+    const precio = Number(a.precio_eur);
+    if (t && typeof a.precio_eur === "number" && Number.isFinite(precio) && precio >= 0 && precio <= 1_000_000) {
+      articulos.push({ titulo: t, precio_eur: redondear(precio) });
+    }
+  }
+  const totalDado = Number(s.total_eur);
+  const total =
+    typeof s.total_eur === "number" && Number.isFinite(totalDado) && totalDado >= 0 && totalDado <= 1_000_000
+      ? redondear(totalDado)
+      : redondear(articulos.reduce((suma, a) => suma + a.precio_eur, 0));
+  return { tipo, titulo, etapa, nota, cliente, entrega, articulos, total };
+}
+
+// ¿Faltan las columnas del seguimiento? (la migración 20261031170000 aún no está aplicada)
+function faltaSeguimiento(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === "42703" || /codigo_seguimiento|id_veoaura/.test(String(error.message ?? "")));
+}
+
+type ResultadoSeguimiento = { idTienda: string; codigo: string; vinculado: boolean; numero?: number };
+
+// Crea la ficha la primera vez (la base de datos le pone el número) y la pone al día en los siguientes envíos, siempre
+// por id_veoaura: nunca duplica. El número no cambia nunca.
+async function guardarSeguimiento(supabase: SupabaseClient, idVeoaura: string, f: FichaSeguimiento): Promise<ResultadoSeguimiento> {
+  const ahora = new Date().toISOString();
+  const [rep, ped] = await Promise.all([
+    supabase.from("service_requests").select("id,codigo_seguimiento,customer_user_id,seguimiento,seguimiento_nota").eq("id_veoaura", idVeoaura).limit(1),
+    supabase.from("pedidos").select("id,numero,codigo_seguimiento,user_id,estado,entrega").eq("id_veoaura", idVeoaura).limit(1),
+  ]);
+  if (faltaSeguimiento(rep.error) || faltaSeguimiento(ped.error)) throw new Rechazo(503, "seguimiento aún no activado en la tienda");
+  if (rep.error || ped.error) throw new Rechazo(500, "no se pudo leer la ficha");
+  const existeRep = (rep.data ?? [])[0] as
+    | { id: string; codigo_seguimiento: string; customer_user_id: string | null; seguimiento: string | null; seguimiento_nota: string | null }
+    | undefined;
+  const existePed = (ped.data ?? [])[0] as
+    | { id: string; numero: number; codigo_seguimiento: string; user_id: string | null; estado: string; entrega: string }
+    | undefined;
+  if ((existeRep && f.tipo === "pedido") || (existePed && f.tipo === "reparacion")) {
+    throw new Rechazo(409, "esa ficha ya existe con otro tipo");
+  }
+
+  if (f.tipo === "reparacion") {
+    if (existeRep) {
+      const cambia = existeRep.seguimiento !== f.etapa || (existeRep.seguimiento_nota ?? null) !== f.nota;
+      const { error } = await supabase
+        .from("service_requests")
+        .update({
+          service_title: f.titulo,
+          seguimiento: f.etapa,
+          seguimiento_nota: f.nota,
+          ...(cambia ? { seguimiento_actualizado: ahora } : {}),
+        })
+        .eq("id", existeRep.id);
+      if (error) throw new Rechazo(500, "no se pudo actualizar la ficha");
+      return { idTienda: existeRep.id, codigo: existeRep.codigo_seguimiento, vinculado: !!existeRep.customer_user_id };
+    }
+    const { data, error } = await supabase
+      .from("service_requests")
+      .insert({
+        service_title: f.titulo,
+        nombre: f.cliente.nombre ?? "Cliente",
+        apellido: f.cliente.apellido ?? "",
+        ciudad: "",
+        contacto: f.cliente.telefono ?? f.cliente.email,
+        id_veoaura: idVeoaura,
+      })
+      .select("id,codigo_seguimiento")
+      .single();
+    if (faltaSeguimiento(error)) throw new Rechazo(503, "seguimiento aún no activado en la tienda");
+    if (error || !data) throw new Rechazo(500, "no se pudo crear la ficha");
+    // Al crearla, la base de datos la deja en su primera etapa (como cualquier solicitud): se pone la que dice VeoAura.
+    const { error: errEtapa } = await supabase
+      .from("service_requests")
+      .update({ status: "revisado", seguimiento: f.etapa, seguimiento_nota: f.nota, seguimiento_actualizado: ahora })
+      .eq("id", data.id);
+    if (errEtapa) throw new Rechazo(500, "no se pudo guardar la etapa");
+    return { idTienda: data.id, codigo: data.codigo_seguimiento, vinculado: false };
+  }
+
+  if (existePed) {
+    const { error } = await supabase.from("pedidos").update({ estado: f.etapa, entrega: f.entrega }).eq("id", existePed.id);
+    if (error) throw new Rechazo(500, "no se pudo actualizar la ficha");
+    return { idTienda: existePed.id, codigo: existePed.codigo_seguimiento, vinculado: !!existePed.user_id, numero: existePed.numero };
+  }
+  const { data, error } = await supabase
+    .from("pedidos")
+    .insert({
+      estado: f.etapa,
+      entrega: f.entrega,
+      nombre: f.cliente.nombre,
+      email: f.cliente.email,
+      telefono: f.cliente.telefono,
+      total_eur: f.total,
+      id_veoaura: idVeoaura,
+    })
+    .select("id,numero,codigo_seguimiento")
+    .single();
+  if (faltaSeguimiento(error)) throw new Rechazo(503, "seguimiento aún no activado en la tienda");
+  if (error || !data) throw new Rechazo(500, "no se pudo crear la ficha");
+  const articulos = f.articulos.length ? f.articulos : [{ titulo: f.titulo, precio_eur: f.total }];
+  const { error: errArticulos } = await supabase
+    .from("pedido_items")
+    .insert(articulos.map((a) => ({ pedido_id: data.id, product_id: null, titulo: a.titulo, precio_eur: a.precio_eur })));
+  if (errArticulos) throw new Rechazo(500, "no se pudieron guardar los artículos");
+  return { idTienda: data.id, codigo: data.codigo_seguimiento, vinculado: false, numero: data.numero };
+}
+
 // vendido: sin stock y no comprable. retirar: oculto (no se ve ni se compra), sin borrarlo.
 async function ocultar(supabase: SupabaseClient, idVeoaura: string, motivo: "vendido" | "retirar"): Promise<string | null> {
   const ahora = new Date().toISOString();
@@ -654,6 +827,22 @@ export default async function handler(req: any, res: any) {
     idVeoaura = typeof mensaje.id_veoaura === "string" ? mensaje.id_veoaura : null;
     if (!idVeoaura || !UUID_RE.test(idVeoaura)) throw new Rechazo(400, "id_veoaura no válido");
     idVeoaura = idVeoaura.toLowerCase();
+
+    // Fichas con número de seguimiento: se guardan y se responde con el número (VeoAura se lo da al cliente).
+    if ((evento as Evento) === "seguimiento") {
+      const ficha = validarSeguimiento(mensaje.seguimiento);
+      const r = await guardarSeguimiento(supabase, idVeoaura, ficha);
+      await registrar(supabase, { evento, id_veoaura: idVeoaura, resultado: "ok", http: 200, detalle: `${ficha.tipo} · ${r.codigo}${r.vinculado ? " · vinculado" : ""}` });
+      responder(res, 200, {
+        ok: true,
+        id_tienda: r.idTienda,
+        tipo: ficha.tipo,
+        codigo_seguimiento: r.codigo,
+        vinculado: r.vinculado,
+        ...(r.numero !== undefined ? { numero_pedido: r.numero } : {}),
+      });
+      return;
+    }
 
     // 8 y 9. Guardar y, solo después, responder (las fotos, justo después de responder).
     let idTienda: string | null;

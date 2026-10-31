@@ -17,6 +17,9 @@
  * - app/checkout.tsx → crea los pedidos con la función crear_pedido.
  * - api/escaparate-retorno.ts → al cambiar el estado se le avisa, por si el pedido lleva
  *   artículos de VeoAura (al cancelarlo, VeoAura los vuelve a poner a la venta).
+ * - Números de seguimiento (migración 20261031170000): cada pedido enseña el suyo, si es una ficha
+ *   creada en VeoAura (api/escaparate-veoaura.ts, evento «seguimiento») y si el cliente ya lo tiene
+ *   en su cuenta; recuento arriba y filtros «Sin cuenta» y «De VeoAura».
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, View } from "react-native";
@@ -46,6 +49,12 @@ type Pedido = {
   notas: string | null;
   total_eur: number;
   pedido_items: PedidoItem[];
+  // Número de seguimiento (migración 20261031170000; puede no existir aún): el cliente lo escribe en «Mis seguimientos»
+  // para añadir el pedido a su cuenta. id_veoaura: la ficha se creó en VeoAura.
+  user_id?: string | null;
+  codigo_seguimiento?: string | null;
+  id_veoaura?: string | null;
+  vinculado_en?: string | null;
 };
 
 const ESTADOS: { value: Estado; label: string }[] = [
@@ -92,24 +101,63 @@ function fmtFecha(iso: string) {
   }
 }
 
+// Número de seguimiento del pedido: de dónde viene (VeoAura) y si el cliente ya lo tiene en su cuenta. Si no, el número
+// es lo que hay que darle para que lo añada en Perfil → «Mis seguimientos».
+function EtiquetaNumero({
+  codigo,
+  veoaura,
+  enCuenta,
+  vinculadoEn,
+}: {
+  codigo: string;
+  veoaura: boolean;
+  enCuenta: boolean;
+  vinculadoEn: string | null;
+}) {
+  return (
+    <View style={{ alignItems: "center", gap: 2 }}>
+      <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, letterSpacing: 1 }}>
+        Nº de seguimiento {codigo}
+      </Text>
+      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+        {[
+          veoaura ? "Ficha de VeoAura" : null,
+          enCuenta
+            ? vinculadoEn
+              ? `El cliente lo añadió a su cuenta el ${fmtFecha(vinculadoEn)}`
+              : "En la cuenta del cliente"
+            : "Aún no está en ninguna cuenta: dale este número al cliente",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </Text>
+    </View>
+  );
+}
+
 export default function PedidosAdmin() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [filtro, setFiltro] = useState<Estado | "activos" | "todos">("activos");
+  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura">("activos");
   const [guardando, setGuardando] = useState<string | null>(null);
+  // false = aún no hay números de seguimiento (migración sin aplicar): no se enseñan.
+  const [numerosOk, setNumerosOk] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
     setErr(null);
-    const { data, error } = await supabase
-      .from("pedidos")
-      .select(
-        "id,numero,created_at,estado,entrega,nombre,email,telefono,direccion,codigo_postal,ciudad,notas,total_eur,pedido_items(id,product_id,titulo,precio_eur)"
-      )
-      .order("created_at", { ascending: false })
-      .limit(200);
+    const base =
+      "id,numero,created_at,estado,entrega,nombre,email,telefono,direccion,codigo_postal,ciudad,notas,total_eur,pedido_items(id,product_id,titulo,precio_eur)";
+    const consulta = (columnas: string) => supabase.from("pedidos").select(columnas).order("created_at", { ascending: false }).limit(200);
+    let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(
+      `${base},user_id,codigo_seguimiento,id_veoaura,vinculado_en`
+    );
+    const sinNumeros = !!res.error && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(String(res.error.message ?? "")));
+    if (sinNumeros) res = await consulta(base);
+    setNumerosOk(!res.error && !sinNumeros);
+    const { data, error } = res;
     if (error) {
       const msg = String(error.message ?? "").toLowerCase();
       setErr(
@@ -131,8 +179,21 @@ export default function PedidosAdmin() {
   const visibles = useMemo(() => {
     if (filtro === "todos") return pedidos;
     if (filtro === "activos") return pedidos.filter((p) => p.estado !== "entregado" && p.estado !== "cancelado");
+    if (filtro === "sin_vincular") return pedidos.filter((p) => !p.user_id);
+    if (filtro === "veoaura") return pedidos.filter((p) => !!p.id_veoaura);
     return pedidos.filter((p) => p.estado === filtro);
   }, [pedidos, filtro]);
+
+  // Números de seguimiento: cuántos pedidos vienen de VeoAura y cuántos ya están en la cuenta de su cliente.
+  const resumenNumeros = useMemo(() => {
+    const deVeoaura = pedidos.filter((p) => !!p.id_veoaura);
+    return {
+      veoaura: deVeoaura.length,
+      veoauraVinculados: deVeoaura.filter((p) => !!p.user_id).length,
+      sinVincular: pedidos.filter((p) => !p.user_id).length,
+      anadidosConNumero: pedidos.filter((p) => !!p.vinculado_en).length,
+    };
+  }, [pedidos]);
 
   async function cambiarEstado(p: Pedido, estado: Estado) {
     if (p.estado === estado) return;
@@ -160,6 +221,12 @@ export default function PedidosAdmin() {
     { value: "activos", label: "En curso" },
     ...ESTADOS,
     { value: "todos", label: "Todos" },
+    ...(numerosOk
+      ? [
+          { value: "sin_vincular" as const, label: `Sin cuenta (${resumenNumeros.sinVincular})` },
+          { value: "veoaura" as const, label: `De VeoAura (${resumenNumeros.veoaura})` },
+        ]
+      : []),
   ];
 
   return (
@@ -211,6 +278,12 @@ export default function PedidosAdmin() {
           <Text style={{ color: COLORS.muted, textAlign: "center" }}>
             {loading ? "Cargando…" : `${visibles.length} de ${pedidos.length} pedidos`}
           </Text>
+          {numerosOk && !loading ? (
+            <Text nativeID="pedidos-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculados}) ·
+              añadidos con su número: {resumenNumeros.anadidosConNumero} · sin cuenta: {resumenNumeros.sinVincular}
+            </Text>
+          ) : null}
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
             {chips.map((c) => {
@@ -260,6 +333,7 @@ export default function PedidosAdmin() {
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
                   {fmtFecha(p.created_at)} · {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
+                {p.codigo_seguimiento ? <EtiquetaNumero codigo={p.codigo_seguimiento} veoaura={!!p.id_veoaura} enCuenta={!!p.user_id} vinculadoEn={p.vinculado_en ?? null} /> : null}
 
                 {(p.pedido_items ?? []).map((it) => (
                   <Text key={it.id} style={{ color: COLORS.text, textAlign: "center" }}>
