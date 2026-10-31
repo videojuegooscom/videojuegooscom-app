@@ -2,13 +2,14 @@
 /**
  * Qué hace: «Mi perfil» del cliente (su perfil público: usuario y foto se ven en el Foro) y su obligación de completarlo.
  *
- * - PerfilPublico (Mi cuenta → app/(tabs)/perfil.tsx): tarjeta plegable con la foto pequeña, «Mi perfil» y
- *   «@usuario · Completo» (o «Faltan datos»); sale plegada si ya está completo y se pliega sola al guardarlo completo.
- *   Dentro: la foto grande («Toca la foto para cambiarla», opcional, con su recorte: RecortarFoto), usuario, nombre y
- *   apellidos (a lo ancho, para que se lean enteros), país y provincia o región, fecha de nacimiento y edad (se calcula;
- *   mínimo 14 años), «Guardar perfil» / «Deshacer» y, debajo, la cuenta (la sesión y «Cerrar sesión», que le pasa la
- *   pantalla en `cuenta`). Campos compactos, redondeados y centrados con ✓ verde cuando están bien; desplegables con ⌃⌄
- *   (los nativos del móvil, invisibles encima del campo).
+ * - PerfilPublico (Mi cuenta → app/(tabs)/perfil.tsx): tarjeta plegable con la foto pequeña, «Mi perfil», el subtítulo
+ *   «Tu cuenta está activa» y «@usuario · Completo» (o «Faltan datos»); sale plegada si ya está completo y se pliega sola al
+ *   guardarlo completo. Dentro: la foto grande («Toca la foto para cambiarla», opcional, con su recorte: RecortarFoto),
+ *   usuario, nombre y apellidos (a lo ancho, para que se lean enteros), el correo de la sesión (a lo ancho, con candado:
+ *   no se cambia aquí), país y provincia o región, fecha de nacimiento y edad (se calcula; mínimo 14 años) y «Guardar
+ *   perfil» / «Deshacer». Al final, abierta o plegada, los botones de la cuenta («Cerrar sesión» y, al administrador,
+ *   «Panel de control»), que le pasa la pantalla en `cuenta`. Campos compactos, redondeados y centrados con ✓ verde cuando
+ *   están bien; desplegables con ⌃⌄ (los nativos del móvil, invisibles encima del campo).
  * - perfilesPublicos(ids): usuario y foto de varias personas para el Foro (función perfiles_publicos de la base de datos,
  *   que solo devuelve eso; si aún no existe, el Foro sigue como antes).
  * - PerfilObligatorio (montado una vez en app/_layout.tsx): con sesión iniciada y el perfil sin completar, una pantalla
@@ -240,6 +241,7 @@ function CajaPerfil({
   encima,
   ancho,
   sinHuecoDerecho,
+  fija,
   children,
 }: {
   valido?: boolean;
@@ -251,6 +253,8 @@ function CajaPerfil({
   ancho?: number;
   /** Sin el hueco de las flechas (caja estrecha que no es desplegable). */
   sinHuecoDerecho?: boolean;
+  /** Dato que no se cambia aquí (el correo de la sesión): candado en vez de ✓ (el fondo sigue blanco, como toda la pantalla). */
+  fija?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -270,7 +274,9 @@ function CajaPerfil({
         position: "relative",
       }}
     >
-      <View style={{ width: 22, alignItems: "center" }}>{valido ? <Ionicons name="checkmark" size={20} color={P.ok} /> : null}</View>
+      <View style={{ width: 22, alignItems: "center" }}>
+        {fija ? <Ionicons name="lock-closed" size={16} color={P.muted} /> : valido ? <Ionicons name="checkmark" size={20} color={P.ok} /> : null}
+      </View>
       <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>{children}</View>
       {sinHuecoDerecho && !desplegable ? null : (
         <View style={{ width: 22, alignItems: "center" }}>{desplegable ? <Ionicons name="chevron-expand" size={18} color={P.text} /> : null}</View>
@@ -278,6 +284,11 @@ function CajaPerfil({
       {encima}
     </View>
   );
+}
+
+// Letra del correo de la sesión: la de los demás datos y, si es largo, algo más pequeña para que se lea entero.
+function letraCorreo(correo: string): number {
+  return Math.max(12, Math.min(ESTILO_TEXTO_PERFIL.fontSize, (ESTILO_TEXTO_PERFIL.fontSize * 27) / Math.max(1, correo.length)));
 }
 
 const ESTILO_NATIVO_INVISIBLE = {
@@ -325,6 +336,7 @@ export default function PerfilPublico({
   uid,
   modo = "tarjeta",
   alCompletar,
+  correo,
   cuenta,
   onDisponible,
 }: {
@@ -332,7 +344,9 @@ export default function PerfilPublico({
   /** «tarjeta»: en Mi cuenta, plegable. «obligatorio»: dentro de «Completa tu perfil». */
   modo?: "tarjeta" | "obligatorio";
   alCompletar?: () => void;
-  /** La cuenta (sesión y «Cerrar sesión»): va dentro de «Mi perfil», debajo de los datos. */
+  /** Correo de la sesión: la cabecera dice «Tu cuenta está activa» y el correo sale en un recuadro más (no se cambia aquí). */
+  correo?: string | null;
+  /** Los botones de la cuenta («Cerrar sesión» y, al administrador, «Panel de control»): al final de la tarjeta, abierta o plegada. */
   cuenta?: React.ReactNode;
   /** Dice si «Mi perfil» se puede enseñar (si la tabla aún no existe, la pantalla enseña la cuenta por su cuenta). */
   onDisponible?: (disponible: boolean) => void;
@@ -643,6 +657,21 @@ export default function PerfilPublico({
       {/* Usuario y nombre a lo ancho: así el nombre y los apellidos se leen enteros. */}
       <View style={{ flexDirection: "row" }}>{campoTexto("usuario", "Usuario", "Nombre de usuario")}</View>
       <View style={{ flexDirection: "row" }}>{campoTexto("nombre", "Nombre y apellidos", "Nombre")}</View>
+      {/* El correo de la sesión, con los datos de la cuenta: a lo ancho y con candado (se cambia con el acceso, no aquí). */}
+      {correo ? (
+        <View style={{ flexDirection: "row" }}>
+          <CajaPerfil fija>
+            <Text
+              nativeID="perfil-correo"
+              accessibilityLabel={`Correo de la sesión: ${correo}`}
+              numberOfLines={1}
+              style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, fontSize: letraCorreo(correo), color: P.muted }]}
+            >
+              {correo}
+            </Text>
+          </CajaPerfil>
+        </View>
+      ) : null}
 
       <View style={{ flexDirection: "row", gap: 10 }}>
         {campoSelector("pais", "País", "País", opcionesPais)}
@@ -806,10 +835,17 @@ export default function PerfilPublico({
           opacity: pressed ? 0.9 : 1,
         })}
       >
-        <Foto uri={guardado.foto} lado={40} alt="Foto de perfil" />
-        <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
+        <Foto uri={guardado.foto} lado={correo ? 46 : 40} alt="Foto de perfil" />
+        <View style={{ flex: 1, minWidth: 0, alignItems: "center", paddingVertical: correo ? 8 : 0 }}>
           <Text style={{ color: P.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>Mi perfil</Text>
-          <Text numberOfLines={1} style={{ color: P.muted, fontWeight: "800", fontSize: 13.5, textAlign: "center", marginTop: 1 }}>
+          {/* Subtítulo: la sesión está iniciada (punto verde). */}
+          {correo ? (
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 1 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: P.ok }} />
+              <Text style={{ color: P.ok, fontWeight: "800", fontSize: 13.5 }}>Tu cuenta está activa</Text>
+            </View>
+          ) : null}
+          <Text numberOfLines={1} style={{ color: P.muted, fontWeight: "800", fontSize: correo ? 12.5 : 13.5, textAlign: "center", marginTop: 1 }}>
             {guardado.usuario ? `@${guardado.usuario}` : "Sin usuario"} · {guardadoCompleto ? "Completo" : "Faltan datos"}
           </Text>
         </View>
@@ -823,13 +859,12 @@ export default function PerfilPublico({
           {aviso.texto}
         </Text>
       ) : null}
-      {abierto ? (
-        <>
-          {formulario}
-          {cuenta ? (
-            <View style={{ width: "100%", maxWidth: 460, borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 }}>{cuenta}</View>
-          ) : null}
-        </>
+      {abierto ? formulario : null}
+      {/* Los botones de la cuenta, siempre a mano (también plegado); abierto, separados de los datos por una línea fina. */}
+      {cuenta ? (
+        <View style={{ width: "100%", maxWidth: 460, ...(abierto ? { borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 } : null) }}>
+          {cuenta}
+        </View>
       ) : null}
       {ventanaRecorte}
     </View>
