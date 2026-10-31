@@ -22,6 +22,9 @@
  * persona no tiene ninguna venta registrada todavía, la tarjeta se ve igual
  * que antes, sin miniatura.
  *
+ * Quién la escribió: como en el Foro, el usuario y la foto de «Mi perfil» de esa persona (perfilesPublicos de
+ * components/PerfilPublico.tsx: solo esos dos datos); si aún no tiene usuario, su nombre y la inicial.
+ *
  * Conectado con:
  * - lib/supabase.ts → lee "store_reviews" y "product_sales".
  * - components/ReviewModal.tsx → el "pop" donde se publica una reseña
@@ -31,6 +34,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
+import { perfilesPublicos, type PerfilForo } from "./PerfilPublico";
 import ReviewModal, { type PublishedReview } from "./ReviewModal";
 import SmartImage from "./SmartImage";
 import { useRecarga } from "./TirarParaActualizar";
@@ -92,14 +96,45 @@ function Stars({ rating, size = 15 }: { rating: number; size?: number }) {
   );
 }
 
+// Quién escribió la reseña: foto y usuario de «Mi perfil» (como en el Foro) o, si no tiene, la inicial y su nombre.
+function AutorResena({ nombre, perfil, fecha }: { nombre: string; perfil?: PerfilForo; fecha: string }) {
+  const visible = perfil?.usuario || nombre || "Cliente";
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <View
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          overflow: "hidden",
+          backgroundColor: "#EAF1F7",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {perfil?.foto ? (
+          <SmartImage uri={perfil.foto} alt={`Foto de ${visible}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+        ) : (
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11 }}>{visible.slice(0, 1).toUpperCase()}</Text>
+        )}
+      </View>
+      <Text numberOfLines={1} style={{ flexShrink: 1, color: COLORS.muted2, fontSize: 12 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "800" }}>{visible}</Text> · {fecha}
+      </Text>
+    </View>
+  );
+}
+
 function ReviewCard({
   review,
   isMobile,
   soldProduct,
+  perfil,
 }: {
   review: PublishedReview;
   isMobile?: boolean;
   soldProduct?: SoldProduct;
+  perfil?: PerfilForo;
 }) {
   return (
     <View
@@ -164,9 +199,7 @@ function ReviewCard({
           </Text>
         ) : null}
 
-        <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
-          {review.display_name || "Cliente"} · {formatReviewDate(review.created_at)}
-        </Text>
+        <AutorResena nombre={review.display_name || ""} perfil={perfil} fecha={formatReviewDate(review.created_at)} />
       </View>
     </View>
   );
@@ -177,6 +210,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [soldByUser, setSoldByUser] = useState<Record<string, SoldProduct>>({});
+  // Usuario y foto de «Mi perfil» de quien escribió cada reseña visible.
+  const [perfiles, setPerfiles] = useState<Record<string, PerfilForo>>({});
 
   const loadReviews = useCallback(async () => {
     setLoading(true);
@@ -244,6 +279,23 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviews]);
+
+  useEffect(() => {
+    const ids = reviews
+      .slice(0, VISIBLE_REVIEWS)
+      .map((r) => r.user_id)
+      .filter((id): id is string => Boolean(id));
+    if (!ids.length) return;
+    let vivo = true;
+    perfilesPublicos(ids)
+      .then((encontrados) => {
+        if (vivo) setPerfiles(Object.fromEntries(encontrados));
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
   }, [reviews]);
 
   return (
@@ -368,6 +420,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
               review={review}
               isMobile={isMobile}
               soldProduct={review.user_id ? soldByUser[review.user_id] : undefined}
+              perfil={review.user_id ? perfiles[review.user_id] : undefined}
             />
           ))}
         </View>

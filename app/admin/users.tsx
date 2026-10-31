@@ -25,11 +25,14 @@
  *   ficha de cliente (app/admin/cliente/[userId].tsx).
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
  *   cualquiera igual que las reseñas de Inicio).
- * - "Moderación del Foro": comentarios de noticias eliminados (ocultos en
- *   noticias_comentarios, contados en la base de datos). Se eliminan desde el
- *   propio Foro: tocar el mensaje → papelera. Lo que hace un administrador no
- *   se cuenta con la analítica propia (lib/analytics.ts no le registra), así
- *   que no se usa para esto.
+ * - "Moderación del Foro": con el registro de moderación (tabla
+ *   foro_moderacion, que rellena la base de datos sola), los mensajes y
+ *   comentarios eliminados y los silencios de los últimos 30 días, y cuántos
+ *   están silenciados ahora; debajo, «Silenciados en el Foro» (hasta cuándo,
+ *   por qué y «Quitar silencio»). Sin esa migración, solo los comentarios de
+ *   noticias eliminados (ocultos). Se modera desde el propio Foro: tocar el
+ *   mensaje → papelera o «Silenciar». Lo que hace un administrador no se
+ *   cuenta con la analítica propia (lib/analytics.ts no le registra).
  * - "«Mis seguimientos» (30 días)": personas distintas que abrieron esa
  *   pestaña de Perfil y cuántas lo hicieron deslizando (analítica propia
  *   seguimientos_abiertos, solo de quien aceptó la analítica).
@@ -352,6 +355,11 @@ export default function AdminUsers() {
   // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
   // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
   const [comentariosEliminados, setComentariosEliminados] = useState<number | null>(null);
+  // Registro de moderación (tabla foro_moderacion, 30 días) y silencios en vigor (foro_silencios). null = la migración
+  // del Foro aún no está aplicada: entonces sale solo lo de arriba.
+  const [moderacion, setModeracion] = useState<{ mensajes: number; comentarios: number; silencios: number } | null>(null);
+  const [silenciados, setSilenciados] = useState<{ user_id: string; hasta: string; motivo: string | null }[] | null>(null);
+  const [quitandoSilencio, setQuitandoSilencio] = useState<string | null>(null);
   // «Mis seguimientos» en los últimos 30 días: personas distintas que lo abrieron y, de ellas, cuántas deslizando.
   const [usoSeguimientos, setUsoSeguimientos] = useState<{ personas: number; deslizando: number } | null>(null);
 
@@ -361,7 +369,7 @@ export default function AdminUsers() {
 
     try {
       const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes] = await Promise.all([
+      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes, moderacionRes, silenciosRes] = await Promise.all([
         supabase.rpc("admin_list_users_with_stats"),
         supabase.from("sell_requests").select("id", { count: "exact", head: true }),
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
@@ -375,8 +383,23 @@ export default function AdminUsers() {
           .gte("created_at", desde)
           .limit(5000),
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
+        supabase.from("foro_moderacion").select("accion").gte("created_at", desde).limit(5000),
+        supabase.from("foro_silencios").select("user_id,hasta,motivo").gt("hasta", new Date().toISOString()).order("hasta", { ascending: true }),
       ]);
       setComentariosEliminados(comentariosOcultosRes.error ? null : comentariosOcultosRes.count ?? 0);
+      if (moderacionRes.error) {
+        setModeracion(null);
+      } else {
+        const acciones = ((moderacionRes.data ?? []) as { accion: string }[]).map((x) => x.accion);
+        setModeracion({
+          mensajes: acciones.filter((a) => a === "mensaje_eliminado").length,
+          comentarios: acciones.filter((a) => a === "comentario_eliminado").length,
+          silencios: acciones.filter((a) => a === "silenciado").length,
+        });
+      }
+      setSilenciados(
+        silenciosRes.error ? null : ((silenciosRes.data ?? []) as { user_id: string; hasta: string; motivo: string | null }[])
+      );
       if (eventosRes.error) {
         setUsoSeguimientos(null);
       } else {
@@ -476,6 +499,20 @@ export default function AdminUsers() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Quitar el silencio de alguien del Foro: se pone «hasta» en este momento (queda en el registro de moderación).
+  const quitarSilencio = useCallback(async (userId: string) => {
+    setQuitandoSilencio(userId);
+    const { data, error } = await supabase
+      .from("foro_silencios")
+      .update({ hasta: new Date().toISOString() })
+      .eq("user_id", userId)
+      .select("user_id");
+    setQuitandoSilencio(null);
+    if (!error && Array.isArray(data) && data.length) {
+      setSilenciados((prev) => (prev ?? []).filter((s) => s.user_id !== userId));
+    }
+  }, []);
 
   const stats = useMemo(() => {
     const total = users.length;
@@ -610,11 +647,63 @@ export default function AdminUsers() {
               <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
             </View>
 
-            {/* Moderación del Foro: lo que eliminan los administradores (tocando un mensaje → papelera). */}
-            {comentariosEliminados !== null ? (
+            {/* Moderación del Foro: lo que eliminan o silencian los administradores (tocando un mensaje en el Foro). Con el
+                registro de moderación, cuenta los últimos 30 días; sin él, solo los comentarios ocultos. */}
+            {moderacion ? (
+              <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Moderación del Foro (30 días) · mensajes eliminados: {moderacion.mensajes} · comentarios eliminados: {moderacion.comentarios} ·
+                silencios: {moderacion.silencios} · silenciados ahora: {silenciados?.length ?? 0}
+              </Text>
+            ) : comentariosEliminados !== null ? (
               <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                 Moderación del Foro · comentarios de noticias eliminados: {comentariosEliminados}
               </Text>
+            ) : null}
+
+            {/* Quién está silenciado ahora en el Foro, hasta cuándo y por qué, con «Quitar silencio». */}
+            {silenciados && silenciados.length ? (
+              <View nativeID="admin-silenciados" style={{ gap: 8 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>Silenciados en el Foro</Text>
+                {silenciados.map((s) => {
+                  const u = users.find((x) => x.user_id === s.user_id);
+                  const p = perfiles[s.user_id];
+                  const quien = p?.usuario ? `@${p.usuario}` : u?.email ?? "Cliente";
+                  return (
+                    <View
+                      key={s.user_id}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: COLORS.card, padding: 10 }}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
+                          {quien}
+                        </Text>
+                        <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
+                          Hasta el {new Date(s.hasta).toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {s.motivo ? ` · ${s.motivo}` : ""}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => quitarSilencio(s.user_id)}
+                        disabled={quitandoSilencio === s.user_id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Quitar el silencio de ${quien}`}
+                        style={({ pressed }) => ({
+                          minHeight: 44,
+                          justifyContent: "center",
+                          paddingHorizontal: 14,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          backgroundColor: "#FFFFFF",
+                          opacity: quitandoSilencio === s.user_id ? 0.5 : pressed ? 0.85 : 1,
+                        })}
+                      >
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5 }}>Quitar silencio</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
             ) : null}
 
             {/* Perfil → «Mis seguimientos»: quién lo abre (analítica propia, 30 días) y cuántos deslizando la pestaña. */}
