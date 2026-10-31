@@ -7,8 +7,8 @@
  *
  * Comprueba:
  *  - Mi perfil (Mi cuenta): cabecera plegable «Mi perfil · @usuario · Completo/Faltan datos» (abierta si faltan datos,
- *    plegada si está completo, y se pliega sola al guardarlo completo); dentro, la cuenta («Tu cuenta está activa», la sesión y
- *    «Cerrar sesión»), sin otra tarjeta aparte; se rellena con lo que la persona escribió al registrarse; usuario y «Nombre y
+ *    plegada si está completo, y se pliega sola al guardarlo completo); dentro, la cuenta («Tu cuenta está activa» de
+ *    subtítulo, el correo de la sesión en su recuadro y «Cerrar sesión»), sin otra tarjeta aparte; se rellena con lo que la persona escribió al registrarse; usuario y «Nombre y
  *    apellidos» a lo ancho; desplegables de país y de provincia (52 provincias de España; con otro país la provincia pasa a ser
  *    un texto), fecha de nacimiento y, a su lado, la edad calculada («23 Años»); ✓ verde cuando está bien; usuario con formato;
  *    menos de 14 años no se puede guardar; «Guardar perfil» manda lo escrito, confirma, y actualiza también los datos de la
@@ -55,8 +55,16 @@
  *    las ventas de clientes), que manda la conversación y la sesión del administrador, avisa al cliente en el chat con el
  *    número y explica los errores sin avisar de nada; Pedidos cuenta y marca lo asignado desde el chat.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q]
- * Con «N», «P» o «Q» de cuarto argumento solo se ejecuta esa sección (visor, números de seguimiento o chat).
+ *  - R) Cabecera de «Mi perfil»: el subtítulo «Tu cuenta está activa»; el correo de la sesión en un recuadro más (a lo
+ *    ancho, sin poder escribir, entero aunque sea largo); «Cerrar sesión» a mano también plegado y, al administrador,
+ *    «Panel de control» a su lado (a la derecha, iguales, enteros también a 360 px) con «Esta cuenta tiene acceso al panel
+ *    de administración.» encima. El gesto de las pestañas con toques reales en 14 casos: empezando sobre la cabecera, una
+ *    reparación, «Cerrar sesión» (sin cerrarla), los campos, el desplegable y el correo; en diagonal sin mover la página;
+ *    rápido y corto; medio y lento; poco y despacio no cambia; hacia donde no hay pestaña no hace nada; en vertical la
+ *    página se desplaza. Siempre marca la pestaña buena y el contenido vuelve a su sitio.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R]
+ * Con «N», «P», «Q» o «R» de cuarto argumento solo se ejecuta esa sección (visor, números, chat o cabecera y gesto).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -745,6 +753,211 @@ async function seccionP() {
   }
 }
 
+// ===== R) Cabecera de «Mi perfil», la cuenta en sus recuadros y el gesto de las pestañas (toques reales) =============
+async function seccionR() {
+  const perfilCompleto = (id) => [{ user_id: id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const reparacion = {
+    id: "rc000000-0000-4000-8000-000000000001", created_at: "2026-10-28T10:00:00Z", service_id: null, service_title: "Reparación de mando PS5",
+    nombre: "Ana", apellido: "", metodo_contacto: null, contacto: "600111222", ciudad: "", direccion: null, disponibilidad: null, comentario: null,
+    status: "revisado", seguimiento: "reparando", seguimiento_nota: "Cambiamos el joystick izquierdo", seguimiento_actualizado: "2026-10-30T09:00:00Z",
+    customer_user_id: CLIENTE.id, codigo_seguimiento: "VZ-7K3M-9QPD", id_veoaura: null, vinculado_en: null,
+  };
+  const enFila = (a, b) => !!a && !!b && Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < 3;
+  // Líneas de texto de verdad (sin los iconos, que son letras de una fuente de iconos).
+  const lineas = async (loc) => (await loc.innerText()).split("\n").map((s) => s.trim()).filter((s) => /[a-zá-ú@]/i.test(s));
+  const abrirPerfil = async (p) => {
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.locator('#perfil-datos [aria-label="Nombre"]').waitFor({ timeout: 8000 }).catch(() => {});
+  };
+  const dentro = (a, b) => !!a && !!b && a.x >= b.x - 1 && a.x + a.width <= b.x + b.width + 1 && a.y >= b.y - 1 && a.y + a.height <= b.y + b.height + 1;
+
+  // R1) Cliente con el perfil completo (plegado): «Tu cuenta está activa» bajo «Mi perfil» y «Cerrar sesión» siempre a mano.
+  {
+    const estado = { filas: perfilCompleto(CLIENTE.id), guardados: [], numeros: { pedidos: [], reparaciones: [{ ...reparacion }] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 });
+    const cab = await lineas(p.locator("#perfil-cabecera"));
+    ok(cab[0] === "Mi perfil" && cab[1] === "Tu cuenta está activa" && /@ana_g · Completo/.test(cab.join(" ")), `R: debajo de «Mi perfil», el subtítulo «Tu cuenta está activa» (${cab.join(" | ")})`);
+    ok((await p.getByText("Tu cuenta está activa").count()) === 1 && (await p.getByText("SESIÓN ACTUAL").count()) === 0, "R: no hay otro bloque de la cuenta ni «SESIÓN ACTUAL» aparte");
+    const salir = p.locator("#perfil-datos").getByRole("button", { name: "Cerrar sesión" });
+    ok((await salir.count()) === 1 && (await salir.isVisible()), "R: plegado, «Cerrar sesión» se ve dentro de «Mi perfil» (no hace falta abrirlo)");
+    ok((await p.getByText("Panel de control").count()) === 0 && (await p.getByText(/panel de administración/).count()) === 0, "R: un cliente no ve «Panel de control» ni el aviso del panel");
+    await capturar(p, "R1-cliente-plegado");
+
+    // Abierto: el correo de la sesión es uno más de los recuadros (a lo ancho, como el nombre) y no se puede escribir.
+    await p.locator("#perfil-cabecera").click();
+    await p.locator('#perfil-datos [aria-label="Nombre"]').waitFor({ timeout: 8000 }).catch(() => {});
+    const correo = p.locator("#perfil-datos #perfil-correo");
+    ok((await correo.count()) === 1 && (await correo.innerText()).includes(CLIENTE.email), `R: el correo de la sesión sale en su recuadro, con los datos (${await correo.innerText().catch(() => "no está")})`);
+    ok((await correo.getAttribute("aria-label").catch(() => "")) === `Correo de la sesión: ${CLIENTE.email}`, "R: y un lector de pantalla dice qué es («Correo de la sesión: …»)");
+    const medidas = await p.evaluate(() => {
+      const r = (s) => document.querySelector(s)?.getBoundingClientRect();
+      const caja = (s) => { let n = document.querySelector(s); while (n && n.getBoundingClientRect().height < 44) n = n.parentElement; return n?.getBoundingClientRect(); };
+      const c = document.querySelector("#perfil-datos #perfil-correo");
+      return {
+        correo: caja("#perfil-datos #perfil-correo"), nombre: caja('#perfil-datos [aria-label="Nombre"]'), pais: r('#perfil-datos select[aria-label="País"]'),
+        editable: !!c && (c.tagName === "INPUT" || c.isContentEditable || !!c.querySelector("input, textarea")),
+        cortado: !!c && c.scrollWidth > c.clientWidth + 1,
+      };
+    });
+    ok(!!medidas.correo && !!medidas.nombre && Math.abs(medidas.correo.width - medidas.nombre.width) < 2 && medidas.correo.height >= 44 && medidas.correo.height <= 50, `R: el recuadro del correo mide como los demás (${Math.round(medidas.correo?.width ?? 0)}×${Math.round(medidas.correo?.height ?? 0)} y el nombre ${Math.round(medidas.nombre?.width ?? 0)} de ancho)`);
+    ok(!!medidas.pais && !!medidas.correo && medidas.correo.y > medidas.nombre.y && medidas.correo.y < medidas.pais.y,"R: va con los datos de la cuenta, entre el nombre y el país");
+    ok(!medidas.editable && !medidas.cortado, `R: no se puede escribir en él y se lee entero (editable: ${medidas.editable}, cortado: ${medidas.cortado})`);
+    await capturar(p, "R2-cliente-abierto");
+
+    // El gesto de las pestañas, con toques reales (CDP) desde distintos sitios de las dos pestañas.
+    const deslizable = async () => p.locator("#perfil-deslizable").boundingBox();
+    const pestana = async () => (await p.getByText("Reparaciones y Mantenimientos").count()) ? "seguimientos" : (await p.locator("#perfil-cabecera").count()) ? "cuenta" : "?";
+    const seleccionada = async () => p.locator('#perfil-pestanas [role="tab"][aria-selected="true"]').innerText().catch(() => "");
+    // El contenedor con scroll de la página (el de la tienda, no la ventana).
+    const scroll = async () => p.evaluate(() => {
+      let n = document.getElementById("perfil-deslizable");
+      while (n && !(n.scrollHeight > n.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(n).overflowY))) n = n.parentElement;
+      return n ? Math.round(n.scrollTop) : -1;
+    });
+    const desplazamiento = async () => p.evaluate(() => {
+      const t = getComputedStyle(document.getElementById("perfil-deslizable")).transform;
+      return t === "none" ? 0 : Math.round(Number(t.replace(/^matrix\(|\)$/g, "").split(",")[4]));
+    });
+    const dedo = async ({ x, y }, dx, dy, pasos = 10, espera = 16) => {
+      const cdp = await p.context().newCDPSession(p);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let i = 1; i <= pasos; i++) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + (dx * i) / pasos, y: y + (dy * i) / pasos }] });
+        await p.waitForTimeout(espera);
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await cdp.detach();
+      await p.waitForTimeout(800);
+    };
+    // Punto de partida: sobre `loc` (a la vista), en su fila, en la x pedida.
+    const sobre = async (loc, x) => {
+      await loc.scrollIntoViewIfNeeded();
+      const b = await loc.boundingBox();
+      return { x: x ?? b.x + b.width / 2, y: b.y + b.height / 2 };
+    };
+    const casos = [];
+    const caso = async (nombre, espera, hacer) => {
+      const antes = await pestana();
+      await hacer();
+      const despues = await pestana();
+      const tab = await seleccionada();
+      const quieto = await desplazamiento();
+      const bien = despues === espera && (despues === "?" || tab === (espera === "seguimientos" ? "Mis seguimientos" : "Mi cuenta")) && Math.abs(quieto) <= 1;
+      casos.push(bien);
+      ok(bien, `R: ${nombre}: de «${antes}» a «${despues}» (pestaña marcada «${tab}», contenido en su sitio: ${quieto} px)`);
+    };
+    await p.locator("#perfil-cabecera").click(); // plegado otra vez
+    await p.waitForTimeout(300);
+    await caso("deslizar a la izquierda sobre la cabecera de «Mi perfil»", "seguimientos", async () => dedo(await sobre(p.locator("#perfil-cabecera"), 300), -200, 4));
+    await caso("deslizar a la derecha sobre la tarjeta de una reparación", "cuenta", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 90), 200, -4));
+    await caso("deslizar a la izquierda sobre «Cerrar sesión» (sin cerrar la sesión)", "seguimientos", async () => dedo(await sobre(salir, 300), -200, 2));
+    ok(estado.salio !== true, "R: deslizar sobre «Cerrar sesión» no la cierra");
+    await caso("deslizar a la derecha sobre el campo del número de seguimiento", "cuenta", async () => dedo(await sobre(p.getByLabel("Número de seguimiento", { exact: true }).first(), 90), 200, 0));
+    // Abierto: el dedo empieza encima de los campos (al volver a «Mi cuenta», el perfil completo sale plegado otra vez).
+    await abrirPerfil(p);
+    await caso("deslizar a la izquierda sobre el campo del nombre", "seguimientos", async () => dedo(await sobre(p.locator('#perfil-datos [aria-label="Nombre"]').first(), 300), -200, 3));
+    await p.locator("#perfil-pestanas").getByText("Mi cuenta", { exact: true }).click();
+    await abrirPerfil(p);
+    await caso("deslizar a la izquierda sobre el desplegable de la provincia", "seguimientos", async () => dedo(await sobre(p.locator('#perfil-datos select[aria-label="Provincia"]'), 300), -200, 0));
+    await p.locator("#perfil-pestanas").getByText("Mi cuenta", { exact: true }).click();
+    await abrirPerfil(p);
+    await caso("deslizar a la izquierda sobre el recuadro del correo", "seguimientos", async () => dedo(await sobre(p.locator("#perfil-datos #perfil-correo"), 300), -200, 0));
+    // En diagonal (como se desliza con el pulgar): cambia de pestaña y la página no se mueve hacia arriba o abajo.
+    await p.locator("#perfil-pestanas").getByText("Mi cuenta", { exact: true }).click();
+    await abrirPerfil(p);
+    const inicioDiag = await sobre(p.locator('#perfil-datos [aria-label="Nombre"]').first(), 310);
+    const scrollAntes = await scroll();
+    await caso("deslizar en diagonal con el pulgar (200 px a la izquierda y 70 hacia arriba)", "seguimientos", async () => dedo(inicioDiag, -200, -70));
+    const scrollDiag = await scroll();
+    ok(Math.abs(scrollDiag - scrollAntes) <= 4, `R: y mientras tanto la página no se desplaza (de ${scrollAntes} a ${scrollDiag} px)`);
+    // Un toque rápido y corto (un «flick») también cambia; arrastrar poco y despacio, no (vuelve a su sitio).
+    // (Un solo movimiento: aquí cada toque simulado tarda ~50 ms; en el iPhone un deslizamiento rápido llega así, de golpe.)
+    await caso("un deslizamiento rápido y corto (50 px) a la derecha", "cuenta", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 120), 50, 0, 1, 0));
+    // La distancia cuenta desde que el dedo toca: 75 px despacio bastan (antes contaba desde que se reconocía el gesto).
+    await caso("un deslizamiento medio y lento (75 px) a la izquierda", "seguimientos", async () => dedo(await sobre(p.locator("#perfil-cabecera"), 300), -75, 0, 10, 40));
+    await p.locator("#perfil-pestanas").getByText("Mi cuenta", { exact: true }).click();
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 8000 }).catch(() => {});
+    await caso("arrastrar poco y despacio (40 px) no cambia", "cuenta", async () => dedo(await sobre(p.locator("#perfil-cabecera"), 300), -40, 0, 10, 30));
+    await caso("en «Mi cuenta», deslizar a la derecha no hace nada (no hay otra pestaña)", "cuenta", async () => dedo(await sobre(p.locator("#perfil-cabecera"), 90), 200, 0));
+    await p.locator("#perfil-pestanas").getByText("Mis seguimientos", { exact: true }).click();
+    await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
+    await caso("en «Mis seguimientos», deslizar a la izquierda no hace nada", "seguimientos", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 300), -200, 0));
+    // Vertical: la página se desplaza como siempre y no cambia de pestaña.
+    const zona = await deslizable();
+    const s0 = await scroll();
+    await caso("deslizar hacia arriba desplaza la página", "seguimientos", async () => dedo({ x: zona.x + zona.width / 2, y: 600 }, 6, -300));
+    const s1 = await scroll();
+    ok(s1 > s0 + 100, `R: y la página baja (de ${s0} a ${s1} px)`);
+    const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(ancho.a <= ancho.p + 1, `R: al deslizar la página no se ensancha (${ancho.a}/${ancho.p})`);
+    ok(p.errores.length === 0, `R: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    ok(casos.length >= 12 && casos.every(Boolean), `R: el gesto funciona en los ${casos.length} casos`);
+    await ctx.close();
+  }
+
+  // R3) Un correo largo cabe en su recuadro (letra algo más pequeña) sin salirse.
+  {
+    const LARGO = { ...CLIENTE, email: "daniel.gutierrez.martinez@example.com" };
+    const estado = { filas: [{ ...perfilCompleto(CLIENTE.id)[0], provincia: "" }], guardados: [] };
+    const ctx = await contexto(navegador, LARGO, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    const correo = p.locator("#perfil-datos #perfil-correo");
+    await correo.waitFor({ timeout: 30000 }).catch(() => {});
+    const m = await correo.evaluate((c) => ({ cabe: c.scrollWidth <= c.clientWidth + 1, texto: c.innerText, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) })).catch(() => null);
+    ok(!!m && m.cabe && m.texto === LARGO.email && m.ancho <= 391, `R: un correo largo (${LARGO.email.length} letras) se lee entero en su recuadro (${JSON.stringify(m)})`);
+    await capturar(p, "R3-correo-largo");
+    await ctx.close();
+  }
+
+  // R4) Administrador: el aviso del panel junto a sus botones y «Panel de control» al lado de «Cerrar sesión», en la tarjeta.
+  {
+    const estado = { filas: perfilCompleto(ADMIN.id), guardados: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 });
+    const panel = p.locator("#perfil-datos").getByRole("button", { name: "Panel de control" });
+    await panel.waitFor({ timeout: 10000 }).catch(() => {});
+    const salir = p.locator("#perfil-datos").getByRole("button", { name: "Cerrar sesión" });
+    const aviso = p.locator("#perfil-datos").getByText("Esta cuenta tiene acceso al panel de administración.", { exact: true });
+    ok((await p.getByText("Panel de control", { exact: true }).count()) === 1 && (await panel.count()) === 1, "R: «Panel de control» está dentro de «Mi perfil» (ya no en una tarjeta aparte)");
+    ok((await aviso.count()) === 1 && (await p.getByText(/panel de administración/).count()) === 1, "R: el aviso «Esta cuenta tiene acceso al panel de administración.» sale una vez, con sus botones");
+    const [bp, bs, ba, tarjeta] = [await panel.boundingBox(), await salir.boundingBox(), await aviso.boundingBox(), await p.locator("#perfil-datos").boundingBox()];
+    ok(enFila(bp, bs) && bp.x > bs.x && bp.height >= 44 && bs.height >= 44 && Math.abs(bp.width - bs.width) < 2, `R: los dos botones en la misma fila, iguales y de 44 px o más, «Panel de control» a la derecha (al alcance del pulgar) (${JSON.stringify({ panel: bp, salir: bs })})`);
+    ok(!!ba && ba.y + ba.height <= Math.min(bp.y, bs.y) + 1 && Math.min(bp.y, bs.y) - (ba.y + ba.height) < 24, "R: el aviso va justo encima de los botones");
+    ok(dentro(bp, tarjeta) && dentro(bs, tarjeta), "R: y todo dentro de la tarjeta de «Mi perfil»");
+    // Los textos de los botones se leen enteros (sin «Panel de con…»), también en un móvil estrecho.
+    const enteros = () => p.evaluate(() => ["Cerrar sesión", "Panel de control"].map((t) => {
+      const b = document.querySelector(`#perfil-datos [aria-label="${t}"]`);
+      const n = b && Array.from(b.querySelectorAll("*")).find((e) => e.children.length === 0 && e.textContent.trim() === t);
+      return n ? n.scrollWidth <= n.clientWidth + 1 : false;
+    }));
+    const a390 = await enteros();
+    await p.setViewportSize({ width: 360, height: 780 });
+    await p.waitForTimeout(500);
+    const a360 = await enteros();
+    await capturar(p, "R4b-admin-360");
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(500);
+    ok(a390.every(Boolean) && a360.every(Boolean), `R: «Cerrar sesión» y «Panel de control» se leen enteros (390 px: ${a390.join("/")}; 360 px: ${a360.join("/")})`);
+    const cab = await lineas(p.locator("#perfil-cabecera"));
+    ok(cab[1] === "Tu cuenta está activa", `R: el administrador también ve «Tu cuenta está activa» bajo «Mi perfil» (${cab.join(" | ")})`);
+    await capturar(p, "R4-admin-plegado");
+    await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(400);
+    const ba2 = await aviso.boundingBox();
+    const bg = await p.getByRole("button", { name: "Guardar perfil" }).boundingBox();
+    ok(!!ba2 && !!bg && ba2.y > bg.y, "R: abierto, el aviso y los botones de la cuenta quedan debajo de «Guardar perfil»");
+    await capturar(p, "R5-admin-abierto");
+    await panel.click();
+    await p.waitForURL(/\/admin(\?|$|\/)/, { timeout: 15000 }).catch(() => {});
+    ok(/\/admin(\?|$|\/)/.test(new URL(p.url()).pathname + new URL(p.url()).search) || new URL(p.url()).pathname === "/admin", `R: «Panel de control» abre el panel (${new URL(p.url()).pathname})`);
+    ok(p.errores.length === 0, `R: administrador sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -889,6 +1102,7 @@ try {
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
   if (SOLO === "Q") await seccionQ();
+  if (SOLO === "R") await seccionR();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -900,8 +1114,8 @@ try {
     await p.locator("#perfil-datos").waitFor({ timeout: 30000 });
     const t = await p.locator("#perfil-datos").innerText();
     ok(/Mi perfil/.test(t) && !/Perfil público/.test(t), "A: sale la tarjeta «Mi perfil» en Mi cuenta (ya no «Perfil público»)");
-    ok(/Tu cuenta está activa/.test(t) && /SESIÓN ACTUAL/.test(t) && t.includes(CLIENTE.email) && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 1, "A: la cuenta («Tu cuenta está activa», la sesión y «Cerrar sesión») va DENTRO de «Mi perfil»");
-    ok((await p.getByText("SESIÓN ACTUAL").count()) === 1 && (await p.getByText("Tu cuenta está activa").count()) === 1, "A: y no hay otra tarjeta de la cuenta aparte");
+    ok(/Tu cuenta está activa/.test(await p.locator("#perfil-cabecera").innerText()) && t.includes(CLIENTE.email) && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 1, "A: la cuenta («Tu cuenta está activa» bajo «Mi perfil», el correo en su recuadro y «Cerrar sesión») va DENTRO de «Mi perfil»");
+    ok((await p.getByText("SESIÓN ACTUAL").count()) === 0 && (await p.getByText("Tu cuenta está activa").count()) === 1, "A: y no hay otra tarjeta de la cuenta aparte");
     ok((await p.getByText("Mis seguimientos").count()) >= 1 && (await p.locator("#perfil-pestanas").getByText("Seguimientos", { exact: true }).count()) === 0, "A: la pestaña se llama «Mis seguimientos»");
     ok(/Sin usuario · Faltan datos/.test(await p.locator("#perfil-cabecera").innerText()), `A: la cabecera dice «Sin usuario · Faltan datos» (${(await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ")})`);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "true", "A: con datos pendientes la tarjeta sale abierta");
@@ -1005,13 +1219,16 @@ try {
     await p.waitForTimeout(300);
     const medidas = await p.evaluate(() => {
       const caja = (document.getElementById("perfil-datos") ?? document.body).getBoundingClientRect();
-      const botones = Array.from(document.querySelectorAll('#perfil-datos [role="button"]')).map((b) => Math.round(b.getBoundingClientRect().height));
+      // La cabecera plegable aparte: tiene tres líneas («Mi perfil», «Tu cuenta está activa» y «@usuario · Completo»).
+      const botones = Array.from(document.querySelectorAll('#perfil-datos [role="button"]:not(#perfil-cabecera)')).map((b) => Math.round(b.getBoundingClientRect().height));
+      const cabecera = Math.round(document.getElementById("perfil-cabecera")?.getBoundingClientRect().height ?? 0);
       const nativos = Array.from(document.querySelectorAll("#perfil-datos select, #perfil-datos input[type=date]")).map((e) => Math.round(e.getBoundingClientRect().height));
-      return { ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth, caja: Math.round(caja.width), botones, nativos };
+      return { ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth, caja: Math.round(caja.width), botones, cabecera, nativos };
     });
     ok(medidas.ancho <= medidas.pantalla + 1, `A: la página no se ensancha (${medidas.ancho}/${medidas.pantalla})`);
     ok(medidas.botones.length >= 3 && medidas.botones.every((h) => h >= 44), `A: los botones se tocan bien, de 44 px o más (${medidas.botones.join(", ")})`);
     ok(medidas.botones.filter((h) => h < 100).every((h) => h <= 64), `A: y son compactos (ninguno pasa de 64 px salvo la foto: ${medidas.botones.join(", ")})`);
+    ok(medidas.cabecera >= 44 && medidas.cabecera <= 76, `A: la cabecera de «Mi perfil», con sus tres líneas, sigue compacta (${medidas.cabecera} px, de 44 a 76)`);
     // (el campo mide 48 px con su borde; el control nativo cubre lo de dentro)
     ok(medidas.nativos.length >= 2 && medidas.nativos.every((h) => h >= 44 && h <= 50), `A: los desplegables y la fecha, compactos y tocables en todo el campo, de 44 a 50 px (${medidas.nativos.join(", ")})`);
     await capturar(p, "A4-perfil-abierto");
@@ -1047,7 +1264,7 @@ try {
     const cabecera = (await p.locator("#perfil-cabecera").innerText()).replace(/\n/g, " ");
     ok(/Mi perfil/.test(cabecera) && /@ana_g · Completo/.test(cabecera), `C: la cabecera dice «Mi perfil · @ana_g · Completo» (${cabecera})`);
     ok((await p.locator("#perfil-cabecera").getAttribute("aria-expanded")) === "false" && (await p.locator('#perfil-datos [aria-label="Nombre"]').count()) === 0, "C: completo, la tarjeta sale plegada");
-    ok((await p.getByText("SESIÓN ACTUAL").count()) === 0, "C: plegada, la cuenta también queda dentro (no sale una tarjeta aparte)");
+    ok((await p.getByText("SESIÓN ACTUAL").count()) === 0 && (await p.locator("#perfil-datos").getByText("Cerrar sesión", { exact: true }).count()) === 1, "C: plegada, la cuenta también queda dentro («Cerrar sesión» a mano, sin una tarjeta aparte)");
     await capturar(p, "C0-perfil-plegado");
     await p.locator("#perfil-cabecera").click();
     await p.waitForTimeout(300);
@@ -1803,6 +2020,7 @@ try {
   await seccionN();
   await seccionP();
   await seccionQ();
+  await seccionR();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

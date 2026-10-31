@@ -3,10 +3,11 @@
  * muestra un formulario de acceso/registro; una vez hay sesión, muestra
  * «Mi perfil» (foto, usuario, nombre, país, provincia y edad:
  * components/PerfilPublico.tsx, que también obliga a completarlo en el resto
- * de la tienda) con la cuenta dentro (email conectado y botón de cerrar
- * sesión), la pestaña «Mis seguimientos» y (si el rol es admin) el acceso al
- * panel de control. Al final, el pie de página (con las redes sociales, una
- * sola vez).
+ * de la tienda) con la cuenta dentro (subtítulo «Tu cuenta está activa», el
+ * correo de la sesión en un recuadro más y, al pie, «Cerrar sesión» y, si el
+ * rol es admin, «Panel de control» en la misma fila) y la pestaña «Mis
+ * seguimientos»; se cambia de pestaña tocándola o deslizando el dedo. Al
+ * final, el pie de página (con las redes sociales, una sola vez).
  *
  * Cómo funciona:
  * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
@@ -41,10 +42,6 @@
  *   (caso normal, panel cerrado) queda centrada vertical y horizontalmente;
  *   si crece (panel abierto, mensajes de error, panel de admin...) el
  *   scroll sigue funcionando con normalidad desde arriba.
- * - ActionButton y AuthPill usan AnimatedPressable (definido en este mismo
- *   archivo, mismo patrón que components/VenderAhoraModal.tsx) para el
- *   efecto "pop" al pulsar: se encogen levemente y vuelven a su tamaño con
- *   un muelle (Animated.spring).
  * - El enlace "¿Olvidaste tu contraseña?" (solo en el modo "Iniciar sesión")
  *   llama a sendPasswordReset(), que usa
  *   supabase.auth.resetPasswordForEmail() y manda al cliente a
@@ -57,7 +54,7 @@
  * - app/reset-password.tsx → pantalla a la que llega el cliente desde el
  *   enlace de "olvidé mi contraseña".
  * - app/admin/index.tsx → se abre con router.push("/admin") cuando el rol es
- *   "admin" (botón "Entrar al panel de administración").
+ *   "admin" (botón "Panel de control", al pie de «Mi perfil»).
  * - app/(tabs)/chat-global.tsx → su modal de "inicia sesión para comentar"
  *   trae al usuario a esta pantalla para autenticarse.
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
@@ -137,109 +134,53 @@ function SectionCard({
   return <View style={{ paddingHorizontal: padding, gap: 14 }}>{children}</View>;
 }
 
-// Envoltorio de Pressable con una pequeña animación "pop" tipo Apple: al
-// pulsar se encoge levemente (Animated.spring) y al soltar vuelve a su
-// tamaño normal. Mismo criterio que components/VenderAhoraModal.tsx —
-// se define aquí también en vez de importarlo porque es un helper pequeño
-// y este archivo no depende de ese componente (patrón ya usado en otros
-// archivos del proyecto, como components/SellRequestMedia.tsx).
-function AnimatedPressable({
+// Botón de la cuenta al pie de «Mi perfil»: redondeado y de 48 px como «Guardar perfil» / «Deshacer» (sin icono, como
+// ellos, para que «Panel de control» se lea entero en media fila); el principal, azul de marca. Ocupan la fila a partes
+// iguales; en móviles estrechos la letra baja un punto.
+function BotonCuenta({
+  titulo,
   onPress,
-  disabled,
-  style,
-  children,
+  principal = false,
+  cargando = false,
+  textoCargando,
 }: {
-  onPress?: () => void;
-  disabled?: boolean;
-  style?: any | ((state: { pressed: boolean }) => any);
-  children?: React.ReactNode | ((state: { pressed: boolean }) => React.ReactNode);
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const [pressed, setPressed] = useState(false);
-
-  function onPressIn() {
-    setPressed(true);
-    Animated.spring(scale, {
-      toValue: 0.95,
-      useNativeDriver: true,
-      speed: 50,
-      bounciness: 6,
-    }).start();
-  }
-
-  function onPressOut() {
-    setPressed(false);
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 6,
-    }).start();
-  }
-
-  const resolvedStyle = typeof style === "function" ? style({ pressed }) : style;
-
-  return (
-    <Pressable onPress={onPress} disabled={disabled} onPressIn={onPressIn} onPressOut={onPressOut}>
-      <Animated.View style={[resolvedStyle, { transform: [{ scale }] }]}>
-        {typeof children === "function" ? children({ pressed }) : children}
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-function ActionButton({
-  title,
-  onPress,
-  disabled,
-  variant = "primary",
-  loading = false,
-  loadingText = "Cargando...",
-}: {
-  title: string;
+  titulo: string;
   onPress: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "secondary";
-  loading?: boolean;
-  loadingText?: string;
+  principal?: boolean;
+  cargando?: boolean;
+  textoCargando?: string;
 }) {
-  const isPrimary = variant === "primary";
-
+  const color = principal ? "#FFFFFF" : COLORS.text;
+  const estrecho = useWindowDimensions().width < 380;
   return (
-    <AnimatedPressable
+    <Pressable
       onPress={onPress}
-      disabled={disabled || loading}
-      style={{
-        borderRadius: 16,
-        paddingVertical: 14,
-        paddingHorizontal: 14,
+      disabled={cargando}
+      accessibilityRole="button"
+      accessibilityLabel={titulo}
+      style={({ pressed }) => ({
+        flex: 1,
+        minWidth: 0,
+        minHeight: 48,
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        borderWidth: isPrimary ? 0 : 1,
-        borderColor: isPrimary ? "transparent" : COLORS.border,
-        backgroundColor: isPrimary ? COLORS.accent : COLORS.cardSoft,
-        opacity: disabled || loading ? 0.5 : 1,
-      }}
+        gap: 8,
+        backgroundColor: principal ? COLORS.accent : "#FFFFFF",
+        // El mismo borde en los dos (del color del fondo en el principal): así miden exactamente lo mismo.
+        borderWidth: 1.5,
+        borderColor: principal ? COLORS.accent : COLORS.border,
+        opacity: cargando ? 0.6 : pressed ? 0.88 : 1,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+      })}
     >
-      {loading ? (
-        <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-          <ActivityIndicator color={isPrimary ? "#FFFFFF" : COLORS.text} />
-          <Text style={{ color: isPrimary ? "#FFFFFF" : COLORS.text, fontWeight: "900" }}>
-            {loadingText}
-          </Text>
-        </View>
-      ) : (
-        <Text
-          style={{
-            color: isPrimary ? "#FFFFFF" : COLORS.text,
-            fontWeight: "900",
-            fontSize: 15,
-          }}
-        >
-          {title}
-        </Text>
-      )}
-    </AnimatedPressable>
+      {cargando ? <ActivityIndicator size="small" color={color} /> : null}
+      <Text numberOfLines={1} style={{ color, fontWeight: "900", fontSize: estrecho ? 14 : 15 }}>
+        {cargando && textoCargando ? textoCargando : titulo}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -570,32 +511,112 @@ export default function PerfilScreen() {
     perfilTabRef.current = t;
     setPerfilTab(t);
   }, []);
+  // Al soltar: cambia con un deslizamiento largo (60 px) o con uno corto y rápido hacia el mismo lado (como en las apps del
+  // móvil); si no, el contenido vuelve a su sitio.
+  const soltarDedo = useCallback(
+    (dx: number, vx: number) => {
+      const rapido = Math.abs(dx) > 24 && Math.abs(vx) > 0.35 && Math.sign(vx) === Math.sign(dx);
+      const destino: PerfilTab | null = Math.abs(dx) > 60 || rapido ? (dx < 0 ? "seguimientos" : "cuenta") : null;
+      if (destino && destino !== perfilTabRef.current) {
+        cambiarPestana(destino, "deslizar");
+        // Entra desde el lado del gesto.
+        desliz.setValue(destino === "seguimientos" ? 70 : -70);
+      }
+      Animated.spring(desliz, { toValue: 0, useNativeDriver: false, speed: 18, bounciness: 4 }).start();
+    },
+    [cambiarPestana, desliz]
+  );
+  // El dedo en la web: dónde tocó, sus últimas posiciones (para la distancia y la velocidad) y hacia dónde va, que se decide
+  // con sus primeros 8 px. La distancia cuenta desde que toca (PanResponder la pone a 0 al reconocer el gesto y un
+  // deslizamiento corto se quedaba sin llegar). En horizontal, la página no se mueve arriba o abajo mientras se desliza
+  // (aunque el pulgar vaya en diagonal); en vertical, se desplaza como siempre y no cambia de pestaña.
+  const zonaDeslizable = useRef<View>(null);
+  const dedo = useRef<{ x0: number; y0: number; eje: "h" | "v" | null; muestras: { x: number; t: number }[]; reconocido: boolean }>({
+    x0: 0,
+    y0: 0,
+    eje: null,
+    muestras: [],
+    reconocido: false,
+  });
+  const recorrido = useCallback(() => {
+    const d = dedo.current;
+    const ultima = d.muestras[d.muestras.length - 1];
+    if (!ultima || d.muestras.length < 2) return null;
+    // Velocidad de los últimos 100 ms (px/ms).
+    const antes = d.muestras.find((m) => ultima.t - m.t <= 100) ?? ultima;
+    return { dx: ultima.x - d.x0, vx: ultima.t > antes.t ? (ultima.x - antes.x) / (ultima.t - antes.t) : 0 };
+  }, []);
+  useEffect(() => {
+    const zona = zonaDeslizable.current as unknown as HTMLElement | null;
+    if (Platform.OS !== "web" || !isLogged || !zona?.addEventListener) return;
+    const inicio = (e: TouchEvent) => {
+      const t = e.touches[0];
+      // Con dos dedos (acercar la página) no es un cambio de pestaña.
+      dedo.current = {
+        x0: t?.clientX ?? 0,
+        y0: t?.clientY ?? 0,
+        eje: e.touches.length === 1 ? null : "v",
+        muestras: t ? [{ x: t.clientX, t: e.timeStamp }] : [],
+        reconocido: false,
+      };
+    };
+    const mover = (e: TouchEvent) => {
+      const d = dedo.current;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      d.muestras.push({ x: t.clientX, t: e.timeStamp });
+      if (d.muestras.length > 8) d.muestras.shift();
+      const dx = t.clientX - d.x0;
+      const dy = t.clientY - d.y0;
+      if (d.eje === null && Math.hypot(dx, dy) >= 8) d.eje = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
+      if (d.eje === "h" && e.cancelable) e.preventDefault();
+    };
+    // Horizontal pero tan rápido que no llegó a reconocerse (casi sin movimientos entre tocar y soltar): se decide aquí.
+    const fin = () => {
+      const r = recorrido();
+      if (dedo.current.eje === "h" && !dedo.current.reconocido && r) soltarDedo(r.dx, r.vx);
+    };
+    zona.addEventListener("touchstart", inicio, { passive: true });
+    zona.addEventListener("touchmove", mover, { passive: false });
+    zona.addEventListener("touchend", fin);
+    return () => {
+      zona.removeEventListener("touchstart", inicio);
+      zona.removeEventListener("touchmove", mover);
+      zona.removeEventListener("touchend", fin);
+    };
+  }, [isLogged, recorrido, soltarDedo]);
   const gestoPestanas = useMemo(
     () =>
       PanResponder.create({
-        // Solo un gesto claramente horizontal: el desplazamiento vertical de la página sigue igual.
-        onMoveShouldSetPanResponder: (_e, g) => isLogged && Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+        // Solo un gesto horizontal: el desplazamiento vertical de la página sigue igual. En la web, en cuanto el dedo
+        // se ha movido 8 px más en horizontal que en vertical (lo mismo que decide `dedo`).
+        onMoveShouldSetPanResponder: (_e, g) => {
+          if (!isLogged) return false;
+          if (Platform.OS !== "web") return Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 2;
+          const eje = dedo.current.eje ?? (Math.hypot(g.dx, g.dy) >= 8 ? (Math.abs(g.dx) > Math.abs(g.dy) * 1.2 ? "h" : "v") : null);
+          return eje === "h";
+        },
+        onPanResponderGrant: () => {
+          dedo.current.reconocido = true;
+        },
+        // Empezado el gesto, el desplazamiento de la página no se lo quita (si no, en diagonal se quedaba a medias).
+        onPanResponderTerminationRequest: () => false,
         onPanResponderMove: (_e, g) => {
           // El contenido acompaña un poco al dedo (con resistencia) para que se note que se puede deslizar.
-          const haciaSeguimientos = g.dx < 0;
+          const dx = recorrido()?.dx ?? g.dx;
+          const haciaSeguimientos = dx < 0;
           const posible = haciaSeguimientos ? perfilTabRef.current === "cuenta" : perfilTabRef.current === "seguimientos";
-          desliz.setValue(Math.max(-90, Math.min(90, g.dx * (posible ? 0.35 : 0.12))));
+          desliz.setValue(Math.max(-90, Math.min(90, dx * (posible ? 0.35 : 0.12))));
         },
         onPanResponderRelease: (_e, g) => {
-          const decidido = Math.abs(g.dx) > 60 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5;
-          const destino: PerfilTab | null = !decidido ? null : g.dx < 0 ? "seguimientos" : "cuenta";
-          if (destino && destino !== perfilTabRef.current) {
-            cambiarPestana(destino, "deslizar");
-            // Entra desde el lado del gesto.
-            desliz.setValue(destino === "seguimientos" ? 70 : -70);
-          }
-          Animated.spring(desliz, { toValue: 0, useNativeDriver: false, speed: 18, bounciness: 4 }).start();
+          const r = recorrido() ?? { dx: g.dx, vx: g.vx };
+          soltarDedo(r.dx, r.vx);
         },
         onPanResponderTerminate: () => {
           Animated.spring(desliz, { toValue: 0, useNativeDriver: false }).start();
         },
       }),
-    [isLogged, desliz, cambiarPestana]
+    [isLogged, desliz, recorrido, soltarDedo]
   );
   // ¿Se enseña «Mi perfil»? (null mientras carga; false si la tabla aún no existe: entonces la cuenta sale en su tarjeta).
   const [perfilDisponible, setPerfilDisponible] = useState<boolean | null>(null);
@@ -960,27 +981,19 @@ export default function PerfilScreen() {
     router.push("/admin");
   }, []);
 
-  // «Tu cuenta está activa» (sesión y «Cerrar sesión»): va dentro de «Mi perfil», debajo de los datos.
-  const cuentaActiva = (
-    <View nativeID="perfil-cuenta" style={{ gap: 6, alignItems: "center" }}>
-      <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: "900", textAlign: "center" }}>Tu cuenta está activa</Text>
-      <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800", textAlign: "center" }}>SESIÓN ACTUAL</Text>
-      <Text style={{ color: COLORS.text, fontSize: 15.5, fontWeight: "900", textAlign: "center" }}>
-        {sessionEmail || "No hay sesión iniciada"}
-      </Text>
-      <Text style={{ color: COLORS.mutedSoft, lineHeight: 19, textAlign: "center" }}>
-        {sessionRole === "admin"
-          ? "Has iniciado sesión. Esta cuenta tiene acceso al panel de administración."
-          : "Has iniciado sesión correctamente."}
-      </Text>
-      <View style={{ alignSelf: "stretch", marginTop: 6 }}>
-        <ActionButton
-          title="Cerrar sesión"
-          onPress={signOut}
-          variant="secondary"
-          loading={isSigningOut}
-          loadingText="Cerrando sesión..."
-        />
+  // Botones de la cuenta, al final de «Mi perfil» (abierta o plegada): «Cerrar sesión» y, al administrador, «Panel de
+  // control» a su derecha (al alcance del pulgar), con el aviso del panel justo encima. «Tu cuenta está activa» es el
+  // subtítulo de «Mi perfil» y el correo de la sesión va en su recuadro, con los datos (components/PerfilPublico.tsx).
+  const accionesCuenta = (
+    <View nativeID="perfil-cuenta" style={{ gap: 8, alignItems: "center" }}>
+      {sessionRole === "admin" ? (
+        <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", lineHeight: 17, textAlign: "center" }}>
+          Esta cuenta tiene acceso al panel de administración.
+        </Text>
+      ) : null}
+      <View style={{ flexDirection: "row", gap: 10, alignSelf: "stretch" }}>
+        <BotonCuenta titulo="Cerrar sesión" onPress={signOut} cargando={isSigningOut} textoCargando="Cerrando…" />
+        {sessionRole === "admin" ? <BotonCuenta titulo="Panel de control" principal onPress={openAdminPanel} /> : null}
       </View>
     </View>
   );
@@ -1023,6 +1036,7 @@ export default function PerfilScreen() {
               {/* Las pestañas van pegadas a su contenido (no cuentan como apartado). Con sesión, deslizar el dedo a la
                   izquierda o a la derecha sobre esta zona cambia de pestaña (gestoPestanas). */}
               <Animated.View
+                ref={zonaDeslizable}
                 nativeID="perfil-deslizable"
                 {...gestoPestanas.panHandlers}
                 style={{ gap: 18, transform: [{ translateX: desliz }] }}
@@ -1045,7 +1059,7 @@ export default function PerfilScreen() {
                       {okMsg ? <InfoMessage text={okMsg} tone="success" /> : null}
                     </>
                   ) : null}
-                  <PerfilPublico uid={sessionUserId} cuenta={cuentaActiva} onDisponible={setPerfilDisponible} />
+                  <PerfilPublico uid={sessionUserId} correo={sessionEmail} cuenta={accionesCuenta} onDisponible={setPerfilDisponible} />
                 </SectionCard>
               ) : null}
               {!isLogged || !sessionUserId || perfilDisponible === false ? (
@@ -1078,8 +1092,6 @@ export default function PerfilScreen() {
                     >
                       {sessionRole === "guest"
                         ? "Accede con tu email y contraseña, o crea una cuenta nueva en un minuto."
-                        : sessionRole === "admin"
-                        ? "Has iniciado sesión correctamente. Esta cuenta tiene acceso al panel de administración."
                         : "Has iniciado sesión correctamente."}
                     </Text>
                 </View>
@@ -1293,20 +1305,9 @@ export default function PerfilScreen() {
                       >
                         {sessionEmail || "No hay sesión iniciada"}
                       </Text>
-                      <Text style={{ color: COLORS.mutedSoft, lineHeight: 19, textAlign: "center" }}>
-                        {sessionRole === "admin"
-                          ? "Cuenta iniciada correctamente con acceso interno disponible."
-                          : "Cuenta iniciada correctamente."}
-                      </Text>
                     </View>
 
-                    <ActionButton
-                      title="Cerrar sesión"
-                      onPress={signOut}
-                      variant="secondary"
-                      loading={isSigningOut}
-                      loadingText="Cerrando sesión..."
-                    />
+                    {accionesCuenta}
                   </View>
                 )}
               </SectionCard>
@@ -1314,12 +1315,6 @@ export default function PerfilScreen() {
               </>
               )}
               </Animated.View>
-
-              {!showSeguimientos && sessionRole === "admin" ? (
-                <SectionCard padding={cardPadding}>
-                  <ActionButton title="Panel de control" onPress={openAdminPanel} />
-                </SectionCard>
-              ) : null}
 
               <CategoryProductsShelf />
               {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
@@ -1367,13 +1362,15 @@ function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: Perfi
   ];
   return (
     // nativeID: la guía de Blue (components/Campanita.tsx) enmarca estas pestañas.
-    <View nativeID="perfil-pestanas" style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 4 }}>
+    <View nativeID="perfil-pestanas" role="tablist" style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 4 }}>
       {tabs.map((t) => {
         const active = value === t.key;
         return (
           <Pressable
             key={t.key}
             onPress={() => onChange(t.key)}
+            role="tab"
+            aria-selected={active}
             hitSlop={6}
             style={({ pressed }) => ({ alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
           >
