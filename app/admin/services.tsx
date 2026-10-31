@@ -162,6 +162,12 @@ type ServiceRequestRow = {
   seguimiento?: Seguimiento | null;
   seguimiento_nota?: string | null;
   seguimiento_actualizado?: string | null;
+  // Número de seguimiento (migración 20261031170000; puede no existir aún): el cliente lo escribe en «Mis seguimientos»
+  // para añadir la reparación a su cuenta. id_veoaura: la ficha se creó en VeoAura.
+  customer_user_id?: string | null;
+  codigo_seguimiento?: string | null;
+  id_veoaura?: string | null;
+  vinculado_en?: string | null;
 };
 
 type Seguimiento = "solicitado" | "recibido" | "diagnostico" | "reparando" | "listo" | "entregado" | "cancelado";
@@ -794,28 +800,29 @@ export default function AdminServices() {
   // --- Solicitudes ---
   const [requests, setRequests] = useState<ServiceRequestRow[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
-  const [requestFilter, setRequestFilter] = useState<"ALL" | RequestStatus>("ALL");
+  const [requestFilter, setRequestFilter] = useState<"ALL" | RequestStatus | "sin_cuenta" | "veoaura">("ALL");
 
   // false = faltan las columnas de seguimiento (migración sin aplicar)
   const [seguimientoOk, setSeguimientoOk] = useState(true);
+  // false = aún no hay números de seguimiento (migración 20261031170000 sin aplicar): no se enseñan.
+  const [numerosOk, setNumerosOk] = useState(false);
 
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
     try {
       const base =
         "id,created_at,service_id,service_title,nombre,apellido,metodo_contacto,contacto,ciudad,direccion,disponibilidad,comentario,status";
-      let res: { data: any[] | null; error: any } = await supabase
-        .from("service_requests")
-        .select(`${base},seguimiento,seguimiento_nota,seguimiento_actualizado`)
-        .order("created_at", { ascending: false })
-        .limit(200);
+      const consulta = (columnas: string) =>
+        supabase.from("service_requests").select(columnas).order("created_at", { ascending: false }).limit(200);
+      const seguimiento = "seguimiento,seguimiento_nota,seguimiento_actualizado";
+      let res: { data: any[] | null; error: any } = await consulta(
+        `${base},${seguimiento},customer_user_id,codigo_seguimiento,id_veoaura,vinculado_en`
+      );
+      setNumerosOk(!res.error);
+      if (res.error && faltaEsquema(res.error)) res = await consulta(`${base},${seguimiento}`);
       if (res.error && faltaEsquema(res.error)) {
         setSeguimientoOk(false);
-        res = await supabase
-          .from("service_requests")
-          .select(base)
-          .order("created_at", { ascending: false })
-          .limit(200);
+        res = await consulta(base);
       } else if (!res.error) {
         setSeguimientoOk(true);
       }
@@ -836,8 +843,21 @@ export default function AdminServices() {
 
   const filteredRequests = useMemo(() => {
     if (requestFilter === "ALL") return requests;
+    if (requestFilter === "sin_cuenta") return requests.filter((r) => !r.customer_user_id);
+    if (requestFilter === "veoaura") return requests.filter((r) => !!r.id_veoaura);
     return requests.filter((r) => r.status === requestFilter);
   }, [requests, requestFilter]);
+
+  // Números de seguimiento: cuántas fichas vienen de VeoAura y cuántas ya están en la cuenta de su cliente.
+  const resumenNumeros = useMemo(() => {
+    const deVeoaura = requests.filter((r) => !!r.id_veoaura);
+    return {
+      veoaura: deVeoaura.length,
+      veoauraVinculadas: deVeoaura.filter((r) => !!r.customer_user_id).length,
+      sinCuenta: requests.filter((r) => !r.customer_user_id).length,
+      anadidasConNumero: requests.filter((r) => !!r.vinculado_en).length,
+    };
+  }, [requests]);
 
   async function setRequestStatus(id: string, next: RequestStatus) {
     setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: next } : r)));
@@ -1022,7 +1042,29 @@ export default function AdminServices() {
                   isMobile={isMobile}
                 />
               ))}
+              {numerosOk
+                ? (
+                    [
+                      ["sin_cuenta", `Sin cuenta (${resumenNumeros.sinCuenta})`],
+                      ["veoaura", `De VeoAura (${resumenNumeros.veoaura})`],
+                    ] as const
+                  ).map(([f, label]) => (
+                    <ChipButton
+                      key={f}
+                      label={label}
+                      onPress={() => setRequestFilter(f)}
+                      variant={requestFilter === f ? "primary" : "ghost"}
+                      isMobile={isMobile}
+                    />
+                  ))
+                : null}
             </View>
+            {numerosOk && !requestsLoading ? (
+              <Text nativeID="servicios-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculadas}) ·
+                añadidas con su número: {resumenNumeros.anadidasConNumero} · sin cuenta: {resumenNumeros.sinCuenta}
+              </Text>
+            ) : null}
 
             {requestsLoading ? (
               <CargaMarca texto="Cargando solicitudes…" />
@@ -1054,6 +1096,25 @@ export default function AdminServices() {
                           <Text style={{ color: COLORS.muted, fontSize: 12.5, marginTop: 2, textAlign: "center" }}>
                             {r.service_title} · {formatDate(r.created_at)}
                           </Text>
+                          {r.codigo_seguimiento ? (
+                            <View style={{ alignItems: "center", gap: 2, marginTop: 6 }}>
+                              <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, letterSpacing: 1 }}>
+                                Nº de seguimiento {r.codigo_seguimiento}
+                              </Text>
+                              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+                                {[
+                                  r.id_veoaura ? "Ficha de VeoAura" : null,
+                                  r.customer_user_id
+                                    ? r.vinculado_en
+                                      ? `El cliente la añadió a su cuenta el ${formatDate(r.vinculado_en)}`
+                                      : "En la cuenta del cliente"
+                                    : "Aún no está en ninguna cuenta: dale este número al cliente",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
                         <View
                           style={{
@@ -1072,14 +1133,22 @@ export default function AdminServices() {
                       </View>
 
                       <View style={{ gap: 4, alignItems: "center" }}>
-                        <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                          <Text style={{ fontWeight: "800" }}>Ciudad: </Text>
-                          {r.ciudad}
-                        </Text>
+                        {r.ciudad ? (
+                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
+                            <Text style={{ fontWeight: "800" }}>Ciudad: </Text>
+                            {r.ciudad}
+                          </Text>
+                        ) : null}
                         {r.metodo_contacto ? (
                           <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>{METODO_LABEL[r.metodo_contacto]}: </Text>
                             {r.contacto || "—"}
+                          </Text>
+                        ) : r.contacto ? (
+                          // Fichas de VeoAura: el teléfono o el email que vino con la ficha.
+                          <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
+                            <Text style={{ fontWeight: "800" }}>Contacto: </Text>
+                            {r.contacto}
                           </Text>
                         ) : null}
                         {r.direccion ? (

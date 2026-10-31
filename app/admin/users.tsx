@@ -367,6 +367,9 @@ export default function AdminUsers() {
   const [usoSeguimientos, setUsoSeguimientos] = useState<{ personas: number; deslizando: number } | null>(null);
   // Personas distintas que abrieron las Normas del Foro desde el aviso de silencio (30 días). null = sin analítica.
   const [normasLeidas, setNormasLeidas] = useState<number | null>(null);
+  // Números de seguimiento añadidos a una cuenta en Perfil → «Mis seguimientos» y los intentos fallidos (30 días), con la
+  // tabla seguimiento_intentos (datos de la base de datos). null = la migración 20261031170000 aún no está aplicada.
+  const [numerosSeguimiento, setNumerosSeguimiento] = useState<{ anadidos: number; fallidos: number; personas: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -374,7 +377,7 @@ export default function AdminUsers() {
 
     try {
       const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes, moderacionRes, silenciosRes] = await Promise.all([
+      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes, moderacionRes, silenciosRes, intentosRes] = await Promise.all([
         supabase.rpc("admin_list_users_with_stats"),
         supabase.from("sell_requests").select("id", { count: "exact", head: true }),
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
@@ -390,7 +393,18 @@ export default function AdminUsers() {
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
         supabase.from("foro_moderacion").select("accion").gte("created_at", desde).limit(5000),
         supabase.from("foro_silencios").select("user_id,hasta,motivo").gt("hasta", new Date().toISOString()).order("hasta", { ascending: true }),
+        supabase.from("seguimiento_intentos").select("user_id,acierto").gte("created_at", desde).limit(5000),
       ]);
+      if (intentosRes.error) {
+        setNumerosSeguimiento(null);
+      } else {
+        const intentos = (intentosRes.data ?? []) as { user_id: string; acierto: boolean }[];
+        setNumerosSeguimiento({
+          anadidos: intentos.filter((i) => i.acierto).length,
+          fallidos: intentos.filter((i) => !i.acierto).length,
+          personas: new Set(intentos.filter((i) => i.acierto).map((i) => i.user_id)).size,
+        });
+      }
       setComentariosEliminados(comentariosOcultosRes.error ? null : comentariosOcultosRes.count ?? 0);
       if (moderacionRes.error) {
         setModeracion(null);
@@ -724,6 +738,15 @@ export default function AdminUsers() {
                   );
                 })}
               </View>
+            ) : null}
+
+            {/* Números de seguimiento (los que da la tienda, p. ej. desde VeoAura): cuántos se añaden a una cuenta y cuántos
+                intentos fallan (30 días, datos de la base de datos). Cada número sale en Pedidos y en Servicios. */}
+            {numerosSeguimiento ? (
+              <Text nativeID="admin-numeros-seguimiento" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Números de seguimiento (30 días): añadidos a una cuenta {numerosSeguimiento.anadidos} (por {numerosSeguimiento.personas}{" "}
+                {numerosSeguimiento.personas === 1 ? "persona" : "personas"}) · intentos fallidos {numerosSeguimiento.fallidos}
+              </Text>
             ) : null}
 
             {/* Perfil → «Mis seguimientos»: quién lo abre (analítica propia, 30 días) y cuántos deslizando la pestaña. */}

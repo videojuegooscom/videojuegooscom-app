@@ -23,6 +23,13 @@
  *      ignora. Un bloque que no es objeto o se queda vacío es null.
  *  M4) Un segundo «publicar» SUSTITUYE el bloque entero (otra nota, un punto quitado y otro renombrado).
  *  M5) Si la columna aún no existe (migración sin aplicar), el producto se guarda igual (y la ficha también).
+ *  Seguimiento (evento «seguimiento», fichas de clientes con número de seguimiento; reparaciones y pedidos en memoria):
+ *  S1) Reparación nueva: responde con su número («VZ-XXXX-XXXX») y se guarda con la etapa y la nota de VeoAura.
+ *  S2) Otro envío de la misma ficha la pone al día sin duplicarla ni cambiar el número; si llega igual, no cambia nada.
+ *  S3) Pedido nuevo con su contacto, entrega, total y artículos; al ponerlo al día no duplica nada.
+ *  S4) Sin email en un pedido, etapa de otro tipo, tipo desconocido o sin título: 400 y no se crea nada.
+ *  S5) El mismo id_veoaura con el otro tipo: 409.  S6) Ya en la cuenta del cliente: «vinculado: true».
+ *  S7) Sin la migración 20261031170000: 503 (reintentar) y no se crea nada.
  *  CONTROL) Las versiones de origin/main sin estas funciones no guardan la ficha / el mantenimiento: las pruebas A
  *     y M1 fallarían con ellas. Cada control solo se ejecuta si origin/main aún no tiene esa función (si no,
  *     ya no demostraría nada).
@@ -54,6 +61,17 @@ process.env.VEOAURA_ESCAPARATE_SECRETO = SECRETO;
 const productos = new Map(); // id → fila
 const columnasAusentes = new Set(); // simula migraciones aún sin aplicar («caracteristicas», «mantenimiento»)
 let escriturasConFicha = 0;
+// Seguimiento: reparaciones (service_requests), pedidos y sus artículos; false = migración 20261031170000 sin aplicar.
+const reparacionesSeg = new Map();
+const pedidosSeg = new Map();
+const articulosSeg = [];
+let numeroPedidoSeg = 100;
+let seguimientoActivado = true;
+const SIMBOLOS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const codigoNuevo = () => {
+  const s = Array.from(randomBytes(8), (b) => SIMBOLOS[b % 32]).join("");
+  return `VZ-${s.slice(0, 4)}-${s.slice(4)}`;
+};
 const json = (cuerpo, status = 200) => new Response(JSON.stringify(cuerpo), { status, headers: { "content-type": "application/json" } });
 const filtro = (url, campo) => (url.searchParams.get(campo) ?? "").replace(/^eq\./, "");
 
@@ -65,6 +83,40 @@ globalThis.fetch = async (entrada, opciones = {}) => {
   const ruta = url.pathname;
   if (ruta === "/rest/v1/escaparate_nonces" || ruta === "/rest/v1/escaparate_registro") return new Response(null, { status: 201 });
   if (ruta === "/rest/v1/categories") return json([]);
+  // Fichas con número de seguimiento (evento «seguimiento»): reparaciones y pedidos en memoria.
+  if (ruta === "/rest/v1/service_requests" || ruta === "/rest/v1/pedidos") {
+    const esPedido = ruta.endsWith("/pedidos");
+    const tabla = esPedido ? pedidosSeg : reparacionesSeg;
+    const cuerpoSeg = opciones.body ? JSON.parse(opciones.body) : null;
+    if (!seguimientoActivado && (url.searchParams.has("id_veoaura") || (cuerpoSeg && "id_veoaura" in cuerpoSeg))) {
+      return json({ code: "42703", message: `column ${esPedido ? "pedidos" : "service_requests"}.id_veoaura does not exist` }, 400);
+    }
+    if (metodo === "GET") {
+      const idV = filtro(url, "id_veoaura");
+      return json([...tabla.values()].filter((f) => !idV || f.id_veoaura === idV));
+    }
+    if (metodo === "POST") {
+      if (cuerpoSeg.id_veoaura && [...tabla.values()].some((f) => f.id_veoaura === cuerpoSeg.id_veoaura)) return json({ code: "23505", message: "duplicate key" }, 409);
+      // Como la base de datos: el número lo pone ella y una reparación nueva entra en su primera etapa (disparadores).
+      const fila = esPedido
+        ? { ...cuerpoSeg, id: randomUUID(), numero: ++numeroPedidoSeg, user_id: null, codigo_seguimiento: codigoNuevo() }
+        : { ...cuerpoSeg, id: randomUUID(), status: "nuevo", seguimiento: "solicitado", seguimiento_nota: null, seguimiento_actualizado: "2026-01-01T00:00:00Z", customer_user_id: null, codigo_seguimiento: codigoNuevo() };
+      tabla.set(fila.id, fila);
+      const objeto = /vnd\.pgrst\.object/.test(new Headers(opciones.headers ?? {}).get("accept") ?? "");
+      return json(objeto ? fila : [fila], 201);
+    }
+    if (metodo === "PATCH") {
+      const id = filtro(url, "id");
+      const fila = tabla.get(id);
+      if (fila) tabla.set(id, { ...fila, ...cuerpoSeg });
+      return new Response(null, { status: 204 });
+    }
+    return json([]);
+  }
+  if (ruta === "/rest/v1/pedido_items" && metodo === "POST") {
+    articulosSeg.push(...[].concat(JSON.parse(opciones.body)));
+    return new Response(null, { status: 201 });
+  }
   if (ruta !== "/rest/v1/products") return json([]);
 
   const cuerpo = opciones.body ? JSON.parse(opciones.body) : null;
@@ -343,6 +395,96 @@ try {
   const rG = await enviar(manejador, publicar(randomUUID(), { caracteristicas: FICHA, precio: -5 }));
   ok(rG.codigo === 400 && rG.cuerpo?.error === "precio no válido", "G: un precio no válido se sigue rechazando con 400");
   ok(escriturasConFicha > 0, `la base de datos simulada recibió la ficha en ${escriturasConFicha} escrituras`);
+
+  // ===== S) Evento «seguimiento»: fichas de clientes con número de seguimiento ===================================
+  const FORMATO = /^VZ-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/;
+  const seguimiento = (idVeoaura, datos) => ({ version: 1, evento: "seguimiento", id_veoaura: idVeoaura, seguimiento: datos });
+  const reparacionDe = (idV) => [...reparacionesSeg.values()].find((f) => f.id_veoaura === idV);
+  const pedidoDe = (idV) => [...pedidosSeg.values()].find((f) => f.id_veoaura === idV);
+
+  // S1) Reparación nueva: número de la tienda, etapa y nota de VeoAura (no la primera etapa que pone la base de datos).
+  const idS1 = randomUUID();
+  const rS1 = await enviar(manejador, seguimiento(idS1, { tipo: "reparacion", titulo: "Reparación de mando PS5", etapa: "reparando", nota: "Cambiamos el joystick izquierdo", cliente: { nombre: "Ana", telefono: "600111222" } }));
+  const fS1 = reparacionDe(idS1);
+  ok(rS1.codigo === 200 && rS1.cuerpo?.ok === true && rS1.cuerpo?.tipo === "reparacion" && FORMATO.test(rS1.cuerpo?.codigo_seguimiento ?? "") && rS1.cuerpo?.vinculado === false && rS1.cuerpo?.id_tienda === fS1?.id, `S1: una reparación nueva responde con su número de seguimiento (${JSON.stringify(rS1.cuerpo)})`);
+  ok(fS1?.service_title === "Reparación de mando PS5" && fS1?.seguimiento === "reparando" && fS1?.seguimiento_nota === "Cambiamos el joystick izquierdo" && fS1?.status === "revisado" && fS1?.nombre === "Ana" && fS1?.contacto === "600111222", `S1: se guarda con su etapa, la nota del taller y el contacto (${JSON.stringify({ seguimiento: fS1?.seguimiento, status: fS1?.status })})`);
+
+  // S2) Otro envío de la misma ficha: misma fila y mismo número, etapa al día; si nada cambia, la fecha de la etapa tampoco.
+  const antesS2 = reparacionDe(idS1).seguimiento_actualizado;
+  const rS2 = await enviar(manejador, seguimiento(idS1, { tipo: "reparacion", titulo: "Reparación de mando PS5", etapa: "listo", nota: "Ya puedes pasar a recogerlo" }));
+  const fS2 = reparacionDe(idS1);
+  ok(rS2.codigo === 200 && rS2.cuerpo?.codigo_seguimiento === rS1.cuerpo?.codigo_seguimiento && [...reparacionesSeg.values()].filter((f) => f.id_veoaura === idS1).length === 1, "S2: el mismo id_veoaura pone al día la ficha sin duplicarla ni cambiar el número");
+  ok(fS2.seguimiento === "listo" && fS2.seguimiento_nota === "Ya puedes pasar a recogerlo" && fS2.seguimiento_actualizado !== antesS2, "S2: la etapa y la nota cambian (y su fecha, para que Blue avise al cliente)");
+  const fechaS2 = fS2.seguimiento_actualizado;
+  await enviar(manejador, seguimiento(idS1, { tipo: "reparacion", titulo: "Reparación de mando PS5", etapa: "listo", nota: "Ya puedes pasar a recogerlo" }));
+  ok(reparacionDe(idS1).seguimiento_actualizado === fechaS2, "S2: si llega igual, la fecha de la etapa no cambia (no hay aviso de nada nuevo)");
+
+  // S3) Pedido nuevo con sus artículos.
+  const idS3 = randomUUID();
+  const rS3 = await enviar(manejador, seguimiento(idS3, {
+    tipo: "pedido",
+    titulo: "Nintendo Switch OLED",
+    etapa: "preparado",
+    entrega: "recogida",
+    cliente: { nombre: "Luis Gil", telefono: "611222333", email: "luis@example.com" },
+    articulos: [{ titulo: "Nintendo Switch OLED", precio_eur: 249.99 }, { titulo: "Funda", precio_eur: 15 }],
+    total_eur: 264.99,
+  }));
+  const fS3 = pedidoDe(idS3);
+  ok(rS3.codigo === 200 && rS3.cuerpo?.tipo === "pedido" && FORMATO.test(rS3.cuerpo?.codigo_seguimiento ?? "") && rS3.cuerpo?.numero_pedido === fS3?.numero, `S3: un pedido nuevo responde con su número de seguimiento y su número de pedido (${JSON.stringify(rS3.cuerpo)})`);
+  const articulosS3 = articulosSeg.filter((a) => a.pedido_id === fS3?.id);
+  ok(fS3?.estado === "preparado" && fS3?.entrega === "recogida" && fS3?.email === "luis@example.com" && fS3?.total_eur === 264.99 && articulosS3.length === 2 && articulosS3.every((a) => a.product_id === null), "S3: se guarda con su etapa, la entrega, el contacto, el total y sus 2 artículos");
+  const rS3b = await enviar(manejador, seguimiento(idS3, { tipo: "pedido", titulo: "Nintendo Switch OLED", etapa: "entregado", entrega: "recogida", cliente: { nombre: "Luis Gil", telefono: "611222333", email: "luis@example.com" } }));
+  ok(rS3b.codigo === 200 && rS3b.cuerpo?.codigo_seguimiento === rS3.cuerpo?.codigo_seguimiento && pedidoDe(idS3).estado === "entregado" && articulosSeg.filter((a) => a.pedido_id === fS3?.id).length === 2, "S3: al ponerlo al día cambia la etapa, sin duplicar el pedido ni sus artículos");
+
+  // S4) Lo que falta o no vale se rechaza con 400 y no crea nada.
+  const antesS4 = pedidosSeg.size + reparacionesSeg.size;
+  const sinEmail = await enviar(manejador, seguimiento(randomUUID(), { tipo: "pedido", titulo: "Mando", etapa: "pendiente", cliente: { nombre: "Eva", telefono: "622333444" } }));
+  const etapaMala = await enviar(manejador, seguimiento(randomUUID(), { tipo: "reparacion", titulo: "Limpieza", etapa: "enviado" }));
+  const tipoMalo = await enviar(manejador, seguimiento(randomUUID(), { tipo: "devolucion", titulo: "Algo", etapa: "pendiente" }));
+  const sinTitulo = await enviar(manejador, seguimiento(randomUUID(), { tipo: "reparacion", etapa: "recibido" }));
+  ok(
+    sinEmail.codigo === 400 && sinEmail.cuerpo?.error === "falta el email del cliente" &&
+      etapaMala.codigo === 400 && etapaMala.cuerpo?.error === "etapa no válida" &&
+      tipoMalo.codigo === 400 && tipoMalo.cuerpo?.error === "tipo no válido" &&
+      sinTitulo.codigo === 400 && pedidosSeg.size + reparacionesSeg.size === antesS4,
+    `S4: sin email en un pedido, una etapa de otro tipo, un tipo desconocido o sin título: 400 y no se crea nada (${sinEmail.cuerpo?.error} · ${etapaMala.cuerpo?.error} · ${tipoMalo.cuerpo?.error} · ${sinTitulo.cuerpo?.error})`
+  );
+
+  // S5) El mismo id_veoaura con el otro tipo: 409.
+  const rS5 = await enviar(manejador, seguimiento(idS1, { tipo: "pedido", titulo: "X", etapa: "pendiente", cliente: { nombre: "Ana", telefono: "600111222", email: "ana@example.com" } }));
+  ok(rS5.codigo === 409 && !pedidoDe(idS1), "S5: una ficha que ya existe con el otro tipo se rechaza (409) sin crear nada");
+
+  // S6) Si el cliente ya lo añadió a su cuenta, VeoAura lo sabe («vinculado»).
+  reparacionesSeg.set(fS1.id, { ...reparacionDe(idS1), customer_user_id: "11111111-1111-4111-8111-111111111111" });
+  const rS6 = await enviar(manejador, seguimiento(idS1, { tipo: "reparacion", titulo: "Reparación de mando PS5", etapa: "entregado" }));
+  ok(rS6.codigo === 200 && rS6.cuerpo?.vinculado === true && reparacionDe(idS1).customer_user_id === "11111111-1111-4111-8111-111111111111", "S6: con la ficha ya en la cuenta del cliente responde «vinculado: true» y no se la quita");
+
+  // S7) La tienda aún sin la migración: 503 (VeoAura reintenta más tarde) y no se crea nada.
+  seguimientoActivado = false;
+  const antesS7 = pedidosSeg.size + reparacionesSeg.size;
+  const rS7 = await enviar(manejador, seguimiento(randomUUID(), { tipo: "reparacion", titulo: "Limpieza de consola", etapa: "recibido" }));
+  ok(rS7.codigo === 503 && rS7.cuerpo?.error === "seguimiento aún no activado en la tienda" && pedidosSeg.size + reparacionesSeg.size === antesS7, `S7: sin la migración aplicada responde 503 y no crea nada (${rS7.codigo} ${rS7.cuerpo?.error})`);
+  seguimientoActivado = true;
+
+  // CONTROL: la versión de origin/main no conoce «seguimiento» (solo si origin/main aún no lo tiene).
+  try {
+    const viejoSeg = execFileSync("git", ["show", "origin/main:api/escaparate-veoaura.ts"], { encoding: "utf8" });
+    if (!viejoSeg.includes("guardarSeguimiento")) {
+      const carpeta = mkdtempSync(join(tmpdir(), "vz-viejo-seg-"));
+      mkdirSync(join(carpeta, "api"));
+      symlinkSync(resolve("node_modules"), join(carpeta, "node_modules"));
+      writeFileSync(join(carpeta, "api", "escaparate-veoaura.ts"), viejoSeg);
+      const manejadorViejo = (await import(pathToFileURL(join(carpeta, "api", "escaparate-veoaura.ts")).href)).default;
+      const rViejo = await enviar(manejadorViejo, seguimiento(randomUUID(), { tipo: "reparacion", titulo: "Limpieza", etapa: "recibido" }));
+      ok(rViejo.codigo === 400, `CONTROL: la versión de origin/main rechaza «seguimiento» (${rViejo.codigo}): la prueba S1 fallaría con ella`);
+    } else {
+      console.log("AVISO control de «seguimiento» omitido (origin/main ya lo tiene)");
+    }
+  } catch (e) {
+    hablar();
+    console.log(`AVISO no se pudo ejecutar el control de «seguimiento»: ${String(e.message).slice(0, 120)}`);
+  }
 } catch (e) {
   hablar();
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
