@@ -362,6 +362,8 @@ export default function AdminMarcaSeo() {
             hitSlop={8}
             style={({ pressed }) => ({
               position: "absolute",
+              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
+              zIndex: 1,
               left: 0,
               top: 0,
               bottom: 0,

@@ -55,7 +55,12 @@ type Pedido = {
   codigo_seguimiento?: string | null;
   id_veoaura?: string | null;
   vinculado_en?: string | null;
+  // Nota interna: «Asignado desde el chat» si lo creó el administrador desde Administración → Chat.
+  nota_admin?: string | null;
 };
+
+// La pone api/asignar-seguimiento.ts al asignar un seguimiento desde el chat.
+const NOTA_ASIGNADO_CHAT = "Asignado desde el chat";
 
 const ESTADOS: { value: Estado; label: string }[] = [
   { value: "pendiente", label: "Pendiente" },
@@ -108,11 +113,13 @@ function EtiquetaNumero({
   veoaura,
   enCuenta,
   vinculadoEn,
+  desdeChat,
 }: {
   codigo: string;
   veoaura: boolean;
   enCuenta: boolean;
   vinculadoEn: string | null;
+  desdeChat: boolean;
 }) {
   return (
     <View style={{ alignItems: "center", gap: 2 }}>
@@ -125,7 +132,9 @@ function EtiquetaNumero({
           enCuenta
             ? vinculadoEn
               ? `El cliente lo añadió a su cuenta el ${fmtFecha(vinculadoEn)}`
-              : "En la cuenta del cliente"
+              : desdeChat
+                ? "Asignado desde el chat: ya está en la cuenta del cliente"
+                : "En la cuenta del cliente"
             : "Aún no está en ninguna cuenta: dale este número al cliente",
         ]
           .filter(Boolean)
@@ -152,7 +161,7 @@ export default function PedidosAdmin() {
       "id,numero,created_at,estado,entrega,nombre,email,telefono,direccion,codigo_postal,ciudad,notas,total_eur,pedido_items(id,product_id,titulo,precio_eur)";
     const consulta = (columnas: string) => supabase.from("pedidos").select(columnas).order("created_at", { ascending: false }).limit(200);
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(
-      `${base},user_id,codigo_seguimiento,id_veoaura,vinculado_en`
+      `${base},user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin`
     );
     const sinNumeros = !!res.error && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(String(res.error.message ?? "")));
     if (sinNumeros) res = await consulta(base);
@@ -192,6 +201,7 @@ export default function PedidosAdmin() {
       veoauraVinculados: deVeoaura.filter((p) => !!p.user_id).length,
       sinVincular: pedidos.filter((p) => !p.user_id).length,
       anadidosConNumero: pedidos.filter((p) => !!p.vinculado_en).length,
+      desdeChat: pedidos.filter((p) => p.nota_admin === NOTA_ASIGNADO_CHAT).length,
     };
   }, [pedidos]);
 
@@ -252,6 +262,8 @@ export default function PedidosAdmin() {
             hitSlop={8}
             style={({ pressed }) => ({
               position: "absolute",
+              // Por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
+              zIndex: 1,
               left: 0,
               top: 0,
               bottom: 0,
@@ -281,7 +293,8 @@ export default function PedidosAdmin() {
           {numerosOk && !loading ? (
             <Text nativeID="pedidos-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
               Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculados}) ·
-              añadidos con su número: {resumenNumeros.anadidosConNumero} · sin cuenta: {resumenNumeros.sinVincular}
+              añadidos con su número: {resumenNumeros.anadidosConNumero} · sin cuenta: {resumenNumeros.sinVincular} · asignados desde
+              el chat: {resumenNumeros.desdeChat}
             </Text>
           ) : null}
 
@@ -333,7 +346,15 @@ export default function PedidosAdmin() {
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
                   {fmtFecha(p.created_at)} · {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
-                {p.codigo_seguimiento ? <EtiquetaNumero codigo={p.codigo_seguimiento} veoaura={!!p.id_veoaura} enCuenta={!!p.user_id} vinculadoEn={p.vinculado_en ?? null} /> : null}
+                {p.codigo_seguimiento ? (
+                  <EtiquetaNumero
+                    codigo={p.codigo_seguimiento}
+                    veoaura={!!p.id_veoaura}
+                    enCuenta={!!p.user_id}
+                    vinculadoEn={p.vinculado_en ?? null}
+                    desdeChat={p.nota_admin === NOTA_ASIGNADO_CHAT}
+                  />
+                ) : null}
 
                 {(p.pedido_items ?? []).map((it) => (
                   <Text key={it.id} style={{ color: COLORS.text, textAlign: "center" }}>

@@ -168,7 +168,12 @@ type ServiceRequestRow = {
   codigo_seguimiento?: string | null;
   id_veoaura?: string | null;
   vinculado_en?: string | null;
+  // Nota interna: «Asignado desde el chat» si la creó el administrador desde Administración → Chat.
+  nota_admin?: string | null;
 };
+
+// La pone api/asignar-seguimiento.ts al asignar un seguimiento desde el chat.
+const NOTA_ASIGNADO_CHAT = "Asignado desde el chat";
 
 type Seguimiento = "solicitado" | "recibido" | "diagnostico" | "reparando" | "listo" | "entregado" | "cancelado";
 
@@ -816,7 +821,7 @@ export default function AdminServices() {
         supabase.from("service_requests").select(columnas).order("created_at", { ascending: false }).limit(200);
       const seguimiento = "seguimiento,seguimiento_nota,seguimiento_actualizado";
       let res: { data: any[] | null; error: any } = await consulta(
-        `${base},${seguimiento},customer_user_id,codigo_seguimiento,id_veoaura,vinculado_en`
+        `${base},${seguimiento},customer_user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin`
       );
       setNumerosOk(!res.error);
       if (res.error && faltaEsquema(res.error)) res = await consulta(`${base},${seguimiento}`);
@@ -856,6 +861,7 @@ export default function AdminServices() {
       veoauraVinculadas: deVeoaura.filter((r) => !!r.customer_user_id).length,
       sinCuenta: requests.filter((r) => !r.customer_user_id).length,
       anadidasConNumero: requests.filter((r) => !!r.vinculado_en).length,
+      desdeChat: requests.filter((r) => r.nota_admin === NOTA_ASIGNADO_CHAT).length,
     };
   }, [requests]);
 
@@ -1062,7 +1068,8 @@ export default function AdminServices() {
             {numerosOk && !requestsLoading ? (
               <Text nativeID="servicios-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                 Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculadas}) ·
-                añadidas con su número: {resumenNumeros.anadidasConNumero} · sin cuenta: {resumenNumeros.sinCuenta}
+                añadidas con su número: {resumenNumeros.anadidasConNumero} · sin cuenta: {resumenNumeros.sinCuenta} · asignadas desde
+                el chat: {resumenNumeros.desdeChat}
               </Text>
             ) : null}
 
@@ -1107,7 +1114,9 @@ export default function AdminServices() {
                                   r.customer_user_id
                                     ? r.vinculado_en
                                       ? `El cliente la añadió a su cuenta el ${formatDate(r.vinculado_en)}`
-                                      : "En la cuenta del cliente"
+                                      : r.nota_admin === NOTA_ASIGNADO_CHAT
+                                        ? "Asignada desde el chat: ya está en la cuenta del cliente"
+                                        : "En la cuenta del cliente"
                                     : "Aún no está en ninguna cuenta: dale este número al cliente",
                                 ]
                                   .filter(Boolean)

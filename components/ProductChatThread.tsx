@@ -205,10 +205,13 @@ type ChatKind = "product" | "sell" | "support";
 export default function ProductChatThread({
   chatId,
   headerRight,
+  bajoCabecera,
   onDeleted,
 }: {
   chatId: string;
   headerRight?: React.ReactNode;
+  /** Franja bajo la cabecera (Administración → Chat: «Asignar seguimiento» a este cliente). */
+  bajoCabecera?: React.ReactNode;
   /** Se llama justo después de borrar la conversación (por mi lado) con
    * éxito, para que la pantalla que incrusta este componente pueda salir o
    * refrescar su lista (ver app/chat/[chatId].tsx, app/admin/chats.tsx). */
@@ -507,6 +510,8 @@ export default function ProductChatThread({
           </Pressable>
         </View>
       ) : null}
+
+      {bajoCabecera}
 
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>

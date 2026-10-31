@@ -127,7 +127,8 @@ export default function AdminAuditorias() {
             accessibilityRole="button"
             accessibilityLabel="Volver al panel"
             hitSlop={8}
-            style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 40, alignItems: "center", justifyContent: "center" }}
+            // zIndex: por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
+            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: 40, alignItems: "center", justifyContent: "center" }}
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
