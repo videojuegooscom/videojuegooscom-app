@@ -85,6 +85,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
   AdminHeader,
   AdminLoading,
@@ -1025,7 +1026,8 @@ export default function AdminProducts() {
       setSupportsFeaturedHome(supportsFeatured);
       setSupportsReference(prodResult.supportsReference);
       setSupportsProductMedia(supportsMedia);
-      setCategories((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]);
+      // Sin «Reparación / Limpieza»: solo guarda la portada del recuadro de Inicio que lleva a Servicios (no lleva productos).
+      setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]).filter((c) => !esCategoriaServicios(c.slug)));
       setItems(merged);
     } catch (e: any) {
       console.error(

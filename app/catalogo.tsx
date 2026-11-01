@@ -63,7 +63,7 @@ import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
-import PortadasCategoria, { faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
+import PortadasCategoria, { esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/Campanita";
 import CatalogFilters, {
@@ -300,7 +300,8 @@ async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
   if (error) throw error;
 
   const rows = asArray<CategoryRow>(data);
-  return rows.filter((c) => (adminFlag ? true : !!c.is_active));
+  // «Reparación / Limpieza» solo guarda la portada del recuadro de Inicio que lleva a Servicios: no tiene productos.
+  return rows.filter((c) => !esCategoriaServicios(c.slug) && (adminFlag ? true : !!c.is_active));
 }
 
 /**

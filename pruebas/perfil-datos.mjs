@@ -90,10 +90,15 @@
  *  - X) Blue IA: «Hablar con el equipo» sale una sola vez (encima del recuadro de escribir, 44 px), también cuando Blue
  *    IA no puede ayudar, y cada mensaje de Blue lleva la mascota de Blue (36 px) en vez del icono.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W» o «X» de cuarto argumento solo se ejecuta esa sección (visor, números,
- * chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas de las categorías o
- * Blue IA).
+ *  - Y) «Reparación / Limpieza» en Administración → Categorías aunque aún no sea una fila: solo portadas y cuánto se
+ *    ven, sin borrar ni ocultar; al guardar se crea con el slug del recuadro de Inicio («reparaciones»). Los toques de
+ *    cada recuadro de Inicio (y si tenía portada). Inicio: su portada al % elegido, sigue llevando a Servicios y el
+ *    toque se apunta. En el catálogo no sale entre las plataformas.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X» o «Y» de cuarto argumento solo se ejecuta esa sección (visor,
+ * números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas de las
+ * categorías, Blue IA o «Reparación / Limpieza»).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -202,8 +207,9 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.salio = true;
       return r.fulfill({ status: 204, headers: CORS, body: "" });
     }
-    // Subida de la foto de perfil (nada llega a ningún almacén): se apunta qué se mandaría (y la foto, para mirarla).
-    if (url.pathname.startsWith("/storage/v1/object/avatares/") && metodo === "POST") {
+    // Subida de la foto de perfil o de una portada de categoría (nada llega a ningún almacén): se apunta qué se mandaría
+    // (y la foto, para mirarla).
+    if (/^\/storage\/v1\/object\/(avatares|product-media)\//.test(url.pathname) && metodo === "POST") {
       const cuerpo = peticion.postDataBuffer() ?? Buffer.alloc(0);
       const texto = cuerpo.toString("latin1");
       const inicio = cuerpo.indexOf(Buffer.from([0xff, 0xd8, 0xff]));
@@ -463,6 +469,18 @@ async function contexto(navegador, usuario, rol, estado) {
         estado.categoriasGuardadas = [...(estado.categoriasGuardadas ?? []), { id, cuerpo }];
         estado.categorias = estado.categorias.map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
         return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      // Una categoría nueva (sección Y: «Reparación / Limpieza» al guardarle la portada); el slug no se puede repetir.
+      if (metodo === "POST") {
+        const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+        if (estado.categorias.some((f) => f.slug === cuerpo.slug)) {
+          return json({ code: "23505", message: 'duplicate key value violates unique constraint "categories_slug_key"' }, 409);
+        }
+        const ahora = new Date().toISOString();
+        const id = `c0000000-0000-4000-8000-${String(estado.categorias.length + 1).padStart(12, "0")}`;
+        estado.categoriasCreadas = [...(estado.categoriasCreadas ?? []), cuerpo];
+        estado.categorias = [...estado.categorias, { id, image_url: null, imagenes: [], portada_opacidad: null, created_at: ahora, updated_at: ahora, ...cuerpo }];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
       }
     }
     // Ajustes de la tienda (fila única): las reseñas en los canales de venta (sección T). Sin la migración, sin esas columnas.
@@ -1691,6 +1709,147 @@ async function seccionX() {
   await ctx.close();
 }
 
+// ===== Y) «Reparación / Limpieza» en Administración → Categorías: su portada para el recuadro de Inicio (lleva a
+// Servicios), los toques de cada recuadro y que no se cuela como categoría de productos en el catálogo ===============
+async function seccionY() {
+  const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/ps5.jpg";
+  const cat = (id, slug, name, extra = {}) => ({
+    id, slug, name, sort_order: 0, is_active: true, image_url: null, imagenes: [], portada_opacidad: null,
+    created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", ...extra,
+  });
+  const perfil = (id) => [{ user_id: id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const toque = (categoria, portada, n) => ({ event_name: "categoria_inicio", session_id: `s${n}`, metadata: { categoria, portada } });
+  // Como la base de datos real: «Reparación / Limpieza» aún no es una fila de categories.
+  const estado = {
+    filas: perfil(ADMIN.id),
+    guardados: [],
+    categorias: [
+      cat("c0000000-0000-4000-8000-0000000000a1", "playstation-5", "PlayStation 5", { image_url: foto, imagenes: [foto], portada_opacidad: 40 }),
+      cat("c0000000-0000-4000-8000-0000000000a2", "playstation-4", "PlayStation 4", { sort_order: 1 }),
+    ],
+    eventos: [toque("reparaciones", false, 1), toque("reparaciones", false, 2), toque("reparaciones", false, 3), toque("playstation-5", true, 4)],
+  };
+
+  // Y1) El dueño le pone portada desde Categorías: sale aunque aún no exista, solo con portadas y cuánto se ven, y al
+  // guardar se crea con el slug del recuadro de Inicio.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    const tarjeta = p.locator("#categoria-servicios");
+    await tarjeta.waitFor({ timeout: 30000 }).catch(() => {});
+    const texto = (await tarjeta.innerText().catch(() => "")).replace(/\n/g, " | ");
+    ok(/Reparación \/ Limpieza/.test(texto) && /Recuadro de Inicio · lleva a Servicios/.test(texto) && /Sin portada/.test(texto), `Y: en Categorías sale «Reparación / Limpieza» (lleva a Servicios), aún sin portada (${texto})`);
+    const interruptores = await tarjeta.locator('[role="switch"], input[type="checkbox"]').count();
+    ok(!/Borrar/.test(texto) && interruptores === 0, `Y: no se puede borrar ni ocultar: su recuadro de Inicio está siempre (${interruptores} interruptores)`);
+    const toquesServicios = await p.locator("#categoria-toques-reparaciones").innerText().catch(() => "");
+    const toquesPs5 = await p.locator("#categoria-toques-playstation-5").innerText().catch(() => "");
+    ok(
+      /Desde Inicio \(30 días\): 3 toques · con portada: 0/.test(toquesServicios) && /Desde Inicio \(30 días\): 1 toque · con portada: 1/.test(toquesPs5),
+      `Y: cada categoría cuenta los toques de su recuadro en Inicio y cuántos tenían portada (${toquesServicios} / ${toquesPs5})`
+    );
+
+    await tarjeta.getByText("Editar", { exact: true }).click();
+    await p.locator("#categoria-portadas").waitFor({ timeout: 15000 }).catch(() => {});
+    const ventana = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    const campos = (await p.getByPlaceholder("Nombre de la categoría").count()) + (await p.getByPlaceholder("Identificador para la URL").count());
+    ok(
+      /es el recuadro de Inicio que lleva a Servicios: aquí eliges su portada y cuánto se ve/.test(ventana) && campos === 0 && !/Categoría activa/.test(ventana),
+      `Y: su editor solo tiene las portadas y cuánto se ven, sin nombre, slug, orden ni «activa» (${campos} campos)`
+    );
+    // Una foto horizontal de 1200 × 600 (verde): se reduce y se sube como las demás portadas.
+    const png = await p.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 1200;
+      c.height = 600;
+      const x = c.getContext("2d");
+      x.fillStyle = "#16A34A";
+      x.fillRect(0, 0, 1200, 600);
+      return c.toDataURL("image/png").split(",")[1];
+    });
+    const [selector] = await Promise.all([p.waitForEvent("filechooser"), p.locator("#categoria-subir-portada").click()]);
+    await selector.setFiles({ name: "taller.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    await p.locator("#categoria-opacidad").waitFor({ timeout: 20000 }).catch(() => {});
+    const subida = (estado.subidas ?? []).at(-1);
+    ok(!!subida && /^product-media\/categorias\/\d+-[a-z0-9]+\.jpg$/.test(subida.ruta), `Y: la foto se sube reducida a la carpeta de las portadas (${subida?.ruta})`);
+    const previa = (await p.locator("#categoria-opacidad").innerText().catch(() => "")).replace(/\n/g, " | ");
+    ok(/Reparación \/ Limpieza/.test(previa) && /Ver servicios →/.test(previa), `Y: la vista previa es su recuadro de Inicio, con «Ver servicios →» (${previa})`);
+    await p.getByRole("button", { name: "Foto más suave" }).click();
+    await p.getByRole("button", { name: "Foto más suave" }).click();
+    await capturar(p, "Y1-editor-reparacion");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#categoria-opacidad").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const creada = (estado.categoriasCreadas ?? []).at(-1);
+    ok(
+      !!creada && creada.slug === "reparaciones" && creada.name === "Reparación / Limpieza" && creada.is_active === true && creada.portada_opacidad === 45 &&
+        Array.isArray(creada.imagenes) && creada.imagenes.length === 1 && /\/product-media\/categorias\//.test(creada.imagenes[0]) && creada.image_url === creada.imagenes[0],
+      `Y: al guardar se crea con el slug del recuadro de Inicio y su portada al 45 % (${JSON.stringify(creada)})`
+    );
+    ok(!(estado.categoriasGuardadas ?? []).length, "Y: y ninguna otra categoría cambia");
+    await p.waitForTimeout(800);
+    const veces = await p.locator("#categoria-servicios").count();
+    const fotos = await p.locator("#categoria-servicios img").count();
+    const conFechas = /Creada:/.test(await p.locator("#categoria-servicios").innerText().catch(() => ""));
+    ok(veces === 1 && fotos > 0 && conFechas, `Y: ya guardada, sale una sola vez en la lista y con su portada (${veces} vez · ${fotos} fotos)`);
+    ok(p.errores.length === 0, `Y: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // Y2) Inicio: el recuadro «Reparación / Limpieza» ya sale con su portada (al 45 %), sigue llevando a Servicios y el
+  // toque se apunta en la analítica propia.
+  {
+    const cliente = { filas: perfil(CLIENTE.id), guardados: [], aceptaAnalitica: true, categorias: estado.categorias };
+    const ctx = await contexto(navegador, CLIENTE, "user", cliente);
+    const p = await pagina(ctx, "/");
+    await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator('[data-testid="categoria-reparaciones"] img').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const m = await p.evaluate(() => {
+      const t = document.querySelector('[data-testid="categoria-reparaciones"]');
+      if (!t) return null;
+      const capa = t.querySelector("#portada-foto");
+      const rt = t.getBoundingClientRect();
+      const ri = capa?.getBoundingClientRect();
+      return {
+        conFoto: !!t.querySelector("img"),
+        opacidad: capa ? Number(getComputedStyle(capa).opacity) : null,
+        fotoLlena: !!ri && Math.abs(ri.width - rt.width) <= 3 && Math.abs(ri.height - rt.height) <= 3,
+        texto: t.innerText.replace(/\n/g, " | "),
+        etiqueta: t.getAttribute("aria-label"),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        pantalla: window.innerWidth,
+      };
+    });
+    ok(!!m && m.conFoto && m.fotoLlena && Math.abs(m.opacidad - 0.45) < 0.01, `Y: en Inicio, «Reparación / Limpieza» sale con su portada llenando el recuadro, al 45 % (${JSON.stringify(m)})`);
+    ok(!!m && /Reparación \/ Limpieza/.test(m.texto) && /Ver servicios →/.test(m.texto) && m.etiqueta === "Reparación / Limpieza. Ver servicios", `Y: con el nombre y «Ver servicios →» encima, y un lector de pantalla dice qué es (${m?.etiqueta})`);
+    ok(!!m && m.ancho <= m.pantalla + 1, `Y: la página no se ensancha (${m?.ancho}/${m?.pantalla})`);
+    await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "Y2-categorias-inicio.png") : undefined }).catch(() => {});
+    await p.locator('[data-testid="categoria-reparaciones"]').click();
+    await p.waitForURL(/\/servicios/, { timeout: 15000 }).catch(() => {});
+    for (let i = 0; i < 20 && !(cliente.eventosEnviados ?? []).some((e) => e.event_name === "categoria_inicio"); i++) await p.waitForTimeout(300);
+    const ev = (cliente.eventosEnviados ?? []).find((e) => e.event_name === "categoria_inicio");
+    ok(/\/servicios/.test(p.url()), `Y: tocarlo sigue llevando a Servicios (${new URL(p.url()).pathname})`);
+    ok(ev?.metadata?.categoria === "reparaciones" && ev?.metadata?.portada === true, `Y: y se apunta en la analítica propia, con la categoría y si tenía portada (${JSON.stringify(ev?.metadata)})`);
+    ok(p.errores.length === 0, `Y: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // Y3) En el catálogo no sale entre las plataformas (no es una categoría de productos).
+  {
+    const cliente = { filas: perfil(CLIENTE.id), guardados: [], categorias: estado.categorias };
+    const ctx = await contexto(navegador, CLIENTE, "user", cliente);
+    const p = await pagina(ctx, "/catalogo");
+    await p.getByRole("button", { name: /^Filtros/ }).first().click({ timeout: 30000 });
+    await p.getByText("Plataforma", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " | ");
+    await capturar(p, "Y3-catalogo-filtros");
+    // Los títulos de los filtros salen en mayúsculas («PLATAFORMA»).
+    const plataformas = (t.match(/Plataforma \| (.*?) \| Estado/i) ?? [null, "(no se ven)"])[1];
+    ok(/PlayStation 4/.test(plataformas) && !/Reparación \/ Limpieza/.test(t), `Y: en el catálogo, «Reparación / Limpieza» no sale entre las plataformas, no tiene productos (${plataformas})`);
+    ok(p.errores.length === 0, `Y: catálogo sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -1841,6 +2000,7 @@ try {
   if (SOLO === "V") await seccionV();
   if (SOLO === "W") await seccionW();
   if (SOLO === "X") await seccionX();
+  if (SOLO === "Y") await seccionY();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2764,6 +2924,7 @@ try {
   await seccionV();
   await seccionW();
   await seccionX();
+  await seccionY();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

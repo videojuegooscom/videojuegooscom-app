@@ -345,7 +345,10 @@ async function categoriaTienda(supabase: SupabaseClient, p: Producto): Promise<s
   if (/ps4|playstation ?4/.test(pista)) return buscar("playstation-4");
   if (/switch|nintendo/.test(pista)) return buscar("nintendo-switch");
   if (/xbox/.test(pista)) return buscar("xbox");
-  const porNombre = p.categoria ? cats.find((c) => c.name.toLowerCase() === p.categoria!.toLowerCase())?.id : null;
+  // «reparaciones» solo guarda la portada del recuadro de Inicio que lleva a Servicios: no es para artículos.
+  const porNombre = p.categoria
+    ? cats.find((c) => c.slug !== "reparaciones" && c.name.toLowerCase() === p.categoria!.toLowerCase())?.id
+    : null;
   return porNombre ?? buscar("electronica");
 }
 

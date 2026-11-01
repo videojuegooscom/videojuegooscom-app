@@ -2045,10 +2045,17 @@ export default function HomeScreen() {
               }}
             >
               {HOME_CATEGORIES.map((category) => {
-                const onPress =
+                const ir =
                   category.cat === "reparaciones"
                     ? () => pushRoute("/servicios" as Href)
                     : () => pushRoute(`/catalogo?cat=${encodeURIComponent(category.cat)}` as Href);
+                // Cuántos tocan cada recuadro y si tenía portada (analítica propia; lo enseña Administración → Categorías).
+                const onPress = () => {
+                  void trackEvent("categoria_inicio", `Inicio: recuadro ${category.title}`, {
+                    metadata: { categoria: category.cat, portada: !!portadasCategorias[category.cat]?.length },
+                  });
+                  ir();
+                };
 
                 return (
                   <CategoryCard
