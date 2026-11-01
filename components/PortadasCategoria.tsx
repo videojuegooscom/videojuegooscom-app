@@ -16,6 +16,9 @@
  * - PortadaConNombre: la portada llenando el recuadro de la categoría en Inicio, con el nombre encima y la foto al
  *   porcentaje que elige el dueño en el editor (portada_opacidad, 10-100 %; sin valor, 55 %).
  * - faltaColumnaPortadas(error): si Supabase dice que aún no existe la columna (la migración se aplica aparte).
+ * - CATEGORIA_SERVICIOS / esCategoriaServicios(slug): «Reparación / Limpieza», el recuadro de Inicio que lleva a
+ *   Servicios. No es una categoría de productos, pero su portada se guarda como una fila más de categories (slug
+ *   «reparaciones»), que el panel crea al guardarla la primera vez; el catálogo y el editor de productos la dejan fuera.
  *
  * Conectado con: app/(tabs)/index.tsx (tarjetas de «Categorías»), app/catalogo.tsx (cabecera de la categoría),
  * app/admin/categories.tsx (lista, formulario y vista previa), supabase/migrations/20261030120000_categorias_portadas.sql
@@ -42,6 +45,13 @@ export function portadasDe(fila: { imagenes?: unknown; image_url?: unknown } | n
   const antigua = typeof fila?.image_url === "string" ? fila.image_url.trim() : "";
   if (!urls.length && /^https?:\/\/\S+$/i.test(antigua)) urls.push(antigua);
   return Array.from(new Set(urls)).slice(0, MAX_PORTADAS);
+}
+
+// «Reparación / Limpieza» en Inicio lleva a Servicios: su portada vive en categories con este slug (el del recuadro de
+// Inicio), pero no es una categoría de productos (ni en el catálogo ni en el editor de productos).
+export const CATEGORIA_SERVICIOS = { slug: "reparaciones", nombre: "Reparación / Limpieza" } as const;
+export function esCategoriaServicios(slug: string | null | undefined): boolean {
+  return slug === CATEGORIA_SERVICIOS.slug;
 }
 
 export function faltaColumnaPortadas(error: { message?: string } | null | undefined): boolean {

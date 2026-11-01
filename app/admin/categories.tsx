@@ -24,6 +24,14 @@
  *   solo se guarda una portada.
  * - El modal de creación/edición valida nombre y slug (autogenerado desde el
  *   nombre) antes de guardar con insert/update.
+ * - «Reparación / Limpieza» (el recuadro de Inicio que lleva a Servicios)
+ *   sale siempre en la lista para ponerle portada: si aún no tiene fila en
+ *   categories, va una provisional (sin id) y al guardarla se crea con el
+ *   slug «reparaciones». En su formulario solo están las portadas y cuánto se
+ *   ven (sin nombre, slug, orden ni «activa»), y no se puede borrar ni ocultar.
+ * - Cada categoría enseña cuántas veces se ha tocado su recuadro de Inicio en
+ *   30 días y cuántas de ellas tenía portada (analítica propia
+ *   «categoria_inicio», que no cuenta a quien la rechazó ni al administrador).
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
  *   Supabase devuelve error.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y textos
@@ -62,10 +70,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import PortadasCategoria, {
+  CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
   OPACIDAD_PORTADA_DEFECTO,
   OPACIDAD_PORTADA_MIN,
   PortadaConNombre,
+  esCategoriaServicios,
   faltaColumnaPortadas,
   olvidarPortadasCategorias,
   opacidadDe,
@@ -125,6 +135,26 @@ async function consultarCategorias(columnas: string) {
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   return { data: (res.data ?? null) as unknown as CategoryRow[] | null, error: res.error };
+}
+
+// «Reparación / Limpieza» (lleva a Servicios) sale siempre en la lista para poder ponerle portada: si aún no tiene fila
+// en categories, va una provisional (sin id) al final y al guardarla se crea.
+function conRecuadroServicios(filas: CategoryRow[]): CategoryRow[] {
+  if (filas.some((c) => esCategoriaServicios(c.slug))) return filas;
+  const orden = filas.reduce((max, c) => Math.max(max, Number(c.sort_order) || 0), 0) + 1;
+  const provisional: CategoryRow = {
+    id: "",
+    name: CATEGORIA_SERVICIOS.nombre,
+    slug: CATEGORIA_SERVICIOS.slug,
+    sort_order: orden,
+    is_active: true,
+    image_url: null,
+    imagenes: [],
+    portada_opacidad: null,
+    created_at: "",
+    updated_at: "",
+  };
+  return [...filas, provisional];
 }
 
 // Extensión del archivo que se sube (las reducidas siempre son JPEG).
@@ -260,6 +290,8 @@ export default function AdminCategories() {
 
   const [editing, setEditing] = useState<CategoryRow | null>(null);
   const isEdit = !!editing;
+  // «Reparación / Limpieza»: solo portadas y cuánto se ven (el nombre y el enlace del recuadro de Inicio son fijos).
+  const editandoServicios = esCategoriaServicios(editing?.slug);
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -270,6 +302,9 @@ export default function AdminCategories() {
   const [opacidad, setOpacidad] = useState(OPACIDAD_PORTADA_DEFECTO);
   const [subiendo, setSubiendo] = useState(false);
   const [avisoPortadas, setAvisoPortadas] = useState<string | null>(null);
+  // Toques en cada recuadro de «Categorías» de Inicio, por slug (analítica propia «categoria_inicio», 30 días; sin
+  // quien la rechazó ni el administrador). null si no se ha podido leer.
+  const [toquesInicio, setToquesInicio] = useState<Record<string, { toques: number; conPortada: number }> | null>(null);
 
   const modalTitle = useMemo(
     () => (isEdit ? "Editar categoría" : "Nueva categoría"),
@@ -303,14 +338,37 @@ export default function AdminCategories() {
     try {
       // «*»: trae las columnas que existan, sin errores 400 si falta alguna (migración pendiente); con lo que trae la
       // primera fila se sabe qué se puede guardar (sin filas, se da por hecho que todo y al guardar se comprueba).
-      const res = await consultarCategorias("*");
+      const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const [res, toquesRes] = await Promise.all([
+        consultarCategorias("*"),
+        supabase
+          .from("analytics_events")
+          .select("metadata")
+          .eq("event_name", "categoria_inicio")
+          .gte("created_at", desde)
+          .limit(5000),
+      ]);
+      if (toquesRes.error) {
+        setToquesInicio(null);
+      } else {
+        const cuenta: Record<string, { toques: number; conPortada: number }> = {};
+        for (const f of (toquesRes.data ?? []) as { metadata: { categoria?: string; portada?: boolean } | null }[]) {
+          const slugToque = f.metadata?.categoria;
+          if (!slugToque) continue;
+          const c = cuenta[slugToque] ?? { toques: 0, conPortada: 0 };
+          cuenta[slugToque] = c;
+          c.toques += 1;
+          if (f.metadata?.portada) c.conPortada += 1;
+        }
+        setToquesInicio(cuenta);
+      }
       if (res.error) throw res.error;
       const filas = res.data ?? [];
       const muestra = filas[0] as Record<string, unknown> | undefined;
       setSupportsImagenes(!muestra || "imagenes" in muestra);
       setSupportsImageUrl(!muestra || "image_url" in muestra);
       setSupportsOpacidad(!muestra || "portada_opacidad" in muestra);
-      setItems(filas);
+      setItems(conRecuadroServicios(filas));
     } catch (e: any) {
       console.error("Error cargando categorías:", e);
       setScreenErr("No se han podido cargar las categorías. Inténtalo de nuevo.");
@@ -427,7 +485,7 @@ export default function AdminCategories() {
     setModalErr(null);
 
     const cleanName = name.trim();
-    const cleanSlug = slugify(slug || cleanName);
+    const cleanSlug = editandoServicios ? CATEGORIA_SERVICIOS.slug : slugify(slug || cleanName);
     const so = toIntSafe(sortOrder, 0);
 
     if (!cleanName) {
@@ -459,7 +517,8 @@ export default function AdminCategories() {
         name: cleanName,
         slug: cleanSlug,
         sort_order: so,
-        is_active: isActive,
+        // «Reparación / Limpieza» siempre activa: oculta, su recuadro de Inicio se quedaría sin la portada.
+        is_active: editandoServicios ? true : isActive,
       };
 
       const fotos = portadas.slice(0, maxPortadas);
@@ -467,8 +526,9 @@ export default function AdminCategories() {
       if (supportsImageUrl) payload.image_url = fotos[0] ?? null;
       if (supportsOpacidad) payload.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
 
+      // Sin id (la de «Reparación / Limpieza» la primera vez), se crea.
       const escribir = (datos: any) =>
-        editing
+        editing?.id
           ? supabase.from("categories").update(datos).eq("id", editing.id)
           : supabase.from("categories").insert(datos);
 
@@ -604,9 +664,12 @@ export default function AdminCategories() {
             />
           ) : (
             <View style={{ gap: 12 }}>
-            {filteredItems.map((c) => (
+            {filteredItems.map((c) => {
+              const servicios = esCategoriaServicios(c.slug);
+              return (
               <View
-                key={c.id}
+                key={c.id || c.slug}
+                nativeID={servicios ? "categoria-servicios" : undefined}
                 style={{
                   borderRadius: 20,
                   backgroundColor: COLORS.card,
@@ -668,29 +731,46 @@ export default function AdminCategories() {
                         {/* Datos en una línea de texto (antes, tres "burbujas";
                             la de Visible/Oculta repetía lo que ya dice el interruptor). */}
                         <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, lineHeight: 18, marginTop: 6 }}>
-                          Slug: {c.slug} · Orden: {c.sort_order}
+                          {servicios ? "Recuadro de Inicio · lleva a Servicios" : `Slug: ${c.slug} · Orden: ${c.sort_order}`}
                         </Text>
+                        {toquesInicio ? (
+                          <Text
+                            nativeID={`categoria-toques-${c.slug}`}
+                            style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, lineHeight: 18, marginTop: 4 }}
+                          >
+                            {(() => {
+                              const t = toquesInicio[c.slug] ?? { toques: 0, conPortada: 0 };
+                              const veces = `${t.toques} ${t.toques === 1 ? "toque" : "toques"}`;
+                              return `Desde Inicio (30 días): ${veces}${t.toques ? ` · con portada: ${t.conPortada}` : ""}`;
+                            })()}
+                          </Text>
+                        ) : null}
                       </View>
 
-                      <View
-                        style={{
-                          alignItems: isMobile ? "flex-start" : "flex-end",
-                          gap: 10,
-                        }}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                          <Text style={{ color: c.is_active ? COLORS.success : COLORS.warning, fontWeight: "800" }}>
-                            {c.is_active ? "Visible" : "Oculta"}
-                          </Text>
-                          <Switch value={c.is_active} onValueChange={() => toggleActive(c)} />
+                      {/* «Reparación / Limpieza» no se oculta: su recuadro de Inicio está siempre. */}
+                      {!servicios ? (
+                        <View
+                          style={{
+                            alignItems: isMobile ? "flex-start" : "flex-end",
+                            gap: 10,
+                          }}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                            <Text style={{ color: c.is_active ? COLORS.success : COLORS.warning, fontWeight: "800" }}>
+                              {c.is_active ? "Visible" : "Oculta"}
+                            </Text>
+                            <Switch value={c.is_active} onValueChange={() => toggleActive(c)} />
+                          </View>
                         </View>
-                      </View>
+                      ) : null}
                     </View>
 
-                    <Text style={{ color: COLORS.muted2, fontSize: 12, lineHeight: 17 }}>
-                      Creada: {c.created_at ? new Date(c.created_at).toLocaleString("es-ES") : "-"} ·
-                      Actualizada: {c.updated_at ? new Date(c.updated_at).toLocaleString("es-ES") : "-"}
-                    </Text>
+                    {c.id ? (
+                      <Text style={{ color: COLORS.muted2, fontSize: 12, lineHeight: 17 }}>
+                        Creada: {c.created_at ? new Date(c.created_at).toLocaleString("es-ES") : "-"} ·
+                        Actualizada: {c.updated_at ? new Date(c.updated_at).toLocaleString("es-ES") : "-"}
+                      </Text>
+                    ) : null}
 
                     <View
                       style={{
@@ -706,17 +786,20 @@ export default function AdminCategories() {
                         onPress={() => openEdit(c)}
                         isMobile={isMobile}
                       />
-                      <ChipButton
-                        label="Borrar"
-                        variant="danger"
-                        onPress={() => askRemove(c)}
-                        isMobile={isMobile}
-                      />
+                      {!servicios ? (
+                        <ChipButton
+                          label="Borrar"
+                          variant="danger"
+                          onPress={() => askRemove(c)}
+                          isMobile={isMobile}
+                        />
+                      ) : null}
                     </View>
                   </View>
                 </View>
               </View>
-            ))}
+              );
+            })}
             </View>
           )}
         </View>
@@ -769,9 +852,14 @@ export default function AdminCategories() {
               </Text>
 
               <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                Define el nombre, el orden y la visibilidad de la categoría en la navegación pública.
+                {editandoServicios
+                  ? `«${CATEGORIA_SERVICIOS.nombre}» es el recuadro de Inicio que lleva a Servicios: aquí eliges su portada y cuánto se ve.`
+                  : "Define el nombre, el orden y la visibilidad de la categoría en la navegación pública."}
               </Text>
 
+              {/* «Reparación / Limpieza»: el nombre y el enlace de su recuadro son fijos (sin nombre, slug ni orden). */}
+              {!editandoServicios ? (
+              <>
               <TextInput
                 value={name}
                 onChangeText={(v) => {
@@ -807,6 +895,8 @@ export default function AdminCategories() {
                 keyboardType="numeric"
                 style={inputStyle}
               />
+              </>
+              ) : null}
 
               {maxPortadas > 0 ? (
                 <View nativeID="categoria-portadas" style={{ gap: 10, alignItems: "center", paddingTop: 2 }}>
@@ -946,7 +1036,7 @@ export default function AdminCategories() {
                           imagenes={portadas}
                           opacidad={opacidad}
                           titulo={name.trim() || "Nombre de la categoría"}
-                          subtitulo="Ver categoría →"
+                          subtitulo={editandoServicios ? "Ver servicios →" : "Ver categoría →"}
                           alto={140}
                         />
                       </View>
@@ -1017,6 +1107,7 @@ export default function AdminCategories() {
                 </View>
               ) : null}
 
+              {!editandoServicios ? (
               <View
                 style={{
                   borderRadius: 16,
@@ -1044,6 +1135,7 @@ export default function AdminCategories() {
                   <Switch value={isActive} onValueChange={setIsActive} />
                 </View>
               </View>
+              ) : null}
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
