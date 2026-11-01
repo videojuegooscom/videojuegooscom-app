@@ -36,6 +36,8 @@
  *  - Seguidores de TikTok e Instagram (20261101100000_redes_seguidores.sql), sobre social_links como en producción: añade
  *    las dos columnas sin tocar los permisos; cualquiera los lee; solo el administrador los escribe; no admite negativos;
  *    repetirla no duplica nada ni borra lo escrito (con su «prueba de las pruebas»: sin la comprobación, entra un negativo).
+ *  - Reseñas en los canales de venta (20261101120000_resenas_canales.sql), sobre site_settings como en producción: lo
+ *    mismo (dos columnas sin tocar permisos, lectura pública, solo el administrador escribe, sin negativos, repetible).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -793,6 +795,53 @@ try {
     const negativo2 = await como(c14, "authenticated", ADMIN, "update public.social_links set seguidores = -5 where platform = 'instagram'");
     ok(negativo2.ok, "(control) sin la comprobación entra un negativo: la prueba SÍ lo detecta");
     await c14.end();
+  }
+
+  // 14) Reseñas en los canales de venta (20261101120000), sobre site_settings como está en producción (fila única, lectura
+  // pública y solo el administrador la cambia).
+  {
+    const TABLA_AJUSTES = `
+      create table public.site_settings (id integer primary key, seo_title text, seo_description text, logo_url text,
+        updated_at timestamptz default now(), updated_by uuid, social_links_title text);
+      alter table public.site_settings enable row level security;
+      create policy site_settings_public_read on public.site_settings for select using (true);
+      create policy site_settings_admin_update on public.site_settings for update using (public.is_admin());
+      insert into public.site_settings (id, seo_title, social_links_title) values (1, 'Videojuegos Zaragoza', 'Síguenos');
+    `;
+    const RESENAS = readFileSync("supabase/migrations/20261101120000_resenas_canales.sql", "utf8");
+    const c15 = await nuevaBase("vz_aislada_resenas", TABLA_AJUSTES + RESENAS);
+    const cols = (await c15.query("select column_name, data_type from information_schema.columns where table_schema = 'public' and table_name = 'site_settings' and column_name like 'resenas%' order by 1")).rows;
+    ok(cols.map((x) => `${x.column_name}:${x.data_type}`).join(",") === "resenas_canales:integer,resenas_canales_actualizado:timestamp with time zone", `Reseñas: añade el número y su fecha (${cols.map((x) => x.column_name).join(", ")})`);
+    const polAjustes = (await c15.query("select policyname from pg_policies where tablename = 'site_settings' order by 1")).rows.map((x) => x.policyname);
+    ok(polAjustes.join(",") === "site_settings_admin_update,site_settings_public_read", `Reseñas: no toca los permisos (${polAjustes.join(", ")})`);
+    const anonLeeAjustes = await como(c15, "anon", null, "select resenas_canales from public.site_settings where id = 1");
+    ok(anonLeeAjustes.ok && anonLeeAjustes.filas.length === 1, "Reseñas: cualquiera (también sin sesión) las lee, como Inicio");
+    const adminRes = await como(c15, "authenticated", ADMIN, "update public.site_settings set resenas_canales = 350, resenas_canales_actualizado = now() where id = 1", { confirmar: true });
+    const clienteRes = await como(c15, "authenticated", U1, "update public.site_settings set resenas_canales = 99999 where id = 1", { confirmar: true });
+    const anonRes = await como(c15, "anon", null, "update public.site_settings set resenas_canales = 5 where id = 1", { confirmar: true });
+    const quedaRes = (await c15.query("select resenas_canales from public.site_settings where id = 1")).rows[0].resenas_canales;
+    ok(adminRes.ok && adminRes.cuantas === 1 && quedaRes === 350, "Reseñas: el administrador escribe el número");
+    ok((!clienteRes.ok || clienteRes.cuantas === 0) && (!anonRes.ok || anonRes.cuantas === 0), "Reseñas: un cliente o un visitante no lo pueden cambiar");
+    const negRes = await como(c15, "authenticated", ADMIN, "update public.site_settings set resenas_canales = -1 where id = 1");
+    ok(!negRes.ok && negRes.codigo === "23514", `Reseñas: un número negativo no se guarda (${negRes.codigo ?? "entró"})`);
+    let repetidaRes = true;
+    try {
+      await c15.query(RESENAS);
+    } catch {
+      repetidaRes = false;
+    }
+    const checksRes = Number((await c15.query("select count(*) as n from pg_constraint where conname = 'site_settings_resenas_canales_check'")).rows[0].n);
+    const sigueRes = (await c15.query("select resenas_canales from public.site_settings where id = 1")).rows[0].resenas_canales;
+    ok(repetidaRes && checksRes === 1 && sigueRes === 350, "Reseñas: la migración se puede aplicar dos veces sin duplicar nada ni borrar lo escrito");
+    await c15.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación, un número negativo entraría.
+    const sinComprobacionRes = RESENAS.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinComprobacionRes !== RESENAS, "(control) se ha podido quitar la comprobación de las reseñas en la copia de prueba");
+    const c16 = await nuevaBase("vz_aislada_resenas_sin_comprobacion", TABLA_AJUSTES + sinComprobacionRes);
+    const negRes2 = await como(c16, "authenticated", ADMIN, "update public.site_settings set resenas_canales = -1 where id = 1");
+    ok(negRes2.ok, "(control) sin la comprobación entra un negativo: la prueba SÍ lo detecta");
+    await c16.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

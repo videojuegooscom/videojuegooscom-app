@@ -41,6 +41,11 @@
  *   migración 20261101100000; sin ella el campo avisa y no se guarda, y en
  *   Inicio sale «Síguenos»). Arriba, cuántas veces se tocan desde Inicio
  *   (30 días, analítica propia «redes_inicio»).
+ * - «Reseñas en los canales de venta»: cuántas reseñas lleva la tienda en
+ *   Wallapop, Vinted…; salen con una estrella debajo del logo de Inicio
+ *   (ResenasCanales). Columnas site_settings.resenas_canales y
+ *   resenas_canales_actualizado (migración 20261101120000; sin ella el campo
+ *   avisa y no se guarda, y en Inicio no sale). Vacío o 0: no sale.
  * - Abrir la app o la web al tocar cada icono ya lo resuelve el propio
  *   sistema operativo del usuario (enlaces universales de Instagram,
  *   Facebook, YouTube, WhatsApp, Wallapop, Vinted y Apple Maps) — no hace
@@ -259,6 +264,12 @@ export default function AdminRedesSociales() {
   const [conSeguidores, setConSeguidores] = useState(true);
   // Redes cuyo número de seguidores se ha cambiado (para apuntar la fecha al guardar).
   const [seguidoresCambiados, setSeguidoresCambiados] = useState<Set<SocialPlatform>>(new Set());
+  // Reseñas en los canales de venta (debajo del logo de Inicio): el número, cuándo se escribió, si existe ya su columna
+  // (migración 20261101120000) y si se ha cambiado (para apuntar la fecha al guardar).
+  const [resenas, setResenas] = useState<number | null>(null);
+  const [resenasActualizado, setResenasActualizado] = useState<string | null>(null);
+  const [conResenas, setConResenas] = useState(true);
+  const [resenasCambiadas, setResenasCambiadas] = useState(false);
   // Toques en TikTok e Instagram junto al logo de Inicio (analítica propia, 30 días; sin quien la rechazó).
   const [toquesInicio, setToquesInicio] = useState<{ tiktok: number; instagram: number; personas: number } | null>(null);
 
@@ -271,7 +282,8 @@ export default function AdminRedesSociales() {
       // si las filas no traen «seguidores», el campo avisa de que aún no se guarda.
       const [linksRes, settingsRes, toquesRes] = await Promise.all([
         supabase.from("social_links").select("*").order("sort_order", { ascending: true }),
-        supabase.from("site_settings").select("social_links_title").eq("id", 1).maybeSingle(),
+        // «*» también aquí: sin la migración de las reseñas no hay error 400; si la fila no las trae, el campo avisa.
+        supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
         supabase
           .from("analytics_events")
           .select("session_id,metadata")
@@ -288,6 +300,13 @@ export default function AdminRedesSociales() {
       if (!settingsRes.error && settingsRes.data?.social_links_title) {
         setFollowTitle(settingsRes.data.social_links_title);
       }
+      const ajustes = (settingsRes.error ? null : settingsRes.data) as
+        | { resenas_canales?: number | null; resenas_canales_actualizado?: string | null }
+        | null;
+      setConResenas(!!ajustes && "resenas_canales" in ajustes);
+      setResenas(ajustes?.resenas_canales ?? null);
+      setResenasActualizado(ajustes?.resenas_canales_actualizado ?? null);
+      setResenasCambiadas(false);
 
       if (toquesRes.error) {
         setToquesInicio(null);
@@ -356,7 +375,16 @@ export default function AdminRedesSociales() {
             })
             .eq("platform", r.platform)
         ),
-        supabase.from("site_settings").update({ social_links_title: cleanTitle }).eq("id", 1),
+        supabase
+          .from("site_settings")
+          .update({
+            social_links_title: cleanTitle,
+            // Las reseñas, solo si ya existe su columna; la fecha, si cambiaron.
+            ...(conResenas
+              ? { resenas_canales: resenas, ...(resenasCambiadas ? { resenas_canales_actualizado: resenas != null ? ahora : null } : {}) }
+              : {}),
+          })
+          .eq("id", 1),
       ]);
 
       const firstError = results.find((r) => r.error)?.error;
@@ -371,9 +399,11 @@ export default function AdminRedesSociales() {
         }))
       );
       setSeguidoresCambiados(new Set());
+      if (conResenas && resenasCambiadas) setResenasActualizado(resenas != null ? ahora : null);
+      setResenasCambiadas(false);
       setMsg({
         type: "ok",
-        text: "Guardado. Ya se ve así junto al logo de Inicio (TikTok e Instagram), en el pie de página, Perfil, la Cesta y Blue IA.",
+        text: "Guardado. Ya se ve así junto al logo de Inicio (TikTok, Instagram y las reseñas), en el pie de página, Perfil, la Cesta y Blue IA.",
       });
     } catch (e: any) {
       console.error("Error guardando redes sociales:", e);
@@ -507,6 +537,51 @@ export default function AdminRedesSociales() {
               />
               <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
                 El texto que aparece encima de los iconos en el pie de página, Perfil y la Cesta.
+              </Text>
+            </View>
+
+            {/* Reseñas en los canales de venta: salen con una estrella debajo del logo de Inicio (las escribe Daniel). */}
+            <View style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 14 : 18, gap: 10 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Ionicons name="star" size={18} color="#F5A623" />
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                  Reseñas en los canales de venta
+                </Text>
+              </View>
+              <TextInput
+                accessibilityLabel="Reseñas en los canales de venta"
+                value={resenas != null ? String(resenas) : ""}
+                onChangeText={(text) => {
+                  const cifras = text.replace(/\D/g, "").slice(0, 10);
+                  setResenas(cifras ? Math.min(2000000000, Number(cifras)) : null);
+                  setResenasCambiadas(true);
+                  setMsg(null);
+                }}
+                onFocus={scrollFieldIntoView}
+                placeholder="Por ejemplo, 350"
+                placeholderTextColor="rgba(11,33,56,0.40)"
+                keyboardType="number-pad"
+                inputMode="numeric"
+                maxLength={13}
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: COLORS.text,
+                  backgroundColor: COLORS.cardSoft,
+                  fontSize: 16,
+                }}
+              />
+              <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
+                {!conResenas
+                  ? "Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio no sale."
+                  : resenas != null && resenas > 0
+                    ? `Debajo del logo de Inicio: «${formatearSeguidores(resenas)} ${resenas === 1 ? "reseña" : "reseñas"} en todos nuestros canales de venta»${
+                        fechaCorta(resenasActualizado) ? ` · escrito el ${fechaCorta(resenasActualizado)}` : ""
+                      }. Déjalo vacío para que no salga.`
+                    : "Todas las reseñas que llevas en Wallapop, Vinted, Facebook Marketplace… Vacío: en Inicio no sale."}
               </Text>
             </View>
 

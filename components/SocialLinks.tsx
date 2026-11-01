@@ -72,7 +72,9 @@
  * TikTok a la izquierda e Instagram a la derecha, con sus seguidores (los
  * escribe Daniel en app/admin/redes-sociales.tsx). Es el único sitio, además
  * del pie de página, donde salen redes (lección «Redes sociales: en el pie y,
- * TikTok e Instagram, junto al logo de Inicio»).
+ * TikTok e Instagram, junto al logo de Inicio»). Debajo del logo, con una
+ * estrella, las reseñas en los canales de venta (ResenasCanales /
+ * useResenasCanales: site_settings.resenas_canales, que también escribe Daniel).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente para leer `social_links` y
@@ -307,6 +309,58 @@ export function RedJuntoAlLogo({ fila, estrecho }: { fila: FilaRedLogo; estrecho
         {numero ? detalle : `en ${fila.label}`}
       </Text>
     </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Reseñas en los canales de venta, debajo del logo de Inicio (petición del dueño, 2026-11-01): una estrella y «350
+// reseñas en todos nuestros canales de venta» (Wallapop, Vinted…, a lo largo del tiempo). El número lo escribe el dueño
+// en Administración → Redes sociales (site_settings.resenas_canales, migración 20261101120000): nunca se inventa, y sin
+// número (o sin la migración) no sale nada. Se lee con «*» para no dejar un error 400 antes de la migración.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export function useResenasCanales(): number | null {
+  const [n, setN] = useState<number | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from("site_settings").select("*").eq("id", 1).maybeSingle();
+        if (!vivo || error || !data) return;
+        const valor = Number((data as { resenas_canales?: number | null }).resenas_canales);
+        setN((data as { resenas_canales?: number | null }).resenas_canales != null && Number.isFinite(valor) && valor > 0 ? valor : null);
+      } catch {
+        // Sin conexión: no sale.
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  return n;
+}
+
+/** «★ 350 reseñas» y, debajo, «en todos nuestros canales de venta». Solo informa (no se toca). */
+export function ResenasCanales({ n, estrecho }: { n: number; estrecho?: boolean }) {
+  const numero = formatearSeguidores(n);
+  const palabra = n === 1 ? "reseña" : "reseñas";
+  return (
+    <View
+      nativeID="inicio-resenas"
+      accessible
+      accessibilityLabel={`${numero} ${palabra} en todos nuestros canales de venta`}
+      style={{ alignItems: "center", gap: 1, paddingVertical: 2 }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Ionicons name="star" size={estrecho ? 16 : 18} color="#F5A623" />
+        <Text numberOfLines={1} style={{ color: "#0B2138", fontWeight: "900", fontSize: estrecho ? 15 : 17 }}>
+          {numero} {palabra}
+        </Text>
+      </View>
+      <Text numberOfLines={1} style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", fontSize: estrecho ? 11 : 12 }}>
+        en todos nuestros canales de venta
+      </Text>
+    </View>
   );
 }
 

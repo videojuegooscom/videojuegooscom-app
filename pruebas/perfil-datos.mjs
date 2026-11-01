@@ -72,8 +72,10 @@
  *  - T) Inicio: TikTok a la izquierda del logo e Instagram a la derecha, con su icono y sus seguidores («1.234», «12,5
  *    mil»), el logo en el centro, de 44 px o más, sin salirse (también a 320 px), lo que dice el lector de pantalla, que
  *    al tocar abre el perfil y se mide, que Blue no las tapa (ni otro botón o campo); sin número o sin la migración,
- *    «Síguenos»; una red desactivada no sale. Administración → Redes sociales: los seguidores de TikTok e Instagram (solo
- *    cifras), cuándo se escribieron, los toques desde Inicio y lo que se guarda (con y sin la migración).
+ *    «Síguenos»; una red desactivada no sale. Debajo del logo, «★ 350 reseñas en todos nuestros canales de venta»
+ *    (centrado, antes del título, entero a 320 px; sin número o sin la migración no sale). Administración → Redes
+ *    sociales: los seguidores de TikTok e Instagram y las reseñas (solo cifras), cuándo se escribieron, los toques desde
+ *    Inicio y lo que se guarda (con y sin la migración, sin peticiones fallidas).
  *
  * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T]
  * Con «N», «P», «Q», «R», «S» o «T» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y
@@ -413,7 +415,25 @@ async function contexto(navegador, usuario, rol, estado) {
         return r.fulfill({ status: 204, headers: CORS, body: "" });
       }
     }
-    if (estado.redes && url.pathname.endsWith("/rest/v1/site_settings") && metodo === "PATCH") return r.fulfill({ status: 204, headers: CORS, body: "" });
+    // Ajustes de la tienda (fila única): las reseñas en los canales de venta (sección T). Sin la migración, sin esas columnas.
+    if (estado.ajustes && url.pathname.endsWith("/rest/v1/site_settings") && metodo === "GET") {
+      const select = url.searchParams.get("select") ?? "*";
+      if (estado.redesSinColumna && /resenas/.test(select)) {
+        estado.redes400 = (estado.redes400 ?? 0) + 1;
+        return json({ code: "42703", message: "column site_settings.resenas_canales does not exist" }, 400);
+      }
+      const completa = estado.redesSinColumna ? Object.fromEntries(Object.entries(estado.ajustes).filter(([c]) => !c.startsWith("resenas"))) : estado.ajustes;
+      const fila = select.split(",").includes("*") ? completa : Object.fromEntries(select.split(",").map((c) => [c, completa[c] ?? null]));
+      return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(fila) : json([fila]);
+    }
+    if (estado.redes && url.pathname.endsWith("/rest/v1/site_settings") && metodo === "PATCH") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      if (estado.redesSinColumna && "resenas_canales" in cuerpo) {
+        return json({ code: "PGRST204", message: "Could not find the 'resenas_canales' column of 'site_settings' in the schema cache" }, 400);
+      }
+      estado.ajustesGuardados = [...(estado.ajustesGuardados ?? []), cuerpo];
+      return r.fulfill({ status: 204, headers: CORS, body: "" });
+    }
     // Novedades del Panel de control (sección S): cuántas filas hay después de la fecha pedida («gt»), como la base de
     // datos; se apunta cada consulta para mirar sus filtros. Sin datos de la prueba, cero (nada llega a la base de datos real).
     if (metodo === "HEAD" && /\/rest\/v1\/(pedidos|service_requests|sell_requests|products|escaparate_registro|store_reviews|auditorias_web)$/.test(url.pathname)) {
@@ -1138,6 +1158,8 @@ async function seccionT() {
     red("tiktok", "TikTok", 2, { seguidores: 1234 }),
     red("whatsapp", "WhatsApp", 3, { url: "627748741" }),
   ];
+  // La fila de ajustes de la tienda, con las reseñas en los canales de venta.
+  const ajustes = (resenas = 350) => ({ id: 1, seo_title: "Videojuegos Zaragoza", social_links_title: "Síguenos", resenas_canales: resenas, resenas_canales_actualizado: resenas != null ? "2026-10-31T10:00:00Z" : null });
   const medir = (p) => p.evaluate(() => {
     const r = (id) => {
       const e = document.getElementById(id);
@@ -1145,12 +1167,13 @@ async function seccionT() {
       const b = e.getBoundingClientRect();
       return { x: b.x, y: b.y, w: b.width, h: b.height, texto: e.innerText.replace(/\n+/g, " | "), etiqueta: e.getAttribute("aria-label") };
     };
-    return { tiktok: r("inicio-tiktok"), instagram: r("inicio-instagram"), fila: r("inicio-logo-redes"), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth };
+    const titulo = document.querySelector('[role="heading"][aria-level="1"], h1')?.getBoundingClientRect();
+    return { tiktok: r("inicio-tiktok"), instagram: r("inicio-instagram"), resenas: r("inicio-resenas"), fila: r("inicio-logo-redes"), titulo: titulo ? { y: titulo.y } : null, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth };
   });
 
   // T1) Con los dos números: TikTok a la izquierda del logo, Instagram a la derecha, en su fila y sin salirse.
   {
-    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, redes: redes() };
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, redes: redes(), ajustes: ajustes() };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/");
     await p.locator("#inicio-instagram").waitFor({ timeout: 30000 }).catch(() => {});
@@ -1162,6 +1185,12 @@ async function seccionT() {
     ok(Math.abs(centro - m.pantalla / 2) < 2, `T: el logo sigue en el centro de la pantalla (${Math.round(centro)} de ${m.pantalla})`);
     ok(m.tiktok.x >= 0 && m.instagram.x + m.instagram.w <= m.pantalla && m.tiktok.h >= 44 && m.instagram.h >= 44 && m.ancho <= m.pantalla + 1, `T: dentro de la pantalla, de 44 px o más y sin ensanchar la página (${m.ancho}/${m.pantalla})`);
     ok(m.tiktok.etiqueta === "TikTok: 1.234 seguidores. Abrir el perfil" && m.instagram.etiqueta === "Instagram: 12,5 mil seguidores. Abrir el perfil", `T: un lector de pantalla dice la red, los seguidores y que abre el perfil (${m.tiktok.etiqueta})`);
+    // Debajo del logo, las reseñas en los canales de venta: centradas, antes del título.
+    await p.locator("#inicio-resenas").waitFor({ timeout: 10000 }).catch(() => {});
+    const mr = await medir(p);
+    ok(!!mr.resenas && /350 reseñas \| en todos nuestros canales de venta/.test(mr.resenas.texto), `T: debajo del logo, «350 reseñas en todos nuestros canales de venta» (${mr.resenas?.texto})`);
+    ok(!!mr.resenas && !!mr.fila && Math.abs(mr.resenas.x + mr.resenas.w / 2 - mr.pantalla / 2) < 3 && mr.resenas.y >= mr.fila.y + mr.fila.h - 2 && (!mr.titulo || mr.resenas.y + mr.resenas.h <= mr.titulo.y + 1), `T: centradas debajo del logo y antes del título (${JSON.stringify({ resenas: mr.resenas, fila: mr.fila, titulo: mr.titulo })})`);
+    ok(mr.resenas?.etiqueta === "350 reseñas en todos nuestros canales de venta", `T: un lector de pantalla lo lee seguido (${mr.resenas?.etiqueta})`);
     await capturar(p, "T1-inicio-redes");
 
     // Al tocar Instagram se abre su perfil y se mide (analítica propia).
@@ -1212,6 +1241,20 @@ async function seccionT() {
     ok(tapados.length === 0, `T: Blue no se pone encima de ningún botón ni campo (${tapados.join(" · ") || "ninguno"}; Blue en ${JSON.stringify(await p.evaluate(() => { const r = document.getElementById("blue-flotante")?.getBoundingClientRect(); return r ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] : null; }))})`);
     await capturar(p, "T2-inicio-con-blue");
     ok(p.errores.length === 0, `T: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+
+    // En un móvil de 320 px, las reseñas también caben y se leen enteras.
+    await p.setViewportSize({ width: 320, height: 700 });
+    await p.waitForTimeout(600);
+    const r320 = await p.evaluate(() => {
+      const r = document.getElementById("inicio-resenas")?.getBoundingClientRect();
+      return {
+        dentro: !!r && r.x >= 0 && r.x + r.width <= window.innerWidth,
+        cortados: Array.from(document.querySelectorAll("#inicio-resenas *")).filter((n) => n.children.length === 0 && n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      };
+    });
+    ok(r320.dentro && r320.cortados.length === 0 && r320.ancho <= 321, `T: en 320 px las reseñas caben y se leen enteras (${JSON.stringify(r320)})`);
+    await capturar(p, "T2b-inicio-320-resenas");
     await ctx.close();
   }
 
@@ -1220,24 +1263,28 @@ async function seccionT() {
     const lista = redes();
     lista[0].seguidores = null;
     lista[1].enabled = false;
-    const estado = { filas: perfil, guardados: [], redes: lista };
+    const estado = { filas: perfil, guardados: [], redes: lista, ajustes: ajustes(null) };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/");
     await p.locator("#inicio-instagram").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
     const m = await medir(p);
     ok(!!m.instagram && /^Síguenos \| en Instagram$/.test(m.instagram.texto.trim().replace(/^\S+ \| /, "")) && m.instagram.etiqueta === "Síguenos en Instagram. Abrir el perfil", `T: sin número, Instagram dice «Síguenos en Instagram» (${m.instagram?.texto})`);
     ok(!m.tiktok && !!m.fila && Math.abs(m.fila.x + m.fila.w / 2 - m.pantalla / 2) < 2, "T: TikTok desactivado no sale y el logo sigue en el centro");
+    ok(!m.resenas, "T: sin número de reseñas, debajo del logo no sale nada");
     await ctx.close();
   }
 
   // T4) Sin la migración (no existe la columna): «Síguenos» en las dos, sin errores.
   {
-    const estado = { filas: perfil, guardados: [], redes: redes(), redesSinColumna: true };
+    const estado = { filas: perfil, guardados: [], redes: redes(), ajustes: ajustes(), redesSinColumna: true };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/");
     await p.locator("#inicio-tiktok").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
     const m = await medir(p);
     ok(!!m.tiktok && /Síguenos \| en TikTok/.test(m.tiktok.texto) && !!m.instagram && /Síguenos \| en Instagram/.test(m.instagram.texto), `T: sin la migración salen las dos con «Síguenos» (${m.tiktok?.texto} / ${m.instagram?.texto})`);
+    ok(!m.resenas, "T: y sin la migración de las reseñas, debajo del logo no sale nada");
     ok(p.errores.length === 0, `T: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     ok(!estado.redes400, `T: y sin pedir la columna que aún no existe (ninguna petición fallida, 400, en la consola: ${estado.redes400 ?? 0})`);
 
@@ -1264,6 +1311,7 @@ async function seccionT() {
       filas: [],
       guardados: [],
       redes: redes(),
+      ajustes: ajustes(),
       eventos: [
         { event_name: "redes_inicio", session_id: "s1", metadata: { red: "tiktok" }, created_at: ahora },
         { event_name: "redes_inicio", session_id: "s1", metadata: { red: "tiktok" }, created_at: ahora },
@@ -1282,9 +1330,16 @@ async function seccionT() {
     ok(/3 toques en TikTok y 1 en Instagram · 2 visitas distintas/.test(toques), `T: cuenta los toques desde Inicio (${toques})`);
     await tiktok.fill("2.500");
     ok((await tiktok.inputValue()) === "2500", "T: el campo solo admite cifras («2.500» queda en 2500)");
+    // Reseñas en los canales de venta.
+    const resenas = p.locator('[aria-label="Reseñas en los canales de venta"]');
+    ok((await resenas.inputValue().catch(() => "")) === "350" && /Debajo del logo de Inicio: «350 reseñas en todos nuestros canales de venta» · escrito el 31 oct 2026/.test(texto), "T: Administración enseña las reseñas en los canales de venta, cómo se ven en Inicio y cuándo se escribieron");
+    await resenas.fill("1.200");
+    ok((await resenas.inputValue()) === "1200", "T: las reseñas, también solo cifras («1.200» queda en 1200)");
     await capturar(p, "T4-admin-redes");
     await p.getByText("Guardar cambios", { exact: true }).click();
     await p.getByText(/^Guardado\./).waitFor({ timeout: 10000 }).catch(() => {});
+    const aj = (estado.ajustesGuardados ?? []).at(-1);
+    ok(aj?.resenas_canales === 1200 && !Number.isNaN(Date.parse(aj?.resenas_canales_actualizado ?? "")) && aj?.social_links_title === "Síguenos", `T: guarda las reseñas con la fecha, junto al título (${JSON.stringify(aj)})`);
     const g = (pl) => (estado.redesGuardadas ?? []).find((x) => x.plataforma === pl)?.cuerpo;
     ok(g("tiktok")?.seguidores === 2500 && !Number.isNaN(Date.parse(g("tiktok")?.seguidores_actualizado ?? "")), `T: guarda los seguidores de TikTok con la fecha (${JSON.stringify(g("tiktok"))})`);
     ok(g("instagram")?.seguidores === 12560 && !("seguidores_actualizado" in (g("instagram") ?? {})) && !("seguidores" in (g("whatsapp") ?? { seguidores: 1 })), "T: Instagram sin cambiar no cambia su fecha y WhatsApp no lleva seguidores");
@@ -1295,15 +1350,17 @@ async function seccionT() {
 
   // T6) Administración sin la migración: el campo avisa y lo demás se guarda igual.
   {
-    const estado = { filas: [], guardados: [], redes: redes(), redesSinColumna: true };
+    const estado = { filas: [], guardados: [], redes: redes(), ajustes: ajustes(), redesSinColumna: true };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/redes-sociales");
     await p.locator('[aria-label="Seguidores de TikTok"]').waitFor({ timeout: 30000 }).catch(() => {});
-    ok((await p.getByText(/Se podrá guardar en cuanto se active su parte en la base de datos/).count()) === 2, "T: sin la migración, el campo de seguidores avisa de que aún no se guarda");
-    ok(!estado.redes400, `T: y Administración tampoco pide la columna que aún no existe (${estado.redes400 ?? 0} peticiones fallidas)`);
+    ok((await p.getByText(/Se podrá guardar en cuanto se active su parte en la base de datos/).count()) === 3, "T: sin la migración, los campos de seguidores y de reseñas avisan de que aún no se guardan");
+    ok(!estado.redes400, `T: y Administración tampoco pide las columnas que aún no existen (${estado.redes400 ?? 0} peticiones fallidas)`);
     await p.getByText("Guardar cambios", { exact: true }).click();
     await p.getByText(/^Guardado\./).waitFor({ timeout: 10000 }).catch(() => {});
     ok((await p.getByText(/^Guardado\./).count()) === 1 && (estado.redesGuardadas ?? []).length === 3 && (estado.redesGuardadas ?? []).every((x) => !("seguidores" in x.cuerpo)), "T: y los enlaces se guardan igual (sin los seguidores)");
+    const aj = (estado.ajustesGuardados ?? []).at(-1);
+    ok(!!aj && aj.social_links_title === "Síguenos" && !("resenas_canales" in aj), `T: y el título se guarda sin las reseñas (${JSON.stringify(aj)})`);
     await ctx.close();
   }
 }
