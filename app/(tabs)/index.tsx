@@ -92,7 +92,12 @@ import {
 } from "react-native";
 import { FloatingBarramagic } from "../../components/Barramagic";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
-import PortadasCategoria, { usePortadasCategorias } from "../../components/PortadasCategoria";
+import {
+  OPACIDAD_PORTADA_DEFECTO,
+  PortadaConNombre,
+  useOpacidadesPortadas,
+  usePortadasCategorias,
+} from "../../components/PortadasCategoria";
 import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
@@ -1093,6 +1098,7 @@ function CategoryCard({
   widthPercent,
   isMobile,
   portadas,
+  opacidad,
   testID,
 }: {
   testID?: string;
@@ -1102,14 +1108,18 @@ function CategoryCard({
   cta?: string;
   widthPercent?: DimensionValue;
   isMobile?: boolean;
-  /** Portadas de la categoría (panel → Categorías): si hay, van arriba en carrusel en vez del icono. */
+  /** Portadas de la categoría (panel → Categorías): si hay, llenan el recuadro (en carrusel) con el nombre encima. */
   portadas?: string[];
+  /** Cuánto se ve la portada (10-100 %, lo elige el dueño en el editor de la categoría). */
+  opacidad?: number;
 }) {
   const conPortadas = !!portadas?.length;
   return (
     <Pressable
       testID={testID}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${cta ?? "Ver categoría →"}`.replace(" →", "")}
       style={({ pressed }) => ({
         width: widthPercent ?? "48.8%",
         minHeight: isMobile ? 92 : 100,
@@ -1117,7 +1127,8 @@ function CategoryCard({
         borderWidth: 1,
         borderColor: COLORS.tileBorder,
         backgroundColor: COLORS.tile,
-        padding: conPortadas ? (isMobile ? 8 : 10) : isMobile ? 12 : 14,
+        padding: conPortadas ? 0 : isMobile ? 12 : 14,
+        overflow: "hidden",
         opacity: pressed ? 0.9 : 1,
         // Icono (o portadas), título y enlace centrados en todos los tamaños.
         alignItems: "center",
@@ -1125,10 +1136,13 @@ function CategoryCard({
       })}
     >
       {conPortadas ? (
-        <PortadasCategoria
+        // La portada llena el recuadro y el nombre va encima (la foto, al % que elige el dueño).
+        <PortadaConNombre
           imagenes={portadas!}
-          alt={title}
-          style={{ width: "100%", height: isMobile ? 100 : 130, borderRadius: 13 }}
+          opacidad={opacidad ?? OPACIDAD_PORTADA_DEFECTO}
+          titulo={title}
+          subtitulo={cta ?? "Ver categoría →"}
+          alto={isMobile ? 140 : 168}
         />
       ) : (
         <View
@@ -1145,30 +1159,35 @@ function CategoryCard({
         </View>
       )}
 
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "900",
-          marginTop: conPortadas ? 8 : 6,
-          lineHeight: 20,
-          fontSize: isMobile ? 14 : 15,
-          textAlign: "center",
-        }}
-      >
-        {title}
-      </Text>
+      {/* Con portada, el nombre ya va encima de la foto. */}
+      {!conPortadas ? (
+        <>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+              marginTop: 6,
+              lineHeight: 20,
+              fontSize: isMobile ? 14 : 15,
+              textAlign: "center",
+            }}
+          >
+            {title}
+          </Text>
 
-      <Text
-        style={{
-          color: COLORS.muted,
-          marginTop: 4,
-          fontSize: 12,
-          lineHeight: 16,
-          textAlign: "center",
-        }}
-      >
-        {cta ?? "Ver categoría →"}
-      </Text>
+          <Text
+            style={{
+              color: COLORS.muted,
+              marginTop: 4,
+              fontSize: 12,
+              lineHeight: 16,
+              textAlign: "center",
+            }}
+          >
+            {cta ?? "Ver categoría →"}
+          </Text>
+        </>
+      ) : null}
     </Pressable>
   );
 }
@@ -1561,6 +1580,7 @@ export default function HomeScreen() {
   const [categoriesY, setCategoriesY] = useState(0);
   // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
   const portadasCategorias = usePortadasCategorias();
+  const opacidadesPortadas = useOpacidadesPortadas();
 
   // Ocultar/mostrar la barra de búsqueda flotante
   // según la dirección del scroll: al bajar se ocultan (más sitio para ver
@@ -2040,6 +2060,7 @@ export default function HomeScreen() {
                     widthPercent={categoryCardWidth(category.span)}
                     isMobile={isMobile}
                     portadas={portadasCategorias[category.cat]}
+                    opacidad={opacidadesPortadas[category.cat]}
                     testID={`categoria-${category.cat}`}
                   />
                 );

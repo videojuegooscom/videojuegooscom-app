@@ -13,9 +13,15 @@
  *   almacenamiento product-media, carpeta categorias/. Se guardan en
  *   "imagenes" (y la primera también en "image_url") y en la tienda se pasan
  *   solas en carrusel (components/PortadasCategoria.tsx).
- * - Si las columnas "imagenes" o "image_url" no existen todavía en Supabase,
- *   hace un fallback automático a una consulta sin ellas (supportsImagenes /
- *   supportsImageUrl); sin "imagenes" solo se guarda una portada.
+ * - «Cómo se ve en Inicio»: con portada, una vista previa del recuadro de
+ *   Inicio (la foto llenándolo y el nombre encima) y una barra con «−» y «+»
+ *   para que la foto se vea más suave o más fuerte (10-100 %, columna
+ *   "portada_opacidad"; sin valor, 55 %). Al guardar, Inicio se entera al
+ *   momento (olvidarPortadasCategorias avisa a las pantallas abiertas).
+ * - Lee con select("*"): si "imagenes", "image_url" o "portada_opacidad"
+ *   aún no existen en Supabase, no vienen y no se guardan (supportsImagenes,
+ *   supportsImageUrl, supportsOpacidad), sin errores 400; sin "imagenes"
+ *   solo se guarda una portada.
  * - El modal de creación/edición valida nombre y slug (autogenerado desde el
  *   nombre) antes de guardar con insert/update.
  * - toggleActive() aplica un cambio optimista en la lista y lo revierte si
@@ -57,8 +63,12 @@ import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import PortadasCategoria, {
   MAX_PORTADAS,
+  OPACIDAD_PORTADA_DEFECTO,
+  OPACIDAD_PORTADA_MIN,
+  PortadaConNombre,
   faltaColumnaPortadas,
   olvidarPortadasCategorias,
+  opacidadDe,
   portadasDe,
 } from "../../components/PortadasCategoria";
 import {
@@ -103,11 +113,10 @@ type CategoryRow = {
   is_active: boolean;
   image_url?: string | null;
   imagenes?: unknown;
+  portada_opacidad?: number | null;
   created_at: string;
   updated_at: string;
 };
-
-const COLUMNAS_BASE = "id,name,slug,sort_order,is_active,created_at,updated_at";
 
 async function consultarCategorias(columnas: string) {
   const res = await supabase
@@ -237,6 +246,8 @@ export default function AdminCategories() {
 
   const [supportsImageUrl, setSupportsImageUrl] = useState(true);
   const [supportsImagenes, setSupportsImagenes] = useState(true);
+  // ¿Existe ya la columna de cuánto se ve la portada en Inicio (migración 20261101140000)?
+  const [supportsOpacidad, setSupportsOpacidad] = useState(true);
   // Sin la columna "imagenes" (migración pendiente) solo cabe una portada, la de image_url.
   const maxPortadas = supportsImagenes ? MAX_PORTADAS : supportsImageUrl ? 1 : 0;
 
@@ -255,6 +266,8 @@ export default function AdminCategories() {
   const [sortOrder, setSortOrder] = useState("0");
   const [isActive, setIsActive] = useState(true);
   const [portadas, setPortadas] = useState<string[]>([]);
+  // Cuánto se ve la portada en el recuadro de Inicio (10-100 %): menos, más suave y el nombre se lee mejor.
+  const [opacidad, setOpacidad] = useState(OPACIDAD_PORTADA_DEFECTO);
   const [subiendo, setSubiendo] = useState(false);
   const [avisoPortadas, setAvisoPortadas] = useState<string | null>(null);
 
@@ -288,24 +301,16 @@ export default function AdminCategories() {
     setScreenErr(null);
 
     try {
-      // Con las portadas; si aún falta alguna columna (migración pendiente), sin ella.
-      let conImagenes = true;
-      let conImageUrl = true;
-      let res = await consultarCategorias(`${COLUMNAS_BASE},image_url,imagenes`);
-      if (res.error && faltaColumnaPortadas(res.error) && String(res.error.message ?? "").includes("imagenes")) {
-        conImagenes = false;
-        res = await consultarCategorias(`${COLUMNAS_BASE},image_url`);
-      }
-      if (res.error && faltaColumnaPortadas(res.error)) {
-        conImagenes = false;
-        conImageUrl = false;
-        res = await consultarCategorias(COLUMNAS_BASE);
-      }
+      // «*»: trae las columnas que existan, sin errores 400 si falta alguna (migración pendiente); con lo que trae la
+      // primera fila se sabe qué se puede guardar (sin filas, se da por hecho que todo y al guardar se comprueba).
+      const res = await consultarCategorias("*");
       if (res.error) throw res.error;
-
-      setSupportsImagenes(conImagenes);
-      setSupportsImageUrl(conImageUrl);
-      setItems(res.data ?? []);
+      const filas = res.data ?? [];
+      const muestra = filas[0] as Record<string, unknown> | undefined;
+      setSupportsImagenes(!muestra || "imagenes" in muestra);
+      setSupportsImageUrl(!muestra || "image_url" in muestra);
+      setSupportsOpacidad(!muestra || "portada_opacidad" in muestra);
+      setItems(filas);
     } catch (e: any) {
       console.error("Error cargando categorías:", e);
       setScreenErr("No se han podido cargar las categorías. Inténtalo de nuevo.");
@@ -326,6 +331,7 @@ export default function AdminCategories() {
     setSortOrder("0");
     setIsActive(true);
     setPortadas([]);
+    setOpacidad(OPACIDAD_PORTADA_DEFECTO);
     setAvisoPortadas(null);
     setModalErr(null);
   }
@@ -342,6 +348,7 @@ export default function AdminCategories() {
     setSortOrder(String(c.sort_order ?? 0));
     setIsActive(!!c.is_active);
     setPortadas(portadasDe(c));
+    setOpacidad(opacidadDe(c));
     setAvisoPortadas(null);
     setModalErr(null);
     setOpen(true);
@@ -458,6 +465,7 @@ export default function AdminCategories() {
       const fotos = portadas.slice(0, maxPortadas);
       if (supportsImagenes) payload.imagenes = fotos;
       if (supportsImageUrl) payload.image_url = fotos[0] ?? null;
+      if (supportsOpacidad) payload.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
 
       const escribir = (datos: any) =>
         editing
@@ -465,6 +473,12 @@ export default function AdminCategories() {
           : supabase.from("categories").insert(datos);
 
       let { error } = await escribir(payload);
+      // Si la columna de cuánto se ve la portada aún no existe, se guarda el resto (en Inicio, al 55 %).
+      if (error && "portada_opacidad" in payload && /portada_opacidad/.test(String(error.message ?? ""))) {
+        delete payload.portada_opacidad;
+        setSupportsOpacidad(false);
+        ({ error } = await escribir(payload));
+      }
       // Si la columna de portadas aún no existe, se guarda el resto (y la primera portada en image_url).
       if (error && "imagenes" in payload && faltaColumnaPortadas(error)) {
         delete payload.imagenes;
@@ -921,6 +935,85 @@ export default function AdminCategories() {
                   </View>
 
                   {!!avisoPortadas && <AdminNotice tone="warning" text={avisoPortadas} />}
+
+                  {/* Cómo se ve en Inicio: la portada llena el recuadro y el nombre va encima. La barra decide cuánto se
+                      ve la foto (menos: más suave y el nombre se lee mejor; más: la foto más fuerte). */}
+                  {portadas.length > 0 ? (
+                    <View nativeID="categoria-opacidad" style={{ width: "100%", gap: 10, alignItems: "center", paddingTop: 6 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cómo se ve en Inicio</Text>
+                      <View style={{ width: "100%", maxWidth: 230, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" }}>
+                        <PortadaConNombre
+                          imagenes={portadas}
+                          opacidad={opacidad}
+                          titulo={name.trim() || "Nombre de la categoría"}
+                          subtitulo="Ver categoría →"
+                          alto={140}
+                        />
+                      </View>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
+                        Foto: <Text nativeID="categoria-opacidad-valor">{opacidad}</Text> %
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, width: "100%", maxWidth: 360 }}>
+                        <Pressable
+                          onPress={() => setOpacidad((o) => Math.max(OPACIDAD_PORTADA_MIN, o - 5))}
+                          disabled={opacidad <= OPACIDAD_PORTADA_MIN}
+                          accessibilityRole="button"
+                          accessibilityLabel="Foto más suave"
+                          style={({ pressed }) => ({
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: COLORS.accent2,
+                            opacity: opacidad <= OPACIDAD_PORTADA_MIN ? 0.4 : pressed ? 0.75 : 1,
+                          })}
+                        >
+                          <Ionicons name="remove" size={22} color={COLORS.accent} />
+                        </Pressable>
+                        {Platform.OS === "web" ? (
+                          <input
+                            type="range"
+                            min={OPACIDAD_PORTADA_MIN}
+                            max={100}
+                            step={5}
+                            value={opacidad}
+                            aria-label="Cuánto se ve la foto"
+                            onChange={(e) => setOpacidad(Number(e.target.value))}
+                            style={{ flex: 1, minWidth: 0, height: 44, accentColor: COLORS.accent, cursor: "pointer" }}
+                          />
+                        ) : (
+                          <View style={{ flex: 1 }} />
+                        )}
+                        <Pressable
+                          onPress={() => setOpacidad((o) => Math.min(100, o + 5))}
+                          disabled={opacidad >= 100}
+                          accessibilityRole="button"
+                          accessibilityLabel="Foto más fuerte"
+                          style={({ pressed }) => ({
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: COLORS.accent2,
+                            opacity: opacidad >= 100 ? 0.4 : pressed ? 0.75 : 1,
+                          })}
+                        >
+                          <Ionicons name="add" size={22} color={COLORS.accent} />
+                        </Pressable>
+                      </View>
+                      <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center" }}>
+                        Menos: la foto se ve más suave y el nombre se lee mejor. Más: la foto se ve más fuerte.
+                      </Text>
+                      {!supportsOpacidad ? (
+                        <AdminNotice
+                          tone="warning"
+                          text={`Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale al ${OPACIDAD_PORTADA_DEFECTO} %.`}
+                        />
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
 
