@@ -218,6 +218,13 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.subidas = [...(estado.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: (texto.match(/Content-Type:\s*(image\/[a-z]+)/i) ?? [null, peticion.headers()["content-type"] ?? ""])[1], jpeg }];
       return json({ Key: url.pathname.slice("/storage/v1/object/".length) });
     }
+    // «Dejar una reseña» (sección RE): se apunta lo que se publicaría y se devuelve la fila, como la base de datos.
+    if (url.pathname.endsWith("/rest/v1/store_reviews") && metodo === "POST" && estado.publicarResenas) {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.resenasEnviadas = [...(estado.resenasEnviadas ?? []), cuerpo];
+      const fila = { id: "r0000000-0000-4000-8000-000000000001", created_at: new Date().toISOString(), user_id: usuario.id, display_name: "Ana", ...cuerpo };
+      return json(/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? fila : [fila], 201);
+    }
     // Foro: mensajes ficticios y la función perfiles_publicos (usuario y foto de quien escribe).
     if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "GET") return json(estado.mensajes ?? []);
     // Moderación: un administrador elimina un mensaje (la base de datos devuelve lo borrado; [] = no se lo ha permitido).
@@ -1850,6 +1857,119 @@ async function seccionY() {
   }
 }
 
+// ===== RE) Reseñas: el texto nuevo de Inicio y «Dejar una reseña» con 10 ideas, un recuadro que crece y emojis =====
+async function seccionRE() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, resenas: [], publicarResenas: true };
+  const ctx = await contexto(navegador, CLIENTE, "user", estado);
+  const p = await pagina(ctx, "/");
+  const boton = p.getByText("Dejar una reseña", { exact: true }).first();
+  await boton.scrollIntoViewIfNeeded({ timeout: 30000 }).catch(() => {});
+  const inicio = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+  ok(
+    /Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes\./.test(inicio) && !/lo que opina la gente/.test(inicio),
+    "RE: en Inicio, «Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.»"
+  );
+  await boton.click();
+  const ideas = p.locator("#resena-sugerencias [role='button']");
+  await ideas.first().waitFor({ timeout: 20000 }).catch(() => {});
+  // La ventana entra creciendo desde el 90 %: se mide cuando ya está a su tamaño.
+  await p.waitForTimeout(900);
+  const campo = p.locator("#resena-comentario");
+  const valor = () => campo.inputValue().catch(() => "");
+  const medida = () =>
+    p.evaluate(() => {
+      const el = document.querySelector("#resena-comentario");
+      return el ? { alto: Math.round(el.getBoundingClientRect().height), contenido: el.scrollHeight, visible: el.clientHeight } : null;
+    });
+
+  const botones = await p.evaluate(() =>
+    Array.from(document.querySelectorAll("#resena-sugerencias [role='button']")).map((b) => {
+      const r = b.getBoundingClientRect();
+      return { texto: b.textContent.trim(), alto: Math.round(r.height), dentro: r.left >= 0 && r.right <= window.innerWidth };
+    })
+  );
+  ok(botones.length === 10, `RE: «Dejar una reseña» propone 10 ideas (${botones.map((b) => b.texto).join(" · ")})`);
+  ok(botones.length === 10 && botones.every((b) => b.alto >= 44 && b.dentro), `RE: se tocan bien (44 px o más) y no se salen de la pantalla (${botones.map((b) => b.alto).join(", ")})`);
+
+  // Tocar una idea añade su frase; otra se añade detrás; tocar la primera otra vez la quita.
+  await p.getByRole("button", { name: /^Añadir: La atención fue de 10/ }).click();
+  await p.getByRole("button", { name: /^Añadir: El envío fue rapidísimo/ }).click();
+  const conDos = await valor();
+  await p.getByRole("button", { name: /^Quitar: La atención fue de 10/ }).click();
+  const conUna = await valor();
+  ok(
+    conDos === "La atención fue de 10: amables y rápidos en responder. El envío fue rapidísimo y llegó muy bien embalado." &&
+      conUna === "El envío fue rapidísimo y llegó muy bien embalado.",
+    `RE: tocar una idea añade su frase, otra va detrás y tocarla otra vez la quita («${conUna}»)`
+  );
+  const marcada = await p.getByRole("button", { name: /^Quitar: El envío fue rapidísimo/ }).getAttribute("aria-pressed").catch(() => null);
+  ok(marcada === "true", "RE: la idea puesta se ve marcada (y un lector de pantalla lo dice)");
+
+  // Emojis según lo escrito: envío → 📦 y rápido → 🚀, en ese orden; tocar uno lo añade al final.
+  const emojis = async () => (await p.locator("#resena-emojis [role='button']").allTextContents().catch(() => [])).map((t) => t.trim());
+  const propuestos = await emojis();
+  ok(propuestos[0] === "📦" && propuestos.includes("🚀") && propuestos.length <= 4, `RE: propone emojis de lo escrito (envío y rápido: ${propuestos.join(" ")})`);
+  await p.getByRole("button", { name: "Añadir el emoji 🚀" }).click();
+  const conEmoji = await valor();
+  ok(conEmoji.endsWith(" 🚀") && !(await emojis()).includes("🚀"), `RE: tocar un emoji lo añade al final y deja de proponerse («${conEmoji}»)`);
+  await campo.fill("Me reparasteis el mando de la PS5 en un día, gracias");
+  const otros = await emojis();
+  ok(otros.includes("🔧") && otros.includes("🎮") && otros.includes("🙏"), `RE: con otro texto, otros emojis (reparación, consola y gracias: ${otros.join(" ")})`);
+
+  // El recuadro crece con lo escrito (sin desplazarse dentro), hasta los 600 caracteres, y encoge al borrar.
+  const vacio = (await campo.fill(""), await medida());
+  const frase = "La consola llegó perfecta y funciona de maravilla, el trato fue genial y todo muy rápido. ";
+  await campo.fill(frase.repeat(5));
+  const largo = await medida();
+  await campo.fill(frase.repeat(9));
+  const alLimite = await medida();
+  const caracteres = (await valor()).length;
+  await campo.fill("Muy bien.");
+  const corto = await medida();
+  ok(!!vacio && !!largo && vacio.alto === 112 && vacio.contenido <= vacio.visible + 2 && largo.alto > vacio.alto + 60 && largo.contenido <= largo.visible + 2, `RE: el recuadro (vacío, con el ejemplo entero) crece con lo escrito y no hay que desplazarse dentro (${vacio?.alto} → ${largo?.alto} px)`);
+  ok(!!alLimite && caracteres === 600 && alLimite.alto >= largo.alto && alLimite.contenido <= alLimite.visible + 2, `RE: llega hasta los 600 caracteres entero a la vista (${caracteres} caracteres, ${alLimite?.alto} px)`);
+  ok(!!corto && corto.alto === 112, `RE: al borrar, vuelve a su tamaño (${corto?.alto} px)`);
+  const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+  ok(ancho.a <= ancho.p + 1, `RE: la página no se ensancha (${ancho.a}/${ancho.p})`);
+
+  // Publicar: se manda la reseña y la analítica apunta las ideas usadas y los emojis propuestos que se quedaron.
+  await campo.fill("");
+  await p.getByRole("button", { name: /^Añadir: El envío fue rapidísimo/ }).click();
+  await p.getByRole("button", { name: "Añadir el emoji 📦" }).click();
+  await capturar(p, "RE1-resena");
+  await p.getByText("Publicar", { exact: true }).click();
+  await p.getByText("¡Gracias por tu reseña!").waitFor({ timeout: 15000 }).catch(() => {});
+  const enviada = (estado.resenasEnviadas ?? [])[0];
+  ok(enviada?.rating === 5 && enviada?.comment === "El envío fue rapidísimo y llegó muy bien embalado. 📦", `RE: se publica la reseña con su texto (${JSON.stringify(enviada)})`);
+  for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "resena_publicada"); i++) await p.waitForTimeout(300);
+  const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "resena_publicada");
+  ok(
+    ev?.metadata?.estrellas === 5 && JSON.stringify(ev?.metadata?.sugerencias) === '["envio"]' && ev?.metadata?.emojis === 1,
+    `RE: la analítica propia apunta las estrellas, la idea usada y el emoji (${JSON.stringify(ev?.metadata)})`
+  );
+  ok(p.errores.length === 0, `RE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  await ctx.close();
+
+  // Administración → Usuarios: cuántas reseñas usan las ideas y los emojis, y la idea más usada.
+  {
+    const ev = (sugerencias, emojis) => ({ event_name: "resena_publicada", user_id: null, session_id: `s${Math.random()}`, metadata: { estrellas: 5, sugerencias, emojis } });
+    const admin = {
+      filas: [],
+      guardados: [],
+      usuarios: [],
+      eventos: [ev(["envio", "atencion"], 1), ev(["atencion"], 0), ev([], 2), ev([], 0)],
+    };
+    const ctxAdmin = await contexto(navegador, ADMIN, "admin", admin);
+    const pa = await pagina(ctxAdmin, "/admin/users");
+    await pa.locator("#usuarios-resenas-uso").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await pa.locator("#usuarios-resenas-uso").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Reseñas \(30 días\): 4 publicadas · con ideas sugeridas: 2 · con emoji: 2 · la idea más usada: «Atención de 10»/.test(t), `RE: Administración → Usuarios cuenta las reseñas con ideas y con emoji, y la idea más usada (${t})`);
+    ok(pa.errores.length === 0, `RE: Usuarios sin errores de JavaScript (${pa.errores.length}${pa.errores[0] ? ": " + pa.errores[0] : ""})`);
+    await ctxAdmin.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -2001,6 +2121,7 @@ try {
   if (SOLO === "W") await seccionW();
   if (SOLO === "X") await seccionX();
   if (SOLO === "Y") await seccionY();
+  if (SOLO === "RE") await seccionRE();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2925,6 +3046,7 @@ try {
   await seccionW();
   await seccionX();
   await seccionY();
+  await seccionRE();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

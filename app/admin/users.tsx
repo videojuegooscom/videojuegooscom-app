@@ -24,7 +24,10 @@
  *   atribuidas a esa persona (customer_user_id) y aparecen dentro de su
  *   ficha de cliente (app/admin/cliente/[userId].tsx).
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
- *   cualquiera igual que las reseñas de Inicio).
+ *   cualquiera igual que las reseñas de Inicio). Debajo, «Reseñas (30 días)»:
+ *   las publicadas, cuántas usan las ideas sugeridas o un emoji propuesto y la
+ *   idea más usada (analítica propia «resena_publicada»,
+ *   components/ReviewModal.tsx).
  * - "Moderación del Foro": con el registro de moderación (tabla
  *   foro_moderacion, que rellena la base de datos sola), los mensajes y
  *   comentarios eliminados y los silencios de los últimos 30 días, y cuántos
@@ -86,6 +89,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/SmartImage";
+import { SUGERENCIAS_RESENA } from "../../components/ReviewModal";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -152,6 +156,8 @@ const EVENTOS_SEGUIMIENTOS = ["seguimientos_abiertos"] as const;
 // Foro: quién abre las Normas del Foro desde el aviso de silencio (app/(tabs)/chat-global.tsx). Las abre el cliente
 // silenciado, así que sí lo cuenta la analítica propia (si la aceptó).
 const EVENTOS_FORO = ["foro_normas_abiertas"] as const;
+// Reseñas publicadas desde «Dejar una reseña» (components/ReviewModal.tsx): con qué ideas y si llevan emojis propuestos.
+const EVENTOS_RESENAS = ["resena_publicada"] as const;
 
 type SortMode = "recent" | "participation";
 
@@ -334,6 +340,8 @@ export default function AdminUsers() {
   const [sellRequestsCount, setSellRequestsCount] = useState(0);
   const [serviceRequestsCount, setServiceRequestsCount] = useState(0);
   const [avgRating, setAvgRating] = useState<number | null>(null);
+  // Reseñas publicadas en 30 días según la analítica propia: con ideas sugeridas, con emojis y la idea más usada.
+  const [usoResenas, setUsoResenas] = useState<{ publicadas: number; conIdeas: number; conEmoji: number; ideaMasUsada: string | null } | null>(null);
   const [reviewsCount, setReviewsCount] = useState(0);
 
   const [search, setSearch] = useState("");
@@ -387,7 +395,7 @@ export default function AdminUsers() {
         supabase
           .from("analytics_events")
           .select("event_name,user_id,session_id,metadata")
-          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO])
+          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO, ...EVENTOS_RESENAS])
           .gte("created_at", desde)
           .limit(5000),
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
@@ -422,6 +430,7 @@ export default function AdminUsers() {
       if (eventosRes.error) {
         setUsoSeguimientos(null);
         setNormasLeidas(null);
+        setUsoResenas(null);
       } else {
         type FilaUso = { event_name: string; user_id: string | null; session_id: string | null; metadata: { como?: unknown } | null };
         const filas = (eventosRes.data ?? []) as FilaUso[];
@@ -432,6 +441,21 @@ export default function AdminUsers() {
           deslizando: new Set(aperturas.filter((e) => e.metadata?.como === "deslizar").map(quien).filter(Boolean)).size,
         });
         setNormasLeidas(new Set(filas.filter((e) => e.event_name === "foro_normas_abiertas").map(quien).filter(Boolean)).size);
+        // Reseñas: cuántas se publican, cuántas con ideas o con emojis propuestos y la idea más usada.
+        const resenas = filas
+          .filter((e) => e.event_name === "resena_publicada")
+          .map((e) => (e.metadata ?? {}) as { sugerencias?: unknown; emojis?: unknown });
+        const usos: Record<string, number> = {};
+        for (const r of resenas) {
+          for (const id of Array.isArray(r.sugerencias) ? r.sugerencias : []) usos[String(id)] = (usos[String(id)] ?? 0) + 1;
+        }
+        const masUsada = Object.entries(usos).sort((a, b) => b[1] - a[1])[0]?.[0];
+        setUsoResenas({
+          publicadas: resenas.length,
+          conIdeas: resenas.filter((r) => Array.isArray(r.sugerencias) && r.sugerencias.length > 0).length,
+          conEmoji: resenas.filter((r) => Number(r.emojis) > 0).length,
+          ideaMasUsada: SUGERENCIAS_RESENA.find((s) => s.id === masUsada)?.etiqueta ?? null,
+        });
       }
       // Tabla creada con la migración antigua (sin foto): se pide sin esas columnas.
       const perfilesRes =
@@ -913,6 +937,13 @@ export default function AdminUsers() {
                 Valoración media de la tienda:{" "}
                 {avgRating != null ? `${avgRating.toFixed(1)} / 5 (${reviewsCount} reseñas)` : "sin reseñas todavía"}
               </Text>
+              {usoResenas ? (
+                <Text nativeID="usuarios-resenas-uso" style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center", lineHeight: 17 }}>
+                  Reseñas (30 días): {usoResenas.publicadas} publicadas · con ideas sugeridas: {usoResenas.conIdeas} · con emoji:{" "}
+                  {usoResenas.conEmoji}
+                  {usoResenas.ideaMasUsada ? ` · la idea más usada: «${usoResenas.ideaMasUsada}»` : ""}
+                </Text>
+              ) : null}
             </View>
 
             {!!screenErr && (
