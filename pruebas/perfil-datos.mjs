@@ -1527,6 +1527,38 @@ async function seccionV() {
     await p.close();
   }
   await ctx.close();
+
+  // Los mensajes que Blue dice solo: en la tienda, los de la tienda; al entrar en el panel (sin recargar), solo los de
+  // Administración (el pedido olvidado), nunca uno de la tienda aunque se hubiera quedado esperando turno.
+  {
+    const estado2 = { ...estado, guardados: [], aceptaAnalitica: true };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
+    const p = await pagina(ctx2, "/");
+    // Lo que dice Blue ahora mismo ("" si no dice nada), sin esperar a que aparezca.
+    const mensaje = () => p.evaluate(() => document.getElementById("blue-mensaje")?.innerText ?? "").catch(() => "");
+    // 20 s en la tienda: lo que diga (si dice algo) no es del panel.
+    let enTienda = "";
+    for (let i = 0; i < 20; i++) {
+      await p.waitForTimeout(1000);
+      enTienda = (await mensaje()).replace(/\n/g, " ") || enTienda;
+    }
+    ok(!/48 h sin cambios|Lo que Blue sabe|me lo cuentas/.test(enTienda), `V: en la tienda, Blue no dice los mensajes del panel (${enTienda.slice(0, 80) || "no ha dicho nada"})`);
+    // Al panel por Perfil → «Panel de control» (sin recargar: Blue sigue montado).
+    await p.locator('[data-testid="pestana-perfil"]').first().click();
+    await p.locator("#perfil-datos").getByRole("button", { name: "Panel de control" }).click({ timeout: 30000 });
+    await p.waitForURL(/\/admin\/?$/, { timeout: 15000 }).catch(() => {});
+    const vistos = new Set();
+    for (let i = 0; i < 24; i++) {
+      await p.waitForTimeout(1000);
+      const t = (await mensaje()).replace(/\n/g, " ").trim();
+      if (t) vistos.add(t);
+    }
+    const lista = [...vistos];
+    ok(lista.some((t) => /48 h sin cambios/.test(t)), `V: dentro del panel, Blue dice lo del panel (el pedido olvidado: ${lista.join(" / ").slice(0, 120) || "nada"})`);
+    ok(!lista.some((t) => t === enTienda || /Foro|Realizamos entregas|instalar|Instala/.test(t)), `V: y ningún mensaje de la tienda (${lista.length} mensajes vistos)`);
+    ok(p.errores.length === 0, `V: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx2.close();
+  }
 }
 
 // ===== W) Portadas de las categorías en Inicio (foto de fondo con el nombre encima) y cuánto se ven (editor) ========
