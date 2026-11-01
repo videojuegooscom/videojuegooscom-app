@@ -35,6 +35,12 @@
  *   (buildSocialHref).
  * - Un único botón "Guardar cambios" guarda todas las filas (enlace, activa,
  *   orden) y el título a la vez.
+ * - TikTok e Instagram llevan además «Seguidores»: el número que se ve junto
+ *   al logo de Inicio (components/SocialLinks.tsx, RedJuntoAlLogo) y la fecha
+ *   en que se escribió (columnas seguidores y seguidores_actualizado,
+ *   migración 20261101100000; sin ella el campo avisa y no se guarda, y en
+ *   Inicio sale «Síguenos»). Arriba, cuántas veces se tocan desde Inicio
+ *   (30 días, analítica propia «redes_inicio»).
  * - Abrir la app o la web al tocar cada icono ya lo resuelve el propio
  *   sistema operativo del usuario (enlaces universales de Instagram,
  *   Facebook, YouTube, WhatsApp, Wallapop, Vinted y Apple Maps) — no hace
@@ -81,6 +87,7 @@ import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-ic
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { formatearSeguidores } from "../../components/SocialLinks";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
 // scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo y "no dejaba
@@ -104,7 +111,19 @@ type SocialLinkRow = {
   url: string | null;
   enabled: boolean;
   sort_order: number;
+  // Seguidores (solo TikTok e Instagram, que salen junto al logo de Inicio) y cuándo se escribieron.
+  seguidores?: number | null;
+  seguidores_actualizado?: string | null;
 };
+
+// Las redes que salen junto al logo de Inicio con sus seguidores (components/SocialLinks.tsx, RedJuntoAlLogo).
+const REDES_CON_SEGUIDORES: SocialPlatform[] = ["tiktok", "instagram"];
+
+function fechaCorta(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -236,24 +255,51 @@ export default function AdminRedesSociales() {
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  // ¿Existe ya la columna de seguidores (migración 20261101100000)? Sin ella, el campo se ve pero no se guarda.
+  const [conSeguidores, setConSeguidores] = useState(true);
+  // Redes cuyo número de seguidores se ha cambiado (para apuntar la fecha al guardar).
+  const [seguidoresCambiados, setSeguidoresCambiados] = useState<Set<SocialPlatform>>(new Set());
+  // Toques en TikTok e Instagram junto al logo de Inicio (analítica propia, 30 días; sin quien la rechazó).
+  const [toquesInicio, setToquesInicio] = useState<{ tiktok: number; instagram: number; personas: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadErr(null);
     try {
-      const [linksRes, settingsRes] = await Promise.all([
-        supabase
-          .from("social_links")
-          .select("platform,label,url,enabled,sort_order")
-          .order("sort_order", { ascending: true }),
+      const pedirRedes = (columnas: string) =>
+        supabase.from("social_links").select(columnas).order("sort_order", { ascending: true });
+      const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const [linksConSeguidores, settingsRes, toquesRes] = await Promise.all([
+        pedirRedes("platform,label,url,enabled,sort_order,seguidores,seguidores_actualizado"),
         supabase.from("site_settings").select("social_links_title").eq("id", 1).maybeSingle(),
+        supabase
+          .from("analytics_events")
+          .select("session_id,metadata")
+          .eq("event_name", "redes_inicio")
+          .gte("created_at", desde)
+          .limit(5000),
       ]);
+      // Sin la migración todavía, se leen las redes sin los seguidores.
+      const linksRes = linksConSeguidores.error ? await pedirRedes("platform,label,url,enabled,sort_order") : linksConSeguidores;
+      setConSeguidores(!linksConSeguidores.error);
 
       if (linksRes.error) throw linksRes.error;
-      setRows(Array.isArray(linksRes.data) ? (linksRes.data as SocialLinkRow[]) : []);
+      setRows(Array.isArray(linksRes.data) ? (linksRes.data as unknown as SocialLinkRow[]) : []);
+      setSeguidoresCambiados(new Set());
 
       if (!settingsRes.error && settingsRes.data?.social_links_title) {
         setFollowTitle(settingsRes.data.social_links_title);
+      }
+
+      if (toquesRes.error) {
+        setToquesInicio(null);
+      } else {
+        const filas = (toquesRes.data ?? []) as { session_id: string | null; metadata: { red?: string } | null }[];
+        setToquesInicio({
+          tiktok: filas.filter((f) => f.metadata?.red === "tiktok").length,
+          instagram: filas.filter((f) => f.metadata?.red === "instagram").length,
+          personas: new Set(filas.map((f) => f.session_id).filter(Boolean)).size,
+        });
       }
     } catch (e: any) {
       console.error("Error cargando redes sociales:", e);
@@ -293,11 +339,23 @@ export default function AdminRedesSociales() {
     try {
       const cleanTitle = followTitle.trim() || "Síguenos";
 
+      const ahora = new Date().toISOString();
       const results = await Promise.all([
         ...rows.map((r, index) =>
           supabase
             .from("social_links")
-            .update({ url: r.url?.trim() || null, enabled: r.enabled, sort_order: index + 1 })
+            .update({
+              url: r.url?.trim() || null,
+              enabled: r.enabled,
+              sort_order: index + 1,
+              // Los seguidores, solo si ya existe su columna y solo los de TikTok e Instagram; la fecha, si cambiaron.
+              ...(conSeguidores && REDES_CON_SEGUIDORES.includes(r.platform)
+                ? {
+                    seguidores: r.seguidores ?? null,
+                    ...(seguidoresCambiados.has(r.platform) ? { seguidores_actualizado: r.seguidores != null ? ahora : null } : {}),
+                  }
+                : {}),
+            })
             .eq("platform", r.platform)
         ),
         supabase.from("site_settings").update({ social_links_title: cleanTitle }).eq("id", 1),
@@ -307,8 +365,18 @@ export default function AdminRedesSociales() {
       if (firstError) throw firstError;
 
       setFollowTitle(cleanTitle);
-      setRows((prev) => prev.map((r, index) => ({ ...r, sort_order: index + 1 })));
-      setMsg({ type: "ok", text: "Guardado. Ya se ve así en el pie de página, Perfil, la Cesta y Blue IA." });
+      setRows((prev) =>
+        prev.map((r, index) => ({
+          ...r,
+          sort_order: index + 1,
+          ...(conSeguidores && seguidoresCambiados.has(r.platform) ? { seguidores_actualizado: r.seguidores != null ? ahora : null } : {}),
+        }))
+      );
+      setSeguidoresCambiados(new Set());
+      setMsg({
+        type: "ok",
+        text: "Guardado. Ya se ve así junto al logo de Inicio (TikTok e Instagram), en el pie de página, Perfil, la Cesta y Blue IA.",
+      });
     } catch (e: any) {
       console.error("Error guardando redes sociales:", e);
       setMsg({ type: "error", text: "No se ha podido guardar. Inténtalo de nuevo." });
@@ -382,9 +450,16 @@ export default function AdminRedesSociales() {
           >
           <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
             <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Los enlaces que se ven en el pie de página, Perfil y la Cesta — y que Blue IA
-              recomienda seguir.
+              Los enlaces que se ven en el pie de página, Perfil y la Cesta (TikTok e Instagram,
+              también junto al logo de Inicio con sus seguidores) y que Blue IA recomienda seguir.
             </Text>
+            {toquesInicio ? (
+              <Text nativeID="redes-toques-inicio" style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                Desde Inicio (30 días): {toquesInicio.tiktok} {toquesInicio.tiktok === 1 ? "toque" : "toques"} en TikTok y{" "}
+                {toquesInicio.instagram} en Instagram · {toquesInicio.personas}{" "}
+                {toquesInicio.personas === 1 ? "visita distinta" : "visitas distintas"}
+              </Text>
+            ) : null}
 
             {!!loadErr && (
               <View
@@ -545,6 +620,47 @@ export default function AdminRedesSociales() {
                     }}
                   />
                   <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>{meta.hint}</Text>
+
+                  {/* TikTok e Instagram: sus seguidores salen junto al logo de Inicio (los escribe Daniel; nunca se inventan). */}
+                  {REDES_CON_SEGUIDORES.includes(r.platform) ? (
+                    <View style={{ gap: 6, marginTop: 4 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>Seguidores (junto al logo de Inicio)</Text>
+                      <TextInput
+                        accessibilityLabel={`Seguidores de ${r.label}`}
+                        value={r.seguidores != null ? String(r.seguidores) : ""}
+                        onChangeText={(text) => {
+                          const cifras = text.replace(/\D/g, "").slice(0, 10);
+                          updateRow(r.platform, { seguidores: cifras ? Math.min(2000000000, Number(cifras)) : null });
+                          setSeguidoresCambiados((prev) => new Set(prev).add(r.platform));
+                        }}
+                        onFocus={scrollFieldIntoView}
+                        placeholder="Por ejemplo, 1250"
+                        placeholderTextColor="rgba(11,33,56,0.40)"
+                        keyboardType="number-pad"
+                        inputMode="numeric"
+                        maxLength={13}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          borderRadius: 12,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          color: COLORS.text,
+                          backgroundColor: COLORS.cardSoft,
+                          fontSize: 16,
+                        }}
+                      />
+                      <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
+                        {!conSeguidores
+                          ? "Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale «Síguenos»."
+                          : r.seguidores != null
+                            ? `En Inicio: ${formatearSeguidores(r.seguidores)} ${r.seguidores === 1 ? "seguidor" : "seguidores"}${
+                                fechaCorta(r.seguidores_actualizado) ? ` · escrito el ${fechaCorta(r.seguidores_actualizado)}` : ""
+                              }. Déjalo vacío para que salga «Síguenos».`
+                            : "Vacío: en Inicio sale «Síguenos»."}
+                      </Text>
+                    </View>
+                  ) : null}
 
                   {r.enabled && !r.url?.trim() ? (
                     <Text style={{ color: COLORS.danger, fontSize: 11.5, fontWeight: "800" }}>

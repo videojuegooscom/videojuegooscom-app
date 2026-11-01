@@ -15,7 +15,9 @@
  *   pegado a la izquierda.
  * - Marca (components/marca/): logo animado arriba del todo, la pareja de
  *   mascotas antes de las preguntas frecuentes y CargaMarca mientras carga
- *   la oferta destacada. Todos se animan al tocarlos.
+ *   la oferta destacada. Todos se animan al tocarlos. A los lados del logo,
+ *   TikTok (izquierda) e Instagram (derecha) con su icono y sus seguidores,
+ *   que abren su perfil (RedJuntoAlLogo, components/SocialLinks.tsx).
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
  * - Cada apartado lleva su título y entre apartados hay una línea fina
@@ -93,6 +95,7 @@ import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
+import { RedJuntoAlLogo, useRedesJuntoAlLogo } from "../../components/SocialLinks";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
@@ -1701,6 +1704,9 @@ export default function HomeScreen() {
   const isMobile = widthSafe < 700;
   const isDesktopish = widthSafe >= 900;
   const isWide = widthSafe >= 1280;
+  // TikTok e Instagram a los lados del logo (con sus seguidores); en móviles muy estrechos, todo un poco más pequeño.
+  const redesLogo = useRedesJuntoAlLogo();
+  const logoEstrecho = widthSafe < 360;
 
   const containerMaxWidth = isWide ? 1240 : isDesktopish ? 1040 : 920;
 
@@ -1906,9 +1912,30 @@ export default function HomeScreen() {
         {/* Apartados separados por <Separador /> (línea fina + aire), sin recuadros. */}
         <View style={containerStyle}>
           {/* Logo animado como cabecera de marca: centrado, sin recuadro y con
-              poco margen para no empujar el contenido. Al tocarlo, se anima. */}
-          <View style={{ alignItems: "center", marginTop: isMobile ? -4 : 0, marginBottom: 8 }}>
-            <MarcaAnimada cual="logo" ancho={isMobile ? 150 : isWide ? 190 : 170} />
+              poco margen para no empujar el contenido. Al tocarlo, se anima.
+              A sus lados, TikTok (izquierda) e Instagram (derecha) con sus
+              seguidores (components/SocialLinks.tsx); el logo sigue en el
+              centro aunque falte una de las dos. */}
+          <View
+            nativeID="inicio-logo-redes"
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              alignSelf: "center",
+              width: "100%",
+              maxWidth: 560,
+              marginTop: isMobile ? -4 : 0,
+              marginBottom: 8,
+            }}
+          >
+            <View style={{ flex: 1, alignItems: "center" }}>
+              {redesLogo.tiktok ? <RedJuntoAlLogo fila={redesLogo.tiktok} estrecho={logoEstrecho} /> : null}
+            </View>
+            <MarcaAnimada cual="logo" ancho={logoEstrecho ? 128 : isMobile ? 150 : isWide ? 190 : 170} />
+            <View style={{ flex: 1, alignItems: "center" }}>
+              {redesLogo.instagram ? <RedJuntoAlLogo fila={redesLogo.instagram} estrecho={logoEstrecho} /> : null}
+            </View>
           </View>
 
           {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}

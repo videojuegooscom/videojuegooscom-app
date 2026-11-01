@@ -33,6 +33,9 @@
  *    (nadie elige el suyo ni lo cambia) e id_veoaura solo el servidor; añadirlo a la cuenta solo con sesión, con formato,
  *    sin quitárselo a otra persona y con un límite de 10 intentos fallidos por hora y persona; los intentos solo los lee
  *    el administrador; la privacidad lo explica una vez (con su «prueba de las pruebas»: sin el límite, entra el 11.º).
+ *  - Seguidores de TikTok e Instagram (20261101100000_redes_seguidores.sql), sobre social_links como en producción: añade
+ *    las dos columnas sin tocar los permisos; cualquiera los lee; solo el administrador los escribe; no admite negativos;
+ *    repetirla no duplica nada ni borra lo escrito (con su «prueba de las pruebas»: sin la comprobación, entra un negativo).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -742,6 +745,54 @@ try {
   const sinFreno = await vincular(c12, U1, libre2);
   ok(sinFreno.ok === true, "(control) sin el límite, el intento 11 entra: la comprobación SÍ lo detecta");
   await c12.end();
+  }
+
+  // 13) Seguidores de TikTok e Instagram (20261101100000), sobre social_links como está en producción (lectura pública y
+  // solo el administrador la cambia).
+  {
+    const TABLA_REDES = `
+      create table public.social_links (platform text primary key, label text not null, url text, enabled boolean not null default false,
+        sort_order integer not null default 0, updated_at timestamptz default now(), updated_by uuid);
+      alter table public.social_links enable row level security;
+      create policy social_links_public_read on public.social_links for select using (true);
+      create policy social_links_admin_update on public.social_links for update using (public.is_admin()) with check (public.is_admin());
+      insert into public.social_links (platform, label, url, enabled, sort_order) values
+        ('instagram', 'Instagram', 'Videojuegoszaragoza', true, 1), ('tiktok', 'TikTok', 'Videojuegoszaragoza', true, 2);
+    `;
+    const REDES = readFileSync("supabase/migrations/20261101100000_redes_seguidores.sql", "utf8");
+    const c13 = await nuevaBase("vz_aislada_redes", TABLA_REDES + REDES);
+    const columnas = (await c13.query("select column_name, data_type from information_schema.columns where table_schema = 'public' and table_name = 'social_links' and column_name like 'seguidores%' order by 1")).rows;
+    ok(columnas.map((x) => `${x.column_name}:${x.data_type}`).join(",") === "seguidores:integer,seguidores_actualizado:timestamp with time zone", `Redes: añade los seguidores y su fecha (${columnas.map((x) => x.column_name).join(", ")})`);
+    const politicasRedes = (await c13.query("select policyname from pg_policies where tablename = 'social_links' order by 1")).rows.map((x) => x.policyname);
+    ok(politicasRedes.join(",") === "social_links_admin_update,social_links_public_read", `Redes: no toca los permisos (siguen las 2 políticas: ${politicasRedes.join(", ")})`);
+    const anonLee = await como(c13, "anon", null, "select platform, seguidores from public.social_links order by platform");
+    ok(anonLee.ok && anonLee.filas.length === 2, "Redes: cualquiera (también sin sesión) lee los seguidores, como Inicio");
+    const adminEscribe = await como(c13, "authenticated", ADMIN, "update public.social_links set seguidores = 1234, seguidores_actualizado = now() where platform = 'tiktok'", { confirmar: true });
+    const clienteEscribe = await como(c13, "authenticated", U1, "update public.social_links set seguidores = 999999 where platform = 'tiktok'", { confirmar: true });
+    const anonEscribe = await como(c13, "anon", null, "update public.social_links set seguidores = 5 where platform = 'instagram'", { confirmar: true });
+    const quedan = Object.fromEntries((await c13.query("select platform, seguidores from public.social_links")).rows.map((x) => [x.platform, x.seguidores]));
+    ok(adminEscribe.ok && adminEscribe.cuantas === 1 && quedan.tiktok === 1234, "Redes: el administrador escribe los seguidores");
+    ok((!clienteEscribe.ok || clienteEscribe.cuantas === 0) && (!anonEscribe.ok || anonEscribe.cuantas === 0) && quedan.instagram === null, "Redes: un cliente o un visitante no los pueden cambiar");
+    const negativo = await como(c13, "authenticated", ADMIN, "update public.social_links set seguidores = -5 where platform = 'instagram'");
+    ok(!negativo.ok && negativo.codigo === "23514", `Redes: un número negativo no se guarda (${negativo.codigo ?? "entró"})`);
+    let repetidaRedes = true;
+    try {
+      await c13.query(REDES);
+    } catch {
+      repetidaRedes = false;
+    }
+    const checks = Number((await c13.query("select count(*) as n from pg_constraint where conname = 'social_links_seguidores_check'")).rows[0].n);
+    const sigue = (await c13.query("select seguidores from public.social_links where platform = 'tiktok'")).rows[0].seguidores;
+    ok(repetidaRedes && checks === 1 && sigue === 1234, "Redes: la migración se puede aplicar dos veces sin duplicar nada ni borrar lo escrito");
+    await c13.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación, un número negativo entraría.
+    const sinComprobacion = REDES.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinComprobacion !== REDES, "(control) se ha podido quitar la comprobación en la copia de prueba");
+    const c14 = await nuevaBase("vz_aislada_redes_sin_comprobacion", TABLA_REDES + sinComprobacion);
+    const negativo2 = await como(c14, "authenticated", ADMIN, "update public.social_links set seguidores = -5 where platform = 'instagram'");
+    ok(negativo2.ok, "(control) sin la comprobación entra un negativo: la prueba SÍ lo detecta");
+    await c14.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
