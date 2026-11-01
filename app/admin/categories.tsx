@@ -77,7 +77,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
-import PortadasCategoria, {
+import {
   CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
   NombreSobrePortada,

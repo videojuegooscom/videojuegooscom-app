@@ -90,9 +90,11 @@ import {
   AdminHeader,
   AdminLoading,
   AdminNotice,
+  BotonFlotante,
   ChipButton,
   EmptyState,
   FilterPill,
+  IconButton,
   MediaThumb,
   PrimaryButton,
   StatCard,
@@ -126,6 +128,9 @@ import {
   statusVisual,
   toPriceSafe,
 } from "../../lib/admin/products.utils";
+
+// Separación entre las fichas de la rejilla de productos.
+const GAP_REJILLA_PRODUCTOS = 10;
 
 // Texto de partida del campo "Descripción" al crear un producto nuevo — la
 // mayoría de artículos llevan siempre este mismo bloque, así que en vez de
@@ -522,10 +527,12 @@ type ProductListItemData = ProductRow & { catName: string };
 // "pop" de editar tardase tanto en abrirse en el móvil. Al extraer la fila
 // a su propio componente con React.memo(), React se salta por completo
 // esas ~300 filas cuando lo que cambia es el formulario, no la lista.
+// Ficha de la rejilla (petición del dueño, 2026-11-01): foto arriba, título, precio, estado y, abajo, el interruptor
+// de visible y las acciones con iconos (editar, publicar, destacar, vendido y borrar), cada una con su nombre para los
+// lectores de pantalla.
 const ProductListItem = React.memo(function ProductListItem({
   item: p,
-  isMobile,
-  isDesktopish,
+  ancho,
   supportsFeaturedHome,
   onEdit,
   onPublish,
@@ -536,8 +543,7 @@ const ProductListItem = React.memo(function ProductListItem({
   uploadStatus,
 }: {
   item: ProductListItemData;
-  isMobile: boolean;
-  isDesktopish: boolean;
+  ancho: number;
   supportsFeaturedHome: boolean;
   onEdit: (p: ProductRow) => void;
   onPublish: (p: ProductRow) => void;
@@ -561,25 +567,20 @@ const ProductListItem = React.memo(function ProductListItem({
 
   return (
     <View
+      nativeID={`producto-ficha-${p.id}`}
       style={{
-        borderRadius: 20,
+        width: ancho,
+        borderRadius: 18,
         backgroundColor: COLORS.card,
-        padding: isMobile ? 12 : 14,
-        gap: 12,
+        padding: 8,
+        gap: 8,
       }}
     >
-      <View
-        style={{
-          flexDirection: isDesktopish ? "row" : "column",
-          gap: 14,
-          alignItems: isDesktopish ? "flex-start" : "stretch",
-        }}
-      >
         <View
           style={{
-            width: isDesktopish ? 110 : "100%",
-            height: isDesktopish ? 110 : isMobile ? 190 : 220,
-            borderRadius: 16,
+            width: "100%",
+            aspectRatio: 1,
+            borderRadius: 14,
             overflow: "hidden",
             borderWidth: 1,
             borderColor: COLORS.border,
@@ -604,78 +605,30 @@ const ProductListItem = React.memo(function ProductListItem({
           )}
         </View>
 
-        <View style={{ flex: 1, gap: 10 }}>
-          <View
-            style={{
-              flexDirection: isMobile ? "column" : "row",
-              justifyContent: "space-between",
-              alignItems: isMobile ? "stretch" : "flex-start",
-              gap: 12,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontWeight: "900",
-                  fontSize: isMobile ? 16 : 17,
-                  lineHeight: isMobile ? 22 : 22,
-                }}
-              >
-                {p.title}
-              </Text>
+        <View style={{ gap: 6, paddingHorizontal: 2 }}>
+          <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>
+            {p.title}
+          </Text>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text>
 
-              {/* Estado (con su color) + el resto de datos en una línea de
-                  texto, en vez de cuatro "burbujas" seguidas. */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                  gap: 8,
-                  marginTop: 8,
-                }}
-              >
-                <View
-                  style={{
-                    paddingVertical: 4,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: statusUi.borderColor,
-                    backgroundColor: statusUi.backgroundColor,
-                  }}
-                >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-                    {statusUi.text}
-                  </Text>
-                </View>
-
-                <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, lineHeight: 18, flexShrink: 1 }}>
-                  {labelCond(p.condition)} · {p.catName} · {imageCount} foto{imageCount === 1 ? "" : "s"}
-                  {hasVideo ? " + vídeo" : ""}
-                </Text>
-              </View>
+          {/* Estado (con su color) + el resto de datos en una línea de texto. */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+            <View
+              style={{
+                paddingVertical: 3,
+                paddingHorizontal: 8,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: statusUi.borderColor,
+                backgroundColor: statusUi.backgroundColor,
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11.5 }}>{statusUi.text}</Text>
             </View>
-
-            <View style={{ alignItems: isMobile ? "flex-start" : "flex-end", gap: 10 }}>
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontWeight: "900",
-                  fontSize: isMobile ? 18 : 19,
-                }}
-              >
-                {fmtEUR(Number(p.price_eur ?? 0))}
-              </Text>
-
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
-                  {p.is_active ? "Visible" : "Oculto"}
-                </Text>
-                <Switch value={p.is_active} onValueChange={() => onToggleActive(p)} />
-              </View>
-            </View>
+            <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12, lineHeight: 16, flexShrink: 1 }}>
+              {p.is_active ? "Visible" : "Oculto"} · {labelCond(p.condition)} · {p.catName} · {imageCount} foto{imageCount === 1 ? "" : "s"}
+              {hasVideo ? " + vídeo" : ""}
+            </Text>
           </View>
 
           {!!uploadStatus && (
@@ -714,48 +667,30 @@ const ProductListItem = React.memo(function ProductListItem({
             </View>
           )}
 
-          {!!p.description && (
-            <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
-              {clampText(p.description, isMobile ? 140 : 200)}
-            </Text>
-          )}
-
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 10,
-              justifyContent: isDesktopish ? "flex-start" : "center",
-            }}
-          >
-            <ChipButton
-              label="Editar"
-              variant="primary"
-              onPress={() => onEdit(p)}
-              isMobile={isMobile}
-              disabled={isUploading}
-            />
-            {p.status !== "PUBLISHED" ? (
-              <ChipButton label="Publicar" variant="success" onPress={() => onPublish(p)} isMobile={isMobile} />
-            ) : null}
-            {supportsFeaturedHome ? (
-              <ChipButton
-                label={p.is_featured_home ? "Quitar destacado" : "Destacar en portada"}
-                onPress={() => onToggleFeatured(p)}
-                isMobile={isMobile}
-              />
-            ) : null}
-            <ChipButton label="Marcar vendido" onPress={() => onMarkSold(p)} isMobile={isMobile} />
-            <ChipButton
-              label="Borrar"
-              variant="danger"
-              onPress={() => onDelete(p)}
-              isMobile={isMobile}
-              disabled={isUploading}
-            />
-          </View>
         </View>
-      </View>
+
+        {/* Visible y las acciones con iconos (al pasar el ratón o con el lector de pantalla se dice cada una). */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: "auto" }}>
+          <Switch
+            value={p.is_active}
+            onValueChange={() => onToggleActive(p)}
+            accessibilityLabel={p.is_active ? `Ocultar ${p.title}` : `Mostrar ${p.title}`}
+          />
+          <IconButton icon="create-outline" label={`Editar ${p.title}`} variant="primary" onPress={() => onEdit(p)} disabled={isUploading} />
+          {p.status !== "PUBLISHED" ? (
+            <IconButton icon="paper-plane-outline" label={`Publicar ${p.title}`} variant="success" onPress={() => onPublish(p)} />
+          ) : null}
+          {supportsFeaturedHome ? (
+            <IconButton
+              icon={p.is_featured_home ? "star" : "star-outline"}
+              label={p.is_featured_home ? `Quitar ${p.title} de destacados en portada` : `Destacar ${p.title} en portada`}
+              variant={p.is_featured_home ? "primary" : "ghost"}
+              onPress={() => onToggleFeatured(p)}
+            />
+          ) : null}
+          <IconButton icon="pricetag-outline" label={`Marcar ${p.title} como vendido`} onPress={() => onMarkSold(p)} />
+          <IconButton icon="trash-outline" label={`Borrar ${p.title}`} variant="danger" onPress={() => onDelete(p)} disabled={isUploading} />
+        </View>
     </View>
   );
 });
@@ -766,6 +701,11 @@ export default function AdminProducts() {
   const isMobile = widthSafe < 700;
   const isDesktopish = widthSafe >= 1024;
   const pagePadding = isMobile ? 12 : 16;
+  // Rejilla de fichas: 2 por fila en el móvil, 3 en tableta y 4 en el ordenador (el ancho, del que mide de verdad).
+  const columnasRejilla = isMobile ? 2 : isDesktopish ? 4 : 3;
+  const [anchoRejilla, setAnchoRejilla] = useState(0);
+  const anchoDisponible = anchoRejilla || Math.min(widthSafe - pagePadding * 2, 1160);
+  const anchoFicha = Math.floor((anchoDisponible - GAP_REJILLA_PRODUCTOS * (columnasRejilla - 1)) / columnasRejilla);
   // Aire entre apartados (cabecera, estadísticas, filtros, lista).
   const sectionGap = isMobile ? 20 : 24;
   const insets = useSafeAreaInsets();
@@ -1694,8 +1634,8 @@ export default function AdminProducts() {
         style={{ flex: 1 }}
         contentContainerStyle={{
           padding: pagePadding,
-          // Margen final + zona segura: el último producto nunca queda pegado o tapado abajo.
-          paddingBottom: 48 + insets.bottom,
+          // Margen final + zona segura: el último producto nunca queda pegado o tapado abajo (ni por el «+» flotante).
+          paddingBottom: 96 + insets.bottom,
           alignItems: "center",
         }}
         showsVerticalScrollIndicator={false}
@@ -1706,6 +1646,29 @@ export default function AdminProducts() {
       >
         {/* Columna centrada: mismo ancho máximo en toda la pantalla */}
         <View style={{ width: "100%", maxWidth: 1160, gap: sectionGap }}>
+          {/* El buscador arriba de los contadores, como en Categorías; «Nuevo producto» es el «+» flotante. */}
+          <TextInput
+            nativeID="productos-buscar"
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Buscar por título o descripción"
+            placeholderTextColor="rgba(11,33,56,0.40)"
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 14,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+              color: COLORS.text,
+              backgroundColor: "#F8FBFE",
+              // 16px, no 14/15: por debajo de 16px, Safari en iPhone hace
+              // zoom automático de toda la pantalla al enfocar el campo —
+              // el "zoom insoportable" que reportó Daniel al escribir en
+              // el panel de administración.
+              fontSize: 16,
+            }}
+          />
+
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <StatCard label="Total" value={String(stats.total)} icon="cube-outline" isMobile={isMobile} />
             <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
@@ -1722,28 +1685,8 @@ export default function AdminProducts() {
             />
           )}
 
-          {/* Buscador, filtros y "Nuevo producto" (sin recuadro alrededor). */}
+          {/* Filtros (sin recuadro alrededor). */}
           <View style={{ gap: 14 }}>
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar por título o descripción"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 14,
-                paddingHorizontal: 12,
-                paddingVertical: 12,
-                color: COLORS.text,
-                backgroundColor: "#F8FBFE",
-                // 16px, no 14/15: por debajo de 16px, Safari en iPhone hace
-                // zoom automático de toda la pantalla al enfocar el campo —
-                // el "zoom insoportable" que reportó Daniel al escribir en
-                // el panel de administración.
-                fontSize: 16,
-              }}
-            />
 
             <View style={{ gap: 8, alignItems: "center" }}>
               <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Estado</Text>
@@ -1764,7 +1707,6 @@ export default function AdminProducts() {
               </View>
             </View>
 
-            <PrimaryButton label="+ Nuevo producto" onPress={openCreate} />
           </View>
 
           {filteredItems.length === 0 ? (
@@ -1774,13 +1716,21 @@ export default function AdminProducts() {
               text="Cambia la búsqueda o crea el primero: un catálogo vacío no genera ventas."
             />
           ) : (
-            <View style={{ gap: 12 }}>
+            // Fichas en rejilla, una al lado de otra (petición del dueño): 2 por fila en el móvil, 3 o 4 en pantallas
+            // anchas, con las acciones en iconos.
+            <View
+              nativeID="productos-rejilla"
+              onLayout={(e) => {
+                const w = Math.floor(e.nativeEvent.layout.width);
+                if (w && Math.abs(w - anchoRejilla) > 1) setAnchoRejilla(w);
+              }}
+              style={{ flexDirection: "row", flexWrap: "wrap", gap: GAP_REJILLA_PRODUCTOS }}
+            >
               {listData.map((p) => (
                 <ProductListItem
                   key={p.id}
                   item={p}
-                  isMobile={isMobile}
-                  isDesktopish={isDesktopish}
+                  ancho={anchoFicha}
                   supportsFeaturedHome={supportsFeaturedHome}
                   onEdit={openEditProduct}
                   onPublish={quickPublish}
@@ -1796,6 +1746,9 @@ export default function AdminProducts() {
         </View>
       </ScrollView>
       )}
+
+      {/* «Nuevo producto»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading ? <BotonFlotante nativeID="producto-nuevo" label="Nuevo producto" onPress={openCreate} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView

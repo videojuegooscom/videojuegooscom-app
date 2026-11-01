@@ -378,6 +378,18 @@ async function contexto(navegador, usuario, rol, estado) {
     // Políticas: sin filas (la página usa su texto de reserva, el mismo que pone la migración), salvo que la prueba las dé.
     if (url.pathname.endsWith("/rest/v1/policy_pages") && metodo === "GET") return json(estado.politicas ?? []);
     // Ficha de producto ficticia (sección N) y sus fotos (las fotos llegan falsas: pruebas/sin-fotos-reales.mjs).
+    // Administración → Productos (sección NO): la lista, sus fotos (ninguna) y lo que se manda cambiar.
+    if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/products")) {
+      if (metodo === "GET") return json(estado.productosAdmin, 200, { "content-range": `0-${estado.productosAdmin.length - 1}/${estado.productosAdmin.length}` });
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        estado.productosCambiados = [...(estado.productosCambiados ?? []), { id, cuerpo }];
+        estado.productosAdmin = estado.productosAdmin.map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
+        return /return=representation/.test(peticion.headers()["prefer"] ?? "") ? json([estado.productosAdmin.find((f) => f.id === id)]) : r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+    }
+    if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json([]);
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
@@ -2291,6 +2303,54 @@ async function seccionNO() {
     await p.locator("#categoria-opacidad").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
     const guardada = (estado5.categoriasGuardadas ?? []).at(-1)?.cuerpo;
     ok(!!guardada && !("titulo_posicion" in guardada) && guardada.portada_opacidad === 40, `NO: y guarda lo demás sin la posición (${JSON.stringify(guardada)})`);
+    await ctx.close();
+  }
+
+  // NO6) Productos: lo mismo que Categorías (buscador arriba, fichas en rejilla, «+» flotante y acciones con iconos).
+  {
+    const prod = (n, extra = {}) => ({
+      id: `p0000000-0000-4000-8000-00000000000${n}`, title: `Mando DualSense ${n}`, description: "Revisado.", price_eur: 49.9 + n,
+      status: "PUBLISHED", is_active: true, category_id: PS5, images: [], condition: "USED", reference: null, is_featured_home: false,
+      created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z", ...extra,
+    });
+    const estadoP = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias(), productosAdmin: [prod(1), prod(2, { status: "DRAFT" }), prod(3)] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estadoP);
+    const p = await pagina(ctx, "/admin/products");
+    await p.locator("#productos-rejilla").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const m = await p.evaluate(() => {
+      const r = (el) => el?.getBoundingClientRect();
+      const buscar = r(document.querySelector("#productos-buscar"));
+      const total = Array.from(document.querySelectorAll("*")).find((n) => n.children.length === 0 && n.textContent.trim() === "Total");
+      const fichas = [1, 2, 3].map((n) => r(document.querySelector(`#producto-ficha-p0000000-0000-4000-8000-00000000000${n}`)));
+      const mas = r(document.querySelector('[aria-label="Nuevo producto"]'));
+      const etiquetas = ["Editar Mando DualSense 2", "Publicar Mando DualSense 2", "Destacar Mando DualSense 2 en portada", "Marcar Mando DualSense 2 como vendido", "Borrar Mando DualSense 2"];
+      return {
+        buscadorArriba: !!buscar && !!total && buscar.bottom <= r(total).top,
+        fichas: fichas.map((f) => (f ? { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width) } : null)),
+        mas: mas ? { derecha: Math.round(window.innerWidth - mas.right), abajo: Math.round(window.innerHeight - mas.bottom) } : null,
+        iconos: etiquetas.map((l) => Math.round(r(document.querySelector(`[aria-label="${l}"]`))?.height ?? 0)),
+        conTexto: /(^|\s)(Editar|Borrar|Publicar|Marcar vendido|Destacar en portada)(\s|$)/.test(document.querySelector("#productos-rejilla")?.innerText ?? ""),
+        botonTexto: /\+ Nuevo producto/.test(document.body.innerText),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        pantalla: window.innerWidth,
+      };
+    });
+    const [a, b, c] = m.fichas;
+    ok(m.buscadorArriba, "NO: en Productos, el buscador también está arriba de los contadores");
+    ok(!!a && !!b && !!c && a.y === b.y && b.x > a.x && c.y > a.y && a.w < m.pantalla / 2, `NO: los productos van uno al lado de otro, 2 por fila en el móvil (${JSON.stringify(m.fichas)})`);
+    ok(!!m.mas && m.mas.derecha <= 24 && m.mas.abajo <= 40 && !m.botonTexto, `NO: «Nuevo producto» es el «+» flotante abajo a la derecha (${JSON.stringify(m.mas)})`);
+    ok(m.iconos.every((h) => h >= 44) && !m.conTexto, `NO: editar, publicar, destacar, vendido y borrar son iconos de 44 px con su nombre (${m.iconos.join(", ")})`);
+    ok(m.ancho <= m.pantalla + 1, `NO: Productos no se ensancha (${m.ancho}/${m.pantalla})`);
+    await capturar(p, "NO6-productos-rejilla");
+    await p.locator('[aria-label="Destacar Mando DualSense 1 en portada"]').click();
+    for (let i = 0; i < 20 && !(estadoP.productosCambiados ?? []).length; i++) await p.waitForTimeout(250);
+    const cambio = (estadoP.productosCambiados ?? [])[0];
+    ok(cambio?.id === "p0000000-0000-4000-8000-000000000001" && cambio?.cuerpo?.is_featured_home === true, `NO: la estrella destaca el producto en portada (${JSON.stringify(cambio)})`);
+    await p.locator('[aria-label="Editar Mando DualSense 1"]').click();
+    await p.getByText("Guardar cambios", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await p.getByText("Guardar cambios", { exact: true }).count()) >= 1, "NO: el lápiz abre su ficha para editarla");
+    ok(p.errores.length === 0, `NO: Productos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 }
