@@ -17,10 +17,11 @@
  *   repite y avisa a las pantallas abiertas (el panel la llama al guardar: Inicio se queda montado al cambiar de
  *   pestaña y antes no se enteraba de una portada nueva). También se repite al volver a la tienda (visibilitychange)
  *   si han pasado más de 15 s: una portada cambiada desde otro aparato se ve sin cerrar la tienda.
- * - PortadaConNombre: la portada llenando el recuadro de la categoría en Inicio, con el nombre encima (sin «Ver
- *   categoría»: lo quitó el dueño) y la foto al porcentaje que elige el dueño en el editor (portada_opacidad, 10-100 %;
- *   sin valor, 55 %). En el móvil el recuadro tiene siempre la misma forma (PROPORCION_RECUADRO_INICIO), la del
- *   encuadre: se ve justo lo que se eligió.
+ * - PortadaRecuadro: la portada llenando el recuadro de la categoría en Inicio, limpia, al porcentaje que elige el
+ *   dueño en el editor (portada_opacidad, 10-100 %; sin valor, 55 %). En el móvil el recuadro tiene siempre la misma
+ *   forma (PROPORCION_RECUADRO_INICIO), la del encuadre: se ve justo lo que se eligió.
+ * - NombreCategoria: el nombre ENCIMA del recuadro, fuera de la foto (sobre la foto no se leía bien), con la letra de
+ *   la tienda y el alto de dos líneas para que los recuadros de una fila queden alineados. Sin «Ver categoría».
  * - faltaColumnaPortadas(error): si Supabase dice que aún no existe la columna (la migración se aplica aparte).
  * - CATEGORIA_SERVICIOS / esCategoriaServicios(slug): «Reparación / Limpieza», el recuadro de Inicio que lleva a
  *   Servicios. No es una categoría de productos, pero su portada se guarda como una fila más de categories (slug
@@ -94,34 +95,9 @@ export function opacidadDe(fila: { portada_opacidad?: unknown } | null | undefin
   return Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(n)));
 }
 
-// Dónde va el nombre encima de la portada (columna titulo_posicion, migración 20261101190000): el centro del nombre en
-// % del recuadro, {x, y}. El dueño lo mueve en el editor manteniéndolo pulsado y arrastrándolo. Sin valor (o sin la
-// migración), en el centro. Se queda entre el 10 y el 90 % para que el nombre no se salga del recuadro.
-export type PosicionNombre = { x: number; y: number };
-export const POSICION_MIN = 10;
-export const POSICION_MAX = 90;
-export function limitarPosicion(p: PosicionNombre): PosicionNombre {
-  const dentro = (n: number) => Math.round(Math.min(POSICION_MAX, Math.max(POSICION_MIN, n)));
-  return { x: dentro(p.x), y: dentro(p.y) };
-}
-export function posicionNombreDe(fila: { titulo_posicion?: unknown } | null | undefined): PosicionNombre | null {
-  const v = fila?.titulo_posicion as { x?: unknown; y?: unknown } | null | undefined;
-  const x = Number(v?.x);
-  const y = Number(v?.y);
-  if (!v || !Number.isFinite(x) || !Number.isFinite(y)) return null;
-  return limitarPosicion({ x, y });
-}
-
-type FilaPortadas = {
-  slug: string;
-  image_url?: string | null;
-  imagenes?: unknown;
-  portadas_inicio?: unknown;
-  portada_opacidad?: unknown;
-  titulo_posicion?: unknown;
-};
-type DatosPortadas = { fotos: Record<string, string[]>; opacidad: Record<string, number>; posicion: Record<string, PosicionNombre> };
-const SIN_DATOS: DatosPortadas = { fotos: {}, opacidad: {}, posicion: {} };
+type FilaPortadas = { slug: string; image_url?: string | null; imagenes?: unknown; portadas_inicio?: unknown; portada_opacidad?: unknown };
+type DatosPortadas = { fotos: Record<string, string[]>; opacidad: Record<string, number> };
+const SIN_DATOS: DatosPortadas = { fotos: {}, opacidad: {} };
 let cache: Promise<DatosPortadas> | null = null;
 // Pantallas que enseñan portadas (Inicio se queda montado al cambiar de pestaña): al guardar una categoría en el panel
 // se avisa a todas para que vuelvan a pedirlas. Antes Inicio seguía con las de cuando se abrió.
@@ -145,15 +121,13 @@ async function cargarPortadas(): Promise<DatosPortadas> {
   // «*»: así una columna que aún no existe (migración pendiente) no da un error 400; si no viene, se usa lo de siempre.
   const res = await supabase.from("categories").select("*").eq("is_active", true);
   if (res.error) throw res.error;
-  const datos: DatosPortadas = { fotos: {}, opacidad: {}, posicion: {} };
+  const datos: DatosPortadas = { fotos: {}, opacidad: {} };
   for (const fila of (res.data ?? []) as FilaPortadas[]) {
     // En Inicio, el encuadre que eligió el dueño (o la foto entera si no lo tiene).
     const fotos = portadasInicioDe(fila);
     if (!fila.slug || !fotos.length) continue;
     datos.fotos[fila.slug] = fotos;
     datos.opacidad[fila.slug] = opacidadDe(fila);
-    const posicion = posicionNombreDe(fila);
-    if (posicion) datos.posicion[fila.slug] = posicion;
   }
   return datos;
 }
@@ -202,97 +176,38 @@ export function useOpacidadesPortadas(): Record<string, number> {
   return useDatosPortadas().opacidad;
 }
 
-/** Dónde puso el dueño el nombre de cada categoría activa (las que no lo han movido, en el centro), por slug. */
-export function usePosicionesNombre(): Record<string, PosicionNombre> {
-  return useDatosPortadas().posicion;
-}
-
 /**
- * El nombre de la categoría encima de su portada, con un halo blanco: se lee sobre cualquier foto sin otro recuadro.
- * Sin `posicion`, en el centro; con ella, su centro en ese punto (en % del recuadro). `agarrado`: se está moviendo.
+ * El nombre de una categoría ENCIMA de su recuadro, fuera de la foto (petición del dueño, 2026-11-01: sobre la foto no
+ * se leía bien): con la letra de la tienda (negrita, azul marino), en dos líneas como mucho y con el alto de dos líneas,
+ * pegado al recuadro, para que los recuadros de una misma fila queden a la misma altura.
  */
-export function NombreSobrePortada({ titulo, posicion, agarrado }: { titulo: string; posicion?: PosicionNombre | null; agarrado?: boolean }) {
-  const halo = { textShadowColor: "rgba(255,255,255,0.95)", textShadowRadius: 8, textShadowOffset: { width: 0, height: 0 } };
-  const texto = (
-    <Text
-      {...({ dataSet: { portadaNombre: "1" } } as object)}
-      numberOfLines={2}
-      style={[
-        { color: "#0B2138", fontWeight: "900", fontSize: 16, lineHeight: 21, textAlign: "center" },
-        halo,
-        agarrado ? { transform: [{ scale: 1.08 }] } : null,
-      ]}
-    >
-      {titulo}
-    </Text>
-  );
-  if (!posicion) {
-    return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 }}>{texto}</View>;
-  }
-  return <NombreColocado posicion={posicion}>{texto}</NombreColocado>;
-}
-
-// El nombre en su sitio: una franja del 90 % de ancho (se parte en líneas igual que en el centro) con el centro del
-// nombre en el punto elegido, pero siempre ENTERO dentro del recuadro (a 6 px del borde): el mismo % sirve en el
-// recuadro del móvil, en el del ordenador y en la vista previa, que miden distinto. Hasta medirlo, se pone en el % tal
-// cual.
-const MARGEN_NOMBRE = 6;
-function NombreColocado({ posicion, children }: { posicion: PosicionNombre; children: React.ReactNode }) {
-  const [caja, setCaja] = useState({ w: 0, h: 0 });
-  const [franja, setFranja] = useState({ alto: 0, texto: 0 });
-  const medido = caja.w > 0 && franja.alto > 0 && franja.texto > 0;
-  let estilo: object = { left: `${posicion.x - 45}%`, top: `${posicion.y}%`, transform: [{ translateY: "-50%" }] };
-  if (medido) {
-    const ancho = caja.w * 0.9;
-    const minIzq = MARGEN_NOMBRE - (ancho - franja.texto) / 2;
-    const maxIzq = caja.w - MARGEN_NOMBRE - (ancho + franja.texto) / 2;
-    const izq = Math.min(Math.max((posicion.x / 100) * caja.w - ancho / 2, minIzq), Math.max(minIzq, maxIzq));
-    const arriba = Math.min(Math.max((posicion.y / 100) * caja.h - franja.alto / 2, MARGEN_NOMBRE), Math.max(MARGEN_NOMBRE, caja.h - franja.alto - MARGEN_NOMBRE));
-    estilo = { left: izq, top: arriba };
-  }
+export function NombreCategoria({ titulo, tamano = 15 }: { titulo: string; tamano?: number }) {
+  const linea = Math.round(tamano * 1.3);
   return (
-    <View
-      pointerEvents="none"
-      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-      onLayout={(e) => {
-        const { width, height } = e.nativeEvent.layout;
-        if (Math.abs(width - caja.w) > 0.5 || Math.abs(height - caja.h) > 0.5) setCaja({ w: width, h: height });
-      }}
-    >
-      <View
-        style={[{ position: "absolute", width: "90%", alignItems: "center" }, estilo]}
-        onLayout={(e) => {
-          const alto = e.nativeEvent.layout.height;
-          if (Math.abs(alto - franja.alto) > 0.5) setFranja((f) => ({ ...f, alto }));
-        }}
+    <View style={{ minHeight: linea * 2, justifyContent: "flex-end", paddingHorizontal: 4 }}>
+      <Text
+        {...({ dataSet: { categoriaNombre: "1" } } as object)}
+        numberOfLines={2}
+        style={{ color: "#0B2138", fontWeight: "900", fontSize: tamano, lineHeight: linea, textAlign: "center" }}
       >
-        <View
-          onLayout={(e) => {
-            const texto = e.nativeEvent.layout.width;
-            if (Math.abs(texto - franja.texto) > 0.5) setFranja((f) => ({ ...f, texto }));
-          }}
-        >
-          {children}
-        </View>
-      </View>
+        {titulo}
+      </Text>
     </View>
   );
 }
 
 /**
- * La portada llenando el recuadro de una categoría, con el nombre encima: lo que se ve en Inicio y en la vista previa del
- * editor. `opacidad` (10-100) es cuánto se ve la foto: menos, más suave y el nombre se lee mejor. Con `proporcion`
- * (ancho / alto) el alto sale del ancho, como el encuadre; si no, mide `alto`.
+ * La portada llenando el recuadro de una categoría, limpia (el nombre va encima del recuadro, NombreCategoria): lo que
+ * se ve en Inicio y en la vista previa del editor. `opacidad` (10-100) es cuánto se ve la foto. Con `proporcion`
+ * (ancho / alto) el alto sale del ancho, como el encuadre; si no, mide `alto`. `titulo` es el texto alternativo.
  */
-export function PortadaConNombre({
+export function PortadaRecuadro({
   imagenes,
   opacidad,
   titulo,
   alto,
   proporcion,
   radio = 17,
-  posicion,
-  agarrado,
 }: {
   imagenes: string[];
   opacidad: number;
@@ -300,10 +215,6 @@ export function PortadaConNombre({
   alto?: number;
   proporcion?: number;
   radio?: number;
-  /** Dónde va el nombre (en % del recuadro); sin ella, en el centro. */
-  posicion?: PosicionNombre | null;
-  /** El dueño lo está moviendo en el editor (el nombre se ve un poco más grande). */
-  agarrado?: boolean;
 }) {
   return (
     <View
@@ -321,114 +232,6 @@ export function PortadaConNombre({
       >
         <PortadasCategoria imagenes={imagenes} alt={titulo} style={{ width: "100%", height: "100%" }} />
       </View>
-      <NombreSobrePortada titulo={titulo} posicion={posicion} agarrado={agarrado} />
-    </View>
-  );
-}
-
-/**
- * Web: «Cómo se ve en Inicio» del editor, donde el dueño mueve el nombre MANTENIÉNDOLO PULSADO (≈ 0,35 s, sin mover el
- * dedo) y arrastrándolo con un dedo (o el ratón). Si el dedo se mueve antes de tiempo, es un desplazamiento normal de la
- * página y el nombre no se mueve. Al soltar, avisa con la posición nueva (en %, entre el 10 y el 90).
- */
-export function PortadaNombreMovible({
-  posicion,
-  onMover,
-  ...resto
-}: {
-  imagenes: string[];
-  opacidad: number;
-  titulo: string;
-  proporcion?: number;
-  posicion: PosicionNombre | null;
-  onMover: (p: PosicionNombre) => void;
-}) {
-  const cajaRef = useRef<View>(null);
-  const [agarrado, setAgarrado] = useState(false);
-  const [moviendo, setMoviendo] = useState<PosicionNombre | null>(null);
-  const gesto = useRef<{ id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null; agarrado: boolean } | null>(null);
-  const moviendoRef = useRef<PosicionNombre | null>(null);
-  moviendoRef.current = moviendo;
-  const onMoverRef = useRef(onMover);
-  onMoverRef.current = onMover;
-
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const caja = cajaRef.current as unknown as HTMLElement | null;
-    if (!caja?.addEventListener) return;
-    const punto = (cx: number, cy: number) => {
-      const r = caja.getBoundingClientRect();
-      return limitarPosicion({ x: ((cx - r.left) / r.width) * 100, y: ((cy - r.top) / r.height) * 100 });
-    };
-    const soltar = (aceptar: boolean) => {
-      const g = gesto.current;
-      if (g?.timer) clearTimeout(g.timer);
-      gesto.current = null;
-      setAgarrado(false);
-      const final = moviendoRef.current;
-      setMoviendo(null);
-      if (aceptar && g?.agarrado && final) onMoverRef.current(final);
-    };
-    const abajo = (e: PointerEvent) => {
-      // Solo si se pulsa sobre el nombre (con un margen para el dedo).
-      const nombre = caja.querySelector('[data-portada-nombre="1"]') as HTMLElement | null;
-      const r = nombre?.getBoundingClientRect();
-      const margen = 16;
-      if (!r || e.clientX < r.left - margen || e.clientX > r.right + margen || e.clientY < r.top - margen || e.clientY > r.bottom + margen) return;
-      const g = { id: e.pointerId, x: e.clientX, y: e.clientY, timer: null as ReturnType<typeof setTimeout> | null, agarrado: false };
-      g.timer = setTimeout(() => {
-        g.agarrado = true;
-        setAgarrado(true);
-        try {
-          caja.setPointerCapture?.(g.id);
-        } catch {
-          // sin captura: sigue funcionando dentro del recuadro
-        }
-      }, 350);
-      gesto.current = g;
-    };
-    const mover = (e: PointerEvent) => {
-      const g = gesto.current;
-      if (!g || g.id !== e.pointerId) return;
-      if (!g.agarrado) {
-        // Se ha movido antes de tiempo: no era para mover el nombre (deja desplazar la página).
-        if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 8) soltar(false);
-        return;
-      }
-      e.preventDefault();
-      setMoviendo(punto(e.clientX, e.clientY));
-    };
-    const arriba = (e: PointerEvent) => {
-      if (gesto.current?.id === e.pointerId) soltar(true);
-    };
-    const cancelar = () => soltar(false);
-    // Con el nombre agarrado, el dedo no desplaza la página (escucha no pasiva para poder impedirlo).
-    const tactil = (e: TouchEvent) => {
-      if (gesto.current?.agarrado) e.preventDefault();
-    };
-    caja.addEventListener("pointerdown", abajo);
-    caja.addEventListener("pointermove", mover);
-    caja.addEventListener("pointerup", arriba);
-    caja.addEventListener("pointercancel", cancelar);
-    caja.addEventListener("touchmove", tactil, { passive: false });
-    return () => {
-      caja.removeEventListener("pointerdown", abajo);
-      caja.removeEventListener("pointermove", mover);
-      caja.removeEventListener("pointerup", arriba);
-      caja.removeEventListener("pointercancel", cancelar);
-      caja.removeEventListener("touchmove", tactil);
-      if (gesto.current?.timer) clearTimeout(gesto.current.timer);
-    };
-  }, []);
-
-  return (
-    <View
-      ref={cajaRef}
-      nativeID="portada-nombre-movible"
-      accessibilityHint="Mantén pulsado el nombre y arrástralo para moverlo"
-      style={{ width: "100%", ...(Platform.OS === "web" ? ({ userSelect: "none", cursor: agarrado ? "grabbing" : "grab" } as object) : null) }}
-    >
-      <PortadaConNombre {...resto} posicion={moviendo ?? posicion} agarrado={agarrado} />
     </View>
   );
 }

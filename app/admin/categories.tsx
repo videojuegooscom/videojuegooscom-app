@@ -15,17 +15,22 @@
  *   solas en carrusel (components/PortadasCategoria.tsx).
  * - Encuadre para Inicio: al subir una foto se abre «Encuadra la portada»
  *   (RecortarFoto, components/PerfilPublico.tsx) con la forma exacta del
- *   recuadro de Inicio en el móvil, el nombre encima y la foto al % elegido;
+ *   recuadro de Inicio en el móvil y la foto al % elegido;
  *   al aceptar se suben la foto entera (para la cabecera de dentro de la
  *   categoría) y el encuadre (columna "portadas_inicio", mismo orden que
  *   "imagenes"). «Encuadrar» en cada miniatura lo cambia. Sin esa columna
  *   (migración 20261101170000 pendiente) se sube como antes y se avisa.
  * - «Cómo se ve en Inicio»: con portada, una vista previa del recuadro de
- *   Inicio (el encuadre llenándolo y el nombre encima, sin «Ver categoría»)
- *   y una barra con «−» y «+» (de 10 en 10; la barra de 5 en 5) para que la
+ *   Inicio (el nombre ENCIMA del recuadro, fuera de la foto, y el encuadre
+ *   llenándolo) y una barra con «−» y «+» (de 10 en 10; la barra de 5 en 5) para que la
  *   foto se vea más suave o más fuerte (10-100 %, columna
  *   "portada_opacidad"; sin valor, 55 %). Al guardar, Inicio se entera al
  *   momento (olvidarPortadasCategorias avisa a las pantallas abiertas).
+ * - Lista en rejilla (2 por fila en el móvil), buscador arriba, «+» flotante
+ *   para crear y acciones con iconos. «A otras», junto a «Categoría activa»,
+ *   copia la transparencia de la foto a las categorías elegidas. (El nombre ya
+ *   no se mueve sobre la foto: va encima del recuadro; la columna
+ *   "titulo_posicion" sigue en la base de datos, sin usar.)
  * - Lee con select("*"): si "imagenes", "image_url" o "portada_opacidad"
  *   aún no existen en Supabase, no vienen y no se guardan (supportsImagenes,
  *   supportsImageUrl, supportsOpacidad), sin errores 400; sin "imagenes"
@@ -80,13 +85,11 @@ import SmartImage from "../../components/SmartImage";
 import {
   CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
-  NombreSobrePortada,
+  NombreCategoria,
   OPACIDAD_PORTADA_DEFECTO,
   OPACIDAD_PORTADA_MIN,
   PROPORCION_RECUADRO_INICIO,
-  PortadaConNombre,
-  PortadaNombreMovible,
-  type PosicionNombre,
+  PortadaRecuadro,
   SALIDA_ENCUADRE,
   encuadresDe,
   esCategoriaServicios,
@@ -95,7 +98,6 @@ import {
   opacidadDe,
   portadasDe,
   portadasInicioDe,
-  posicionNombreDe,
 } from "../../components/PortadasCategoria";
 import { RecortarFoto } from "../../components/PerfilPublico";
 import {
@@ -338,11 +340,8 @@ export default function AdminCategories() {
   const [recorte, setRecorte] = useState<{ uri: string; remota: boolean; indice: number | null; archivo?: File } | null>(null);
   // Cuánto se ve la portada en el recuadro de Inicio (10-100 %): menos, más suave y el nombre se lee mejor.
   const [opacidad, setOpacidad] = useState(OPACIDAD_PORTADA_DEFECTO);
-  // Dónde va el nombre encima de la portada (lo mueve el dueño manteniéndolo pulsado); null = en el centro. Columna
-  // titulo_posicion (migración 20261101190000): sin ella se puede mover en la vista previa, pero no se guarda.
-  const [posicionNombre, setPosicionNombre] = useState<PosicionNombre | null>(null);
-  const [supportsPosicion, setSupportsPosicion] = useState(true);
-  // «Aplicar a otras»: desplegable con las demás categorías para copiarles la transparencia y la posición del nombre.
+  // «A otras»: desplegable con las demás categorías para copiarles la transparencia de la foto. (El nombre ya no va
+  // sobre la foto sino encima del recuadro: la columna titulo_posicion se queda en la base de datos, sin usar.)
   const [copiarAbierto, setCopiarAbierto] = useState(false);
   const [copiarA, setCopiarA] = useState<string[]>([]);
   const [copiando, setCopiando] = useState(false);
@@ -416,7 +415,6 @@ export default function AdminCategories() {
       setSupportsImageUrl(!muestra || "image_url" in muestra);
       setSupportsOpacidad(!muestra || "portada_opacidad" in muestra);
       setSupportsEncuadre(!muestra || "portadas_inicio" in muestra);
-      setSupportsPosicion(!muestra || "titulo_posicion" in muestra);
       setItems(conRecuadroServicios(filas));
     } catch (e: any) {
       console.error("Error cargando categorías:", e);
@@ -440,7 +438,6 @@ export default function AdminCategories() {
     setPortadas([]);
     setEncuadres([]);
     setOpacidad(OPACIDAD_PORTADA_DEFECTO);
-    setPosicionNombre(null);
     setCopiarAbierto(false);
     setCopiarA([]);
     setAvisoCopiar(null);
@@ -462,7 +459,6 @@ export default function AdminCategories() {
     setPortadas(portadasDe(c));
     setEncuadres(encuadresDe(c));
     setOpacidad(opacidadDe(c));
-    setPosicionNombre(posicionNombreDe(c));
     setCopiarAbierto(false);
     setCopiarA([]);
     setAvisoCopiar(null);
@@ -652,8 +648,6 @@ export default function AdminCategories() {
       if (supportsOpacidad) payload.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
       // El encuadre para Inicio de cada portada, en el mismo orden ("" = sin encuadrar).
       if (supportsEncuadre) payload.portadas_inicio = fotos.map((_, i) => encuadres[i] ?? "");
-      // Dónde va el nombre (null = en el centro).
-      if (supportsPosicion) payload.titulo_posicion = posicionNombre;
 
       // Sin id (la de «Reparación / Limpieza» la primera vez), se crea.
       const escribir = (datos: any) =>
@@ -662,12 +656,6 @@ export default function AdminCategories() {
           : supabase.from("categories").insert(datos);
 
       let { error } = await escribir(payload);
-      // Si la columna de la posición del nombre aún no existe, se guarda el resto (en Inicio, en el centro).
-      if (error && "titulo_posicion" in payload && /titulo_posicion/.test(String(error.message ?? ""))) {
-        delete payload.titulo_posicion;
-        setSupportsPosicion(false);
-        ({ error } = await escribir(payload));
-      }
       // Si la columna de los encuadres aún no existe, se guarda el resto (Inicio recorta las fotos por el centro).
       if (error && "portadas_inicio" in payload && /portadas_inicio/.test(String(error.message ?? ""))) {
         delete payload.portadas_inicio;
@@ -706,36 +694,26 @@ export default function AdminCategories() {
     }
   }
 
-  // «Aplicar a otras»: copia a las categorías elegidas la transparencia y la posición del nombre de esta, tal como se
-  // ven ahora en la vista previa (aunque aún no se haya guardado). Las fotos y los encuadres no se copian.
+  // «A otras»: copia a las categorías elegidas la transparencia de la foto de esta, tal como se ve ahora en la vista
+  // previa (aunque aún no se haya guardado). Las fotos y los encuadres no se copian.
   async function aplicarAOtras() {
     if (copiando || !copiarA.length) return;
     setCopiando(true);
     setAvisoCopiar(null);
-    const datos: Record<string, unknown> = {};
-    if (supportsOpacidad) datos.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
-    if (supportsPosicion) datos.titulo_posicion = posicionNombre;
-    if (!Object.keys(datos).length) {
+    if (!supportsOpacidad) {
       setAvisoCopiar("Aún no hay ajustes que se puedan copiar: falta activar su parte en la base de datos.");
       setCopiando(false);
       return;
     }
-    const escribir = (d: Record<string, unknown>) => supabase.from("categories").update(d).in("id", copiarA);
-    let { error } = await escribir(datos);
-    // Sin la columna de la posición del nombre, se copia solo la transparencia.
-    if (error && "titulo_posicion" in datos && /titulo_posicion/.test(String(error.message ?? ""))) {
-      delete datos.titulo_posicion;
-      setSupportsPosicion(false);
-      ({ error } = Object.keys(datos).length ? await escribir(datos) : { error: null });
-    }
+    const datos = { portada_opacidad: Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad))) };
+    const { error } = await supabase.from("categories").update(datos).in("id", copiarA);
     setCopiando(false);
     if (error) {
       setAvisoCopiar("No se han podido copiar los ajustes. Inténtalo de nuevo.");
       return;
     }
     const n = copiarA.length;
-    const que = "titulo_posicion" in datos ? "la transparencia y la posición del nombre" : "la transparencia";
-    setAvisoCopiar(`Copiado a ${n} ${n === 1 ? "categoría" : "categorías"}: ${que}.`);
+    setAvisoCopiar(`Copiado a ${n} ${n === 1 ? "categoría" : "categorías"}: la transparencia (${datos.portada_opacidad} %).`);
     setItems((prev) => prev.map((x) => (copiarA.includes(x.id) ? ({ ...x, ...datos } as CategoryRow) : x)));
     setCopiarA([]);
     setCopiarAbierto(false);
@@ -865,12 +843,11 @@ export default function AdminCategories() {
                 }}
               >
                 {fotos.length ? (
-                  <PortadaConNombre
+                  <PortadaRecuadro
                     imagenes={fotos}
                     opacidad={opacidadDe(c)}
                     titulo={c.name}
                     proporcion={PROPORCION_RECUADRO_INICIO}
-                    posicion={posicionNombreDe(c)}
                     radio={14}
                   />
                 ) : (
@@ -1208,38 +1185,22 @@ export default function AdminCategories() {
                     />
                   ) : null}
 
-                  {/* Cómo se ve en Inicio: el encuadre llena el recuadro (con su forma en el móvil) y el nombre va encima.
-                      La barra decide cuánto se ve la foto (menos: más suave y el nombre se lee mejor; más: más fuerte). */}
+                  {/* Cómo se ve en Inicio: el nombre encima del recuadro y el encuadre llenándolo (con su forma en el
+                      móvil). La barra decide cuánto se ve la foto (menos: más suave; más: más fuerte). */}
                   {portadas.length > 0 ? (
                     <View nativeID="categoria-opacidad" style={{ width: "100%", gap: 10, alignItems: "center", paddingTop: 6 }}>
                       <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cómo se ve en Inicio</Text>
-                      {/* El nombre se mueve manteniéndolo pulsado y arrastrándolo (como en el móvil: un dedo). */}
-                      <View style={{ width: "100%", maxWidth: 230, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" }}>
-                        <PortadaNombreMovible
-                          imagenes={portadas.map((u, i) => encuadres[i] || u)}
-                          opacidad={opacidad}
-                          titulo={name.trim() || "Nombre de la categoría"}
-                          proporcion={PROPORCION_RECUADRO_INICIO}
-                          posicion={posicionNombre}
-                          onMover={setPosicionNombre}
-                        />
+                      <View nativeID="categoria-vista-previa" style={{ width: "100%", maxWidth: 230, gap: 6 }}>
+                        <NombreCategoria titulo={name.trim() || "Nombre de la categoría"} />
+                        <View style={{ borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" }}>
+                          <PortadaRecuadro
+                            imagenes={portadas.map((u, i) => encuadres[i] || u)}
+                            opacidad={opacidad}
+                            titulo={name.trim() || "Nombre de la categoría"}
+                            proporcion={PROPORCION_RECUADRO_INICIO}
+                          />
+                        </View>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
-                        <Text nativeID="categoria-nombre-posicion" style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center", flexShrink: 1 }}>
-                          {posicionNombre
-                            ? "Mantén pulsado el nombre y arrástralo para moverlo."
-                            : "Mantén pulsado el nombre y arrástralo para moverlo (ahora, en el centro)."}
-                        </Text>
-                        {posicionNombre ? (
-                          <IconButton icon="locate-outline" label="Centrar el nombre" onPress={() => setPosicionNombre(null)} />
-                        ) : null}
-                      </View>
-                      {!supportsPosicion ? (
-                        <AdminNotice
-                          tone="warning"
-                          text="Dónde va el nombre se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale en el centro."
-                        />
-                      ) : null}
                       <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
                         Foto: <Text nativeID="categoria-opacidad-valor">{opacidad}</Text> %
                       </Text>
@@ -1294,7 +1255,7 @@ export default function AdminCategories() {
                         </Pressable>
                       </View>
                       <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center" }}>
-                        Menos: la foto se ve más suave y el nombre se lee mejor. Más: la foto se ve más fuerte.
+                        Menos: la foto se ve más suave. Más: la foto se ve más fuerte.
                       </Text>
                       {!supportsOpacidad ? (
                         <AdminNotice
@@ -1308,7 +1269,7 @@ export default function AdminCategories() {
               ) : null}
 
               {/* «Categoría activa» y, a su lado, «Aplicar a otras»: un desplegable para elegir a qué categorías se
-                  copian la transparencia y la posición del nombre de esta (las fotos no). */}
+                  copia la transparencia de la foto de esta (las fotos no). */}
               <View
                 style={{
                   borderRadius: 16,
@@ -1356,14 +1317,14 @@ export default function AdminCategories() {
                 </View>
                 <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13 }}>
                   {editandoServicios
-                    ? "«A otras» copia la transparencia y la posición del nombre a las categorías que elijas."
-                    : "Si está activa, puede mostrarse en la tienda. «A otras» copia la transparencia y la posición del nombre a las categorías que elijas."}
+                    ? "«A otras» copia la transparencia de la foto a las categorías que elijas."
+                    : "Si está activa, puede mostrarse en la tienda. «A otras» copia la transparencia de la foto a las categorías que elijas."}
                 </Text>
 
                 {copiarAbierto ? (
                   <View nativeID="categoria-aplicar-lista" style={{ gap: 6 }}>
                     <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
-                      Copia la transparencia ({opacidad} %) y {posicionNombre ? "la posición del nombre" : "el nombre en el centro"} a:
+                      Copia la transparencia de la foto ({opacidad} %) a:
                     </Text>
                     {(() => {
                       const otras = items.filter((x) => !!x.id && x.id !== editing?.id);
@@ -1518,7 +1479,7 @@ export default function AdminCategories() {
         </View>
       </Modal>
 
-      {/* Encuadre de una portada con la forma del recuadro de Inicio en el móvil, con el nombre encima y la foto al %
+      {/* Encuadre de una portada con la forma del recuadro de Inicio en el móvil y la foto al %
           elegido: se ve tal cual quedará antes de subirla. */}
       {recorte ? (
         <RecortarFoto
@@ -1530,7 +1491,6 @@ export default function AdminCategories() {
           titulo="Encuadra la portada"
           texto="Así se verá en el recuadro de Inicio. Arrástrala para moverla y acércala o aléjala."
           textoUsar="Usar este encuadre"
-          encima={<NombreSobrePortada titulo={name.trim() || "Nombre de la categoría"} />}
           opacidadFoto={opacidad / 100}
           nativeID="categoria-recorte"
           nombreArchivo="portada.jpg"
