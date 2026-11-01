@@ -18,6 +18,10 @@
  *   artículo añadido.
  * - components/SiteFooter.tsx → pie de página (las redes sociales salen ahí una
  *   sola vez; antes se repetían también encima).
+ * - app/(tabs)/blue-ia.tsx → «Blue, ayúdame a elegir un artículo» (con la
+ *   cesta vacía o llena) abre Blue IA y le manda la pregunta sola (?q=); los
+ *   toques se cuentan con la analítica propia («cesta_blue_elegir») y se ven
+ *   en Administración → Analítica.
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -49,6 +53,7 @@ import {
   reservarProducto,
 } from "../../lib/reservas";
 import { supabase } from "../../lib/supabase";
+import { trackEvent } from "../../lib/analytics";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -245,6 +250,48 @@ function pushRoute(route: Href) {
 
 function replaceRoute(route: Href) {
   router.replace(route);
+}
+
+// La pregunta que recibe Blue IA (la misma idea que su sugerencia «Ayúdame a elegir»): que pregunte antes de recomendar.
+const PREGUNTA_ELEGIR =
+  "Ayúdame a elegir un artículo. Pregúntame lo que necesites saber (presupuesto, qué busco, para qué lo quiero) antes de recomendarme algo.";
+
+// «Blue, ayúdame a elegir un artículo»: lleva a la conversación con Blue IA con la pregunta ya enviada.
+function BotonBlueElegir({ conArticulos }: { conArticulos: boolean }) {
+  return (
+    <Pressable
+      nativeID="cesta-blue-elegir"
+      onPress={() => {
+        // Analítica propia (Administración → Analítica): cuántos lo tocan y si tenían algo en la cesta.
+        void trackEvent("cesta_blue_elegir", "Cesta: Blue, ayúdame a elegir", { metadata: { con_articulos: conArticulos } });
+        pushRoute(`/blue-ia?q=${encodeURIComponent(PREGUNTA_ELEGIR)}` as Href);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel="Blue, ayúdame a elegir un artículo"
+      style={({ pressed }) => ({
+        alignSelf: "center",
+        width: "100%",
+        maxWidth: 360,
+        minHeight: 48,
+        borderRadius: 999,
+        paddingHorizontal: 18,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        borderWidth: 1,
+        borderColor: COLORS.accentBorder,
+        backgroundColor: COLORS.accent2,
+        opacity: pressed ? 0.88 : 1,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+      })}
+    >
+      <Ionicons name="sparkles" size={18} color={COLORS.accent} />
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center", flexShrink: 1 }}>
+        Blue, ayúdame a elegir un artículo
+      </Text>
+    </Pressable>
+  );
 }
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
@@ -900,6 +947,9 @@ export default function CestaScreen() {
           </View>
           ) : null}
           </View>
+
+          {/* Con la cesta vacía o llena: Blue IA ayuda a elegir (abre la conversación con la pregunta ya enviada). */}
+          <BotonBlueElegir conArticulos={items.length > 0} />
 
           <CategoryProductsShelf />
           {/* Las redes sociales ya salen en el pie de página (SiteFooter): no se repiten. */}
