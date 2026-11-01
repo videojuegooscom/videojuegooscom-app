@@ -50,6 +50,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { IconButton } from "../../lib/admin/products.components";
 import SmartImage from "../../components/SmartImage";
 import CargaMarca from "../../components/marca/CargaMarca";
 
@@ -527,29 +528,11 @@ export default function AdminMarcaSeo() {
                     </Pressable>
 
                     {logoUrl ? (
-                      <Pressable
-                        onPress={handleRemoveLogo}
-                        disabled={removingLogo}
-                        style={({ pressed }) => ({
-                          opacity: pressed || removingLogo ? 0.75 : 1,
-                          paddingVertical: 10,
-                          paddingHorizontal: 14,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.dangerBorder,
-                          backgroundColor: COLORS.dangerBg,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                        })}
-                      >
-                        {removingLogo ? (
-                          <ActivityIndicator size="small" color={COLORS.danger} />
-                        ) : (
-                          <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
-                        )}
-                        <Text style={{ color: COLORS.danger, fontWeight: "900", fontSize: 13 }}>Quitar</Text>
-                      </Pressable>
+                      removingLogo ? (
+                        <ActivityIndicator size="small" color={COLORS.danger} />
+                      ) : (
+                        <IconButton icon="trash-outline" label="Quitar el logo" variant="danger" onPress={handleRemoveLogo} />
+                      )
                     ) : null}
                   </View>
                 </View>

@@ -711,30 +711,14 @@ export function MediaThumb({
         </Text>
 
         {!!onRemove && (
-          <Pressable
-            onPress={onRemove}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              borderRadius: 999,
-              paddingVertical: 7,
-              paddingHorizontal: 8,
-              borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.dangerBg,
-              marginTop: 2,
-            })}
-          >
-            <Text
-              style={{
-                color: COLORS.danger,
-                fontWeight: "900",
-                fontSize: 11,
-                textAlign: "center",
-              }}
-            >
-              Quitar
-            </Text>
-          </Pressable>
+          <View style={{ alignItems: "center", marginTop: 2 }}>
+            <IconButton
+              icon="trash-outline"
+              label={kind === "video" ? "Quitar el vídeo" : "Quitar la foto"}
+              variant="danger"
+              onPress={onRemove}
+            />
+          </View>
         )}
       </View>
     </View>

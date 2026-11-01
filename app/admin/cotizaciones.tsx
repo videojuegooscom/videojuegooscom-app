@@ -72,6 +72,7 @@ import {
   AdminLoading,
   AdminNotice,
   EmptyState,
+  IconButton,
   StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
@@ -697,13 +698,7 @@ export default function AdminCotizaciones() {
                           isMobile={isMobile}
                         />
                       )}
-                      <ChipButton
-                        label="Borrar"
-                        variant="danger"
-                        disabled={isBusy}
-                        onPress={() => askRemove(r)}
-                        isMobile={isMobile}
-                      />
+                      <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" disabled={isBusy} onPress={() => askRemove(r)} />
                     </View>
                   </View>
                 );

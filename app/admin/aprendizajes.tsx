@@ -37,6 +37,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { IconButton } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
@@ -601,14 +602,9 @@ export default function AdminAprendizajes() {
                   {a.ejemplo_bien ? (
                     <Text style={{ color: COLORS.success, lineHeight: 19, fontSize: 13 }}>✓ {a.ejemplo_bien}</Text>
                   ) : null}
-                  <Pressable
-                    onPress={() => editar(a)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Editar la lección ${a.titulo}`}
-                    style={({ pressed }) => ({ alignSelf: "flex-start", opacity: pressed ? 0.7 : 1, paddingVertical: 4 })}
-                  >
-                    <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>Editar</Text>
-                  </Pressable>
+                  <View style={{ alignSelf: "flex-start" }}>
+                    <IconButton icon="create-outline" label={`Editar la lección ${a.titulo}`} variant="primary" onPress={() => editar(a)} />
+                  </View>
                 </View>
               );
             })

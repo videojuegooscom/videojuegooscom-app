@@ -378,6 +378,11 @@ async function contexto(navegador, usuario, rol, estado) {
     // Políticas: sin filas (la página usa su texto de reserva, el mismo que pone la migración), salvo que la prueba las dé.
     if (url.pathname.endsWith("/rest/v1/policy_pages") && metodo === "GET") return json(estado.politicas ?? []);
     // Ficha de producto ficticia (sección N) y sus fotos (las fotos llegan falsas: pruebas/sin-fotos-reales.mjs).
+    // Tablas sencillas que solo se leen (sección NO: Blog, Políticas, «Lo que Blue sabe»): las filas de la prueba.
+    if (estado.tablas && metodo === "GET") {
+      const tabla = url.pathname.split("/").pop();
+      if (estado.tablas[tabla]) return json(estado.tablas[tabla], 200, { "content-range": `*/${estado.tablas[tabla].length}` });
+    }
     // Administración → Productos (sección NO): la lista, sus fotos (ninguna) y lo que se manda cambiar.
     if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/products")) {
       if (metodo === "GET") return json(estado.productosAdmin, 200, { "content-range": `0-${estado.productosAdmin.length - 1}/${estado.productosAdmin.length}` });
@@ -2351,6 +2356,38 @@ async function seccionNO() {
     await p.getByText("Guardar cambios", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
     ok((await p.getByText("Guardar cambios", { exact: true }).count()) >= 1, "NO: el lápiz abre su ficha para editarla");
     ok(p.errores.length === 0, `NO: Productos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // NO7) El resto del panel: Editar y Borrar también son iconos (con su nombre) en Blog, Políticas y «Lo que Blue sabe».
+  {
+    const fecha = "2026-10-30T10:00:00Z";
+    const estado7 = {
+      filas: perfil(ADMIN.id),
+      guardados: [],
+      // Las políticas ya tienen su propia simulación (estado.politicas).
+      politicas: [{ id: "pp1", slug: "envios", title: "Envíos", intro: "Cómo enviamos.", sections: [], is_active: true, sort_order: 0, created_at: fecha, updated_at: fecha }],
+      tablas: {
+        blog_posts: [{ id: "b1", slug: "cuidar-consola", title: "Cómo cuidar tu consola", excerpt: "Consejos.", body: "Texto.", status: "PUBLISHED", sort_order: 0, created_at: fecha, updated_at: fecha }],
+        blue_conocimiento: [{ id: "k1", tema: "Horario", respuesta: "De 10 a 20 h.", activo: true, created_at: fecha, updated_at: fecha }],
+      },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado7);
+    const pantallas = [
+      ["/admin/blog", ["Editar Cómo cuidar tu consola", "Borrar Cómo cuidar tu consola"]],
+      ["/admin/policies", ["Editar Envíos", "Borrar Envíos"]],
+      ["/admin/conocimiento", ["Editar «Horario»", "Borrar «Horario»"]],
+    ];
+    const resultado = [];
+    for (const [ruta, etiquetas] of pantallas) {
+      const p = await pagina(ctx, ruta);
+      await p.locator(`[aria-label="${etiquetas[0]}"]`).first().waitFor({ timeout: 30000 }).catch(() => {});
+      const altos = await p.evaluate((ls) => ls.map((l) => Math.round(document.querySelector(`[aria-label="${l}"]`)?.getBoundingClientRect().height ?? 0)), etiquetas);
+      const conTexto = await p.evaluate(() => Array.from(document.querySelectorAll('[role="button"]')).some((b) => /^(Editar|Borrar)$/.test(b.textContent.trim())));
+      resultado.push({ ruta, altos, conTexto, errores: p.errores.length });
+      await p.close();
+    }
+    ok(resultado.every((x) => x.altos.every((h) => h >= 44) && !x.conTexto && !x.errores), `NO: en Blog, Políticas y «Lo que Blue sabe», Editar y Borrar son iconos de 44 px con su nombre (${JSON.stringify(resultado)})`);
     await ctx.close();
   }
 }
