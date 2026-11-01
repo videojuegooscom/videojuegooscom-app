@@ -393,12 +393,15 @@ async function contexto(navegador, usuario, rol, estado) {
     if (estado.redes && url.pathname.endsWith("/rest/v1/social_links")) {
       if (metodo === "GET") {
         if (estado.redesSinColumna && /seguidores/.test(url.searchParams.get("select") ?? "")) {
+          // Se cuenta: la tienda no debe pedir una columna que aún no existe (deja un error 400 en la consola).
+          estado.redes400 = (estado.redes400 ?? 0) + 1;
           return json({ code: "42703", message: "column social_links.seguidores does not exist" }, 400);
         }
         const plataformas = (url.searchParams.get("platform") ?? "").replace(/^in\.\(|\)$/g, "").split(",").filter(Boolean);
-        // Como PostgREST: solo las columnas pedidas.
+        // Como PostgREST: solo las columnas pedidas; con «*», las que existan (sin la migración, sin los seguidores).
         const columnas = (url.searchParams.get("select") ?? "*").split(",");
-        const solo = (f) => (columnas.includes("*") ? f : Object.fromEntries(columnas.map((c) => [c, f[c] ?? null])));
+        const sinSeguidores = (f) => Object.fromEntries(Object.entries(f).filter(([c]) => !c.startsWith("seguidores")));
+        const solo = (f) => (columnas.includes("*") ? (estado.redesSinColumna ? sinSeguidores(f) : f) : Object.fromEntries(columnas.map((c) => [c, f[c] ?? null])));
         return json(estado.redes.filter((f) => !plataformas.length || plataformas.includes(f.platform)).map(solo));
       }
       if (metodo === "PATCH") {
@@ -1236,6 +1239,7 @@ async function seccionT() {
     const m = await medir(p);
     ok(!!m.tiktok && /Síguenos \| en TikTok/.test(m.tiktok.texto) && !!m.instagram && /Síguenos \| en Instagram/.test(m.instagram.texto), `T: sin la migración salen las dos con «Síguenos» (${m.tiktok?.texto} / ${m.instagram?.texto})`);
     ok(p.errores.length === 0, `T: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    ok(!estado.redes400, `T: y sin pedir la columna que aún no existe (ninguna petición fallida, 400, en la consola: ${estado.redes400 ?? 0})`);
 
     // Móvil estrecho (320 px): todo cabe y se lee entero.
     await p.setViewportSize({ width: 320, height: 700 });
@@ -1296,6 +1300,7 @@ async function seccionT() {
     const p = await pagina(ctx, "/admin/redes-sociales");
     await p.locator('[aria-label="Seguidores de TikTok"]').waitFor({ timeout: 30000 }).catch(() => {});
     ok((await p.getByText(/Se podrá guardar en cuanto se active su parte en la base de datos/).count()) === 2, "T: sin la migración, el campo de seguidores avisa de que aún no se guarda");
+    ok(!estado.redes400, `T: y Administración tampoco pide la columna que aún no existe (${estado.redes400 ?? 0} peticiones fallidas)`);
     await p.getByText("Guardar cambios", { exact: true }).click();
     await p.getByText(/^Guardado\./).waitFor({ timeout: 10000 }).catch(() => {});
     ok((await p.getByText(/^Guardado\./).count()) === 1 && (estado.redesGuardadas ?? []).length === 3 && (estado.redesGuardadas ?? []).every((x) => !("seguidores" in x.cuerpo)), "T: y los enlaces se guardan igual (sin los seguidores)");

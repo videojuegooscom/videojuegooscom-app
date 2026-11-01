@@ -248,10 +248,10 @@ export function useRedesJuntoAlLogo(): Partial<Record<RedLogo, FilaRedLogo>> {
     let vivo = true;
     (async () => {
       try {
-        const pedir = (columnas: string) => supabase.from("social_links").select(columnas).in("platform", ["tiktok", "instagram"]);
-        let res = await pedir("platform,label,url,enabled,seguidores");
-        // Sin la migración todavía no existe la columna: se piden sin ella y sale «Síguenos».
-        if (res.error) res = await pedir("platform,label,url,enabled");
+        // «*» y no la lista de columnas: sin la migración todavía no existe «seguidores» y pedirla por su nombre daba un
+        // error 400 (en la consola del navegador) antes de repetir sin ella. Así, una sola petición que nunca falla y,
+        // sin la columna, sale «Síguenos». La tabla tiene pocas columnas (enlace, nombre, orden…): todas públicas.
+        const res = await supabase.from("social_links").select("*").in("platform", ["tiktok", "instagram"]);
         if (!vivo || res.error || !Array.isArray(res.data)) return;
         const nuevas: Partial<Record<RedLogo, FilaRedLogo>> = {};
         for (const r of res.data as unknown as (SocialLinkRow & { seguidores?: number | null })[]) {

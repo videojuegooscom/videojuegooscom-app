@@ -266,11 +266,11 @@ export default function AdminRedesSociales() {
     setLoading(true);
     setLoadErr(null);
     try {
-      const pedirRedes = (columnas: string) =>
-        supabase.from("social_links").select(columnas).order("sort_order", { ascending: true });
       const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const [linksConSeguidores, settingsRes, toquesRes] = await Promise.all([
-        pedirRedes("platform,label,url,enabled,sort_order,seguidores,seguidores_actualizado"),
+      // «*»: sin la migración, pedir «seguidores» por su nombre daba un error 400; así una sola petición que no falla, y
+      // si las filas no traen «seguidores», el campo avisa de que aún no se guarda.
+      const [linksRes, settingsRes, toquesRes] = await Promise.all([
+        supabase.from("social_links").select("*").order("sort_order", { ascending: true }),
         supabase.from("site_settings").select("social_links_title").eq("id", 1).maybeSingle(),
         supabase
           .from("analytics_events")
@@ -279,12 +279,10 @@ export default function AdminRedesSociales() {
           .gte("created_at", desde)
           .limit(5000),
       ]);
-      // Sin la migración todavía, se leen las redes sin los seguidores.
-      const linksRes = linksConSeguidores.error ? await pedirRedes("platform,label,url,enabled,sort_order") : linksConSeguidores;
-      setConSeguidores(!linksConSeguidores.error);
-
       if (linksRes.error) throw linksRes.error;
-      setRows(Array.isArray(linksRes.data) ? (linksRes.data as unknown as SocialLinkRow[]) : []);
+      const filasRedes = Array.isArray(linksRes.data) ? (linksRes.data as SocialLinkRow[]) : [];
+      setRows(filasRedes);
+      setConSeguidores(filasRedes.length > 0 && filasRedes.every((f) => "seguidores" in f));
       setSeguidoresCambiados(new Set());
 
       if (!settingsRes.error && settingsRes.data?.social_links_title) {
