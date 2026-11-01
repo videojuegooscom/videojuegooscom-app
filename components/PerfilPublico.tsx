@@ -888,37 +888,73 @@ const ZOOM_MAX = 4;
 
 // La persona encuadra su foto: la arrastra para moverla y la acerca o aleja (− / + o la barra). El círculo marca lo que
 // se verá en el Foro y en su perfil; se guarda el cuadrado entero (LADO_FOTO px, JPEG, fondo blanco si la foto tiene huecos).
-function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: () => void; onListo: (archivo: File) => void }) {
+// También la usa Administración → Categorías (app/admin/categories.tsx) para encuadrar las portadas del recuadro de
+// Inicio: con `proporcion` (ancho / alto) la vista es ese recuadro, sin círculo (`redondo` false), con lo que va encima
+// (`encima`: el nombre) y la foto al % elegido (`opacidadFoto`, solo en la vista: la foto se guarda entera). Con `remota`,
+// la foto ya está subida y se pide con permiso (crossOrigin) para poder recortarla; si no se puede, lo dice.
+export function RecortarFoto({
+  uri,
+  onCancelar,
+  onListo,
+  proporcion = 1,
+  salida = { ancho: LADO_FOTO, alto: LADO_FOTO },
+  redondo = true,
+  titulo = "Encuadra tu foto",
+  texto = "Arrástrala para moverla y acércala o aléjala. Se verá lo que queda dentro del círculo.",
+  textoUsar = "Usar foto",
+  encima,
+  opacidadFoto = 1,
+  remota = false,
+  nativeID = "perfil-recorte",
+  nombreArchivo = "perfil.jpg",
+}: {
+  uri: string;
+  onCancelar: () => void;
+  onListo: (archivo: File) => void;
+  proporcion?: number;
+  salida?: { ancho: number; alto: number };
+  redondo?: boolean;
+  titulo?: string;
+  texto?: string;
+  textoUsar?: string;
+  encima?: React.ReactNode;
+  opacidadFoto?: number;
+  remota?: boolean;
+  nativeID?: string;
+  nombreArchivo?: string;
+}) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [fallo, setFallo] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [desplazamiento, setDesplazamiento] = useState({ x: 0, y: 0 }); // en px de la vista, desde el centro
-  const [lado, setLado] = useState(280); // lado de la vista cuadrada en pantalla
+  const [lado, setLado] = useState(280); // ancho de la vista en pantalla
+  const ladoAlto = Math.round(lado / proporcion); // alto de la vista (con proporcion 1, cuadrada)
   const [preparando, setPreparando] = useState(false);
   const arrastre = useRef<{ id: number; x: number; y: number; dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     const i = new window.Image();
+    if (remota) i.crossOrigin = "anonymous";
     i.onload = () => setImg(i);
     i.onerror = () => setFallo(true);
     i.src = uri;
-  }, [uri]);
+  }, [uri, remota]);
 
-  // Tamaño de la foto en la vista: a zoom 1 la cubre entera (el lado corto mide lo que la vista).
-  const base = img ? lado / Math.min(img.naturalWidth || 1, img.naturalHeight || 1) : 1;
+  // Tamaño de la foto en la vista: a zoom 1 la cubre entera (sin huecos ni a lo ancho ni a lo alto).
+  const base = img ? Math.max(lado / (img.naturalWidth || 1), ladoAlto / (img.naturalHeight || 1)) : 1;
   const ancho = img ? img.naturalWidth * base * zoom : lado;
-  const alto = img ? img.naturalHeight * base * zoom : lado;
-  // Sin dejar huecos: la foto siempre cubre el cuadrado.
+  const alto = img ? img.naturalHeight * base * zoom : ladoAlto;
+  // Sin dejar huecos: la foto siempre cubre la vista.
   const limitar = useCallback(
     (d: { x: number; y: number }, z: number) => {
       if (!img) return { x: 0, y: 0 };
       const w = img.naturalWidth * base * z;
       const h = img.naturalHeight * base * z;
       const mx = Math.max(0, (w - lado) / 2);
-      const my = Math.max(0, (h - lado) / 2);
+      const my = Math.max(0, (h - ladoAlto) / 2);
       return { x: Math.min(mx, Math.max(-mx, d.x)), y: Math.min(my, Math.max(-my, d.y)) };
     },
-    [img, base, lado]
+    [img, base, lado, ladoAlto]
   );
   const cambiarZoom = (z: number) => {
     const nuevo = Math.min(ZOOM_MAX, Math.max(1, Math.round(z * 100) / 100));
@@ -931,20 +967,21 @@ function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: (
     setPreparando(true);
     try {
       const lienzo = document.createElement("canvas");
-      lienzo.width = LADO_FOTO;
-      lienzo.height = LADO_FOTO;
+      lienzo.width = salida.ancho;
+      lienzo.height = salida.alto;
       const ctx = lienzo.getContext("2d");
       if (!ctx) throw new Error("sin lienzo");
       ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, LADO_FOTO, LADO_FOTO);
+      ctx.fillRect(0, 0, salida.ancho, salida.alto);
       ctx.imageSmoothingQuality = "high";
-      const escala = LADO_FOTO / lado;
+      const escala = salida.ancho / lado;
       const x = (lado - ancho) / 2 + desplazamiento.x;
-      const y = (lado - alto) / 2 + desplazamiento.y;
+      const y = (ladoAlto - alto) / 2 + desplazamiento.y;
       ctx.drawImage(img, x * escala, y * escala, ancho * escala, alto * escala);
+      // Una foto remota sin permiso deja el lienzo «manchado»: toBlob falla y se avisa (fallo).
       const blob = await new Promise<Blob | null>((ok) => lienzo.toBlob(ok, "image/jpeg", 0.88));
       if (!blob) throw new Error("sin foto");
-      onListo(new File([blob], "perfil.jpg", { type: "image/jpeg" }));
+      onListo(new File([blob], nombreArchivo, { type: "image/jpeg" }));
     } catch {
       setFallo(true);
       setPreparando(false);
@@ -974,10 +1011,13 @@ function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: (
       style={{
         position: "relative",
         width: lado,
-        height: lado,
+        height: ladoAlto,
         overflow: "hidden",
         borderRadius: 18,
-        background: "#0B2138",
+        // Sin círculo (portadas), el fondo es el del recuadro de Inicio: con la foto suave se ve igual que allí.
+        background: redondo ? "#0B2138" : "#F6FAFD",
+        border: redondo ? undefined : `1px solid ${P.line}`,
+        boxSizing: "border-box",
         touchAction: "none",
         cursor: img ? "grab" : "default",
         userSelect: "none",
@@ -988,28 +1028,35 @@ function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: (
           src={uri}
           alt=""
           draggable={false}
+          crossOrigin={remota ? "anonymous" : undefined}
           style={{
             position: "absolute",
             left: (lado - ancho) / 2 + desplazamiento.x,
-            top: (lado - alto) / 2 + desplazamiento.y,
+            top: (ladoAlto - alto) / 2 + desplazamiento.y,
             width: ancho,
             height: alto,
             maxWidth: "none",
+            opacity: opacidadFoto,
             pointerEvents: "none",
           }}
         />
       ) : null}
-      {/* Fuera del círculo, oscurecido: lo de dentro es lo que se verá. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          borderRadius: "50%",
-          boxShadow: "0 0 0 999px rgba(11,33,56,0.55)",
-          border: "2px solid rgba(255,255,255,0.9)",
-          pointerEvents: "none",
-        }}
-      />
+      {redondo ? (
+        // Fuera del círculo, oscurecido: lo de dentro es lo que se verá.
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            boxShadow: "0 0 0 999px rgba(11,33,56,0.55)",
+            border: "2px solid rgba(255,255,255,0.9)",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+      {encima ? (
+        <div style={{ position: "absolute", inset: 0, display: "flex", pointerEvents: "none" }}>{encima}</div>
+      ) : null}
     </div>
   );
 
@@ -1037,7 +1084,7 @@ function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: (
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCancelar}>
       <View
-        nativeID="perfil-recorte"
+        nativeID={nativeID}
         style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", alignItems: "center", justifyContent: "center", padding: 16 }}
       >
         <View
@@ -1050,19 +1097,19 @@ function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: (
           style={{ width: "100%", maxWidth: 380, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 16, gap: 12, alignItems: "center" }}
         >
           <Text accessibilityRole="header" style={{ color: P.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
-            Encuadra tu foto
+            {titulo}
           </Text>
-          <Text style={{ color: P.muted, fontWeight: "700", textAlign: "center", lineHeight: 19 }}>
-            Arrástrala para moverla y acércala o aléjala. Se verá lo que queda dentro del círculo.
-          </Text>
+          <Text style={{ color: P.muted, fontWeight: "700", textAlign: "center", lineHeight: 19 }}>{texto}</Text>
           {fallo ? (
             <Text accessibilityRole="alert" style={{ color: P.danger, fontWeight: "800", textAlign: "center" }}>
-              No se ha podido preparar esta foto. Prueba con otra.
+              {remota
+                ? "Esta foto no se puede encuadrar aquí. Quítala y vuelve a subirla: al subirla se encuadra."
+                : "No se ha podido preparar esta foto. Prueba con otra."}
             </Text>
           ) : img ? (
             vista
           ) : (
-            <View style={{ width: lado, height: lado, alignItems: "center", justifyContent: "center" }}>
+            <View style={{ width: lado, height: ladoAlto, alignItems: "center", justifyContent: "center" }}>
               <ActivityIndicator color={P.accent} />
             </View>
           )}
@@ -1115,7 +1162,7 @@ function RecortarFoto({ uri, onCancelar, onListo }: { uri: string; onCancelar: (
                 opacity: !img || fallo || preparando ? 0.5 : pressed ? 0.88 : 1,
               })}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{preparando ? "Preparando…" : "Usar foto"}</Text>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{preparando ? "Preparando…" : textoUsar}</Text>
             </Pressable>
           </View>
         </View>

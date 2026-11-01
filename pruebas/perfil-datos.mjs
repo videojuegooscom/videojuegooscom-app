@@ -103,10 +103,16 @@
  *    recuadro que crece con lo escrito hasta los 600 caracteres (y encoge al borrar), emojis según lo escrito; lo que
  *    se publica, la analítica y la línea de Administración → Usuarios.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z» o «RE» de cuarto argumento solo se ejecuta esa sección
- * (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas de las
- * categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue o las reseñas).
+ *  - EN) Encuadre de las portadas para Inicio: al subir una foto se abre «Encuadra la portada» (forma 6:5 del recuadro,
+ *    nombre encima, foto al % elegido) y al aceptar se suben la foto entera y el encuadre (960 × 800, lo elegido);
+ *    «Encuadrar» en una portada ya subida; se guardan en el mismo orden. Inicio enseña el encuadre y la cabecera de
+ *    dentro de la categoría, la foto entera. Sin la migración no se ofrece y se sube como antes; una foto que no se
+ *    puede pedir con permiso se avisa.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE» o «EN» de cuarto argumento solo se ejecuta esa
+ * sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas
+ * de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas o el encuadre de las portadas).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -367,6 +373,10 @@ async function contexto(navegador, usuario, rol, estado) {
     // Políticas: sin filas (la página usa su texto de reserva, el mismo que pone la migración), salvo que la prueba las dé.
     if (url.pathname.endsWith("/rest/v1/policy_pages") && metodo === "GET") return json(estado.politicas ?? []);
     // Ficha de producto ficticia (sección N) y sus fotos (las fotos llegan falsas: pruebas/sin-fotos-reales.mjs).
+    // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
+    if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
+      return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
+    }
     if (estado.producto && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.producto) : json([estado.producto]);
     }
@@ -1555,6 +1565,10 @@ async function seccionW() {
       ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
       pantalla: window.innerWidth,
       etiqueta: t.getAttribute("aria-label"),
+      // Forma de la portada (ancho / alto): en el móvil, la del encuadre del editor (6:5).
+      forma: ri ? ri.width / ri.height : null,
+      // «Ver categoría» ya no se ve en ningún recuadro (lo quitó el dueño).
+      conVerCategoria: /Ver categoría|Ver servicios/.test(document.querySelector('[data-testid="seccion-categorias"]')?.innerText ?? ""),
     };
   });
 
@@ -1570,6 +1584,8 @@ async function seccionW() {
     ok(!!m && !m.cortado && m.etiqueta === "PlayStation 5. Ver categoría", `W: el nombre se lee entero y un lector de pantalla dice qué es (${m?.etiqueta})`);
     ok(!!m && m.ps4ConIcono && m.altoIgual, "W: la categoría sin portada sigue con su icono y los dos recuadros de la fila miden lo mismo");
     ok(!!m && m.ancho <= m.pantalla + 1, `W: la página no se ensancha (${m?.ancho}/${m?.pantalla})`);
+    ok(!!m && !m.conVerCategoria, "W: ningún recuadro de Categorías dice «Ver categoría» ni «Ver servicios»");
+    ok(!!m && Math.abs(m.forma - 6 / 5) < 0.03, `W: en el móvil la portada tiene la forma del encuadre del editor, 6:5 (${m?.forma?.toFixed(3)})`);
     await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "W1-categorias-inicio.png") : undefined }).catch(() => {});
     ok(p.errores.length === 0, `W: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
@@ -1638,8 +1654,10 @@ async function seccionW() {
     const previa = () => p.evaluate(() => Number(getComputedStyle(document.querySelector("#categoria-opacidad #portada-foto")).opacity));
     ok((await valor()) === "40" && Math.abs((await previa()) - 0.4) < 0.01 && /Cómo se ve en Inicio/.test(await p.locator("#categoria-opacidad").innerText()), "W: el editor enseña «Cómo se ve en Inicio» con la foto al 40 %");
     await p.getByRole("button", { name: "Foto más suave" }).click();
-    await p.getByRole("button", { name: "Foto más suave" }).click();
-    ok((await valor()) === "30" && Math.abs((await previa()) - 0.3) < 0.01, `W: «−» la deja más suave de 5 en 5 y la vista previa cambia al momento (${await valor()} %)`);
+    ok((await valor()) === "30" && Math.abs((await previa()) - 0.3) < 0.01, `W: «−» la deja más suave de 10 en 10 y la vista previa cambia al momento (${await valor()} %)`);
+    await p.getByRole("button", { name: "Foto más fuerte" }).click();
+    await p.getByRole("button", { name: "Foto más fuerte" }).click();
+    ok((await valor()) === "50" && Math.abs((await previa()) - 0.5) < 0.01, `W: «+» la deja más fuerte de 10 en 10 (${await valor()} %)`);
     await p.evaluate(() => {
       const barra = document.querySelector('#categoria-opacidad input[type="range"]');
       const poner = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
@@ -1794,8 +1812,7 @@ async function seccionY() {
     const subida = (estado.subidas ?? []).at(-1);
     ok(!!subida && /^product-media\/categorias\/\d+-[a-z0-9]+\.jpg$/.test(subida.ruta), `Y: la foto se sube reducida a la carpeta de las portadas (${subida?.ruta})`);
     const previa = (await p.locator("#categoria-opacidad").innerText().catch(() => "")).replace(/\n/g, " | ");
-    ok(/Reparación \/ Limpieza/.test(previa) && /Ver servicios →/.test(previa), `Y: la vista previa es su recuadro de Inicio, con «Ver servicios →» (${previa})`);
-    await p.getByRole("button", { name: "Foto más suave" }).click();
+    ok(/Reparación \/ Limpieza/.test(previa) && !/Ver servicios/.test(previa), `Y: la vista previa es su recuadro de Inicio, con su nombre y sin «Ver servicios» (${previa})`);
     await p.getByRole("button", { name: "Foto más suave" }).click();
     await capturar(p, "Y1-editor-reparacion");
     await p.getByText("Guardar cambios", { exact: true }).last().click();
@@ -1842,7 +1859,7 @@ async function seccionY() {
       };
     });
     ok(!!m && m.conFoto && m.fotoLlena && Math.abs(m.opacidad - 0.45) < 0.01, `Y: en Inicio, «Reparación / Limpieza» sale con su portada llenando el recuadro, al 45 % (${JSON.stringify(m)})`);
-    ok(!!m && /Reparación \/ Limpieza/.test(m.texto) && /Ver servicios →/.test(m.texto) && m.etiqueta === "Reparación / Limpieza. Ver servicios", `Y: con el nombre y «Ver servicios →» encima, y un lector de pantalla dice qué es (${m?.etiqueta})`);
+    ok(!!m && /Reparación \/ Limpieza/.test(m.texto) && !/Ver servicios/.test(m.texto) && m.etiqueta === "Reparación / Limpieza. Ver servicios", `Y: con el nombre encima (sin «Ver servicios →») y un lector de pantalla dice adónde lleva (${m?.etiqueta})`);
     ok(!!m && m.ancho <= m.pantalla + 1, `Y: la página no se ensancha (${m?.ancho}/${m?.pantalla})`);
     await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "Y2-categorias-inicio.png") : undefined }).catch(() => {});
     await p.locator('[data-testid="categoria-reparaciones"]').click();
@@ -1857,7 +1874,7 @@ async function seccionY() {
 
   // Y3) En el catálogo no sale entre las plataformas (no es una categoría de productos).
   {
-    const cliente = { filas: perfil(CLIENTE.id), guardados: [], categorias: estado.categorias };
+    const cliente = { filas: perfil(CLIENTE.id), guardados: [], categorias: estado.categorias, productosVacios: true };
     const ctx = await contexto(navegador, CLIENTE, "user", cliente);
     const p = await pagina(ctx, "/catalogo");
     await p.getByRole("button", { name: /^Filtros/ }).first().click({ timeout: 30000 });
@@ -1868,6 +1885,180 @@ async function seccionY() {
     const plataformas = (t.match(/Plataforma \| (.*?) \| Estado/i) ?? [null, "(no se ven)"])[1];
     ok(/PlayStation 4/.test(plataformas) && !/Reparación \/ Limpieza/.test(t), `Y: en el catálogo, «Reparación / Limpieza» no sale entre las plataformas, no tiene productos (${plataformas})`);
     ok(p.errores.length === 0, `Y: catálogo sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
+// ===== EN) Encuadre de las portadas para el recuadro de Inicio: se encuadra antes de subir, «Encuadrar» las que ya
+// están, Inicio enseña el encuadre y la cabecera de dentro de la categoría la foto entera =============================
+async function seccionEN() {
+  const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/ps5.jpg";
+  const cat = (id, slug, name, extra = {}) => ({
+    id, slug, name, sort_order: 0, is_active: true, image_url: null, imagenes: [], portada_opacidad: null, portadas_inicio: [],
+    created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", ...extra,
+  });
+  const perfil = (id) => [{ user_id: id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const ps5 = (extra = {}) => cat("c0000000-0000-4000-8000-0000000000a1", "playstation-5", "PlayStation 5", { image_url: foto, imagenes: [foto], portadas_inicio: [""], portada_opacidad: 40, ...extra });
+  const sinColumna = (f) => Object.fromEntries(Object.entries(f).filter(([c]) => c !== "portadas_inicio"));
+  // Lo que se ha subido, mirado en el navegador: tamaño y colores a la izquierda, en el centro y a la derecha.
+  const mirarJpeg = (p, b64) =>
+    p.evaluate(async (datos) => {
+      const bytes = Uint8Array.from(atob(datos), (c) => c.charCodeAt(0));
+      const bmp = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+      const c = document.createElement("canvas");
+      c.width = bmp.width;
+      c.height = bmp.height;
+      const x = c.getContext("2d");
+      x.drawImage(bmp, 0, 0);
+      const color = (u) => {
+        const [r, , b] = x.getImageData(Math.round(u), Math.round(bmp.height / 2), 1, 1).data;
+        return r > 150 && b < 100 ? "rojo" : b > 150 && r < 100 ? "azul" : `otro(${r},${b})`;
+      };
+      return { ancho: bmp.width, alto: bmp.height, izquierda: color(8), centro: color(bmp.width / 2), derecha: color(bmp.width - 8) };
+    }, b64);
+
+  // EN1) El dueño sube una foto: primero la encuadra (forma del recuadro de Inicio, nombre encima, foto al 40 %) y al
+  // aceptar se suben la foto entera y el encuadre; «Encuadrar» cambia el de la que ya estaba; al guardar va todo.
+  {
+    const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [ps5(), cat("c0000000-0000-4000-8000-0000000000a2", "playstation-4", "PlayStation 4", { sort_order: 1 })] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.locator("#categoria-portadas").waitFor({ timeout: 15000 }).catch(() => {});
+    const bloque = (await p.locator("#categoria-portadas").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(
+      /Al subir una foto la encuadras con la forma del recuadro de Inicio/.test(bloque) && (await p.getByRole("button", { name: "Encuadrar la portada 1 para Inicio" }).count()) === 1 && !/se podrá usar en cuanto/.test(bloque),
+      "EN: el editor explica que las fotos se encuadran y cada portada tiene «Encuadrar»"
+    );
+    // Una foto de 1200 × 600: mitad izquierda roja, mitad derecha azul.
+    const png = await p.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 1200;
+      c.height = 600;
+      const x = c.getContext("2d");
+      x.fillStyle = "#FF0000";
+      x.fillRect(0, 0, 600, 600);
+      x.fillStyle = "#0000FF";
+      x.fillRect(600, 0, 600, 600);
+      return c.toDataURL("image/png").split(",")[1];
+    });
+    const [selector] = await Promise.all([p.waitForEvent("filechooser"), p.locator("#categoria-subir-portada").click()]);
+    await selector.setFiles({ name: "consola.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    const vista = p.locator('#categoria-recorte [aria-label="Arrastra la foto para encuadrarla"]');
+    await vista.waitFor({ timeout: 15000 }).catch(() => {});
+    const ventana = await p.evaluate(() => {
+      const v = document.querySelector('#categoria-recorte [aria-label="Arrastra la foto para encuadrarla"]');
+      const r = v?.getBoundingClientRect();
+      const img = v?.querySelector("img");
+      return {
+        texto: (document.querySelector("#categoria-recorte")?.innerText ?? "").replace(/\n/g, " | "),
+        forma: r ? r.width / r.height : null,
+        nombre: /PlayStation 5/.test(v?.innerText ?? ""),
+        opacidad: img ? Number(getComputedStyle(img).opacity) : null,
+      };
+    });
+    ok(/Encuadra la portada/.test(ventana.texto) && /Así se verá en el recuadro de Inicio/.test(ventana.texto) && /Usar este encuadre/.test(ventana.texto), `EN: al elegir la foto se abre «Encuadra la portada» (${ventana.texto.slice(0, 120)})`);
+    ok(Math.abs(ventana.forma - 6 / 5) < 0.03 && ventana.nombre && Math.abs(ventana.opacidad - 0.4) < 0.01, `EN: con la forma del recuadro de Inicio (6:5), el nombre encima y la foto al 40 % elegido (${ventana.forma?.toFixed(3)}, ${ventana.opacidad})`);
+    ok(!(estado.subidas ?? []).length, "EN: y todavía no se ha subido nada");
+    // Arrastrar hacia la izquierda: se ve la parte derecha (azul), sin dejar huecos.
+    const caja = await vista.boundingBox();
+    await p.mouse.move(caja.x + caja.width / 2, caja.y + caja.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(caja.x + caja.width / 2 - 60, caja.y + caja.height / 2, { steps: 6 });
+    await p.mouse.move(caja.x + caja.width / 2 - 400, caja.y + caja.height / 2, { steps: 6 });
+    await p.mouse.up();
+    await capturar(p, "EN1-encuadrar");
+    await p.locator("#categoria-recorte").getByText("Usar este encuadre").click();
+    await p.getByRole("button", { name: "Encuadrar la portada 2 para Inicio" }).waitFor({ timeout: 15000 }).catch(() => {});
+    const subidas = estado.subidas ?? [];
+    const encuadre = subidas.find((s) => /^product-media\/categorias\/inicio-\d+-[a-z0-9]+\.jpg$/.test(s.ruta));
+    const entera = subidas.find((s) => /^product-media\/categorias\/\d+-[a-z0-9]+\.jpg$/.test(s.ruta));
+    ok(subidas.length === 2 && !!encuadre && !!entera, `EN: al aceptar se suben la foto entera y su encuadre (${subidas.map((s) => s.ruta).join(", ")})`);
+    const mirado = encuadre?.jpeg ? await mirarJpeg(p, encuadre.jpeg) : null;
+    ok(!!mirado && mirado.ancho === 960 && mirado.alto === 800, `EN: el encuadre mide 960 × 800 px (${mirado ? `${mirado.ancho} × ${mirado.alto}` : "sin foto"})`);
+    ok(!!mirado && mirado.izquierda === "rojo" && mirado.centro === "azul" && mirado.derecha === "azul", `EN: y es justo lo elegido: la parte derecha de la foto (izquierda ${mirado?.izquierda}, centro ${mirado?.centro}, derecha ${mirado?.derecha})`);
+    const miniatura2 = await p.evaluate(() => Array.from(document.querySelectorAll("#categoria-portadas img")).map((i) => i.getAttribute("src") ?? ""));
+    const previa = await p.evaluate(() => Array.from(document.querySelectorAll("#categoria-opacidad img")).map((i) => i.getAttribute("src") ?? ""));
+    ok(miniatura2.some((s) => /categorias\/inicio-/.test(s)) && previa.some((s) => /categorias\/inicio-/.test(s)), "EN: la miniatura y «Cómo se ve en Inicio» enseñan el encuadre");
+
+    // «Encuadrar» la portada que ya estaba subida (una foto de internet, pedida con permiso).
+    await p.getByRole("button", { name: "Encuadrar la portada 1 para Inicio" }).click();
+    await vista.waitFor({ timeout: 15000 }).catch(() => {});
+    const textoRemota = await p.locator("#categoria-recorte").innerText().catch(() => "");
+    await p.locator("#categoria-recorte").getByText("Usar este encuadre").click();
+    await p.locator("#categoria-recorte").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    for (let i = 0; i < 20 && (estado.subidas ?? []).length < 3; i++) await p.waitForTimeout(250);
+    const tercera = (estado.subidas ?? [])[2];
+    ok(!/no se puede encuadrar/.test(textoRemota) && !!tercera && /categorias\/inicio-/.test(tercera.ruta), `EN: «Encuadrar» en una portada ya subida la abre y sube solo su encuadre (${tercera?.ruta})`);
+
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#categoria-portadas").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const guardada = (estado.categoriasGuardadas ?? []).at(-1)?.cuerpo;
+    ok(
+      !!guardada && guardada.imagenes?.length === 2 && guardada.imagenes[0] === foto && !/inicio-/.test(guardada.imagenes[1]) &&
+        guardada.image_url === foto && guardada.portadas_inicio?.length === 2 && guardada.portadas_inicio.every((u) => /categorias\/inicio-/.test(u)),
+      `EN: al guardar van las fotos enteras y sus encuadres, en el mismo orden (${JSON.stringify({ imagenes: guardada?.imagenes, portadas_inicio: guardada?.portadas_inicio })})`
+    );
+    ok(p.errores.length === 0, `EN: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // EN2) Inicio enseña el encuadre y la cabecera de dentro de la categoría, la foto entera.
+  {
+    const encuadreUrl = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/inicio-1-abc.jpg";
+    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: [ps5({ portadas_inicio: [encuadreUrl] })] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator('[data-testid="categoria-playstation-5"] img').first().waitFor({ timeout: 20000 }).catch(() => {});
+    const enInicio = await p.evaluate(() => Array.from(document.querySelectorAll('[data-testid="categoria-playstation-5"] img')).map((i) => i.getAttribute("src") ?? ""));
+    ok(enInicio.length > 0 && enInicio.every((s) => /inicio-1-abc/.test(s)), `EN: en Inicio, el recuadro enseña el encuadre (${enInicio[0]?.slice(-60)})`);
+    await p.goto(BASE + "/catalogo?cat=playstation-5", { waitUntil: "load" });
+    await p.locator("#catalogo-portada img").first().waitFor({ timeout: 20000 }).catch(() => {});
+    const cabecera = await p.evaluate(() => Array.from(document.querySelectorAll("#catalogo-portada img")).map((i) => i.getAttribute("src") ?? ""));
+    ok(cabecera.length > 0 && cabecera.every((s) => /ps5\.jpg/.test(s)), `EN: dentro de la categoría, la cabecera sigue con la foto entera (${cabecera[0]?.slice(-40)})`);
+    ok(p.errores.length === 0, `EN: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // EN3) Sin la migración (sin la columna): no se ofrece encuadrar, se avisa y se sube como antes.
+  {
+    const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [sinColumna(ps5())] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.locator("#categoria-portadas").waitFor({ timeout: 15000 }).catch(() => {});
+    const bloque = (await p.locator("#categoria-portadas").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/El encuadre para Inicio se podrá usar en cuanto se active su parte en la base de datos/.test(bloque) && (await p.getByRole("button", { name: /^Encuadrar la portada/ }).count()) === 0, "EN: sin la migración no se ofrece encuadrar y se avisa");
+    const png = await p.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 800;
+      c.height = 600;
+      c.getContext("2d").fillRect(0, 0, 800, 600);
+      return c.toDataURL("image/png").split(",")[1];
+    });
+    const [selector] = await Promise.all([p.waitForEvent("filechooser"), p.locator("#categoria-subir-portada").click()]);
+    await selector.setFiles({ name: "otra.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    for (let i = 0; i < 30 && !(estado.subidas ?? []).length; i++) await p.waitForTimeout(250);
+    ok((await p.locator("#categoria-recorte").count()) === 0 && (estado.subidas ?? []).length === 1, "EN: y la foto se sube tal cual, sin ventana de encuadre");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#categoria-portadas").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const guardada = (estado.categoriasGuardadas ?? []).at(-1)?.cuerpo;
+    ok(!!guardada && !("portadas_inicio" in guardada) && guardada.imagenes?.length === 2, `EN: y se guarda sin los encuadres (${JSON.stringify(guardada?.imagenes)})`);
+    await ctx.close();
+  }
+
+  // EN4) Una portada que no se puede pedir con permiso: la ventana lo dice (y no se sube nada).
+  {
+    const sinPermiso = "https://fotos.ejemplo.invalid/sin-permiso/portada.png";
+    const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [ps5({ image_url: sinPermiso, imagenes: [sinPermiso] })] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.getByRole("button", { name: "Encuadrar la portada 1 para Inicio" }).click({ timeout: 15000 });
+    await p.locator("#categoria-recorte").getByText(/no se puede encuadrar aquí/).waitFor({ timeout: 15000 }).catch(() => {});
+    const texto = await p.locator("#categoria-recorte").innerText().catch(() => "");
+    ok(/Esta foto no se puede encuadrar aquí\. Quítala y vuelve a subirla/.test(texto) && !(estado.subidas ?? []).length, "EN: si una portada no se puede encuadrar, la ventana lo dice y no sube nada");
     await ctx.close();
   }
 }
@@ -2216,6 +2407,7 @@ try {
   if (SOLO === "Y") await seccionY();
   if (SOLO === "Z") await seccionZ();
   if (SOLO === "RE") await seccionRE();
+  if (SOLO === "EN") await seccionEN();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -3142,6 +3334,7 @@ try {
   await seccionY();
   await seccionZ();
   await seccionRE();
+  await seccionEN();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -41,6 +41,9 @@
  *  - Cuánto se ve la portada en Inicio (20261101140000_categorias_opacidad_portada.sql), sobre categories como en
  *    producción: la columna sin tocar permisos, lectura pública, solo el administrador la cambia, solo de 10 a 100 y
  *    repetible (con su «prueba de las pruebas»: sin la comprobación, entra un 5 %).
+ *  - El encuadre de cada portada para Inicio (20261101170000_categorias_portadas_inicio.sql): la columna (lista de
+ *    textos, vacía para las que ya había), sin tocar permisos, solo el administrador la cambia, lectura pública y
+ *    repetible (con su «prueba de las pruebas»: sin «if not exists», aplicarla dos veces falla).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -891,6 +894,45 @@ try {
     const c18 = await nuevaBase("vz_aislada_opacidad_sin_comprobacion", TABLA_CATEGORIAS + sinComprobacionCat);
     ok((await como(c18, "authenticated", ADMIN, "update public.categories set portada_opacidad = 5")).ok, "(control) sin la comprobación entra un 5 %: la prueba SÍ lo detecta");
     await c18.end();
+
+    // 16) El encuadre de cada portada para el recuadro de Inicio (20261101170000), sobre la misma tabla.
+    const ENCUADRES = readFileSync("supabase/migrations/20261101170000_categorias_portadas_inicio.sql", "utf8");
+    const c19 = await nuevaBase("vz_aislada_encuadres", TABLA_CATEGORIAS + OPACIDAD + ENCUADRES);
+    const col = (await c19.query("select data_type, udt_name, is_nullable, column_default from information_schema.columns where table_schema = 'public' and table_name = 'categories' and column_name = 'portadas_inicio'")).rows[0];
+    ok(col?.udt_name === "_text" && col?.is_nullable === "NO", `Encuadres: añade la columna, una lista de textos que nunca está vacía de valor (${JSON.stringify(col ?? null)})`);
+    const yaEstaba = (await c19.query("select portadas_inicio from public.categories")).rows[0].portadas_inicio;
+    ok(Array.isArray(yaEstaba) && yaEstaba.length === 0, `Encuadres: la categoría que ya existía queda sin encuadres (Inicio usa la foto entera: ${JSON.stringify(yaEstaba)})`);
+    const polEnc = (await c19.query("select policyname from pg_policies where tablename = 'categories' order by 1")).rows.map((x) => x.policyname);
+    ok(polEnc.join(",") === "categories_admin_update,categories_select_public_or_admin", `Encuadres: no toca los permisos (${polEnc.join(", ")})`);
+    const encuadre = "https://fotos.ejemplo.invalid/inicio-1.jpg";
+    const adminEnc = await como(c19, "authenticated", ADMIN, `update public.categories set portadas_inicio = array['${encuadre}'] where slug = 'playstation-5'`, { confirmar: true });
+    const clienteEnc = await como(c19, "authenticated", U1, "update public.categories set portadas_inicio = array['https://otra.invalid/x.jpg']", { confirmar: true });
+    const anonEnc = await como(c19, "anon", null, "select portadas_inicio from public.categories");
+    ok(
+      adminEnc.ok && adminEnc.cuantas === 1 && (!clienteEnc.ok || clienteEnc.cuantas === 0) && anonEnc.ok && anonEnc.filas[0]?.portadas_inicio?.[0] === encuadre,
+      "Encuadres: el administrador los guarda, un cliente no, y cualquiera los lee (como la portada)"
+    );
+    let repetidaEnc = true;
+    try {
+      await c19.query(ENCUADRES);
+    } catch {
+      repetidaEnc = false;
+    }
+    ok(repetidaEnc && (await c19.query("select portadas_inicio from public.categories")).rows[0].portadas_inicio?.[0] === encuadre, "Encuadres: la migración se puede aplicar dos veces sin borrar lo guardado");
+    await c19.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin «if not exists», aplicarla otra vez falla (y la prueba de arriba lo habría visto).
+    const sinSiNoExiste = ENCUADRES.replace("add column if not exists", "add column");
+    ok(sinSiNoExiste !== ENCUADRES, "(control) se ha podido quitar «if not exists» en la copia de prueba");
+    const c20 = await nuevaBase("vz_aislada_encuadres_sin_si_no_existe", TABLA_CATEGORIAS + sinSiNoExiste);
+    let falla = false;
+    try {
+      await c20.query(sinSiNoExiste);
+    } catch {
+      falla = true;
+    }
+    ok(falla, "(control) sin «if not exists» aplicarla dos veces falla: la prueba SÍ lo detecta");
+    await c20.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
