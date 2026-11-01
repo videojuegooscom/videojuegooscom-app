@@ -5,9 +5,11 @@
  * completa con la mascota (AdminLoading → components/marca/CargaMarca),
  * botón principal (PrimaryButton), aviso de error/éxito (AdminNotice),
  * estado vacío (EmptyState), título de sección (SectionTitle), tarjeta de
- * estadística (StatCard), botones tipo chip (ChipButton), filtros tipo
- * píldora (FilterPill) y la miniatura de foto/vídeo de un producto
- * (MediaThumb).
+ * estadística (StatCard), botones tipo chip (ChipButton), botones solo con
+ * icono (IconButton, 44 px, con su nombre para lectores de pantalla), el
+ * botón redondo flotante abajo a la derecha (BotonFlotante, p. ej. «+»
+ * para crear), filtros tipo píldora (FilterPill) y la miniatura de
+ * foto/vídeo de un producto (MediaThumb).
  *
  * Cómo funciona: son componentes de presentación puros (sin llamadas a
  * Supabase); reciben props y pintan según la paleta COLORS del tema claro
@@ -414,6 +416,102 @@ export function ChipButton({
   );
 }
 
+// Botón de acción solo con icono (petición del dueño, 2026-11-01: en el panel, los botones que puedan ser un icono, con
+// icono): 44 × 44 para el pulgar, el nombre para los lectores de pantalla y, en el ordenador, al pasar el ratón.
+export function IconButton({
+  icon,
+  label,
+  onPress,
+  variant = "ghost",
+  disabled,
+  nativeID,
+}: {
+  icon: IoniconName;
+  label: string;
+  onPress: () => void;
+  variant?: "primary" | "success" | "danger" | "ghost";
+  disabled?: boolean;
+  nativeID?: string;
+}) {
+  const tono =
+    variant === "primary"
+      ? { borde: COLORS.accentBorder, fondo: COLORS.accent2, icono: COLORS.accent }
+      : variant === "success"
+        ? { borde: COLORS.successBorder, fondo: COLORS.successBg, icono: COLORS.success }
+        : variant === "danger"
+          ? { borde: COLORS.dangerBorder, fondo: COLORS.dangerBg, icono: COLORS.danger }
+          : { borde: COLORS.border, fondo: "#F6FAFD", icono: COLORS.text };
+  return (
+    <Pressable
+      nativeID={nativeID}
+      disabled={!!disabled}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      {...({ title: label } as object)}
+      style={({ pressed }) => ({
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: tono.borde,
+        backgroundColor: tono.fondo,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
+        transform: [{ scale: pressed ? 0.94 : 1 }],
+      })}
+    >
+      <Ionicons name={icon} size={20} color={tono.icono} />
+    </Pressable>
+  );
+}
+
+// Botón redondo flotante abajo a la derecha (al alcance del pulgar; Blue nunca va ahí), p. ej. «+» para crear. La
+// pantalla deja sitio debajo de su lista para que no tape lo último.
+export function BotonFlotante({
+  icon = "add",
+  label,
+  onPress,
+  nativeID,
+}: {
+  icon?: IoniconName;
+  label: string;
+  onPress: () => void;
+  nativeID?: string;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      {...({ title: label } as object)}
+      style={({ pressed }) => ({
+        position: "absolute",
+        right: 16,
+        bottom: 16 + insets.bottom,
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        backgroundColor: PRIMARY_BUTTON,
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#0B2138",
+        shadowOpacity: 0.22,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 6,
+        opacity: pressed ? 0.9 : 1,
+        transform: [{ scale: pressed ? 0.94 : 1 }],
+      })}
+    >
+      <Ionicons name={icon} size={30} color="#FFFFFF" />
+    </Pressable>
+  );
+}
+
 export function FilterPill({
   label,
   active,
@@ -613,30 +711,14 @@ export function MediaThumb({
         </Text>
 
         {!!onRemove && (
-          <Pressable
-            onPress={onRemove}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              borderRadius: 999,
-              paddingVertical: 7,
-              paddingHorizontal: 8,
-              borderWidth: 1,
-              borderColor: COLORS.dangerBorder,
-              backgroundColor: COLORS.dangerBg,
-              marginTop: 2,
-            })}
-          >
-            <Text
-              style={{
-                color: COLORS.danger,
-                fontWeight: "900",
-                fontSize: 11,
-                textAlign: "center",
-              }}
-            >
-              Quitar
-            </Text>
-          </Pressable>
+          <View style={{ alignItems: "center", marginTop: 2 }}>
+            <IconButton
+              icon="trash-outline"
+              label={kind === "video" ? "Quitar el vídeo" : "Quitar la foto"}
+              variant="danger"
+              onPress={onRemove}
+            />
+          </View>
         )}
       </View>
     </View>

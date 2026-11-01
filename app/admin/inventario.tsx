@@ -53,6 +53,7 @@ import {
   AdminLoading,
   AdminNotice,
   EmptyState,
+  IconButton,
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
@@ -519,8 +520,9 @@ export default function Inventario() {
                         justifyContent: isMobile ? "center" : "flex-start",
                       }}
                     >
-                      <ChipButton label="Editar" variant="primary" onPress={() => openEdit(i)} isMobile={isMobile} />
-                      <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(i)} isMobile={isMobile} />
+                      {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
+                      <IconButton icon="create-outline" label={`Editar ${i.code} ${i.title}`} variant="primary" onPress={() => openEdit(i)} />
+                      <IconButton icon="trash-outline" label={`Borrar ${i.code} ${i.title}`} variant="danger" onPress={() => askRemove(i)} />
                     </View>
                   </View>
                 );

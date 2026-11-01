@@ -50,6 +50,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { IconButton } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -660,8 +661,9 @@ export default function AdminFlashNews() {
                     </View>
 
                     <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                      <ChipButton label="Editar" variant="primary" onPress={() => openEdit(row)} isMobile={isMobile} />
-                      <ChipButton label="Borrar" variant="danger" onPress={() => askRemove(row)} isMobile={isMobile} />
+                      {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
+                      <IconButton icon="create-outline" label="Editar la noticia" variant="primary" onPress={() => openEdit(row)} />
+                      <IconButton icon="trash-outline" label="Borrar la noticia" variant="danger" onPress={() => askRemove(row)} />
                     </View>
                   </View>
                 );

@@ -77,7 +77,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
-import PortadasCategoria, {
+import {
   CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
   NombreSobrePortada,
@@ -85,6 +85,8 @@ import PortadasCategoria, {
   OPACIDAD_PORTADA_MIN,
   PROPORCION_RECUADRO_INICIO,
   PortadaConNombre,
+  PortadaNombreMovible,
+  type PosicionNombre,
   SALIDA_ENCUADRE,
   encuadresDe,
   esCategoriaServicios,
@@ -92,13 +94,17 @@ import PortadasCategoria, {
   olvidarPortadasCategorias,
   opacidadDe,
   portadasDe,
+  portadasInicioDe,
+  posicionNombreDe,
 } from "../../components/PortadasCategoria";
 import { RecortarFoto } from "../../components/PerfilPublico";
 import {
   AdminHeader,
   AdminLoading,
   AdminNotice,
+  BotonFlotante,
   EmptyState,
+  IconButton,
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
@@ -107,6 +113,8 @@ import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
 
 // «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).
 const PASO_BOTON_OPACIDAD = 10;
+// Separación entre las fichas de la rejilla.
+const GAP_REJILLA = 10;
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -140,6 +148,8 @@ type CategoryRow = {
   image_url?: string | null;
   imagenes?: unknown;
   portada_opacidad?: number | null;
+  portadas_inicio?: unknown;
+  titulo_posicion?: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -279,6 +289,12 @@ export default function AdminCategories() {
   const isDesktopish = widthSafe >= 1024;
   const pagePadding = isMobile ? 12 : 16;
   const sectionGap = isMobile ? 20 : 24;
+  // Rejilla de fichas: 2 por fila en el móvil, 3 en tableta y 4 en el ordenador; el ancho sale del de la pantalla
+  // (sin márgenes) y, si hay barra de desplazamiento, de lo que mide de verdad la rejilla.
+  const columnasRejilla = isMobile ? 2 : isDesktopish ? 4 : 3;
+  const [anchoRejilla, setAnchoRejilla] = useState(0);
+  const anchoDisponible = anchoRejilla || Math.min(widthSafe - pagePadding * 2, 1040);
+  const anchoFicha = Math.floor((anchoDisponible - GAP_REJILLA * (columnasRejilla - 1)) / columnasRejilla);
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -322,6 +338,15 @@ export default function AdminCategories() {
   const [recorte, setRecorte] = useState<{ uri: string; remota: boolean; indice: number | null; archivo?: File } | null>(null);
   // Cuánto se ve la portada en el recuadro de Inicio (10-100 %): menos, más suave y el nombre se lee mejor.
   const [opacidad, setOpacidad] = useState(OPACIDAD_PORTADA_DEFECTO);
+  // Dónde va el nombre encima de la portada (lo mueve el dueño manteniéndolo pulsado); null = en el centro. Columna
+  // titulo_posicion (migración 20261101190000): sin ella se puede mover en la vista previa, pero no se guarda.
+  const [posicionNombre, setPosicionNombre] = useState<PosicionNombre | null>(null);
+  const [supportsPosicion, setSupportsPosicion] = useState(true);
+  // «Aplicar a otras»: desplegable con las demás categorías para copiarles la transparencia y la posición del nombre.
+  const [copiarAbierto, setCopiarAbierto] = useState(false);
+  const [copiarA, setCopiarA] = useState<string[]>([]);
+  const [copiando, setCopiando] = useState(false);
+  const [avisoCopiar, setAvisoCopiar] = useState<string | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [avisoPortadas, setAvisoPortadas] = useState<string | null>(null);
   // Toques en cada recuadro de «Categorías» de Inicio, por slug (analítica propia «categoria_inicio», 30 días; sin
@@ -391,6 +416,7 @@ export default function AdminCategories() {
       setSupportsImageUrl(!muestra || "image_url" in muestra);
       setSupportsOpacidad(!muestra || "portada_opacidad" in muestra);
       setSupportsEncuadre(!muestra || "portadas_inicio" in muestra);
+      setSupportsPosicion(!muestra || "titulo_posicion" in muestra);
       setItems(conRecuadroServicios(filas));
     } catch (e: any) {
       console.error("Error cargando categorías:", e);
@@ -414,6 +440,10 @@ export default function AdminCategories() {
     setPortadas([]);
     setEncuadres([]);
     setOpacidad(OPACIDAD_PORTADA_DEFECTO);
+    setPosicionNombre(null);
+    setCopiarAbierto(false);
+    setCopiarA([]);
+    setAvisoCopiar(null);
     setAvisoPortadas(null);
     setModalErr(null);
   }
@@ -432,6 +462,10 @@ export default function AdminCategories() {
     setPortadas(portadasDe(c));
     setEncuadres(encuadresDe(c));
     setOpacidad(opacidadDe(c));
+    setPosicionNombre(posicionNombreDe(c));
+    setCopiarAbierto(false);
+    setCopiarA([]);
+    setAvisoCopiar(null);
     setAvisoPortadas(null);
     setModalErr(null);
     setOpen(true);
@@ -618,6 +652,8 @@ export default function AdminCategories() {
       if (supportsOpacidad) payload.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
       // El encuadre para Inicio de cada portada, en el mismo orden ("" = sin encuadrar).
       if (supportsEncuadre) payload.portadas_inicio = fotos.map((_, i) => encuadres[i] ?? "");
+      // Dónde va el nombre (null = en el centro).
+      if (supportsPosicion) payload.titulo_posicion = posicionNombre;
 
       // Sin id (la de «Reparación / Limpieza» la primera vez), se crea.
       const escribir = (datos: any) =>
@@ -626,6 +662,12 @@ export default function AdminCategories() {
           : supabase.from("categories").insert(datos);
 
       let { error } = await escribir(payload);
+      // Si la columna de la posición del nombre aún no existe, se guarda el resto (en Inicio, en el centro).
+      if (error && "titulo_posicion" in payload && /titulo_posicion/.test(String(error.message ?? ""))) {
+        delete payload.titulo_posicion;
+        setSupportsPosicion(false);
+        ({ error } = await escribir(payload));
+      }
       // Si la columna de los encuadres aún no existe, se guarda el resto (Inicio recorta las fotos por el centro).
       if (error && "portadas_inicio" in payload && /portadas_inicio/.test(String(error.message ?? ""))) {
         delete payload.portadas_inicio;
@@ -662,6 +704,42 @@ export default function AdminCategories() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // «Aplicar a otras»: copia a las categorías elegidas la transparencia y la posición del nombre de esta, tal como se
+  // ven ahora en la vista previa (aunque aún no se haya guardado). Las fotos y los encuadres no se copian.
+  async function aplicarAOtras() {
+    if (copiando || !copiarA.length) return;
+    setCopiando(true);
+    setAvisoCopiar(null);
+    const datos: Record<string, unknown> = {};
+    if (supportsOpacidad) datos.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
+    if (supportsPosicion) datos.titulo_posicion = posicionNombre;
+    if (!Object.keys(datos).length) {
+      setAvisoCopiar("Aún no hay ajustes que se puedan copiar: falta activar su parte en la base de datos.");
+      setCopiando(false);
+      return;
+    }
+    const escribir = (d: Record<string, unknown>) => supabase.from("categories").update(d).in("id", copiarA);
+    let { error } = await escribir(datos);
+    // Sin la columna de la posición del nombre, se copia solo la transparencia.
+    if (error && "titulo_posicion" in datos && /titulo_posicion/.test(String(error.message ?? ""))) {
+      delete datos.titulo_posicion;
+      setSupportsPosicion(false);
+      ({ error } = Object.keys(datos).length ? await escribir(datos) : { error: null });
+    }
+    setCopiando(false);
+    if (error) {
+      setAvisoCopiar("No se han podido copiar los ajustes. Inténtalo de nuevo.");
+      return;
+    }
+    const n = copiarA.length;
+    const que = "titulo_posicion" in datos ? "la transparencia y la posición del nombre" : "la transparencia";
+    setAvisoCopiar(`Copiado a ${n} ${n === 1 ? "categoría" : "categorías"}: ${que}.`);
+    setItems((prev) => prev.map((x) => (copiarA.includes(x.id) ? ({ ...x, ...datos } as CategoryRow) : x)));
+    setCopiarA([]);
+    setCopiarAbierto(false);
+    olvidarPortadasCategorias();
   }
 
   async function toggleActive(c: CategoryRow) {
@@ -718,7 +796,8 @@ export default function AdminCategories() {
         style={{ flex: 1 }}
         contentContainerStyle={{
           padding: pagePadding,
-          paddingBottom: 48 + insets.bottom,
+          // Sitio para el «+» flotante: no tapa la última fila de fichas.
+          paddingBottom: 96 + insets.bottom,
           alignItems: "center",
         }}
         showsVerticalScrollIndicator={false}
@@ -728,22 +807,20 @@ export default function AdminCategories() {
         {/* Columna centrada con el mismo ancho máximo para todo */}
         <View style={{ width: "100%", maxWidth: 1040, gap: sectionGap }}>
 
+          {/* El buscador arriba de los contadores (petición del dueño); «Nueva categoría» es el «+» flotante. */}
+          <TextInput
+            nativeID="categorias-buscar"
+            value={search}
+            onChangeText={(v) => setSearch(v)}
+            placeholder="Buscar por nombre o slug"
+            placeholderTextColor="rgba(11,33,56,0.40)"
+            style={inputStyle}
+          />
+
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <StatCard label="Total" value={String(stats.total)} icon="folder-outline" isMobile={isMobile} columns={3} />
             <StatCard label="Activas" value={String(stats.active)} icon="checkmark-circle-outline" isMobile={isMobile} columns={3} />
             <StatCard label="Ocultas" value={String(stats.hidden)} icon="eye-off-outline" isMobile={isMobile} columns={3} />
-          </View>
-
-          <View style={{ gap: 14 }}>
-            <TextInput
-              value={search}
-              onChangeText={(v) => setSearch(v)}
-              placeholder="Buscar por nombre o slug"
-              placeholderTextColor="rgba(11,33,56,0.40)"
-              style={inputStyle}
-            />
-
-            <PrimaryButton label="+ Nueva categoría" onPress={openCreate} />
           </View>
 
           {!!screenErr && <AdminNotice tone="danger" text={screenErr} />}
@@ -762,138 +839,102 @@ export default function AdminCategories() {
               text="Crea tu primera categoría para empezar a organizar el catálogo."
             />
           ) : (
-            <View style={{ gap: 12 }}>
+            // Fichas en rejilla, una al lado de otra (petición del dueño): 2 por fila en el móvil, 3 o 4 en pantallas
+            // anchas. Arriba, el recuadro tal cual sale en Inicio (encuadre, nombre y transparencia).
+            <View
+              nativeID="categorias-rejilla"
+              onLayout={(e) => {
+                const w = Math.floor(e.nativeEvent.layout.width);
+                if (w && Math.abs(w - anchoRejilla) > 1) setAnchoRejilla(w);
+              }}
+              style={{ flexDirection: "row", flexWrap: "wrap", gap: GAP_REJILLA }}
+            >
             {filteredItems.map((c) => {
               const servicios = esCategoriaServicios(c.slug);
+              const fotos = portadasInicioDe(c);
               return (
               <View
                 key={c.id || c.slug}
-                nativeID={servicios ? "categoria-servicios" : undefined}
+                nativeID={servicios ? "categoria-servicios" : `categoria-ficha-${c.slug}`}
                 style={{
-                  borderRadius: 20,
+                  width: anchoFicha,
+                  borderRadius: 18,
                   backgroundColor: COLORS.card,
-                  padding: isMobile ? 12 : 14,
-                  gap: 12,
+                  padding: 8,
+                  gap: 8,
                 }}
               >
-                <View
-                  style={{
-                    flexDirection: isDesktopish ? "row" : "column",
-                    gap: 14,
-                    alignItems: isDesktopish ? "flex-start" : "stretch",
-                  }}
-                >
+                {fotos.length ? (
+                  <PortadaConNombre
+                    imagenes={fotos}
+                    opacidad={opacidadDe(c)}
+                    titulo={c.name}
+                    proporcion={PROPORCION_RECUADRO_INICIO}
+                    posicion={posicionNombreDe(c)}
+                    radio={14}
+                  />
+                ) : (
                   <View
                     style={{
-                      width: isDesktopish ? 160 : "100%",
-                      height: isDesktopish ? 100 : isMobile ? 180 : 210,
-                      borderRadius: 16,
-                      overflow: "hidden",
+                      width: "100%",
+                      aspectRatio: PROPORCION_RECUADRO_INICIO,
+                      borderRadius: 14,
                       borderWidth: 1,
                       borderColor: COLORS.border,
                       backgroundColor: "#F8FBFE",
                       alignItems: "center",
                       justifyContent: "center",
+                      gap: 4,
                     }}
                   >
-                    {portadasDe(c).length ? (
-                      <PortadasCategoria imagenes={portadasDe(c)} alt={c.name} style={{ width: "100%", height: "100%" }} />
-                    ) : (
-                      <View style={{ alignItems: "center", gap: 6 }}>
-                        <Ionicons name="images-outline" size={28} color={COLORS.muted2} />
-                        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12.5 }}>Sin portada</Text>
-                      </View>
-                    )}
+                    <Ionicons name="images-outline" size={24} color={COLORS.muted2} />
+                    <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>Sin portada</Text>
                   </View>
+                )}
 
-                  <View style={{ flex: 1, gap: 8 }}>
-                    <View
-                      style={{
-                        flexDirection: isMobile ? "column" : "row",
-                        justifyContent: "space-between",
-                        alignItems: isMobile ? "stretch" : "flex-start",
-                        gap: 12,
-                      }}
+                <View style={{ gap: 3, paddingHorizontal: 2 }}>
+                  <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>
+                    {c.name}
+                  </Text>
+                  <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12, lineHeight: 16 }}>
+                    {servicios ? "Recuadro de Inicio · lleva a Servicios" : `${c.is_active ? "Visible" : "Oculta"} · ${c.slug} · orden ${c.sort_order}`}
+                  </Text>
+                  {toquesInicio ? (
+                    <Text
+                      nativeID={`categoria-toques-${c.slug}`}
+                      numberOfLines={2}
+                      style={{ color: COLORS.text, fontWeight: "800", fontSize: 12, lineHeight: 16 }}
                     >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            color: COLORS.text,
-                            fontWeight: "900",
-                            fontSize: isMobile ? 16 : 17,
-                            lineHeight: 22,
-                          }}
-                        >
-                          {c.name}
-                        </Text>
+                      {(() => {
+                        const t = toquesInicio[c.slug] ?? { toques: 0, conPortada: 0 };
+                        const veces = `${t.toques} ${t.toques === 1 ? "toque" : "toques"}`;
+                        return `Desde Inicio (30 días): ${veces}${t.toques ? ` · con portada: ${t.conPortada}` : ""}`;
+                      })()}
+                    </Text>
+                  ) : null}
+                  {c.id && c.updated_at ? (
+                    <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 15 }}>
+                      Actualizada: {new Date(c.updated_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
+                    </Text>
+                  ) : null}
+                </View>
 
-                        {/* Datos en una línea de texto (antes, tres "burbujas";
-                            la de Visible/Oculta repetía lo que ya dice el interruptor). */}
-                        <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, lineHeight: 18, marginTop: 6 }}>
-                          {servicios ? "Recuadro de Inicio · lleva a Servicios" : `Slug: ${c.slug} · Orden: ${c.sort_order}`}
-                        </Text>
-                        {toquesInicio ? (
-                          <Text
-                            nativeID={`categoria-toques-${c.slug}`}
-                            style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, lineHeight: 18, marginTop: 4 }}
-                          >
-                            {(() => {
-                              const t = toquesInicio[c.slug] ?? { toques: 0, conPortada: 0 };
-                              const veces = `${t.toques} ${t.toques === 1 ? "toque" : "toques"}`;
-                              return `Desde Inicio (30 días): ${veces}${t.toques ? ` · con portada: ${t.conPortada}` : ""}`;
-                            })()}
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      {/* «Reparación / Limpieza» no se oculta: su recuadro de Inicio está siempre. */}
-                      {!servicios ? (
-                        <View
-                          style={{
-                            alignItems: isMobile ? "flex-start" : "flex-end",
-                            gap: 10,
-                          }}
-                        >
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                            <Text style={{ color: c.is_active ? COLORS.success : COLORS.warning, fontWeight: "800" }}>
-                              {c.is_active ? "Visible" : "Oculta"}
-                            </Text>
-                            <Switch value={c.is_active} onValueChange={() => toggleActive(c)} />
-                          </View>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    {c.id ? (
-                      <Text style={{ color: COLORS.muted2, fontSize: 12, lineHeight: 17 }}>
-                        Creada: {c.created_at ? new Date(c.created_at).toLocaleString("es-ES") : "-"} ·
-                        Actualizada: {c.updated_at ? new Date(c.updated_at).toLocaleString("es-ES") : "-"}
-                      </Text>
+                {/* Acciones con iconos: visible (no en «Reparación / Limpieza», que está siempre), editar y borrar. */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: "auto" }}>
+                  {!servicios ? (
+                    <Switch
+                      value={c.is_active}
+                      onValueChange={() => toggleActive(c)}
+                      accessibilityLabel={c.is_active ? `Ocultar ${c.name}` : `Mostrar ${c.name}`}
+                    />
+                  ) : (
+                    <View />
+                  )}
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <IconButton icon="create-outline" label={`Editar ${c.name}`} variant="primary" onPress={() => openEdit(c)} />
+                    {!servicios ? (
+                      <IconButton icon="trash-outline" label={`Borrar ${c.name}`} variant="danger" onPress={() => askRemove(c)} />
                     ) : null}
-
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        gap: 10,
-                        flexWrap: "wrap",
-                        justifyContent: isDesktopish ? "flex-start" : "center",
-                      }}
-                    >
-                      <ChipButton
-                        label="Editar"
-                        variant="primary"
-                        onPress={() => openEdit(c)}
-                        isMobile={isMobile}
-                      />
-                      {!servicios ? (
-                        <ChipButton
-                          label="Borrar"
-                          variant="danger"
-                          onPress={() => askRemove(c)}
-                          isMobile={isMobile}
-                        />
-                      ) : null}
-                    </View>
                   </View>
                 </View>
               </View>
@@ -904,6 +945,9 @@ export default function AdminCategories() {
         </View>
       </ScrollView>
       )}
+
+      {/* «Nueva categoría»: el «+» flotante abajo a la derecha (al alcance del pulgar). */}
+      {!loading ? <BotonFlotante nativeID="categoria-nueva" label="Nueva categoría" onPress={openCreate} /> : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView
@@ -1169,14 +1213,33 @@ export default function AdminCategories() {
                   {portadas.length > 0 ? (
                     <View nativeID="categoria-opacidad" style={{ width: "100%", gap: 10, alignItems: "center", paddingTop: 6 }}>
                       <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cómo se ve en Inicio</Text>
+                      {/* El nombre se mueve manteniéndolo pulsado y arrastrándolo (como en el móvil: un dedo). */}
                       <View style={{ width: "100%", maxWidth: 230, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" }}>
-                        <PortadaConNombre
+                        <PortadaNombreMovible
                           imagenes={portadas.map((u, i) => encuadres[i] || u)}
                           opacidad={opacidad}
                           titulo={name.trim() || "Nombre de la categoría"}
                           proporcion={PROPORCION_RECUADRO_INICIO}
+                          posicion={posicionNombre}
+                          onMover={setPosicionNombre}
                         />
                       </View>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                        <Text nativeID="categoria-nombre-posicion" style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center", flexShrink: 1 }}>
+                          {posicionNombre
+                            ? "Mantén pulsado el nombre y arrástralo para moverlo."
+                            : "Mantén pulsado el nombre y arrástralo para moverlo (ahora, en el centro)."}
+                        </Text>
+                        {posicionNombre ? (
+                          <IconButton icon="locate-outline" label="Centrar el nombre" onPress={() => setPosicionNombre(null)} />
+                        ) : null}
+                      </View>
+                      {!supportsPosicion ? (
+                        <AdminNotice
+                          tone="warning"
+                          text="Dónde va el nombre se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale en el centro."
+                        />
+                      ) : null}
                       <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
                         Foto: <Text nativeID="categoria-opacidad-valor">{opacidad}</Text> %
                       </Text>
@@ -1244,7 +1307,8 @@ export default function AdminCategories() {
                 </View>
               ) : null}
 
-              {!editandoServicios ? (
+              {/* «Categoría activa» y, a su lado, «Aplicar a otras»: un desplegable para elegir a qué categorías se
+                  copian la transparencia y la posición del nombre de esta (las fotos no). */}
               <View
                 style={{
                   borderRadius: 16,
@@ -1255,24 +1319,100 @@ export default function AdminCategories() {
                   gap: 12,
                 }}
               >
-                <View
-                  style={{
-                    flexDirection: isMobile ? "column" : "row",
-                    justifyContent: "space-between",
-                    alignItems: isMobile ? "stretch" : "center",
-                    gap: 10,
-                  }}
-                >
-                  <View style={{ flex: 1, paddingRight: isMobile ? 0 : 12 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "900" }}>Categoría activa</Text>
-                    <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 18 }}>
-                      Si está activa, puede mostrarse como parte visible de la navegación pública.
-                    </Text>
-                  </View>
-                  <Switch value={isActive} onValueChange={setIsActive} />
+                {/* En una fila: «Categoría activa», su interruptor y, al lado, «A otras» (con su desplegable). */}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={{ flex: 1, minWidth: 0, color: COLORS.text, fontWeight: "900" }}>
+                    {editandoServicios ? "Ajustes de la portada" : "Categoría activa"}
+                  </Text>
+                  {!editandoServicios ? (
+                    <Switch value={isActive} onValueChange={setIsActive} accessibilityLabel="Categoría activa" />
+                  ) : null}
+                  <Pressable
+                    nativeID="categoria-aplicar-otras"
+                    onPress={() => {
+                      setAvisoCopiar(null);
+                      setCopiarAbierto((v) => !v);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Aplicar estos ajustes a otras categorías"
+                    {...({ "aria-expanded": copiarAbierto } as object)}
+                    style={({ pressed }) => ({
+                      minHeight: 44,
+                      paddingHorizontal: 12,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: COLORS.accentBorder,
+                      backgroundColor: copiarAbierto ? COLORS.accent2 : "#FFFFFF",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Ionicons name="copy-outline" size={17} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5 }}>A otras</Text>
+                    <Ionicons name={copiarAbierto ? "chevron-up" : "chevron-down"} size={16} color={COLORS.muted} />
+                  </Pressable>
                 </View>
+                <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13 }}>
+                  {editandoServicios
+                    ? "«A otras» copia la transparencia y la posición del nombre a las categorías que elijas."
+                    : "Si está activa, puede mostrarse en la tienda. «A otras» copia la transparencia y la posición del nombre a las categorías que elijas."}
+                </Text>
+
+                {copiarAbierto ? (
+                  <View nativeID="categoria-aplicar-lista" style={{ gap: 6 }}>
+                    <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                      Copia la transparencia ({opacidad} %) y {posicionNombre ? "la posición del nombre" : "el nombre en el centro"} a:
+                    </Text>
+                    {(() => {
+                      const otras = items.filter((x) => !!x.id && x.id !== editing?.id);
+                      if (!otras.length) {
+                        return <Text style={{ color: COLORS.muted, fontSize: 13 }}>No hay otras categorías guardadas.</Text>;
+                      }
+                      const todas = otras.every((x) => copiarA.includes(x.id));
+                      return (
+                        <>
+                          <Pressable
+                            onPress={() => setCopiarA(todas ? [] : otras.map((x) => x.id))}
+                            accessibilityRole="checkbox"
+                            accessibilityLabel="Todas las categorías"
+                            {...({ "aria-checked": todas } as object)}
+                            style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 }}
+                          >
+                            <Ionicons name={todas ? "checkbox" : "square-outline"} size={22} color={COLORS.accent} />
+                            <Text style={{ color: COLORS.text, fontWeight: "900" }}>Todas</Text>
+                          </Pressable>
+                          {otras.map((x) => {
+                            const marcada = copiarA.includes(x.id);
+                            return (
+                              <Pressable
+                                key={x.id}
+                                onPress={() => setCopiarA((l) => (marcada ? l.filter((i) => i !== x.id) : [...l, x.id]))}
+                                accessibilityRole="checkbox"
+                                accessibilityLabel={x.name}
+                                {...({ "aria-checked": marcada } as object)}
+                                style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 4 }}
+                              >
+                                <Ionicons name={marcada ? "checkbox" : "square-outline"} size={22} color={COLORS.accent} />
+                                <Text style={{ color: COLORS.text, fontWeight: "700" }}>{x.name}</Text>
+                              </Pressable>
+                            );
+                          })}
+                          <PrimaryButton
+                            label={copiando ? "Copiando…" : copiarA.length ? `Aplicar a ${copiarA.length} ${copiarA.length === 1 ? "categoría" : "categorías"}` : "Elige a cuáles"}
+                            onPress={aplicarAOtras}
+                            disabled={copiando || !copiarA.length}
+                          />
+                        </>
+                      );
+                    })()}
+                  </View>
+                ) : null}
+                {avisoCopiar ? (
+                  <AdminNotice tone={/^Copiado/.test(avisoCopiar) ? "success" : "warning"} text={avisoCopiar} />
+                ) : null}
               </View>
-              ) : null}
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 

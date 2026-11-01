@@ -96,6 +96,8 @@ import {
   OPACIDAD_PORTADA_DEFECTO,
   PROPORCION_RECUADRO_INICIO,
   PortadaConNombre,
+  type PosicionNombre,
+  usePosicionesNombre,
   useOpacidadesPortadas,
   usePortadasCategorias,
 } from "../../components/PortadasCategoria";
@@ -1100,6 +1102,7 @@ function CategoryCard({
   isMobile,
   portadas,
   opacidad,
+  posicion,
   testID,
 }: {
   testID?: string;
@@ -1113,6 +1116,8 @@ function CategoryCard({
   portadas?: string[];
   /** Cuánto se ve la portada (10-100 %, lo elige el dueño en el editor de la categoría). */
   opacidad?: number;
+  /** Dónde va el nombre encima de la portada (lo mueve el dueño en el editor); sin ella, en el centro. */
+  posicion?: PosicionNombre;
 }) {
   const conPortadas = !!portadas?.length;
   return (
@@ -1143,6 +1148,7 @@ function CategoryCard({
           imagenes={portadas!}
           opacidad={opacidad ?? OPACIDAD_PORTADA_DEFECTO}
           titulo={title}
+          posicion={posicion}
           {...(isMobile ? { proporcion: PROPORCION_RECUADRO_INICIO } : { alto: 168 })}
         />
       ) : (
@@ -1569,6 +1575,7 @@ export default function HomeScreen() {
   // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
   const portadasCategorias = usePortadasCategorias();
   const opacidadesPortadas = useOpacidadesPortadas();
+  const posicionesNombre = usePosicionesNombre();
 
   // Ocultar/mostrar la barra de búsqueda flotante
   // según la dirección del scroll: al bajar se ocultan (más sitio para ver
@@ -2056,6 +2063,7 @@ export default function HomeScreen() {
                     isMobile={isMobile}
                     portadas={portadasCategorias[category.cat]}
                     opacidad={opacidadesPortadas[category.cat]}
+                    posicion={posicionesNombre[category.cat]}
                     testID={`categoria-${category.cat}`}
                   />
                 );

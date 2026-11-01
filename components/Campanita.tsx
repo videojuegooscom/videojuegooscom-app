@@ -444,6 +444,10 @@ type Bocadillo = {
   ruta?: string;
   // «conocimiento»: tema de lib/conocimiento.ts que Blue le propone al dueño en el panel.
   tema?: string;
+  // Mensaje de Administración (pedidos olvidados, temas de «Lo que Blue sabe»…). Dentro del panel solo salen estos y
+  // fuera del panel nunca (filtro central en la cola y al pintarlo: aunque un mensaje de la tienda se quede esperando
+  // turno al entrar en el panel, no se ve allí).
+  panel?: boolean;
 };
 
 // --- Blue propone información de la tienda (solo el dueño, en el panel de administración) ---
@@ -848,6 +852,9 @@ export default function Campanita() {
   // Cola de los mensajes que Blue dice por su cuenta: el primero, como pronto a los 15 s de entrar en la pantalla; entre
   // uno y otro, 15 s. Al cambiar de pantalla la cola se vacía (cada pantalla vuelve a pedir los suyos).
   const entradaPantallaRef = useRef(Date.now());
+  // Pantalla actual, para el filtro de mensajes del panel (la cola se atiende desde temporizadores).
+  const pantallaRef = useRef(pathname);
+  pantallaRef.current = pathname;
   const ultimoMensajeRef = useRef(0);
   const colaMensajesRef = useRef<Bocadillo[]>([]);
   const turnoMensajeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -857,6 +864,9 @@ export default function Campanita() {
   atenderColaRef.current = () => {
     if (turnoMensajeRef.current) clearTimeout(turnoMensajeRef.current);
     turnoMensajeRef.current = null;
+    // Dentro del panel, solo los mensajes de Administración; fuera, ninguno de ellos.
+    const enPanelAhora = pantallaRef.current.startsWith("/admin");
+    colaMensajesRef.current = colaMensajesRef.current.filter((b) => !!b.panel === enPanelAhora);
     const siguiente = colaMensajesRef.current[0];
     if (!siguiente || visorFotos) return;
     const ahora = Date.now();
@@ -912,7 +922,7 @@ export default function Campanita() {
       return;
     }
     await cerrarPropuesta("guardada");
-    setBocadillo({ id: "prop-ok", texto: "¡Guardado! Desde ahora lo uso al responder a tus clientes." });
+    setBocadillo({ id: "prop-ok", texto: "¡Guardado! Desde ahora lo uso al responder a tus clientes.", panel: true });
   }, [propuesta, respuestaProp, guardandoProp, cerrarPropuesta]);
   useEffect(() => {
     const actualizar = () => setModoInst(modoInstalar());
@@ -1813,6 +1823,7 @@ export default function Campanita() {
       }
       if (!vivo) return;
       decir({
+        panel: true,
         id: "olvidados",
         texto: `${textoOlvidados(olvidados)} ${total === 1 ? "lleva" : "llevan"} más de 48 h sin cambios: échales un vistazo.`,
         accion: "ruta",
@@ -1843,6 +1854,7 @@ export default function Campanita() {
         if (!vivo || !siguiente || bocadilloRef.current) return;
         await guardarEstadoProp({ ...estado, n: estado.n + 1, ultima: Date.now() });
         decir({
+          panel: true,
           id: `prop:${siguiente.tema}`,
           texto: `${siguiente.tema}: ¿me lo cuentas para responder mejor a tus clientes?`,
           accion: "conocimiento",
@@ -2378,7 +2390,7 @@ export default function Campanita() {
         >
           {/* Mensaje de Blue: a su lado, en cristal transparente que se lee bien. Al tocarlo
               lleva a lo que dice. */}
-          {bocadillo ? (
+          {bocadillo && !!bocadillo.panel === enAdmin ? (
             <Animated.View
               nativeID={BLUE_MENSAJE_DOM_ID}
               style={{

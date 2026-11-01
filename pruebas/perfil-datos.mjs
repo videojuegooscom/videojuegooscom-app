@@ -109,7 +109,12 @@
  *    dentro de la categoría, la foto entera. Sin la migración no se ofrece y se sube como antes; una foto que no se
  *    puede pedir con permiso se avisa.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN]
+ *  - NO) Categorías: buscador arriba de los contadores, fichas en rejilla (2 por fila en el móvil), «+» flotante abajo
+ *    a la derecha y «Editar»/«Borrar» con iconos de 44 px. El nombre se mueve manteniéndolo pulsado (sin mantener, no),
+ *    se guarda y Inicio lo pone ahí, siempre entero; «Aplicar a otras» (al lado de «Categoría activa») copia la
+ *    transparencia y la posición a las elegidas. Sin la migración, avisa y guarda lo demás.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE» o «EN» de cuarto argumento solo se ejecuta esa
  * sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas
  * de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas o el encuadre de las portadas).
@@ -373,6 +378,23 @@ async function contexto(navegador, usuario, rol, estado) {
     // Políticas: sin filas (la página usa su texto de reserva, el mismo que pone la migración), salvo que la prueba las dé.
     if (url.pathname.endsWith("/rest/v1/policy_pages") && metodo === "GET") return json(estado.politicas ?? []);
     // Ficha de producto ficticia (sección N) y sus fotos (las fotos llegan falsas: pruebas/sin-fotos-reales.mjs).
+    // Tablas sencillas que solo se leen (sección NO: Blog, Políticas, «Lo que Blue sabe»): las filas de la prueba.
+    if (estado.tablas && metodo === "GET") {
+      const tabla = url.pathname.split("/").pop();
+      if (estado.tablas[tabla]) return json(estado.tablas[tabla], 200, { "content-range": `*/${estado.tablas[tabla].length}` });
+    }
+    // Administración → Productos (sección NO): la lista, sus fotos (ninguna) y lo que se manda cambiar.
+    if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/products")) {
+      if (metodo === "GET") return json(estado.productosAdmin, 200, { "content-range": `0-${estado.productosAdmin.length - 1}/${estado.productosAdmin.length}` });
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        estado.productosCambiados = [...(estado.productosCambiados ?? []), { id, cuerpo }];
+        estado.productosAdmin = estado.productosAdmin.map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
+        return /return=representation/.test(peticion.headers()["prefer"] ?? "") ? json([estado.productosAdmin.find((f) => f.id === id)]) : r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+    }
+    if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json([]);
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
@@ -497,9 +519,15 @@ async function contexto(navegador, usuario, rol, estado) {
         if (estado.categoriasSinColumna && "portada_opacidad" in cuerpo) {
           return json({ code: "PGRST204", message: "Could not find the 'portada_opacidad' column of 'categories' in the schema cache" }, 400);
         }
-        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
-        estado.categoriasGuardadas = [...(estado.categoriasGuardadas ?? []), { id, cuerpo }];
-        estado.categorias = estado.categorias.map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
+        if (estado.categoriasSinPosicion && "titulo_posicion" in cuerpo) {
+          return json({ code: "PGRST204", message: "Could not find the 'titulo_posicion' column of 'categories' in the schema cache" }, 400);
+        }
+        // «id=eq.X» (una) o «id=in.(X,Y)» («Aplicar a otras», sección NO).
+        const filtroId = url.searchParams.get("id") ?? "";
+        const ids = filtroId.startsWith("in.(") ? filtroId.slice(4, -1).split(",").map((s) => s.replace(/"/g, "")) : [filtroId.replace(/^eq\./, "")];
+        const id = ids.join(",");
+        estado.categoriasGuardadas = [...(estado.categoriasGuardadas ?? []), { id, ids, cuerpo }];
+        estado.categorias = estado.categorias.map((f) => (ids.includes(f.id) ? { ...f, ...cuerpo } : f));
         return r.fulfill({ status: 204, headers: CORS, body: "" });
       }
       // Una categoría nueva (sección Y: «Reparación / Limpieza» al guardarle la portada); el slug no se puede repetir.
@@ -1527,6 +1555,38 @@ async function seccionV() {
     await p.close();
   }
   await ctx.close();
+
+  // Los mensajes que Blue dice solo: en la tienda, los de la tienda; al entrar en el panel (sin recargar), solo los de
+  // Administración (el pedido olvidado), nunca uno de la tienda aunque se hubiera quedado esperando turno.
+  {
+    const estado2 = { ...estado, guardados: [], aceptaAnalitica: true };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
+    const p = await pagina(ctx2, "/");
+    // Lo que dice Blue ahora mismo ("" si no dice nada), sin esperar a que aparezca.
+    const mensaje = () => p.evaluate(() => document.getElementById("blue-mensaje")?.innerText ?? "").catch(() => "");
+    // 20 s en la tienda: lo que diga (si dice algo) no es del panel.
+    let enTienda = "";
+    for (let i = 0; i < 20; i++) {
+      await p.waitForTimeout(1000);
+      enTienda = (await mensaje()).replace(/\n/g, " ") || enTienda;
+    }
+    ok(!/48 h sin cambios|Lo que Blue sabe|me lo cuentas/.test(enTienda), `V: en la tienda, Blue no dice los mensajes del panel (${enTienda.slice(0, 80) || "no ha dicho nada"})`);
+    // Al panel por Perfil → «Panel de control» (sin recargar: Blue sigue montado).
+    await p.locator('[data-testid="pestana-perfil"]').first().click();
+    await p.locator("#perfil-datos").getByRole("button", { name: "Panel de control" }).click({ timeout: 30000 });
+    await p.waitForURL(/\/admin\/?$/, { timeout: 15000 }).catch(() => {});
+    const vistos = new Set();
+    for (let i = 0; i < 24; i++) {
+      await p.waitForTimeout(1000);
+      const t = (await mensaje()).replace(/\n/g, " ").trim();
+      if (t) vistos.add(t);
+    }
+    const lista = [...vistos];
+    ok(lista.some((t) => /48 h sin cambios/.test(t)), `V: dentro del panel, Blue dice lo del panel (el pedido olvidado: ${lista.join(" / ").slice(0, 120) || "nada"})`);
+    ok(!lista.some((t) => t === enTienda || /Foro|Realizamos entregas|instalar|Instala/.test(t)), `V: y ningún mensaje de la tienda (${lista.length} mensajes vistos)`);
+    ok(p.errores.length === 0, `V: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx2.close();
+  }
 }
 
 // ===== W) Portadas de las categorías en Inicio (foto de fondo con el nombre encima) y cuánto se ven (editor) ========
@@ -1648,7 +1708,7 @@ async function seccionW() {
     await p.waitForURL(/\/admin\/?$/, { timeout: 15000 }).catch(() => {});
     await p.locator('[role="button"][aria-label^="Categorías"]:visible').first().click({ timeout: 30000 });
     await p.waitForURL(/\/admin\/categories/, { timeout: 15000 }).catch(() => {});
-    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 30000 });
     await p.locator("#categoria-opacidad").waitFor({ timeout: 15000 }).catch(() => {});
     const valor = () => p.locator("#categoria-opacidad-valor").innerText().catch(() => "");
     const previa = () => p.evaluate(() => Number(getComputedStyle(document.querySelector("#categoria-opacidad #portada-foto")).opacity));
@@ -1693,7 +1753,7 @@ async function seccionW() {
     const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias(), categoriasSinColumna: true };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/categories");
-    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 30000 });
     await p.locator("#categoria-opacidad").waitFor({ timeout: 15000 }).catch(() => {});
     ok(/Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale al 55 %/.test(await p.locator("#categoria-opacidad").innerText().catch(() => "")), "W: sin la migración, el editor avisa de que la transparencia aún no se guarda");
     await p.getByText("Guardar cambios", { exact: true }).last().click();
@@ -1780,7 +1840,8 @@ async function seccionY() {
     const texto = (await tarjeta.innerText().catch(() => "")).replace(/\n/g, " | ");
     ok(/Reparación \/ Limpieza/.test(texto) && /Recuadro de Inicio · lleva a Servicios/.test(texto) && /Sin portada/.test(texto), `Y: en Categorías sale «Reparación / Limpieza» (lleva a Servicios), aún sin portada (${texto})`);
     const interruptores = await tarjeta.locator('[role="switch"], input[type="checkbox"]').count();
-    ok(!/Borrar/.test(texto) && interruptores === 0, `Y: no se puede borrar ni ocultar: su recuadro de Inicio está siempre (${interruptores} interruptores)`);
+    const borrar = await tarjeta.getByRole("button", { name: /^Borrar/ }).count();
+    ok(borrar === 0 && interruptores === 0, `Y: no se puede borrar ni ocultar: su recuadro de Inicio está siempre (${borrar} botones de borrar, ${interruptores} interruptores)`);
     const toquesServicios = await p.locator("#categoria-toques-reparaciones").innerText().catch(() => "");
     const toquesPs5 = await p.locator("#categoria-toques-playstation-5").innerText().catch(() => "");
     ok(
@@ -1788,7 +1849,7 @@ async function seccionY() {
       `Y: cada categoría cuenta los toques de su recuadro en Inicio y cuántos tenían portada (${toquesServicios} / ${toquesPs5})`
     );
 
-    await tarjeta.getByText("Editar", { exact: true }).click();
+    await tarjeta.getByRole("button", { name: /^Editar/ }).click();
     await p.locator("#categoria-portadas").waitFor({ timeout: 15000 }).catch(() => {});
     const ventana = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
     const campos = (await p.getByPlaceholder("Nombre de la categoría").count()) + (await p.getByPlaceholder("Identificador para la URL").count());
@@ -1827,7 +1888,7 @@ async function seccionY() {
     await p.waitForTimeout(800);
     const veces = await p.locator("#categoria-servicios").count();
     const fotos = await p.locator("#categoria-servicios img").count();
-    const conFechas = /Creada:/.test(await p.locator("#categoria-servicios").innerText().catch(() => ""));
+    const conFechas = /Actualizada:/.test(await p.locator("#categoria-servicios").innerText().catch(() => ""));
     ok(veces === 1 && fotos > 0 && conFechas, `Y: ya guardada, sale una sola vez en la lista y con su portada (${veces} vez · ${fotos} fotos)`);
     ok(p.errores.length === 0, `Y: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
@@ -1923,7 +1984,7 @@ async function seccionEN() {
     const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [ps5(), cat("c0000000-0000-4000-8000-0000000000a2", "playstation-4", "PlayStation 4", { sort_order: 1 })] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/categories");
-    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 30000 });
     await p.locator("#categoria-portadas").waitFor({ timeout: 15000 }).catch(() => {});
     const bloque = (await p.locator("#categoria-portadas").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(
@@ -2006,7 +2067,8 @@ async function seccionEN() {
   // EN2) Inicio enseña el encuadre y la cabecera de dentro de la categoría, la foto entera.
   {
     const encuadreUrl = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/inicio-1-abc.jpg";
-    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: [ps5({ portadas_inicio: [encuadreUrl] })] };
+    // Sin pedir productos a la base de datos real (rechaza la sesión de prueba y a veces dejaba un error en la consola).
+    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: [ps5({ portadas_inicio: [encuadreUrl] })], productosVacios: true };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/");
     await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
@@ -2026,7 +2088,7 @@ async function seccionEN() {
     const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [sinColumna(ps5())] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/categories");
-    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 30000 });
     await p.locator("#categoria-portadas").waitFor({ timeout: 15000 }).catch(() => {});
     const bloque = (await p.locator("#categoria-portadas").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/El encuadre para Inicio se podrá usar en cuanto se active su parte en la base de datos/.test(bloque) && (await p.getByRole("button", { name: /^Encuadrar la portada/ }).count()) === 0, "EN: sin la migración no se ofrece encuadrar y se avisa");
@@ -2054,11 +2116,278 @@ async function seccionEN() {
     const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [ps5({ image_url: sinPermiso, imagenes: [sinPermiso] })] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/categories");
-    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 30000 });
     await p.getByRole("button", { name: "Encuadrar la portada 1 para Inicio" }).click({ timeout: 15000 });
     await p.locator("#categoria-recorte").getByText(/no se puede encuadrar aquí/).waitFor({ timeout: 15000 }).catch(() => {});
     const texto = await p.locator("#categoria-recorte").innerText().catch(() => "");
     ok(/Esta foto no se puede encuadrar aquí\. Quítala y vuelve a subirla/.test(texto) && !(estado.subidas ?? []).length, "EN: si una portada no se puede encuadrar, la ventana lo dice y no sube nada");
+    await ctx.close();
+  }
+}
+
+// ===== NO) Categorías: buscador arriba, fichas en rejilla, «+» flotante e iconos; el nombre se mueve manteniéndolo
+// pulsado (y se ve así en Inicio, siempre entero) y «Aplicar a otras» copia la transparencia y su posición =============
+async function seccionNO() {
+  const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/ps5.jpg";
+  const PS5 = "c0000000-0000-4000-8000-0000000000a1";
+  const PS4 = "c0000000-0000-4000-8000-0000000000a2";
+  const XBOX = "c0000000-0000-4000-8000-0000000000a3";
+  const cat = (id, slug, name, extra = {}) => ({
+    id, slug, name, sort_order: 0, is_active: true, image_url: foto, imagenes: [foto], portada_opacidad: 40, portadas_inicio: [""],
+    titulo_posicion: null, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", ...extra,
+  });
+  const categorias = () => [
+    cat(PS5, "playstation-5", "PlayStation 5"),
+    cat(PS4, "playstation-4", "PlayStation 4", { sort_order: 1, portada_opacidad: 70 }),
+    cat(XBOX, "xbox", "Xbox", { sort_order: 2, portada_opacidad: 70 }),
+  ];
+  const perfil = (id) => [{ user_id: id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias() };
+
+  // NO1) La lista: buscador arriba de los contadores, fichas una al lado de otra, «+» flotante e iconos.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.locator("#categorias-rejilla").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const m = await p.evaluate(() => {
+      const r = (el) => el?.getBoundingClientRect();
+      const buscar = r(document.querySelector("#categorias-buscar"));
+      const total = Array.from(document.querySelectorAll("*")).find((n) => n.children.length === 0 && n.textContent.trim() === "Total");
+      const fichas = ["playstation-5", "playstation-4", "xbox"].map((s) => r(document.querySelector(`#categoria-ficha-${s}`)));
+      const mas = r(document.querySelector('[aria-label="Nueva categoría"]'));
+      const iconos = ["Editar PlayStation 5", "Borrar PlayStation 5"].map((l) => r(document.querySelector(`[aria-label="${l}"]`)));
+      return {
+        buscadorArriba: !!buscar && !!total && buscar.bottom <= r(total).top,
+        fichas: fichas.map((f) => (f ? { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width) } : null)),
+        mas: mas ? { derecha: Math.round(window.innerWidth - mas.right), abajo: Math.round(window.innerHeight - mas.bottom), lado: Math.round(mas.width) } : null,
+        iconos: iconos.map((i) => (i ? Math.round(i.height) : 0)),
+        textoEditar: /(^|\s)(Editar|Borrar)(\s|$)/.test(document.querySelector("#categorias-rejilla")?.innerText ?? ""),
+        botonTexto: /\+ Nueva categoría/.test(document.body.innerText),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        pantalla: window.innerWidth,
+      };
+    });
+    ok(m.buscadorArriba, "NO: el buscador está arriba de Total, Activas y Ocultas");
+    const [f5, f4, fx] = m.fichas;
+    ok(!!f5 && !!f4 && !!fx && f5.y === f4.y && f4.x > f5.x && fx.y > f5.y && f5.w < m.pantalla / 2, `NO: las fichas van una al lado de otra, 2 por fila en el móvil (${JSON.stringify(m.fichas)})`);
+    ok(!!m.mas && m.mas.derecha <= 24 && m.mas.abajo <= 40 && m.mas.lado >= 44 && !m.botonTexto, `NO: «Nueva categoría» es el «+» flotante abajo a la derecha (${JSON.stringify(m.mas)})`);
+    ok(m.iconos.every((h) => h >= 44) && !m.textoEditar, `NO: «Editar» y «Borrar» son iconos de 44 px, con su nombre para el lector de pantalla (${m.iconos.join(", ")})`);
+    ok(m.ancho <= m.pantalla + 1, `NO: la página no se ensancha (${m.ancho}/${m.pantalla})`);
+    await capturar(p, "NO1-categorias-rejilla");
+    await p.locator('[aria-label="Nueva categoría"]').click();
+    const nueva = await p.getByText("Nueva categoría", { exact: true }).count();
+    ok(nueva >= 1 && (await p.getByPlaceholder("Nombre de la categoría").count()) === 1, "NO: el «+» abre «Nueva categoría»");
+    await p.getByText("Cancelar", { exact: true }).last().click();
+    ok(p.errores.length === 0, `NO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // NO2) Mover el nombre: arrastrar sin mantener no lo mueve; manteniéndolo pulsado, sí; se guarda.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByRole("button", { name: "Editar PlayStation 5" }).click({ timeout: 30000 });
+    const caja = p.locator("#portada-nombre-movible");
+    await caja.waitFor({ timeout: 15000 }).catch(() => {});
+    await caja.scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(500);
+    const medir = () =>
+      p.evaluate(() => {
+        const c = document.querySelector("#portada-nombre-movible")?.getBoundingClientRect();
+        const n = document.querySelector('#portada-nombre-movible [data-portada-nombre="1"]')?.getBoundingClientRect();
+        if (!c || !n) return null;
+        return {
+          caja: { x: c.x, y: c.y, w: c.width, h: c.height },
+          cx: n.x + n.width / 2,
+          cy: n.y + n.height / 2,
+          px: Math.round(((n.x + n.width / 2 - c.x) / c.width) * 100),
+          py: Math.round(((n.y + n.height / 2 - c.y) / c.height) * 100),
+        };
+      });
+    const antes = await medir();
+    // Arrastrar enseguida (sin mantener): es desplazar, no mover el nombre.
+    await p.mouse.move(antes.cx, antes.cy);
+    await p.mouse.down();
+    await p.mouse.move(antes.cx - 40, antes.cy - 30, { steps: 4 });
+    await p.mouse.up();
+    await p.waitForTimeout(300);
+    const sinMantener = await medir();
+    ok(Math.abs(sinMantener.px - antes.px) <= 1 && Math.abs(sinMantener.py - antes.py) <= 1, `NO: arrastrar sin mantener pulsado no mueve el nombre (${antes.px},${antes.py} → ${sinMantener.px},${sinMantener.py})`);
+    // Mantener pulsado medio segundo y arrastrarlo arriba a la izquierda.
+    const destino = { x: antes.caja.x + antes.caja.w * 0.3, y: antes.caja.y + antes.caja.h * 0.22 };
+    await p.mouse.move(antes.cx, antes.cy);
+    await p.mouse.down();
+    await p.waitForTimeout(550);
+    await p.mouse.move(destino.x, destino.y, { steps: 8 });
+    await p.mouse.up();
+    await p.waitForTimeout(400);
+    const movido = await medir();
+    ok(movido.px < 45 && movido.py < 35, `NO: manteniéndolo pulsado se arrastra adonde se quiera (arriba a la izquierda: ${movido.px} %, ${movido.py} %)`);
+    const pista = await p.locator("#categoria-nombre-posicion").innerText().catch(() => "");
+    ok(/Mantén pulsado el nombre/.test(pista) && (await p.getByRole("button", { name: "Centrar el nombre" }).count()) === 1, "NO: lo explica y ofrece «Centrar el nombre»");
+    await capturar(p, "NO2-nombre-movido");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#portada-nombre-movible").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const guardada = (estado.categoriasGuardadas ?? []).at(-1);
+    const pos = guardada?.cuerpo?.titulo_posicion;
+    ok(guardada?.id === PS5 && Math.abs(pos?.x - 30) <= 3 && Math.abs(pos?.y - 22) <= 3, `NO: al guardar se manda dónde va el nombre (${JSON.stringify(pos)})`);
+    ok(p.errores.length === 0, `NO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // NO3) Inicio pone el nombre ahí (arriba a la izquierda), siempre entero dentro del recuadro.
+  {
+    const cliente = { filas: perfil(CLIENTE.id), guardados: [], categorias: estado.categorias };
+    const ctx = await contexto(navegador, CLIENTE, "user", cliente);
+    const p = await pagina(ctx, "/");
+    await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator('[data-testid="categoria-playstation-5"] [data-portada-nombre="1"]').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const m = await p.evaluate(() => {
+      const t = document.querySelector('[data-testid="categoria-playstation-5"]')?.getBoundingClientRect();
+      const n = document.querySelector('[data-testid="categoria-playstation-5"] [data-portada-nombre="1"]')?.getBoundingClientRect();
+      const t4 = document.querySelector('[data-testid="categoria-playstation-4"]')?.getBoundingClientRect();
+      const n4 = document.querySelector('[data-testid="categoria-playstation-4"] [data-portada-nombre="1"]')?.getBoundingClientRect();
+      if (!t || !n || !t4 || !n4) return null;
+      return {
+        px: Math.round(((n.x + n.width / 2 - t.x) / t.width) * 100),
+        py: Math.round(((n.y + n.height / 2 - t.y) / t.height) * 100),
+        entero: n.left >= t.left + 2 && n.right <= t.right - 2 && n.top >= t.top + 2 && n.bottom <= t.bottom - 2,
+        ps4Centro: [Math.round(((n4.x + n4.width / 2 - t4.x) / t4.width) * 100), Math.round(((n4.y + n4.height / 2 - t4.y) / t4.height) * 100)],
+      };
+    });
+    ok(!!m && m.px < 50 && m.py < 35 && m.entero, `NO: en Inicio el nombre sale donde se dejó, arriba a la izquierda, y entero dentro del recuadro (${m?.px} %, ${m?.py} %)`);
+    ok(!!m && Math.abs(m.ps4Centro[0] - 50) <= 3 && Math.abs(m.ps4Centro[1] - 50) <= 4, `NO: el de una categoría sin mover sigue en el centro (${m?.ps4Centro?.join(" %, ")} %)`);
+    await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "NO3-inicio-nombre.png") : undefined }).catch(() => {});
+    ok(p.errores.length === 0, `NO: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // NO4) «Aplicar a otras»: el desplegable deja elegir a cuáles y copia la transparencia y la posición del nombre.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByRole("button", { name: "Editar PlayStation 5" }).click({ timeout: 30000 });
+    await p.locator("#categoria-aplicar-otras").waitFor({ timeout: 15000 }).catch(() => {});
+    const alLado = await p.evaluate(() => {
+      const b = document.querySelector("#categoria-aplicar-otras")?.getBoundingClientRect();
+      const s = Array.from(document.querySelectorAll('[role="switch"], input[type="checkbox"]')).map((x) => x.getBoundingClientRect()).filter((r) => r.width > 0).at(-1);
+      return !!b && !!s && Math.abs(b.y + b.height / 2 - (s.y + s.height / 2)) < 30 && b.height >= 44;
+    });
+    ok(alLado, "NO: «Aplicar a otras» está al lado de «Categoría activa» (44 px)");
+    await p.locator("#categoria-aplicar-otras").click();
+    const lista = (await p.locator("#categoria-aplicar-lista").innerText().catch(() => "")).replace(/\n/g, " | ");
+    ok(/PlayStation 4/.test(lista) && /Xbox/.test(lista) && /Todas/.test(lista) && !/PlayStation 5/.test(lista.replace(/^.*?a:/, "")), `NO: el desplegable enseña las demás categorías y «Todas» (${lista.slice(0, 120)})`);
+    await p.getByRole("checkbox", { name: "PlayStation 4" }).click();
+    const marcada = await p.getByRole("checkbox", { name: "PlayStation 4" }).getAttribute("aria-checked");
+    await p.getByText("Aplicar a 1 categoría", { exact: true }).click();
+    await p.getByText(/^Copiado a 1 categoría/).waitFor({ timeout: 15000 }).catch(() => {});
+    const copia = (estado.categoriasGuardadas ?? []).at(-1);
+    ok(
+      marcada === "true" && JSON.stringify(copia?.ids) === JSON.stringify([PS4]) && copia?.cuerpo?.portada_opacidad === 40 && Math.abs(copia?.cuerpo?.titulo_posicion?.x - 30) <= 3,
+      `NO: «Aplicar a 1 categoría» copia a PlayStation 4 la transparencia (40 %) y la posición del nombre (${JSON.stringify(copia)})`
+    );
+    ok((await p.getByText(/^Copiado a 1 categoría: la transparencia y la posición del nombre\./).count()) === 1, "NO: y lo confirma");
+    await capturar(p, "NO4-aplicar-a-otras");
+    ok(p.errores.length === 0, `NO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // NO5) Sin la migración: se puede mover en la vista previa, se avisa de que no se guarda y se guarda lo demás.
+  {
+    const sinColumna = (f) => Object.fromEntries(Object.entries(f).filter(([c]) => c !== "titulo_posicion"));
+    const estado5 = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias().map(sinColumna), categoriasSinPosicion: true };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado5);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByRole("button", { name: "Editar PlayStation 5" }).click({ timeout: 30000 });
+    await p.locator("#categoria-opacidad").waitFor({ timeout: 15000 }).catch(() => {});
+    const aviso = await p.locator("#categoria-opacidad").innerText().catch(() => "");
+    ok(/Dónde va el nombre se podrá guardar en cuanto se active su parte en la base de datos/.test(aviso), "NO: sin la migración avisa de que la posición del nombre aún no se guarda");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#categoria-opacidad").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const guardada = (estado5.categoriasGuardadas ?? []).at(-1)?.cuerpo;
+    ok(!!guardada && !("titulo_posicion" in guardada) && guardada.portada_opacidad === 40, `NO: y guarda lo demás sin la posición (${JSON.stringify(guardada)})`);
+    await ctx.close();
+  }
+
+  // NO6) Productos: lo mismo que Categorías (buscador arriba, fichas en rejilla, «+» flotante y acciones con iconos).
+  {
+    const prod = (n, extra = {}) => ({
+      id: `p0000000-0000-4000-8000-00000000000${n}`, title: `Mando DualSense ${n}`, description: "Revisado.", price_eur: 49.9 + n,
+      status: "PUBLISHED", is_active: true, category_id: PS5, images: [], condition: "USED", reference: null, is_featured_home: false,
+      created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z", ...extra,
+    });
+    const estadoP = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias(), productosAdmin: [prod(1), prod(2, { status: "DRAFT" }), prod(3)] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estadoP);
+    const p = await pagina(ctx, "/admin/products");
+    await p.locator("#productos-rejilla").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const m = await p.evaluate(() => {
+      const r = (el) => el?.getBoundingClientRect();
+      const buscar = r(document.querySelector("#productos-buscar"));
+      const total = Array.from(document.querySelectorAll("*")).find((n) => n.children.length === 0 && n.textContent.trim() === "Total");
+      const fichas = [1, 2, 3].map((n) => r(document.querySelector(`#producto-ficha-p0000000-0000-4000-8000-00000000000${n}`)));
+      const mas = r(document.querySelector('[aria-label="Nuevo producto"]'));
+      const etiquetas = ["Editar Mando DualSense 2", "Publicar Mando DualSense 2", "Destacar Mando DualSense 2 en portada", "Marcar Mando DualSense 2 como vendido", "Borrar Mando DualSense 2"];
+      return {
+        buscadorArriba: !!buscar && !!total && buscar.bottom <= r(total).top,
+        fichas: fichas.map((f) => (f ? { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width) } : null)),
+        mas: mas ? { derecha: Math.round(window.innerWidth - mas.right), abajo: Math.round(window.innerHeight - mas.bottom) } : null,
+        iconos: etiquetas.map((l) => Math.round(r(document.querySelector(`[aria-label="${l}"]`))?.height ?? 0)),
+        conTexto: /(^|\s)(Editar|Borrar|Publicar|Marcar vendido|Destacar en portada)(\s|$)/.test(document.querySelector("#productos-rejilla")?.innerText ?? ""),
+        botonTexto: /\+ Nuevo producto/.test(document.body.innerText),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        pantalla: window.innerWidth,
+      };
+    });
+    const [a, b, c] = m.fichas;
+    ok(m.buscadorArriba, "NO: en Productos, el buscador también está arriba de los contadores");
+    ok(!!a && !!b && !!c && a.y === b.y && b.x > a.x && c.y > a.y && a.w < m.pantalla / 2, `NO: los productos van uno al lado de otro, 2 por fila en el móvil (${JSON.stringify(m.fichas)})`);
+    ok(!!m.mas && m.mas.derecha <= 24 && m.mas.abajo <= 40 && !m.botonTexto, `NO: «Nuevo producto» es el «+» flotante abajo a la derecha (${JSON.stringify(m.mas)})`);
+    ok(m.iconos.every((h) => h >= 44) && !m.conTexto, `NO: editar, publicar, destacar, vendido y borrar son iconos de 44 px con su nombre (${m.iconos.join(", ")})`);
+    ok(m.ancho <= m.pantalla + 1, `NO: Productos no se ensancha (${m.ancho}/${m.pantalla})`);
+    await capturar(p, "NO6-productos-rejilla");
+    await p.locator('[aria-label="Destacar Mando DualSense 1 en portada"]').click();
+    for (let i = 0; i < 20 && !(estadoP.productosCambiados ?? []).length; i++) await p.waitForTimeout(250);
+    const cambio = (estadoP.productosCambiados ?? [])[0];
+    ok(cambio?.id === "p0000000-0000-4000-8000-000000000001" && cambio?.cuerpo?.is_featured_home === true, `NO: la estrella destaca el producto en portada (${JSON.stringify(cambio)})`);
+    await p.locator('[aria-label="Editar Mando DualSense 1"]').click();
+    await p.getByText("Guardar cambios", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await p.getByText("Guardar cambios", { exact: true }).count()) >= 1, "NO: el lápiz abre su ficha para editarla");
+    ok(p.errores.length === 0, `NO: Productos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // NO7) El resto del panel: Editar y Borrar también son iconos (con su nombre) en Blog, Políticas y «Lo que Blue sabe».
+  {
+    const fecha = "2026-10-30T10:00:00Z";
+    const estado7 = {
+      filas: perfil(ADMIN.id),
+      guardados: [],
+      // Las políticas ya tienen su propia simulación (estado.politicas).
+      politicas: [{ id: "pp1", slug: "envios", title: "Envíos", intro: "Cómo enviamos.", sections: [], is_active: true, sort_order: 0, created_at: fecha, updated_at: fecha }],
+      tablas: {
+        blog_posts: [{ id: "b1", slug: "cuidar-consola", title: "Cómo cuidar tu consola", excerpt: "Consejos.", body: "Texto.", status: "PUBLISHED", sort_order: 0, created_at: fecha, updated_at: fecha }],
+        blue_conocimiento: [{ id: "k1", tema: "Horario", respuesta: "De 10 a 20 h.", activo: true, created_at: fecha, updated_at: fecha }],
+      },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado7);
+    const pantallas = [
+      ["/admin/blog", ["Editar Cómo cuidar tu consola", "Borrar Cómo cuidar tu consola"]],
+      ["/admin/policies", ["Editar Envíos", "Borrar Envíos"]],
+      ["/admin/conocimiento", ["Editar «Horario»", "Borrar «Horario»"]],
+    ];
+    const resultado = [];
+    for (const [ruta, etiquetas] of pantallas) {
+      const p = await pagina(ctx, ruta);
+      await p.locator(`[aria-label="${etiquetas[0]}"]`).first().waitFor({ timeout: 30000 }).catch(() => {});
+      const altos = await p.evaluate((ls) => ls.map((l) => Math.round(document.querySelector(`[aria-label="${l}"]`)?.getBoundingClientRect().height ?? 0)), etiquetas);
+      const conTexto = await p.evaluate(() => Array.from(document.querySelectorAll('[role="button"]')).some((b) => /^(Editar|Borrar)$/.test(b.textContent.trim())));
+      resultado.push({ ruta, altos, conTexto, errores: p.errores.length });
+      await p.close();
+    }
+    ok(resultado.every((x) => x.altos.every((h) => h >= 44) && !x.conTexto && !x.errores), `NO: en Blog, Políticas y «Lo que Blue sabe», Editar y Borrar son iconos de 44 px con su nombre (${JSON.stringify(resultado)})`);
     await ctx.close();
   }
 }
@@ -2408,6 +2737,7 @@ try {
   if (SOLO === "Z") await seccionZ();
   if (SOLO === "RE") await seccionRE();
   if (SOLO === "EN") await seccionEN();
+  if (SOLO === "NO") await seccionNO();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -3335,6 +3665,7 @@ try {
   await seccionZ();
   await seccionRE();
   await seccionEN();
+  await seccionNO();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

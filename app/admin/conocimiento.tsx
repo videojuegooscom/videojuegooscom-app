@@ -36,6 +36,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { IconButton } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
 
@@ -274,8 +275,9 @@ export default function AdminConocimiento() {
                       <Switch value={row.activo} onValueChange={() => alternar(row)} />
                       <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13 }}>{row.activo ? "Blue lo usa" : "Oculto"}</Text>
                     </View>
-                    {boton("Editar", () => abrir(row.tema, row.respuesta, null, true))}
-                    {boton("Borrar", () => setBorrar(row))}
+                    {/* Acciones con iconos (su nombre, para el lector de pantalla y al pasar el ratón). */}
+                    <IconButton icon="create-outline" label={`Editar «${row.tema}»`} variant="primary" onPress={() => abrir(row.tema, row.respuesta, null, true)} />
+                    <IconButton icon="trash-outline" label={`Borrar «${row.tema}»`} variant="danger" onPress={() => setBorrar(row)} />
                   </View>
                 </View>
               ))

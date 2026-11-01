@@ -72,6 +72,7 @@ import {
   AdminHeader,
   AdminNotice,
   EmptyState,
+  IconButton,
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
@@ -1012,24 +1013,8 @@ export default function AdminServices() {
                         </Text>
                       </View>
 
-                      <Pressable
-                        onPress={() => openEdit(s)}
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.85 : 1,
-                          padding: 8,
-                        })}
-                      >
-                        <Ionicons name="create-outline" size={20} color={COLORS.accent} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setDeleteTarget(s)}
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.85 : 1,
-                          padding: 8,
-                        })}
-                      >
-                        <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
-                      </Pressable>
+                      <IconButton icon="create-outline" label={`Editar ${s.title || "el servicio"}`} variant="primary" onPress={() => openEdit(s)} />
+                      <IconButton icon="trash-outline" label={`Borrar ${s.title || "el servicio"}`} variant="danger" onPress={() => setDeleteTarget(s)} />
                     </View>
                   );
                 })}
@@ -1201,12 +1186,7 @@ export default function AdminServices() {
                               isMobile={isMobile}
                             />
                           ))}
-                        <ChipButton
-                          label="Borrar"
-                          variant="danger"
-                          onPress={() => setDeleteRequestTarget(r)}
-                          isMobile={isMobile}
-                        />
+                        <IconButton icon="trash-outline" label="Borrar la solicitud" variant="danger" onPress={() => setDeleteRequestTarget(r)} />
                       </View>
                     </View>
                   );
