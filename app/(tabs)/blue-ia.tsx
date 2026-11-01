@@ -49,7 +49,8 @@
  *   tocar una pregunta frecuente trae a la persona directamente a esta
  *   pantalla con esa pregunta ya enviada — se detecta con el parámetro de
  *   navegación "q" (useLocalSearchParams) y se manda automáticamente una
- *   sola vez al entrar.
+ *   sola vez al entrar. Lo mismo hace «Blue, ayúdame a elegir un artículo»
+ *   de la Cesta (app/(tabs)/cesta.tsx).
  * - BLUE_IA_API_URL es relativa ("/api/blue-ia") en web, porque ahí Vercel
  *   sirve la función serverless en el mismo dominio que la app. Esto solo
  *   funciona una vez desplegado en Vercel (no en `expo start --web` local,
@@ -458,7 +459,9 @@ export default function BlueIAScreen() {
   const showScrollToBottomRef = useRef(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
-  const autoAskedRef = useRef(false);
+  // Última pregunta llegada por la URL (?q=) que ya se mandó. La pestaña se queda montada: antes, tras la primera, ninguna
+  // otra se mandaba (p. ej. «Blue, ayúdame a elegir un artículo» desde la Cesta después de una pregunta frecuente).
+  const autoAskedRef = useRef("");
 
   // Copia siempre al día de messages, para poder mandar el historial real a
   // la API sin que handleAsk quede "atado" al estado del momento en que se
@@ -937,8 +940,8 @@ export default function BlueIAScreen() {
   // por un toque en esta misma pantalla.
   useEffect(() => {
     const incoming = typeof params.q === "string" ? params.q.trim() : "";
-    if (!incoming || autoAskedRef.current) return;
-    autoAskedRef.current = true;
+    if (!incoming || autoAskedRef.current === incoming) return;
+    autoAskedRef.current = incoming;
     handleAsk(incoming);
     // Solo debe dispararse al entrar con el parámetro, no cada vez que
     // cambie handleAsk (que se recrea con cada tecla escrita en el cuadro).

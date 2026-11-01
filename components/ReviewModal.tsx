@@ -28,12 +28,24 @@
  * - Tras publicar, avisa al padre (onPublished) con la fila ya guardada
  *   (con su fecha real) para que Resenas.tsx la añada arriba de la lista al
  *   momento, sin tener que volver a pedir todas las reseñas a Supabase.
+ * - Ideas para no quedarse en blanco (SUGERENCIAS_RESENA, 10): cada una es un
+ *   botón corto («Atención de 10») que añade al comentario una frase completa;
+ *   tocarla otra vez la quita. Las que ya no caben (600 caracteres) se apagan.
+ * - El recuadro del comentario crece con lo escrito (sin barra de desplazamiento
+ *   dentro) hasta los 600 caracteres: en la web se mide su contenido después de
+ *   cada cambio (y también encoge al borrar).
+ * - Emojis: según lo escrito (palabras clave, en el propio móvil: nada se manda
+ *   a ninguna IA) se proponen hasta 4 emojis relacionados (rápido → 🚀, trato →
+ *   🤝, reparación → 🔧…); tocar uno lo añade al final.
+ * - Al publicar se apunta en la analítica propia («resena_publicada») cuántas
+ *   estrellas, qué ideas se usaron y cuántos emojis propuestos se quedaron;
+ *   Administración → Usuarios lo cuenta (30 días).
  *
  * Conectado con:
  * - lib/supabase.ts → sesión actual + INSERT en "store_reviews".
  * - components/Resenas.tsx → abre este modal y recibe la reseña publicada.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
 import {
@@ -49,6 +61,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { trackEvent } from "../lib/analytics";
 
 const COLORS = {
   bg2: "#F4F9FD",
@@ -74,6 +87,54 @@ const COLORS = {
 };
 
 const COMMENT_MAX = 600;
+// Alto del recuadro del comentario vacío (cabe el texto de ejemplo entero); con más texto crece, sin barra de
+// desplazamiento dentro.
+const ALTO_MIN_COMENTARIO = 112;
+
+// Ideas para la reseña: el botón dice lo corto y al tocarlo se añade la frase. Solo cosas que la tienda hace de verdad
+// (envíos, entrega en mano, reparaciones). Administración → Usuarios cuenta cuáles se usan (por su id).
+export const SUGERENCIAS_RESENA = [
+  { id: "atencion", etiqueta: "Atención de 10", texto: "La atención fue de 10: amables y rápidos en responder." },
+  { id: "descripcion", etiqueta: "Como se describía", texto: "El producto llegó tal y como se describía." },
+  { id: "envio", etiqueta: "Envío rápido", texto: "El envío fue rapidísimo y llegó muy bien embalado." },
+  { id: "entrega", etiqueta: "Entrega puntual", texto: "La entrega en mano fue puntual y sin complicaciones." },
+  { id: "precio", etiqueta: "Buen precio", texto: "Muy buena relación calidad-precio." },
+  { id: "funciona", etiqueta: "Funciona perfecto", texto: "Todo funciona perfecto, como nuevo." },
+  { id: "dudas", etiqueta: "Dudas resueltas", texto: "Me resolvieron todas las dudas antes de comprar." },
+  { id: "reparacion", etiqueta: "Gran reparación", texto: "La reparación quedó perfecta y me lo explicaron todo." },
+  { id: "segura", etiqueta: "Compra segura", texto: "Compra fácil y con total confianza." },
+  { id: "repetire", etiqueta: "Repetiré", texto: "Sin duda repetiré y lo recomiendo." },
+] as const;
+
+// Emojis según lo escrito (palabras clave, sin tildes ni mayúsculas). Se proponen en el orden en que aparece cada tema.
+const EMOJIS_POR_TEMA: { patron: RegExp; emojis: string[] }[] = [
+  { patron: /encant|feliz|content|ilusion|me gusta|enamor/, emojis: ["😍", "🥰"] },
+  { patron: /rapid|veloz|enseguida|pronto|mismo dia|en nada/, emojis: ["🚀", "⚡"] },
+  { patron: /envio|paquete|embalad|llego|recibi|entrega|mensajer/, emojis: ["📦", "🚚"] },
+  { patron: /atencion|amable|trato|cercan|simpatic|majo|atent|ayud|duda/, emojis: ["🤝", "😊"] },
+  { patron: /precio|barat|economic|oferta|ahorr/, emojis: ["💰", "👌"] },
+  { patron: /perfect|impecable|como nuev|calidad|excelente|genial|brutal|increible/, emojis: ["✨", "💯"] },
+  { patron: /consola|juego|mando|ps5|ps4|playstation|xbox|switch|nintendo|gaming/, emojis: ["🎮", "🕹️"] },
+  { patron: /repar|arregl|limpi|taller|mantenimiento/, emojis: ["🔧", "🛠️"] },
+  { patron: /recomiend|repetir|repetire|volvere|sin duda/, emojis: ["👍", "🙌"] },
+  { patron: /gracias|agradec/, emojis: ["🙏", "❤️"] },
+  { patron: /segur|confian|fiable|tranquil/, emojis: ["✅", "🔒"] },
+  { patron: /\bmal\b|lento|tarde|roto|decepcion|problema/, emojis: ["😕"] },
+];
+const MAX_EMOJIS = 4;
+
+/** Hasta 4 emojis relacionados con lo escrito (sin los que ya lleva); sin tema reconocible, según las estrellas. */
+export function emojisParaResena(comentario: string, estrellas: number): string[] {
+  const texto = comentario.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (texto.trim().length < 3) return [];
+  const temas = EMOJIS_POR_TEMA.map((t) => ({ ...t, donde: texto.search(t.patron) }))
+    .filter((t) => t.donde >= 0)
+    .sort((a, b) => a.donde - b.donde);
+  // Primero el emoji principal de cada tema (en el orden en que se ha escrito) y luego los segundos.
+  const lista = [...temas.map((t) => t.emojis[0]), ...temas.flatMap((t) => t.emojis.slice(1))];
+  if (!lista.length) lista.push(...(estrellas >= 4 ? ["⭐", "😊", "👍"] : estrellas === 3 ? ["🙂"] : ["😕"]));
+  return Array.from(new Set(lista)).filter((e) => !comentario.includes(e)).slice(0, MAX_EMOJIS);
+}
 
 export type PublishedReview = {
   id: string;
@@ -230,6 +291,41 @@ export default function ReviewModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string | null>(null);
+  // El recuadro del comentario crece con lo escrito (ver el efecto de abajo).
+  const campoRef = useRef<TextInput>(null);
+  const [altoCampo, setAltoCampo] = useState(ALTO_MIN_COMENTARIO);
+  // Emojis propuestos que se han añadido (para contar al publicar los que se quedan).
+  const [emojisAnadidos, setEmojisAnadidos] = useState<string[]>([]);
+  const emojis = useMemo(() => emojisParaResena(comment, rating), [comment, rating]);
+
+  // Web: después de cada cambio se mide lo que ocupa el texto (con el alto a 0 un momento, para que también encoja al
+  // borrar) y el recuadro toma ese alto: nunca hay que desplazarse dentro de él.
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || phase !== "form") return;
+    const el = campoRef.current as unknown as HTMLTextAreaElement | null;
+    if (!el?.style || typeof el.scrollHeight !== "number") return;
+    const antes = el.style.height;
+    el.style.height = "0px";
+    const alto = Math.max(ALTO_MIN_COMENTARIO, Math.ceil(el.scrollHeight) + 2);
+    el.style.height = antes;
+    setAltoCampo((a) => (a === alto ? a : alto));
+  }, [comment, phase]);
+
+  // Añade (o quita, si ya está) la frase de una idea; si no cabe, no hace nada (el botón sale apagado).
+  function alternarSugerencia(texto: string) {
+    setComment((c) => {
+      if (c.includes(texto)) return c.replace(texto, "").replace(/ {2,}/g, " ").trim();
+      const nuevo = c.trim() ? `${c.trim()} ${texto}` : texto;
+      return nuevo.length > COMMENT_MAX ? c : nuevo;
+    });
+  }
+
+  function anadirEmoji(emoji: string) {
+    const nuevo = `${comment.trimEnd()} ${emoji}`;
+    if (nuevo.length > COMMENT_MAX) return;
+    setComment(nuevo);
+    setEmojisAnadidos((l) => [...l, emoji]);
+  }
 
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -254,6 +350,8 @@ export default function ReviewModal({
     setPhase("checking");
     setRating(5);
     setComment("");
+    setEmojisAnadidos([]);
+    setAltoCampo(ALTO_MIN_COMENTARIO);
     setErrorMsg(null);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -291,6 +389,15 @@ export default function ReviewModal({
 
       if (error) throw error;
 
+      // Analítica propia (Administración → Usuarios): estrellas, ideas usadas y emojis propuestos que se quedaron.
+      const final = comment.trim();
+      void trackEvent("resena_publicada", "Reseña publicada", {
+        metadata: {
+          estrellas: rating,
+          sugerencias: SUGERENCIAS_RESENA.filter((s) => final.includes(s.texto)).map((s) => s.id),
+          emojis: Array.from(new Set(emojisAnadidos)).filter((e) => final.includes(e)).length,
+        },
+      });
       onPublished(data as PublishedReview);
       setPhase("success");
     } catch (e: any) {
@@ -501,16 +608,62 @@ export default function ReviewModal({
                     {rating} de 5 estrellas
                   </Text>
 
+                  {/* Ideas para no quedarse en blanco: cada botón añade su frase (y la quita si ya está). */}
+                  <View nativeID="resena-sugerencias" style={{ gap: 8 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>
+                      ¿No sabes qué poner? Toca una idea
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                      {SUGERENCIAS_RESENA.map((s) => {
+                        const puesta = comment.includes(s.texto);
+                        const cabe = puesta || (comment.trim() ? comment.trim().length + 1 : 0) + s.texto.length <= COMMENT_MAX;
+                        return (
+                          <Pressable
+                            key={s.id}
+                            onPress={() => alternarSugerencia(s.texto)}
+                            disabled={!cabe}
+                            accessibilityRole="button"
+                            accessibilityLabel={puesta ? `Quitar: ${s.texto}` : `Añadir: ${s.texto}`}
+                            {...({ "aria-pressed": puesta } as object)}
+                            style={({ pressed }) => ({
+                              minHeight: 44,
+                              paddingHorizontal: 12,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: puesta ? COLORS.accent : COLORS.accentBorder,
+                              backgroundColor: puesta ? COLORS.accent2 : "#FFFFFF",
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 5,
+                              opacity: !cabe ? 0.45 : pressed ? 0.85 : 1,
+                            })}
+                          >
+                            <Ionicons name={puesta ? "checkmark" : "add"} size={16} color={COLORS.accent} />
+                            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5 }}>{s.etiqueta}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
                   <View style={{ gap: 6 }}>
                     <TextInput
+                      ref={campoRef}
+                      nativeID="resena-comentario"
                       value={comment}
                       onChangeText={(t) => setComment(t.slice(0, COMMENT_MAX))}
+                      // En el móvil nativo el alto llega por aquí; en la web lo mide el efecto de arriba.
+                      onContentSizeChange={(e) => {
+                        if (Platform.OS === "web") return;
+                        setAltoCampo(Math.max(ALTO_MIN_COMENTARIO, Math.ceil(e.nativeEvent.contentSize.height) + 26));
+                      }}
                       placeholder="Cuéntanos tu experiencia: la atención recibida, el estado del producto, los plazos de envío… (opcional)"
                       placeholderTextColor="rgba(11,33,56,0.40)"
                       multiline
                       numberOfLines={4}
                       style={{
-                        minHeight: 96,
+                        minHeight: ALTO_MIN_COMENTARIO,
+                        height: altoCampo,
                         borderWidth: 1,
                         borderColor: COLORS.border,
                         borderRadius: 14,
@@ -527,6 +680,35 @@ export default function ReviewModal({
                       {remaining} caracteres restantes
                     </Text>
                   </View>
+
+                  {/* Emojis relacionados con lo escrito: tocar uno lo añade al final. */}
+                  {emojis.length ? (
+                    <View nativeID="resena-emojis" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5 }}>Añade un emoji:</Text>
+                      {emojis.map((e) => (
+                        <Pressable
+                          key={e}
+                          onPress={() => anadirEmoji(e)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Añadir el emoji ${e}`}
+                          style={({ pressed }) => ({
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            borderWidth: 1,
+                            borderColor: COLORS.accentBorder,
+                            backgroundColor: "#FFFFFF",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            opacity: pressed ? 0.8 : 1,
+                            transform: [{ scale: pressed ? 0.92 : 1 }],
+                          })}
+                        >
+                          <Text style={{ fontSize: 22 }}>{e}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
 
                   {errorMsg ? (
                     <View
