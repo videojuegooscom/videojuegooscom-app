@@ -93,6 +93,11 @@
  *   · Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h (updated_at de pedidos y
  *     service_requests) → «N pedidos y M reparaciones llevan más de 48 h sin cambios» con «Revisar» (Pedidos o
  *     Servicios); Blue lo dice además una vez al día dentro de Administración (OLVIDADOS_DICHO_KEY).
+ * - Dentro del Panel de control (/admin, solo el dueño) Blue solo habla de lo del panel (petición del dueño,
+ *   2026-11-01): sus mensajes son los del panel (olvidados, propuestas de «Lo que Blue sabe»); el número rojo y la
+ *   pestaña «Avisos del panel» solo cuentan y enseñan los clientes que han escrito, las ventas de VeoAura sin confirmar
+ *   y los olvidados (avisosPanel), sin los avisos de la tienda, las noticias ni «Mis avisos»; y el Asistente ofrece
+ *   «Ir al Panel de control», «Lo que Blue sabe» y «Volver a la tienda» (sin guías, «Vender» ni instalar).
  *
  * Rendimiento: el sondeo (45 s) de mensajes sin leer y de noticias nuevas se pausa
  * con la pestaña en segundo plano (web). El recuento de noticias es head (sin
@@ -1588,18 +1593,22 @@ export default function Campanita() {
   // Reservas en marcha (salen como aviso) y, de ellas, las que vencen en 5 minutos o menos (suman al número rojo).
   const reservasActivas = React.useMemo(() => reservas.filter((r) => r.hasta > reloj), [reservas, reloj]);
   const reservasPorVencer = React.useMemo(() => reservasActivas.filter((r) => r.hasta - reloj <= RESERVA_AVISO_MS), [reservasActivas, reloj]);
-  const totalCount =
-    unreadChats +
-    likedUnavailable.length +
-    (novedadesPending ? 1 : 0) +
-    noticiasNuevas +
-    (novedadesTienda > 0 ? 1 : 0) +
-    llegadas.length +
-    bajadas.length +
-    reservasPorVencer.length +
-    segAvisos.length +
-    (isAdmin && salidaPendiente > 0 ? 1 : 0) +
-    (isAdmin && olvidados.pedidos + olvidados.reparaciones > 0 ? 1 : 0);
+  // Lo del Panel de control: clientes que han escrito, ventas de VeoAura sin confirmar y pedidos o reparaciones olvidados.
+  const avisosPanel =
+    unreadChats + (isAdmin && salidaPendiente > 0 ? 1 : 0) + (isAdmin && olvidados.pedidos + olvidados.reparaciones > 0 ? 1 : 0);
+  // Dentro del panel (petición del dueño, 2026-11-01), Blue solo habla de lo del panel: el número rojo y su ventana no
+  // cuentan ni enseñan los avisos de la tienda (Foro, noticias, artículos nuevos, favoritos, reservas…).
+  const totalCount = enAdmin
+    ? avisosPanel
+    : avisosPanel +
+      likedUnavailable.length +
+      (novedadesPending ? 1 : 0) +
+      noticiasNuevas +
+      (novedadesTienda > 0 ? 1 : 0) +
+      llegadas.length +
+      bajadas.length +
+      reservasPorVencer.length +
+      segAvisos.length;
   const badgeLabel = totalCount > 9 ? "9+" : String(totalCount);
 
   // --- bocadillos según la pantalla --------------------------------------------
@@ -2511,7 +2520,8 @@ export default function Campanita() {
               {(
                 [
                   { key: "blue", label: "Asistente", icono: "sparkles-outline", n: 0 },
-                  { key: "avisos", label: "Noticias y avisos", icono: "notifications-outline", n: totalCount },
+                  // En el panel, solo los avisos del panel (ver totalCount).
+                  { key: "avisos", label: enAdmin ? "Avisos del panel" : "Noticias y avisos", icono: "notifications-outline", n: totalCount },
                 ] as const
               ).map((p) => {
                 const activa = pestana === p.key;
@@ -2557,7 +2567,21 @@ export default function Campanita() {
             </View>
 
             <ScrollView contentContainerStyle={{ gap: 14, alignItems: "center", paddingBottom: 4 }} showsVerticalScrollIndicator={false}>
-              {pestana === "blue" ? (
+              {/* Dentro del Panel de control, el Asistente solo ofrece lo del panel (sin guías, «Vender» ni instalar). */}
+              {pestana === "blue" && enAdmin ? (
+                <>
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                    Estás en el Panel de control: aquí solo te aviso de lo del panel.
+                  </Text>
+                  <View style={{ width: "100%", gap: 10, maxWidth: 380 }}>
+                    <BotonPanel icono="grid-outline" texto="Ir al Panel de control" principal onPress={() => ir("/admin")} />
+                    <BotonPanel icono="bulb-outline" texto="Lo que Blue sabe" onPress={() => ir("/admin/conocimiento")} />
+                    <BotonPanel icono="storefront-outline" texto="Volver a la tienda" onPress={() => ir("/")} />
+                  </View>
+                </>
+              ) : null}
+
+              {pestana === "blue" && !enAdmin ? (
               <>
               <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
                 Tu asistente de VideojuegosZaragoza.com. ¿En qué te ayudo?
@@ -2624,8 +2648,50 @@ export default function Campanita() {
               </>
               ) : null}
 
+              {/* Dentro del Panel de control: solo los avisos del panel (los mismos tres que en la tienda ve el dueño, sin
+                  los de la tienda ni las noticias ni «Mis avisos»). */}
+              {pestana === "avisos" && enAdmin ? (
+                <View nativeID="blue-avisos-panel" style={{ width: "100%", maxWidth: 460, gap: 2 }}>
+                  <TituloSeccionBlue texto="Avisos del panel" />
+                  {avisosPanel === 0 ? (
+                    <FilaBlue icono="checkmark-circle-outline" titulo="Estás al día: no hay avisos del panel." />
+                  ) : (
+                    <>
+                      {unreadChats > 0 ? (
+                        <Aviso
+                          icono="chatbubbles-outline"
+                          titulo={unreadChats === 1 ? "Un cliente te ha escrito" : `${unreadChats} clientes te han escrito`}
+                          accion="Ver mensajes"
+                          onPress={() => ir("/admin/chats")}
+                        />
+                      ) : null}
+                      {salidaPendiente > 0 ? (
+                        <Aviso
+                          icono="alert-circle-outline"
+                          titulo={
+                            salidaPendiente === 1
+                              ? "Una venta de un artículo de VeoAura aún no se ha confirmado a VeoAura"
+                              : `${salidaPendiente} ventas de artículos de VeoAura aún no se han confirmado a VeoAura`
+                          }
+                          accion="Ver escaparate"
+                          onPress={() => ir("/admin/escaparate")}
+                        />
+                      ) : null}
+                      {olvidados.pedidos + olvidados.reparaciones > 0 ? (
+                        <Aviso
+                          icono="hourglass-outline"
+                          titulo={`${textoOlvidados(olvidados)} ${olvidados.pedidos + olvidados.reparaciones === 1 ? "lleva" : "llevan"} más de 48 h sin cambios`}
+                          accion="Revisar"
+                          onPress={() => ir(olvidados.pedidos > 0 ? "/admin/pedidos" : "/admin/services")}
+                        />
+                      ) : null}
+                    </>
+                  )}
+                </View>
+              ) : null}
+
               {/* «Noticias y avisos»: lo que ha pasado (avisos y noticias) y los ajustes de avisos, en una sola pestaña. */}
-              {pestana === "avisos" ? (
+              {pestana === "avisos" && !enAdmin ? (
               <View style={{ width: "100%", maxWidth: 460, gap: 2 }}>
                 <TituloSeccionBlue texto="Avisos" />
                 {totalCount === 0 && reservasActivas.length === 0 ? (
@@ -2712,7 +2778,7 @@ export default function Campanita() {
                     {isAdmin && olvidados.pedidos + olvidados.reparaciones > 0 ? (
                       <Aviso
                         icono="hourglass-outline"
-                        titulo={`${textoOlvidados(olvidados)} llevan más de 48 h sin cambios`}
+                        titulo={`${textoOlvidados(olvidados)} ${olvidados.pedidos + olvidados.reparaciones === 1 ? "lleva" : "llevan"} más de 48 h sin cambios`}
                         accion="Revisar"
                         onPress={() => ir(olvidados.pedidos > 0 ? "/admin/pedidos" : "/admin/services")}
                       />

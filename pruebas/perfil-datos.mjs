@@ -206,6 +206,10 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.borrados = [...(estado.borrados ?? []), id];
       return json(estado.borrarSinPermiso ? [] : [{ id }]);
     }
+    // Blue del administrador: ventas de VeoAura sin confirmar (sección V), contadas sin descargar filas.
+    if (metodo === "HEAD" && url.pathname.endsWith("/rest/v1/escaparate_salida")) {
+      return json([], 200, { "content-range": `*/${estado.salida ?? 0}`, "access-control-expose-headers": "*" });
+    }
     // Blue del administrador: pedidos y reparaciones olvidados (48 h sin cambios), contados sin descargar filas.
     if (metodo === "HEAD" && estado.olvidados && /\/rest\/v1\/(pedidos|service_requests)$/.test(url.pathname)) {
       const n = url.pathname.endsWith("/pedidos") ? estado.olvidados.pedidos : estado.olvidados.reparaciones;
@@ -1365,6 +1369,70 @@ async function seccionT() {
   }
 }
 
+// ===== V) Blue dentro del Panel de control: solo lo del panel ======================================================
+async function seccionV() {
+  const estado = {
+    filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    // Lo del panel: 2 clientes han escrito, 1 venta de VeoAura sin confirmar y 1 pedido olvidado (48 h sin cambios).
+    novedades: { chatsSinLeer: 2 },
+    salida: 1,
+    olvidados: { pedidos: 1, reparaciones: 0 },
+    chats: [],
+  };
+  const ctx = await contexto(navegador, ADMIN, "admin", estado);
+  const limpio = (t) => t.replace(/[^A-Za-zÁÉÍÓÚáéíóúñÑ0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const abrirBlue = async (p) => {
+    await p.waitForSelector("#blue-flotante", { timeout: 25000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click();
+    await p.waitForTimeout(1200);
+    return (await p.getByRole("tab").allInnerTexts()).map(limpio).filter((t) => /^(Asistente|Avisos del panel|Noticias y avisos)/.test(t));
+  };
+  const textoVentana = (p) => p.evaluate(() => document.body.innerText.replace(/\n/g, " "));
+
+  // En la tienda (control): el dueño ve en Blue los avisos de la tienda, como siempre.
+  {
+    const p = await pagina(ctx, "/");
+    const pestanas = await abrirBlue(p);
+    await p.getByRole("tab", { name: /Noticias y avisos/ }).first().click().catch(() => {});
+    await p.waitForTimeout(600);
+    const t = await textoVentana(p);
+    ok(pestanas.some((x) => x.startsWith("Noticias y avisos")) && /Hay novedades en el Foro/.test(t) && /MIS AVISOS/i.test(t), `V: en la tienda, Blue enseña sus avisos de siempre (Foro, Mis avisos…) (${pestanas.join(" · ")})`);
+    await p.close();
+  }
+
+  // En el Panel de control: el número rojo y la ventana solo con lo del panel.
+  {
+    const p = await pagina(ctx, "/admin");
+    await p.waitForSelector("#blue-flotante", { timeout: 25000 }).catch(() => {});
+    await p.waitForTimeout(3000);
+    const numero = await p.evaluate(() => (document.getElementById("blue-flotante")?.innerText ?? "").replace(/\D/g, ""));
+    ok(numero === "4", `V: en el panel, el número rojo de Blue solo cuenta lo del panel (2 clientes + 1 venta de VeoAura + 1 olvidado = 4: ${numero || "sin número"})`);
+    const pestanas = await abrirBlue(p);
+    ok(pestanas.includes("Asistente") && pestanas.some((x) => /^Avisos del panel4$/.test(x)) && !pestanas.some((x) => x.startsWith("Noticias y avisos")), `V: sus pestañas son «Asistente» y «Avisos del panel» (con 4) (${pestanas.join(" · ")})`);
+    await p.getByRole("tab", { name: /Avisos del panel/ }).first().click().catch(() => {});
+    await p.waitForTimeout(600);
+    const avisos = await p.locator("#blue-avisos-panel").innerText().catch(() => "");
+    ok(/2 clientes te han escrito/.test(avisos) && /VeoAura aún no se ha confirmado/.test(avisos) && /1 pedido lleva más de 48 h sin cambios/.test(avisos),`V: «Avisos del panel» enseña los clientes que han escrito, la venta de VeoAura y el pedido olvidado (${avisos.replace(/\n/g, " | ")})`);
+    const t = await textoVentana(p);
+    ok(!/Hay novedades en el Foro/.test(t) && !/MIS AVISOS/i.test(t) && !/Avísame cuando llegue/.test(t) && !/NOTICIAS/.test(t), "V: y ninguno de la tienda (ni el Foro, ni las noticias, ni «Mis avisos»)");
+    await p.getByRole("tab", { name: /Asistente/ }).first().click().catch(() => {});
+    await p.waitForTimeout(600);
+    const asistente = await textoVentana(p);
+    ok(/Ir al Panel de control/.test(asistente) && /Lo que Blue sabe/.test(asistente) && /Volver a la tienda/.test(asistente), "V: el Asistente ofrece ir al panel, «Lo que Blue sabe» y volver a la tienda");
+    ok(!/Ver la guía de la tienda/.test(asistente) && !/Vender mi consola/.test(asistente) && !/GUÍAS RÁPIDAS/i.test(asistente), "V: sin las guías de la tienda ni «Vender»");
+    await capturar(p, "V1-blue-en-el-panel");
+    // (el de la ventana de Blue, que va encima del recuadro del panel con el mismo nombre)
+    await p.getByText("Lo que Blue sabe", { exact: true }).last().click();
+    await p.waitForURL(/\/admin\/conocimiento/, { timeout: 15000 }).catch(() => {});
+    ok(/\/admin\/conocimiento/.test(p.url()), `V: «Lo que Blue sabe» lleva a su sección (${new URL(p.url()).pathname})`);
+    ok(p.errores.length === 0, `V: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await p.close();
+  }
+  await ctx.close();
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -1512,6 +1580,7 @@ try {
   if (SOLO === "R") await seccionR();
   if (SOLO === "S") await seccionS();
   if (SOLO === "T") await seccionT();
+  if (SOLO === "V") await seccionV();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2432,6 +2501,7 @@ try {
   await seccionR();
   await seccionS();
   await seccionT();
+  await seccionV();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
