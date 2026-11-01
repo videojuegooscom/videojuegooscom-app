@@ -13,9 +13,17 @@
  *   almacenamiento product-media, carpeta categorias/. Se guardan en
  *   "imagenes" (y la primera también en "image_url") y en la tienda se pasan
  *   solas en carrusel (components/PortadasCategoria.tsx).
+ * - Encuadre para Inicio: al subir una foto se abre «Encuadra la portada»
+ *   (RecortarFoto, components/PerfilPublico.tsx) con la forma exacta del
+ *   recuadro de Inicio en el móvil, el nombre encima y la foto al % elegido;
+ *   al aceptar se suben la foto entera (para la cabecera de dentro de la
+ *   categoría) y el encuadre (columna "portadas_inicio", mismo orden que
+ *   "imagenes"). «Encuadrar» en cada miniatura lo cambia. Sin esa columna
+ *   (migración 20261101170000 pendiente) se sube como antes y se avisa.
  * - «Cómo se ve en Inicio»: con portada, una vista previa del recuadro de
- *   Inicio (la foto llenándolo y el nombre encima) y una barra con «−» y «+»
- *   para que la foto se vea más suave o más fuerte (10-100 %, columna
+ *   Inicio (el encuadre llenándolo y el nombre encima, sin «Ver categoría»)
+ *   y una barra con «−» y «+» (de 10 en 10; la barra de 5 en 5) para que la
+ *   foto se vea más suave o más fuerte (10-100 %, columna
  *   "portada_opacidad"; sin valor, 55 %). Al guardar, Inicio se entera al
  *   momento (olvidarPortadasCategorias avisa a las pantallas abiertas).
  * - Lee con select("*"): si "imagenes", "image_url" o "portada_opacidad"
@@ -72,15 +80,20 @@ import SmartImage from "../../components/SmartImage";
 import PortadasCategoria, {
   CATEGORIA_SERVICIOS,
   MAX_PORTADAS,
+  NombreSobrePortada,
   OPACIDAD_PORTADA_DEFECTO,
   OPACIDAD_PORTADA_MIN,
+  PROPORCION_RECUADRO_INICIO,
   PortadaConNombre,
+  SALIDA_ENCUADRE,
+  encuadresDe,
   esCategoriaServicios,
   faltaColumnaPortadas,
   olvidarPortadasCategorias,
   opacidadDe,
   portadasDe,
 } from "../../components/PortadasCategoria";
+import { RecortarFoto } from "../../components/PerfilPublico";
 import {
   AdminHeader,
   AdminLoading,
@@ -91,6 +104,9 @@ import {
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/products.utils";
 import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
+
+// «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).
+const PASO_BOTON_OPACIDAD = 10;
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -298,6 +314,12 @@ export default function AdminCategories() {
   const [sortOrder, setSortOrder] = useState("0");
   const [isActive, setIsActive] = useState(true);
   const [portadas, setPortadas] = useState<string[]>([]);
+  // El encuadre para el recuadro de Inicio de cada portada (mismo orden; "" = sin encuadrar, Inicio la recorta por el
+  // centro). Columna portadas_inicio (migración 20261101170000): sin ella no se ofrece encuadrar.
+  const [encuadres, setEncuadres] = useState<string[]>([]);
+  const [supportsEncuadre, setSupportsEncuadre] = useState(true);
+  // Ventana de encuadre abierta: una foto nueva (antes de subirla) o una portada ya subida (indice).
+  const [recorte, setRecorte] = useState<{ uri: string; remota: boolean; indice: number | null; archivo?: File } | null>(null);
   // Cuánto se ve la portada en el recuadro de Inicio (10-100 %): menos, más suave y el nombre se lee mejor.
   const [opacidad, setOpacidad] = useState(OPACIDAD_PORTADA_DEFECTO);
   const [subiendo, setSubiendo] = useState(false);
@@ -368,6 +390,7 @@ export default function AdminCategories() {
       setSupportsImagenes(!muestra || "imagenes" in muestra);
       setSupportsImageUrl(!muestra || "image_url" in muestra);
       setSupportsOpacidad(!muestra || "portada_opacidad" in muestra);
+      setSupportsEncuadre(!muestra || "portadas_inicio" in muestra);
       setItems(conRecuadroServicios(filas));
     } catch (e: any) {
       console.error("Error cargando categorías:", e);
@@ -389,6 +412,7 @@ export default function AdminCategories() {
     setSortOrder("0");
     setIsActive(true);
     setPortadas([]);
+    setEncuadres([]);
     setOpacidad(OPACIDAD_PORTADA_DEFECTO);
     setAvisoPortadas(null);
     setModalErr(null);
@@ -406,13 +430,28 @@ export default function AdminCategories() {
     setSortOrder(String(c.sort_order ?? 0));
     setIsActive(!!c.is_active);
     setPortadas(portadasDe(c));
+    setEncuadres(encuadresDe(c));
     setOpacidad(opacidadDe(c));
     setAvisoPortadas(null);
     setModalErr(null);
     setOpen(true);
   }
 
-  // Sube las fotos elegidas (reducidas) a product-media/categorias/ y las añade a la lista, hasta el máximo.
+  // Sube una foto a product-media/categorias/ (nombre único: se puede guardar en caché un año sin ver una versión vieja).
+  async function subirArchivo(archivo: File, prefijo = ""): Promise<string> {
+    const ruta = `categorias/${prefijo}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extensionDe(archivo.type)}`;
+    const { error } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .upload(ruta, archivo, { cacheControl: "31536000", upsert: false, contentType: archivo.type || undefined });
+    if (error) throw error;
+    const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(ruta);
+    if (!data?.publicUrl) throw new Error("sin dirección");
+    return data.publicUrl;
+  }
+
+  // Elige fotos de portada. Con el encuadre disponible, de una en una: primero se encuadra (ventana de recorte con la
+  // forma del recuadro de Inicio) y al aceptar se suben la foto entera (para dentro de la categoría) y el encuadre.
+  // Sin él (migración pendiente), se suben tal cual, varias a la vez, hasta el máximo.
   async function subirPortadas() {
     if (subiendo) return;
     const libres = maxPortadas - portadas.length;
@@ -427,14 +466,31 @@ export default function AdminCategories() {
       setModalErr(String(e?.message ?? "No se pudo abrir el selector de fotos."));
       return;
     }
+    const imagenesElegidas = elegidas.items.filter((it) => it.kind === "image");
+    const avisos: string[] = [];
+    if (elegidas.skipped.length) avisos.push(`No se han podido usar: ${elegidas.skipped.map((s) => s.name).join(", ")}.`);
+
+    if (supportsEncuadre) {
+      const primera = imagenesElegidas[0];
+      for (const it of elegidas.items) {
+        if (it !== primera) {
+          try {
+            URL.revokeObjectURL(it.previewUrl);
+          } catch {}
+        }
+      }
+      if (imagenesElegidas.length > 1) avisos.push("Las portadas se encuadran de una en una: se ha cogido la primera.");
+      if (avisos.length) setAvisoPortadas(avisos.join(" "));
+      if (primera) setRecorte({ uri: primera.previewUrl, remota: false, indice: null, archivo: primera.file });
+      return;
+    }
+
     for (const it of elegidas.items) {
       try {
         URL.revokeObjectURL(it.previewUrl);
       } catch {}
     }
-    const fotos = elegidas.items.filter((it) => it.kind === "image").slice(0, libres);
-    const avisos: string[] = [];
-    if (elegidas.skipped.length) avisos.push(`No se han podido usar: ${elegidas.skipped.map((s) => s.name).join(", ")}.`);
+    const fotos = imagenesElegidas.slice(0, libres);
     if (elegidas.items.length > libres) avisos.push(`Caben ${maxPortadas} portadas: se han añadido las ${libres === 1 ? "primera" : `${libres} primeras`}.`);
     if (!fotos.length) {
       if (avisos.length) setAvisoPortadas(avisos.join(" "));
@@ -444,38 +500,73 @@ export default function AdminCategories() {
     setSubiendo(true);
     const nuevas: string[] = [];
     try {
-      for (const it of fotos) {
-        const archivo = await reducirImagenWeb(it.file);
-        const ruta = `categorias/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extensionDe(archivo.type)}`;
-        // Nombre único por foto: se puede guardar en caché un año sin miedo a ver una versión vieja.
-        const { error } = await supabase.storage
-          .from(MEDIA_BUCKET)
-          .upload(ruta, archivo, { cacheControl: "31536000", upsert: false, contentType: archivo.type || undefined });
-        if (error) throw error;
-        const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(ruta);
-        if (data?.publicUrl) nuevas.push(data.publicUrl);
-      }
+      for (const it of fotos) nuevas.push(await subirArchivo(await reducirImagenWeb(it.file)));
     } catch (e: any) {
       console.error("Error subiendo portada:", e);
       avisos.push("Alguna foto no se ha podido subir. Inténtalo de nuevo.");
     } finally {
-      if (nuevas.length) setPortadas((prev) => [...prev, ...nuevas].slice(0, maxPortadas));
+      if (nuevas.length) {
+        setPortadas((prev) => [...prev, ...nuevas].slice(0, maxPortadas));
+        setEncuadres((prev) => [...prev, ...nuevas.map(() => "")].slice(0, maxPortadas));
+      }
       if (avisos.length) setAvisoPortadas(avisos.join(" "));
       setSubiendo(false);
     }
   }
 
+  // Encuadre aceptado: una foto nueva sube entera y con su encuadre; una portada ya subida solo cambia su encuadre.
+  async function usarEncuadre(archivoEncuadre: File) {
+    const r = recorte;
+    if (!r) return;
+    setRecorte(null);
+    if (!r.remota) {
+      try {
+        URL.revokeObjectURL(r.uri);
+      } catch {}
+    }
+    setSubiendo(true);
+    try {
+      const encuadre = await subirArchivo(archivoEncuadre, "inicio-");
+      if (r.indice == null) {
+        if (!r.archivo) throw new Error("sin foto");
+        const entera = await subirArchivo(await reducirImagenWeb(r.archivo));
+        setPortadas((prev) => [...prev, entera].slice(0, maxPortadas));
+        setEncuadres((prev) => [...prev, encuadre].slice(0, maxPortadas));
+      } else {
+        const i = r.indice;
+        setEncuadres((prev) => prev.map((e, k) => (k === i ? encuadre : e)));
+      }
+    } catch (e: any) {
+      console.error("Error subiendo portada:", e);
+      setAvisoPortadas("La foto no se ha podido subir. Inténtalo de nuevo.");
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  function cancelarEncuadre() {
+    if (recorte && !recorte.remota) {
+      try {
+        URL.revokeObjectURL(recorte.uri);
+      } catch {}
+    }
+    setRecorte(null);
+  }
+
   function quitarPortada(i: number) {
     setPortadas((prev) => prev.filter((_, k) => k !== i));
+    setEncuadres((prev) => prev.filter((_, k) => k !== i));
   }
 
   function adelantarPortada(i: number) {
     if (i <= 0) return;
-    setPortadas((prev) => {
+    const cambiar = (prev: string[]) => {
       const next = [...prev];
       [next[i - 1], next[i]] = [next[i], next[i - 1]];
       return next;
-    });
+    };
+    setPortadas(cambiar);
+    setEncuadres(cambiar);
   }
 
   async function save() {
@@ -525,6 +616,8 @@ export default function AdminCategories() {
       if (supportsImagenes) payload.imagenes = fotos;
       if (supportsImageUrl) payload.image_url = fotos[0] ?? null;
       if (supportsOpacidad) payload.portada_opacidad = Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(opacidad)));
+      // El encuadre para Inicio de cada portada, en el mismo orden ("" = sin encuadrar).
+      if (supportsEncuadre) payload.portadas_inicio = fotos.map((_, i) => encuadres[i] ?? "");
 
       // Sin id (la de «Reparación / Limpieza» la primera vez), se crea.
       const escribir = (datos: any) =>
@@ -533,6 +626,12 @@ export default function AdminCategories() {
           : supabase.from("categories").insert(datos);
 
       let { error } = await escribir(payload);
+      // Si la columna de los encuadres aún no existe, se guarda el resto (Inicio recorta las fotos por el centro).
+      if (error && "portadas_inicio" in payload && /portadas_inicio/.test(String(error.message ?? ""))) {
+        delete payload.portadas_inicio;
+        setSupportsEncuadre(false);
+        ({ error } = await escribir(payload));
+      }
       // Si la columna de cuánto se ve la portada aún no existe, se guarda el resto (en Inicio, al 55 %).
       if (error && "portada_opacidad" in payload && /portada_opacidad/.test(String(error.message ?? ""))) {
         delete payload.portada_opacidad;
@@ -904,9 +1003,11 @@ export default function AdminCategories() {
                     Portadas ({portadas.length}/{maxPortadas})
                   </Text>
                   <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center" }}>
-                    {maxPortadas > 1
-                      ? "Se pasan solas en la tienda; la primera es la principal. Mejor fotos horizontales."
-                      : "De momento cabe una portada (falta activar las 3 en la base de datos)."}
+                    {maxPortadas <= 1
+                      ? "De momento cabe una portada (falta activar las 3 en la base de datos)."
+                      : supportsEncuadre
+                        ? "Al subir una foto la encuadras con la forma del recuadro de Inicio («Encuadrar» la cambia). Se pasan solas; la primera es la principal."
+                        : "Se pasan solas en la tienda; la primera es la principal. Mejor fotos horizontales."}
                   </Text>
 
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
@@ -915,7 +1016,8 @@ export default function AdminCategories() {
                         key={url}
                         style={{
                           width: isMobile ? 132 : 150,
-                          height: isMobile ? 88 : 100,
+                          // Con la forma del recuadro de Inicio: la miniatura enseña su encuadre.
+                          aspectRatio: PROPORCION_RECUADRO_INICIO,
                           borderRadius: 14,
                           overflow: "hidden",
                           borderWidth: 1,
@@ -923,7 +1025,37 @@ export default function AdminCategories() {
                           backgroundColor: "#F8FBFE",
                         }}
                       >
-                        <SmartImage uri={url} contentFit="cover" ancho={150} alt={`Portada ${i + 1}`} style={{ width: "100%", height: "100%" }} />
+                        <SmartImage
+                          uri={encuadres[i] || url}
+                          contentFit="cover"
+                          ancho={150}
+                          alt={`Portada ${i + 1}${encuadres[i] ? " (encuadrada para Inicio)" : ""}`}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                        {supportsEncuadre ? (
+                          <Pressable
+                            onPress={() => setRecorte({ uri: url, remota: true, indice: i })}
+                            disabled={subiendo}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Encuadrar la portada ${i + 1} para Inicio`}
+                            style={({ pressed }) => ({
+                              position: "absolute",
+                              right: 4,
+                              bottom: 4,
+                              height: 32,
+                              paddingHorizontal: 9,
+                              borderRadius: 16,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 4,
+                              backgroundColor: "rgba(11,33,56,0.72)",
+                              opacity: pressed ? 0.8 : 1,
+                            })}
+                          >
+                            <Ionicons name="crop" size={15} color="#FFFFFF" />
+                            <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11.5 }}>Encuadrar</Text>
+                          </Pressable>
+                        ) : null}
                         {i === 0 && (
                           <Text
                             style={{
@@ -995,7 +1127,7 @@ export default function AdminCategories() {
                         accessibilityLabel="Subir fotos de portada"
                         style={({ pressed }) => ({
                           width: isMobile ? 132 : 150,
-                          height: isMobile ? 88 : 100,
+                          aspectRatio: PROPORCION_RECUADRO_INICIO,
                           borderRadius: 14,
                           borderWidth: 1.5,
                           borderStyle: "dashed",
@@ -1025,19 +1157,24 @@ export default function AdminCategories() {
                   </View>
 
                   {!!avisoPortadas && <AdminNotice tone="warning" text={avisoPortadas} />}
+                  {!supportsEncuadre && maxPortadas > 0 ? (
+                    <AdminNotice
+                      tone="warning"
+                      text="El encuadre para Inicio se podrá usar en cuanto se active su parte en la base de datos; mientras, Inicio recorta las fotos por el centro."
+                    />
+                  ) : null}
 
-                  {/* Cómo se ve en Inicio: la portada llena el recuadro y el nombre va encima. La barra decide cuánto se
-                      ve la foto (menos: más suave y el nombre se lee mejor; más: la foto más fuerte). */}
+                  {/* Cómo se ve en Inicio: el encuadre llena el recuadro (con su forma en el móvil) y el nombre va encima.
+                      La barra decide cuánto se ve la foto (menos: más suave y el nombre se lee mejor; más: más fuerte). */}
                   {portadas.length > 0 ? (
                     <View nativeID="categoria-opacidad" style={{ width: "100%", gap: 10, alignItems: "center", paddingTop: 6 }}>
                       <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cómo se ve en Inicio</Text>
                       <View style={{ width: "100%", maxWidth: 230, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" }}>
                         <PortadaConNombre
-                          imagenes={portadas}
+                          imagenes={portadas.map((u, i) => encuadres[i] || u)}
                           opacidad={opacidad}
                           titulo={name.trim() || "Nombre de la categoría"}
-                          subtitulo={editandoServicios ? "Ver servicios →" : "Ver categoría →"}
-                          alto={140}
+                          proporcion={PROPORCION_RECUADRO_INICIO}
                         />
                       </View>
                       <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
@@ -1045,7 +1182,7 @@ export default function AdminCategories() {
                       </Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, width: "100%", maxWidth: 360 }}>
                         <Pressable
-                          onPress={() => setOpacidad((o) => Math.max(OPACIDAD_PORTADA_MIN, o - 5))}
+                          onPress={() => setOpacidad((o) => Math.max(OPACIDAD_PORTADA_MIN, o - PASO_BOTON_OPACIDAD))}
                           disabled={opacidad <= OPACIDAD_PORTADA_MIN}
                           accessibilityRole="button"
                           accessibilityLabel="Foto más suave"
@@ -1076,7 +1213,7 @@ export default function AdminCategories() {
                           <View style={{ flex: 1 }} />
                         )}
                         <Pressable
-                          onPress={() => setOpacidad((o) => Math.min(100, o + 5))}
+                          onPress={() => setOpacidad((o) => Math.min(100, o + PASO_BOTON_OPACIDAD))}
                           disabled={opacidad >= 100}
                           accessibilityRole="button"
                           accessibilityLabel="Foto más fuerte"
@@ -1240,6 +1377,27 @@ export default function AdminCategories() {
           </View>
         </View>
       </Modal>
+
+      {/* Encuadre de una portada con la forma del recuadro de Inicio en el móvil, con el nombre encima y la foto al %
+          elegido: se ve tal cual quedará antes de subirla. */}
+      {recorte ? (
+        <RecortarFoto
+          uri={recorte.uri}
+          remota={recorte.remota}
+          proporcion={PROPORCION_RECUADRO_INICIO}
+          salida={SALIDA_ENCUADRE}
+          redondo={false}
+          titulo="Encuadra la portada"
+          texto="Así se verá en el recuadro de Inicio. Arrástrala para moverla y acércala o aléjala."
+          textoUsar="Usar este encuadre"
+          encima={<NombreSobrePortada titulo={name.trim() || "Nombre de la categoría"} />}
+          opacidadFoto={opacidad / 100}
+          nativeID="categoria-recorte"
+          nombreArchivo="portada.jpg"
+          onCancelar={cancelarEncuadre}
+          onListo={(archivo) => void usarEncuadre(archivo)}
+        />
+      ) : null}
     </View>
   );
 }

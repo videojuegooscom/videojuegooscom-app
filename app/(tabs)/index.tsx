@@ -94,6 +94,7 @@ import { FloatingBarramagic } from "../../components/Barramagic";
 import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import {
   OPACIDAD_PORTADA_DEFECTO,
+  PROPORCION_RECUADRO_INICIO,
   PortadaConNombre,
   useOpacidadesPortadas,
   usePortadasCategorias,
@@ -1136,13 +1137,13 @@ function CategoryCard({
       })}
     >
       {conPortadas ? (
-        // La portada llena el recuadro y el nombre va encima (la foto, al % que elige el dueño).
+        // La portada llena el recuadro y el nombre va encima (la foto, al % que elige el dueño). En el móvil, con la
+        // forma del encuadre del editor: se ve justo lo que eligió el dueño.
         <PortadaConNombre
           imagenes={portadas!}
           opacidad={opacidad ?? OPACIDAD_PORTADA_DEFECTO}
           titulo={title}
-          subtitulo={cta ?? "Ver categoría →"}
-          alto={isMobile ? 140 : 168}
+          {...(isMobile ? { proporcion: PROPORCION_RECUADRO_INICIO } : { alto: 168 })}
         />
       ) : (
         <View
@@ -1159,34 +1160,21 @@ function CategoryCard({
         </View>
       )}
 
-      {/* Con portada, el nombre ya va encima de la foto. */}
+      {/* Con portada, el nombre ya va encima de la foto. Sin «Ver categoría →» (lo quitó el dueño): todo el recuadro
+          se toca y un lector de pantalla sigue diciendo adónde lleva. */}
       {!conPortadas ? (
-        <>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontWeight: "900",
-              marginTop: 6,
-              lineHeight: 20,
-              fontSize: isMobile ? 14 : 15,
-              textAlign: "center",
-            }}
-          >
-            {title}
-          </Text>
-
-          <Text
-            style={{
-              color: COLORS.muted,
-              marginTop: 4,
-              fontSize: 12,
-              lineHeight: 16,
-              textAlign: "center",
-            }}
-          >
-            {cta ?? "Ver categoría →"}
-          </Text>
-        </>
+        <Text
+          style={{
+            color: COLORS.text,
+            fontWeight: "900",
+            marginTop: 6,
+            lineHeight: 20,
+            fontSize: isMobile ? 14 : 15,
+            textAlign: "center",
+          }}
+        >
+          {title}
+        </Text>
       ) : null}
     </Pressable>
   );

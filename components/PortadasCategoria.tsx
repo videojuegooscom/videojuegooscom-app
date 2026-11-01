@@ -7,22 +7,28 @@
  *
  * También:
  * - portadasDe(fila): las direcciones de las portadas de una fila de categories (columna imagenes y, si no hay, la
- *   antigua image_url), limpias y como mucho 3.
+ *   antigua image_url), limpias y como mucho 3. Son las fotos enteras: las usa la cabecera de dentro de la categoría.
+ * - encuadresDe(fila) / portadasInicioDe(fila): el encuadre de cada portada para el recuadro de Inicio (columna
+ *   portadas_inicio, migración 20261101170000), que el dueño elige en el editor con la ventana de recorte
+ *   (RecortarFoto, components/PerfilPublico.tsx) con la forma exacta del recuadro en el móvil
+ *   (PROPORCION_RECUADRO_INICIO). Sin encuadre (o sin la migración), Inicio usa la foto entera recortada por el centro.
  * - usePortadasCategorias() / useOpacidadesPortadas(): portadas de todas las categorías activas y cuánto se ve cada
  *   una en Inicio, por slug. Una sola consulta por visita, compartida entre pantallas; olvidarPortadasCategorias() la
  *   repite y avisa a las pantallas abiertas (el panel la llama al guardar: Inicio se queda montado al cambiar de
  *   pestaña y antes no se enteraba de una portada nueva). También se repite al volver a la tienda (visibilitychange)
  *   si han pasado más de 15 s: una portada cambiada desde otro aparato se ve sin cerrar la tienda.
- * - PortadaConNombre: la portada llenando el recuadro de la categoría en Inicio, con el nombre encima y la foto al
- *   porcentaje que elige el dueño en el editor (portada_opacidad, 10-100 %; sin valor, 55 %).
+ * - PortadaConNombre: la portada llenando el recuadro de la categoría en Inicio, con el nombre encima (sin «Ver
+ *   categoría»: lo quitó el dueño) y la foto al porcentaje que elige el dueño en el editor (portada_opacidad, 10-100 %;
+ *   sin valor, 55 %). En el móvil el recuadro tiene siempre la misma forma (PROPORCION_RECUADRO_INICIO), la del
+ *   encuadre: se ve justo lo que se eligió.
  * - faltaColumnaPortadas(error): si Supabase dice que aún no existe la columna (la migración se aplica aparte).
  * - CATEGORIA_SERVICIOS / esCategoriaServicios(slug): «Reparación / Limpieza», el recuadro de Inicio que lleva a
  *   Servicios. No es una categoría de productos, pero su portada se guarda como una fila más de categories (slug
  *   «reparaciones»), que el panel crea al guardarla la primera vez; el catálogo y el editor de productos la dejan fuera.
  *
  * Conectado con: app/(tabs)/index.tsx (tarjetas de «Categorías»), app/catalogo.tsx (cabecera de la categoría),
- * app/admin/categories.tsx (lista, formulario y vista previa), supabase/migrations/20261030120000_categorias_portadas.sql
- * y 20261101140000_categorias_opacidad_portada.sql.
+ * app/admin/categories.tsx (lista, formulario, encuadre y vista previa), supabase/migrations/20261030120000_categorias_portadas.sql,
+ * 20261101140000_categorias_opacidad_portada.sql y 20261101170000_categorias_portadas_inicio.sql.
  */
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, Text, View, type StyleProp, type ViewStyle } from "react-native";
@@ -47,6 +53,25 @@ export function portadasDe(fila: { imagenes?: unknown; image_url?: unknown } | n
   return Array.from(new Set(urls)).slice(0, MAX_PORTADAS);
 }
 
+// Forma del recuadro de una categoría en Inicio en el móvil (ancho / alto) y tamaño del encuadre que se guarda (JPEG):
+// nítido en móviles con pantalla densa y en el ordenador.
+export const PROPORCION_RECUADRO_INICIO = 6 / 5;
+export const SALIDA_ENCUADRE = { ancho: 960, alto: 800 };
+
+const esUrl = (u: unknown): u is string => typeof u === "string" && /^https?:\/\/\S+$/i.test(u.trim());
+
+/** El encuadre para Inicio de cada portada (mismo orden que portadasDe; "" = sin encuadrar). */
+export function encuadresDe(fila: { imagenes?: unknown; image_url?: unknown; portadas_inicio?: unknown } | null | undefined): string[] {
+  const bruto = Array.isArray(fila?.portadas_inicio) ? (fila.portadas_inicio as unknown[]) : [];
+  return portadasDe(fila).map((_, i) => (esUrl(bruto[i]) ? (bruto[i] as string).trim() : ""));
+}
+
+/** Lo que enseña el recuadro de Inicio: el encuadre de cada portada o, si no tiene, la foto entera. */
+export function portadasInicioDe(fila: { imagenes?: unknown; image_url?: unknown; portadas_inicio?: unknown } | null | undefined): string[] {
+  const encuadres = encuadresDe(fila);
+  return portadasDe(fila).map((u, i) => encuadres[i] || u);
+}
+
 // «Reparación / Limpieza» en Inicio lleva a Servicios: su portada vive en categories con este slug (el del recuadro de
 // Inicio), pero no es una categoría de productos (ni en el catálogo ni en el editor de productos).
 export const CATEGORIA_SERVICIOS = { slug: "reparaciones", nombre: "Reparación / Limpieza" } as const;
@@ -69,7 +94,7 @@ export function opacidadDe(fila: { portada_opacidad?: unknown } | null | undefin
   return Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, Math.round(n)));
 }
 
-type FilaPortadas = { slug: string; image_url?: string | null; imagenes?: unknown; portada_opacidad?: unknown };
+type FilaPortadas = { slug: string; image_url?: string | null; imagenes?: unknown; portadas_inicio?: unknown; portada_opacidad?: unknown };
 type DatosPortadas = { fotos: Record<string, string[]>; opacidad: Record<string, number> };
 const SIN_DATOS: DatosPortadas = { fotos: {}, opacidad: {} };
 let cache: Promise<DatosPortadas> | null = null;
@@ -97,7 +122,8 @@ async function cargarPortadas(): Promise<DatosPortadas> {
   if (res.error) throw res.error;
   const datos: DatosPortadas = { fotos: {}, opacidad: {} };
   for (const fila of (res.data ?? []) as FilaPortadas[]) {
-    const fotos = portadasDe(fila);
+    // En Inicio, el encuadre que eligió el dueño (o la foto entera si no lo tiene).
+    const fotos = portadasInicioDe(fila);
     if (!fila.slug || !fotos.length) continue;
     datos.fotos[fila.slug] = fotos;
     datos.opacidad[fila.slug] = opacidadDe(fila);
@@ -149,45 +175,55 @@ export function useOpacidadesPortadas(): Record<string, number> {
   return useDatosPortadas().opacidad;
 }
 
+/** El nombre de la categoría encima de su portada, con un halo blanco: se lee sobre cualquier foto sin otro recuadro. */
+export function NombreSobrePortada({ titulo }: { titulo: string }) {
+  const halo = { textShadowColor: "rgba(255,255,255,0.95)", textShadowRadius: 8, textShadowOffset: { width: 0, height: 0 } };
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 }}>
+      <Text numberOfLines={2} style={[{ color: "#0B2138", fontWeight: "900", fontSize: 16, lineHeight: 21, textAlign: "center" }, halo]}>
+        {titulo}
+      </Text>
+    </View>
+  );
+}
+
 /**
- * La portada llenando el recuadro de una categoría, con el nombre (y su enlace) encima: lo que se ve en Inicio y en la
- * vista previa del editor. `opacidad` (10-100) es cuánto se ve la foto: menos, más suave y el nombre se lee mejor.
+ * La portada llenando el recuadro de una categoría, con el nombre encima: lo que se ve en Inicio y en la vista previa del
+ * editor. `opacidad` (10-100) es cuánto se ve la foto: menos, más suave y el nombre se lee mejor. Con `proporcion`
+ * (ancho / alto) el alto sale del ancho, como el encuadre; si no, mide `alto`.
  */
 export function PortadaConNombre({
   imagenes,
   opacidad,
   titulo,
-  subtitulo,
   alto,
+  proporcion,
   radio = 17,
 }: {
   imagenes: string[];
   opacidad: number;
   titulo: string;
-  subtitulo?: string;
-  alto: number;
+  alto?: number;
+  proporcion?: number;
   radio?: number;
 }) {
-  // Un halo blanco alrededor de las letras: se leen sobre cualquier foto sin poner un recuadro encima.
-  const halo = { textShadowColor: "rgba(255,255,255,0.95)", textShadowRadius: 8, textShadowOffset: { width: 0, height: 0 } };
   return (
-    <View style={{ width: "100%", height: alto, borderRadius: radio, overflow: "hidden", backgroundColor: "#F6FAFD" }}>
+    <View
+      style={{
+        width: "100%",
+        ...(proporcion ? { aspectRatio: proporcion } : { height: alto ?? 140 }),
+        borderRadius: radio,
+        overflow: "hidden",
+        backgroundColor: "#F6FAFD",
+      }}
+    >
       <View
         nativeID="portada-foto"
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, opacity: Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, opacidad)) / 100 }}
       >
         <PortadasCategoria imagenes={imagenes} alt={titulo} style={{ width: "100%", height: "100%" }} />
       </View>
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, gap: 4 }}>
-        <Text numberOfLines={2} style={[{ color: "#0B2138", fontWeight: "900", fontSize: 16, lineHeight: 21, textAlign: "center" }, halo]}>
-          {titulo}
-        </Text>
-        {subtitulo ? (
-          <Text numberOfLines={1} style={[{ color: "#0B2138", fontWeight: "800", fontSize: 12.5, textAlign: "center" }, halo]}>
-            {subtitulo}
-          </Text>
-        ) : null}
-      </View>
+      <NombreSobrePortada titulo={titulo} />
     </View>
   );
 }
