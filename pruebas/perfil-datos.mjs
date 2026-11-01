@@ -115,10 +115,14 @@
  *    el nombre»); «A otras» (al lado de «Categoría activa») copia la transparencia a las elegidas. Productos en
  *    rejilla con «+» e iconos, y los iconos del resto del panel.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE» o «EN» de cuarto argumento solo se ejecuta esa
- * sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas
- * de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas o el encuadre de las portadas).
+ *  - BU) Blue nunca tapa la barra de búsqueda: dejado encima (fijo) se aparta lo justo en su lado; arrastrado encima,
+ *    se aparta al soltarlo; y tampoco tapa la lista de resultados.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO» o «BU» de cuarto argumento solo se
+ * ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el
+ * panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el encuadre de
+ * las portadas, el panel en rejilla o Blue y el buscador).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -2130,8 +2134,8 @@ async function seccionEN() {
   }
 }
 
-// ===== NO) Categorías: buscador arriba, fichas en rejilla, «+» flotante e iconos; el nombre se mueve manteniéndolo
-// pulsado (y se ve así en Inicio, siempre entero) y «Aplicar a otras» copia la transparencia y su posición =============
+// ===== NO) Categorías: buscador arriba, fichas en rejilla, «+» flotante e iconos; el nombre va encima de cada recuadro
+// (en Inicio y en la vista previa, siempre entero) y «A otras» copia la transparencia =================================
 async function seccionNO() {
   const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/ps5.jpg";
   const PS5 = "c0000000-0000-4000-8000-0000000000a1";
@@ -2550,6 +2554,112 @@ async function seccionZ() {
   }
 }
 
+// ===== BU) Blue nunca tapa la barra de búsqueda (dueño, 2026-11-01) =================================================
+// Ni cuando la persona lo deja encima (se queda fijo donde lo suelta), ni al arrastrarlo encima, ni sobre la lista de
+// resultados. Se mide la capa visible de Blue y la barra de verdad (el hijo de #buscador-flotante, cuya capa ocupa todo
+// el ancho), solo cuando las dos se ven.
+async function seccionBU() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const medir = (p, otro = null) => p.evaluate((idOtro) => {
+    const capaBlue = document.getElementById("blue-flotante")?.firstElementChild;
+    const capaBarra = document.getElementById("buscador-flotante");
+    const barra = idOtro ? document.getElementById(idOtro) : capaBarra?.firstElementChild;
+    if (!capaBlue || !barra) return null;
+    const b = capaBlue.getBoundingClientRect();
+    const r = barra.getBoundingClientRect();
+    const se = (el) => Number(getComputedStyle(el).opacity) > 0.3;
+    const solape = Math.min(b.right, r.right) - Math.max(b.left, r.left) > 0 && Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top) > 0;
+    return {
+      tapa: solape && se(capaBlue) && (!capaBarra || se(capaBarra)),
+      seVe: se(capaBlue),
+      hueco: Math.round(b.top >= r.bottom ? b.top - r.bottom : r.top - b.bottom),
+      blue: [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)],
+      barra: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+    };
+  }, otro);
+  const esperarBlue = async (p) => {
+    for (let i = 0; i < 70 && !(await medir(p))?.seVe; i++) await p.waitForTimeout(400);
+  };
+  // Mira varias veces seguidas (Blue se mueve con un muelle): ninguna vez puede taparla.
+  const vigilar = async (p, ms, otro = null) => {
+    const vistas = [];
+    for (let t = 0; t < ms; t += 150) {
+      vistas.push(await medir(p, otro));
+      await p.waitForTimeout(150);
+    }
+    return { tapada: vistas.filter((v) => v?.tapa).length, ultima: vistas[vistas.length - 1] };
+  };
+  const estado = { filas: perfil, guardados: [], productosVacios: true };
+  const ctx = await contexto(navegador, CLIENTE, "user", estado);
+  const p = await pagina(ctx, "/");
+  await p.locator("#buscador-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+  await p.waitForTimeout(1200);
+
+  // BU1) La persona dejó a Blue justo encima de la barra (y desde entonces se queda fijo donde lo deja): al volver a la
+  // tienda se aparta lo justo, en su mismo lado.
+  const barra = await p.evaluate(() => {
+    const r = document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect();
+    return r ? { arriba: r.top, abajo: r.bottom, alto: window.innerHeight } : null;
+  });
+  ok(!!barra, `BU: Inicio tiene la barra de búsqueda (${JSON.stringify(barra)})`);
+  // Mismas cuentas que sitioToXY de components/Campanita.tsx (72 px, 40 arriba, 84 abajo).
+  const fyEncima = barra ? Math.min(1, Math.max(0, ((barra.arriba + barra.abajo) / 2 - 36 - 40) / (barra.alto - 72 - 84 - 40))) : 0;
+  await p.evaluate((fy) => {
+    localStorage.setItem("videojuegoszaragoza:campanita_corner", JSON.stringify({ lado: "l", fy }));
+    sessionStorage.setItem("videojuegoszaragoza:blue_fijo", "1");
+  }, fyEncima);
+  await p.reload({ waitUntil: "load" });
+  await esperarBlue(p);
+  const fijo = await vigilar(p, 2400);
+  ok(!!fijo.ultima?.seVe && fijo.tapada === 0, `BU: Blue, dejado encima de la barra, ya no la tapa (${fijo.tapada} veces encima; Blue ${JSON.stringify(fijo.ultima?.blue)}, barra ${JSON.stringify(fijo.ultima?.barra)})`);
+  ok(!!fijo.ultima && fijo.ultima.blue[0] < 40 && fijo.ultima.hueco >= 0 && fijo.ultima.hueco <= 40, `BU: se aparta lo justo, en su mismo lado (a ${fijo.ultima?.hueco} px de la barra)`);
+  await capturar(p, "BU1-blue-junto-al-buscador");
+
+  // BU2) Arrastrarlo con el dedo al otro lado, encima de la barra: al soltarlo se aparta en seguida, en ese lado.
+  const caja = await p.locator("#blue-flotante").boundingBox();
+  const b2 = await p.evaluate(() => document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect().toJSON());
+  if (caja && b2) {
+    const cdp = await ctx.newCDPSession(p);
+    const [x0, y0] = [caja.x + caja.width / 2, caja.y + caja.height / 2];
+    const [x1, y1] = [b2.x + b2.width - 30, b2.y + b2.height / 2];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y: y0 }] });
+    for (let i = 1; i <= 12; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + ((x1 - x0) * i) / 12, y: y0 + ((y1 - y0) * i) / 12 }] });
+      await p.waitForTimeout(16);
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+  const arrastrado = await vigilar(p, 2000);
+  const guardado = JSON.parse((await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:campanita_corner"))) ?? "null");
+  ok(guardado?.lado === "r" && (arrastrado.ultima?.blue?.[0] ?? 0) > 200, `BU: se puede arrastrar con el dedo al otro lado, encima de la barra (${JSON.stringify(guardado)}; Blue ${JSON.stringify(arrastrado.ultima?.blue)})`);
+  ok(!!caja && !!b2 && arrastrado.ultima?.seVe && arrastrado.tapada <= 3 && !arrastrado.ultima.tapa, `BU: al soltarlo encima de la barra se aparta en seguida (${arrastrado.tapada} vistas encima mientras se mueve; Blue ${JSON.stringify(arrastrado.ultima?.blue)}, barra ${JSON.stringify(arrastrado.ultima?.barra)})`);
+  ok(!!arrastrado.ultima && arrastrado.ultima.hueco >= 0 && arrastrado.ultima.hueco <= 40, `BU: y se queda pegado a la barra, en el lado donde lo soltó (a ${arrastrado.ultima?.hueco} px)`);
+  ok((await p.locator('[aria-modal="true"]').count()) === 0, "BU: arrastrarlo no abre su panel (ninguna ventana encima)");
+  await capturar(p, "BU2-blue-arrastrado");
+
+  // BU3) La barra recibe el toque (nada la tapa) y, al escribir, sale la lista de resultados: Blue tampoco la tapa.
+  const recibe = await p.evaluate(() => {
+    const campo = document.querySelector("#buscador-flotante input");
+    const r = campo?.getBoundingClientRect();
+    if (!r) return "sin campo";
+    const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    if (e && e.closest("#buscador-flotante")) return "sí";
+    const tocable = e?.closest("[aria-label],[tabindex]");
+    return `tapada por ${e?.closest("#blue-flotante") ? "Blue" : "otra cosa"}: ${(tocable?.getAttribute("aria-label") ?? tocable?.outerHTML ?? e?.outerHTML ?? "").slice(0, 160)}`;
+  });
+  ok(recibe === "sí", `BU: la barra recibe el toque, nada la tapa (${recibe})`);
+  await p.locator("#buscador-flotante input").first().click({ timeout: 8000 }).catch(() => {});
+  await p.keyboard.type("ps", { delay: 60 });
+  await p.locator("#buscador-resultados").waitFor({ timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(600);
+  const lista = await vigilar(p, 2400, "buscador-resultados");
+  const conLista = !!(await p.evaluate(() => document.getElementById("buscador-resultados")));
+  ok(conLista && lista.tapada <= 3 && !lista.ultima?.tapa, `BU: con la lista de resultados abierta, Blue no la tapa (${lista.tapada} vistas encima mientras se aparta; Blue ${JSON.stringify(lista.ultima?.blue)}, lista ${JSON.stringify(lista.ultima?.barra)})`);
+  await capturar(p, "BU3-blue-y-resultados");
+  ok(p.errores.length === 0, `BU: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  await ctx.close();
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -2705,6 +2815,7 @@ try {
   if (SOLO === "RE") await seccionRE();
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
+  if (SOLO === "BU") await seccionBU();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -3633,6 +3744,7 @@ try {
   await seccionRE();
   await seccionEN();
   await seccionNO();
+  await seccionBU();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

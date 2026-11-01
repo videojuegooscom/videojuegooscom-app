@@ -58,6 +58,10 @@
  * - Si la persona mueve a Blue, se queda FIJO donde lo dejó (ya no se aparta solo) hasta que cierra la
  *   sesión del navegador (sessionStorage BLUE_FIJO_KEY); siguen las reglas de siempre (nunca abajo a la
  *   derecha; en la ficha de producto, nunca en la mitad de abajo).
+ * - NUNCA encima de la barra de búsqueda (dueño, 2026-11-01): ni Blue ni su mensaje tapan la barra flotante
+ *   (#buscador-flotante, también escondida un momento por el scroll o movida abajo) ni su lista de resultados.
+ *   Al apartarse es lo último que tapa, y aunque la persona lo deje ahí (fijo) se aparta lo justo
+ *   (sitioSinBuscador). Se prueba con la sección BU de pruebas/perfil-datos.mjs.
  * - Al tocar a Blue se abre su panel con 2 pestañas: "Asistente" (UN solo botón «Hablar con
  *   Blue IA o el equipo» —Blue IA responde primero y desde ese chat se pasa al equipo—, la guía,
  *   "Vender", instalar) y "Noticias y avisos" (antes eran dos pestañas, «Notificaciones» y «Noticias»:
@@ -659,13 +663,78 @@ function contenidoDebajoDelMensaje(s: Sitio, x: number, y: number): number {
   return tapados >= 12 ? tapados : 0;
 }
 
+// --- La barra de búsqueda es zona prohibida (solo web) ----------------------------------
+// Blue y su mensaje no se ponen NUNCA encima de la barra de búsqueda flotante (components/Barramagic.tsx) ni de su lista
+// de resultados: ni al apartarse, ni donde lo dejó la persona, ni mientras la barra está escondida un momento por el
+// scroll (vuelve a salir en cuanto se sube). Se mide la barra de verdad (el hijo de #buscador-flotante: la capa de fuera
+// ocupa todo el ancho), con un margen para que no se rocen.
+const BUSCADOR_DOM_ID = "buscador-flotante";
+const BUSCADOR_RESULTADOS_DOM_ID = "buscador-resultados";
+const MARGEN_BUSCADOR = 10;
+// Más que tapar todos los botones a la vez (16 puntos × 6 × PESO_BLUE): antes cualquier otra cosa que la barra.
+const PESO_BUSCADOR = 1_000_000;
+type Borde = { izq: number; arriba: number; der: number; abajo: number };
+function zonasDelBuscador(): Borde[] {
+  if (typeof document === "undefined") return [];
+  const zonas: Borde[] = [];
+  const capa = document.getElementById(BUSCADOR_DOM_ID);
+  const barra = capa?.firstElementChild?.getBoundingClientRect();
+  if (capa && barra?.width && barra.height) {
+    // Escondida por el scroll sube un poco (y se vuelve transparente): se cuenta donde estará al volver a salir.
+    let dy = 0;
+    try {
+      const t = window.getComputedStyle(capa).transform;
+      if (t && t !== "none") dy = new DOMMatrixReadOnly(t).m42;
+    } catch {
+      dy = 0;
+    }
+    zonas.push({ izq: barra.left, arriba: barra.top - dy, der: barra.right, abajo: barra.bottom - dy });
+  }
+  const lista = document.getElementById(BUSCADOR_RESULTADOS_DOM_ID)?.getBoundingClientRect();
+  if (lista?.width && lista.height) zonas.push({ izq: lista.left, arriba: lista.top, der: lista.right, abajo: lista.bottom });
+  return zonas;
+}
+function seCruzan(a: Borde, b: Borde): boolean {
+  const m = MARGEN_BUSCADOR;
+  return a.izq < b.der + m && a.der > b.izq - m && a.arriba < b.abajo + m && a.abajo > b.arriba - m;
+}
+// ¿Blue (o su mensaje, si hay uno a la vista; sale como en contenidoDebajoDelMensaje) taparía la barra en ese sitio?
+function tapaBuscador(s: Sitio, zonas: Borde[]): boolean {
+  if (!zonas.length) return false;
+  const { x, y } = sitioToXY(s);
+  const cajas: Borde[] = [{ izq: x, arriba: y, der: x + BLUE_SIZE, abajo: y + BLUE_SIZE }];
+  const m = document.getElementById(BLUE_MENSAJE_DOM_ID);
+  if (m?.offsetWidth && m.offsetHeight) {
+    const izq = s.lado === "r" ? x - 6 - m.offsetWidth : x + BLUE_SIZE + 6;
+    const sup = s.fy < 0.5 ? y + 2 : y + BLUE_SIZE - 2 - m.offsetHeight;
+    cajas.push({ izq, arriba: sup, der: izq + m.offsetWidth, abajo: sup + m.offsetHeight });
+  }
+  return cajas.some((c) => zonas.some((z) => seCruzan(c, z)));
+}
+// El sitio permitido más cercano a «s» que no tapa la barra (primero en su lado, luego en el otro): para cuando la
+// persona dejó a Blue ahí o la barra se ha movido encima de Blue. Se aparta lo justo.
+function sitioSinBuscador(s: Sitio, enFicha = false): Sitio {
+  const zonas = zonasDelBuscador();
+  if (!tapaBuscador(s, zonas)) return s;
+  const alturas = Array.from({ length: 41 }, (_, i) => i / 40).sort((a, b) => Math.abs(a - s.fy) - Math.abs(b - s.fy));
+  for (const lado of [s.lado, s.lado === "r" ? "l" : "r"] as Lado[]) {
+    for (const fy of alturas) {
+      const c: Sitio = { lado, fy };
+      if (sitioPermitido(c, enFicha) === c && !tapaBuscador(c, zonas)) return c;
+    }
+  }
+  return s;
+}
+
 // Mejor sitio libre: primero el que eligió la persona; si tapa algo, el hueco más vacío
 // (mismo lado antes que el otro, y lo más cerca posible de donde estaba). Solo entre los
 // sitios permitidos en esa pantalla (en la ficha de producto, nunca la mitad de abajo).
 function buscarSitioLibre(preferidoElegido: Sitio, actualAhora: Sitio, enFicha = false): Sitio | null {
   const preferido = sitioPermitido(preferidoElegido, enFicha);
   const actual = sitioPermitido(actualAhora, enFicha);
+  const zonas = zonasDelBuscador();
   const puntuar = (s: Sitio) => {
+    if (tapaBuscador(s, zonas)) return PESO_BUSCADOR;
     const { x, y } = sitioToXY(s);
     return contenidoDebajo(x, y) * PESO_BLUE + contenidoDebajoDelMensaje(s, x, y);
   };
@@ -2016,10 +2085,12 @@ export default function Campanita() {
     if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
     const actual = sitioRef.current;
     // Movido por la persona: su sitio, sin apartarse (solo las reglas de siempre de esta pantalla). Si no, el hueco libre
-    // más cercano; y si no hay uno mejor, al menos un sitio permitido en esta pantalla.
-    const libre = fijoRef.current
+    // más cercano; y si no hay uno mejor, al menos un sitio permitido en esta pantalla. En los dos casos, nunca encima
+    // de la barra de búsqueda.
+    const elegido = fijoRef.current
       ? sitioPermitido(preferidoRef.current, enFichaRef.current)
       : buscarSitioLibre(preferidoRef.current, actual, enFichaRef.current) ?? sitioPermitido(actual, enFichaRef.current);
+    const libre = sitioSinBuscador(elegido, enFichaRef.current);
     if (libre.lado !== actual.lado || Math.abs(libre.fy - actual.fy) > 0.01) moverA(libre);
   }, [moverA]);
 
@@ -2071,13 +2142,24 @@ export default function Campanita() {
   // del botón «Aceptar» del aviso de cookies, se aparta ya, sin esperar a la siguiente vuelta.
   useEffect(() => {
     if (!enPantalla) return;
+    // Antes de que se vea (entra transparente): si su sitio tapa la barra de búsqueda, aparece ya apartado, sin muelle.
+    if (Platform.OS === "web" && !arrastrandoRef.current) {
+      const s = sitioSinBuscador(sitioRef.current, enFichaRef.current);
+      if (s !== sitioRef.current) {
+        sitioRef.current = s;
+        setSitio(s);
+        const xy = sitioToXY(s);
+        posRef.current = xy;
+        pan.setValue(xy);
+      }
+    }
     const t1 = setTimeout(comprobarSitio, 150);
     const t2 = setTimeout(comprobarSitio, SALUDO_MS + 700);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [enPantalla, comprobarSitio]);
+  }, [enPantalla, comprobarSitio, pan]);
 
   // --- guía de bienvenida -------------------------------------------------------------
   // A los 15 s de entrar, una sola vez por dispositivo y solo a quien no tiene sesión (es
@@ -2176,8 +2258,9 @@ export default function Campanita() {
         } catch {
           // sin sesión del navegador: fijo hasta recargar
         }
-        // En la ficha de producto, si se suelta en la mitad de abajo, sube a media pantalla en ese lado.
-        moverAReflejo.current(sitioPermitido(next, enFichaRef.current));
+        // En la ficha de producto, si se suelta en la mitad de abajo, sube a media pantalla en ese lado. Si se suelta
+        // encima de la barra de búsqueda, se aparta lo justo para no taparla.
+        moverAReflejo.current(sitioSinBuscador(sitioPermitido(next, enFichaRef.current), enFichaRef.current));
       },
       onPanResponderTerminate: () => {
         arrastrandoRef.current = false;
