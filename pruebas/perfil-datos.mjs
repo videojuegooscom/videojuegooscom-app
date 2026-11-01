@@ -87,9 +87,13 @@
  *    (clientes que han escrito, ventas de VeoAura sin confirmar, olvidados) y su Asistente sin las guías de la tienda;
  *    en la tienda, sus avisos de siempre (control).
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W]
- * Con «N», «P», «Q», «R», «S», «T», «V» o «W» de cuarto argumento solo se ejecuta esa sección (visor, números, chat,
- * cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel o portadas de las categorías).
+ *  - X) Blue IA: «Hablar con el equipo» sale una sola vez (encima del recuadro de escribir, 44 px), también cuando Blue
+ *    IA no puede ayudar, y cada mensaje de Blue lleva la mascota de Blue (36 px) en vez del icono.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W» o «X» de cuarto argumento solo se ejecuta esa sección (visor, números,
+ * chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas de las categorías o
+ * Blue IA).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -241,6 +245,11 @@ async function contexto(navegador, usuario, rol, estado) {
         const chatId = (url.searchParams.get("chat_id") ?? "").replace(/^eq\./, "");
         return json((estado.mensajesChat ?? []).filter((m) => !chatId || m.chat_id === chatId));
       }
+    }
+    // Blue IA (sección X): respuestas ficticias (nada llega a la IA real); se apunta cuántas preguntas se mandan.
+    if (url.pathname === "/api/blue-ia" && estado.blueIa) {
+      estado.preguntasBlueIa = (estado.preguntasBlueIa ?? 0) + 1;
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: estado.blueIa(estado.preguntasBlueIa) }) });
     }
     if (url.pathname === "/api/asignar-seguimiento" && estado.asignar) {
       const cuerpo = JSON.parse(peticion.postData() ?? "{}");
@@ -1637,6 +1646,51 @@ async function seccionW() {
   }
 }
 
+// ===== X) Blue IA: un solo «Hablar con el equipo» (junto al recuadro de escribir) y la mascota de Blue en sus respuestas
+async function seccionX() {
+  const estado = {
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    // La segunda respuesta dice que no puede ayudar: antes era cuando salía el botón repetido bajo la respuesta.
+    blueIa: (n) => (n === 1 ? "Tenemos varias PS5 de segunda mano revisadas." : "No puedo confirmarte eso: mejor pregúntaselo al equipo."),
+  };
+  const ctx = await contexto(navegador, CLIENTE, "user", estado);
+  const p = await pagina(ctx, "/blue-ia");
+  const campo = p.getByPlaceholder("Pregúntale a Blue IA…");
+  await campo.waitFor({ timeout: 30000 }).catch(() => {});
+  const preguntar = async (texto, n) => {
+    await campo.fill(texto);
+    await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+    await p.waitForFunction((k) => document.querySelectorAll('[data-avatar-blue="1"]').length >= k, n + 1, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(600);
+  };
+  await preguntar("¿Tenéis PS5?", 1);
+  await preguntar("¿Me la guardáis hasta el lunes?", 2);
+  const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+  ok(/No puedo confirmarte eso/.test(t) && estado.preguntasBlueIa === 2, `X: Blue IA ha contestado las dos preguntas (${estado.preguntasBlueIa})`);
+  const botones = await p.getByRole("button", { name: "Hablar con el equipo" }).count();
+  ok(botones === 1 && !/Prefieres que te atienda una persona/.test(t), `X: «Hablar con el equipo» sale una sola vez y ya no «¿Prefieres que te atienda una persona?» (${botones} botones)`);
+  const m = await p.evaluate(() => {
+    const b = document.querySelector('[aria-label="Hablar con el equipo"]')?.getBoundingClientRect();
+    const c = document.querySelector('textarea[placeholder="Pregúntale a Blue IA…"], input[placeholder="Pregúntale a Blue IA…"]')?.getBoundingClientRect();
+    const avatares = Array.from(document.querySelectorAll('[data-avatar-blue="1"]'));
+    return {
+      boton: b ? { y: b.y, h: b.height } : null,
+      campo: c ? { y: c.y } : null,
+      avatares: avatares.length,
+      conMascota: avatares.every((a) => !!a.querySelector("img")),
+      tamano: avatares.map((a) => Math.round(a.getBoundingClientRect().width)),
+      sinEstrellitas: avatares.every((a) => !a.textContent?.trim()),
+    };
+  });
+  ok(!!m.boton && !!m.campo && m.boton.y < m.campo.y && m.campo.y - (m.boton.y + m.boton.h) < 40 && m.boton.h >= 44, `X: el botón va justo encima del recuadro de escribir y mide 44 px (${JSON.stringify({ boton: m.boton, campo: m.campo })})`);
+  // Bienvenida + 2 respuestas = 3 mensajes de Blue, cada uno con la mascota (imagen) y no el icono de antes.
+  ok(m.avatares === 3 && m.conMascota && m.sinEstrellitas && m.tamano.every((w) => w === 36), `X: cada respuesta de Blue lleva la mascota de Blue (${m.avatares} mensajes, ${m.tamano.join(", ")} px)`);
+  await capturar(p, "X1-blue-ia");
+  ok(p.errores.length === 0, `X: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  await ctx.close();
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -1786,6 +1840,7 @@ try {
   if (SOLO === "T") await seccionT();
   if (SOLO === "V") await seccionV();
   if (SOLO === "W") await seccionW();
+  if (SOLO === "X") await seccionX();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2708,6 +2763,7 @@ try {
   await seccionT();
   await seccionV();
   await seccionW();
+  await seccionX();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

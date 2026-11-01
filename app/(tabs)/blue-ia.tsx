@@ -58,10 +58,14 @@
  * - Contexto por URL: ?producto=<id>, ?pedido=<nº>, ?reparacion=<id> o
  *   ?tema=<texto>. Se muestra "Preguntas por: …" arriba y se antepone al
  *   primer mensaje que se manda a la API (mismo formato {message, history}).
- * - "Hablar con el equipo": siempre junto al compositor y destacado bajo la
- *   respuesta tras 2+ respuestas o si la IA no ha podido ayudar. Abre el
- *   chat privado con la tienda (abrirChatEquipo) con un resumen de las
- *   últimas 6 vueltas; sin sesión, lleva a /perfil con un aviso.
+ * - "Hablar con el equipo": un solo botón, siempre junto al recuadro de
+ *   escribir (ya no se repite bajo la respuesta con «¿Prefieres que te
+ *   atienda una persona?»; petición del dueño, 2026-11-01). Abre el chat
+ *   privado con la tienda (abrirChatEquipo) con un resumen de las últimas 6
+ *   vueltas; sin sesión, lleva a /perfil con un aviso.
+ * - Cada respuesta lleva al lado a Blue, la mascota de atención al cliente
+ *   (la misma imagen que Blue flotante: AvatarBlue), quieta; mientras
+ *   escribe, se mueve.
  *
  * Conectado con:
  * - components/ProductChatThread.tsx → abrirChatEquipo.
@@ -156,8 +160,6 @@ type BlueIAMessage = {
   productChips?: ProductChip[];
 };
 
-// Respuestas en las que la IA reconoce que no puede resolverlo sola.
-const NO_PUEDE_AYUDAR = /no (puedo|sé|se|tengo|dispongo)|equipo|contact|whatsapp|llamar|llámanos/i;
 
 const AVISO_LOGIN = "Inicia sesión para hablar con nuestro equipo";
 const AVISO_LOGIN_HISTORIAL = "Inicia sesión para guardar tus conversaciones";
@@ -929,15 +931,6 @@ export default function BlueIAScreen() {
     }
   }, [abriendoEquipo, contextoActivo, contextoGuardado, usarContextoUrl, productoId]);
 
-  // Destacar "Hablar con el equipo" tras 2+ respuestas o si la IA no ha podido ayudar.
-  const respuestasIA = messages.filter((m) => m.role === "assistant" && m.id !== WELCOME_MESSAGE.id);
-  const ultimaIA = respuestasIA[respuestasIA.length - 1];
-  const destacarEquipo =
-    !sending &&
-    !!ultimaIA &&
-    messages[messages.length - 1]?.id === ultimaIA.id &&
-    (respuestasIA.length >= 2 || !!ultimaIA.isError || NO_PUEDE_AYUDAR.test(ultimaIA.text));
-
   // Si se llega aquí desde "Preguntas frecuentes" (Inicio → /blue-ia?q=...),
   // manda esa pregunta automáticamente una sola vez al entrar — igual que
   // tocar una sugerencia rápida, pero disparado por la navegación en vez de
@@ -1067,18 +1060,8 @@ export default function BlueIAScreen() {
               />
             ))}
             {sending && <BlueIATypingBubble />}
-            {destacarEquipo && (
-              <View style={{ alignItems: "center", gap: 6, paddingTop: 6 }}>
-                <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>
-                  ¿Prefieres que te atienda una persona?
-                </Text>
-                <HablarEquipoButton
-                  variant="primary"
-                  busy={abriendoEquipo}
-                  onPress={handleHablarEquipo}
-                />
-              </View>
-            )}
+            {/* «Hablar con el equipo» sale una sola vez, junto al recuadro de escribir (petición del dueño, 2026-11-01):
+                antes se repetía bajo la respuesta con «¿Prefieres que te atienda una persona?». */}
           </View>
         </ScrollView>
 
@@ -1132,9 +1115,9 @@ export default function BlueIAScreen() {
             </Text>
           )}
 
-          {/* Acceso siempre visible al equipo (además del destacado bajo la respuesta). */}
+          {/* El único acceso al equipo, siempre a la vista junto al recuadro de escribir. */}
           <View style={{ alignItems: "center" }}>
-            <HablarEquipoButton variant="link" busy={abriendoEquipo} onPress={handleHablarEquipo} />
+            <HablarEquipoButton busy={abriendoEquipo} onPress={handleHablarEquipo} />
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -1428,6 +1411,23 @@ function BotonPrincipal({
 // respuesta trae "socialChips" (ver api/blue-ia.ts), se pintan como una fila
 // de botones con icono justo debajo del texto — nunca como enlaces sueltos
 // dentro del mensaje.
+// Quién responde: Blue, la mascota de atención al cliente (la misma imagen que Blue flotante, components/Campanita.tsx),
+// quieta en cada mensaje para no distraer; mientras escribe, se mueve. Para un lector de pantalla no se repite en cada
+// mensaje.
+function AvatarBlue({ escribiendo }: { escribiendo?: boolean }) {
+  return (
+    <View
+      nativeID={escribiendo ? "blue-ia-avatar-escribiendo" : undefined}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      {...({ "aria-hidden": true, dataSet: { avatarBlue: "1" } } as object)}
+      style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
+    >
+      <MarcaAnimada cual="carga" ancho={36} reposo={!!escribiendo} tocable={false} />
+    </View>
+  );
+}
+
 function BlueIABubble({ message }: { message: BlueIAMessage }) {
   const mine = message.role === "user";
 
@@ -1440,22 +1440,7 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
         gap: 8,
       }}
     >
-      {!mine && (
-        <View
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: COLORS.accentSoft,
-            borderWidth: 1,
-            borderColor: COLORS.accentBorder,
-          }}
-        >
-          <Ionicons name="sparkles-outline" size={14} color={COLORS.accent} />
-        </View>
-      )}
+      {!mine && <AvatarBlue />}
 
       <View
         style={{
@@ -1577,20 +1562,8 @@ function BlueIASocialChips({ chips }: { chips: SocialChip[] }) {
 function BlueIATypingBubble() {
   return (
     <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
-      <View
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: 999,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: COLORS.accentSoft,
-          borderWidth: 1,
-          borderColor: COLORS.accentBorder,
-        }}
-      >
-        <Ionicons name="sparkles-outline" size={14} color={COLORS.accent} />
-      </View>
+      {/* La mascota ya está al lado (moviéndose): dentro de la burbuja, solo el texto. */}
+      <AvatarBlue escribiendo />
 
       <View
         style={{
@@ -1605,7 +1578,6 @@ function BlueIATypingBubble() {
           paddingHorizontal: 14,
         }}
       >
-        <MarcaAnimada cual="carga" ancho={48} tocable={false} />
         <Text style={{ color: COLORS.muted, fontSize: 13 }}>Blue IA está escribiendo…</Text>
       </View>
     </View>
@@ -1710,19 +1682,10 @@ function QuickSuggestionChip({
   );
 }
 
-// "Hablar con el equipo": discreto (enlace) junto al compositor o destacado
-// (píldora azul) bajo la respuesta de la IA.
-function HablarEquipoButton({
-  variant,
-  busy,
-  onPress,
-}: {
-  variant: "link" | "primary";
-  busy?: boolean;
-  onPress: () => void;
-}) {
-  const primary = variant === "primary";
-  const color = primary ? "#FFFFFF" : COLORS.primary;
+// "Hablar con el equipo": discreto (enlace con auriculares) junto al recuadro de escribir; es el único. Se ve igual
+// que antes, pero ahora toda su fila mide 44 px para tocarlo bien con el pulgar.
+function HablarEquipoButton({ busy, onPress }: { busy?: boolean; onPress: () => void }) {
+  const color = COLORS.primary;
   return (
     <Pressable
       onPress={onPress}
@@ -1735,24 +1698,13 @@ function HablarEquipoButton({
         justifyContent: "center",
         gap: 7,
         borderRadius: 999,
-        paddingVertical: primary ? 11 : 4,
-        paddingHorizontal: primary ? 20 : 8,
-        backgroundColor: primary ? COLORS.primary : "transparent",
+        minHeight: 44,
+        paddingHorizontal: 12,
         opacity: busy ? 0.6 : pressed ? 0.85 : 1,
-        shadowColor: COLORS.primary,
-        shadowOpacity: primary ? 0.22 : 0,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 3 },
       })}
     >
-      {busy ? (
-        <ActivityIndicator size="small" color={color} />
-      ) : (
-        <Ionicons name="headset-outline" size={primary ? 17 : 15} color={color} />
-      )}
-      <Text style={{ color, fontWeight: "900", fontSize: primary ? 14 : 13 }}>
-        Hablar con el equipo
-      </Text>
+      {busy ? <ActivityIndicator size="small" color={color} /> : <Ionicons name="headset-outline" size={15} color={color} />}
+      <Text style={{ color, fontWeight: "900", fontSize: 13 }}>Hablar con el equipo</Text>
     </Pressable>
   );
 }
@@ -1770,7 +1722,7 @@ function BlueIASendButton({
   sending?: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} disabled={disabled}>
+    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel="Enviar la pregunta">
       {({ pressed }) => (
         <View
           style={{
