@@ -44,6 +44,9 @@
  *  - El encuadre de cada portada para Inicio (20261101170000_categorias_portadas_inicio.sql): la columna (lista de
  *    textos, vacía para las que ya había), sin tocar permisos, solo el administrador la cambia, lectura pública y
  *    repetible (con su «prueba de las pruebas»: sin «if not exists», aplicarla dos veces falla).
+ *  - Dónde va el nombre encima de la portada (20261101190000_categorias_titulo_posicion.sql): la columna (vacía = en el
+ *    centro), sin tocar permisos, solo el administrador la cambia, lectura pública, solo {x, y} entre 0 y 100 y
+ *    repetible (con su «prueba de las pruebas»: sin la comprobación, entra un 120 %).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -933,6 +936,42 @@ try {
     }
     ok(falla, "(control) sin «if not exists» aplicarla dos veces falla: la prueba SÍ lo detecta");
     await c20.end();
+
+    // 17) Dónde va el nombre encima de la portada (20261101190000), sobre la misma tabla.
+    const POSICION = readFileSync("supabase/migrations/20261101190000_categorias_titulo_posicion.sql", "utf8");
+    const c21 = await nuevaBase("vz_aislada_posicion", TABLA_CATEGORIAS + OPACIDAD + ENCUADRES + POSICION);
+    const tipoPos = (await c21.query("select data_type from information_schema.columns where table_schema = 'public' and table_name = 'categories' and column_name = 'titulo_posicion'")).rows[0]?.data_type;
+    const vaciaPos = (await c21.query("select titulo_posicion from public.categories")).rows[0].titulo_posicion;
+    ok(tipoPos === "jsonb" && vaciaPos === null, `Posición del nombre: añade la columna, vacía para la que ya había (en el centro) (${tipoPos ?? "no está"})`);
+    const polPos = (await c21.query("select policyname from pg_policies where tablename = 'categories' order by 1")).rows.map((x) => x.policyname);
+    ok(polPos.join(",") === "categories_admin_update,categories_select_public_or_admin", `Posición del nombre: no toca los permisos (${polPos.join(", ")})`);
+    const adminPos = await como(c21, "authenticated", ADMIN, `update public.categories set titulo_posicion = '{"x": 30, "y": 22}' where slug = 'playstation-5'`, { confirmar: true });
+    const clientePos = await como(c21, "authenticated", U1, `update public.categories set titulo_posicion = '{"x": 90, "y": 90}'`, { confirmar: true });
+    const anonPos = await como(c21, "anon", null, "select titulo_posicion from public.categories");
+    ok(
+      adminPos.ok && adminPos.cuantas === 1 && (!clientePos.ok || clientePos.cuantas === 0) && anonPos.ok && anonPos.filas[0]?.titulo_posicion?.x === 30,
+      "Posición del nombre: el administrador la guarda, un cliente no, y cualquiera la lee (como la portada)"
+    );
+    const malas = [`'{"x": 120, "y": 50}'`, `'{"x": -1, "y": 50}'`, `'{"x": "a", "y": 50}'`, `'{"x": 50}'`, `'[50, 50]'`];
+    const codigosPos = [];
+    for (const v of malas) codigosPos.push((await como(c21, "authenticated", ADMIN, `update public.categories set titulo_posicion = ${v}`)).codigo);
+    ok(codigosPos.every((c) => c === "23514" || c === "22P02"), `Posición del nombre: solo {x, y} entre 0 y 100 (las 5 malas se rechazan: ${codigosPos.join(", ")})`);
+    let repetidaPos = true;
+    try {
+      await c21.query(POSICION);
+    } catch {
+      repetidaPos = false;
+    }
+    const checksPos = Number((await c21.query("select count(*) as n from pg_constraint where conname = 'categories_titulo_posicion_check'")).rows[0].n);
+    ok(repetidaPos && checksPos === 1 && (await c21.query("select titulo_posicion from public.categories")).rows[0].titulo_posicion?.y === 22, "Posición del nombre: la migración se puede aplicar dos veces sin duplicar nada ni borrar lo guardado");
+    await c21.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación, una posición fuera del recuadro (120 %) entraría.
+    const sinComprobacionPos = POSICION.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinComprobacionPos !== POSICION, "(control) se ha podido quitar la comprobación de la posición en la copia de prueba");
+    const c22 = await nuevaBase("vz_aislada_posicion_sin_comprobacion", TABLA_CATEGORIAS + sinComprobacionPos);
+    ok((await como(c22, "authenticated", ADMIN, `update public.categories set titulo_posicion = '{"x": 120, "y": 50}'`)).ok, "(control) sin la comprobación entra un 120 %: la prueba SÍ lo detecta");
+    await c22.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
