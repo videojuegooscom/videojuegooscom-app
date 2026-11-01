@@ -69,9 +69,15 @@
  *    llegue después; el chat cuenta lo sin leer; si una consulta falla no se inventa nada; en pantalla ancha va antes de
  *    la flecha; lo que dice el lector de pantalla.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S]
- * Con «N», «P», «Q», «R» o «S» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, o
- * novedades del panel).
+ *  - T) Inicio: TikTok a la izquierda del logo e Instagram a la derecha, con su icono y sus seguidores («1.234», «12,5
+ *    mil»), el logo en el centro, de 44 px o más, sin salirse (también a 320 px), lo que dice el lector de pantalla, que
+ *    al tocar abre el perfil y se mide, que Blue no las tapa (ni otro botón o campo); sin número o sin la migración,
+ *    «Síguenos»; una red desactivada no sale. Administración → Redes sociales: los seguidores de TikTok e Instagram (solo
+ *    cifras), cuándo se escribieron, los toques desde Inicio y lo que se guarda (con y sin la migración).
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T]
+ * Con «N», «P», «Q», «R», «S» o «T» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y
+ * gesto, novedades del panel o redes junto al logo).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -382,6 +388,29 @@ async function contexto(navegador, usuario, rol, estado) {
       const filas = estado.filas ?? [];
       return json(filtro?.startsWith("eq.") ? filas.filter((f) => !f.user_id || f.user_id === filtro.slice(3)) : filas);
     }
+    // Redes junto al logo de Inicio (sección T): TikTok e Instagram con sus seguidores, y lo que guarda Administración →
+    // Redes sociales. Sin la migración (redesSinColumna), la columna «seguidores» no existe, como la base de datos.
+    if (estado.redes && url.pathname.endsWith("/rest/v1/social_links")) {
+      if (metodo === "GET") {
+        if (estado.redesSinColumna && /seguidores/.test(url.searchParams.get("select") ?? "")) {
+          return json({ code: "42703", message: "column social_links.seguidores does not exist" }, 400);
+        }
+        const plataformas = (url.searchParams.get("platform") ?? "").replace(/^in\.\(|\)$/g, "").split(",").filter(Boolean);
+        // Como PostgREST: solo las columnas pedidas.
+        const columnas = (url.searchParams.get("select") ?? "*").split(",");
+        const solo = (f) => (columnas.includes("*") ? f : Object.fromEntries(columnas.map((c) => [c, f[c] ?? null])));
+        return json(estado.redes.filter((f) => !plataformas.length || plataformas.includes(f.platform)).map(solo));
+      }
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        if (estado.redesSinColumna && "seguidores" in cuerpo) {
+          return json({ code: "PGRST204", message: "Could not find the 'seguidores' column of 'social_links' in the schema cache" }, 400);
+        }
+        estado.redesGuardadas = [...(estado.redesGuardadas ?? []), { plataforma: (url.searchParams.get("platform") ?? "").replace(/^eq\./, ""), cuerpo }];
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+    }
+    if (estado.redes && url.pathname.endsWith("/rest/v1/site_settings") && metodo === "PATCH") return r.fulfill({ status: 204, headers: CORS, body: "" });
     // Novedades del Panel de control (sección S): cuántas filas hay después de la fecha pedida («gt»), como la base de
     // datos; se apunta cada consulta para mirar sus filtros. Sin datos de la prueba, cero (nada llega a la base de datos real).
     if (metodo === "HEAD" && /\/rest\/v1\/(pedidos|service_requests|sell_requests|products|escaparate_registro|store_reviews|auditorias_web)$/.test(url.pathname)) {
@@ -1097,6 +1126,183 @@ async function seccionS() {
   await ctx.close();
 }
 
+// ===== T) TikTok e Instagram junto al logo de Inicio, con sus seguidores, y su parte en Administración =================
+async function seccionT() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const red = (platform, label, sort_order, extra = {}) => ({ platform, label, url: "Videojuegoszaragoza", enabled: true, sort_order, seguidores: null, seguidores_actualizado: null, ...extra });
+  const redes = () => [
+    red("instagram", "Instagram", 1, { seguidores: 12560, seguidores_actualizado: "2026-10-30T10:00:00Z" }),
+    red("tiktok", "TikTok", 2, { seguidores: 1234 }),
+    red("whatsapp", "WhatsApp", 3, { url: "627748741" }),
+  ];
+  const medir = (p) => p.evaluate(() => {
+    const r = (id) => {
+      const e = document.getElementById(id);
+      if (!e) return null;
+      const b = e.getBoundingClientRect();
+      return { x: b.x, y: b.y, w: b.width, h: b.height, texto: e.innerText.replace(/\n+/g, " | "), etiqueta: e.getAttribute("aria-label") };
+    };
+    return { tiktok: r("inicio-tiktok"), instagram: r("inicio-instagram"), fila: r("inicio-logo-redes"), ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth };
+  });
+
+  // T1) Con los dos números: TikTok a la izquierda del logo, Instagram a la derecha, en su fila y sin salirse.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, redes: redes() };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-instagram").waitFor({ timeout: 30000 }).catch(() => {});
+    const m = await medir(p);
+    ok(!!m.tiktok && /1\.234 \| seguidores/.test(m.tiktok.texto) && !!m.instagram && /12,5 mil \| seguidores/.test(m.instagram.texto), `T: TikTok enseña «1.234 seguidores» e Instagram «12,5 mil seguidores» (${m.tiktok?.texto} / ${m.instagram?.texto})`);
+    const centro = m.fila ? m.fila.x + m.fila.w / 2 : 0;
+    const enLaFila = (b) => !!b && !!m.fila && b.y >= m.fila.y - 1 && b.y + b.h <= m.fila.y + m.fila.h + 1;
+    ok(!!m.tiktok && !!m.instagram && m.tiktok.x + m.tiktok.w < centro - 50 && m.instagram.x > centro + 50 && enLaFila(m.tiktok) && enLaFila(m.instagram), `T: TikTok a la izquierda del logo e Instagram a la derecha, a su altura (${JSON.stringify({ tiktok: m.tiktok, instagram: m.instagram, fila: m.fila })})`);
+    ok(Math.abs(centro - m.pantalla / 2) < 2, `T: el logo sigue en el centro de la pantalla (${Math.round(centro)} de ${m.pantalla})`);
+    ok(m.tiktok.x >= 0 && m.instagram.x + m.instagram.w <= m.pantalla && m.tiktok.h >= 44 && m.instagram.h >= 44 && m.ancho <= m.pantalla + 1, `T: dentro de la pantalla, de 44 px o más y sin ensanchar la página (${m.ancho}/${m.pantalla})`);
+    ok(m.tiktok.etiqueta === "TikTok: 1.234 seguidores. Abrir el perfil" && m.instagram.etiqueta === "Instagram: 12,5 mil seguidores. Abrir el perfil", `T: un lector de pantalla dice la red, los seguidores y que abre el perfil (${m.tiktok.etiqueta})`);
+    await capturar(p, "T1-inicio-redes");
+
+    // Al tocar Instagram se abre su perfil y se mide (analítica propia).
+    await p.evaluate(() => {
+      window.__abiertos = [];
+      window.open = (u) => {
+        window.__abiertos.push(String(u));
+        return null;
+      };
+    });
+    await p.locator("#inicio-instagram").click();
+    await p.waitForTimeout(600);
+    const abiertos = await p.evaluate(() => window.__abiertos);
+    ok(abiertos.includes("https://www.instagram.com/Videojuegoszaragoza/"), `T: tocar Instagram abre su perfil (${abiertos.join(", ")})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "redes_inicio"); i++) await p.waitForTimeout(400);
+    const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "redes_inicio");
+    ok(!!ev && ev.metadata?.red === "instagram", `T: y se apunta en la analítica propia («redes_inicio», red instagram: ${JSON.stringify(ev?.metadata ?? null)})`);
+
+    // Blue no se queda encima de ninguna de las dos.
+    await p.locator("#blue-flotante").waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(4500);
+    const tapa = await p.evaluate(() => {
+      const blue = document.getElementById("blue-flotante");
+      if (!blue) return "sin Blue";
+      const b = blue.getBoundingClientRect();
+      return ["inicio-tiktok", "inicio-instagram"].filter((id) => {
+        const r = document.getElementById(id)?.getBoundingClientRect();
+        if (!r) return false;
+        return Math.min(b.right, r.right) - Math.max(b.left, r.left) > 12 && Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top) > 12;
+      }).join(", ");
+    });
+    ok(tapa === "", `T: Blue no tapa TikTok ni Instagram (${tapa || "ninguna"})`);
+    // Y, al apartarse, tampoco se pone encima de otra cosa (el buscador, los botones…), como mira pruebas/movil.mjs.
+    const tapados = await p.evaluate(() => {
+      const blue = document.getElementById("blue-flotante");
+      if (!blue) return ["sin Blue"];
+      const b = blue.getBoundingClientRect();
+      return Array.from(document.querySelectorAll('button,a,input,[role="button"],[role="link"],[role="tab"],[tabindex="0"]'))
+        .filter((el) => !el.closest("#blue-flotante"))
+        .filter((el) => el.getBoundingClientRect().width < window.innerWidth * 0.95)
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width < 4 || r.height < 4) return false;
+          return Math.min(b.right, r.right) - Math.max(b.left, r.left) > 12 && Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top) > 12;
+        })
+        .map((el) => (el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.textContent || el.tagName).trim().slice(0, 40));
+    });
+    ok(tapados.length === 0, `T: Blue no se pone encima de ningún botón ni campo (${tapados.join(" · ") || "ninguno"}; Blue en ${JSON.stringify(await p.evaluate(() => { const r = document.getElementById("blue-flotante")?.getBoundingClientRect(); return r ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] : null; }))})`);
+    await capturar(p, "T2-inicio-con-blue");
+    ok(p.errores.length === 0, `T: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // T3) Sin número dice «Síguenos»; una red desactivada no sale y el logo sigue en el centro.
+  {
+    const lista = redes();
+    lista[0].seguidores = null;
+    lista[1].enabled = false;
+    const estado = { filas: perfil, guardados: [], redes: lista };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-instagram").waitFor({ timeout: 30000 }).catch(() => {});
+    const m = await medir(p);
+    ok(!!m.instagram && /^Síguenos \| en Instagram$/.test(m.instagram.texto.trim().replace(/^\S+ \| /, "")) && m.instagram.etiqueta === "Síguenos en Instagram. Abrir el perfil", `T: sin número, Instagram dice «Síguenos en Instagram» (${m.instagram?.texto})`);
+    ok(!m.tiktok && !!m.fila && Math.abs(m.fila.x + m.fila.w / 2 - m.pantalla / 2) < 2, "T: TikTok desactivado no sale y el logo sigue en el centro");
+    await ctx.close();
+  }
+
+  // T4) Sin la migración (no existe la columna): «Síguenos» en las dos, sin errores.
+  {
+    const estado = { filas: perfil, guardados: [], redes: redes(), redesSinColumna: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-tiktok").waitFor({ timeout: 30000 }).catch(() => {});
+    const m = await medir(p);
+    ok(!!m.tiktok && /Síguenos \| en TikTok/.test(m.tiktok.texto) && !!m.instagram && /Síguenos \| en Instagram/.test(m.instagram.texto), `T: sin la migración salen las dos con «Síguenos» (${m.tiktok?.texto} / ${m.instagram?.texto})`);
+    ok(p.errores.length === 0, `T: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+
+    // Móvil estrecho (320 px): todo cabe y se lee entero.
+    await p.setViewportSize({ width: 320, height: 700 });
+    await p.waitForTimeout(600);
+    const e = await p.evaluate(() => ({
+      ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      cortados: Array.from(document.querySelectorAll("#inicio-tiktok *, #inicio-instagram *")).filter((n) => n.children.length === 0 && n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent),
+      dentro: ["inicio-tiktok", "inicio-instagram"].every((id) => {
+        const r = document.getElementById(id)?.getBoundingClientRect();
+        return !!r && r.x >= 0 && r.x + r.width <= window.innerWidth;
+      }),
+    }));
+    ok(e.ancho <= 321 && e.cortados.length === 0 && e.dentro, `T: en un móvil de 320 px todo cabe y se lee entero (${JSON.stringify(e)})`);
+    await capturar(p, "T3-inicio-320");
+    await ctx.close();
+  }
+
+  // T5) Administración → Redes sociales: los seguidores de TikTok e Instagram, cuántos los tocan y lo que se guarda.
+  {
+    const ahora = new Date().toISOString();
+    const estado = {
+      filas: [],
+      guardados: [],
+      redes: redes(),
+      eventos: [
+        { event_name: "redes_inicio", session_id: "s1", metadata: { red: "tiktok" }, created_at: ahora },
+        { event_name: "redes_inicio", session_id: "s1", metadata: { red: "tiktok" }, created_at: ahora },
+        { event_name: "redes_inicio", session_id: "s2", metadata: { red: "tiktok" }, created_at: ahora },
+        { event_name: "redes_inicio", session_id: "s2", metadata: { red: "instagram" }, created_at: ahora },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/redes-sociales");
+    const tiktok = p.locator('[aria-label="Seguidores de TikTok"]');
+    await tiktok.waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await tiktok.inputValue().catch(() => "")) === "1234" && (await p.locator('[aria-label="Seguidores de Instagram"]').inputValue().catch(() => "")) === "12560" && (await p.locator('[aria-label="Seguidores de WhatsApp"]').count()) === 0, "T: Administración enseña los seguidores de TikTok e Instagram (y de nadie más)");
+    const texto = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/En Inicio: 12,5 mil seguidores · escrito el 30 oct 2026/.test(texto), "T: y cómo se ven en Inicio y cuándo se escribieron («12,5 mil seguidores · escrito el 30 oct 2026»)");
+    const toques = await p.locator("#redes-toques-inicio").innerText().catch(() => "");
+    ok(/3 toques en TikTok y 1 en Instagram · 2 visitas distintas/.test(toques), `T: cuenta los toques desde Inicio (${toques})`);
+    await tiktok.fill("2.500");
+    ok((await tiktok.inputValue()) === "2500", "T: el campo solo admite cifras («2.500» queda en 2500)");
+    await capturar(p, "T4-admin-redes");
+    await p.getByText("Guardar cambios", { exact: true }).click();
+    await p.getByText(/^Guardado\./).waitFor({ timeout: 10000 }).catch(() => {});
+    const g = (pl) => (estado.redesGuardadas ?? []).find((x) => x.plataforma === pl)?.cuerpo;
+    ok(g("tiktok")?.seguidores === 2500 && !Number.isNaN(Date.parse(g("tiktok")?.seguidores_actualizado ?? "")), `T: guarda los seguidores de TikTok con la fecha (${JSON.stringify(g("tiktok"))})`);
+    ok(g("instagram")?.seguidores === 12560 && !("seguidores_actualizado" in (g("instagram") ?? {})) && !("seguidores" in (g("whatsapp") ?? { seguidores: 1 })), "T: Instagram sin cambiar no cambia su fecha y WhatsApp no lleva seguidores");
+    ok((await p.getByText(/^Guardado\./).count()) === 1, "T: dice «Guardado.»");
+    ok(p.errores.length === 0, `T: Administración sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // T6) Administración sin la migración: el campo avisa y lo demás se guarda igual.
+  {
+    const estado = { filas: [], guardados: [], redes: redes(), redesSinColumna: true };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/redes-sociales");
+    await p.locator('[aria-label="Seguidores de TikTok"]').waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.getByText(/Se podrá guardar en cuanto se active su parte en la base de datos/).count()) === 2, "T: sin la migración, el campo de seguidores avisa de que aún no se guarda");
+    await p.getByText("Guardar cambios", { exact: true }).click();
+    await p.getByText(/^Guardado\./).waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.getByText(/^Guardado\./).count()) === 1 && (estado.redesGuardadas ?? []).length === 3 && (estado.redesGuardadas ?? []).every((x) => !("seguidores" in x.cuerpo)), "T: y los enlaces se guardan igual (sin los seguidores)");
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -1243,6 +1449,7 @@ try {
   if (SOLO === "Q") await seccionQ();
   if (SOLO === "R") await seccionR();
   if (SOLO === "S") await seccionS();
+  if (SOLO === "T") await seccionT();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2162,6 +2369,7 @@ try {
   await seccionQ();
   await seccionR();
   await seccionS();
+  await seccionT();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

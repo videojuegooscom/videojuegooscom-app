@@ -68,6 +68,12 @@
  * se usa el logo de Apple (Ionicons "logo-apple"): identifica la marca
  * aunque no sea el icono exacto de la app Mapas.
  *
+ * Junto al logo de Inicio (RedJuntoAlLogo / useRedesJuntoAlLogo, más abajo):
+ * TikTok a la izquierda e Instagram a la derecha, con sus seguidores (los
+ * escribe Daniel en app/admin/redes-sociales.tsx). Es el único sitio, además
+ * del pie de página, donde salen redes (lección «Redes sociales: en el pie y,
+ * TikTok e Instagram, junto al logo de Inicio»).
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente para leer `social_links` y
  *   `site_settings.social_links_title` (ya cuenta como petición
@@ -84,6 +90,7 @@ import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
+import { trackEvent } from "../lib/analytics";
 
 export type SocialPlatform =
   | "instagram"
@@ -211,6 +218,96 @@ function openSocialLink(href: string) {
     // Silencioso: si el enlace no se puede abrir (dato mal escrito por el
     // admin, o el dispositivo no tiene con qué abrirlo), no rompemos nada.
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// TikTok e Instagram junto al logo de Inicio (petición del dueño, 2026-11-01): a la izquierda TikTok y a la derecha
+// Instagram, cada uno con su icono y sus seguidores; al tocarlo se abre su perfil. El número lo escribe el dueño en
+// Administración → Redes sociales (columna social_links.seguidores, migración 20261101100000): nunca se inventa. Sin
+// número (o sin la migración todavía) dice «Síguenos». Solo sale la red que está activa y con enlace. Cada toque se
+// mide con la analítica propia («redes_inicio»), que Administración → Redes sociales enseña.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type RedLogo = "tiktok" | "instagram";
+export type FilaRedLogo = { platform: RedLogo; label: string; href: string; seguidores: number | null };
+
+/** «1.234», «12,5 mil», «1,2 M»: siempre redondeado hacia abajo (nunca se enseña más de lo que hay). */
+export function formatearSeguidores(n: number): string {
+  const entero = Math.max(0, Math.floor(n));
+  if (entero < 1000) return String(entero);
+  if (entero < 10000) return `${Math.floor(entero / 1000)}.${String(entero % 1000).padStart(3, "0")}`;
+  const corto = (x: number) => String(x < 100 ? Math.floor(x * 10) / 10 : Math.floor(x)).replace(".", ",");
+  if (entero < 1000000) return `${corto(entero / 1000)} mil`;
+  return `${corto(entero / 1000000)} M`;
+}
+
+/** TikTok e Instagram (activas y con enlace) con sus seguidores, para ponerlos junto al logo. */
+export function useRedesJuntoAlLogo(): Partial<Record<RedLogo, FilaRedLogo>> {
+  const [filas, setFilas] = useState<Partial<Record<RedLogo, FilaRedLogo>>>({});
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const pedir = (columnas: string) => supabase.from("social_links").select(columnas).in("platform", ["tiktok", "instagram"]);
+        let res = await pedir("platform,label,url,enabled,seguidores");
+        // Sin la migración todavía no existe la columna: se piden sin ella y sale «Síguenos».
+        if (res.error) res = await pedir("platform,label,url,enabled");
+        if (!vivo || res.error || !Array.isArray(res.data)) return;
+        const nuevas: Partial<Record<RedLogo, FilaRedLogo>> = {};
+        for (const r of res.data as unknown as (SocialLinkRow & { seguidores?: number | null })[]) {
+          if (r.platform !== "tiktok" && r.platform !== "instagram") continue;
+          const href = r.enabled && r.url ? buildSocialHref(r.platform, r.url) : null;
+          if (!href) continue;
+          const n = Number(r.seguidores);
+          nuevas[r.platform] = { platform: r.platform, label: r.label, href, seguidores: r.seguidores != null && Number.isFinite(n) && n >= 0 ? n : null };
+        }
+        setFilas(nuevas);
+      } catch {
+        // Sin conexión: el logo sale solo, como antes.
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  return filas;
+}
+
+/** Una red junto al logo: su icono, los seguidores (o «Síguenos») y, al tocar, su perfil. */
+export function RedJuntoAlLogo({ fila, estrecho }: { fila: FilaRedLogo; estrecho?: boolean }) {
+  const meta = SOCIAL_ICONS[fila.platform];
+  const numero = fila.seguidores != null ? formatearSeguidores(fila.seguidores) : null;
+  const detalle = fila.seguidores === 1 ? "seguidor" : "seguidores";
+  return (
+    <Pressable
+      nativeID={`inicio-${fila.platform}`}
+      onPress={() => {
+        void trackEvent("redes_inicio", `Inicio: ${fila.label} junto al logo`, { metadata: { red: fila.platform } });
+        openSocialLink(fila.href);
+      }}
+      accessibilityRole="link"
+      accessibilityLabel={numero ? `${fila.label}: ${numero} ${detalle}. Abrir el perfil` : `Síguenos en ${fila.label}. Abrir el perfil`}
+      style={({ pressed }) => ({
+        minWidth: 76,
+        minHeight: 76,
+        paddingHorizontal: 4,
+        paddingVertical: 6,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        opacity: pressed ? 0.7 : 1,
+        transform: [{ scale: pressed ? 0.95 : 1 }],
+      })}
+    >
+      {meta.render(meta.color, estrecho ? 26 : 30)}
+      <Text numberOfLines={1} style={{ color: "#0B2138", fontWeight: "900", fontSize: estrecho ? 15 : 17, marginTop: 4 }}>
+        {numero ?? "Síguenos"}
+      </Text>
+      <Text numberOfLines={1} style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", fontSize: estrecho ? 11 : 12 }}>
+        {numero ? detalle : `en ${fila.label}`}
+      </Text>
+    </Pressable>
+  );
 }
 
 export default function SocialLinks({
