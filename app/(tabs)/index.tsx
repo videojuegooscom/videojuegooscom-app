@@ -17,7 +17,9 @@
  *   mascotas antes de las preguntas frecuentes y CargaMarca mientras carga
  *   la oferta destacada. Todos se animan al tocarlos. A los lados del logo,
  *   TikTok (izquierda) e Instagram (derecha) con su icono y sus seguidores,
- *   que abren su perfil (RedJuntoAlLogo, components/SocialLinks.tsx).
+ *   que abren su perfil (RedJuntoAlLogo, components/SocialLinks.tsx), y
+ *   debajo, con una estrella, las reseñas en los canales de venta
+ *   (ResenasCanales); los números los escribe el dueño.
  * - Sigue el tema claro global: fondo blanco, azul claro de acento y
  *   texto en azul marino oscuro (COLORS de este mismo archivo).
  * - Cada apartado lleva su título y entre apartados hay una línea fina
@@ -95,7 +97,7 @@ import { useRecarga } from "../../components/TirarParaActualizar";
 import Resenas from "../../components/Resenas";
 import SiteFooter from "../../components/SiteFooter";
 import SmartImage from "../../components/SmartImage";
-import { RedJuntoAlLogo, useRedesJuntoAlLogo } from "../../components/SocialLinks";
+import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales } from "../../components/SocialLinks";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
@@ -1706,6 +1708,8 @@ export default function HomeScreen() {
   const isWide = widthSafe >= 1280;
   // TikTok e Instagram a los lados del logo (con sus seguidores); en móviles muy estrechos, todo un poco más pequeño.
   const redesLogo = useRedesJuntoAlLogo();
+  // Debajo del logo, las reseñas en los canales de venta (si el dueño ha escrito el número).
+  const resenasCanales = useResenasCanales();
   const logoEstrecho = widthSafe < 360;
 
   const containerMaxWidth = isWide ? 1240 : isDesktopish ? 1040 : 920;
@@ -1937,6 +1941,11 @@ export default function HomeScreen() {
               {redesLogo.instagram ? <RedJuntoAlLogo fila={redesLogo.instagram} estrecho={logoEstrecho} /> : null}
             </View>
           </View>
+          {resenasCanales != null ? (
+            <View style={{ alignItems: "center", marginTop: -4, marginBottom: 10 }}>
+              <ResenasCanales n={resenasCanales} estrecho={logoEstrecho} />
+            </View>
+          ) : null}
 
           {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}
           <View style={{ gap: 12, alignItems: "center", paddingVertical: 4 }}>
