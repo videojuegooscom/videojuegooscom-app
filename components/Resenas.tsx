@@ -319,7 +319,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
             textAlign: isMobile ? "center" : "left",
           }}
         >
-          Lo que importa no es lo que decimos nosotros, sino lo que opina la gente.
+          Lo que importa no es lo que decimos nosotros, sino lo que opinan nuestros clientes.
         </Text>
 
         <Text
