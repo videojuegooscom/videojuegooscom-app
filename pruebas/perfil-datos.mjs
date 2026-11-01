@@ -95,10 +95,18 @@
  *    cada recuadro de Inicio (y si tenía portada). Inicio: su portada al % elegido, sigue llevando a Servicios y el
  *    toque se apunta. En el catálogo no sale entre las plataformas.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X» o «Y» de cuarto argumento solo se ejecuta esa sección (visor,
- * números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas de las
- * categorías, Blue IA o «Reparación / Limpieza»).
+ *  - Z) Cesta: «Blue, ayúdame a elegir un artículo» (44 px, dentro de la pantalla) lleva a Blue IA con la pregunta ya
+ *    enviada, también si Blue IA ya estaba abierta con otra pregunta; se apunta en la analítica y Administración →
+ *    Analítica cuenta las sesiones.
+ *
+ *  - RE) Reseñas: el texto nuevo de Inicio; «Dejar una reseña» con 10 ideas (44 px) que añaden y quitan su frase, el
+ *    recuadro que crece con lo escrito hasta los 600 caracteres (y encoge al borrar), emojis según lo escrito; lo que
+ *    se publica, la analítica y la línea de Administración → Usuarios.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z» o «RE» de cuarto argumento solo se ejecuta esa sección
+ * (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas de las
+ * categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue o las reseñas).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -262,6 +270,13 @@ async function contexto(navegador, usuario, rol, estado) {
     // Blue IA (sección X): respuestas ficticias (nada llega a la IA real); se apunta cuántas preguntas se mandan.
     if (url.pathname === "/api/blue-ia" && estado.blueIa) {
       estado.preguntasBlueIa = (estado.preguntasBlueIa ?? 0) + 1;
+      // Lo que se le manda (la última pregunta, para la sección Z).
+      try {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        estado.mensajesBlueIa = [...(estado.mensajesBlueIa ?? []), JSON.stringify(cuerpo)];
+      } catch {
+        // sin cuerpo
+      }
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: estado.blueIa(estado.preguntasBlueIa) }) });
     }
     if (url.pathname === "/api/asignar-seguimiento" && estado.asignar) {
@@ -1970,6 +1985,84 @@ async function seccionRE() {
   }
 }
 
+// ===== Z) Cesta: «Blue, ayúdame a elegir un artículo» lleva a Blue IA con la pregunta ya enviada (y se cuenta) ========
+async function seccionZ() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const preguntoElegir = (estado) => (estado.mensajesBlueIa ?? []).some((m) => /Ayúdame a elegir un artículo/.test(m));
+
+  // Z1) Con la cesta vacía: el botón está, se toca bien y abre la conversación con la pregunta enviada.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, blueIa: () => "Claro. ¿Qué presupuesto tienes y para qué lo quieres?" };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/cesta");
+    const boton = p.locator("#cesta-blue-elegir");
+    await boton.waitFor({ timeout: 30000 }).catch(() => {});
+    const m = await p.evaluate(() => {
+      const b = document.querySelector("#cesta-blue-elegir")?.getBoundingClientRect();
+      return {
+        boton: b ? { x: Math.round(b.x), ancho: Math.round(b.width), alto: Math.round(b.height) } : null,
+        texto: document.querySelector("#cesta-blue-elegir")?.textContent?.trim() ?? "",
+        vacia: /Tu cesta está vacía/.test(document.body.innerText),
+        pantalla: window.innerWidth,
+        pagina: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      };
+    });
+    ok(m.vacia && /Blue, ayúdame a elegir un artículo/.test(m.texto), `Z: con la cesta vacía sale «Blue, ayúdame a elegir un artículo» (${m.texto})`);
+    ok(!!m.boton && m.boton.alto >= 44 && m.boton.x >= 0 && m.boton.x + m.boton.ancho <= m.pantalla && m.pagina <= m.pantalla + 1, `Z: se toca bien (44 px o más) y no se sale de la pantalla (${JSON.stringify(m.boton)})`);
+    await capturar(p, "Z1-cesta-blue");
+    await boton.click();
+    await p.waitForURL(/\/blue-ia/, { timeout: 15000 }).catch(() => {});
+    for (let i = 0; i < 30 && !preguntoElegir(estado); i++) await p.waitForTimeout(300);
+    await p.waitForTimeout(800);
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(/\/blue-ia/.test(p.url()) && preguntoElegir(estado), `Z: lleva a la conversación con Blue IA y la pregunta se manda sola (${new URL(p.url()).pathname}, ${estado.preguntasBlueIa ?? 0} preguntas)`);
+    ok(/Ayúdame a elegir un artículo/.test(t) && /¿Qué presupuesto tienes/.test(t), "Z: en la conversación se ven la pregunta y la respuesta de Blue IA");
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "cesta_blue_elegir"); i++) await p.waitForTimeout(300);
+    const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "cesta_blue_elegir");
+    ok(ev?.step_label === "Cesta: Blue, ayúdame a elegir" && ev?.metadata?.con_articulos === false, `Z: se apunta en la analítica propia, con la cesta vacía (${JSON.stringify(ev?.metadata)})`);
+    ok(p.errores.length === 0, `Z: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // Z2) Blue IA ya abierta antes con otra pregunta (una pregunta frecuente de Inicio): la de la Cesta también se manda.
+  // Antes, tras la primera pregunta por la URL, la pestaña no mandaba ninguna más.
+  {
+    const estado = { filas: perfil, guardados: [], blueIa: (n) => (n === 1 ? "Enviamos a toda España en 1-2 días." : "Claro. ¿Qué presupuesto tienes?") };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/blue-ia?q=${encodeURIComponent("¿Hacéis envíos?")}`);
+    for (let i = 0; i < 30 && (estado.preguntasBlueIa ?? 0) < 1; i++) await p.waitForTimeout(300);
+    // Por la pestaña (sin recargar): Blue IA se queda montada, como en el móvil.
+    await p.locator('[data-testid="pestana-cesta"]').first().click({ timeout: 30000 });
+    await p.locator("#cesta-blue-elegir").click({ timeout: 30000 });
+    await p.waitForURL(/\/blue-ia/, { timeout: 15000 }).catch(() => {});
+    for (let i = 0; i < 30 && !preguntoElegir(estado); i++) await p.waitForTimeout(300);
+    ok((estado.preguntasBlueIa ?? 0) === 2 && preguntoElegir(estado), `Z: con Blue IA ya abierta con otra pregunta, la de la Cesta también se manda (${estado.preguntasBlueIa ?? 0} preguntas)`);
+    ok(p.errores.length === 0, `Z: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // Z3) Administración → Analítica cuenta las sesiones que lo tocan (y no se cuela como producto ni paso del recorrido).
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Producto Nintendo Switch OLED", sessions: 6 },
+        { step_label: "Cesta: Blue, ayúdame a elegir", sessions: 5 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-cesta-blue").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-cesta-blue").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Cesta → «Blue, ayúdame a elegir un artículo»: 5 sesiones/.test(t), `Z: Administración → Analítica cuenta las sesiones que lo tocan (${t})`);
+    const resto = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(!/Cesta: Blue/.test(resto), "Z: y no se cuela como producto ni paso del recorrido");
+    ok(p.errores.length === 0, `Z: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -2121,6 +2214,7 @@ try {
   if (SOLO === "W") await seccionW();
   if (SOLO === "X") await seccionX();
   if (SOLO === "Y") await seccionY();
+  if (SOLO === "Z") await seccionZ();
   if (SOLO === "RE") await seccionRE();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
@@ -3046,6 +3140,7 @@ try {
   await seccionW();
   await seccionX();
   await seccionY();
+  await seccionZ();
   await seccionRE();
   }
 } catch (e) {
