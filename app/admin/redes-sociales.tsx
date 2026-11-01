@@ -479,7 +479,8 @@ export default function AdminRedesSociales() {
           <View style={{ width: "100%", maxWidth: 860, gap: 16 }}>
             <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               Los enlaces que se ven en el pie de página, Perfil y la Cesta (TikTok e Instagram,
-              también junto al logo de Inicio con sus seguidores) y que Blue IA recomienda seguir.
+              también junto al logo de Inicio con sus seguidores, y debajo del logo, tus reseñas)
+              y que Blue IA recomienda seguir.
             </Text>
             {toquesInicio ? (
               <Text nativeID="redes-toques-inicio" style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
