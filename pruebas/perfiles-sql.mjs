@@ -38,6 +38,9 @@
  *    repetirla no duplica nada ni borra lo escrito (con su «prueba de las pruebas»: sin la comprobación, entra un negativo).
  *  - Reseñas en los canales de venta (20261101120000_resenas_canales.sql), sobre site_settings como en producción: lo
  *    mismo (dos columnas sin tocar permisos, lectura pública, solo el administrador escribe, sin negativos, repetible).
+ *  - Cuánto se ve la portada en Inicio (20261101140000_categorias_opacidad_portada.sql), sobre categories como en
+ *    producción: la columna sin tocar permisos, lectura pública, solo el administrador la cambia, solo de 10 a 100 y
+ *    repetible (con su «prueba de las pruebas»: sin la comprobación, entra un 5 %).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -842,6 +845,52 @@ try {
     const negRes2 = await como(c16, "authenticated", ADMIN, "update public.site_settings set resenas_canales = -1 where id = 1");
     ok(negRes2.ok, "(control) sin la comprobación entra un negativo: la prueba SÍ lo detecta");
     await c16.end();
+  }
+
+  // 15) Cuánto se ve la portada de cada categoría en Inicio (20261101140000), sobre categories como en producción
+  // (lectura pública de las activas y solo el administrador cambia).
+  {
+    const TABLA_CATEGORIAS = `
+      create table public.categories (id uuid primary key default gen_random_uuid(), name text not null, slug text not null unique,
+        sort_order integer not null default 0, is_active boolean not null default true, image_url text, imagenes jsonb,
+        created_at timestamptz default now(), updated_at timestamptz default now());
+      alter table public.categories enable row level security;
+      create policy categories_select_public_or_admin on public.categories for select using ((is_active = true) or public.is_admin());
+      create policy categories_admin_update on public.categories for update using (public.is_admin());
+      insert into public.categories (name, slug, imagenes) values ('PlayStation 5', 'playstation-5', '["https://fotos.ejemplo.invalid/ps5.jpg"]');
+    `;
+    const OPACIDAD = readFileSync("supabase/migrations/20261101140000_categorias_opacidad_portada.sql", "utf8");
+    const c17 = await nuevaBase("vz_aislada_opacidad", TABLA_CATEGORIAS + OPACIDAD);
+    const tipo = (await c17.query("select data_type from information_schema.columns where table_schema = 'public' and table_name = 'categories' and column_name = 'portada_opacidad'")).rows[0]?.data_type;
+    ok(tipo === "smallint", `Opacidad: añade la columna (${tipo ?? "no está"})`);
+    const polCat = (await c17.query("select policyname from pg_policies where tablename = 'categories' order by 1")).rows.map((x) => x.policyname);
+    ok(polCat.join(",") === "categories_admin_update,categories_select_public_or_admin", `Opacidad: no toca los permisos (${polCat.join(", ")})`);
+    const anonLeeCat = await como(c17, "anon", null, "select portada_opacidad from public.categories");
+    ok(anonLeeCat.ok && anonLeeCat.filas.length === 1 && anonLeeCat.filas[0].portada_opacidad === null, "Opacidad: cualquiera la lee (vacía = 55 % en Inicio)");
+    const adminCat = await como(c17, "authenticated", ADMIN, "update public.categories set portada_opacidad = 40 where slug = 'playstation-5'", { confirmar: true });
+    const clienteCat = await como(c17, "authenticated", U1, "update public.categories set portada_opacidad = 100 where slug = 'playstation-5'", { confirmar: true });
+    const quedaCat = (await c17.query("select portada_opacidad from public.categories")).rows[0].portada_opacidad;
+    ok(adminCat.ok && adminCat.cuantas === 1 && (!clienteCat.ok || clienteCat.cuantas === 0) && quedaCat === 40, "Opacidad: el administrador la cambia; un cliente no");
+    const fuera = [5, 101];
+    const rechazos = [];
+    for (const v of fuera) rechazos.push((await como(c17, "authenticated", ADMIN, `update public.categories set portada_opacidad = ${v}`)).codigo);
+    ok(rechazos.every((cod) => cod === "23514"), `Opacidad: solo de 10 a 100 (5 y 101 se rechazan: ${rechazos.join(", ")})`);
+    let repetidaCat = true;
+    try {
+      await c17.query(OPACIDAD);
+    } catch {
+      repetidaCat = false;
+    }
+    const checksCat = Number((await c17.query("select count(*) as n from pg_constraint where conname = 'categories_portada_opacidad_check'")).rows[0].n);
+    ok(repetidaCat && checksCat === 1 && (await c17.query("select portada_opacidad from public.categories")).rows[0].portada_opacidad === 40, "Opacidad: la migración se puede aplicar dos veces sin duplicar nada ni borrar lo elegido");
+    await c17.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación, un 5 % entraría (la foto casi desaparecería).
+    const sinComprobacionCat = OPACIDAD.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinComprobacionCat !== OPACIDAD, "(control) se ha podido quitar la comprobación de la opacidad en la copia de prueba");
+    const c18 = await nuevaBase("vz_aislada_opacidad_sin_comprobacion", TABLA_CATEGORIAS + sinComprobacionCat);
+    ok((await como(c18, "authenticated", ADMIN, "update public.categories set portada_opacidad = 5")).ok, "(control) sin la comprobación entra un 5 %: la prueba SÍ lo detecta");
+    await c18.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -77,9 +77,19 @@
  *    sociales: los seguidores de TikTok e Instagram y las reseñas (solo cifras), cuándo se escribieron, los toques desde
  *    Inicio y lo que se guarda (con y sin la migración, sin peticiones fallidas).
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T]
- * Con «N», «P», «Q», «R», «S» o «T» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y
- * gesto, novedades del panel o redes junto al logo).
+ *  - W) Portadas de las categorías en Inicio: la foto llena el recuadro con el nombre encima y sale al % que eligió el
+ *    dueño (sin la migración, al 55 %, sin peticiones fallidas); la categoría sin portada sigue con su icono y la fila
+ *    mide lo mismo; con Inicio abierto, un cambio hecho desde otro aparato se ve al volver a la tienda (pasados 15 s).
+ *    El editor: «Cómo se ve en Inicio» (vista previa), «−», «+» y la barra (44 px), se guarda y, de vuelta en Inicio
+ *    sin recargar, ya sale así; sin la migración avisa y guarda lo demás.
+ *
+ *  - V) Blue dentro del Panel de control: su número rojo y su ventana («Avisos del panel») solo con lo del panel
+ *    (clientes que han escrito, ventas de VeoAura sin confirmar, olvidados) y su Asistente sin las guías de la tienda;
+ *    en la tienda, sus avisos de siempre (control).
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W]
+ * Con «N», «P», «Q», «R», «S», «T», «V» o «W» de cuarto argumento solo se ejecuta esa sección (visor, números, chat,
+ * cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel o portadas de las categorías).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -416,6 +426,33 @@ async function contexto(navegador, usuario, rol, estado) {
           return json({ code: "PGRST204", message: "Could not find the 'seguidores' column of 'social_links' in the schema cache" }, 400);
         }
         estado.redesGuardadas = [...(estado.redesGuardadas ?? []), { plataforma: (url.searchParams.get("platform") ?? "").replace(/^eq\./, ""), cuerpo }];
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+    }
+    // Categorías con su portada y cuánto se ve en Inicio (sección W). Sin la migración, sin «portada_opacidad»; se
+    // cuentan las peticiones fallidas y se apunta lo que el editor manda guardar (y queda guardado, como la base de datos).
+    if (estado.categorias && url.pathname.endsWith("/rest/v1/categories")) {
+      const sinColumna = (f) => (estado.categoriasSinColumna ? Object.fromEntries(Object.entries(f).filter(([c]) => c !== "portada_opacidad")) : f);
+      if (metodo === "GET") {
+        const select = url.searchParams.get("select") ?? "*";
+        if (estado.categoriasSinColumna && /portada_opacidad/.test(select)) {
+          estado.categorias400 = (estado.categorias400 ?? 0) + 1;
+          return json({ code: "42703", message: "column categories.portada_opacidad does not exist" }, 400);
+        }
+        const activas = url.searchParams.get("is_active") === "eq.true";
+        const slug = (url.searchParams.get("slug") ?? "").replace(/^eq\./, "");
+        const filas = estado.categorias.filter((f) => (!activas || f.is_active) && (!slug || f.slug === slug)).map(sinColumna);
+        const proyecta = (f) => (select.split(",").includes("*") ? f : Object.fromEntries(select.split(",").map((c) => [c, f[c] ?? null])));
+        return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(filas[0] ? proyecta(filas[0]) : null) : json(filas.map(proyecta));
+      }
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        if (estado.categoriasSinColumna && "portada_opacidad" in cuerpo) {
+          return json({ code: "PGRST204", message: "Could not find the 'portada_opacidad' column of 'categories' in the schema cache" }, 400);
+        }
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        estado.categoriasGuardadas = [...(estado.categoriasGuardadas ?? []), { id, cuerpo }];
+        estado.categorias = estado.categorias.map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
         return r.fulfill({ status: 204, headers: CORS, body: "" });
       }
     }
@@ -1433,6 +1470,173 @@ async function seccionV() {
   await ctx.close();
 }
 
+// ===== W) Portadas de las categorías en Inicio (foto de fondo con el nombre encima) y cuánto se ven (editor) ========
+async function seccionW() {
+  const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/ps5.jpg";
+  const cat = (id, slug, name, extra = {}) => ({
+    id, slug, name, sort_order: 0, is_active: true, image_url: null, imagenes: [], portada_opacidad: null,
+    created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", ...extra,
+  });
+  const categorias = () => [
+    cat("c0000000-0000-4000-8000-0000000000a1", "playstation-5", "PlayStation 5", { image_url: foto, imagenes: [foto], portada_opacidad: 40 }),
+    cat("c0000000-0000-4000-8000-0000000000a2", "playstation-4", "PlayStation 4", { sort_order: 1 }),
+  ];
+  const perfil = (id) => [{ user_id: id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const verCategorias = async (p) => {
+    await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator('[data-testid="categoria-playstation-5"] img').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(600);
+  };
+  const medirInicio = (p) => p.evaluate(() => {
+    const t = document.querySelector('[data-testid="categoria-playstation-5"]');
+    const t4 = document.querySelector('[data-testid="categoria-playstation-4"]');
+    if (!t) return null;
+    const r = (n) => n?.getBoundingClientRect();
+    const capa = t.querySelector("#portada-foto");
+    const nombre = Array.from(t.querySelectorAll("*")).find((n) => n.children.length === 0 && n.textContent.trim() === "PlayStation 5");
+    const [rt, rn, ri] = [r(t), r(nombre), r(capa)];
+    return {
+      opacidad: capa ? Number(getComputedStyle(capa).opacity) : null,
+      conFoto: !!t.querySelector("img"),
+      nombreEncima: !!rn && !!ri && rn.top >= ri.top && rn.bottom <= ri.bottom && rn.left >= ri.left && rn.right <= ri.right,
+      fotoLlena: !!ri && Math.abs(ri.width - rt.width) <= 3 && Math.abs(ri.height - rt.height) <= 3,
+      cortado: !!nombre && nombre.scrollWidth > nombre.clientWidth + 1,
+      altoIgual: !!t4 && Math.abs(r(t4).height - rt.height) <= 1,
+      ps4ConIcono: !!t4 && !t4.querySelector("img") && /PlayStation 4/.test(t4.innerText),
+      ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      pantalla: window.innerWidth,
+      etiqueta: t.getAttribute("aria-label"),
+    };
+  });
+
+  // W1) Inicio: la portada llena el recuadro, el nombre va encima y la foto sale al % elegido (40).
+  {
+    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: categorias() };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await verCategorias(p);
+    const m = await medirInicio(p);
+    ok(!!m && m.conFoto && m.fotoLlena && m.nombreEncima, `W: en Inicio, la portada de PlayStation 5 llena su recuadro y el nombre va encima (${JSON.stringify(m)})`);
+    ok(!!m && Math.abs(m.opacidad - 0.4) < 0.01, `W: la foto sale al 40 % que eligió el dueño (${m?.opacidad})`);
+    ok(!!m && !m.cortado && m.etiqueta === "PlayStation 5. Ver categoría", `W: el nombre se lee entero y un lector de pantalla dice qué es (${m?.etiqueta})`);
+    ok(!!m && m.ps4ConIcono && m.altoIgual, "W: la categoría sin portada sigue con su icono y los dos recuadros de la fila miden lo mismo");
+    ok(!!m && m.ancho <= m.pantalla + 1, `W: la página no se ensancha (${m?.ancho}/${m?.pantalla})`);
+    await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "W1-categorias-inicio.png") : undefined }).catch(() => {});
+    ok(p.errores.length === 0, `W: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // W2) Sin la migración: la foto sale al 55 % y sin peticiones fallidas.
+  {
+    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: categorias(), categoriasSinColumna: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await verCategorias(p);
+    const m = await medirInicio(p);
+    ok(!!m && m.conFoto && Math.abs(m.opacidad - 0.55) < 0.01 && !estado.categorias400, `W: sin la migración, la foto sale al 55 % y no hay peticiones fallidas (${m?.opacidad}; ${estado.categorias400 ?? 0} fallidas)`);
+    await ctx.close();
+  }
+
+  // W2b) La portada cambia desde otro aparato (el panel en el ordenador) con Inicio abierto en el móvil: al volver a la
+  // tienda pasados 15 s (otra app, el móvil bloqueado…), Inicio la vuelve a pedir y sale como la dejó el dueño, sin
+  // cerrar la tienda. Antes seguía con la de cuando se abrió (por eso no se veía la portada nueva en Inicio).
+  {
+    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: categorias() };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await verCategorias(p);
+    const antes = await medirInicio(p);
+    estado.categorias = estado.categorias.map((f) => (f.slug === "playstation-5" ? { ...f, portada_opacidad: 70 } : f));
+    const salirYVolver = () =>
+      p.evaluate(() => {
+        const poner = (v) => Object.defineProperty(document, "visibilityState", { value: v, configurable: true });
+        poner("hidden");
+        document.dispatchEvent(new Event("visibilitychange"));
+        poner("visible");
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    await salirYVolver(); // enseguida: no hace falta pedirlas otra vez
+    await p.waitForTimeout(800);
+    const pronto = await medirInicio(p);
+    await p.waitForTimeout(15500);
+    await salirYVolver();
+    await p.waitForTimeout(1500);
+    const despues = await medirInicio(p);
+    ok(
+      Math.abs((antes?.opacidad ?? 0) - 0.4) < 0.01 && Math.abs((pronto?.opacidad ?? 0) - 0.4) < 0.01 && Math.abs((despues?.opacidad ?? 0) - 0.7) < 0.01,
+      `W: con Inicio abierto, un cambio hecho desde otro aparato se ve al volver a la tienda (antes ${antes?.opacidad}, al momento ${pronto?.opacidad}, pasados 15 s ${despues?.opacidad})`
+    );
+    ok(p.errores.length === 0, `W: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // W3) El dueño, desde Inicio: Perfil → Panel de control → Categorías → Editar; mueve la barra, guarda y, al volver
+  // atrás (sin recargar), Inicio ya enseña la foto como la dejó.
+  {
+    const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias() };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/");
+    await verCategorias(p);
+    const antes = await medirInicio(p);
+    await p.locator('[data-testid="pestana-perfil"]').first().click();
+    await p.locator("#perfil-datos").getByRole("button", { name: "Panel de control" }).click({ timeout: 30000 });
+    await p.waitForURL(/\/admin\/?$/, { timeout: 15000 }).catch(() => {});
+    await p.locator('[role="button"][aria-label^="Categorías"]:visible').first().click({ timeout: 30000 });
+    await p.waitForURL(/\/admin\/categories/, { timeout: 15000 }).catch(() => {});
+    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.locator("#categoria-opacidad").waitFor({ timeout: 15000 }).catch(() => {});
+    const valor = () => p.locator("#categoria-opacidad-valor").innerText().catch(() => "");
+    const previa = () => p.evaluate(() => Number(getComputedStyle(document.querySelector("#categoria-opacidad #portada-foto")).opacity));
+    ok((await valor()) === "40" && Math.abs((await previa()) - 0.4) < 0.01 && /Cómo se ve en Inicio/.test(await p.locator("#categoria-opacidad").innerText()), "W: el editor enseña «Cómo se ve en Inicio» con la foto al 40 %");
+    await p.getByRole("button", { name: "Foto más suave" }).click();
+    await p.getByRole("button", { name: "Foto más suave" }).click();
+    ok((await valor()) === "30" && Math.abs((await previa()) - 0.3) < 0.01, `W: «−» la deja más suave de 5 en 5 y la vista previa cambia al momento (${await valor()} %)`);
+    await p.evaluate(() => {
+      const barra = document.querySelector('#categoria-opacidad input[type="range"]');
+      const poner = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      poner.call(barra, "75");
+      barra.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await p.waitForTimeout(200);
+    ok((await valor()) === "75" && Math.abs((await previa()) - 0.75) < 0.01, `W: la barra la pone al 75 % (${await valor()} %)`);
+    const tamanos = await p.evaluate(() =>
+      ["Foto más suave", "Foto más fuerte"].map((t) => Math.round(document.querySelector(`[aria-label="${t}"]`)?.getBoundingClientRect().height ?? 0))
+        .concat([Math.round(document.querySelector('#categoria-opacidad input[type="range"]')?.getBoundingClientRect().height ?? 0)])
+    );
+    ok(tamanos.every((h) => h >= 44), `W: «−», «+» y la barra se tocan bien, de 44 px (${tamanos.join(", ")})`);
+    await capturar(p, "W2-editor-categoria");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#categoria-opacidad").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const guardada = (estado.categoriasGuardadas ?? []).at(-1)?.cuerpo;
+    ok(guardada?.portada_opacidad === 75, `W: al guardar se manda la foto al 75 % (${JSON.stringify(guardada)})`);
+    // Atrás hasta Inicio (sin recargar la página): Inicio se había quedado abierto con la foto al 40 %.
+    for (let i = 0; i < 3 && new URL(p.url()).pathname !== "/"; i++) {
+      await p.goBack().catch(() => {});
+      await p.waitForTimeout(800);
+    }
+    await verCategorias(p);
+    const despues = await medirInicio(p);
+    ok(new URL(p.url()).pathname === "/" && Math.abs((antes?.opacidad ?? 0) - 0.4) < 0.01 && Math.abs((despues?.opacidad ?? 0) - 0.75) < 0.01, `W: de vuelta en Inicio (sin recargar), la foto ya sale al 75 % (antes ${antes?.opacidad}, ahora ${despues?.opacidad})`);
+    ok(p.errores.length === 0, `W: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // W4) El editor sin la migración: avisa y guarda lo demás sin la transparencia.
+  {
+    const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias(), categoriasSinColumna: true };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByText("Editar", { exact: true }).first().click({ timeout: 30000 });
+    await p.locator("#categoria-opacidad").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale al 55 %/.test(await p.locator("#categoria-opacidad").innerText().catch(() => "")), "W: sin la migración, el editor avisa de que la transparencia aún no se guarda");
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    await p.locator("#categoria-opacidad").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const guardada = (estado.categoriasGuardadas ?? []).at(-1)?.cuerpo;
+    ok(!!guardada && !("portada_opacidad" in guardada) && Array.isArray(guardada.imagenes) && !estado.categorias400, `W: y guarda la categoría con su portada, sin la transparencia ni peticiones fallidas (${JSON.stringify(guardada)})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -1581,6 +1785,7 @@ try {
   if (SOLO === "S") await seccionS();
   if (SOLO === "T") await seccionT();
   if (SOLO === "V") await seccionV();
+  if (SOLO === "W") await seccionW();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -2502,6 +2707,7 @@ try {
   await seccionS();
   await seccionT();
   await seccionV();
+  await seccionW();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
