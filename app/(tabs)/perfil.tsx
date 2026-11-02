@@ -5,9 +5,10 @@
  * components/PerfilPublico.tsx, que también obliga a completarlo en el resto
  * de la tienda) con la cuenta dentro (subtítulo «Tu cuenta está activa», el
  * correo de la sesión en un recuadro más y, al pie, «Cerrar sesión» y, si el
- * rol es admin, «Panel de control» en la misma fila) y la pestaña «Mis
- * seguimientos»; se cambia de pestaña tocándola o deslizando el dedo. Al
- * final, el pie de página (con las redes sociales, una sola vez).
+ * rol es admin, «Panel de control» en la misma fila; encima, «Mejoras en la
+ * tienda», que abre la cajita de ideas de components/ReviewModal.tsx) y la
+ * pestaña «Mis seguimientos»; se cambia de pestaña tocándola o deslizando el
+ * dedo. Al final, el pie de página (con las redes sociales, una sola vez).
  *
  * Cómo funciona:
  * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
@@ -83,10 +84,11 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
+import { MejorasModal } from "../../components/ReviewModal";
 import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trackEvent } from "../../lib/analytics";
-import { supabase } from "../../lib/supabase";
+import { mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
 const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
@@ -620,6 +622,8 @@ export default function PerfilScreen() {
   );
   // ¿Se enseña «Mi perfil»? (null mientras carga; false si la tabla aún no existe: entonces la cuenta sale en su tarjeta).
   const [perfilDisponible, setPerfilDisponible] = useState<boolean | null>(null);
+  // «Mejoras en la tienda» abierta desde Mi cuenta.
+  const [mejorasAbierta, setMejorasAbierta] = useState(false);
 
   const isChecking = state === "checking";
   const isSubmitting = state === "submitting";
@@ -715,7 +719,7 @@ export default function PerfilScreen() {
       setSessionUserId(null);
       setSessionRole("guest");
       setState("idle");
-      setMsg(error?.message ?? "No se pudo comprobar la sesión actual.");
+      setMsg(mensajeAuthEnEspanol(error, "No se ha podido comprobar tu sesión. Recarga la página."));
     }
   }, []);
 
@@ -787,11 +791,7 @@ export default function PerfilScreen() {
       });
 
       if (error) {
-        setMsg(
-          error.message === "Invalid login credentials"
-            ? "Email o contraseña incorrectos."
-            : error.message
-        );
+        setMsg(mensajeAuthEnEspanol(error, "No se ha podido iniciar sesión. Inténtalo de nuevo en unos minutos."));
         setState("idle");
         return;
       }
@@ -824,7 +824,7 @@ export default function PerfilScreen() {
       );
       setState("idle");
     } catch (error: any) {
-      setMsg(error?.message ?? "Error inesperado al iniciar sesión.");
+      setMsg(mensajeAuthEnEspanol(error, "No se ha podido iniciar sesión. Inténtalo de nuevo en unos minutos."));
       setState("idle");
     }
   }, [clearMessages, email, pass]);
@@ -869,19 +869,17 @@ export default function PerfilScreen() {
       });
 
       if (error) {
-        setMsg(error.message);
+        setMsg(mensajeAuthEnEspanol(error, "No se ha podido crear la cuenta. Inténtalo de nuevo en unos minutos."));
         setState("idle");
         return;
       }
 
-      setOkMsg(
-        "Cuenta creada correctamente. Si tienes activada la confirmación por email en Supabase, revisa tu bandeja de entrada antes de iniciar sesión."
-      );
+      setOkMsg("Cuenta creada. Si te hemos enviado un correo para confirmarla, ábrelo antes de iniciar sesión (mira también en Spam).");
       setMode("signin");
       setPass("");
       setState("idle");
     } catch (error: any) {
-      setMsg(error?.message ?? "No se pudo crear la cuenta.");
+      setMsg(mensajeAuthEnEspanol(error, "No se ha podido crear la cuenta. Inténtalo de nuevo en unos minutos."));
       setState("idle");
     }
   }, [clearMessages, email, pass, registerCountry, registerName, registerUsername]);
@@ -932,28 +930,16 @@ export default function PerfilScreen() {
 
     setState("resettingPassword");
 
-    try {
-      const redirectTo =
-        Platform.OS === "web" && typeof window !== "undefined"
-          ? `${window.location.origin}/reset-password`
-          : undefined;
-
-      const { error } = await supabase.auth.resetPasswordForEmail(e, { redirectTo });
-
-      if (error) {
-        setMsg(error.message);
-        setState("idle");
-        return;
-      }
-
-      setOkMsg(
-        "Si ese email tiene una cuenta, te hemos enviado un enlace para crear una contraseña nueva."
-      );
-      setState("idle");
-    } catch (error: any) {
-      setMsg(error?.message ?? "No se pudo enviar el enlace de recuperación.");
-      setState("idle");
+    // Mensajes de Supabase en español y medición (Administración → Usuarios, «Recuperar contraseña»): nunca el correo.
+    const r = await pedirEnlaceContrasena(e);
+    if (r.ok) {
+      void trackEvent("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "perfil" } });
+      setOkMsg("Si ese email tiene una cuenta, te hemos enviado un enlace para crear una contraseña nueva (mira también en Spam).");
+    } else {
+      void trackEvent("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "perfil", motivo: r.motivo } });
+      setMsg(r.mensaje);
     }
+    setState("idle");
   }, [clearMessages, email]);
 
   const signOut = useCallback(async () => {
@@ -972,7 +958,7 @@ export default function PerfilScreen() {
       setOkMsg("Sesión cerrada correctamente.");
       setState("idle");
     } catch (error: any) {
-      setMsg(error?.message ?? "No se pudo cerrar la sesión.");
+      setMsg(mensajeAuthEnEspanol(error, "No se ha podido cerrar la sesión. Inténtalo de nuevo."));
       setState("idle");
     }
   }, [clearMessages]);
@@ -986,6 +972,19 @@ export default function PerfilScreen() {
   // subtítulo de «Mi perfil» y el correo de la sesión va en su recuadro, con los datos (components/PerfilPublico.tsx).
   const accionesCuenta = (
     <View nativeID="perfil-cuenta" style={{ gap: 8, alignItems: "center" }}>
+      {/* «Mejoras en la tienda»: la cajita de ideas (components/ReviewModal.tsx), con la sesión ya iniciada. */}
+      <Pressable
+        nativeID="perfil-mejoras"
+        onPress={() => setMejorasAbierta(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Mejoras en la tienda: cuéntanos qué mejorarías"
+        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Ionicons name="bulb-outline" size={19} color={COLORS.accent} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>Mejoras en la tienda</Text>
+        <Ionicons name="chevron-forward" size={16} color={COLORS.accent} />
+      </Pressable>
+      <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="perfil" />
       {sessionRole === "admin" ? (
         <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", lineHeight: 17, textAlign: "center" }}>
           Esta cuenta tiene acceso al panel de administración.

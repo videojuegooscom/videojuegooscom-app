@@ -47,6 +47,10 @@
  *  - Dónde va el nombre encima de la portada (20261101190000_categorias_titulo_posicion.sql): la columna (vacía = en el
  *    centro), sin tocar permisos, solo el administrador la cambia, lectura pública, solo {x, y} entre 0 y 100 y
  *    repetible (con su «prueba de las pruebas»: sin la comprobación, entra un 120 %).
+ *  - «Mejoras en la tienda» (20261101200000_mejoras_tienda.sql): sin sesión nada; cada cliente envía las suyas (a su
+ *    nombre, sin leer, de 3 a 500 letras, desde blue/pie/perfil) y solo ve las suyas; el administrador las ve todas y las
+ *    marca como leídas; nadie las borra desde la app; 5 al día por persona; se van con la cuenta; la privacidad lo explica
+ *    una vez (con su «prueba de las pruebas»: sin el límite, entra la sexta).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -972,6 +976,93 @@ try {
     const c22 = await nuevaBase("vz_aislada_posicion_sin_comprobacion", TABLA_CATEGORIAS + sinComprobacionPos);
     ok((await como(c22, "authenticated", ADMIN, `update public.categories set titulo_posicion = '{"x": 120, "y": 50}'`)).ok, "(control) sin la comprobación entra un 120 %: la prueba SÍ lo detecta");
     await c22.end();
+  }
+
+  // 18) «Mejoras en la tienda» (20261101200000): la tabla de ideas, quién ve y escribe qué, el límite diario, que se van
+  // con la cuenta y la frase de la privacidad (sobre la política como está en producción: sus 8 apartados).
+  {
+    const MEJORAS = readFileSync("supabase/migrations/20261101200000_mejoras_tienda.sql", "utf8");
+    const TITULOS_PRIV = ["Responsable del tratamiento", "Qué datos tratamos", "Para qué usamos tus datos", "Base legal", "Con quién compartimos tus datos", "Cuánto tiempo conservamos tus datos", "Cookies y analítica propia", "Tus derechos"];
+    const PRIV = JSON.stringify(TITULOS_PRIV.map((heading) => ({ heading, body: `Texto de hoy de «${heading}».` })));
+    const ESQUEMA_MEJORAS = `
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad', '${PRIV.replace(/'/g, "''")}'::jsonb), ('terminos', 'Términos', '[]'::jsonb);
+    `;
+    const c23 = await nuevaBase("vz_aislada_mejoras", ESQUEMA_MEJORAS + MEJORAS);
+    let repetidaMej = true;
+    try {
+      await c23.query(MEJORAS);
+    } catch (e) {
+      repetidaMej = false;
+      console.log(String(e.message));
+    }
+    const politicasMej = (await c23.query("select policyname from pg_policies where schemaname = 'public' and tablename = 'mejoras_tienda' order by 1")).rows.map((r) => r.policyname);
+    const disparadores = Number((await c23.query("select count(*) as n from pg_trigger where tgrelid = 'public.mejoras_tienda'::regclass and not tgisinternal")).rows[0].n);
+    ok(repetidaMej && politicasMej.length === 3 && disparadores === 1, `Mejoras: la migración se puede aplicar dos veces sin duplicar políticas ni el límite (${politicasMej.join(", ")}; ${disparadores} disparador)`);
+    ok((await c23.query("select relrowsecurity from pg_class where oid = 'public.mejoras_tienda'::regclass")).rows[0].relrowsecurity === true, "Mejoras: la seguridad por filas (RLS) está activada");
+    const privMej = async (rol, p) => (await c23.query("select has_table_privilege($1, 'public.mejoras_tienda', $2) as t", [rol, p])).rows[0].t;
+    ok(!(await privMej("anon", "select")) && !(await privMej("anon", "insert")) && !(await privMej("anon", "update")) && !(await privMej("anon", "delete")), "Mejoras: los visitantes sin sesión (anon) no tienen ningún permiso");
+    ok((await privMej("authenticated", "insert")) && !(await privMej("authenticated", "delete")), "Mejoras: con sesión se pueden enviar, pero nadie las borra desde la app");
+    const anonMej = await como(c23, "anon", null, "insert into public.mejoras_tienda (texto) values ('Hola desde fuera')");
+    ok(!anonMej.ok && anonMej.codigo === "42501", `Mejoras: sin sesión no se puede enviar (${anonMej.codigo})`);
+
+    const propiaMej = await como(c23, "authenticated", U1, "insert into public.mejoras_tienda (texto, origen) values ('Poned filtro por precio en el catálogo', 'pie') returning user_id, leida", { confirmar: true });
+    ok(propiaMej.ok && propiaMej.filas[0]?.user_id === U1 && propiaMej.filas[0]?.leida === false, "Mejoras: un cliente envía su idea; queda a su nombre y sin leer");
+    const ajenaMej = await como(c23, "authenticated", U1, `insert into public.mejoras_tienda (user_id, texto) values ('${U2}', 'A nombre de otra persona')`);
+    ok(!ajenaMej.ok && ajenaMej.codigo === "42501", `Mejoras: no se puede enviar a nombre de otra persona (${ajenaMej.codigo})`);
+    const yaLeida = await como(c23, "authenticated", U1, "insert into public.mejoras_tienda (texto, leida) values ('Me la marco como leída', true)");
+    ok(!yaLeida.ok && yaLeida.codigo === "42501", `Mejoras: un cliente no la puede enviar ya marcada como leída (${yaLeida.codigo})`);
+    const malasMej = [];
+    for (const [texto, origen] of [["ab", "blue"], ["   ab   ", "blue"], ["x".repeat(501), "blue"], ["Una idea normal", "otro"]]) {
+      malasMej.push((await como(c23, "authenticated", U1, `insert into public.mejoras_tienda (texto, origen) values ('${texto}', '${origen}')`)).codigo);
+    }
+    ok(malasMej.every((x) => x === "23514"), `Mejoras: rechaza textos de menos de 3 letras (también con espacios), de más de 500 y un sitio desconocido (${malasMej.join(", ")})`);
+    const otroVe = await como(c23, "authenticated", U2, "select count(*)::int as n from public.mejoras_tienda");
+    ok(otroVe.ok && otroVe.filas[0].n === 0, `Mejoras: otro cliente no ve las ideas de los demás (${otroVe.filas?.[0]?.n})`);
+    const clienteMarca = await como(c23, "authenticated", U1, "update public.mejoras_tienda set leida = true, leida_en = now()", { confirmar: true });
+    ok(!clienteMarca.ok || clienteMarca.cuantas === 0, "Mejoras: un cliente no puede marcarlas como leídas (ni las suyas)");
+    const adminVe = await como(c23, "authenticated", ADMIN, "select count(*)::int as n from public.mejoras_tienda");
+    const adminMarca = await como(c23, "authenticated", ADMIN, "update public.mejoras_tienda set leida = true, leida_en = now() returning leida", { confirmar: true });
+    ok(adminVe.ok && adminVe.filas[0].n === 1 && adminMarca.ok && adminMarca.cuantas === 1, "Mejoras: el administrador las ve todas y las marca como leídas");
+
+    // Como mucho 5 al día por persona (ya lleva 1): entran 4 más y la sexta no, con un mensaje claro. Otra persona sí puede.
+    const cuatro = [];
+    for (let i = 1; i <= 4; i++) cuatro.push((await como(c23, "authenticated", U1, `insert into public.mejoras_tienda (texto) values ('Idea número ${i + 1}')`, { confirmar: true })).ok);
+    const sexta = await como(c23, "authenticated", U1, "insert into public.mejoras_tienda (texto) values ('La sexta del día')");
+    ok(cuatro.every(Boolean) && !sexta.ok && sexta.codigo === "P0001" && /5 ideas hoy/.test(sexta.mensaje), `Mejoras: como mucho 5 ideas al día por persona, con un mensaje claro (${sexta.codigo}: ${sexta.mensaje?.slice(0, 60)})`);
+    const otraPersona = await como(c23, "authenticated", U2, "insert into public.mejoras_tienda (texto, origen) values ('Más fotos de cada consola', 'perfil')", { confirmar: true });
+    ok(otraPersona.ok, "Mejoras: el límite es por persona (otra persona sí puede enviar)");
+    await c23.query(`update public.mejoras_tienda set created_at = now() - interval '2 days' where user_id = '${U1}'`);
+    ok((await como(c23, "authenticated", U1, "insert into public.mejoras_tienda (texto) values ('Al día siguiente')")).ok, "Mejoras: al día siguiente se puede volver a enviar");
+
+    // Se van con la cuenta.
+    await c23.query(`delete from auth.users where id = '${U2}'`);
+    ok(Number((await c23.query(`select count(*) as n from public.mejoras_tienda where user_id = '${U2}'`)).rows[0].n) === 0, "Mejoras: al borrar una cuenta, sus ideas se borran con ella");
+
+    // La privacidad lo explica una vez, al final de «Para qué usamos tus datos», sin tocar el resto.
+    const leerPriv = async () => (await c23.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const secciones = await leerPriv();
+    const paraQue = secciones.find((s) => s.heading === "Para qué usamos tus datos")?.body ?? "";
+    ok(
+      JSON.stringify(secciones.map((s) => s.heading)) === JSON.stringify(TITULOS_PRIV) &&
+        paraQue.startsWith("Texto de hoy de «Para qué usamos tus datos».") &&
+        (paraQue.match(/Mejoras en la tienda/g) ?? []).length === 1 &&
+        secciones.filter((s) => s.heading !== "Para qué usamos tus datos").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      "Mejoras: la privacidad lo explica una sola vez (aunque se aplique dos veces) y el resto queda igual"
+    );
+    await c23.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin el disparador del límite, la sexta idea del día entraría.
+    const sinLimite = MEJORAS.replace(/do \$\$\s*begin\s*if not exists \(select 1 from pg_trigger[\s\S]*?end \$\$;/, "");
+    ok(sinLimite !== MEJORAS, "(control) se ha podido quitar el límite diario en la copia de prueba");
+    const c24 = await nuevaBase("vz_aislada_mejoras_sin_limite", ESQUEMA_MEJORAS + sinLimite);
+    const entran = [];
+    for (let i = 1; i <= 6; i++) entran.push((await como(c24, "authenticated", U1, `insert into public.mejoras_tienda (texto) values ('Idea ${i}')`, { confirmar: true })).ok);
+    ok(entran.every(Boolean), "(control) sin el límite entra la sexta idea del día: la prueba SÍ lo detecta");
+    await c24.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -110,14 +110,29 @@
  *    puede pedir con permiso se avisa.
  *
  *  - NO) Categorías: buscador arriba de los contadores, fichas en rejilla (2 por fila en el móvil), «+» flotante abajo
- *    a la derecha y «Editar»/«Borrar» con iconos de 44 px. El nombre se mueve manteniéndolo pulsado (sin mantener, no),
- *    se guarda y Inicio lo pone ahí, siempre entero; «Aplicar a otras» (al lado de «Categoría activa») copia la
- *    transparencia y la posición a las elegidas. Sin la migración, avisa y guarda lo demás.
+ *    a la derecha y «Editar»/«Borrar» con iconos de 44 px. El nombre va ENCIMA de cada recuadro (fuera de la foto),
+ *    entero, con los recuadros de una fila alineados y aire entre filas; la vista previa del editor igual (sin «mover
+ *    el nombre»); «A otras» (al lado de «Categoría activa») copia la transparencia a las elegidas. Productos en
+ *    rejilla con «+» e iconos, y los iconos del resto del panel.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE» o «EN» de cuarto argumento solo se ejecuta esa
- * sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el panel, portadas
- * de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas o el encuadre de las portadas).
+ *  - BU) Blue nunca tapa la barra de búsqueda: dejado encima (fijo) se aparta lo justo en su lado; arrastrado encima,
+ *    se aparta al soltarlo; y tampoco tapa la lista de resultados.
+ *
+ *  - ME) «Mejoras en la tienda»: desde el pie de página, Blue y Mi cuenta (con su sitio), de 3 a 500 letras, el
+ *    recuadro crece, el límite del día en español, la analítica propia; sin sesión pide iniciarla; sin la migración
+ *    dice «muy pronto» y no pide la tabla al cargar. Administración: Usuarios (sin leer primero, quién y desde dónde,
+ *    filtros, marcar como leída, uso de 30 días), la ficha del cliente y el número rojo del Panel.
+ *
+ *  - CO) «¿Olvidaste tu contraseña?»: pedir el enlace (sin revelar si hay cuenta), abrirlo en el mismo navegador
+ *    (?code=), en otro (explica por qué y deja pedir otro allí mismo), el de la plantilla (token_hash, en cualquier
+ *    navegador, y se quita de la dirección), caducados o sin enlace, «Mostrar», los errores de Supabase en español, la
+ *    analítica propia sin el correo y la línea «Recuperar contraseña» de Administración → Usuarios (con el aviso del SMTP).
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME» o «CO» de cuarto argumento
+ * solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en
+ * el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el encuadre de
+ * las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda o recuperar la contraseña).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -243,6 +258,36 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.resenasEnviadas = [...(estado.resenasEnviadas ?? []), cuerpo];
       const fila = { id: "r0000000-0000-4000-8000-000000000001", created_at: new Date().toISOString(), user_id: usuario.id, display_name: "Ana", ...cuerpo };
       return json(/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? fila : [fila], 201);
+    }
+    // «Mejoras en la tienda» (sección ME), como la base de datos: cada cliente ve las suyas y el administrador todas. Sin
+    // `estado.mejoras`, la tabla no existe (antes de la migración). Se apunta lo enviado y lo marcado como leído.
+    if (url.pathname.endsWith("/rest/v1/mejoras_tienda")) {
+      if (!estado.mejoras) {
+        estado.mejoras404 = (estado.mejoras404 ?? 0) + 1;
+        return json({ code: "PGRST205", message: "Could not find the table 'public.mejoras_tienda' in the schema cache" }, 404);
+      }
+      if (metodo === "POST") {
+        const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+        estado.mejorasEnviadas = [...(estado.mejorasEnviadas ?? []), cuerpo];
+        if (estado.mejorasLimite) return json({ code: "P0001", message: "Ya nos has enviado 5 ideas hoy. ¡Gracias! Mañana puedes mandarnos más." }, 400);
+        estado.mejoras = [{ id: `m${Date.now()}`, user_id: usuario.id, created_at: new Date().toISOString(), leida: false, leida_en: null, ...cuerpo }, ...estado.mejoras];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        estado.mejorasMarcadas = [...(estado.mejorasMarcadas ?? []), { id, cuerpo }];
+        estado.mejoras = estado.mejoras.map((m) => (m.id === id ? { ...m, ...cuerpo } : m));
+        return json([{ id }]);
+      }
+      const uid = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
+      const sinLeer = url.searchParams.get("leida") === "eq.false";
+      const desde = (url.searchParams.get("created_at") ?? "").replace(/^gt\./, "");
+      const visibles = estado.mejoras.filter(
+        (m) => (rol === "admin" || m.user_id === usuario.id) && (!uid || m.user_id === uid) && (!sinLeer || !m.leida) && (!desde || m.created_at > desde)
+      );
+      if (metodo === "HEAD") return json([], 200, { "content-range": `*/${visibles.length}`, "access-control-expose-headers": "*" });
+      return json(visibles);
     }
     // Foro: mensajes ficticios y la función perfiles_publicos (usuario y foto de quien escribe).
     if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "GET") return json(estado.mensajes ?? []);
@@ -439,6 +484,35 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.pedidosPerfilesForo = [...(estado.pedidosPerfilesForo ?? []), JSON.parse(peticion.postData() ?? "{}")];
       if (!estado.perfilesForo) return json({ code: "PGRST202", message: "Could not find the function public.perfiles_publicos(ids) in the schema cache" }, 404);
       return json(estado.perfilesForo);
+    }
+    // Recuperar contraseña (sección CO), como Supabase: pedir el enlace, canjearlo (el de siempre, ?code= con su código de
+    // seguridad, o el de la plantilla, token_hash) y sus errores, que Supabase da en inglés.
+    if (url.pathname.endsWith("/auth/v1/recover")) {
+      estado.recover = [...(estado.recover ?? []), { redirect_to: url.searchParams.get("redirect_to"), cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+      if (estado.recoverError) return json(estado.recoverError.cuerpo, estado.recoverError.status);
+      return json({});
+    }
+    const sesionDe = () => {
+      const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: usuario.id, role: "authenticated", exp, aud: "authenticated", email: usuario.email })}.firma`;
+      return { access_token: jwt, refresh_token: "r", expires_in: 3600, expires_at: exp, token_type: "bearer", user: usuario };
+    };
+    if (url.pathname.endsWith("/auth/v1/verify") && metodo === "POST") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.verificaciones = [...(estado.verificaciones ?? []), cuerpo];
+      if (cuerpo.token_hash !== "hash-bueno" || cuerpo.type !== "recovery") return json({ code: 403, error_code: "otp_expired", msg: "Email link is invalid or has expired" }, 403);
+      return json(sesionDe());
+    }
+    if (url.pathname.endsWith("/auth/v1/token") && url.searchParams.get("grant_type") === "pkce") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.canjes = [...(estado.canjes ?? []), cuerpo];
+      if (cuerpo.auth_code !== "codigo-bueno") return json({ code: 400, error_code: "flow_state_not_found", msg: "invalid flow state, no valid flow state found" }, 400);
+      return json(sesionDe());
+    }
+    if (url.pathname.endsWith("/auth/v1/user") && metodo === "PUT" && estado.contrasenaError) {
+      estado.cuenta = JSON.parse(peticion.postData() ?? "{}");
+      return json(estado.contrasenaError.cuerpo, estado.contrasenaError.status);
     }
     if (url.pathname.endsWith("/auth/v1/user")) {
       if (metodo === "PUT") {
@@ -1611,16 +1685,19 @@ async function seccionW() {
     const t4 = document.querySelector('[data-testid="categoria-playstation-4"]');
     if (!t) return null;
     const r = (n) => n?.getBoundingClientRect();
+    // El recuadro (la foto o el icono) y, encima, fuera de la foto, el nombre.
+    const caja = t.querySelector('[data-recuadro="1"]');
+    const caja4 = t4?.querySelector('[data-recuadro="1"]');
     const capa = t.querySelector("#portada-foto");
-    const nombre = Array.from(t.querySelectorAll("*")).find((n) => n.children.length === 0 && n.textContent.trim() === "PlayStation 5");
-    const [rt, rn, ri] = [r(t), r(nombre), r(capa)];
+    const nombre = t.querySelector('[data-categoria-nombre="1"]');
+    const [rt, rn, ri] = [r(caja), r(nombre), r(capa)];
     return {
       opacidad: capa ? Number(getComputedStyle(capa).opacity) : null,
       conFoto: !!t.querySelector("img"),
-      nombreEncima: !!rn && !!ri && rn.top >= ri.top && rn.bottom <= ri.bottom && rn.left >= ri.left && rn.right <= ri.right,
-      fotoLlena: !!ri && Math.abs(ri.width - rt.width) <= 3 && Math.abs(ri.height - rt.height) <= 3,
+      nombreEncima: !!rn && !!ri && rn.bottom <= ri.top && rn.left >= rt.left - 1 && rn.right <= rt.right + 1 && /PlayStation 5/.test(nombre.textContent),
+      fotoLlena: !!ri && !!rt && Math.abs(ri.width - rt.width) <= 3 && Math.abs(ri.height - rt.height) <= 3,
       cortado: !!nombre && nombre.scrollWidth > nombre.clientWidth + 1,
-      altoIgual: !!t4 && Math.abs(r(t4).height - rt.height) <= 1,
+      altoIgual: !!caja4 && !!rt && Math.abs(r(caja4).height - rt.height) <= 1 && Math.abs(r(caja4).top - rt.top) <= 1,
       ps4ConIcono: !!t4 && !t4.querySelector("img") && /PlayStation 4/.test(t4.innerText),
       ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
       pantalla: window.innerWidth,
@@ -1639,10 +1716,10 @@ async function seccionW() {
     const p = await pagina(ctx, "/");
     await verCategorias(p);
     const m = await medirInicio(p);
-    ok(!!m && m.conFoto && m.fotoLlena && m.nombreEncima, `W: en Inicio, la portada de PlayStation 5 llena su recuadro y el nombre va encima (${JSON.stringify(m)})`);
+    ok(!!m && m.conFoto && m.fotoLlena && m.nombreEncima, `W: en Inicio, la portada de PlayStation 5 llena su recuadro y el nombre va ENCIMA del recuadro, fuera de la foto (${JSON.stringify(m)})`);
     ok(!!m && Math.abs(m.opacidad - 0.4) < 0.01, `W: la foto sale al 40 % que eligió el dueño (${m?.opacidad})`);
     ok(!!m && !m.cortado && m.etiqueta === "PlayStation 5. Ver categoría", `W: el nombre se lee entero y un lector de pantalla dice qué es (${m?.etiqueta})`);
-    ok(!!m && m.ps4ConIcono && m.altoIgual, "W: la categoría sin portada sigue con su icono y los dos recuadros de la fila miden lo mismo");
+    ok(!!m && m.ps4ConIcono && m.altoIgual, "W: la categoría sin portada sigue con su icono y los dos recuadros de la fila miden lo mismo y empiezan a la misma altura");
     ok(!!m && m.ancho <= m.pantalla + 1, `W: la página no se ensancha (${m?.ancho}/${m?.pantalla})`);
     ok(!!m && !m.conVerCategoria, "W: ningún recuadro de Categorías dice «Ver categoría» ni «Ver servicios»");
     ok(!!m && Math.abs(m.forma - 6 / 5) < 0.03, `W: en el móvil la portada tiene la forma del encuadre del editor, 6:5 (${m?.forma?.toFixed(3)})`);
@@ -1907,7 +1984,8 @@ async function seccionY() {
       const t = document.querySelector('[data-testid="categoria-reparaciones"]');
       if (!t) return null;
       const capa = t.querySelector("#portada-foto");
-      const rt = t.getBoundingClientRect();
+      // La foto llena el recuadro (el nombre va encima, fuera).
+      const rt = t.querySelector('[data-recuadro="1"]')?.getBoundingClientRect() ?? t.getBoundingClientRect();
       const ri = capa?.getBoundingClientRect();
       return {
         conFoto: !!t.querySelector("img"),
@@ -2019,7 +2097,7 @@ async function seccionEN() {
       };
     });
     ok(/Encuadra la portada/.test(ventana.texto) && /Así se verá en el recuadro de Inicio/.test(ventana.texto) && /Usar este encuadre/.test(ventana.texto), `EN: al elegir la foto se abre «Encuadra la portada» (${ventana.texto.slice(0, 120)})`);
-    ok(Math.abs(ventana.forma - 6 / 5) < 0.03 && ventana.nombre && Math.abs(ventana.opacidad - 0.4) < 0.01, `EN: con la forma del recuadro de Inicio (6:5), el nombre encima y la foto al 40 % elegido (${ventana.forma?.toFixed(3)}, ${ventana.opacidad})`);
+    ok(Math.abs(ventana.forma - 6 / 5) < 0.03 && !ventana.nombre && Math.abs(ventana.opacidad - 0.4) < 0.01, `EN: con la forma del recuadro de Inicio (6:5), la foto al 40 % elegido y sin el nombre encima de la foto, que en Inicio va fuera (${ventana.forma?.toFixed(3)}, ${ventana.opacidad})`);
     ok(!(estado.subidas ?? []).length, "EN: y todavía no se ha subido nada");
     // Arrastrar hacia la izquierda: se ve la parte derecha (azul), sin dejar huecos.
     const caja = await vista.boundingBox();
@@ -2125,8 +2203,8 @@ async function seccionEN() {
   }
 }
 
-// ===== NO) Categorías: buscador arriba, fichas en rejilla, «+» flotante e iconos; el nombre se mueve manteniéndolo
-// pulsado (y se ve así en Inicio, siempre entero) y «Aplicar a otras» copia la transparencia y su posición =============
+// ===== NO) Categorías: buscador arriba, fichas en rejilla, «+» flotante e iconos; el nombre va encima de cada recuadro
+// (en Inicio y en la vista previa, siempre entero) y «A otras» copia la transparencia =================================
 async function seccionNO() {
   const foto = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/ps5.jpg";
   const PS5 = "c0000000-0000-4000-8000-0000000000a1";
@@ -2183,88 +2261,67 @@ async function seccionNO() {
     await ctx.close();
   }
 
-  // NO2) Mover el nombre: arrastrar sin mantener no lo mueve; manteniéndolo pulsado, sí; se guarda.
+  // NO2) El editor: «Cómo se ve en Inicio» enseña el nombre ENCIMA del recuadro (fuera de la foto), como Inicio, sin
+  // «mover el nombre» (ya no hace falta), y guardar no manda ninguna posición del nombre.
   {
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/categories");
     await p.getByRole("button", { name: "Editar PlayStation 5" }).click({ timeout: 30000 });
-    const caja = p.locator("#portada-nombre-movible");
-    await caja.waitFor({ timeout: 15000 }).catch(() => {});
-    await caja.scrollIntoViewIfNeeded().catch(() => {});
-    await p.waitForTimeout(500);
-    const medir = () =>
-      p.evaluate(() => {
-        const c = document.querySelector("#portada-nombre-movible")?.getBoundingClientRect();
-        const n = document.querySelector('#portada-nombre-movible [data-portada-nombre="1"]')?.getBoundingClientRect();
-        if (!c || !n) return null;
-        return {
-          caja: { x: c.x, y: c.y, w: c.width, h: c.height },
-          cx: n.x + n.width / 2,
-          cy: n.y + n.height / 2,
-          px: Math.round(((n.x + n.width / 2 - c.x) / c.width) * 100),
-          py: Math.round(((n.y + n.height / 2 - c.y) / c.height) * 100),
-        };
-      });
-    const antes = await medir();
-    // Arrastrar enseguida (sin mantener): es desplazar, no mover el nombre.
-    await p.mouse.move(antes.cx, antes.cy);
-    await p.mouse.down();
-    await p.mouse.move(antes.cx - 40, antes.cy - 30, { steps: 4 });
-    await p.mouse.up();
-    await p.waitForTimeout(300);
-    const sinMantener = await medir();
-    ok(Math.abs(sinMantener.px - antes.px) <= 1 && Math.abs(sinMantener.py - antes.py) <= 1, `NO: arrastrar sin mantener pulsado no mueve el nombre (${antes.px},${antes.py} → ${sinMantener.px},${sinMantener.py})`);
-    // Mantener pulsado medio segundo y arrastrarlo arriba a la izquierda.
-    const destino = { x: antes.caja.x + antes.caja.w * 0.3, y: antes.caja.y + antes.caja.h * 0.22 };
-    await p.mouse.move(antes.cx, antes.cy);
-    await p.mouse.down();
-    await p.waitForTimeout(550);
-    await p.mouse.move(destino.x, destino.y, { steps: 8 });
-    await p.mouse.up();
-    await p.waitForTimeout(400);
-    const movido = await medir();
-    ok(movido.px < 45 && movido.py < 35, `NO: manteniéndolo pulsado se arrastra adonde se quiera (arriba a la izquierda: ${movido.px} %, ${movido.py} %)`);
-    const pista = await p.locator("#categoria-nombre-posicion").innerText().catch(() => "");
-    ok(/Mantén pulsado el nombre/.test(pista) && (await p.getByRole("button", { name: "Centrar el nombre" }).count()) === 1, "NO: lo explica y ofrece «Centrar el nombre»");
-    await capturar(p, "NO2-nombre-movido");
+    await p.locator("#categoria-vista-previa").waitFor({ timeout: 15000 }).catch(() => {});
+    const m = await p.evaluate(() => {
+      const n = document.querySelector('#categoria-vista-previa [data-categoria-nombre="1"]')?.getBoundingClientRect();
+      const f = document.querySelector("#categoria-vista-previa #portada-foto")?.getBoundingClientRect();
+      return { encima: !!n && !!f && n.bottom <= f.top, mover: /Mantén pulsado el nombre/.test(document.body.innerText) };
+    });
+    ok(m.encima && !m.mover && (await p.getByRole("button", { name: "Centrar el nombre" }).count()) === 0, "NO: la vista previa del editor pone el nombre encima del recuadro, como Inicio, y ya no se ofrece moverlo");
+    await capturar(p, "NO2-vista-previa");
     await p.getByText("Guardar cambios", { exact: true }).last().click();
-    await p.locator("#portada-nombre-movible").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    await p.locator("#categoria-vista-previa").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
     const guardada = (estado.categoriasGuardadas ?? []).at(-1);
-    const pos = guardada?.cuerpo?.titulo_posicion;
-    ok(guardada?.id === PS5 && Math.abs(pos?.x - 30) <= 3 && Math.abs(pos?.y - 22) <= 3, `NO: al guardar se manda dónde va el nombre (${JSON.stringify(pos)})`);
+    ok(guardada?.id === PS5 && !("titulo_posicion" in (guardada?.cuerpo ?? {})), `NO: al guardar no se manda ninguna posición del nombre (${JSON.stringify(guardada?.cuerpo)})`);
     ok(p.errores.length === 0, `NO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 
-  // NO3) Inicio pone el nombre ahí (arriba a la izquierda), siempre entero dentro del recuadro.
+  // NO3) Inicio: cada nombre va ENCIMA de su recuadro, entero y sin tocar la foto; los recuadros de una fila empiezan a
+  // la misma altura y entre una fila y el nombre de la siguiente hay aire (no se confunden).
   {
     const cliente = { filas: perfil(CLIENTE.id), guardados: [], categorias: estado.categorias };
     const ctx = await contexto(navegador, CLIENTE, "user", cliente);
     const p = await pagina(ctx, "/");
     await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
-    await p.locator('[data-testid="categoria-playstation-5"] [data-portada-nombre="1"]').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.locator('[data-testid="categoria-playstation-5"] [data-categoria-nombre="1"]').first().waitFor({ timeout: 20000 }).catch(() => {});
     await p.waitForTimeout(800);
     const m = await p.evaluate(() => {
-      const t = document.querySelector('[data-testid="categoria-playstation-5"]')?.getBoundingClientRect();
-      const n = document.querySelector('[data-testid="categoria-playstation-5"] [data-portada-nombre="1"]')?.getBoundingClientRect();
-      const t4 = document.querySelector('[data-testid="categoria-playstation-4"]')?.getBoundingClientRect();
-      const n4 = document.querySelector('[data-testid="categoria-playstation-4"] [data-portada-nombre="1"]')?.getBoundingClientRect();
-      if (!t || !n || !t4 || !n4) return null;
-      return {
-        px: Math.round(((n.x + n.width / 2 - t.x) / t.width) * 100),
-        py: Math.round(((n.y + n.height / 2 - t.y) / t.height) * 100),
-        entero: n.left >= t.left + 2 && n.right <= t.right - 2 && n.top >= t.top + 2 && n.bottom <= t.bottom - 2,
-        ps4Centro: [Math.round(((n4.x + n4.width / 2 - t4.x) / t4.width) * 100), Math.round(((n4.y + n4.height / 2 - t4.y) / t4.height) * 100)],
-      };
+      const fichas = Array.from(document.querySelectorAll('[data-testid^="categoria-"]')).map((t) => {
+        const n = t.querySelector('[data-categoria-nombre="1"]');
+        const c = t.querySelector('[data-recuadro="1"]');
+        const rn = n?.getBoundingClientRect();
+        const rc = c?.getBoundingClientRect();
+        return {
+          nombre: n?.textContent?.trim() ?? "",
+          encima: !!rn && !!rc && rn.bottom <= rc.top + 0.5,
+          entero: !!n && n.scrollWidth <= n.clientWidth + 1 && n.scrollHeight <= n.clientHeight + 1,
+          nombreArriba: rn ? rn.top : 0,
+          cajaArriba: rc ? Math.round(rc.top) : 0,
+          cajaAbajo: rc ? rc.bottom : 0,
+        };
+      });
+      return { fichas, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), pantalla: window.innerWidth };
     });
-    ok(!!m && m.px < 50 && m.py < 35 && m.entero, `NO: en Inicio el nombre sale donde se dejó, arriba a la izquierda, y entero dentro del recuadro (${m?.px} %, ${m?.py} %)`);
-    ok(!!m && Math.abs(m.ps4Centro[0] - 50) <= 3 && Math.abs(m.ps4Centro[1] - 50) <= 4, `NO: el de una categoría sin mover sigue en el centro (${m?.ps4Centro?.join(" %, ")} %)`);
-    await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "NO3-inicio-nombre.png") : undefined }).catch(() => {});
+    const f = m.fichas;
+    ok(f.length === 6 && f.every((x) => x.nombre && x.encima && x.entero), `NO: en Inicio cada nombre va encima de su recuadro, entero y fuera de la foto (${f.map((x) => `${x.nombre}:${x.encima ? "encima" : "NO"}`).join(", ")})`);
+    const filas = [f.slice(0, 2), f.slice(2, 4), f.slice(4, 6)];
+    ok(filas.every((fila) => fila.length === 2 && fila[0].cajaArriba === fila[1].cajaArriba), `NO: los recuadros de cada fila empiezan a la misma altura (${filas.map((fila) => fila.map((x) => x.cajaArriba).join("/")).join(", ")})`);
+    const aire = Math.min(f[2].nombreArriba - Math.max(f[0].cajaAbajo, f[1].cajaAbajo), f[4].nombreArriba - Math.max(f[2].cajaAbajo, f[3].cajaAbajo));
+    ok(aire >= 16, `NO: entre una fila y los nombres de la siguiente hay aire (${Math.round(aire)} px)`);
+    ok(m.ancho <= m.pantalla + 1, `NO: Inicio no se ensancha (${m.ancho}/${m.pantalla})`);
+    await p.locator('[data-testid="seccion-categorias"]').screenshot({ path: SALIDA ? join(SALIDA, "NO3-inicio-nombres.png") : undefined }).catch(() => {});
     ok(p.errores.length === 0, `NO: Inicio sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 
-  // NO4) «Aplicar a otras»: el desplegable deja elegir a cuáles y copia la transparencia y la posición del nombre.
+  // NO4) «A otras»: el desplegable deja elegir a cuáles y copia la transparencia de la foto.
   {
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/categories");
@@ -2285,29 +2342,12 @@ async function seccionNO() {
     await p.getByText(/^Copiado a 1 categoría/).waitFor({ timeout: 15000 }).catch(() => {});
     const copia = (estado.categoriasGuardadas ?? []).at(-1);
     ok(
-      marcada === "true" && JSON.stringify(copia?.ids) === JSON.stringify([PS4]) && copia?.cuerpo?.portada_opacidad === 40 && Math.abs(copia?.cuerpo?.titulo_posicion?.x - 30) <= 3,
-      `NO: «Aplicar a 1 categoría» copia a PlayStation 4 la transparencia (40 %) y la posición del nombre (${JSON.stringify(copia)})`
+      marcada === "true" && JSON.stringify(copia?.ids) === JSON.stringify([PS4]) && JSON.stringify(copia?.cuerpo) === JSON.stringify({ portada_opacidad: 40 }),
+      `NO: «Aplicar a 1 categoría» copia a PlayStation 4 la transparencia de la foto, 40 % (${JSON.stringify(copia)})`
     );
-    ok((await p.getByText(/^Copiado a 1 categoría: la transparencia y la posición del nombre\./).count()) === 1, "NO: y lo confirma");
+    ok((await p.getByText(/^Copiado a 1 categoría: la transparencia \(40 %\)\./).count()) === 1, "NO: y lo confirma");
     await capturar(p, "NO4-aplicar-a-otras");
     ok(p.errores.length === 0, `NO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
-    await ctx.close();
-  }
-
-  // NO5) Sin la migración: se puede mover en la vista previa, se avisa de que no se guarda y se guarda lo demás.
-  {
-    const sinColumna = (f) => Object.fromEntries(Object.entries(f).filter(([c]) => c !== "titulo_posicion"));
-    const estado5 = { filas: perfil(ADMIN.id), guardados: [], categorias: categorias().map(sinColumna), categoriasSinPosicion: true };
-    const ctx = await contexto(navegador, ADMIN, "admin", estado5);
-    const p = await pagina(ctx, "/admin/categories");
-    await p.getByRole("button", { name: "Editar PlayStation 5" }).click({ timeout: 30000 });
-    await p.locator("#categoria-opacidad").waitFor({ timeout: 15000 }).catch(() => {});
-    const aviso = await p.locator("#categoria-opacidad").innerText().catch(() => "");
-    ok(/Dónde va el nombre se podrá guardar en cuanto se active su parte en la base de datos/.test(aviso), "NO: sin la migración avisa de que la posición del nombre aún no se guarda");
-    await p.getByText("Guardar cambios", { exact: true }).last().click();
-    await p.locator("#categoria-opacidad").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
-    const guardada = (estado5.categoriasGuardadas ?? []).at(-1)?.cuerpo;
-    ok(!!guardada && !("titulo_posicion" in guardada) && guardada.portada_opacidad === 40, `NO: y guarda lo demás sin la posición (${JSON.stringify(guardada)})`);
     await ctx.close();
   }
 
@@ -2583,6 +2623,526 @@ async function seccionZ() {
   }
 }
 
+// ===== BU) Blue nunca tapa la barra de búsqueda (dueño, 2026-11-01) =================================================
+// Ni cuando la persona lo deja encima (se queda fijo donde lo suelta), ni al arrastrarlo encima, ni sobre la lista de
+// resultados. Se mide la capa visible de Blue y la barra de verdad (el hijo de #buscador-flotante, cuya capa ocupa todo
+// el ancho), solo cuando las dos se ven.
+async function seccionBU() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const medir = (p, otro = null) => p.evaluate((idOtro) => {
+    const capaBlue = document.getElementById("blue-flotante")?.firstElementChild;
+    const capaBarra = document.getElementById("buscador-flotante");
+    const barra = idOtro ? document.getElementById(idOtro) : capaBarra?.firstElementChild;
+    if (!capaBlue || !barra) return null;
+    const b = capaBlue.getBoundingClientRect();
+    const r = barra.getBoundingClientRect();
+    const se = (el) => Number(getComputedStyle(el).opacity) > 0.3;
+    const solape = Math.min(b.right, r.right) - Math.max(b.left, r.left) > 0 && Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top) > 0;
+    return {
+      tapa: solape && se(capaBlue) && (!capaBarra || se(capaBarra)),
+      seVe: se(capaBlue),
+      hueco: Math.round(b.top >= r.bottom ? b.top - r.bottom : r.top - b.bottom),
+      blue: [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)],
+      barra: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+    };
+  }, otro);
+  const esperarBlue = async (p) => {
+    for (let i = 0; i < 70 && !(await medir(p))?.seVe; i++) await p.waitForTimeout(400);
+  };
+  // Mira varias veces seguidas (Blue se mueve con un muelle): ninguna vez puede taparla.
+  const vigilar = async (p, ms, otro = null) => {
+    const vistas = [];
+    for (let t = 0; t < ms; t += 150) {
+      vistas.push(await medir(p, otro));
+      await p.waitForTimeout(150);
+    }
+    return { tapada: vistas.filter((v) => v?.tapa).length, ultima: vistas[vistas.length - 1] };
+  };
+  const estado = { filas: perfil, guardados: [], productosVacios: true };
+  const ctx = await contexto(navegador, CLIENTE, "user", estado);
+  const p = await pagina(ctx, "/");
+  await p.locator("#buscador-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+  await p.waitForTimeout(1200);
+
+  // BU1) La persona dejó a Blue justo encima de la barra (y desde entonces se queda fijo donde lo deja): al volver a la
+  // tienda se aparta lo justo, en su mismo lado.
+  const barra = await p.evaluate(() => {
+    const r = document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect();
+    return r ? { arriba: r.top, abajo: r.bottom, alto: window.innerHeight } : null;
+  });
+  ok(!!barra, `BU: Inicio tiene la barra de búsqueda (${JSON.stringify(barra)})`);
+  // Mismas cuentas que sitioToXY de components/Campanita.tsx (72 px, 40 arriba, 84 abajo).
+  const fyEncima = barra ? Math.min(1, Math.max(0, ((barra.arriba + barra.abajo) / 2 - 36 - 40) / (barra.alto - 72 - 84 - 40))) : 0;
+  await p.evaluate((fy) => {
+    localStorage.setItem("videojuegoszaragoza:campanita_corner", JSON.stringify({ lado: "l", fy }));
+    sessionStorage.setItem("videojuegoszaragoza:blue_fijo", "1");
+  }, fyEncima);
+  await p.reload({ waitUntil: "load" });
+  await esperarBlue(p);
+  const fijo = await vigilar(p, 2400);
+  ok(!!fijo.ultima?.seVe && fijo.tapada === 0, `BU: Blue, dejado encima de la barra, ya no la tapa (${fijo.tapada} veces encima; Blue ${JSON.stringify(fijo.ultima?.blue)}, barra ${JSON.stringify(fijo.ultima?.barra)})`);
+  ok(!!fijo.ultima && fijo.ultima.blue[0] < 40 && fijo.ultima.hueco >= 0 && fijo.ultima.hueco <= 40, `BU: se aparta lo justo, en su mismo lado (a ${fijo.ultima?.hueco} px de la barra)`);
+  await capturar(p, "BU1-blue-junto-al-buscador");
+
+  // BU2) Arrastrarlo con el dedo al otro lado, encima de la barra: al soltarlo se aparta en seguida, en ese lado.
+  const caja = await p.locator("#blue-flotante").boundingBox();
+  const b2 = await p.evaluate(() => document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect().toJSON());
+  if (caja && b2) {
+    const cdp = await ctx.newCDPSession(p);
+    const [x0, y0] = [caja.x + caja.width / 2, caja.y + caja.height / 2];
+    const [x1, y1] = [b2.x + b2.width - 30, b2.y + b2.height / 2];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y: y0 }] });
+    for (let i = 1; i <= 12; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + ((x1 - x0) * i) / 12, y: y0 + ((y1 - y0) * i) / 12 }] });
+      await p.waitForTimeout(16);
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+  const arrastrado = await vigilar(p, 2000);
+  const guardado = JSON.parse((await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:campanita_corner"))) ?? "null");
+  ok(guardado?.lado === "r" && (arrastrado.ultima?.blue?.[0] ?? 0) > 200, `BU: se puede arrastrar con el dedo al otro lado, encima de la barra (${JSON.stringify(guardado)}; Blue ${JSON.stringify(arrastrado.ultima?.blue)})`);
+  ok(!!caja && !!b2 && arrastrado.ultima?.seVe && arrastrado.tapada <= 3 && !arrastrado.ultima.tapa, `BU: al soltarlo encima de la barra se aparta en seguida (${arrastrado.tapada} vistas encima mientras se mueve; Blue ${JSON.stringify(arrastrado.ultima?.blue)}, barra ${JSON.stringify(arrastrado.ultima?.barra)})`);
+  ok(!!arrastrado.ultima && arrastrado.ultima.hueco >= 0 && arrastrado.ultima.hueco <= 40, `BU: y se queda pegado a la barra, en el lado donde lo soltó (a ${arrastrado.ultima?.hueco} px)`);
+  ok((await p.locator('[aria-modal="true"]').count()) === 0, "BU: arrastrarlo no abre su panel (ninguna ventana encima)");
+  await capturar(p, "BU2-blue-arrastrado");
+
+  // BU3) La barra recibe el toque (nada la tapa) y, al escribir, sale la lista de resultados: Blue tampoco la tapa.
+  const recibe = await p.evaluate(() => {
+    const campo = document.querySelector("#buscador-flotante input");
+    const r = campo?.getBoundingClientRect();
+    if (!r) return "sin campo";
+    const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    if (e && e.closest("#buscador-flotante")) return "sí";
+    const tocable = e?.closest("[aria-label],[tabindex]");
+    return `tapada por ${e?.closest("#blue-flotante") ? "Blue" : "otra cosa"}: ${(tocable?.getAttribute("aria-label") ?? tocable?.outerHTML ?? e?.outerHTML ?? "").slice(0, 160)}`;
+  });
+  ok(recibe === "sí", `BU: la barra recibe el toque, nada la tapa (${recibe})`);
+  await p.locator("#buscador-flotante input").first().click({ timeout: 8000 }).catch(() => {});
+  await p.keyboard.type("ps", { delay: 60 });
+  await p.locator("#buscador-resultados").waitFor({ timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(600);
+  const lista = await vigilar(p, 2400, "buscador-resultados");
+  const conLista = !!(await p.evaluate(() => document.getElementById("buscador-resultados")));
+  ok(conLista && lista.tapada <= 3 && !lista.ultima?.tapa, `BU: con la lista de resultados abierta, Blue no la tapa (${lista.tapada} vistas encima mientras se aparta; Blue ${JSON.stringify(lista.ultima?.blue)}, lista ${JSON.stringify(lista.ultima?.barra)})`);
+  await capturar(p, "BU3-blue-y-resultados");
+  ok(p.errores.length === 0, `BU: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  await ctx.close();
+}
+
+// ===== ME) «Mejoras en la tienda»: la cajita de ideas (pie de página, Blue y Mi cuenta) y su parte en Administración ===
+async function seccionME() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const ventana = (p) => p.evaluate(() => (document.getElementById("mejoras-ventana")?.innerText ?? "").replace(/\n+/g, " | "));
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+
+  // ME1) Con sesión: desde el pie de página, Blue y Mi cuenta.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, productosVacios: true, mejoras: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    const pie = p.locator("#pie-mejoras");
+    await pie.waitFor({ timeout: 30000 }).catch(() => {});
+    await pie.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+    const medidaPie = await pie.boundingBox({ timeout: 5000 }).catch(() => null);
+    ok(!!medidaPie && medidaPie.height >= 44 && /Mejoras en la tienda/.test((await pie.innerText().catch(() => "")) ?? ""), `ME: el pie de página tiene «Mejoras en la tienda» a la vista, de 44 px (${medidaPie?.height})`);
+    await pie.click();
+    await p.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Mejoras en la tienda/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 1, `ME: se abre la cajita con su recuadro para escribir (${(await ventana(p)).slice(0, 90)})`);
+    const campo = p.locator("#mejoras-texto");
+    await campo.fill("ab");
+    await p.getByText("Enviar idea", { exact: true }).click({ force: true });
+    await p.waitForTimeout(500);
+    ok(!(estado.mejorasEnviadas ?? []).length, "ME: con menos de 3 letras no se envía");
+    const altoAntes = (await campo.boundingBox())?.height ?? 0;
+    await campo.fill("Una idea:\npoder filtrar por precio\nen el catálogo\ny ver las consolas\npor marca\ncon fotos más grandes");
+    await p.waitForTimeout(400);
+    const altoDespues = (await campo.boundingBox())?.height ?? 0;
+    ok(altoDespues > altoAntes + 10, `ME: el recuadro crece con lo escrito (${Math.round(altoAntes)} → ${Math.round(altoDespues)} px)`);
+    await campo.fill("x".repeat(620));
+    ok((await campo.inputValue()).length === 500, `ME: como mucho 500 letras (${(await campo.inputValue()).length})`);
+    await campo.fill("Poder filtrar por precio en el catálogo");
+    await p.getByText("Enviar idea", { exact: true }).click();
+    await esperar(p, () => (estado.mejorasEnviadas ?? []).length > 0);
+    await p.getByText("¡Gracias! La hemos recibido").waitFor({ timeout: 10000 }).catch(() => {});
+    const enviada = (estado.mejorasEnviadas ?? [])[0];
+    ok(enviada?.texto === "Poder filtrar por precio en el catálogo" && enviada?.origen === "pie" && !("user_id" in (enviada ?? {})), `ME: se guarda el texto y que vino del pie de página (quién lo pone la base de datos) (${JSON.stringify(enviada)})`);
+    ok(/¡Gracias! La hemos recibido/.test(await ventana(p)), "ME: y da las gracias");
+    await capturar(p, "ME1-mejora-enviada");
+    await esperar(p, () => evento(estado, "mejora_enviada").length > 0);
+    ok(
+      evento(estado, "mejora_abierta")[0]?.metadata?.origen === "pie" && evento(estado, "mejora_abierta")[0]?.metadata?.con_sesion === true && evento(estado, "mejora_enviada")[0]?.metadata?.origen === "pie",
+      `ME: la analítica propia apunta que se abrió y se envió, y desde dónde (${JSON.stringify(evento(estado, "mejora_abierta")[0]?.metadata)})`
+    );
+    await p.locator("#mejoras-ventana").getByText("Cerrar", { exact: true }).click().catch(() => {});
+    await p.waitForTimeout(500);
+
+    // Desde Blue (pestaña Asistente).
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await p.waitForSelector("#blue-flotante", { timeout: 25000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click();
+    // Con avisos pendientes el panel se abre en «Noticias y avisos»: se pasa al Asistente.
+    await p.getByRole("tab", { name: /Asistente/ }).first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    // La ventana de Blue va al final de la página: su «Mejoras en la tienda» es el último (el primero es el del pie).
+    const enBlue = p.getByText("Mejoras en la tienda", { exact: true }).last();
+    await enBlue.click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    if (!(await p.locator("#mejoras-texto").count())) await capturar(p, "ME1-panel-blue-sin-cajita");
+    await p.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#mejoras-texto").fill("Que Blue me avise de las ofertas");
+    await p.getByText("Enviar idea", { exact: true }).click();
+    await esperar(p, () => (estado.mejorasEnviadas ?? []).length > 1);
+    ok((estado.mejorasEnviadas ?? [])[1]?.origen === "blue", `ME: desde Blue (Asistente) también, y se sabe que vino de Blue (${(estado.mejorasEnviadas ?? [])[1]?.origen})`);
+    ok(p.errores.length === 0, `ME: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+
+    // Desde Perfil → Mi cuenta; y el límite diario lo dice con el mensaje de la base de datos.
+    const pp = await pagina(ctx, "/perfil");
+    await pp.locator("#perfil-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await pp.locator("#perfil-mejoras").count()) === 1, "ME: Mi cuenta tiene «Mejoras en la tienda»");
+    await pp.locator("#perfil-mejoras").click();
+    await pp.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    await pp.locator("#mejoras-texto").fill("Más fotos de cada consola");
+    await pp.getByText("Enviar idea", { exact: true }).click();
+    await esperar(pp, () => (estado.mejorasEnviadas ?? []).length > 2);
+    ok((estado.mejorasEnviadas ?? [])[2]?.origen === "perfil", `ME: desde Mi cuenta, con su sitio (${(estado.mejorasEnviadas ?? [])[2]?.origen})`);
+    await pp.locator("#mejoras-ventana").getByText("Cerrar", { exact: true }).click().catch(() => {});
+    await pp.waitForTimeout(500);
+    estado.mejorasLimite = true;
+    await pp.locator("#perfil-mejoras").click();
+    await pp.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    await pp.locator("#mejoras-texto").fill("La sexta idea de hoy");
+    await pp.getByText("Enviar idea", { exact: true }).click();
+    await pp.locator("#mejoras-error").waitFor({ timeout: 10000 }).catch(() => {});
+    const limite = (await pp.locator("#mejoras-error").innerText().catch(() => "")).trim();
+    ok(/Ya nos has enviado 5 ideas hoy/.test(limite), `ME: pasado el límite del día, lo dice en español (${limite})`);
+    ok(pp.errores.length === 0, `ME: Mi cuenta sin errores de JavaScript (${pp.errores.length}${pp.errores[0] ? ": " + pp.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // ME2) Sin sesión: la cajita pide iniciar sesión y no envía nada.
+  {
+    const estado = { filas: [], guardados: [], productosVacios: true, mejoras: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/");
+    const pie = p.locator("#pie-mejoras");
+    await pie.waitFor({ timeout: 30000 }).catch(() => {});
+    await pie.scrollIntoViewIfNeeded().catch(() => {});
+    await pie.click();
+    await p.getByText("Iniciar sesión", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Inicia sesión para mandarnos tus ideas/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 0, `ME: sin sesión pide iniciarla y no deja escribir (${(await ventana(p)).slice(0, 80)})`);
+    await p.locator("#mejoras-ventana").getByText("Iniciar sesión", { exact: true }).click();
+    await p.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
+    ok(/\/perfil\?acceso=entrar/.test(p.url()) && !(estado.mejorasEnviadas ?? []).length, `ME: «Iniciar sesión» lleva a entrar en la cuenta (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
+    await ctx.close();
+  }
+
+  // ME3) Sin la migración: dice que muy pronto y no deja escribir; el resto funciona (sin errores de JavaScript).
+  {
+    const estado = { filas: perfil, guardados: [], productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(!estado.mejoras404, "ME: sin la migración, la tienda no pide la tabla hasta que alguien abre la cajita");
+    await p.locator("#perfil-mejoras").click();
+    await p.getByText(/Muy pronto podrás mandarnos tus ideas/).waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Muy pronto podrás mandarnos tus ideas/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 0, "ME: sin la migración dice que muy pronto se podrá y no deja escribir");
+    ok(p.errores.length === 0, `ME: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // ME4) Administración → Usuarios, la ficha del cliente y el Panel.
+  {
+    const hace = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+    const estado = {
+      guardados: [],
+      filas: perfil,
+      usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
+      mejoras: [
+        { id: "m1", user_id: CLIENTE.id, created_at: hace(2), texto: "Filtrar por precio en el catálogo", origen: "pie", leida: false, leida_en: null },
+        { id: "m2", user_id: CLIENTE.id, created_at: hace(5), texto: "Que Blue avise de las ofertas", origen: "blue", leida: false, leida_en: null },
+        { id: "m3", user_id: CLIENTE.id, created_at: hace(30), texto: "Más fotos de cada consola", origen: "perfil", leida: true, leida_en: hace(20) },
+      ],
+      eventos: [
+        { event_name: "mejora_abierta", user_id: CLIENTE.id, session_id: "s1", metadata: { origen: "blue" } },
+        { event_name: "mejora_abierta", user_id: CLIENTE.id, session_id: "s1", metadata: { origen: "blue" } },
+        { event_name: "mejora_abierta", user_id: null, session_id: "s2", metadata: { origen: "pie" } },
+      ],
+      novedades: {},
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-mejoras").innerText().catch(() => "")).replace(/\n+/g, " | ");
+    ok(/Ideas de mejora · 2 sin leer/.test(t), `ME: Usuarios enseña «Ideas de mejora · 2 sin leer» (${t.slice(0, 60)})`);
+    ok(/Filtrar por precio/.test(t) && /Que Blue avise/.test(t) && !/Más fotos de cada consola/.test(t), "ME: primero solo las que no se han leído");
+    ok(/Ana · @ana_g/.test(t) && /desde Pie de página/.test(t) && /desde Blue/.test(t), "ME: con quién la manda (nombre y usuario) y desde dónde");
+    const uso = (await p.locator("#admin-mejoras-uso").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/3 ideas enviadas/.test(uso) && /abrieron la cajita 3 veces \(2 personas\)/.test(uso) && /Blue 2 · pie de página 1 · Mi cuenta 0/.test(uso), `ME: cuenta las enviadas y cuántas veces se abrió la cajita y desde dónde (${uso})`);
+    await p.getByText("Todas (3)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    ok(/Más fotos de cada consola/.test(await p.locator("#admin-mejoras").innerText()), "ME: «Todas» enseña también las leídas");
+    await p.getByText("Blue (1)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const soloBlue = await p.locator("#admin-mejoras").innerText();
+    ok(/Que Blue avise/.test(soloBlue) && !/Filtrar por precio/.test(soloBlue), "ME: los contadores filtran por sitio (solo las de Blue)");
+    await p.getByText("Blue (1)", { exact: true }).click();
+    await p.getByText("Sin leer (2)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const boton = p.locator("#mejora-m1").getByRole("button", { name: "Marcar como leída" });
+    const lado = await boton.boundingBox();
+    await boton.click();
+    await p.waitForTimeout(600);
+    const marcada = (estado.mejorasMarcadas ?? [])[0];
+    ok(marcada?.id === "m1" && marcada?.cuerpo?.leida === true && !!marcada?.cuerpo?.leida_en && (lado?.height ?? 0) >= 44, `ME: el botón de 44 px la marca como leída, con la fecha (${JSON.stringify(marcada)})`);
+    ok(/1 sin leer/.test(await p.locator("#admin-mejoras").innerText()), "ME: y el contador baja a 1 sin leer");
+    ok(p.errores.length === 0, `ME: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "ME4-admin-ideas");
+    await p.locator("#mejora-m2").getByRole("link").first().click();
+    await p.waitForURL(/\/admin\/cliente\//, { timeout: 15000 }).catch(() => {});
+    await p.locator("#ficha-mejoras").waitFor({ timeout: 20000 }).catch(() => {});
+    const ficha = (await p.locator("#ficha-mejoras").innerText().catch(() => "")).replace(/\n+/g, " | ");
+    ok(new URL(p.url()).pathname === `/admin/cliente/${CLIENTE.id}` && /Ideas de mejora/.test(ficha) && /Que Blue avise/.test(ficha) && /Más fotos de cada consola/.test(ficha), `ME: el nombre lleva a la ficha del cliente, que enseña sus ideas (${ficha.slice(0, 80)})`);
+    await p.locator("#ficha-mejoras").getByText("Marcar como leída", { exact: true }).first().click();
+    await p.waitForTimeout(600);
+    ok((estado.mejorasMarcadas ?? []).some((m) => m.id === "m2" && m.cuerpo.leida === true), "ME: desde la ficha también se marca como leída");
+
+    await ctx.close();
+
+    // Panel (en un móvil que aún no ha abierto Usuarios: al entrar, lo de antes queda visto): las ideas nuevas sin leer
+    // suman en el número rojo de «Usuarios y participación»; las leídas no.
+    estado.mejoras = [...estado.mejoras, { id: "m4", user_id: CLIENTE.id, created_at: hace(1), texto: "Envío gratis a partir de 50 €", origen: "pie", leida: false, leida_en: null }];
+    const sinLeerAhora = estado.mejoras.filter((m) => !m.leida).length;
+    const ctxPanel = await contexto(navegador, ADMIN, "admin", estado);
+    const panel = await pagina(ctxPanel, "/admin");
+    await panel.locator("#novedades-users").waitFor({ timeout: 30000 }).catch(() => {});
+    const etiqueta = await panel.locator('[aria-label^="Usuarios y participación"]').first().getAttribute("aria-label").catch(() => "");
+    ok(new RegExp(`${sinLeerAhora} ideas? de mejora nuevas?`).test(etiqueta ?? ""), `ME: el Panel suma las ideas nuevas sin leer en «Usuarios y participación» (${sinLeerAhora} sin leer: ${etiqueta})`);
+    await ctxPanel.close();
+  }
+
+  // ME5) Administración sin la migración: una línea dice que falta y el resto de Usuarios funciona.
+  {
+    const estado = { guardados: [], filas: perfil, usuarios: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(/falta aplicar en Supabase la migración 20261101200000_mejoras_tienda/.test(await p.locator("#admin-mejoras").innerText().catch(() => "")), "ME: sin la migración, Usuarios dice qué falta");
+    ok(p.errores.length === 0, `ME: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
+// ===== CO) «¿Olvidaste tu contraseña?»: el enlace en el mismo navegador y en otro, el de la plantilla (token_hash), los
+// que no sirven, los errores de Supabase en español y su parte en Administración → Usuarios ============================
+async function seccionCO() {
+  const sinSesion = async (ctx) =>
+    ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+  const texto = (p) => p.evaluate(() => document.body.innerText.replace(/\n+/g, " "));
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 40) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const correoPerfil = (p) => p.locator('input[placeholder="tu@email.com"]').first();
+  const olvido = (p) => p.getByText("¿Olvidaste tu contraseña?", { exact: true });
+
+  // CO1) Pedir el enlace en Perfil y abrirlo en el MISMO navegador (el enlace de siempre, ?code=).
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil?acceso=entrar");
+    await correoPerfil(p).waitFor({ timeout: 30000 }).catch(() => {});
+    await olvido(p).click();
+    await p.waitForTimeout(500);
+    ok(/Escribe tu email arriba y pulsa de nuevo/.test(await texto(p)) && !(estado.recover ?? []).length, "CO: sin correo, pide escribirlo y no manda nada");
+    await correoPerfil(p).fill("Cliente@Example.com ");
+    await olvido(p).click();
+    await esperar(p, () => (estado.recover ?? []).length > 0);
+    await p.waitForTimeout(600);
+    const pedido = (estado.recover ?? [])[0];
+    ok(pedido?.cuerpo?.email === "cliente@example.com" && pedido?.redirect_to === `${BASE}/reset-password`, `CO: pide el enlace para ese correo y vuelve a /reset-password de la tienda (${pedido?.cuerpo?.email}, ${pedido?.redirect_to})`);
+    ok(/Si ese email tiene una cuenta, te hemos enviado un enlace/.test(await texto(p)), "CO: dice que se ha enviado, sin revelar si el correo tiene cuenta");
+    await esperar(p, () => evento(estado, "contrasena_enlace_pedido").length > 0);
+    ok(evento(estado, "contrasena_enlace_pedido")[0]?.metadata?.desde === "perfil" && !JSON.stringify(estado.eventosEnviados ?? []).includes("example.com"), "CO: la analítica propia lo cuenta, sin el correo");
+
+    await p.goto(`${BASE}/reset-password?code=codigo-bueno`, { waitUntil: "load" });
+    await p.getByText("Contraseña nueva", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
+    const campos = p.locator('input[placeholder="Mínimo 6 caracteres"], input[placeholder="Repite la contraseña"]');
+    ok((estado.canjes ?? [])[0]?.auth_code === "codigo-bueno" && (await campos.count()) === 2, "CO: en el mismo navegador el enlace sirve y pide la contraseña nueva dos veces");
+    await campos.nth(0).fill("nueva123");
+    await campos.nth(1).fill("nueva124");
+    await p.getByText("Guardar contraseña", { exact: true }).click({ force: true });
+    await p.waitForTimeout(500);
+    ok(!estado.cuenta, "CO: si no coinciden, no se guarda");
+    const tipoAntes = await campos.nth(0).getAttribute("type");
+    await p.getByRole("button", { name: "Mostrar las contraseñas" }).click({ timeout: 5000 }).catch(() => {});
+    const tipoDespues = await campos.nth(0).getAttribute("type");
+    ok(tipoAntes === "password" && tipoDespues !== "password", `CO: «Mostrar» deja ver lo escrito (${tipoAntes} → ${tipoDespues})`);
+    await campos.nth(1).fill("nueva123");
+    await p.getByText("Guardar contraseña", { exact: true }).click();
+    await p.getByText(/Contraseña actualizada correctamente/).waitFor({ timeout: 10000 }).catch(() => {});
+    ok(estado.cuenta?.password === "nueva123" && /Contraseña actualizada correctamente/.test(await texto(p)), "CO: guarda la contraseña nueva y lo confirma");
+    await esperar(p, () => evento(estado, "contrasena_cambiada").length > 0);
+    ok(evento(estado, "contrasena_enlace_abierto")[0]?.metadata?.via === "codigo" && evento(estado, "contrasena_cambiada").length === 1, "CO: la analítica cuenta el enlace abierto (de siempre) y la contraseña cambiada");
+    ok(p.errores.length === 0, `CO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "CO1-contrasena-cambiada");
+    await ctx.close();
+  }
+
+  // CO2) El enlace de siempre abierto en OTRO navegador (sin su código de seguridad): explica por qué y deja pedir otro.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/reset-password?code=codigo-bueno");
+    await p.locator("#contrasena-enlace-no-sirve").waitFor({ timeout: 15000 }).catch(() => {});
+    const t = await texto(p);
+    ok(/abrirlo en el mismo navegador donde lo pediste/.test(t), `CO: en otro navegador dice que hay que abrirlo en el mismo donde se pidió (${t.slice(0, 120)})`);
+    await esperar(p, () => evento(estado, "contrasena_enlace_invalido").length > 0);
+    ok(evento(estado, "contrasena_enlace_invalido")[0]?.metadata?.motivo === "otro_navegador", "CO: y lo cuenta como «otro navegador»");
+    const otro = p.getByText("Enviarme otro enlace", { exact: true });
+    await otro.click({ timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    ok(/Escribe el correo de tu cuenta/.test(await texto(p)) && !(estado.recover ?? []).length, "CO: sin correo no pide nada");
+    await p.locator("#contrasena-correo").fill("cliente@example.com", { timeout: 5000 }).catch(() => {});
+    await otro.click({ timeout: 5000 }).catch(() => {});
+    await esperar(p, () => (estado.recover ?? []).length > 0);
+    await p.locator("#contrasena-pedido").waitFor({ timeout: 10000 }).catch(() => {});
+    ok(
+      (estado.recover ?? [])[0]?.cuerpo?.email === "cliente@example.com" && /te hemos enviado un enlace nuevo/.test(await texto(p)),
+      "CO: y desde ahí mismo se pide otro enlace (para abrirlo en este navegador)"
+    );
+    await capturar(p, "CO2-otro-navegador");
+    await ctx.close();
+  }
+
+  // CO3) El enlace de la plantilla de la tienda (token_hash) sirve en cualquier navegador y se quita de la dirección.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/reset-password?token_hash=hash-bueno&type=recovery");
+    await p.getByText("Contraseña nueva", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator('input[placeholder="Repite la contraseña"]').waitFor({ timeout: 15000 }).catch(() => {});
+    ok((estado.verificaciones ?? [])[0]?.token_hash === "hash-bueno" && (await p.locator('input[placeholder="Repite la contraseña"]').count()) === 1, "CO: con el enlace de la plantilla sirve en cualquier navegador (sin código de seguridad)");
+    ok(!/token_hash/.test(p.url()), `CO: y el enlace se quita de la dirección (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
+    estado.contrasenaError = { status: 422, cuerpo: { code: 422, error_code: "same_password", msg: "New password should be different from the old password." } };
+    await p.locator('input[placeholder="Mínimo 6 caracteres"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
+    await p.locator('input[placeholder="Repite la contraseña"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
+    await p.getByText("Guardar contraseña", { exact: true }).click({ timeout: 5000 }).catch(() => {});
+    await p.locator("#contrasena-error").waitFor({ timeout: 10000 }).catch(() => {});
+    const error = (await p.locator("#contrasena-error").innerText().catch(() => "")).trim();
+    ok(/tiene que ser distinta de la anterior/.test(error) && !/different/i.test(error), `CO: los errores de Supabase salen en español (${error})`);
+    await esperar(p, () => evento(estado, "contrasena_enlace_abierto").length > 0);
+    ok(evento(estado, "contrasena_enlace_abierto")[0]?.metadata?.via === "token", "CO: la analítica cuenta el enlace de la plantilla");
+    ok(p.errores.length === 0, `CO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // CO4) Enlaces que no sirven: caducado (token_hash viejo), con el error de Supabase en la dirección y sin enlace.
+  {
+    const estado = { filas: [], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const casos = [
+      ["/reset-password?token_hash=hash-viejo&type=recovery", /ha caducado o ya se ha usado/],
+      ["/reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", /ha caducado o ya se ha usado/],
+      ["/reset-password", /hace falta el enlace que te enviamos por correo/],
+    ];
+    const vistos = [];
+    for (const [ruta, esperado] of casos) {
+      const p = await pagina(ctx, ruta);
+      await p.locator("#contrasena-enlace-no-sirve").waitFor({ timeout: 15000 }).catch(() => {});
+      const t = await texto(p);
+      vistos.push(esperado.test(t) && !/invalid|expired/i.test(t.replace(/Nueva contraseña/, "")) ? "ok" : t.slice(0, 80));
+      await p.close();
+    }
+    ok(vistos.every((v) => v === "ok"), `CO: caducado, con el error de Supabase o sin enlace, lo explica en español y deja pedir otro (${vistos.join(" | ")})`);
+    await ctx.close();
+  }
+
+  // CO5) Si Supabase no deja enviar el correo, el cliente lo lee en español (y se cuenta el motivo).
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil?acceso=entrar");
+    await correoPerfil(p).waitFor({ timeout: 30000 }).catch(() => {});
+    await correoPerfil(p).fill("cliente@example.com");
+    const casos = [
+      [{ status: 429, cuerpo: { code: 429, error_code: "over_email_send_rate_limit", msg: "email rate limit exceeded" } }, /no podemos enviar más correos/],
+      [{ status: 429, cuerpo: { code: 429, error_code: "over_email_send_rate_limit", msg: "For security purposes, you can only request this after 37 seconds." } }, /espera 37 segundos/],
+      [{ status: 400, cuerpo: { code: 400, error_code: "email_address_not_authorized", msg: 'Email address "cliente@example.com" cannot be used as it is not authorized' } }, /No hemos podido enviar el correo a esa dirección/],
+    ];
+    const vistos = [];
+    for (const [error, esperado] of casos) {
+      estado.recoverError = error;
+      const antes = (estado.recover ?? []).length;
+      await olvido(p).click();
+      await esperar(p, () => (estado.recover ?? []).length > antes);
+      await p.waitForTimeout(500);
+      const t = await texto(p);
+      vistos.push(esperado.test(t) && !/rate limit|security purposes|not authorized/i.test(t) ? "ok" : t.slice(0, 100));
+    }
+    ok(vistos.every((v) => v === "ok"), `CO: los errores al pedir el enlace salen en español (${vistos.join(" | ")})`);
+    await esperar(p, () => evento(estado, "contrasena_enlace_error").length >= 3);
+    const motivos = evento(estado, "contrasena_enlace_error").map((e) => e.metadata?.motivo);
+    ok(motivos[0] === "limite" && motivos[2] === "correo", `CO: y la analítica cuenta por qué (${motivos.join(", ")})`);
+    await capturar(p, "CO5-errores-en-espanol");
+    await ctx.close();
+  }
+
+  // CO6) Administración → Usuarios: cuántos enlaces se piden, se abren, no sirven y terminan en contraseña nueva; y el aviso
+  // si Supabase frena los correos.
+  {
+    const ev = (event_name, metadata = {}) => ({ event_name, user_id: null, session_id: `s${Math.random()}`, metadata });
+    const estado = {
+      guardados: [],
+      filas: [],
+      usuarios: [],
+      eventos: [
+        ev("contrasena_enlace_pedido", { desde: "perfil" }),
+        ev("contrasena_enlace_pedido", { desde: "perfil" }),
+        ev("contrasena_enlace_pedido", { desde: "enlace" }),
+        ev("contrasena_enlace_abierto", { via: "token" }),
+        ev("contrasena_enlace_abierto", { via: "codigo" }),
+        ev("contrasena_enlace_invalido", { motivo: "otro_navegador" }),
+        ev("contrasena_enlace_invalido", { motivo: "caducado" }),
+        ev("contrasena_enlace_error", { desde: "perfil", motivo: "limite" }),
+        ev("contrasena_cambiada"),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-contrasenas").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-contrasenas").innerText().catch(() => "")).replace(/\n+/g, " ");
+    ok(
+      /enlaces pedidos 3 · abiertos 2 · contraseñas cambiadas 1/.test(t) && /no sirvieron 2 \(en otro navegador 1, caducados o ya usados 1\)/.test(t) && /no se pudieron pedir 1/.test(t),
+      `CO: Usuarios cuenta los enlaces pedidos, abiertos, los que no sirvieron y las contraseñas cambiadas (${t.slice(0, 200)})`
+    );
+    ok(/Supabase ha frenado 1 correo/.test(t) && /SMTP/.test(t), "CO: y avisa si Supabase frena correos por su límite (hace falta el correo propio)");
+    ok(p.errores.length === 0, `CO: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -2738,6 +3298,9 @@ try {
   if (SOLO === "RE") await seccionRE();
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
+  if (SOLO === "BU") await seccionBU();
+  if (SOLO === "ME") await seccionME();
+  if (SOLO === "CO") await seccionCO();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -3666,6 +4229,9 @@ try {
   await seccionRE();
   await seccionEN();
   await seccionNO();
+  await seccionBU();
+  await seccionME();
+  await seccionCO();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -36,6 +36,8 @@
  * - Foro (ForoCliente): si está silenciado y hasta cuándo («Quitar silencio»), o silenciarlo 1, 3 o 7 días, y su
  *   historial de moderación (mensajes y comentarios eliminados, silencios), de las tablas foro_silencios y
  *   foro_moderacion. Sin esa migración la tarjeta no sale.
+ * - Ideas de mejora (MejorasCliente): lo que ha mandado desde «Mejoras en la tienda» (tabla mejoras_tienda), con la
+ *   fecha, desde dónde y «Marcar como leída». Sin la migración o sin ideas, la tarjeta no sale.
  * - Notas internas: tabla customer_notes (una fila por cliente, clave
  *   primaria customer_user_id). Es un cuadro de texto libre pensado para
  *   todo lo que NO tiene una tabla propia: intercambios, garantías dadas de
@@ -68,6 +70,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
 import SmartImage from "../../../components/SmartImage";
+import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
@@ -689,6 +692,8 @@ export default function ClienteFicha() {
 
               <ForoCliente userId={userId} />
 
+              <MejorasCliente userId={userId} />
+
               <View style={{ borderRadius: 18, backgroundColor: COLORS.card, padding: 14, gap: 10 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <View
@@ -883,6 +888,72 @@ function ForoCliente({ userId }: { userId: string }) {
         ) : (
           <EmptyRow text="Sin nada en el registro de moderación." />
         )}
+      </SectionCard>
+    </View>
+  );
+}
+
+// --- Ideas de mejora de este cliente ---------------------------------------------------------------------------------
+// Lo que ha mandado desde «Mejoras en la tienda» (tabla mejoras_tienda, migración 20261101200000_mejoras_tienda.sql),
+// con desde dónde y si ya está leída. Si la tabla aún no existe o no ha mandado ninguna, la tarjeta no sale.
+
+type MejoraFicha = { id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean };
+
+function MejorasCliente({ userId }: { userId: string }) {
+  const [mejoras, setMejoras] = useState<MejoraFicha[]>([]);
+  const [marcando, setMarcando] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    let vivo = true;
+    supabase
+      .from("mejoras_tienda")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(20)
+      .then(({ data, error }) => {
+        if (!vivo || error) return;
+        setMejoras(
+          ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+            id: String(r.id ?? ""),
+            created_at: String(r.created_at ?? ""),
+            texto: String(r.texto ?? ""),
+            origen: (["blue", "pie", "perfil"].includes(String(r.origen)) ? r.origen : "blue") as OrigenMejora,
+            leida: r.leida === true,
+          }))
+        );
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [userId]);
+
+  async function marcar(id: string) {
+    setMarcando(id);
+    const { data, error } = await supabase.from("mejoras_tienda").update({ leida: true, leida_en: new Date().toISOString() }).eq("id", id).select("id");
+    setMarcando(null);
+    if (!error && Array.isArray(data) && data.length) setMejoras((l) => l.map((m) => (m.id === id ? { ...m, leida: true } : m)));
+  }
+
+  if (!mejoras.length) return null;
+  const sinLeer = mejoras.filter((m) => !m.leida).length;
+
+  return (
+    <View nativeID="ficha-mejoras">
+      <SectionCard icon="bulb-outline" title="Ideas de mejora" count={sinLeer ? `${sinLeer} sin leer` : mejoras.length}>
+        {mejoras.map((m) => (
+          <View key={m.id} style={{ borderRadius: 12, backgroundColor: m.leida ? COLORS.cardSoft : COLORS.accent2, padding: 10, gap: 6 }}>
+            <Text style={{ color: COLORS.text, fontWeight: m.leida ? "600" : "800", fontSize: 13.5, lineHeight: 19 }}>{m.texto}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <Text style={{ flex: 1, minWidth: 160, color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+                {fechaHora(m.created_at)} · desde {ORIGENES_MEJORA[m.origen]}
+                {m.leida ? " · leída" : ""}
+              </Text>
+              {!m.leida ? <EtapaChip etiqueta="Marcar como leída" activa={false} disabled={marcando === m.id} onPress={() => marcar(m.id)} /> : null}
+            </View>
+          </View>
+        ))}
       </SectionCard>
     </View>
   );

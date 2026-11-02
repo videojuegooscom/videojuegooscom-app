@@ -20,6 +20,8 @@
  *   scroll hasta esa sección; si no se indica, lleva al catálogo.
  * - Navegación / Políticas / Blog son acordeones plegables (altura y flecha
  *   animadas con Animated), separados entre sí por líneas finas.
+ * - «Mejoras en la tienda» (a la vista, debajo): abre la cajita de ideas
+ *   (MejorasModal de components/ReviewModal.tsx, origen «pie»).
  *
  * Conectado con:
  * - components/SocialLinks.tsx → fila de iconos de redes sociales.
@@ -34,6 +36,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
 import SocialLinks from "./SocialLinks";
 import MarcaAnimada from "./marca/MarcaAnimada";
+import { MejorasModal } from "./ReviewModal";
 
 // Paleta del pie: fondo blanco, textos en azul marino y acento azul.
 const FOOTER_BG = "#FFFFFF";
@@ -158,6 +161,7 @@ export default function SiteFooter({
   const [footerNavOpen, setFooterNavOpen] = useState(false);
   const [footerPoliciesOpen, setFooterPoliciesOpen] = useState(false);
   const [footerBlogOpen, setFooterBlogOpen] = useState(false);
+  const [mejorasAbierta, setMejorasAbierta] = useState(false);
 
   const handlePressCategorias =
     onPressCategorias ?? (() => pushRoute("/catalogo" as Href));
@@ -251,6 +255,27 @@ export default function SiteFooter({
               />
             </FooterAccordionSection>
           </View>
+
+          {/* «Mejoras en la tienda»: a la vista (no dentro de un desplegable); abre la cajita de ideas. */}
+          <Pressable
+            nativeID="pie-mejoras"
+            onPress={() => setMejorasAbierta(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Mejoras en la tienda: cuéntanos qué mejorarías"
+            style={({ pressed }) => ({
+              minHeight: 44,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="bulb-outline" size={19} color={ACCENT} />
+            <Text style={{ color: NAVY, fontWeight: "900", fontSize: 15 }}>Mejoras en la tienda</Text>
+            <Ionicons name="chevron-forward" size={16} color={ACCENT} />
+          </Pressable>
+          <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="pie" />
 
           <View style={{ marginTop: 4 }}>
             <SocialLinks titleColor={NAVY} />

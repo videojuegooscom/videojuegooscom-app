@@ -95,9 +95,8 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import {
   OPACIDAD_PORTADA_DEFECTO,
   PROPORCION_RECUADRO_INICIO,
-  PortadaConNombre,
-  type PosicionNombre,
-  usePosicionesNombre,
+  NombreCategoria,
+  PortadaRecuadro,
   useOpacidadesPortadas,
   usePortadasCategorias,
 } from "../../components/PortadasCategoria";
@@ -1102,7 +1101,6 @@ function CategoryCard({
   isMobile,
   portadas,
   opacidad,
-  posicion,
   testID,
 }: {
   testID?: string;
@@ -1112,12 +1110,10 @@ function CategoryCard({
   cta?: string;
   widthPercent?: DimensionValue;
   isMobile?: boolean;
-  /** Portadas de la categoría (panel → Categorías): si hay, llenan el recuadro (en carrusel) con el nombre encima. */
+  /** Portadas de la categoría (panel → Categorías): si hay, llenan el recuadro (en carrusel). */
   portadas?: string[];
   /** Cuánto se ve la portada (10-100 %, lo elige el dueño en el editor de la categoría). */
   opacidad?: number;
-  /** Dónde va el nombre encima de la portada (lo mueve el dueño en el editor); sin ella, en el centro. */
-  posicion?: PosicionNombre;
 }) {
   const conPortadas = !!portadas?.length;
   return (
@@ -1126,62 +1122,50 @@ function CategoryCard({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${cta ?? "Ver categoría →"}`.replace(" →", "")}
-      style={({ pressed }) => ({
-        width: widthPercent ?? "48.8%",
-        minHeight: isMobile ? 92 : 100,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: COLORS.tileBorder,
-        backgroundColor: COLORS.tile,
-        padding: conPortadas ? 0 : isMobile ? 12 : 14,
-        overflow: "hidden",
-        opacity: pressed ? 0.9 : 1,
-        // Icono (o portadas), título y enlace centrados en todos los tamaños.
-        alignItems: "center",
-        justifyContent: "center",
-      })}
+      style={({ pressed }) => ({ width: widthPercent ?? "48.8%", gap: 6, opacity: pressed ? 0.9 : 1 })}
     >
-      {conPortadas ? (
-        // La portada llena el recuadro y el nombre va encima (la foto, al % que elige el dueño). En el móvil, con la
-        // forma del encuadre del editor: se ve justo lo que eligió el dueño.
-        <PortadaConNombre
-          imagenes={portadas!}
-          opacidad={opacidad ?? OPACIDAD_PORTADA_DEFECTO}
-          titulo={title}
-          posicion={posicion}
-          {...(isMobile ? { proporcion: PROPORCION_RECUADRO_INICIO } : { alto: 168 })}
-        />
-      ) : (
-        <View
-          style={{
-            width: isMobile ? 38 : 40,
-            height: isMobile ? 38 : 40,
-            borderRadius: 12,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: COLORS.accent2,
-          }}
-        >
-          <Ionicons name={icon} size={isMobile ? 20 : 21} color={COLORS.accentDark} />
-        </View>
-      )}
-
-      {/* Con portada, el nombre ya va encima de la foto. Sin «Ver categoría →» (lo quitó el dueño): todo el recuadro
-          se toca y un lector de pantalla sigue diciendo adónde lleva. */}
-      {!conPortadas ? (
-        <Text
-          style={{
-            color: COLORS.text,
-            fontWeight: "900",
-            marginTop: 6,
-            lineHeight: 20,
-            fontSize: isMobile ? 14 : 15,
-            textAlign: "center",
-          }}
-        >
-          {title}
-        </Text>
-      ) : null}
+      {/* El nombre ENCIMA del recuadro (sobre la foto no se leía bien), con la letra de la tienda. Todo se toca y un
+          lector de pantalla dice adónde lleva. */}
+      <NombreCategoria titulo={title} tamano={isMobile ? 15 : 16} />
+      <View
+        {...({ dataSet: { recuadro: "1" } } as object)}
+        style={{
+          width: "100%",
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: COLORS.tileBorder,
+          backgroundColor: COLORS.tile,
+          overflow: "hidden",
+          alignItems: "center",
+          justifyContent: "center",
+          // Sin portada, la misma forma que con ella (la fila queda pareja).
+          ...(conPortadas ? null : isMobile ? { aspectRatio: PROPORCION_RECUADRO_INICIO } : { height: 168 }),
+        }}
+      >
+        {conPortadas ? (
+          // La portada llena el recuadro, limpia, al % que elige el dueño. En el móvil, con la forma del encuadre del
+          // editor: se ve justo lo que eligió el dueño.
+          <PortadaRecuadro
+            imagenes={portadas!}
+            opacidad={opacidad ?? OPACIDAD_PORTADA_DEFECTO}
+            titulo={title}
+            {...(isMobile ? { proporcion: PROPORCION_RECUADRO_INICIO } : { alto: 168 })}
+          />
+        ) : (
+          <View
+            style={{
+              width: isMobile ? 44 : 48,
+              height: isMobile ? 44 : 48,
+              borderRadius: 14,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: COLORS.accent2,
+            }}
+          >
+            <Ionicons name={icon} size={isMobile ? 22 : 24} color={COLORS.accentDark} />
+          </View>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -1575,7 +1559,6 @@ export default function HomeScreen() {
   // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
   const portadasCategorias = usePortadasCategorias();
   const opacidadesPortadas = useOpacidadesPortadas();
-  const posicionesNombre = usePosicionesNombre();
 
   // Ocultar/mostrar la barra de búsqueda flotante
   // según la dirección del scroll: al bajar se ocultan (más sitio para ver
@@ -2031,11 +2014,13 @@ export default function HomeScreen() {
           <View ref={categoriasRef} testID="seccion-categorias" onLayout={handleCategoriesLayout} style={{ gap: 10 }}>
             <SectionTitle title="Categorías" isMobile={isMobile} />
 
+            {/* Más aire entre filas que entre columnas: cada nombre queda claramente con su recuadro. */}
             <View
               style={{
                 flexDirection: "row",
                 flexWrap: "wrap",
-                gap: 10,
+                columnGap: 10,
+                rowGap: 18,
                 justifyContent: "center",
               }}
             >
@@ -2063,7 +2048,6 @@ export default function HomeScreen() {
                     isMobile={isMobile}
                     portadas={portadasCategorias[category.cat]}
                     opacidad={opacidadesPortadas[category.cat]}
-                    posicion={posicionesNombre[category.cat]}
                     testID={`categoria-${category.cat}`}
                   />
                 );

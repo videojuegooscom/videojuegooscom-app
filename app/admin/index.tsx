@@ -136,7 +136,7 @@ async function contarNovedades(): Promise<Novedades> {
     }
   };
   const solo = { count: "exact" as const, head: true };
-  const [pedidos, servicios, cotizaciones, chats, productos, escaparate, registros, resenas, revisiones] = await Promise.all([
+  const [pedidos, servicios, cotizaciones, chats, productos, escaparate, registros, resenas, revisiones, ideas] = await Promise.all([
     cuantos(supabase.from("pedidos").select("id", solo).gt("created_at", desde("pedidos"))),
     cuantos(supabase.from("service_requests").select("id", solo).gt("created_at", desde("services"))),
     cuantos(supabase.from("sell_requests").select("id", solo).gt("created_at", desde("cotizaciones"))),
@@ -155,11 +155,14 @@ async function contarNovedades(): Promise<Novedades> {
     cuantos(supabase.from("profiles").select("id", solo).or("role.is.null,role.neq.admin").gt("created_at", desde("users"))),
     cuantos(supabase.from("store_reviews").select("id", solo).gt("created_at", desde("users"))),
     cuantos(supabase.from("auditorias_web").select("id", solo).gt("ejecutada_en", desde("auditorias"))),
+    // Ideas de «Mejoras en la tienda» sin leer que han llegado desde la última visita (Usuarios → «Ideas de mejora»).
+    cuantos(supabase.from("mejoras_tienda").select("id", solo).eq("leida", false).gt("created_at", desde("users"))),
   ]);
   const novedad = (n: number, texto: string): Novedad | undefined => (n > 0 ? { n, texto } : undefined);
   const participacion = [
     registros ? plural(registros, "usuario nuevo", "usuarios nuevos") : "",
     resenas ? plural(resenas, "reseña nueva", "reseñas nuevas") : "",
+    ideas ? plural(ideas, "idea de mejora nueva", "ideas de mejora nuevas") : "",
   ].filter(Boolean);
   return {
     pedidos: novedad(pedidos, plural(pedidos, "pedido nuevo", "pedidos nuevos")),
@@ -168,7 +171,10 @@ async function contarNovedades(): Promise<Novedades> {
     chats: novedad(chats, plural(chats, "conversación sin leer", "conversaciones sin leer")),
     products: novedad(productos, plural(productos, "artículo nuevo de VeoAura", "artículos nuevos de VeoAura")),
     escaparate: novedad(escaparate, plural(escaparate, "aviso de VeoAura (venta o error)", "avisos de VeoAura (ventas o errores)")),
-    users: novedad(registros + resenas, participacion.join(" y ")),
+    users: novedad(
+      registros + resenas + ideas,
+      participacion.length > 1 ? `${participacion.slice(0, -1).join(", ")} y ${participacion[participacion.length - 1]}` : participacion.join("")
+    ),
     auditorias: novedad(revisiones, plural(revisiones, "revisión nueva", "revisiones nuevas")),
   };
 }
