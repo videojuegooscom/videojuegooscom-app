@@ -1,0 +1,27 @@
+<!--
+  Plantilla del correo «Recuperar contraseña» (Supabase → Authentication → Emails → Templates → «Reset password»).
+  Asunto: Crea tu contraseña nueva · VideojuegosZaragoza
+  El enlace lleva a https://videojuegoszaragoza.com/reset-password con el token_hash: app/reset-password.tsx lo canjea
+  con verifyOtp y sirve en cualquier navegador o app (también si se pidió en el ordenador y se abre en el móvil).
+  Se pega TODO lo que hay debajo de este comentario.
+-->
+<div style="margin:0;padding:24px 12px;background:#F4F9FD;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0B2138;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:20px;">
+    <tr>
+      <td style="padding:28px 24px;text-align:center;">
+        <p style="margin:0 0 6px;font-size:14px;font-weight:800;color:#1EA7E8;">VideojuegosZaragoza</p>
+        <h1 style="margin:0 0 14px;font-size:22px;font-weight:900;color:#0B2138;">Crea tu contraseña nueva</h1>
+        <p style="margin:0 0 22px;font-size:15px;line-height:22px;color:#33475B;">
+          Hemos recibido una petición para cambiar la contraseña de tu cuenta ({{ .Email }}). Pulsa el botón para elegir una nueva.
+        </p>
+        <a href="https://videojuegoszaragoza.com/reset-password?token_hash={{ .TokenHash }}&type=recovery"
+           style="display:inline-block;padding:14px 26px;border-radius:999px;background:#1EA7E8;color:#FFFFFF;font-size:16px;font-weight:900;text-decoration:none;">
+          Crear contraseña nueva
+        </a>
+        <p style="margin:22px 0 0;font-size:13px;line-height:19px;color:#5B6B7B;">
+          El enlace sirve una sola vez y caduca al poco tiempo. Si no lo has pedido tú, no hagas nada: tu contraseña no cambia.
+        </p>
+      </td>
+    </tr>
+  </table>
+</div>

@@ -118,11 +118,21 @@
  *  - BU) Blue nunca tapa la barra de búsqueda: dejado encima (fijo) se aparta lo justo en su lado; arrastrado encima,
  *    se aparta al soltarlo; y tampoco tapa la lista de resultados.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO» o «BU» de cuarto argumento solo se
- * ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en el
- * panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el encuadre de
- * las portadas, el panel en rejilla o Blue y el buscador).
+ *  - ME) «Mejoras en la tienda»: desde el pie de página, Blue y Mi cuenta (con su sitio), de 3 a 500 letras, el
+ *    recuadro crece, el límite del día en español, la analítica propia; sin sesión pide iniciarla; sin la migración
+ *    dice «muy pronto» y no pide la tabla al cargar. Administración: Usuarios (sin leer primero, quién y desde dónde,
+ *    filtros, marcar como leída, uso de 30 días), la ficha del cliente y el número rojo del Panel.
+ *
+ *  - CO) «¿Olvidaste tu contraseña?»: pedir el enlace (sin revelar si hay cuenta), abrirlo en el mismo navegador
+ *    (?code=), en otro (explica por qué y deja pedir otro allí mismo), el de la plantilla (token_hash, en cualquier
+ *    navegador, y se quita de la dirección), caducados o sin enlace, «Mostrar», los errores de Supabase en español, la
+ *    analítica propia sin el correo y la línea «Recuperar contraseña» de Administración → Usuarios (con el aviso del SMTP).
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME» o «CO» de cuarto argumento
+ * solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en
+ * el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el encuadre de
+ * las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda o recuperar la contraseña).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -248,6 +258,36 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.resenasEnviadas = [...(estado.resenasEnviadas ?? []), cuerpo];
       const fila = { id: "r0000000-0000-4000-8000-000000000001", created_at: new Date().toISOString(), user_id: usuario.id, display_name: "Ana", ...cuerpo };
       return json(/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? fila : [fila], 201);
+    }
+    // «Mejoras en la tienda» (sección ME), como la base de datos: cada cliente ve las suyas y el administrador todas. Sin
+    // `estado.mejoras`, la tabla no existe (antes de la migración). Se apunta lo enviado y lo marcado como leído.
+    if (url.pathname.endsWith("/rest/v1/mejoras_tienda")) {
+      if (!estado.mejoras) {
+        estado.mejoras404 = (estado.mejoras404 ?? 0) + 1;
+        return json({ code: "PGRST205", message: "Could not find the table 'public.mejoras_tienda' in the schema cache" }, 404);
+      }
+      if (metodo === "POST") {
+        const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+        estado.mejorasEnviadas = [...(estado.mejorasEnviadas ?? []), cuerpo];
+        if (estado.mejorasLimite) return json({ code: "P0001", message: "Ya nos has enviado 5 ideas hoy. ¡Gracias! Mañana puedes mandarnos más." }, 400);
+        estado.mejoras = [{ id: `m${Date.now()}`, user_id: usuario.id, created_at: new Date().toISOString(), leida: false, leida_en: null, ...cuerpo }, ...estado.mejoras];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        estado.mejorasMarcadas = [...(estado.mejorasMarcadas ?? []), { id, cuerpo }];
+        estado.mejoras = estado.mejoras.map((m) => (m.id === id ? { ...m, ...cuerpo } : m));
+        return json([{ id }]);
+      }
+      const uid = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
+      const sinLeer = url.searchParams.get("leida") === "eq.false";
+      const desde = (url.searchParams.get("created_at") ?? "").replace(/^gt\./, "");
+      const visibles = estado.mejoras.filter(
+        (m) => (rol === "admin" || m.user_id === usuario.id) && (!uid || m.user_id === uid) && (!sinLeer || !m.leida) && (!desde || m.created_at > desde)
+      );
+      if (metodo === "HEAD") return json([], 200, { "content-range": `*/${visibles.length}`, "access-control-expose-headers": "*" });
+      return json(visibles);
     }
     // Foro: mensajes ficticios y la función perfiles_publicos (usuario y foto de quien escribe).
     if (url.pathname.endsWith("/rest/v1/chat_messages") && metodo === "GET") return json(estado.mensajes ?? []);
@@ -444,6 +484,35 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.pedidosPerfilesForo = [...(estado.pedidosPerfilesForo ?? []), JSON.parse(peticion.postData() ?? "{}")];
       if (!estado.perfilesForo) return json({ code: "PGRST202", message: "Could not find the function public.perfiles_publicos(ids) in the schema cache" }, 404);
       return json(estado.perfilesForo);
+    }
+    // Recuperar contraseña (sección CO), como Supabase: pedir el enlace, canjearlo (el de siempre, ?code= con su código de
+    // seguridad, o el de la plantilla, token_hash) y sus errores, que Supabase da en inglés.
+    if (url.pathname.endsWith("/auth/v1/recover")) {
+      estado.recover = [...(estado.recover ?? []), { redirect_to: url.searchParams.get("redirect_to"), cuerpo: JSON.parse(peticion.postData() ?? "{}") }];
+      if (estado.recoverError) return json(estado.recoverError.cuerpo, estado.recoverError.status);
+      return json({});
+    }
+    const sesionDe = () => {
+      const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: usuario.id, role: "authenticated", exp, aud: "authenticated", email: usuario.email })}.firma`;
+      return { access_token: jwt, refresh_token: "r", expires_in: 3600, expires_at: exp, token_type: "bearer", user: usuario };
+    };
+    if (url.pathname.endsWith("/auth/v1/verify") && metodo === "POST") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.verificaciones = [...(estado.verificaciones ?? []), cuerpo];
+      if (cuerpo.token_hash !== "hash-bueno" || cuerpo.type !== "recovery") return json({ code: 403, error_code: "otp_expired", msg: "Email link is invalid or has expired" }, 403);
+      return json(sesionDe());
+    }
+    if (url.pathname.endsWith("/auth/v1/token") && url.searchParams.get("grant_type") === "pkce") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.canjes = [...(estado.canjes ?? []), cuerpo];
+      if (cuerpo.auth_code !== "codigo-bueno") return json({ code: 400, error_code: "flow_state_not_found", msg: "invalid flow state, no valid flow state found" }, 400);
+      return json(sesionDe());
+    }
+    if (url.pathname.endsWith("/auth/v1/user") && metodo === "PUT" && estado.contrasenaError) {
+      estado.cuenta = JSON.parse(peticion.postData() ?? "{}");
+      return json(estado.contrasenaError.cuerpo, estado.contrasenaError.status);
     }
     if (url.pathname.endsWith("/auth/v1/user")) {
       if (metodo === "PUT") {
@@ -2660,6 +2729,420 @@ async function seccionBU() {
   await ctx.close();
 }
 
+// ===== ME) «Mejoras en la tienda»: la cajita de ideas (pie de página, Blue y Mi cuenta) y su parte en Administración ===
+async function seccionME() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const ventana = (p) => p.evaluate(() => (document.getElementById("mejoras-ventana")?.innerText ?? "").replace(/\n+/g, " | "));
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+
+  // ME1) Con sesión: desde el pie de página, Blue y Mi cuenta.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, productosVacios: true, mejoras: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    const pie = p.locator("#pie-mejoras");
+    await pie.waitFor({ timeout: 30000 }).catch(() => {});
+    await pie.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+    const medidaPie = await pie.boundingBox({ timeout: 5000 }).catch(() => null);
+    ok(!!medidaPie && medidaPie.height >= 44 && /Mejoras en la tienda/.test((await pie.innerText().catch(() => "")) ?? ""), `ME: el pie de página tiene «Mejoras en la tienda» a la vista, de 44 px (${medidaPie?.height})`);
+    await pie.click();
+    await p.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Mejoras en la tienda/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 1, `ME: se abre la cajita con su recuadro para escribir (${(await ventana(p)).slice(0, 90)})`);
+    const campo = p.locator("#mejoras-texto");
+    await campo.fill("ab");
+    await p.getByText("Enviar idea", { exact: true }).click({ force: true });
+    await p.waitForTimeout(500);
+    ok(!(estado.mejorasEnviadas ?? []).length, "ME: con menos de 3 letras no se envía");
+    const altoAntes = (await campo.boundingBox())?.height ?? 0;
+    await campo.fill("Una idea:\npoder filtrar por precio\nen el catálogo\ny ver las consolas\npor marca\ncon fotos más grandes");
+    await p.waitForTimeout(400);
+    const altoDespues = (await campo.boundingBox())?.height ?? 0;
+    ok(altoDespues > altoAntes + 10, `ME: el recuadro crece con lo escrito (${Math.round(altoAntes)} → ${Math.round(altoDespues)} px)`);
+    await campo.fill("x".repeat(620));
+    ok((await campo.inputValue()).length === 500, `ME: como mucho 500 letras (${(await campo.inputValue()).length})`);
+    await campo.fill("Poder filtrar por precio en el catálogo");
+    await p.getByText("Enviar idea", { exact: true }).click();
+    await esperar(p, () => (estado.mejorasEnviadas ?? []).length > 0);
+    await p.getByText("¡Gracias! La hemos recibido").waitFor({ timeout: 10000 }).catch(() => {});
+    const enviada = (estado.mejorasEnviadas ?? [])[0];
+    ok(enviada?.texto === "Poder filtrar por precio en el catálogo" && enviada?.origen === "pie" && !("user_id" in (enviada ?? {})), `ME: se guarda el texto y que vino del pie de página (quién lo pone la base de datos) (${JSON.stringify(enviada)})`);
+    ok(/¡Gracias! La hemos recibido/.test(await ventana(p)), "ME: y da las gracias");
+    await capturar(p, "ME1-mejora-enviada");
+    await esperar(p, () => evento(estado, "mejora_enviada").length > 0);
+    ok(
+      evento(estado, "mejora_abierta")[0]?.metadata?.origen === "pie" && evento(estado, "mejora_abierta")[0]?.metadata?.con_sesion === true && evento(estado, "mejora_enviada")[0]?.metadata?.origen === "pie",
+      `ME: la analítica propia apunta que se abrió y se envió, y desde dónde (${JSON.stringify(evento(estado, "mejora_abierta")[0]?.metadata)})`
+    );
+    await p.locator("#mejoras-ventana").getByText("Cerrar", { exact: true }).click().catch(() => {});
+    await p.waitForTimeout(500);
+
+    // Desde Blue (pestaña Asistente).
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await p.waitForSelector("#blue-flotante", { timeout: 25000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click();
+    // Con avisos pendientes el panel se abre en «Noticias y avisos»: se pasa al Asistente.
+    await p.getByRole("tab", { name: /Asistente/ }).first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    // La ventana de Blue va al final de la página: su «Mejoras en la tienda» es el último (el primero es el del pie).
+    const enBlue = p.getByText("Mejoras en la tienda", { exact: true }).last();
+    await enBlue.click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    if (!(await p.locator("#mejoras-texto").count())) await capturar(p, "ME1-panel-blue-sin-cajita");
+    await p.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#mejoras-texto").fill("Que Blue me avise de las ofertas");
+    await p.getByText("Enviar idea", { exact: true }).click();
+    await esperar(p, () => (estado.mejorasEnviadas ?? []).length > 1);
+    ok((estado.mejorasEnviadas ?? [])[1]?.origen === "blue", `ME: desde Blue (Asistente) también, y se sabe que vino de Blue (${(estado.mejorasEnviadas ?? [])[1]?.origen})`);
+    ok(p.errores.length === 0, `ME: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+
+    // Desde Perfil → Mi cuenta; y el límite diario lo dice con el mensaje de la base de datos.
+    const pp = await pagina(ctx, "/perfil");
+    await pp.locator("#perfil-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await pp.locator("#perfil-mejoras").count()) === 1, "ME: Mi cuenta tiene «Mejoras en la tienda»");
+    await pp.locator("#perfil-mejoras").click();
+    await pp.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    await pp.locator("#mejoras-texto").fill("Más fotos de cada consola");
+    await pp.getByText("Enviar idea", { exact: true }).click();
+    await esperar(pp, () => (estado.mejorasEnviadas ?? []).length > 2);
+    ok((estado.mejorasEnviadas ?? [])[2]?.origen === "perfil", `ME: desde Mi cuenta, con su sitio (${(estado.mejorasEnviadas ?? [])[2]?.origen})`);
+    await pp.locator("#mejoras-ventana").getByText("Cerrar", { exact: true }).click().catch(() => {});
+    await pp.waitForTimeout(500);
+    estado.mejorasLimite = true;
+    await pp.locator("#perfil-mejoras").click();
+    await pp.locator("#mejoras-texto").waitFor({ timeout: 15000 }).catch(() => {});
+    await pp.locator("#mejoras-texto").fill("La sexta idea de hoy");
+    await pp.getByText("Enviar idea", { exact: true }).click();
+    await pp.locator("#mejoras-error").waitFor({ timeout: 10000 }).catch(() => {});
+    const limite = (await pp.locator("#mejoras-error").innerText().catch(() => "")).trim();
+    ok(/Ya nos has enviado 5 ideas hoy/.test(limite), `ME: pasado el límite del día, lo dice en español (${limite})`);
+    ok(pp.errores.length === 0, `ME: Mi cuenta sin errores de JavaScript (${pp.errores.length}${pp.errores[0] ? ": " + pp.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // ME2) Sin sesión: la cajita pide iniciar sesión y no envía nada.
+  {
+    const estado = { filas: [], guardados: [], productosVacios: true, mejoras: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/");
+    const pie = p.locator("#pie-mejoras");
+    await pie.waitFor({ timeout: 30000 }).catch(() => {});
+    await pie.scrollIntoViewIfNeeded().catch(() => {});
+    await pie.click();
+    await p.getByText("Iniciar sesión", { exact: true }).last().waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Inicia sesión para mandarnos tus ideas/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 0, `ME: sin sesión pide iniciarla y no deja escribir (${(await ventana(p)).slice(0, 80)})`);
+    await p.locator("#mejoras-ventana").getByText("Iniciar sesión", { exact: true }).click();
+    await p.waitForURL(/\/perfil/, { timeout: 10000 }).catch(() => {});
+    ok(/\/perfil\?acceso=entrar/.test(p.url()) && !(estado.mejorasEnviadas ?? []).length, `ME: «Iniciar sesión» lleva a entrar en la cuenta (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
+    await ctx.close();
+  }
+
+  // ME3) Sin la migración: dice que muy pronto y no deja escribir; el resto funciona (sin errores de JavaScript).
+  {
+    const estado = { filas: perfil, guardados: [], productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(!estado.mejoras404, "ME: sin la migración, la tienda no pide la tabla hasta que alguien abre la cajita");
+    await p.locator("#perfil-mejoras").click();
+    await p.getByText(/Muy pronto podrás mandarnos tus ideas/).waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Muy pronto podrás mandarnos tus ideas/.test(await ventana(p)) && (await p.locator("#mejoras-texto").count()) === 0, "ME: sin la migración dice que muy pronto se podrá y no deja escribir");
+    ok(p.errores.length === 0, `ME: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // ME4) Administración → Usuarios, la ficha del cliente y el Panel.
+  {
+    const hace = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+    const estado = {
+      guardados: [],
+      filas: perfil,
+      usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
+      mejoras: [
+        { id: "m1", user_id: CLIENTE.id, created_at: hace(2), texto: "Filtrar por precio en el catálogo", origen: "pie", leida: false, leida_en: null },
+        { id: "m2", user_id: CLIENTE.id, created_at: hace(5), texto: "Que Blue avise de las ofertas", origen: "blue", leida: false, leida_en: null },
+        { id: "m3", user_id: CLIENTE.id, created_at: hace(30), texto: "Más fotos de cada consola", origen: "perfil", leida: true, leida_en: hace(20) },
+      ],
+      eventos: [
+        { event_name: "mejora_abierta", user_id: CLIENTE.id, session_id: "s1", metadata: { origen: "blue" } },
+        { event_name: "mejora_abierta", user_id: CLIENTE.id, session_id: "s1", metadata: { origen: "blue" } },
+        { event_name: "mejora_abierta", user_id: null, session_id: "s2", metadata: { origen: "pie" } },
+      ],
+      novedades: {},
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-mejoras").innerText().catch(() => "")).replace(/\n+/g, " | ");
+    ok(/Ideas de mejora · 2 sin leer/.test(t), `ME: Usuarios enseña «Ideas de mejora · 2 sin leer» (${t.slice(0, 60)})`);
+    ok(/Filtrar por precio/.test(t) && /Que Blue avise/.test(t) && !/Más fotos de cada consola/.test(t), "ME: primero solo las que no se han leído");
+    ok(/Ana · @ana_g/.test(t) && /desde Pie de página/.test(t) && /desde Blue/.test(t), "ME: con quién la manda (nombre y usuario) y desde dónde");
+    const uso = (await p.locator("#admin-mejoras-uso").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/3 ideas enviadas/.test(uso) && /abrieron la cajita 3 veces \(2 personas\)/.test(uso) && /Blue 2 · pie de página 1 · Mi cuenta 0/.test(uso), `ME: cuenta las enviadas y cuántas veces se abrió la cajita y desde dónde (${uso})`);
+    await p.getByText("Todas (3)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    ok(/Más fotos de cada consola/.test(await p.locator("#admin-mejoras").innerText()), "ME: «Todas» enseña también las leídas");
+    await p.getByText("Blue (1)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const soloBlue = await p.locator("#admin-mejoras").innerText();
+    ok(/Que Blue avise/.test(soloBlue) && !/Filtrar por precio/.test(soloBlue), "ME: los contadores filtran por sitio (solo las de Blue)");
+    await p.getByText("Blue (1)", { exact: true }).click();
+    await p.getByText("Sin leer (2)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const boton = p.locator("#mejora-m1").getByRole("button", { name: "Marcar como leída" });
+    const lado = await boton.boundingBox();
+    await boton.click();
+    await p.waitForTimeout(600);
+    const marcada = (estado.mejorasMarcadas ?? [])[0];
+    ok(marcada?.id === "m1" && marcada?.cuerpo?.leida === true && !!marcada?.cuerpo?.leida_en && (lado?.height ?? 0) >= 44, `ME: el botón de 44 px la marca como leída, con la fecha (${JSON.stringify(marcada)})`);
+    ok(/1 sin leer/.test(await p.locator("#admin-mejoras").innerText()), "ME: y el contador baja a 1 sin leer");
+    ok(p.errores.length === 0, `ME: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "ME4-admin-ideas");
+    await p.locator("#mejora-m2").getByRole("link").first().click();
+    await p.waitForURL(/\/admin\/cliente\//, { timeout: 15000 }).catch(() => {});
+    await p.locator("#ficha-mejoras").waitFor({ timeout: 20000 }).catch(() => {});
+    const ficha = (await p.locator("#ficha-mejoras").innerText().catch(() => "")).replace(/\n+/g, " | ");
+    ok(new URL(p.url()).pathname === `/admin/cliente/${CLIENTE.id}` && /Ideas de mejora/.test(ficha) && /Que Blue avise/.test(ficha) && /Más fotos de cada consola/.test(ficha), `ME: el nombre lleva a la ficha del cliente, que enseña sus ideas (${ficha.slice(0, 80)})`);
+    await p.locator("#ficha-mejoras").getByText("Marcar como leída", { exact: true }).first().click();
+    await p.waitForTimeout(600);
+    ok((estado.mejorasMarcadas ?? []).some((m) => m.id === "m2" && m.cuerpo.leida === true), "ME: desde la ficha también se marca como leída");
+
+    await ctx.close();
+
+    // Panel (en un móvil que aún no ha abierto Usuarios: al entrar, lo de antes queda visto): las ideas nuevas sin leer
+    // suman en el número rojo de «Usuarios y participación»; las leídas no.
+    estado.mejoras = [...estado.mejoras, { id: "m4", user_id: CLIENTE.id, created_at: hace(1), texto: "Envío gratis a partir de 50 €", origen: "pie", leida: false, leida_en: null }];
+    const sinLeerAhora = estado.mejoras.filter((m) => !m.leida).length;
+    const ctxPanel = await contexto(navegador, ADMIN, "admin", estado);
+    const panel = await pagina(ctxPanel, "/admin");
+    await panel.locator("#novedades-users").waitFor({ timeout: 30000 }).catch(() => {});
+    const etiqueta = await panel.locator('[aria-label^="Usuarios y participación"]').first().getAttribute("aria-label").catch(() => "");
+    ok(new RegExp(`${sinLeerAhora} ideas? de mejora nuevas?`).test(etiqueta ?? ""), `ME: el Panel suma las ideas nuevas sin leer en «Usuarios y participación» (${sinLeerAhora} sin leer: ${etiqueta})`);
+    await ctxPanel.close();
+  }
+
+  // ME5) Administración sin la migración: una línea dice que falta y el resto de Usuarios funciona.
+  {
+    const estado = { guardados: [], filas: perfil, usuarios: [] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(/falta aplicar en Supabase la migración 20261101200000_mejoras_tienda/.test(await p.locator("#admin-mejoras").innerText().catch(() => "")), "ME: sin la migración, Usuarios dice qué falta");
+    ok(p.errores.length === 0, `ME: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
+// ===== CO) «¿Olvidaste tu contraseña?»: el enlace en el mismo navegador y en otro, el de la plantilla (token_hash), los
+// que no sirven, los errores de Supabase en español y su parte en Administración → Usuarios ============================
+async function seccionCO() {
+  const sinSesion = async (ctx) =>
+    ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+  const texto = (p) => p.evaluate(() => document.body.innerText.replace(/\n+/g, " "));
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 40) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const correoPerfil = (p) => p.locator('input[placeholder="tu@email.com"]').first();
+  const olvido = (p) => p.getByText("¿Olvidaste tu contraseña?", { exact: true });
+
+  // CO1) Pedir el enlace en Perfil y abrirlo en el MISMO navegador (el enlace de siempre, ?code=).
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil?acceso=entrar");
+    await correoPerfil(p).waitFor({ timeout: 30000 }).catch(() => {});
+    await olvido(p).click();
+    await p.waitForTimeout(500);
+    ok(/Escribe tu email arriba y pulsa de nuevo/.test(await texto(p)) && !(estado.recover ?? []).length, "CO: sin correo, pide escribirlo y no manda nada");
+    await correoPerfil(p).fill("Cliente@Example.com ");
+    await olvido(p).click();
+    await esperar(p, () => (estado.recover ?? []).length > 0);
+    await p.waitForTimeout(600);
+    const pedido = (estado.recover ?? [])[0];
+    ok(pedido?.cuerpo?.email === "cliente@example.com" && pedido?.redirect_to === `${BASE}/reset-password`, `CO: pide el enlace para ese correo y vuelve a /reset-password de la tienda (${pedido?.cuerpo?.email}, ${pedido?.redirect_to})`);
+    ok(/Si ese email tiene una cuenta, te hemos enviado un enlace/.test(await texto(p)), "CO: dice que se ha enviado, sin revelar si el correo tiene cuenta");
+    await esperar(p, () => evento(estado, "contrasena_enlace_pedido").length > 0);
+    ok(evento(estado, "contrasena_enlace_pedido")[0]?.metadata?.desde === "perfil" && !JSON.stringify(estado.eventosEnviados ?? []).includes("example.com"), "CO: la analítica propia lo cuenta, sin el correo");
+
+    await p.goto(`${BASE}/reset-password?code=codigo-bueno`, { waitUntil: "load" });
+    await p.getByText("Contraseña nueva", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
+    const campos = p.locator('input[placeholder="Mínimo 6 caracteres"], input[placeholder="Repite la contraseña"]');
+    ok((estado.canjes ?? [])[0]?.auth_code === "codigo-bueno" && (await campos.count()) === 2, "CO: en el mismo navegador el enlace sirve y pide la contraseña nueva dos veces");
+    await campos.nth(0).fill("nueva123");
+    await campos.nth(1).fill("nueva124");
+    await p.getByText("Guardar contraseña", { exact: true }).click({ force: true });
+    await p.waitForTimeout(500);
+    ok(!estado.cuenta, "CO: si no coinciden, no se guarda");
+    const tipoAntes = await campos.nth(0).getAttribute("type");
+    await p.getByRole("button", { name: "Mostrar las contraseñas" }).click({ timeout: 5000 }).catch(() => {});
+    const tipoDespues = await campos.nth(0).getAttribute("type");
+    ok(tipoAntes === "password" && tipoDespues !== "password", `CO: «Mostrar» deja ver lo escrito (${tipoAntes} → ${tipoDespues})`);
+    await campos.nth(1).fill("nueva123");
+    await p.getByText("Guardar contraseña", { exact: true }).click();
+    await p.getByText(/Contraseña actualizada correctamente/).waitFor({ timeout: 10000 }).catch(() => {});
+    ok(estado.cuenta?.password === "nueva123" && /Contraseña actualizada correctamente/.test(await texto(p)), "CO: guarda la contraseña nueva y lo confirma");
+    await esperar(p, () => evento(estado, "contrasena_cambiada").length > 0);
+    ok(evento(estado, "contrasena_enlace_abierto")[0]?.metadata?.via === "codigo" && evento(estado, "contrasena_cambiada").length === 1, "CO: la analítica cuenta el enlace abierto (de siempre) y la contraseña cambiada");
+    ok(p.errores.length === 0, `CO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "CO1-contrasena-cambiada");
+    await ctx.close();
+  }
+
+  // CO2) El enlace de siempre abierto en OTRO navegador (sin su código de seguridad): explica por qué y deja pedir otro.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/reset-password?code=codigo-bueno");
+    await p.locator("#contrasena-enlace-no-sirve").waitFor({ timeout: 15000 }).catch(() => {});
+    const t = await texto(p);
+    ok(/abrirlo en el mismo navegador donde lo pediste/.test(t), `CO: en otro navegador dice que hay que abrirlo en el mismo donde se pidió (${t.slice(0, 120)})`);
+    await esperar(p, () => evento(estado, "contrasena_enlace_invalido").length > 0);
+    ok(evento(estado, "contrasena_enlace_invalido")[0]?.metadata?.motivo === "otro_navegador", "CO: y lo cuenta como «otro navegador»");
+    const otro = p.getByText("Enviarme otro enlace", { exact: true });
+    await otro.click({ timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    ok(/Escribe el correo de tu cuenta/.test(await texto(p)) && !(estado.recover ?? []).length, "CO: sin correo no pide nada");
+    await p.locator("#contrasena-correo").fill("cliente@example.com", { timeout: 5000 }).catch(() => {});
+    await otro.click({ timeout: 5000 }).catch(() => {});
+    await esperar(p, () => (estado.recover ?? []).length > 0);
+    await p.locator("#contrasena-pedido").waitFor({ timeout: 10000 }).catch(() => {});
+    ok(
+      (estado.recover ?? [])[0]?.cuerpo?.email === "cliente@example.com" && /te hemos enviado un enlace nuevo/.test(await texto(p)),
+      "CO: y desde ahí mismo se pide otro enlace (para abrirlo en este navegador)"
+    );
+    await capturar(p, "CO2-otro-navegador");
+    await ctx.close();
+  }
+
+  // CO3) El enlace de la plantilla de la tienda (token_hash) sirve en cualquier navegador y se quita de la dirección.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/reset-password?token_hash=hash-bueno&type=recovery");
+    await p.getByText("Contraseña nueva", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator('input[placeholder="Repite la contraseña"]').waitFor({ timeout: 15000 }).catch(() => {});
+    ok((estado.verificaciones ?? [])[0]?.token_hash === "hash-bueno" && (await p.locator('input[placeholder="Repite la contraseña"]').count()) === 1, "CO: con el enlace de la plantilla sirve en cualquier navegador (sin código de seguridad)");
+    ok(!/token_hash/.test(p.url()), `CO: y el enlace se quita de la dirección (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
+    estado.contrasenaError = { status: 422, cuerpo: { code: 422, error_code: "same_password", msg: "New password should be different from the old password." } };
+    await p.locator('input[placeholder="Mínimo 6 caracteres"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
+    await p.locator('input[placeholder="Repite la contraseña"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
+    await p.getByText("Guardar contraseña", { exact: true }).click({ timeout: 5000 }).catch(() => {});
+    await p.locator("#contrasena-error").waitFor({ timeout: 10000 }).catch(() => {});
+    const error = (await p.locator("#contrasena-error").innerText().catch(() => "")).trim();
+    ok(/tiene que ser distinta de la anterior/.test(error) && !/different/i.test(error), `CO: los errores de Supabase salen en español (${error})`);
+    await esperar(p, () => evento(estado, "contrasena_enlace_abierto").length > 0);
+    ok(evento(estado, "contrasena_enlace_abierto")[0]?.metadata?.via === "token", "CO: la analítica cuenta el enlace de la plantilla");
+    ok(p.errores.length === 0, `CO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // CO4) Enlaces que no sirven: caducado (token_hash viejo), con el error de Supabase en la dirección y sin enlace.
+  {
+    const estado = { filas: [], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const casos = [
+      ["/reset-password?token_hash=hash-viejo&type=recovery", /ha caducado o ya se ha usado/],
+      ["/reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", /ha caducado o ya se ha usado/],
+      ["/reset-password", /hace falta el enlace que te enviamos por correo/],
+    ];
+    const vistos = [];
+    for (const [ruta, esperado] of casos) {
+      const p = await pagina(ctx, ruta);
+      await p.locator("#contrasena-enlace-no-sirve").waitFor({ timeout: 15000 }).catch(() => {});
+      const t = await texto(p);
+      vistos.push(esperado.test(t) && !/invalid|expired/i.test(t.replace(/Nueva contraseña/, "")) ? "ok" : t.slice(0, 80));
+      await p.close();
+    }
+    ok(vistos.every((v) => v === "ok"), `CO: caducado, con el error de Supabase o sin enlace, lo explica en español y deja pedir otro (${vistos.join(" | ")})`);
+    await ctx.close();
+  }
+
+  // CO5) Si Supabase no deja enviar el correo, el cliente lo lee en español (y se cuenta el motivo).
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil?acceso=entrar");
+    await correoPerfil(p).waitFor({ timeout: 30000 }).catch(() => {});
+    await correoPerfil(p).fill("cliente@example.com");
+    const casos = [
+      [{ status: 429, cuerpo: { code: 429, error_code: "over_email_send_rate_limit", msg: "email rate limit exceeded" } }, /no podemos enviar más correos/],
+      [{ status: 429, cuerpo: { code: 429, error_code: "over_email_send_rate_limit", msg: "For security purposes, you can only request this after 37 seconds." } }, /espera 37 segundos/],
+      [{ status: 400, cuerpo: { code: 400, error_code: "email_address_not_authorized", msg: 'Email address "cliente@example.com" cannot be used as it is not authorized' } }, /No hemos podido enviar el correo a esa dirección/],
+    ];
+    const vistos = [];
+    for (const [error, esperado] of casos) {
+      estado.recoverError = error;
+      const antes = (estado.recover ?? []).length;
+      await olvido(p).click();
+      await esperar(p, () => (estado.recover ?? []).length > antes);
+      await p.waitForTimeout(500);
+      const t = await texto(p);
+      vistos.push(esperado.test(t) && !/rate limit|security purposes|not authorized/i.test(t) ? "ok" : t.slice(0, 100));
+    }
+    ok(vistos.every((v) => v === "ok"), `CO: los errores al pedir el enlace salen en español (${vistos.join(" | ")})`);
+    await esperar(p, () => evento(estado, "contrasena_enlace_error").length >= 3);
+    const motivos = evento(estado, "contrasena_enlace_error").map((e) => e.metadata?.motivo);
+    ok(motivos[0] === "limite" && motivos[2] === "correo", `CO: y la analítica cuenta por qué (${motivos.join(", ")})`);
+    await capturar(p, "CO5-errores-en-espanol");
+    await ctx.close();
+  }
+
+  // CO6) Administración → Usuarios: cuántos enlaces se piden, se abren, no sirven y terminan en contraseña nueva; y el aviso
+  // si Supabase frena los correos.
+  {
+    const ev = (event_name, metadata = {}) => ({ event_name, user_id: null, session_id: `s${Math.random()}`, metadata });
+    const estado = {
+      guardados: [],
+      filas: [],
+      usuarios: [],
+      eventos: [
+        ev("contrasena_enlace_pedido", { desde: "perfil" }),
+        ev("contrasena_enlace_pedido", { desde: "perfil" }),
+        ev("contrasena_enlace_pedido", { desde: "enlace" }),
+        ev("contrasena_enlace_abierto", { via: "token" }),
+        ev("contrasena_enlace_abierto", { via: "codigo" }),
+        ev("contrasena_enlace_invalido", { motivo: "otro_navegador" }),
+        ev("contrasena_enlace_invalido", { motivo: "caducado" }),
+        ev("contrasena_enlace_error", { desde: "perfil", motivo: "limite" }),
+        ev("contrasena_cambiada"),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-contrasenas").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-contrasenas").innerText().catch(() => "")).replace(/\n+/g, " ");
+    ok(
+      /enlaces pedidos 3 · abiertos 2 · contraseñas cambiadas 1/.test(t) && /no sirvieron 2 \(en otro navegador 1, caducados o ya usados 1\)/.test(t) && /no se pudieron pedir 1/.test(t),
+      `CO: Usuarios cuenta los enlaces pedidos, abiertos, los que no sirvieron y las contraseñas cambiadas (${t.slice(0, 200)})`
+    );
+    ok(/Supabase ha frenado 1 correo/.test(t) && /SMTP/.test(t), "CO: y avisa si Supabase frena correos por su límite (hace falta el correo propio)");
+    ok(p.errores.length === 0, `CO: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -2816,6 +3299,8 @@ try {
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();
+  if (SOLO === "ME") await seccionME();
+  if (SOLO === "CO") await seccionCO();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -3745,6 +4230,8 @@ try {
   await seccionEN();
   await seccionNO();
   await seccionBU();
+  await seccionME();
+  await seccionCO();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

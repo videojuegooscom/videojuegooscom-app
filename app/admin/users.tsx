@@ -28,6 +28,19 @@
  *   las publicadas, cuántas usan las ideas sugeridas o un emoji propuesto y la
  *   idea más usada (analítica propia «resena_publicada»,
  *   components/ReviewModal.tsx).
+ * - «Ideas de mejora» (arriba): lo que mandan los clientes desde «Mejoras en la
+ *   tienda» (Blue, el pie de página o Mi cuenta; tabla mejoras_tienda, migración
+ *   20261101200000_mejoras_tienda.sql). Primero las sin leer, con quién la manda
+ *   (nombre/usuario o correo, enlace a su ficha), la fecha y desde dónde; el
+ *   botón de 44 px la marca como leída (o sin leer). Contadores que filtran
+ *   (sin leer, todas, por sitio) y, de 30 días, las enviadas y cuántas veces se
+ *   abrió la cajita y desde dónde (analítica propia «mejora_abierta»). Sin la
+ *   migración, una línea dice que falta aplicarla.
+ * - «Recuperar contraseña (30 días)»: enlaces pedidos, abiertos, contraseñas
+ *   cambiadas, enlaces que no sirvieron (en otro navegador, caducados) y los
+ *   que no se pudieron pedir; si Supabase frena correos por su límite, un
+ *   aviso en rojo de que hace falta el correo propio (SMTP). Analítica propia
+ *   contrasena_* de app/(tabs)/perfil.tsx y app/reset-password.tsx.
  * - "Moderación del Foro": con el registro de moderación (tabla
  *   foro_moderacion, que rellena la base de datos sola), los mensajes y
  *   comentarios eliminados y los silencios de los últimos 30 días, y cuántos
@@ -89,7 +102,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/SmartImage";
-import { SUGERENCIAS_RESENA } from "../../components/ReviewModal";
+import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -158,6 +171,31 @@ const EVENTOS_SEGUIMIENTOS = ["seguimientos_abiertos"] as const;
 const EVENTOS_FORO = ["foro_normas_abiertas"] as const;
 // Reseñas publicadas desde «Dejar una reseña» (components/ReviewModal.tsx): con qué ideas y si llevan emojis propuestos.
 const EVENTOS_RESENAS = ["resena_publicada"] as const;
+// «Mejoras en la tienda» (components/ReviewModal.tsx): cuántas veces se abre la cajita y desde dónde (las enviadas se
+// cuentan con la propia tabla, que es exacta).
+const EVENTOS_MEJORAS = ["mejora_abierta"] as const;
+// «¿Olvidaste tu contraseña?» (app/(tabs)/perfil.tsx y app/reset-password.tsx): enlaces pedidos, los que no se pudieron
+// pedir (y por qué), abiertos, los que no sirvieron (y por qué) y contraseñas cambiadas. Nunca el correo.
+const EVENTOS_CONTRASENA = [
+  "contrasena_enlace_pedido",
+  "contrasena_enlace_error",
+  "contrasena_enlace_abierto",
+  "contrasena_enlace_invalido",
+  "contrasena_cambiada",
+] as const;
+type UsoContrasena = {
+  pedidos: number;
+  errores: number;
+  limite: number;
+  abiertos: number;
+  noSirvieron: number;
+  otroNavegador: number;
+  caducados: number;
+  cambiadas: number;
+};
+
+// Una idea de «Mejoras en la tienda» (tabla mejoras_tienda, migración 20261101200000_mejoras_tienda.sql).
+type MejoraRow = { id: string; user_id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean; leida_en: string | null };
 
 type SortMode = "recent" | "participation";
 
@@ -378,6 +416,15 @@ export default function AdminUsers() {
   // Números de seguimiento añadidos a una cuenta en Perfil → «Mis seguimientos» y los intentos fallidos (30 días), con la
   // tabla seguimiento_intentos (datos de la base de datos). null = la migración 20261031170000 aún no está aplicada.
   const [numerosSeguimiento, setNumerosSeguimiento] = useState<{ anadidos: number; fallidos: number; personas: number } | null>(null);
+  // Ideas de «Mejoras en la tienda». null = la migración aún no está aplicada (se avisa y el resto funciona igual).
+  const [mejoras, setMejoras] = useState<MejoraRow[] | null>(null);
+  const [filtroMejoras, setFiltroMejoras] = useState<"sin-leer" | "todas">("sin-leer");
+  const [filtroOrigen, setFiltroOrigen] = useState<OrigenMejora | null>(null);
+  const [marcandoMejora, setMarcandoMejora] = useState<string | null>(null);
+  // Cuántas veces se abrió la cajita en 30 días (analítica propia), por cuántas personas y desde dónde.
+  const [usoMejoras, setUsoMejoras] = useState<{ abiertas: number; personas: number; porOrigen: Record<OrigenMejora, number> } | null>(null);
+  // «Recuperar contraseña» en 30 días (analítica propia). null = sin analítica.
+  const [usoContrasena, setUsoContrasena] = useState<UsoContrasena | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -385,7 +432,7 @@ export default function AdminUsers() {
 
     try {
       const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes, moderacionRes, silenciosRes, intentosRes] = await Promise.all([
+      const [usersRes, sellRes, serviceRes, reviewsRes, perfilesConFoto, eventosRes, comentariosOcultosRes, moderacionRes, silenciosRes, intentosRes, mejorasRes] = await Promise.all([
         supabase.rpc("admin_list_users_with_stats"),
         supabase.from("sell_requests").select("id", { count: "exact", head: true }),
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
@@ -395,14 +442,28 @@ export default function AdminUsers() {
         supabase
           .from("analytics_events")
           .select("event_name,user_id,session_id,metadata")
-          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO, ...EVENTOS_RESENAS])
+          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO, ...EVENTOS_RESENAS, ...EVENTOS_MEJORAS, ...EVENTOS_CONTRASENA])
           .gte("created_at", desde)
           .limit(5000),
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
         supabase.from("foro_moderacion").select("accion").gte("created_at", desde).limit(5000),
         supabase.from("foro_silencios").select("user_id,hasta,motivo").gt("hasta", new Date().toISOString()).order("hasta", { ascending: true }),
         supabase.from("seguimiento_intentos").select("user_id,acierto").gte("created_at", desde).limit(5000),
+        supabase.from("mejoras_tienda").select("*").order("created_at", { ascending: false }).limit(500),
       ]);
+      setMejoras(
+        mejorasRes.error
+          ? null
+          : ((mejorasRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+              id: String(r.id ?? ""),
+              user_id: String(r.user_id ?? ""),
+              created_at: String(r.created_at ?? ""),
+              texto: String(r.texto ?? ""),
+              origen: (["blue", "pie", "perfil"].includes(String(r.origen)) ? r.origen : "blue") as OrigenMejora,
+              leida: r.leida === true,
+              leida_en: typeof r.leida_en === "string" ? r.leida_en : null,
+            }))
+      );
       if (intentosRes.error) {
         setNumerosSeguimiento(null);
       } else {
@@ -431,7 +492,35 @@ export default function AdminUsers() {
         setUsoSeguimientos(null);
         setNormasLeidas(null);
         setUsoResenas(null);
+        setUsoMejoras(null);
+        setUsoContrasena(null);
       } else {
+        // «Recuperar contraseña»: cuántas veces pasa cada cosa (y por qué fallan), sin datos de nadie.
+        const deContrasena = ((eventosRes.data ?? []) as { event_name: string; metadata: { motivo?: unknown } | null }[]).filter((e) =>
+          (EVENTOS_CONTRASENA as readonly string[]).includes(e.event_name)
+        );
+        const cuenta = (nombre: string, motivo?: string) =>
+          deContrasena.filter((e) => e.event_name === nombre && (!motivo || String(e.metadata?.motivo ?? "") === motivo)).length;
+        setUsoContrasena({
+          pedidos: cuenta("contrasena_enlace_pedido"),
+          errores: cuenta("contrasena_enlace_error"),
+          limite: cuenta("contrasena_enlace_error", "limite"),
+          abiertos: cuenta("contrasena_enlace_abierto"),
+          noSirvieron: cuenta("contrasena_enlace_invalido"),
+          otroNavegador: cuenta("contrasena_enlace_invalido", "otro_navegador"),
+          caducados: cuenta("contrasena_enlace_invalido", "caducado"),
+          cambiadas: cuenta("contrasena_cambiada"),
+        });
+        // «Mejoras en la tienda»: veces que se abrió la cajita, personas distintas y desde dónde.
+        const abiertas = ((eventosRes.data ?? []) as { event_name: string; user_id: string | null; session_id: string | null; metadata: { origen?: unknown } | null }[]).filter(
+          (e) => e.event_name === "mejora_abierta"
+        );
+        const porOrigen: Record<OrigenMejora, number> = { blue: 0, pie: 0, perfil: 0 };
+        for (const e of abiertas) {
+          const o = String(e.metadata?.origen ?? "") as OrigenMejora;
+          if (o in porOrigen) porOrigen[o] += 1;
+        }
+        setUsoMejoras({ abiertas: abiertas.length, personas: new Set(abiertas.map((e) => e.user_id || e.session_id || "").filter(Boolean)).size, porOrigen });
         type FilaUso = { event_name: string; user_id: string | null; session_id: string | null; metadata: { como?: unknown } | null };
         const filas = (eventosRes.data ?? []) as FilaUso[];
         const aperturas = filas.filter((e) => e.event_name === "seguimientos_abiertos");
@@ -545,6 +634,36 @@ export default function AdminUsers() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Marcar una idea de mejora como leída (o volver a dejarla sin leer).
+  const marcarMejora = useCallback(async (id: string, leida: boolean) => {
+    setMarcandoMejora(id);
+    const leidaEn = leida ? new Date().toISOString() : null;
+    const { data, error } = await supabase.from("mejoras_tienda").update({ leida, leida_en: leidaEn }).eq("id", id).select("id");
+    setMarcandoMejora(null);
+    if (!error && Array.isArray(data) && data.length) {
+      setMejoras((prev) => (prev ?? []).map((m) => (m.id === id ? { ...m, leida, leida_en: leidaEn } : m)));
+    }
+  }, []);
+
+  // Ideas de mejora: contadores (también sirven de filtro) y las que se ven con los filtros puestos.
+  const resumenMejoras = useMemo(() => {
+    const lista = mejoras ?? [];
+    const hace30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const porOrigen: Record<OrigenMejora, number> = { blue: 0, pie: 0, perfil: 0 };
+    for (const m of lista) porOrigen[m.origen] += 1;
+    return {
+      total: lista.length,
+      sinLeer: lista.filter((m) => !m.leida).length,
+      enviadas30: lista.filter((m) => new Date(m.created_at).getTime() >= hace30).length,
+      personas: new Set(lista.map((m) => m.user_id)).size,
+      porOrigen,
+    };
+  }, [mejoras]);
+  const mejorasVisibles = useMemo(
+    () => (mejoras ?? []).filter((m) => (filtroMejoras === "todas" || !m.leida) && (!filtroOrigen || m.origen === filtroOrigen)),
+    [mejoras, filtroMejoras, filtroOrigen]
+  );
 
   // Quitar el silencio de alguien del Foro: se pone «hasta» en este momento (queda en el registro de moderación).
   const quitarSilencio = useCallback(async (userId: string) => {
@@ -695,6 +814,111 @@ export default function AdminUsers() {
               <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
             </View>
 
+            {/* «Mejoras en la tienda»: las ideas que mandan los clientes (desde Blue, el pie de página o Mi cuenta). Primero
+                las que no se han leído; los contadores también filtran. Tocar el nombre lleva a la ficha del cliente. */}
+            {mejoras === null ? (
+              <Text nativeID="admin-mejoras" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Ideas de mejora: falta aplicar en Supabase la migración 20261101200000_mejoras_tienda.sql. Hasta entonces, la cajita
+                de la tienda dice que muy pronto se podrán enviar.
+              </Text>
+            ) : (
+              <View nativeID="admin-mejoras" style={{ gap: 10 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                  Ideas de mejora{resumenMejoras.sinLeer ? ` · ${resumenMejoras.sinLeer} sin leer` : ""}
+                </Text>
+                <Text nativeID="admin-mejoras-uso" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  Últimos 30 días: {resumenMejoras.enviadas30} {resumenMejoras.enviadas30 === 1 ? "idea enviada" : "ideas enviadas"}
+                  {usoMejoras
+                    ? ` · abrieron la cajita ${usoMejoras.abiertas} ${usoMejoras.abiertas === 1 ? "vez" : "veces"} (${usoMejoras.personas} ${
+                        usoMejoras.personas === 1 ? "persona" : "personas"
+                      }): Blue ${usoMejoras.porOrigen.blue} · pie de página ${usoMejoras.porOrigen.pie} · Mi cuenta ${usoMejoras.porOrigen.perfil}`
+                    : ""}
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                  <ChipButton label={`Sin leer (${resumenMejoras.sinLeer})`} active={filtroMejoras === "sin-leer"} onPress={() => setFiltroMejoras("sin-leer")} isMobile={isMobile} />
+                  <ChipButton label={`Todas (${resumenMejoras.total})`} active={filtroMejoras === "todas"} onPress={() => setFiltroMejoras("todas")} isMobile={isMobile} />
+                  {(Object.keys(ORIGENES_MEJORA) as OrigenMejora[]).map((o) => (
+                    <ChipButton
+                      key={o}
+                      label={`${ORIGENES_MEJORA[o]} (${resumenMejoras.porOrigen[o]})`}
+                      active={filtroOrigen === o}
+                      onPress={() => setFiltroOrigen((v) => (v === o ? null : o))}
+                      isMobile={isMobile}
+                    />
+                  ))}
+                </View>
+                {mejorasVisibles.length === 0 ? (
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                    {resumenMejoras.total === 0
+                      ? "Todavía nadie ha mandado ideas. Se envían desde Blue, el pie de página y Mi cuenta."
+                      : "No hay ideas con este filtro: estás al día."}
+                  </Text>
+                ) : (
+                  mejorasVisibles.slice(0, 60).map((m) => {
+                    const p = perfiles[m.user_id];
+                    const u = users.find((x) => x.user_id === m.user_id);
+                    const quien = p?.nombre || p?.usuario ? [p?.nombre, p?.usuario ? `@${p.usuario}` : ""].filter(Boolean).join(" · ") : u?.email ?? "Cliente";
+                    return (
+                      <View
+                        key={m.id}
+                        nativeID={`mejora-${m.id}`}
+                        style={{
+                          flexDirection: "row",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: m.leida ? COLORS.border : COLORS.accentBorder,
+                          backgroundColor: m.leida ? COLORS.card : COLORS.accent2,
+                          padding: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                          <Text style={{ color: COLORS.text, fontSize: 14, lineHeight: 20, fontWeight: m.leida ? "600" : "800" }}>{m.texto}</Text>
+                          <Pressable
+                            onPress={() =>
+                              router.push({
+                                pathname: "/admin/cliente/[userId]",
+                                params: { userId: m.user_id, email: u?.email ?? "", createdAt: u?.created_at ?? "" },
+                              } as any)
+                            }
+                            accessibilityRole="link"
+                            accessibilityLabel={`Ver la ficha de ${quien}`}
+                            style={({ pressed }) => ({ minHeight: 32, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                          >
+                            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
+                              <Text style={{ color: COLORS.text, fontWeight: "900", textDecorationLine: "underline" }}>{quien}</Text> · {fmtDate(m.created_at)} · desde{" "}
+                              {ORIGENES_MEJORA[m.origen]}
+                            </Text>
+                          </Pressable>
+                        </View>
+                        <Pressable
+                          onPress={() => marcarMejora(m.id, !m.leida)}
+                          disabled={marcandoMejora === m.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={m.leida ? "Marcar como no leída" : "Marcar como leída"}
+                          {...({ title: m.leida ? "Marcar como no leída" : "Marcar como leída" } as object)}
+                          style={({ pressed }) => ({
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderWidth: 1,
+                            borderColor: m.leida ? COLORS.border : COLORS.accent,
+                            backgroundColor: m.leida ? "#FFFFFF" : COLORS.accent,
+                            opacity: marcandoMejora === m.id ? 0.5 : pressed ? 0.85 : 1,
+                          })}
+                        >
+                          <Ionicons name={m.leida ? "mail-unread-outline" : "checkmark"} size={20} color={m.leida ? COLORS.text : "#FFFFFF"} />
+                        </Pressable>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            )}
+
             {/* Moderación del Foro: lo que eliminan o silencian los administradores (tocando un mensaje en el Foro). Con el
                 registro de moderación, cuenta los últimos 30 días; sin él, solo los comentarios ocultos. */}
             {moderacion ? (
@@ -773,6 +997,27 @@ export default function AdminUsers() {
                 Números de seguimiento (30 días): añadidos a una cuenta {numerosSeguimiento.anadidos} (por {numerosSeguimiento.personas}{" "}
                 {numerosSeguimiento.personas === 1 ? "persona" : "personas"}) · intentos fallidos {numerosSeguimiento.fallidos}
               </Text>
+            ) : null}
+
+            {/* «¿Olvidaste tu contraseña?»: si los enlaces se piden, llegan a abrirse y terminan en una contraseña nueva, y por
+                qué fallan (analítica propia, 30 días). Si Supabase frena los correos, se avisa de lo que hace falta. */}
+            {usoContrasena ? (
+              <View nativeID="admin-contrasenas" style={{ gap: 4 }}>
+                <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  Recuperar contraseña (30 días): enlaces pedidos {usoContrasena.pedidos} · abiertos {usoContrasena.abiertos} · contraseñas
+                  cambiadas {usoContrasena.cambiadas}
+                  {usoContrasena.noSirvieron
+                    ? ` · enlaces que no sirvieron ${usoContrasena.noSirvieron} (en otro navegador ${usoContrasena.otroNavegador}, caducados o ya usados ${usoContrasena.caducados})`
+                    : ""}
+                  {usoContrasena.errores ? ` · no se pudieron pedir ${usoContrasena.errores}` : ""}
+                </Text>
+                {usoContrasena.limite ? (
+                  <Text nativeID="admin-contrasenas-aviso" style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    Supabase ha frenado {usoContrasena.limite} {usoContrasena.limite === 1 ? "correo" : "correos"} por su límite de envíos: hace falta
+                    el correo propio (SMTP) en Supabase → Authentication → Emails.
+                  </Text>
+                ) : null}
+              </View>
             ) : null}
 
             {/* Perfil → «Mis seguimientos»: quién lo abre (analítica propia, 30 días) y cuántos deslizando la pestaña. */}
