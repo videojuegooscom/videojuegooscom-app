@@ -10,6 +10,11 @@
  *   perfil» / «Deshacer». Al final, abierta o plegada, los botones de la cuenta («Cerrar sesión» y, al administrador,
  *   «Panel de control»), que le pasa la pantalla en `cuenta`. Campos compactos, redondeados y centrados con ✓ verde cuando
  *   están bien; desplegables con ⌃⌄ (los nativos del móvil, invisibles encima del campo).
+ *   «Dirección de envío» (opcional, solo en Mi cuenta, dueño 2026-11-02, «como en Amazon»): código postal (5 cifras en
+ *   España; la provincia se reconoce por sus dos primeras cifras, se pone sola si faltaba y se avisa si no es la del
+ *   perfil) y localidad, dirección (calle o avenida y número de portal, o «s/n») y piso/puerta/letra. Si se empieza, tiene
+ *   que estar entera; nunca impide tener el perfil completo. Rellena el pago (app/checkout.tsx). Columnas codigo_postal,
+ *   localidad, direccion y piso (migración 20261102120000_perfiles_direccion.sql); sin ellas no se ofrece.
  * - perfilesPublicos(ids): usuario y foto de varias personas para el Foro (función perfiles_publicos de la base de datos,
  *   que solo devuelve eso; si aún no existe, el Foro sigue como antes).
  * - PerfilObligatorio (montado una vez en app/_layout.tsx): con sesión iniciada y el perfil sin completar, una pantalla
@@ -45,8 +50,31 @@ const P = {
   fondo: "#F4F9FD",
 };
 
-export type DatosPerfil = { usuario: string; nombre: string; pais: string; provincia: string; fecha: string; foto: string };
-const DATOS_VACIOS: DatosPerfil = { usuario: "", nombre: "", pais: "", provincia: "", fecha: "", foto: "" };
+export type DatosPerfil = {
+  usuario: string;
+  nombre: string;
+  pais: string;
+  provincia: string;
+  fecha: string;
+  foto: string;
+  // Dirección de envío (opcional): rellena el pago (app/checkout.tsx).
+  codigoPostal: string;
+  localidad: string;
+  direccion: string;
+  piso: string;
+};
+const DATOS_VACIOS: DatosPerfil = {
+  usuario: "",
+  nombre: "",
+  pais: "",
+  provincia: "",
+  fecha: "",
+  foto: "",
+  codigoPostal: "",
+  localidad: "",
+  direccion: "",
+  piso: "",
+};
 const PAIS_ESPANA = "España";
 const EDAD_MINIMA = 14;
 const FECHA_MINIMA = "1900-01-01";
@@ -68,6 +96,22 @@ const PROVINCIAS_ES = [
   "Murcia", "Navarra", "Ourense", "Palencia", "Pontevedra", "Salamanca", "Santa Cruz de Tenerife", "Segovia", "Sevilla", "Soria",
   "Tarragona", "Teruel", "Toledo", "Valencia", "Valladolid", "Vizcaya", "Zamora", "Zaragoza",
 ];
+
+// Provincia de cada código postal de España por sus dos primeras cifras (01 Álava … 52 Melilla), con los nombres de
+// PROVINCIAS_ES.
+const PROVINCIA_POR_CP = [
+  "", "Álava", "Albacete", "Alicante", "Almería", "Ávila", "Badajoz", "Baleares", "Barcelona", "Burgos", "Cáceres", "Cádiz",
+  "Castellón", "Ciudad Real", "Córdoba", "A Coruña", "Cuenca", "Girona", "Granada", "Guadalajara", "Guipúzcoa", "Huelva",
+  "Huesca", "Jaén", "León", "Lleida", "La Rioja", "Lugo", "Madrid", "Málaga", "Murcia", "Navarra", "Ourense", "Asturias",
+  "Palencia", "Las Palmas", "Pontevedra", "Salamanca", "Santa Cruz de Tenerife", "Cantabria", "Segovia", "Sevilla", "Soria",
+  "Tarragona", "Teruel", "Toledo", "Valencia", "Valladolid", "Vizcaya", "Zamora", "Zaragoza", "Ceuta", "Melilla",
+];
+
+/** Provincia de un código postal de España (5 cifras, de 01000 a 52999); null si no lo es. */
+export function provinciaDeCodigoPostal(cp: string): string | null {
+  const m = /^(\d{2})\d{3}$/.exec(cp.trim());
+  return m ? PROVINCIA_POR_CP[Number(m[1])] || null : null;
+}
 
 const textoDe = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
@@ -118,7 +162,32 @@ function erroresPerfil(d: DatosPerfil): Partial<Record<keyof DatosPerfil, string
     if (edad === null || d.fecha < FECHA_MINIMA) e.fecha = "Elige una fecha de nacimiento válida.";
     else if (edad < EDAD_MINIMA) e.fecha = `Para tener cuenta hay que tener ${EDAD_MINIMA} años o más.`;
   }
+  // Dirección de envío: opcional, pero si se empieza tiene que estar entera (como en Amazon) para servir en un pedido.
+  const cp = d.codigoPostal.trim();
+  const localidad = d.localidad.trim();
+  const direccion = d.direccion.trim();
+  const piso = d.piso.trim();
+  if (cp || localidad || direccion || piso) {
+    const espana = d.pais === PAIS_ESPANA || !d.pais;
+    if (!cp) e.codigoPostal = "Falta el código postal de la dirección.";
+    else if (espana ? !provinciaDeCodigoPostal(cp) : !/^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$/.test(cp)) {
+      e.codigoPostal = espana ? "El código postal tiene 5 cifras (por ejemplo, 50410)." : "Revisa el código postal.";
+    }
+    if (!localidad) e.localidad = "Falta la localidad de la dirección.";
+    else if (localidad.length < 2 || localidad.length > 60) e.localidad = "La localidad debe tener entre 2 y 60 letras.";
+    if (!direccion) e.direccion = "Falta la dirección: calle o avenida y número.";
+    else if (direccion.length < 5 || direccion.length > 120) e.direccion = "La dirección debe tener entre 5 y 120 caracteres.";
+    else if (!/\d/.test(direccion) && !/\bs\/?n\b/i.test(direccion)) e.direccion = "Añade el número del portal (o «s/n» si no tiene).";
+    if (piso.length > 40) e.piso = "El piso, la puerta y la letra, como mucho 40 caracteres.";
+  }
   return e;
+}
+
+/** Dirección del perfil en una línea («C/ Mayor 5, 3º B · 50410 Cuarte de Huerva»); vacía si no hay. */
+export function direccionEnUnaLinea(d: Pick<DatosPerfil, "direccion" | "piso" | "codigoPostal" | "localidad">): string {
+  const calle = [d.direccion.trim(), d.piso.trim()].filter(Boolean).join(", ");
+  const lugar = [d.codigoPostal.trim(), d.localidad.trim()].filter(Boolean).join(" ");
+  return [calle, lugar].filter(Boolean).join(" · ");
 }
 
 // Datos obligatorios que aún faltan (la foto es opcional).
@@ -132,42 +201,47 @@ function faltan(d: DatosPerfil): string[] {
   return lista;
 }
 
+// Fallos de los datos obligatorios (la dirección es opcional: nunca impide tener el perfil completo).
+function erroresObligatorios(d: DatosPerfil): Partial<Record<keyof DatosPerfil, string>> {
+  const { codigoPostal: _cp, localidad: _lo, direccion: _di, piso: _pi, ...resto } = erroresPerfil(d);
+  return resto;
+}
+
 export function perfilCompleto(d: DatosPerfil): boolean {
-  return faltan(d).length === 0 && Object.keys(erroresPerfil(d)).length === 0;
+  return faltan(d).length === 0 && Object.keys(erroresObligatorios(d)).length === 0;
 }
 
 // --- lectura y avisos compartidos --------------------------------------------------------------------------------
 
-type Lectura = { disponible: false } | { disponible: true; conFoto: boolean; datos: DatosPerfil | null };
+type Lectura = { disponible: false } | { disponible: true; conFoto: boolean; conDireccion: boolean; datos: DatosPerfil | null };
 
+/** De una fila de perfiles_cliente (lo que haya) a los datos del formulario. */
+export function datosDeFila(fila: Record<string, unknown>): DatosPerfil {
+  return {
+    usuario: textoDe(fila.usuario),
+    nombre: textoDe(fila.nombre),
+    pais: textoDe(fila.pais),
+    provincia: textoDe(fila.provincia),
+    fecha: textoDe(fila.fecha_nacimiento),
+    foto: textoDe(fila.foto_url),
+    codigoPostal: textoDe(fila.codigo_postal),
+    localidad: textoDe(fila.localidad),
+    direccion: textoDe(fila.direccion),
+    piso: textoDe(fila.piso),
+  };
+}
+
+// Con «*» la lectura funciona antes y después de cada migración (sin peticiones fallidas): qué columnas hay se sabe por la
+// fila. Sin fila todavía, se ofrece todo y, si al guardar falta una columna, se guarda sin ella.
 async function leerPerfil(uid: string): Promise<Lectura> {
-  const columnas = "nombre,usuario,pais,provincia,fecha_nacimiento";
-  const pedir = (cols: string) => supabase.from("perfiles_cliente").select(cols).eq("user_id", uid).maybeSingle();
-  let conFoto = true;
-  let r = await pedir(`${columnas},foto_url`);
-  // Tabla creada con la migración anterior (sin la columna de la foto): sin foto.
-  if (r.error && faltaEsquema(r.error) && /foto_url/.test(String(r.error.message ?? ""))) {
-    conFoto = false;
-    r = await pedir(columnas);
-  }
+  const r = await supabase.from("perfiles_cliente").select("*").eq("user_id", uid).maybeSingle();
   if (r.error) {
     if (faltaEsquema(r.error)) return { disponible: false };
     throw r.error;
   }
   const fila = r.data as Record<string, unknown> | null;
-  if (!fila) return { disponible: true, conFoto, datos: null };
-  return {
-    disponible: true,
-    conFoto,
-    datos: {
-      usuario: textoDe(fila.usuario),
-      nombre: textoDe(fila.nombre),
-      pais: textoDe(fila.pais),
-      provincia: textoDe(fila.provincia),
-      fecha: textoDe(fila.fecha_nacimiento),
-      foto: textoDe(fila.foto_url),
-    },
-  };
+  if (!fila) return { disponible: true, conFoto: true, conDireccion: true, datos: null };
+  return { disponible: true, conFoto: "foto_url" in fila, conDireccion: "codigo_postal" in fila, datos: datosDeFila(fila) };
 }
 
 // --- usuario y foto para el Foro ----------------------------------------------------------------------------------
@@ -358,6 +432,8 @@ export default function PerfilPublico({
     if (estado !== "cargando") onDisponible?.(estado === "listo");
   }, [estado, onDisponible]);
   const [conFoto, setConFoto] = useState(true);
+  // ¿Existen ya las columnas de la dirección? (migración 20261102120000_perfiles_direccion.sql)
+  const [conDireccion, setConDireccion] = useState(true);
   const [datos, setDatos] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardado, setGuardado] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardando, setGuardando] = useState(false);
@@ -379,6 +455,7 @@ export default function PerfilPublico({
           return;
         }
         setConFoto(l.conFoto);
+        setConDireccion(l.conDireccion);
         if (l.datos) {
           setDatos(l.datos);
           setGuardado(l.datos);
@@ -402,7 +479,8 @@ export default function PerfilPublico({
     };
   }, [uid, obligatorio]);
 
-  const errores = useMemo(() => erroresPerfil(datos), [datos]);
+  // En «Completa tu perfil» no sale la dirección: sus avisos tampoco.
+  const errores = useMemo(() => (obligatorio || !conDireccion ? erroresObligatorios(datos) : erroresPerfil(datos)), [datos, obligatorio, conDireccion]);
   const primerError = Object.values(errores)[0];
   const pendientes = faltan(datos);
   const completo = pendientes.length === 0 && !primerError;
@@ -419,6 +497,14 @@ export default function PerfilPublico({
       const nuevo = { ...d, [campo]: valor };
       // Las provincias son las de España: al cambiar de país se borra la que no corresponda.
       if (campo === "pais" && (valor === PAIS_ESPANA) !== (d.pais === PAIS_ESPANA)) nuevo.provincia = "";
+      // Código postal de España sin provincia elegida: la provincia se pone sola (y el país, si estaba vacío).
+      if (campo === "codigoPostal" && (d.pais === PAIS_ESPANA || !d.pais) && !d.provincia.trim()) {
+        const provincia = provinciaDeCodigoPostal(valor);
+        if (provincia) {
+          nuevo.provincia = provincia;
+          if (!d.pais) nuevo.pais = PAIS_ESPANA;
+        }
+      }
       return nuevo;
     });
   }, []);
@@ -483,20 +569,48 @@ export default function PerfilPublico({
       provincia: datos.provincia.trim(),
       fecha: datos.fecha,
       foto: conFoto ? datos.foto.trim() : "",
+      // El código postal se guarda sin espacios de más y en mayúsculas (los de otros países llevan letras).
+      codigoPostal: conDireccion ? datos.codigoPostal.trim().toUpperCase() : "",
+      localidad: conDireccion ? datos.localidad.trim() : "",
+      direccion: conDireccion ? datos.direccion.trim() : "",
+      piso: conDireccion ? datos.piso.trim() : "",
     };
+    const direccionAntes = direccionEnUnaLinea(guardado);
+    const fila = (conDir: boolean) => ({
+      user_id: uid,
+      nombre: limpio.nombre || null,
+      usuario: limpio.usuario || null,
+      pais: limpio.pais || null,
+      provincia: limpio.provincia || null,
+      fecha_nacimiento: limpio.fecha || null,
+      ...(conFoto ? { foto_url: limpio.foto || null } : {}),
+      ...(conDir
+        ? {
+            codigo_postal: limpio.codigoPostal || null,
+            localidad: limpio.localidad || null,
+            direccion: limpio.direccion || null,
+            piso: limpio.piso || null,
+          }
+        : {}),
+    });
+    // Las columnas de la dirección solo se mandan si hay una que guardar o que borrar: así quien no la usa (p. ej. en
+    // «Completa tu perfil») no pide columnas que quizá aún no existen.
+    const enviarDireccion = conDireccion && (!!direccionEnUnaLinea(limpio) || !!direccionAntes);
     try {
-      const { error } = await supabase.from("perfiles_cliente").upsert(
-        {
-          user_id: uid,
-          nombre: limpio.nombre || null,
-          usuario: limpio.usuario || null,
-          pais: limpio.pais || null,
-          provincia: limpio.provincia || null,
-          fecha_nacimiento: limpio.fecha || null,
-          ...(conFoto ? { foto_url: limpio.foto || null } : {}),
-        },
-        { onConflict: "user_id" }
-      );
+      let { error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion), { onConflict: "user_id" });
+      // Aún sin las columnas de la dirección (migración sin aplicar): se guarda lo demás y la dirección deja de ofrecerse.
+      let sinDireccion = false;
+      if (error && enviarDireccion && faltaEsquema(error) && /codigo_postal|localidad|direccion|piso/.test(String((error as { message?: string }).message ?? ""))) {
+        setConDireccion(false);
+        sinDireccion = true;
+        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(false), { onConflict: "user_id" }));
+      }
+      if (sinDireccion) {
+        limpio.codigoPostal = "";
+        limpio.localidad = "";
+        limpio.direccion = "";
+        limpio.piso = "";
+      }
       if (error) {
         const codigo = String((error as { code?: string }).code ?? "");
         setAviso({
@@ -528,8 +642,13 @@ export default function PerfilPublico({
       setDatos(limpio);
       setGuardado(limpio);
       perfilesForo.delete(uid); // el Foro vuelve a pedir su usuario y su foto
-      setAviso({ tipo: "ok", texto: "Perfil guardado." });
+      setAviso({ tipo: "ok", texto: sinDireccion ? "Perfil guardado (la dirección todavía no se puede guardar)." : "Perfil guardado." });
       trackEvent("perfil_guardado", "Perfil: guardado");
+      // Analítica propia (Administración → Usuarios): quién añade o cambia su dirección de envío (nunca la dirección).
+      const direccionAhora = direccionEnUnaLinea(limpio);
+      if (direccionAhora && direccionAhora !== direccionAntes) {
+        trackEvent("perfil_direccion_guardada", "Perfil: dirección guardada", { metadata: { nueva: !direccionAntes } });
+      }
       avisarPerfilGuardado();
       if (perfilCompleto(limpio)) {
         alCompletar?.();
@@ -600,6 +719,87 @@ export default function PerfilPublico({
       </Text>
     </CajaPerfil>
   );
+
+  // Campos de la dirección de envío (como en Amazon: el navegador puede rellenarlos con «autocompletar»).
+  const campoDireccion = (
+    campo: "codigoPostal" | "localidad" | "direccion" | "piso",
+    placeholder: string,
+    etiqueta: string,
+    opciones: {
+      max: number;
+      ancho?: number;
+      numerico?: boolean;
+      autoComplete?: "postal-code" | "address-line1" | "address-line2";
+      mayusculas?: "none" | "words" | "sentences" | "characters";
+    }
+  ) => (
+    <CajaPerfil
+      valido={!!datos[campo].trim() && !errores[campo]}
+      enfocado={enfocado === campo}
+      error={!!errores[campo] && !!datos[campo].trim()}
+      ancho={opciones.ancho}
+      sinHuecoDerecho={!!opciones.ancho}
+    >
+      <TextInput
+        nativeID={`perfil-${campo}`}
+        value={datos[campo]}
+        onChangeText={(t) => cambiar(campo, opciones.numerico ? t.replace(/[^0-9]/g, "") : t)}
+        onFocus={() => setEnfocado(campo)}
+        onBlur={() => setEnfocado((e) => (e === campo ? null : e))}
+        placeholder={placeholder}
+        placeholderTextColor={marcador}
+        accessibilityLabel={etiqueta}
+        maxLength={opciones.max}
+        autoComplete={opciones.autoComplete}
+        keyboardType={opciones.numerico ? "number-pad" : "default"}
+        inputMode={opciones.numerico ? "numeric" : "text"}
+        autoCapitalize={opciones.mayusculas ?? "sentences"}
+        autoCorrect={false}
+        style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, ...sinOutline }]}
+      />
+    </CajaPerfil>
+  );
+  // Provincia del código postal (España): se enseña al escribirlo y se avisa si no es la del perfil.
+  const provinciaCp = esEspana || !datos.pais ? provinciaDeCodigoPostal(datos.codigoPostal) : null;
+  const cpDeOtraProvincia = !!provinciaCp && !!datos.provincia.trim() && provinciaCp !== datos.provincia.trim();
+  const apartadoDireccion =
+    !obligatorio && conDireccion ? (
+      <View nativeID="perfil-direccion-envio" style={{ gap: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: P.line, marginTop: 4 }}>
+        <View style={{ alignItems: "center", gap: 2, paddingTop: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Ionicons name="location-outline" size={18} color={P.accent} />
+            <Text style={{ color: P.text, fontWeight: "900", fontSize: 15.5 }}>Dirección de envío</Text>
+          </View>
+          <Text style={{ color: P.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>Opcional · tus pedidos se rellenan solos</Text>
+        </View>
+        {/* Cada dato a lo ancho, como el resto del perfil: así una localidad larga («Cuarte de Huerva») se lee entera. */}
+        <View style={{ flexDirection: "row" }}>
+          {campoDireccion("codigoPostal", "Código postal", "Código postal", {
+            max: esEspana || !datos.pais ? 5 : 10,
+            numerico: esEspana || !datos.pais,
+            autoComplete: "postal-code",
+            mayusculas: "characters",
+          })}
+        </View>
+        {provinciaCp ? (
+          <Text
+            nativeID="perfil-cp-provincia"
+            style={{ color: cpDeOtraProvincia ? "#B45309" : P.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center", lineHeight: 17 }}
+          >
+            {cpDeOtraProvincia
+              ? `Ese código postal es de ${provinciaCp} y tu provincia es ${datos.provincia.trim()}: revísalo.`
+              : `Código postal de ${provinciaCp}.`}
+          </Text>
+        ) : null}
+        <View style={{ flexDirection: "row" }}>{campoDireccion("localidad", "Localidad", "Localidad", { max: 60, mayusculas: "words" })}</View>
+        <View style={{ flexDirection: "row" }}>
+          {campoDireccion("direccion", "Calle o avenida y número", "Dirección: calle o avenida y número de portal", { max: 120, autoComplete: "address-line1" })}
+        </View>
+        <View style={{ flexDirection: "row" }}>
+          {campoDireccion("piso", "Piso, puerta y letra (opcional)", "Piso, puerta y letra", { max: 40, autoComplete: "address-line2", mayusculas: "characters" })}
+        </View>
+      </View>
+    ) : null;
 
   const cajaEdad =
     edad !== null && edad >= 0 ? (
@@ -725,6 +925,8 @@ export default function PerfilPublico({
         {fechaYEdadJuntas ? cajaEdad : null}
       </View>
       {!fechaYEdadJuntas && cajaEdad ? <View style={{ flexDirection: "row" }}>{cajaEdad}</View> : null}
+
+      {apartadoDireccion}
 
       {primerError ? (
         <Text style={{ color: P.danger, fontWeight: "800", textAlign: "center", lineHeight: 19 }}>{primerError}</Text>
