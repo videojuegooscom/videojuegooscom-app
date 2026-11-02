@@ -130,7 +130,8 @@ async function rellenarYEnviar(p, { doble = false, envio = false } = {}) {
   // fallaba). Se repite el rellenado hasta que el botón se activa, y si no se activa se dice claramente.
   let activo = false;
   for (let intento = 0; intento < 6 && !activo; intento++) {
-    await p.getByRole("radio", { name: envio ? /Envío a domicilio/ : /Recogida en tienda/ }).click();
+    // La tienda es solo online: la opción sin envío se llama «Entrega en mano» (en la base de datos sigue siendo «recogida»).
+    await p.getByRole("radio", { name: envio ? /Envío a domicilio/ : /Entrega en mano/ }).click();
     await p.getByPlaceholder("Nombre completo").fill("Cliente de Prueba");
     await p.getByPlaceholder("tu@email.com").fill("prueba@example.com");
     await p.getByPlaceholder("627 748 741").fill("600123123");
