@@ -24,6 +24,10 @@
  * se marca nada automáticamente: esas ventas se siguen marcando a mano
  * desde el chat del producto o desde el panel de Productos.
  *
+ * Con sesión iniciada, los campos vacíos se rellenan solos: nombre y correo de la cuenta y la dirección de envío de
+ * «Mi perfil» (código postal, localidad, dirección y piso; components/PerfilPublico.tsx), con un aviso «Con la
+ * dirección de tu perfil». Se mide con la analítica propia («pago_direccion_perfil», Administración → Usuarios).
+ *
  * Conectado con:
  * - app/(tabs)/cesta.tsx → de donde viene el carrito guardado.
  * - app/catalogo.tsx → a donde vuelve el usuario si el carrito está vacío
@@ -56,6 +60,7 @@ import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analytics";
+import { datosDeFila } from "../components/PerfilPublico";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -419,6 +424,41 @@ export default function CheckoutScreen() {
     bootstrap();
   }, [bootstrap]);
 
+  // Con sesión iniciada, los datos se rellenan solos con los de la cuenta y la dirección de envío de «Mi perfil»
+  // (components/PerfilPublico.tsx), como en Amazon. Solo los campos vacíos: nunca se pisa lo que ya se haya escrito.
+  const [desdePerfil, setDesdePerfil] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        const user = s.session?.user;
+        if (!user || !vivo) return;
+        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+        // «*»: funciona antes y después de la migración de la dirección (sin pedir columnas que aún no existen).
+        const { data } = await supabase.from("perfiles_cliente").select("*").eq("user_id", user.id).maybeSingle();
+        if (!vivo) return;
+        const p = datosDeFila((data ?? {}) as Record<string, unknown>);
+        const nombre = p.nombre || (typeof meta.full_name === "string" ? meta.full_name.trim() : "");
+        if (nombre) setFullName((v) => v || nombre);
+        if (user.email) setEmail((v) => v || user.email || "");
+        if (p.direccion && p.codigoPostal) {
+          const linea = [p.direccion, p.piso].filter(Boolean).join(", ");
+          setAddress1((v) => v || linea);
+          setPostalCode((v) => v || p.codigoPostal);
+          if (p.localidad) setCity((v) => v || p.localidad);
+          setDesdePerfil(true);
+          trackEvent("pago_direccion_perfil", "Pago: dirección del perfil", { path: "/checkout" });
+        }
+      } catch {
+        // sin datos: se escriben a mano, como siempre
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   const onPay = useCallback(async () => {
     if (enviandoRef.current) return;
     setErr(null);
@@ -762,6 +802,14 @@ export default function CheckoutScreen() {
               />
               {entrega === "envio" ? (
                 <>
+                  {desdePerfil ? (
+                    <View nativeID="pago-direccion-perfil" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <Ionicons name="location-outline" size={16} color={COLORS.accent} />
+                      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center", flexShrink: 1 }}>
+                        Con la dirección de tu perfil (puedes cambiarla aquí)
+                      </Text>
+                    </View>
+                  ) : null}
                   <Field
                     label="Dirección"
                     value={address1}

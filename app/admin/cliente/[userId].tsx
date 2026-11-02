@@ -71,6 +71,7 @@ import { supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
 import SmartImage from "../../../components/SmartImage";
 import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
+import { datosDeFila, direccionEnUnaLinea } from "../../../components/PerfilPublico";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
@@ -273,6 +274,8 @@ export default function ClienteFicha() {
     edad: number | null;
     foto: string;
     actualizado: string;
+    // Dirección de envío de Mi perfil en una línea (vacía si no la ha puesto); null = sin las columnas todavía.
+    direccion: string | null;
   } | null>(null);
 
   const [notes, setNotes] = useState("");
@@ -375,13 +378,8 @@ export default function ClienteFicha() {
         foto_url?: string | null;
         updated_at?: string | null;
       };
-      const pedirPerfil = (columnas: string) =>
-        supabase.from("perfiles_cliente").select(columnas).eq("user_id", userId).maybeSingle<FilaPerfil>();
-      let perfilRes = await pedirPerfil("nombre,usuario,pais,provincia,fecha_nacimiento,foto_url,updated_at");
-      // Tabla de la migración antigua (sin foto): se pide sin esas columnas.
-      if (perfilRes.error && /foto_url|updated_at/.test(String(perfilRes.error.message ?? ""))) {
-        perfilRes = await pedirPerfil("nombre,usuario,pais,provincia,fecha_nacimiento");
-      }
+      // «*»: funciona antes y después de cada migración del perfil (foto, dirección…) sin pedir columnas que no existan.
+      const perfilRes = await supabase.from("perfiles_cliente").select("*").eq("user_id", userId).maybeSingle<FilaPerfil & Record<string, unknown>>();
       const p = perfilRes.error ? null : perfilRes.data;
       if (p) {
         const hoy = new Date();
@@ -399,6 +397,7 @@ export default function ClienteFicha() {
           edad,
           foto: (p.foto_url ?? "").trim(),
           actualizado: (p.updated_at ?? "").trim(),
+          direccion: "codigo_postal" in p ? direccionEnUnaLinea(datosDeFila(p)) : null,
         });
       } else {
         setPerfil(null);
@@ -537,6 +536,8 @@ export default function ClienteFicha() {
                       ["País", perfil.pais],
                       ["Provincia", perfil.provincia],
                       ["Edad", perfil.edad !== null ? `${perfil.edad} años` : ""],
+                      // Dirección de envío (opcional) de Mi perfil: la que rellena sus pedidos.
+                      ...(perfil.direccion !== null ? [["Dirección de envío", perfil.direccion]] : []),
                     ].map(([etiqueta, valor]) => (
                       <View key={etiqueta} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
                         <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12.5 }}>{etiqueta}</Text>

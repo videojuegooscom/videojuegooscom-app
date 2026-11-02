@@ -67,7 +67,10 @@
  *   (analítica propia: perfil_obligatorio_visto / perfil_guardado / perfil_obligatorio_salir,
  *   solo de quien no rechazó la analítica), y cuántos encuadraron su foto o dejaron el recorte a
  *   medias (perfil_foto_encuadrada / perfil_foto_cancelada). Cada fila lleva la foto, el resumen y qué le falta;
- *   el buscador también encuentra por nombre, usuario, provincia o país. Si la tabla aún no existe
+ *   el buscador también encuentra por nombre, usuario, provincia o país (y código postal o localidad). DIRECCIÓN DE
+ *   ENVÍO (opcional, Mi perfil): contador «Con dirección», chip que filtra, «CP 50410 Cuarte…» en el resumen de cada
+ *   fila y, de 30 días, quién la guarda y quién paga con ella ya rellenada (perfil_direccion_guardada /
+ *   pago_direccion_perfil); sin las columnas (migración 20261102120000) no sale nada de esto. Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
  *
@@ -148,10 +151,18 @@ type PerfilRow = {
   fecha_nacimiento: string;
   foto_url: string;
   updated_at: string;
+  // Dirección de envío (opcional; migración 20261102120000_perfiles_direccion.sql).
+  codigo_postal: string;
+  localidad: string;
+  direccion: string;
+  piso: string;
 };
 
 // Filtro por estado del perfil.
-type EstadoPerfil = "completo" | "pendiente" | "foto";
+type EstadoPerfil = "completo" | "pendiente" | "foto" | "direccion";
+
+// Tiene una dirección de envío entera (la que rellena el pago).
+const conDireccionDeEnvio = (p: PerfilRow | undefined) => !!p && !!p.direccion && !!p.codigo_postal;
 
 // Lo que mide la analítica propia de «Completa tu perfil» (components/PerfilPublico.tsx).
 const EVENTOS_PERFIL = [
@@ -160,6 +171,9 @@ const EVENTOS_PERFIL = [
   "perfil_obligatorio_salir",
   "perfil_foto_encuadrada",
   "perfil_foto_cancelada",
+  // Dirección de envío: quién la guarda en Mi perfil y quién paga con ella ya rellenada (app/checkout.tsx).
+  "perfil_direccion_guardada",
+  "pago_direccion_perfil",
 ] as const;
 
 // Perfil → «Mis seguimientos» (app/(tabs)/perfil.tsx): quién lo abre y si lo hace deslizando o tocando la pestaña.
@@ -241,7 +255,9 @@ function resumenDePerfil(p: PerfilRow | undefined): string {
   if (!p) return "Perfil sin completar";
   const edad = edadDe(p.fecha_nacimiento);
   const lugar = p.provincia && p.pais ? `${p.provincia} (${p.pais})` : p.provincia || p.pais;
-  const partes = [p.nombre, p.usuario ? `@${p.usuario}` : "", lugar, edad !== null ? `${edad} años` : ""].filter(Boolean);
+  // Con dirección de envío, su código postal y localidad (para ver de un vistazo quién está en la zona de reparto).
+  const envio = conDireccionDeEnvio(p) ? `CP ${[p.codigo_postal, p.localidad].filter(Boolean).join(" ")}` : "";
+  const partes = [p.nombre, p.usuario ? `@${p.usuario}` : "", lugar, edad !== null ? `${edad} años` : "", envio].filter(Boolean);
   return partes.length ? partes.join(" · ") : "Perfil sin completar";
 }
 
@@ -389,6 +405,8 @@ export default function AdminUsers() {
   // (si la migración aún no está aplicada, esta parte no se enseña y el resto de la pantalla funciona igual).
   const [perfiles, setPerfiles] = useState<Record<string, PerfilRow>>({});
   const [perfilesOk, setPerfilesOk] = useState(false);
+  // ¿Existen ya las columnas de la dirección de envío? (se sabe por las filas; sin ellas no se enseña nada de la dirección)
+  const [direccionColumnas, setDireccionColumnas] = useState(false);
   const [filtroProvincia, setFiltroProvincia] = useState<string | null>(null);
   const [filtroPais, setFiltroPais] = useState<string | null>(null);
   const [filtroTramo, setFiltroTramo] = useState<string | null>(null);
@@ -400,6 +418,8 @@ export default function AdminUsers() {
     salieron: number;
     fotosEncuadradas: number;
     fotosCanceladas: number;
+    direccionGuardada: number;
+    pagoConDireccion: number;
   } | null>(null);
   // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
   // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
@@ -438,7 +458,8 @@ export default function AdminUsers() {
         supabase.from("service_requests").select("id", { count: "exact", head: true }),
         supabase.from("store_reviews").select("rating"),
         // El administrador puede leer todos (política de la tabla). Si la tabla no existe todavía, no es un error de la pantalla.
-        supabase.from("perfiles_cliente").select("user_id,nombre,usuario,pais,provincia,fecha_nacimiento,foto_url,updated_at").limit(5000),
+        // «*»: funciona antes y después de cada migración del perfil (foto, dirección…) sin pedir columnas que no existan.
+        supabase.from("perfiles_cliente").select("*").limit(5000),
         supabase
           .from("analytics_events")
           .select("event_name,user_id,session_id,metadata")
@@ -568,6 +589,8 @@ export default function AdminUsers() {
           salieron: personas("perfil_obligatorio_salir"),
           fotosEncuadradas: personas("perfil_foto_encuadrada"),
           fotosCanceladas: personas("perfil_foto_cancelada"),
+          direccionGuardada: personas("perfil_direccion_guardada"),
+          pagoConDireccion: personas("pago_direccion_perfil"),
         });
       }
 
@@ -576,6 +599,7 @@ export default function AdminUsers() {
         setPerfiles({});
       } else {
         const mapa: Record<string, PerfilRow> = {};
+        setDireccionColumnas(((perfilesRes.data ?? []) as Record<string, unknown>[]).some((r) => "codigo_postal" in r));
         for (const r of (perfilesRes.data ?? []) as Record<string, unknown>[]) {
           const id = String(r.user_id ?? "");
           if (!id) continue;
@@ -589,6 +613,10 @@ export default function AdminUsers() {
             fecha_nacimiento: t(r.fecha_nacimiento),
             foto_url: t(r.foto_url),
             updated_at: t(r.updated_at),
+            codigo_postal: t(r.codigo_postal),
+            localidad: t(r.localidad),
+            direccion: t(r.direccion),
+            piso: t(r.piso),
           };
         }
         setPerfiles(mapa);
@@ -705,7 +733,8 @@ export default function AdminUsers() {
     // Clientes (no administradores) a los que aún les sale «Completa tu perfil».
     const pendientes = users.filter((u) => (u.role ?? "").toLowerCase() !== "admin" && !perfilCompleto(perfiles[u.user_id])).length;
     const conFoto = delosUsuarios.filter((p) => !!p.foto_url).length;
-    return { conAlgo, completos, pendientes, conFoto, porProvincia, porPais, porTramo, media };
+    const conDireccion = delosUsuarios.filter((p) => conDireccionDeEnvio(p)).length;
+    return { conAlgo, completos, pendientes, conFoto, conDireccion, porProvincia, porPais, porTramo, media };
   }, [users, perfiles]);
 
   const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado;
@@ -720,12 +749,13 @@ export default function AdminUsers() {
       if (filtroEstado === "completo" && !perfilCompleto(p)) return false;
       if (filtroEstado === "pendiente" && ((u.role ?? "").toLowerCase() === "admin" || perfilCompleto(p))) return false;
       if (filtroEstado === "foto" && !p?.foto_url) return false;
+      if (filtroEstado === "direccion" && !conDireccionDeEnvio(p)) return false;
       if (tramo) {
         const e = p ? edadDe(p.fecha_nacimiento) : null;
         if (e === null || e < tramo.min || e > tramo.max) return false;
       }
       if (!q) return true;
-      const texto = [u.email, p?.nombre, p?.usuario, p?.provincia, p?.pais].filter(Boolean).join(" ").toLowerCase();
+      const texto = [u.email, p?.nombre, p?.usuario, p?.provincia, p?.pais, p?.codigo_postal, p?.localidad].filter(Boolean).join(" ").toLowerCase();
       return texto.includes(q);
     });
 
@@ -1044,6 +1074,9 @@ export default function AdminUsers() {
                     isMobile={isMobile}
                   />
                   <StatCard label="Provincias" value={String(resumenPerfiles.porProvincia.length)} icon="location-outline" isMobile={isMobile} />
+                  {direccionColumnas ? (
+                    <StatCard label="Con dirección" value={String(resumenPerfiles.conDireccion)} icon="home-outline" isMobile={isMobile} />
+                  ) : null}
                 </View>
 
                 {/* «Completa tu perfil» (obligatorio al iniciar sesión): analítica propia de los últimos 30 días. */}
@@ -1059,6 +1092,13 @@ export default function AdminUsers() {
                     Foto de perfil (30 días): la encuadraron {embudoPerfil.fotosEncuadradas} · dejaron el recorte {embudoPerfil.fotosCanceladas}
                   </Text>
                 ) : null}
+                {/* Dirección de envío: quién la guarda y quién paga con ella ya rellenada (30 días, personas distintas). */}
+                {embudoPerfil && direccionColumnas ? (
+                  <Text nativeID="admin-perfiles-direccion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    Dirección de envío (30 días): la guardaron {embudoPerfil.direccionGuardada} · pagaron con ella ya rellenada{" "}
+                    {embudoPerfil.pagoConDireccion}
+                  </Text>
+                ) : null}
 
                 <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>ESTADO</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
@@ -1067,6 +1107,7 @@ export default function AdminUsers() {
                       ["completo", `Completo (${resumenPerfiles.completos})`],
                       ["pendiente", `Faltan datos (${resumenPerfiles.pendientes})`],
                       ["foto", `Con foto (${resumenPerfiles.conFoto})`],
+                      ...(direccionColumnas ? ([["direccion", `Con dirección (${resumenPerfiles.conDireccion})`]] as [EstadoPerfil, string][]) : []),
                     ] as [EstadoPerfil, string][]
                   ).map(([id, label]) => (
                     <ChipButton
