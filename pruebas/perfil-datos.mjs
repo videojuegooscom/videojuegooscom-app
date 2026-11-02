@@ -128,11 +128,17 @@
  *    navegador, y se quita de la dirección), caducados o sin enlace, «Mostrar», los errores de Supabase en español, la
  *    analítica propia sin el correo y la línea «Recuperar contraseña» de Administración → Usuarios (con el aviso del SMTP).
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME» o «CO» de cuarto argumento
- * solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo, Blue en
- * el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el encuadre de
- * las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda o recuperar la contraseña).
+ *  - DI) Dirección de envío en «Mi perfil»: 4 campos de 44 px con autocompletar, solo cifras en el código postal, la
+ *    provincia por el código postal (y aviso si es de otra), dirección entera o nada, con número de portal; se guarda y
+ *    se mide sin la dirección; «Completa tu perfil» no la pide; sin la migración no se ofrece y no pide columnas (sin fila,
+ *    guarda lo demás y lo dice); el pago se rellena solo; Usuarios (contador, chip, CP en cada fila, uso) y la ficha.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO» o «DI» de cuarto
+ * argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo,
+ * Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el
+ * encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la contraseña o
+ * la dirección del perfil).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -535,6 +541,11 @@ async function contexto(navegador, usuario, rol, estado) {
     if (url.pathname.endsWith("/rest/v1/perfiles_cliente")) {
       if (metodo === "POST") {
         const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        // Sin la migración de la dirección (sección DI): esas columnas no existen, como la base de datos.
+        if (estado.sinColumnasDireccion && ["codigo_postal", "localidad", "direccion", "piso"].some((c) => c in cuerpo)) {
+          estado.direccion400 = (estado.direccion400 ?? 0) + 1;
+          return json({ code: "PGRST204", message: "Could not find the 'codigo_postal' column of 'perfiles_cliente' in the schema cache" }, 400);
+        }
         estado.guardados.push({ cuerpo, url: peticion.url(), prefer: peticion.headers()["prefer"] ?? "" });
         if (estado.respuestaGuardar) return json(estado.respuestaGuardar.cuerpo, estado.respuestaGuardar.status);
         // Como la base de datos: queda guardado (lo vuelve a leer «Completa tu perfil»).
@@ -3143,6 +3154,208 @@ async function seccionCO() {
   }
 }
 
+// ===== DI) Dirección de envío en «Mi perfil» (como en Amazon), el pago relleno solo y su parte en Administración =====
+async function seccionDI() {
+  const base = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null };
+  const sinDir = { codigo_postal: null, localidad: null, direccion: null, piso: null };
+  const conDir = { codigo_postal: "50410", localidad: "Cuarte de Huerva", direccion: "Calle Mayor 5", piso: "3º B" };
+  const abrirPerfil = async (p) => {
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(400);
+  };
+  const texto = (p) => p.evaluate(() => (document.getElementById("perfil-datos")?.innerText ?? "").replace(/\n+/g, " | "));
+  const guardar = (p) => p.getByRole("button", { name: "Guardar perfil" });
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+
+  // DI1) Con la migración: el apartado, sus comprobaciones, la provincia por el código postal y guardar.
+  {
+    const estado = { filas: [{ ...base, ...sinDir }], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-direccion-envio").waitFor({ timeout: 15000 }).catch(() => {});
+    const medidas = await p.evaluate(() =>
+      ["codigoPostal", "localidad", "direccion", "piso"].map((c) => {
+        const caja = document.getElementById(`perfil-${c}`)?.parentElement?.parentElement?.getBoundingClientRect();
+        return caja ? Math.round(caja.height) : 0;
+      })
+    );
+    const t0 = await texto(p);
+    ok(/Dirección de envío/.test(t0) && /Opcional/.test(t0) && medidas.every((h) => h >= 44), `DI: «Mi perfil» tiene «Dirección de envío» (opcional) con 4 campos de 44 px o más (${medidas.join(", ")})`);
+    const placeholders = await p.evaluate(() => ["codigoPostal", "localidad", "direccion", "piso"].map((c) => document.getElementById(`perfil-${c}`)?.getAttribute("placeholder")));
+    ok(
+      placeholders.join("|") === "Código postal|Localidad|Calle o avenida y número|Piso, puerta y letra (opcional)",
+      `DI: código postal, localidad, «calle o avenida y número» y «piso, puerta y letra» (${placeholders.join(" · ")})`
+    );
+    const autocompletar = await p.evaluate(() => ["codigoPostal", "direccion", "piso"].map((c) => document.getElementById(`perfil-${c}`)?.getAttribute("autocomplete")));
+    ok(autocompletar.join("|") === "postal-code|address-line1|address-line2", `DI: el navegador puede rellenarlos solo (autocomplete: ${autocompletar.join(", ")})`);
+
+    await p.locator("#perfil-codigoPostal").fill("50a41");
+    ok((await p.locator("#perfil-codigoPostal").inputValue()) === "5041", "DI: en el código postal solo entran cifras");
+    ok(/tiene 5 cifras/.test(await texto(p)) && (await guardar(p).getAttribute("aria-disabled")) === "true", "DI: con 4 cifras avisa de que tiene 5 y no deja guardar");
+    await p.locator("#perfil-codigoPostal").fill("22001");
+    ok(/Ese código postal es de Huesca y tu provincia es Zaragoza/.test(await texto(p)), "DI: si el código postal es de otra provincia, avisa");
+    await p.locator("#perfil-codigoPostal").fill("50410");
+    const t1 = await texto(p);
+    ok(/Código postal de Zaragoza/.test(t1) && /Falta la localidad/.test(t1), `DI: reconoce la provincia por el código postal y pide la dirección entera (${(t1.match(/Falta[^|]*/) ?? [""])[0]})`);
+    await p.locator("#perfil-localidad").fill("Cuarte de Huerva");
+    const entera = await p.evaluate(() => {
+      const e = document.getElementById("perfil-localidad");
+      return e ? { cabe: e.scrollWidth <= e.clientWidth + 1, ancho: e.clientWidth, texto: e.scrollWidth } : null;
+    });
+    ok(!!entera?.cabe, `DI: una localidad larga se lee entera («Cuarte de Huerva»: ${entera?.texto}/${entera?.ancho} px)`);
+    await p.locator("#perfil-direccion").fill("Calle Mayor");
+    ok(/Añade el número del portal/.test(await texto(p)), "DI: sin número de portal lo pide (o «s/n»)");
+    await p.locator("#perfil-direccion").fill("Calle Mayor 5");
+    await p.locator("#perfil-piso").fill("3º B");
+    await capturar(p, "DI1-perfil-direccion");
+    await guardar(p).click();
+    for (let i = 0; i < 30 && !estado.guardados.length; i++) await p.waitForTimeout(200);
+    const cuerpo = estado.guardados[0]?.cuerpo ?? {};
+    ok(
+      cuerpo.codigo_postal === "50410" && cuerpo.localidad === "Cuarte de Huerva" && cuerpo.direccion === "Calle Mayor 5" && cuerpo.piso === "3º B",
+      `DI: al guardar se mandan el código postal, la localidad, la dirección y el piso (${JSON.stringify({ cp: cuerpo.codigo_postal, l: cuerpo.localidad, d: cuerpo.direccion, p: cuerpo.piso })})`
+    );
+    await p.getByText("Perfil guardado.").first().waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.getByText("Perfil guardado.").count()) >= 1, "DI: y dice «Perfil guardado.»");
+    for (let i = 0; i < 20 && !evento(estado, "perfil_direccion_guardada").length; i++) await p.waitForTimeout(250);
+    const ev = evento(estado, "perfil_direccion_guardada")[0];
+    ok(ev?.metadata?.nueva === true && !JSON.stringify(estado.eventosEnviados ?? []).includes("Calle Mayor"), `DI: la analítica propia cuenta que la guardó (sin la dirección) (${JSON.stringify(ev?.metadata ?? null)})`);
+    ok(p.errores.length === 0, `DI: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(ancho.a <= ancho.p + 1, `DI: Mi cuenta no se ensancha (${ancho.a}/${ancho.p})`);
+    await ctx.close();
+  }
+
+  // DI2) «Completa tu perfil» no pide ni enseña la dirección (es opcional) y no la manda.
+  {
+    const estado = { filas: [{ ...base, provincia: null, ...sinDir }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#perfil-obligatorio").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#perfil-obligatorio").count()) === 1 && (await p.locator("#perfil-direccion-envio").count()) === 0, "DI: «Completa tu perfil» no enseña la dirección (es opcional)");
+    await ctx.close();
+  }
+
+  // DI3) Sin la migración: con fila (sin esas columnas) no se ofrece; sin fila, si se escribe, se guarda lo demás.
+  {
+    const estado = { filas: [{ ...base }], guardados: [], sinColumnasDireccion: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.waitForTimeout(600);
+    ok((await p.locator("#perfil-direccion-envio").count()) === 0, "DI: sin la migración no se ofrece la dirección");
+    await p.locator('#perfil-datos [aria-label="Nombre"]').first().fill("Ana María");
+    await guardar(p).click();
+    for (let i = 0; i < 30 && !estado.guardados.length; i++) await p.waitForTimeout(200);
+    ok(estado.guardados.length === 1 && !("codigo_postal" in (estado.guardados[0]?.cuerpo ?? {})) && !estado.direccion400, "DI: y se guarda sin pedir columnas que no existen (0 peticiones fallidas)");
+    await ctx.close();
+
+    const estado2 = { filas: [], guardados: [], sinColumnasDireccion: true };
+    const ctx2 = await contexto(navegador, CLIENTE, "user", estado2);
+    const p2 = await pagina(ctx2, "/perfil");
+    await abrirPerfil(p2);
+    await p2.locator("#perfil-direccion-envio").waitFor({ timeout: 15000 }).catch(() => {});
+    await p2.locator("#perfil-codigoPostal").fill("50410");
+    await p2.locator("#perfil-localidad").fill("Cuarte de Huerva");
+    await p2.locator("#perfil-direccion").fill("Calle Mayor 5");
+    await guardar(p2).click();
+    for (let i = 0; i < 30 && !estado2.guardados.length; i++) await p2.waitForTimeout(200);
+    await p2.waitForTimeout(500);
+    const t = await texto(p2);
+    ok(
+      estado2.direccion400 === 1 && estado2.guardados.length === 1 && !("codigo_postal" in (estado2.guardados[0]?.cuerpo ?? {})) && /la dirección todavía no se puede guardar/.test(t),
+      `DI: sin fila y sin la migración, guarda lo demás y lo dice (${estado2.direccion400 ?? 0} intento fallido, ${estado2.guardados.length} guardado)`
+    );
+    ok((await p2.locator("#perfil-direccion-envio").count()) === 0 && p2.errores.length === 0, "DI: y deja de ofrecer la dirección, sin errores de JavaScript");
+    await ctx2.close();
+  }
+
+  // DI4) El pago se rellena solo con los datos de la cuenta y la dirección del perfil.
+  {
+    const estado = { filas: [{ ...base, ...conDir }], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        if (!localStorage.getItem("videojuegoos_cart_v1")) {
+          localStorage.setItem(
+            "videojuegoos_cart_v1",
+            JSON.stringify([{ id: "00000000-0000-4000-8000-0000000000a1", title: "Producto de prueba", priceEUR: 100, qty: 1, imageUrl: null, reservedUntil: Date.now() + 20 * 60000 }])
+          );
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/checkout");
+    await p.getByRole("radio", { name: /Envío a domicilio/ }).click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#pago-direccion-perfil").waitFor({ timeout: 15000 }).catch(() => {});
+    const valor = (ph) => p.locator(`input[placeholder="${ph}"], textarea[placeholder="${ph}"]`).first().inputValue().catch(() => "");
+    const v = { nombre: await valor("Nombre completo"), correo: await valor("tu@email.com"), dir: await valor("Calle, número, piso..."), cp: await valor("50001"), ciudad: await valor("Zaragoza") };
+    ok(v.nombre === "Ana" && v.correo === CLIENTE.email, `DI: el pago trae el nombre del perfil y el correo de la cuenta (${v.nombre}, ${v.correo})`);
+    ok(v.dir === "Calle Mayor 5, 3º B" && v.cp === "50410" && v.ciudad === "Cuarte de Huerva", `DI: y la dirección del perfil (${v.dir} · ${v.cp} · ${v.ciudad})`);
+    ok(/Con la dirección de tu perfil/.test(await p.locator("#pago-direccion-perfil").innerText().catch(() => "")), "DI: y avisa de que viene del perfil (se puede cambiar ahí mismo)");
+    await capturar(p, "DI4-pago-relleno");
+    for (let i = 0; i < 20 && !evento(estado, "pago_direccion_perfil").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "pago_direccion_perfil").length === 1, "DI: la analítica propia cuenta el pago con la dirección del perfil");
+    ok(p.errores.length === 0, `DI: el pago sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // DI5) Administración → Usuarios y la ficha del cliente.
+  {
+    const OTRO = { ...CLIENTE, id: "33333333-3333-4333-8333-333333333333", email: "otro@example.com" };
+    const ev = (event_name, user_id) => ({ event_name, user_id, session_id: `s-${user_id}`, metadata: {} });
+    const estado = {
+      guardados: [],
+      filas: [
+        { ...base, ...conDir, updated_at: "2026-11-02T10:00:00Z" },
+        { ...base, user_id: OTRO.id, usuario: "otro", nombre: "Otro", ...sinDir, updated_at: "2026-11-02T10:00:00Z" },
+      ],
+      usuarios: [
+        { user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+        { user_id: OTRO.id, email: OTRO.email, role: "user", created_at: "2026-10-02T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+      ],
+      eventos: [ev("perfil_direccion_guardada", CLIENTE.id), ev("perfil_direccion_guardada", OTRO.id), ev("pago_direccion_perfil", CLIENTE.id)],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-perfiles").innerText().catch(() => "")).replace(/\n+/g, " | ");
+    ok(/Con dirección \| 1/.test(t), `DI: Usuarios cuenta quién tiene dirección de envío (${(t.match(/Con dirección[^|]*\|[^|]*/) ?? [""])[0]})`);
+    ok(/la guardaron 2 · pagaron con ella ya rellenada 1/.test((await p.locator("#admin-perfiles-direccion").innerText().catch(() => "")).replace(/\n/g, " ")), "DI: y cuántos la guardan y pagan con ella ya rellenada (30 días)");
+    const todo = (await p.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
+    ok(/CP 50410 Cuarte de Huerva/.test(todo), "DI: cada fila enseña su código postal y localidad (zona de reparto)");
+    await p.getByText("Con dirección (1)", { exact: true }).click();
+    await p.waitForTimeout(400);
+    const filtrado = (await p.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
+    ok(filtrado.includes(CLIENTE.email) && !filtrado.includes(OTRO.email), "DI: el chip «Con dirección» filtra la lista");
+    ok(p.errores.length === 0, `DI: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+    await f.getByText("Dirección de envío", { exact: true }).waitFor({ timeout: 30000 }).catch(() => {});
+    const tf = (await f.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
+    ok(/Dirección de envío Calle Mayor 5, 3º B · 50410 Cuarte de Huerva/.test(tf), "DI: la ficha del cliente enseña su dirección de envío entera");
+    ok(f.errores.length === 0, `DI: la ficha sin errores de JavaScript (${f.errores.length}${f.errores[0] ? ": " + f.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // DI6) Administración sin la migración: nada de la dirección y sin errores.
+  {
+    const estado = {
+      guardados: [],
+      filas: [{ ...base, updated_at: "2026-11-02T10:00:00Z" }],
+      usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
+    ok(!/Con dirección/.test(t) && p.errores.length === 0, "DI: sin la migración, Usuarios no enseña nada de la dirección y sin errores");
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -3301,6 +3514,7 @@ try {
   if (SOLO === "BU") await seccionBU();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
+  if (SOLO === "DI") await seccionDI();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -4232,6 +4446,7 @@ try {
   await seccionBU();
   await seccionME();
   await seccionCO();
+  await seccionDI();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
