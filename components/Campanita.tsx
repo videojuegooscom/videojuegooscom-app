@@ -29,6 +29,8 @@
  *   la guía lleva hasta allí y al terminar vuelve; no marca la guía de bienvenida como vista y se mide
  *   aparte (miniguia_*). Van en el panel porque Blue no se ve en Vender, el Foro ni Blue IA.
  *   Se prueba con pruebas/blue-panel.mjs.
+ *   «Mejoras en la tienda» (fila del Asistente, solo en la tienda): cierra el panel y abre la cajita de ideas
+ *   (MejorasModal de components/ReviewModal.tsx, origen «blue»).
  * - Aparece 10 s después de entrar en la web (APARECER_MS, contados desde que
  *   se abrió la página con performance.now()): antes no se ve ni se puede tocar.
  *   Entra con un rebote de escala, saluda moviéndose de lado a lado y enseña un
@@ -145,6 +147,7 @@ import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, Te
 import { alRecargar } from "./TirarParaActualizar";
 import { usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
+import { MejorasModal } from "./ReviewModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -845,6 +848,8 @@ export default function Campanita() {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
   const [panelOpen, setPanelOpen] = useState(false);
+  // «Mejoras en la tienda»: la cajita de ideas que se abre desde el Asistente.
+  const [mejorasAbierta, setMejorasAbierta] = useState(false);
   // «Vender» es una página (app/vender.tsx), no una ventana emergente.
   const abrirVender = useCallback(() => router.push("/vender" as Href), []);
   // Guía de bienvenida (GuiaBlue, al final de este archivo).
@@ -2705,6 +2710,15 @@ export default function Campanita() {
                 />
                 {/* Solo si se puede instalar en este dispositivo y aún no está instalada. */}
                 {modoInst ? <BotonPanel icono="download-outline" texto="Instalar la tienda como app" onPress={instalarApp} /> : null}
+                {/* La cajita de ideas (components/ReviewModal.tsx): se cierra el panel y se abre encima de la tienda. */}
+                <BotonPanel
+                  icono="bulb-outline"
+                  texto="Mejoras en la tienda"
+                  onPress={() => {
+                    setPanelOpen(false);
+                    setMejorasAbierta(true);
+                  }}
+                />
 
                 {/* Guías rápidas: una por pantalla, solo con lo de esa pantalla. Aquí (y no en la propia pantalla) porque
                     Blue no se ve en Vender, el Foro ni Blue IA. La de la pantalla donde estás va resaltada. */}
@@ -3136,6 +3150,9 @@ export default function Campanita() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* «Mejoras en la tienda» (desde el Asistente). */}
+      <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="blue" />
     </>
   );
 }
@@ -3154,6 +3171,8 @@ function BotonPanel({
   return (
     <Pressable
       onPress={onPress}
+      // Que un lector de pantalla lo anuncie como botón (con su texto).
+      accessibilityRole="button"
       style={({ pressed }) => ({
         opacity: pressed ? 0.88 : 1,
         minHeight: 48,

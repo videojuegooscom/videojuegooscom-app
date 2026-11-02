@@ -41,8 +41,17 @@
  *   estrellas, qué ideas se usaron y cuántos emojis propuestos se quedaron;
  *   Administración → Usuarios lo cuenta (30 días).
  *
+ * MEJORAS EN LA TIENDA (MejorasModal, dueño 2026-11-01): la misma ventana para que un cliente nos diga qué mejoraría.
+ * Se abre desde Blue (Asistente, components/Campanita.tsx), el pie de página (components/SiteFooter.tsx) y Perfil →
+ * Mi cuenta (app/(tabs)/perfil.tsx), y solo envía con la sesión iniciada (si no, «Inicia sesión»). El texto (de 3 a
+ * 500 letras) crece con lo escrito como el de la reseña; se guarda en la tabla mejoras_tienda (migración
+ * 20261101200000_mejoras_tienda.sql) con desde dónde se envió; como mucho 5 al día por persona (lo dice la base de
+ * datos). Sin esa migración, la ventana dice que muy pronto se podrá (y no deja escribir). Se mide con la analítica
+ * propia: «mejora_abierta» y «mejora_enviada», con el sitio. Administración → Usuarios («Ideas de mejora») y la ficha
+ * del cliente las enseñan.
+ *
  * Conectado con:
- * - lib/supabase.ts → sesión actual + INSERT en "store_reviews".
+ * - lib/supabase.ts → sesión actual + INSERT en "store_reviews" y en "mejoras_tienda".
  * - components/Resenas.tsx → abre este modal y recibe la reseña publicada.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -738,6 +747,247 @@ export default function ReviewModal({
                     <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>
                       {submitting ? "Publicando…" : "Publicar"}
                     </Text>
+                  </AnimatedPressable>
+                </View>
+              )}
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// «Mejoras en la tienda»: ideas de los clientes (ver la cabecera del archivo).
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Desde dónde se abre la cajita (se guarda con cada idea y en la analítica). */
+export type OrigenMejora = "blue" | "pie" | "perfil";
+export const ORIGENES_MEJORA: Record<OrigenMejora, string> = { blue: "Blue", pie: "Pie de página", perfil: "Mi cuenta" };
+export const MEJORA_MIN = 3;
+export const MEJORA_MAX = 500;
+
+// ¿Existe ya la tabla? Se mira al abrir la ventana con sesión (no al cargar la tienda) y se recuerda en esta visita.
+let mejorasDisponibles: boolean | null = null;
+function faltaTablaMejoras(e: { code?: string; message?: string } | null | undefined): boolean {
+  return !!e && (e.code === "PGRST205" || e.code === "42P01" || /mejoras_tienda/.test(String(e.message ?? "")));
+}
+
+type FaseMejora = "checking" | "auth-required" | "no-disponible" | "form" | "success";
+
+export function MejorasModal({ visible, onClose, origen }: { visible: boolean; onClose: () => void; origen: OrigenMejora }) {
+  const [fase, setFase] = useState<FaseMejora>("checking");
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const campoRef = useRef<TextInput>(null);
+  const [altoCampo, setAltoCampo] = useState(ALTO_MIN_COMENTARIO);
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // El recuadro crece con lo escrito (como el de la reseña).
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || fase !== "form") return;
+    const el = campoRef.current as unknown as HTMLTextAreaElement | null;
+    if (!el?.style || typeof el.scrollHeight !== "number") return;
+    const antes = el.style.height;
+    el.style.height = "0px";
+    const alto = Math.max(ALTO_MIN_COMENTARIO, Math.ceil(el.scrollHeight) + 2);
+    el.style.height = antes;
+    setAltoCampo((a) => (a === alto ? a : alto));
+  }, [texto, fase]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let vivo = true;
+    scaleAnim.setValue(0.9);
+    fadeAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(scaleAnim, { toValue: 1, friction: 7, tension: 90, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start();
+    setFase("checking");
+    setTexto("");
+    setError(null);
+    setAltoCampo(ALTO_MIN_COMENTARIO);
+    (async () => {
+      let conSesion = false;
+      try {
+        const { data } = await supabase.auth.getSession();
+        conSesion = !!data.session?.user;
+      } catch {
+        conSesion = false;
+      }
+      void trackEvent("mejora_abierta", "Mejoras: abierta", { metadata: { origen, con_sesion: conSesion } });
+      if (!vivo) return;
+      if (!conSesion) {
+        setFase("auth-required");
+        return;
+      }
+      if (mejorasDisponibles === null) {
+        const { error: e } = await supabase.from("mejoras_tienda").select("id").limit(1);
+        mejorasDisponibles = !faltaTablaMejoras(e);
+      }
+      if (vivo) setFase(mejorasDisponibles ? "form" : "no-disponible");
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [visible, origen, scaleAnim, fadeAnim]);
+
+  const limpio = texto.trim();
+  const valido = limpio.length >= MEJORA_MIN;
+
+  async function enviar() {
+    if (enviando || !valido) return;
+    setEnviando(true);
+    setError(null);
+    const { error: e } = await supabase.from("mejoras_tienda").insert({ texto: limpio, origen });
+    setEnviando(false);
+    if (!e) {
+      void trackEvent("mejora_enviada", "Mejoras: enviada", { metadata: { origen, letras: limpio.length } });
+      setFase("success");
+      return;
+    }
+    if (faltaTablaMejoras(e)) {
+      mejorasDisponibles = false;
+      setFase("no-disponible");
+    } else if (e.code === "P0001") {
+      // El límite diario (lo dice la base de datos con su propio mensaje).
+      setError(String(e.message ?? "Ya nos has enviado muchas ideas hoy. ¡Gracias!"));
+    } else if (e.code === "42501" || /jwt|sesi[oó]n/i.test(String(e.message ?? ""))) {
+      setFase("auth-required");
+    } else {
+      setError("No se ha podido enviar. Inténtalo de nuevo en unos segundos.");
+    }
+  }
+
+  function cerrar() {
+    if (enviando) return;
+    onClose();
+  }
+
+  const botonAzul = ({ pressed }: { pressed: boolean }) => ({
+    opacity: pressed ? 0.9 : 1,
+    minHeight: 48,
+    borderRadius: 999,
+    paddingHorizontal: 22,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    backgroundColor: COLORS.accent,
+  });
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={cerrar}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.60)", padding: 16, justifyContent: "center" }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+          <Animated.View
+            nativeID="mejoras-ventana"
+            style={{ width: "100%", maxWidth: 460, alignSelf: "center", opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}
+          >
+            <View
+              style={{ borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bg2, padding: 20, gap: 14, ...softShadow() }}
+            >
+              <Pressable
+                onPress={cerrar}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+                style={({ pressed }) => ({
+                  position: "absolute",
+                  top: 10,
+                  right: 10,
+                  zIndex: 2,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.75 : 1,
+                })}
+              >
+                <Ionicons name="close" size={22} color={COLORS.text} />
+              </Pressable>
+
+              <View style={{ alignItems: "center", paddingHorizontal: 36, gap: 6, paddingTop: 4 }}>
+                <Ionicons name="bulb-outline" size={30} color={COLORS.accent} />
+                <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>Mejoras en la tienda</Text>
+              </View>
+
+              {fase === "checking" ? (
+                <Text style={{ color: COLORS.muted, textAlign: "center", paddingVertical: 20 }}>Un momento…</Text>
+              ) : fase === "auth-required" ? (
+                <View style={{ alignItems: "center", gap: 12 }}>
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21 }}>
+                    Inicia sesión para mandarnos tus ideas: así sabemos de quién son y podemos contestarte si hace falta.
+                  </Text>
+                  <AnimatedPressable
+                    onPress={() => {
+                      cerrar();
+                      pushRoute("/perfil?acceso=entrar" as Href);
+                    }}
+                    style={botonAzul}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Iniciar sesión</Text>
+                  </AnimatedPressable>
+                </View>
+              ) : fase === "no-disponible" ? (
+                <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 21, paddingVertical: 8 }}>
+                  Muy pronto podrás mandarnos tus ideas desde aquí. Mientras, escríbenos por el chat de la tienda.
+                </Text>
+              ) : fase === "success" ? (
+                <View style={{ alignItems: "center", gap: 12 }}>
+                  <Ionicons name="checkmark-circle" size={44} color={COLORS.success} />
+                  <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>¡Gracias! La hemos recibido</Text>
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                    El equipo lee todas las ideas. Las que mejoran la tienda para todos, las hacemos.
+                  </Text>
+                  <AnimatedPressable onPress={cerrar} style={botonAzul}>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Cerrar</Text>
+                  </AnimatedPressable>
+                </View>
+              ) : (
+                <View style={{ gap: 12 }}>
+                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
+                    ¿Qué mejorarías? Algo que echas en falta, algo que no se entiende o una idea nueva: lo leemos todo.
+                  </Text>
+                  <View style={{ gap: 6 }}>
+                    <TextInput
+                      ref={campoRef}
+                      nativeID="mejoras-texto"
+                      value={texto}
+                      onChangeText={(t) => setTexto(t.slice(0, MEJORA_MAX))}
+                      onContentSizeChange={(e) => {
+                        if (Platform.OS === "web") return;
+                        setAltoCampo(Math.max(ALTO_MIN_COMENTARIO, Math.ceil(e.nativeEvent.contentSize.height) + 26));
+                      }}
+                      placeholder="Por ejemplo: me gustaría poder filtrar por precio en el catálogo."
+                      placeholderTextColor="rgba(11,33,56,0.40)"
+                      accessibilityLabel="Tu idea para mejorar la tienda"
+                      multiline
+                      numberOfLines={4}
+                      style={{
+                        minHeight: ALTO_MIN_COMENTARIO,
+                        height: altoCampo,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        borderRadius: 14,
+                        padding: 12,
+                        color: COLORS.text,
+                        backgroundColor: COLORS.cardSoft,
+                        fontSize: 16,
+                        textAlignVertical: "top",
+                      }}
+                    />
+                    <Text style={{ color: COLORS.muted2, fontSize: 11, textAlign: "right" }}>{MEJORA_MAX - texto.length} caracteres restantes</Text>
+                  </View>
+                  {error ? (
+                    <Text nativeID="mejoras-error" style={{ color: COLORS.danger, fontSize: 13, lineHeight: 18, textAlign: "center" }}>
+                      {error}
+                    </Text>
+                  ) : null}
+                  <AnimatedPressable onPress={enviar} disabled={enviando || !valido} style={(s: { pressed: boolean }) => ({ ...botonAzul(s), opacity: enviando || !valido ? 0.55 : s.pressed ? 0.9 : 1 })}>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{enviando ? "Enviando…" : "Enviar idea"}</Text>
                   </AnimatedPressable>
                 </View>
               )}
