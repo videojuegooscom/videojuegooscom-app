@@ -3744,7 +3744,9 @@ try {
 
   // ===== H) Foto de perfil (opcional) ==============================================================================
   {
-    const estado = { filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }], guardados: [] };
+    // Como la base de datos real (con «*» vienen todas las columnas, también las vacías): la tienda sabe por la fila que
+    // existe la columna de la foto.
+    const estado = { filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02", foto_url: null }], guardados: [] };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil");
     await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 });
