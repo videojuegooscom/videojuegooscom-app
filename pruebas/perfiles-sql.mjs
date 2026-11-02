@@ -51,6 +51,9 @@
  *    nombre, sin leer, de 3 a 500 letras, desde blue/pie/perfil) y solo ve las suyas; el administrador las ve todas y las
  *    marca como leídas; nadie las borra desde la app; 5 al día por persona; se van con la cuenta; la privacidad lo explica
  *    una vez (con su «prueba de las pruebas»: sin el límite, entra la sexta).
+ *  - Dirección de envío en «Mi perfil» (20261102120000_perfiles_direccion.sql): 4 columnas con sus comprobaciones, sin tocar
+ *    permisos; cada cliente guarda y cambia la suya, nadie más que él y el administrador la ve, el Foro sigue dando solo
+ *    usuario y foto; la privacidad lo explica una vez (con su «prueba de las pruebas»: sin las comprobaciones, entra «5»).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1063,6 +1066,72 @@ try {
     for (let i = 1; i <= 6; i++) entran.push((await como(c24, "authenticated", U1, `insert into public.mejoras_tienda (texto) values ('Idea ${i}')`, { confirmar: true })).ok);
     ok(entran.every(Boolean), "(control) sin el límite entra la sexta idea del día: la prueba SÍ lo detecta");
     await c24.end();
+  }
+
+  // 19) Dirección de envío en «Mi perfil» (20261102120000), sobre perfiles_cliente y la función del Foro como en producción.
+  {
+    const DIRECCION = readFileSync("supabase/migrations/20261102120000_perfiles_direccion.sql", "utf8");
+    const TITULOS_D = ["Responsable del tratamiento", "Qué datos tratamos", "Para qué usamos tus datos", "Base legal", "Con quién compartimos tus datos", "Cuánto tiempo conservamos tus datos", "Cookies y analítica propia", "Tus derechos"];
+    const PRIV_D = JSON.stringify(TITULOS_D.map((heading) => ({ heading, body: `Texto de hoy de «${heading}».` })));
+    const ESQUEMA_D = `
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad', '${PRIV_D.replace(/'/g, "''")}'::jsonb);
+      create table public.chat_messages (id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid(), body text);
+    `;
+    const c25 = await nuevaBase("vz_aislada_direccion", MIGRACION + ESQUEMA_D + PUBLICOS + DIRECCION);
+    let repetidaD = true;
+    try {
+      await c25.query(DIRECCION);
+    } catch (e) {
+      repetidaD = false;
+      console.log(String(e.message));
+    }
+    const columnasD = (await c25.query("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'perfiles_cliente' and column_name in ('codigo_postal', 'localidad', 'direccion', 'piso') order by 1")).rows.map((r) => r.column_name);
+    const checksD = Number((await c25.query("select count(*) as n from pg_constraint where conname in ('perfiles_cliente_codigo_postal_check', 'perfiles_cliente_localidad_check', 'perfiles_cliente_direccion_check', 'perfiles_cliente_piso_check')")).rows[0].n);
+    const politicasD = (await c25.query("select policyname from pg_policies where schemaname = 'public' and tablename = 'perfiles_cliente' order by 1")).rows.map((r) => r.policyname);
+    ok(repetidaD && columnasD.join(",") === "codigo_postal,direccion,localidad,piso" && checksD === 4, `Dirección: añade las 4 columnas con sus 4 comprobaciones y se puede aplicar dos veces (${columnasD.join(", ")}; ${checksD})`);
+    ok(politicasD.length === 3, `Dirección: no toca los permisos (siguen las 3 políticas: ${politicasD.join(", ")})`);
+
+    const guardarD = await como(c25, "authenticated", U1, `insert into public.perfiles_cliente (user_id, nombre, usuario, pais, provincia, fecha_nacimiento, codigo_postal, localidad, direccion, piso) values ('${U1}', 'Ana', 'ana_g', 'España', 'Zaragoza', '1990-05-02', '50410', 'Cuarte de Huerva', 'Calle Mayor 5', '3º B')`, { confirmar: true });
+    ok(guardarD.ok, "Dirección: un cliente guarda su dirección de envío en su perfil");
+    const cambiarD = await como(c25, "authenticated", U1, "update public.perfiles_cliente set piso = '4º A' where user_id = (select auth.uid())", { confirmar: true });
+    ok(cambiarD.ok && cambiarD.cuantas === 1, "Dirección: y la cambia");
+    const malasD = [];
+    for (const [col, v] of [["codigo_postal", "5"], ["codigo_postal", "50-41$"], ["codigo_postal", "12345678901"], ["localidad", "Z"], ["direccion", "C/1"], ["piso", "x".repeat(41)]]) {
+      malasD.push((await como(c25, "authenticated", U1, `update public.perfiles_cliente set ${col} = '${v}' where user_id = (select auth.uid())`)).codigo);
+    }
+    ok(malasD.every((x) => x === "23514"), `Dirección: rechaza códigos postales raros, localidades, direcciones y pisos fuera de medida (${malasD.join(", ")})`);
+    ok((await como(c25, "authenticated", U1, "update public.perfiles_cliente set codigo_postal = 'SW1A 1AA' where user_id = (select auth.uid())")).ok, "Dirección: admite códigos postales de otros países (con letras y espacio)");
+    await c25.query(`update public.perfiles_cliente set codigo_postal = '50410' where user_id = '${U1}'`);
+    const otroLee = await como(c25, "authenticated", U2, `select direccion from public.perfiles_cliente where user_id = '${U1}'`);
+    ok(otroLee.ok && otroLee.filas.length === 0, "Dirección: otro cliente no ve la dirección de nadie");
+    const anonLee = await como(c25, "anon", null, "select direccion from public.perfiles_cliente");
+    ok(!anonLee.ok && anonLee.codigo === "42501", `Dirección: un visitante tampoco (${anonLee.codigo})`);
+    const adminLee = await como(c25, "authenticated", ADMIN, `select codigo_postal, localidad, direccion, piso from public.perfiles_cliente where user_id = '${U1}'`);
+    ok(adminLee.ok && adminLee.filas[0]?.direccion === "Calle Mayor 5" && adminLee.filas[0]?.piso === "4º A", "Dirección: el administrador la lee (ficha del cliente)");
+    // El Foro solo enseña usuario y foto: la dirección nunca sale por la función pública.
+    await c25.query(`insert into public.chat_messages (user_id, body) values ('${U1}', 'hola')`);
+    const foro = await como(c25, "anon", null, `select * from public.perfiles_publicos(array['${U1}']::uuid[])`);
+    ok(foro.ok && foro.filas.length === 1 && Object.keys(foro.filas[0]).sort().join(",") === "foto_url,user_id,usuario", `Dirección: el Foro sigue dando solo usuario y foto, nunca la dirección (${foro.ok ? Object.keys(foro.filas[0] ?? {}).join(", ") : foro.mensaje})`);
+    const seccionesD = (await c25.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const queDatos = seccionesD.find((s) => s.heading === "Qué datos tratamos")?.body ?? "";
+    ok(
+      (queDatos.match(/dirección de envío \(código postal/g) ?? []).length === 1 &&
+        seccionesD.filter((s) => s.heading !== "Qué datos tratamos").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      "Dirección: la privacidad lo explica una sola vez (aunque se aplique dos veces) y el resto queda igual"
+    );
+    await c25.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin las comprobaciones, un código postal de una cifra entraría.
+    const sinChecksD = DIRECCION.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinChecksD !== DIRECCION, "(control) se han podido quitar las comprobaciones de la dirección en la copia de prueba");
+    const c26 = await nuevaBase("vz_aislada_direccion_sin_checks", MIGRACION + ESQUEMA_D + sinChecksD);
+    await c26.query(`insert into public.perfiles_cliente (user_id, nombre) values ('${U1}', 'Ana')`);
+    ok((await como(c26, "authenticated", U1, "update public.perfiles_cliente set codigo_postal = '5' where user_id = (select auth.uid())")).ok, "(control) sin las comprobaciones entra un código postal de una cifra: la prueba SÍ lo detecta");
+    await c26.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
