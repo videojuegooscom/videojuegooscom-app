@@ -153,9 +153,12 @@
  *  - SV) Administración → Servicios: buscador arriba y del mismo alto que en Productos, 4 contadores en una fila, «+»
  *    flotante, sin recuadros, foto en grande con zoom y deslizar entre pestañas en bucle, en el móvil y en el ordenador.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV]
+ *  - VA) Ficha de clientes para VeoAura: Escaparate cuenta las fichas enviadas y por enviar sin mezclarlas con las
+ *    ventas sin confirmar; Pedidos avisa de qué se manda al marcar «Entregado».
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
- * «HO», «AD» o «SV» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
+ * «HO», «AD», «SV» o «VA» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
  * las reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
@@ -517,6 +520,10 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticias) return json(estado.noticias);
     // Avisos de la tienda que Blue dice en la tienda (Noticias Flash, sección AD).
     if (url.pathname.endsWith("/rest/v1/flash_news") && metodo === "GET" && estado.flash) return json(estado.flash);
+    // Administración → Escaparate (sección VA): avisos a VeoAura, sus artículos y el registro, ficticios.
+    if (estado.salidas && url.pathname.endsWith("/rest/v1/escaparate_salida") && metodo === "GET") return json(estado.salidas);
+    if (estado.salidas && url.pathname.endsWith("/rest/v1/escaparate_registro") && metodo === "GET") return json([]);
+    if (estado.salidas && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /id_veoaura=not\.is\.null/.test(url.search)) return json(estado.articulosVeo ?? []);
     // Administración → Servicios (sección SV): servicios ficticios con sus fotos.
     if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/services") && metodo === "GET") return json(estado.serviciosAdmin);
     if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/service_media") && metodo === "GET") return json(estado.serviciosMedia ?? []);
@@ -4280,6 +4287,39 @@ async function seccionSV() {
   }
 }
 
+// ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
+// cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
+// confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
+async function seccionVA() {
+  const salida = (n, evento, estado) => ({
+    id: `0e000000-0000-4000-8000-00000000000${n}`, creado_en: `2026-11-03T1${n}:00:00Z`, evento, id_veoaura: "0a000000-0000-4000-8000-000000000001",
+    pedido_id: `0b000000-0000-4000-8000-00000000000${n}`, estado, intentos: estado === "enviado" ? 1 : 0, enviado_en: estado === "enviado" ? `2026-11-03T1${n}:05:00Z` : null, detalle: null,
+  });
+  const estado = {
+    guardados: [],
+    filas: [],
+    salidas: [salida(1, "pedido", "pendiente"), salida(2, "pedido_pagado", "enviado"), salida(3, "pedido_pagado", "pendiente"), salida(4, "pedido", "enviado")],
+    articulosVeo: [{ id: "0c000000-0000-4000-8000-000000000001", id_veoaura: "0a000000-0000-4000-8000-000000000001", title: "PS5 Slim", price_eur: 399, is_active: true, vendido_en: null, retirado_en: null, view_count: 5, like_count: 1 }],
+  };
+  const ctx = await contexto(navegador, ADMIN, "admin", estado);
+  const p = await pagina(ctx, "/admin/escaparate");
+  await p.locator("#escaparate-fichas-clientes").waitFor({ timeout: 30000 }).catch(() => {});
+  await p.waitForTimeout(500);
+  const fichas = (await p.locator("#escaparate-fichas-clientes").innerText().catch(() => "")).replace(/\n/g, " ");
+  ok(/Fichas de cliente enviadas a VeoAura: 1 · por enviar: 1 · solo de pedidos entregados \(nombre, correo y teléfono\)/.test(fichas), `VA: Escaparate cuenta las fichas de cliente enviadas y por enviar (${fichas})`);
+  const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+  ok(/1 ventas sin confirmar a VeoAura/.test(t), "VA: las fichas por enviar no cuentan como «ventas sin confirmar» (solo 1, la del pedido)");
+  ok((t.match(/Pedido entregado · ficha del cliente \(nombre, correo y teléfono\)/g) ?? []).length === 2, "VA: cada aviso de ficha de cliente se ve con su nombre en la lista");
+  await capturar(p, "VA1-escaparate-fichas");
+  ok(p.errores.length === 0, `VA: Escaparate sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  const q = await pagina(ctx, "/admin/pedidos");
+  await q.locator("#pedidos-veoaura-cliente").waitFor({ timeout: 30000 }).catch(() => {});
+  const aviso = (await q.locator("#pedidos-veoaura-cliente").innerText().catch(() => "")).replace(/\n/g, " ");
+  ok(/Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del cliente \(nunca su dirección\)/.test(aviso), `VA: Pedidos avisa de qué se manda al marcar «Entregado» (${aviso.slice(0, 80)})`);
+  ok(q.errores.length === 0, `VA: Pedidos sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+  await ctx.close();
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -4445,6 +4485,7 @@ try {
   if (SOLO === "HO") await seccionHO();
   if (SOLO === "AD") await seccionAD();
   if (SOLO === "SV") await seccionSV();
+  if (SOLO === "VA") await seccionVA();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -5385,6 +5426,7 @@ try {
   await seccionHO();
   await seccionAD();
   await seccionSV();
+  await seccionVA();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

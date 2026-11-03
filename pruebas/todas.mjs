@@ -88,6 +88,8 @@ const CATALOGO = [
   { nombre: "escaparate-registro", grupo: "api", archivo: P("escaparate-registro") },
   { nombre: "escaparate-caracteristicas", grupo: "api", archivo: P("escaparate-caracteristicas") },
   { nombre: "escaparate-fotos", grupo: "api", archivo: P("escaparate-fotos") },
+  // Puente de vuelta a VeoAura: los datos del cliente solo en pedidos entregados (y su «prueba de las pruebas»).
+  { nombre: "escaparate-retorno", grupo: "api", archivo: P("escaparate-retorno") },
   // Ninguna prueba de navegador descarga fotos reales de Supabase (cuota de salida del plan): se comprueba aquí.
   { nombre: "sin-fotos-reales", grupo: "api", archivo: P("sin-fotos-reales") },
   { nombre: "lecciones-sql", grupo: "sql", archivo: P("lecciones-sql"), args: (c) => [c.servidor] },

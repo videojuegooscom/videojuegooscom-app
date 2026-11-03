@@ -163,7 +163,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Con quién compartimos tus datos",
         body:
-          "Solo compartimos los datos estrictamente necesarios con empresas de transporte (para entregar tu pedido) y con nuestro proveedor de pagos (Supabase/Stripe u otro que uses), bajo sus propias políticas de privacidad. No vendemos tus datos a terceros.",
+          "Solo compartimos los datos estrictamente necesarios con empresas de transporte (para entregar tu pedido) y con nuestro proveedor de pagos (Supabase/Stripe u otro que uses), bajo sus propias políticas de privacidad. No vendemos tus datos a terceros. Si tu pedido incluye artículos que gestionamos con VeoAura, el programa de gestión del negocio, le comunicamos ese pedido (número, artículo, forma de entrega y precio) y, cuando te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono, para tener tu ficha de cliente. No le pasamos tu dirección ni otros datos.",
       },
       {
         heading: "Cuánto tiempo conservamos tus datos",

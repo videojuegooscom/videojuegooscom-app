@@ -1377,10 +1377,13 @@ export default function Campanita() {
         setSalidaPendiente(0);
         return;
       }
+      // Solo ventas sin confirmar («pedido» y «pedido_anulado»): el aviso con la ficha del cliente («pedido_pagado»)
+      // no es una venta pendiente.
       const { count, error } = await supabase
         .from("escaparate_salida")
         .select("id", { count: "exact", head: true })
-        .in("estado", ["pendiente", "error"]);
+        .in("estado", ["pendiente", "error"])
+        .in("evento", ["pedido", "pedido_anulado"]);
       // Para quien no es admin, RLS no devuelve filas: cuenta 0.
       setSalidaPendiente(error ? 0 : count ?? 0);
     } catch {

@@ -4,8 +4,16 @@
  * Qué hace: puente de vuelta tienda → VeoAura (el de ida es api/escaparate-veoaura.ts).
  * 1. Pedidos: cuando alguien pide en la tienda un artículo que vino de VeoAura, se avisa a
  *    VeoAura («pedido») para que no lo venda también en la tienda física; si el pedido se
- *    cancela, se le avisa otra vez («pedido_anulado»). Nunca se envían datos del cliente:
- *    solo el id del artículo, el número de pedido, la forma de entrega y el precio.
+ *    cancela, se le avisa otra vez («pedido_anulado»). Esos dos avisos nunca llevan datos del
+ *    cliente: solo el id del artículo, el número de pedido, la forma de entrega y el precio.
+ *    Cuando el pedido está PAGADO, que en la tienda es al marcarlo «Entregado» (el pago se acuerda
+ *    por el chat; decisión del dueño, 2026-11-03), sale otro aviso con lo mismo y, además, dentro de
+ *    "pedido", "cliente": {nombre, correo, telefono} de ese pedido (nunca su dirección ni otros
+ *    datos), para que la ficha de clientes de VeoAura quede completa. Aquí se apunta como
+ *    «pedido_pagado», pero viaja como un segundo «pedido» (mismo número, id_mensaje nuevo), que es
+ *    como lo admite VeoAura (contrato del puente, apartado «Cliente del pedido»). Solo sale después
+ *    de que VeoAura haya recibido el primer «pedido», una vez por pedido y artículo. La política
+ *    de privacidad lo explica (supabase/migrations/20261103180000_privacidad_veoaura.sql).
  * 2. Estadísticas (una vez al día, con el cron): visitas y «me gusta» de cada artículo de
  *    VeoAura en la tienda, para decidir allí qué rebajar.
  *
@@ -150,7 +158,11 @@ const LIMITE_VENTANA_S = 600;
 const LIMITE_IP_MAX = 20;
 const LIMITE_GLOBAL_MAX = 60;
 
-type Evento = "pedido" | "pedido_anulado";
+type Evento = "pedido" | "pedido_anulado" | "pedido_pagado";
+
+// Pagado = entregado (decisión del dueño, 2026-11-03): no hay pago en la web y el estado «entregado» es el que
+// confirma que el cliente ya pagó y recibió el artículo.
+const ESTADO_PAGADO = "entregado";
 
 type Salida = {
   id: string;
@@ -167,8 +179,27 @@ type PedidoFila = {
   numero: number | null;
   estado: string;
   entrega: string | null;
+  // Solo para el aviso «pedido_pagado»: los demás nunca los llevan.
+  nombre: string | null;
+  email: string | null;
+  telefono: string | null;
   pedido_items: { product_id: string | null; precio_eur: number | string | null }[] | null;
 };
+
+// Los datos del cliente del aviso de pedido pagado: solo nombre, correo y teléfono, como texto y con los topes del
+// contrato de VeoAura (apartado «Cliente del pedido»: nombre ≤ 120, correo ≤ 160, teléfono ≤ 40). Un correo más largo
+// no se recorta (dejaría de ser un correo): se queda fuera, igual que un dato vacío.
+function datosCliente(p: PedidoFila | undefined) {
+  const limpio = (v: string | null | undefined) => String(v ?? "").replace(/\s+/g, " ").trim();
+  const nombre = limpio(p?.nombre).slice(0, 120);
+  const correo = limpio(p?.email).toLowerCase();
+  const telefono = limpio(p?.telefono).slice(0, 40);
+  return {
+    ...(nombre ? { nombre } : {}),
+    ...(correo && correo.length <= 160 ? { correo } : {}),
+    ...(telefono ? { telefono } : {}),
+  };
+}
 
 // Última vuelta sin cron en esta instancia: evita que muchas llamadas seguidas repitan el trabajo.
 let ultimaVuelta = 0;
@@ -249,7 +280,7 @@ async function pedidosRecientes(supabase: SupabaseClient): Promise<PedidoFila[]>
   const desde = new Date(Date.now() - DIAS_PEDIDOS * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("pedidos")
-    .select("id,numero,estado,entrega,pedido_items(product_id,precio_eur)")
+    .select("id,numero,estado,entrega,nombre,email,telefono,pedido_items(product_id,precio_eur)")
     .gte("created_at", desde)
     .order("created_at", { ascending: false })
     .limit(1000);
@@ -279,6 +310,11 @@ async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, st
   for (const { pedido, idVeoaura } of pares) {
     const aviso = buscar(pedido.id, idVeoaura, "pedido");
     const cancelado = pedido.estado === "cancelado";
+    // Pagado (entregado): el aviso con los datos del cliente, una vez. Sale cuando VeoAura ya tiene el «pedido»
+    // (enviarAvisos lo espera).
+    if (pedido.estado === ESTADO_PAGADO && !buscar(pedido.id, idVeoaura, "pedido_pagado")) {
+      nuevos.push({ evento: "pedido_pagado", id_veoaura: idVeoaura, pedido_id: pedido.id });
+    }
     if (!aviso) {
       // Cancelado antes de avisar: VeoAura nunca lo supo, no hay nada que enviar.
       if (!cancelado) nuevos.push({ evento: "pedido", id_veoaura: idVeoaura, pedido_id: pedido.id });
@@ -293,8 +329,18 @@ async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, st
       await supabase.from("escaparate_salida").update({ estado: "descartado", detalle: "pedido cancelado antes de avisar" }).eq("id", aviso.id).in("estado", ["pendiente", "error"]);
     }
   }
-  if (nuevos.length) {
-    await supabase.from("escaparate_salida").upsert(nuevos, { onConflict: "pedido_id,id_veoaura,evento", ignoreDuplicates: true });
+  // «pedido_pagado» va aparte: si su migración (20261103181000) aún no está aplicada, la base de datos lo rechaza y no
+  // debe arrastrar a los avisos de siempre («pedido» y «pedido_anulado»), que van en su propia orden.
+  const deSiempre = nuevos.filter((n) => n.evento !== "pedido_pagado");
+  const pagados = nuevos.filter((n) => n.evento === "pedido_pagado");
+  if (deSiempre.length) {
+    await supabase.from("escaparate_salida").upsert(deSiempre, { onConflict: "pedido_id,id_veoaura,evento", ignoreDuplicates: true });
+  }
+  if (pagados.length) {
+    const { error: errorPagados } = await supabase
+      .from("escaparate_salida")
+      .upsert(pagados, { onConflict: "pedido_id,id_veoaura,evento", ignoreDuplicates: true });
+    if (errorPagados) console.warn("escaparate-retorno: aún no se pueden apuntar los avisos «pedido_pagado» (¿falta la migración?)");
   }
 }
 
@@ -317,8 +363,18 @@ async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: stri
     const ultimo = s.ultimo_intento ? Date.parse(s.ultimo_intento) : 0;
     if (s.estado === "error" && Date.now() - ultimo < ESPERA_REINTENTO_MS) continue;
     if (s.estado === "enviando" && Date.now() - ultimo < ENVIANDO_CADUCA_MS) continue;
-    if (s.evento === "pedido_anulado") {
-      // La anulación solo sale cuando VeoAura ya recibió el pedido.
+    if (s.evento === "pedido_pagado") {
+      // Los datos del cliente solo salen si el pedido SIGUE pagado (entregado) ahora mismo.
+      const ahora = pedidos.find((p) => p.id === s.pedido_id);
+      if (!ahora || ahora.estado !== ESTADO_PAGADO) {
+        if (ahora?.estado === "cancelado") {
+          await supabase.from("escaparate_salida").update({ estado: "descartado", detalle: "pedido cancelado: sin datos del cliente" }).eq("id", s.id).in("estado", ["pendiente", "error"]);
+        }
+        continue;
+      }
+    }
+    if (s.evento === "pedido_anulado" || s.evento === "pedido_pagado") {
+      // La anulación y los datos del cliente solo salen cuando VeoAura ya recibió el pedido.
       const { data: previo } = await supabase
         .from("escaparate_salida")
         .select("estado")
@@ -343,9 +399,12 @@ async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: stri
     const idTienda = porVeoaura.get(s.id_veoaura);
     const linea = pedido?.pedido_items?.find((it) => it.product_id === idTienda);
     const precio = Number(linea?.precio_eur);
+    const pagado = s.evento === "pedido_pagado";
     const r = await enviar(url, secreto, {
       version: 1,
-      evento: s.evento,
+      // El aviso de pagado viaja como un segundo «pedido» (mismo número, id_mensaje nuevo): VeoAura no cuenta otra
+      // venta, solo completa la ficha del cliente (contrato, «Cliente del pedido» → «Cuándo se envía»).
+      evento: pagado ? "pedido" : s.evento,
       id_mensaje: s.id,
       id_veoaura: s.id_veoaura,
       pedido: {
@@ -353,6 +412,8 @@ async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: stri
         entrega: pedido?.entrega ?? null,
         precio: Number.isFinite(precio) ? Math.round(precio * 100) / 100 : null,
         moneda: "EUR",
+        // Solo en el de pagado: nombre, correo y teléfono del cliente (nunca la dirección ni nada más).
+        ...(pagado ? { cliente: datosCliente(pedido) } : {}),
       },
       enviado_en: new Date().toISOString(),
     });

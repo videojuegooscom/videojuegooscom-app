@@ -62,6 +62,10 @@
  *  - Tope diario del historial de Blue IA (20261103150000_blue_ia_limite_diario.sql): 300 mensajes y 40 conversaciones
  *    nuevas al día por persona (también de golpe), por persona, sin tocar políticas y repetible (con su «prueba de las
  *    pruebas»: sin los disparadores, entra el 301).
+ *  - VeoAura (20261103180000_privacidad_veoaura.sql y 20261103181000_escaparate_pedido_pagado.sql): la privacidad lo
+ *    explica una vez sin tocar lo demás; los avisos que había siguen igual, entra «pedido_pagado» y nada fuera de la
+ *    lista, sin tocar permisos (con sus «pruebas de las pruebas»: sin la migración no entra; sin la condición, la frase
+ *    se repite).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1296,6 +1300,90 @@ try {
     const sinLimite = await como(c32, "authenticated", U1, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) select '${conv2}', 'user', 'x' from generate_series(1, 301) g`);
     ok(sinLimite.ok && sinLimite.cuantas === 301, "(control) sin el tope entran 301 mensajes: la prueba SÍ lo detecta");
     await c32.end();
+  }
+
+  // 23) VeoAura: la privacidad lo explica (20261103180000) y los avisos admiten «pedido_pagado» (20261103181000).
+  {
+    const PRIV_V = readFileSync("supabase/migrations/20261103180000_privacidad_veoaura.sql", "utf8");
+    const PAGADO = readFileSync("supabase/migrations/20261103181000_escaparate_pedido_pagado.sql", "utf8");
+    const TITULOS_V = ["Responsable del tratamiento", "Qué datos tratamos", "Para qué usamos tus datos", "Base legal", "Con quién compartimos tus datos", "Cuánto tiempo conservamos tus datos", "Cookies y analítica propia", "Tus derechos"];
+    const PRIV = JSON.stringify(TITULOS_V.map((heading) => ({ heading, body: `Texto de hoy de «${heading}».` })));
+    // escaparate_salida tal cual la creó 20261015100000 (con su comprobación de «evento»).
+    const ESQUEMA_V = `
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad', '${PRIV.replace(/'/g, "''")}'::jsonb), ('terminos', 'Términos', '[]'::jsonb);
+      create table public.escaparate_salida (
+        id uuid primary key default gen_random_uuid(), creado_en timestamptz not null default now(),
+        evento text not null check (evento in ('pedido', 'pedido_anulado')), id_veoaura uuid not null, pedido_id uuid not null,
+        estado text not null default 'pendiente' check (estado in ('pendiente', 'enviando', 'enviado', 'error', 'descartado')),
+        intentos integer not null default 0, ultimo_intento timestamptz, enviado_en timestamptz,
+        detalle text check (detalle is null or char_length(detalle) <= 300), unique (pedido_id, id_veoaura, evento));
+      alter table public.escaparate_salida enable row level security;
+      create policy escaparate_salida_admin_select on public.escaparate_salida for select to authenticated using ((select public.is_admin()));
+      insert into public.escaparate_salida (evento, id_veoaura, pedido_id, estado) values
+        ('pedido', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000b1', 'enviado'),
+        ('pedido_anulado', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000b1', 'pendiente');
+    `;
+    const c33 = await nuevaBase("vz_aislada_veoaura_clientes", ESQUEMA_V + PRIV_V + PAGADO);
+    let repetidaV = true;
+    try {
+      await c33.query(PRIV_V + PAGADO);
+    } catch (e) {
+      repetidaV = false;
+      console.log(String(e.message));
+    }
+    const secciones = (await c33.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const conQuien = secciones.find((s) => s.heading === "Con quién compartimos tus datos")?.body ?? "";
+    ok(
+      repetidaV &&
+        conQuien.startsWith("Texto de hoy de «Con quién compartimos tus datos».") &&
+        (conQuien.match(/VeoAura/g) ?? []).length === 1 &&
+        /tu nombre, tu correo electrónico y tu teléfono/.test(conQuien) &&
+        /No le pasamos tu dirección/.test(conQuien) &&
+        JSON.stringify(secciones.map((s) => s.heading)) === JSON.stringify(TITULOS_V) &&
+        secciones.filter((s) => s.heading !== "Con quién compartimos tus datos").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      "VeoAura: la privacidad lo explica una sola vez (aunque se aplique dos veces) y el resto queda igual"
+    );
+    ok(Number((await c33.query("select count(*) as n from public.policy_pages where slug = 'terminos' and sections = '[]'::jsonb")).rows[0].n) === 1, "VeoAura: las otras políticas no se tocan");
+    const filasV = (await c33.query("select evento, estado from public.escaparate_salida order by evento")).rows.map((r) => `${r.evento}:${r.estado}`);
+    ok(filasV.join(",") === "pedido:enviado,pedido_anulado:pendiente", `VeoAura: los avisos que ya había siguen igual (${filasV.join(", ")})`);
+    let pagadoEntra = true;
+    try {
+      await c33.query("insert into public.escaparate_salida (evento, id_veoaura, pedido_id) values ('pedido_pagado', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000b1')");
+    } catch {
+      pagadoEntra = false;
+    }
+    let otroEntra = true;
+    try {
+      await c33.query("insert into public.escaparate_salida (evento, id_veoaura, pedido_id) values ('otro', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000b2')");
+    } catch {
+      otroEntra = false;
+    }
+    ok(pagadoEntra && !otroEntra, `VeoAura: se puede apuntar «pedido_pagado» y nada que no esté en la lista (${pagadoEntra}, ${otroEntra})`);
+    const politicasV = (await c33.query("select policyname from pg_policies where tablename = 'escaparate_salida'")).rows.map((r) => r.policyname);
+    const comprobaciones = Number((await c33.query("select count(*) as n from pg_constraint where conrelid = 'public.escaparate_salida'::regclass and contype = 'c'")).rows[0].n);
+    ok(politicasV.join(",") === "escaparate_salida_admin_select" && comprobaciones === 3, `VeoAura: no toca los permisos y no duplica comprobaciones (${politicasV.join(", ")}; ${comprobaciones})`);
+    await c33.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la migración, «pedido_pagado» no entra; y sin la condición, la frase se repetiría.
+    const c34 = await nuevaBase("vz_aislada_veoaura_sin_migracion", ESQUEMA_V);
+    let sinMig = true;
+    try {
+      await c34.query("insert into public.escaparate_salida (evento, id_veoaura, pedido_id) values ('pedido_pagado', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000b9')");
+    } catch {
+      sinMig = false;
+    }
+    ok(!sinMig, "(control) sin la migración, «pedido_pagado» no entra: la prueba SÍ lo detecta");
+    const sinGuardaV = PRIV_V.replace(/\n\s*and not exists \(select 1 from jsonb_array_elements\(p\.sections\) as s \(sec\) where s\.sec ->> 'body' like '%VeoAura%'\);/, ";");
+    ok(sinGuardaV !== PRIV_V, "(control) se ha podido quitar la condición de la privacidad en la copia de prueba");
+    await c34.query(sinGuardaV);
+    await c34.query(sinGuardaV);
+    const repetidaFrase = ((await c34.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t.match(/VeoAura/g) ?? []).length;
+    ok(repetidaFrase === 2, `(control) sin la condición la frase se repite (${repetidaFrase} veces): la prueba SÍ lo detecta`);
+    await c34.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
