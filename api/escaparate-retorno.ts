@@ -7,10 +7,12 @@
  *    cancela, se le avisa otra vez («pedido_anulado»). Esos dos avisos nunca llevan datos del
  *    cliente: solo el id del artículo, el número de pedido, la forma de entrega y el precio.
  *    Cuando el pedido está PAGADO, que en la tienda es al marcarlo «Entregado» (el pago se acuerda
- *    por el chat; decisión del dueño, 2026-11-03), sale un tercer aviso («pedido_pagado») con lo
- *    mismo y, además, el nombre, el correo y el teléfono del cliente de ese pedido (nunca su
- *    dirección ni otros datos), para que la ficha de clientes de VeoAura quede completa. Solo sale
- *    después de que VeoAura haya recibido el «pedido», una vez por pedido y artículo. La política
+ *    por el chat; decisión del dueño, 2026-11-03), sale otro aviso con lo mismo y, además, dentro de
+ *    "pedido", "cliente": {nombre, correo, telefono} de ese pedido (nunca su dirección ni otros
+ *    datos), para que la ficha de clientes de VeoAura quede completa. Aquí se apunta como
+ *    «pedido_pagado», pero viaja como un segundo «pedido» (mismo número, id_mensaje nuevo), que es
+ *    como lo admite VeoAura (contrato del puente, apartado «Cliente del pedido»). Solo sale después
+ *    de que VeoAura haya recibido el primer «pedido», una vez por pedido y artículo. La política
  *    de privacidad lo explica (supabase/migrations/20261103180000_privacidad_veoaura.sql).
  * 2. Estadísticas (una vez al día, con el cron): visitas y «me gusta» de cada artículo de
  *    VeoAura en la tienda, para decidir allí qué rebajar.
@@ -184,13 +186,19 @@ type PedidoFila = {
   pedido_items: { product_id: string | null; precio_eur: number | string | null }[] | null;
 };
 
-// Los datos del cliente que van en «pedido_pagado»: solo nombre, correo y teléfono, limpios y con un tope de largo.
+// Los datos del cliente del aviso de pedido pagado: solo nombre, correo y teléfono, como texto y con los topes del
+// contrato de VeoAura (apartado «Cliente del pedido»: nombre ≤ 120, correo ≤ 160, teléfono ≤ 40). Un correo más largo
+// no se recorta (dejaría de ser un correo): se queda fuera, igual que un dato vacío.
 function datosCliente(p: PedidoFila | undefined) {
-  const limpio = (v: string | null | undefined, max: number) => {
-    const t = String(v ?? "").replace(/\s+/g, " ").trim();
-    return t ? t.slice(0, max) : null;
+  const limpio = (v: string | null | undefined) => String(v ?? "").replace(/\s+/g, " ").trim();
+  const nombre = limpio(p?.nombre).slice(0, 120);
+  const correo = limpio(p?.email).toLowerCase();
+  const telefono = limpio(p?.telefono).slice(0, 40);
+  return {
+    ...(nombre ? { nombre } : {}),
+    ...(correo && correo.length <= 160 ? { correo } : {}),
+    ...(telefono ? { telefono } : {}),
   };
-  return { nombre: limpio(p?.nombre, 120), correo: limpio(p?.email, 254)?.toLowerCase() ?? null, telefono: limpio(p?.telefono, 30) };
 }
 
 // Última vuelta sin cron en esta instancia: evita que muchas llamadas seguidas repitan el trabajo.
@@ -391,9 +399,12 @@ async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: stri
     const idTienda = porVeoaura.get(s.id_veoaura);
     const linea = pedido?.pedido_items?.find((it) => it.product_id === idTienda);
     const precio = Number(linea?.precio_eur);
+    const pagado = s.evento === "pedido_pagado";
     const r = await enviar(url, secreto, {
       version: 1,
-      evento: s.evento,
+      // El aviso de pagado viaja como un segundo «pedido» (mismo número, id_mensaje nuevo): VeoAura no cuenta otra
+      // venta, solo completa la ficha del cliente (contrato, «Cliente del pedido» → «Cuándo se envía»).
+      evento: pagado ? "pedido" : s.evento,
       id_mensaje: s.id,
       id_veoaura: s.id_veoaura,
       pedido: {
@@ -401,9 +412,9 @@ async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: stri
         entrega: pedido?.entrega ?? null,
         precio: Number.isFinite(precio) ? Math.round(precio * 100) / 100 : null,
         moneda: "EUR",
+        // Solo en el de pagado: nombre, correo y teléfono del cliente (nunca la dirección ni nada más).
+        ...(pagado ? { cliente: datosCliente(pedido) } : {}),
       },
-      // Solo en «pedido_pagado»: nombre, correo y teléfono del cliente (nunca la dirección ni nada más).
-      ...(s.evento === "pedido_pagado" ? { cliente: datosCliente(pedido) } : {}),
       enviado_en: new Date().toISOString(),
     });
     await supabase

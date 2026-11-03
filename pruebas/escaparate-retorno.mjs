@@ -8,19 +8,21 @@
  *  A) Un pedido con un artículo de VeoAura: sale «pedido» firmado y SIN datos del cliente (ni nombre, ni correo, ni
  *     teléfono, ni dirección).
  *  B) En otros estados («enviado», «confirmado»…) tampoco salen.
- *  C) Al marcarlo «entregado»: sale «pedido_pagado» con cliente {nombre, correo, telefono} (limpios: espacios y
- *     mayúsculas del correo) y el pedido; nunca la dirección, el código postal, la ciudad ni las notas.
+ *  C) Al marcarlo «entregado»: sale el aviso de pagado, que según el contrato de VeoAura («Cliente del pedido») es un
+ *     segundo «pedido» con el mismo número, id_mensaje nuevo y "cliente": {nombre, correo, telefono} DENTRO de
+ *     "pedido" (limpios: espacios y mayúsculas del correo); nunca la dirección, el código postal, la ciudad ni las notas.
  *  D) Una sola vez: otra vuelta no lo repite.
- *  E) Un pedido entregado del que VeoAura aún no sabía nada: primero «pedido» y después «pedido_pagado».
+ *  E) Un pedido entregado del que VeoAura aún no sabía nada: primero el «pedido» sin cliente y después el de pagado.
  *  F) Sin artículos de VeoAura, o cancelado: nada con datos del cliente.
  *  G) Si la migración de «pedido_pagado» aún no está aplicada (la base de datos lo rechaza), los avisos de siempre
  *     («pedido») de otros pedidos se siguen apuntando y enviando.
- *  H) Datos muy largos se recortan (nombre 120, correo 254, teléfono 30).
+ *  H) Topes del contrato: nombre 120 y teléfono 40 (se recortan); un correo de más de 160 no se recorta, se queda
+ *     fuera (uno de 160 va entero).
  *  I) Entregado y cancelado después con la ficha aún por enviar: no salen los datos del cliente, la ficha queda
  *     «descartado» y VeoAura solo recibe la anulación.
  *  CONTROLES) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
- *     tiempo: la comprobación A lo detecta. Otra que no vuelve a mirar el estado al enviar los manda de un pedido
- *     cancelado: la comprobación I lo detecta.
+ *     tiempo: la comprobación A lo detecta. Otra que manda el de pagado con otro nombre de evento: C lo detecta. Otra
+ *     que no vuelve a mirar el estado al enviar los manda de un pedido cancelado: la comprobación I lo detecta.
  *
  * Uso: node pruebas/escaparate-retorno.mjs
  * Sale con código 1 si algo falla.
@@ -151,6 +153,9 @@ async function vuelta(manejador) {
   return { res, nuevos: recibidos.slice(antes).filter((r) => r.mensaje.evento !== "estadisticas") };
 }
 const PII = /Ana López|ana@example|600 111 222|Calle Mayor|50410|Cuarte|Déjalo en portería/i;
+// El aviso de pagado viaja como un segundo «pedido» con "cliente" dentro de "pedido" (contrato de VeoAura).
+const esPagado = (n) => n.mensaje.evento === "pedido" && !!n.mensaje.pedido?.cliente;
+const tipo = (n) => (esPagado(n) ? "pagado" : n.mensaje.evento);
 
 function reiniciar() {
   for (const t of Object.values(tablas)) t.length = 0;
@@ -178,7 +183,7 @@ try {
     const a = await vuelta(retorno);
     const m = a.nuevos[0];
     ok(a.res.codigo === 200 && a.nuevos.length === 1 && m.mensaje.evento === "pedido" && m.firmaOk, `A: sale «pedido» firmado (${a.nuevos.map((n) => n.mensaje.evento).join(",")})`);
-    ok(!("cliente" in m.mensaje) && !PII.test(m.cuerpo), "A: «pedido» no lleva ningún dato del cliente");
+    ok(!("cliente" in m.mensaje) && !("cliente" in m.mensaje.pedido) && !PII.test(m.cuerpo), "A: «pedido» no lleva ningún dato del cliente");
     ok(m.mensaje.pedido.numero === 101 && m.mensaje.pedido.precio === 149.9 && m.mensaje.id_veoaura === "VEO-1", "A: lleva el número, el precio y el artículo");
 
     const sinDatos = [];
@@ -192,11 +197,15 @@ try {
 
     tablas.pedidos[0].estado = "entregado";
     const c = await vuelta(retorno);
-    const pagado = c.nuevos.find((n) => n.mensaje.evento === "pedido_pagado");
-    ok(!!pagado && pagado.firmaOk && c.nuevos.length === 1, `C: al entregarlo sale «pedido_pagado» firmado (${c.nuevos.map((n) => n.mensaje.evento).join(",")})`);
+    const pagado = c.nuevos.find(esPagado);
+    ok(!!pagado && pagado.firmaOk && c.nuevos.length === 1, `C: al entregarlo sale el aviso de pagado firmado (${c.nuevos.map(tipo).join(",")})`);
     ok(
-      JSON.stringify(pagado?.mensaje.cliente) === JSON.stringify({ nombre: "Ana López", correo: "ana@example.com", telefono: "600 111 222" }),
-      `C: con nombre, correo y teléfono, limpios (${JSON.stringify(pagado?.mensaje.cliente)})`
+      pagado?.mensaje.evento === "pedido" && pagado.mensaje.pedido.numero === m.mensaje.pedido.numero && pagado.mensaje.id_mensaje !== m.mensaje.id_mensaje,
+      `C: viaja como un segundo «pedido»: mismo número y id_mensaje nuevo (${pagado?.mensaje.evento})`
+    );
+    ok(
+      JSON.stringify(pagado?.mensaje.pedido.cliente) === JSON.stringify({ nombre: "Ana López", correo: "ana@example.com", telefono: "600 111 222" }) && !("cliente" in (pagado?.mensaje ?? {})),
+      `C: con "cliente" {nombre, correo, telefono} dentro de "pedido", limpios (${JSON.stringify(pagado?.mensaje.pedido.cliente)})`
     );
     ok(!!pagado && !/Calle Mayor|50410|Cuarte|portería|direccion|codigo_postal|ciudad|notas/i.test(pagado.cuerpo), "C: nunca la dirección, el código postal, la ciudad ni las notas");
     ok(pagado?.mensaje.pedido.numero === 101 && pagado?.mensaje.id_veoaura === "VEO-1" && pagado?.mensaje.version === 1, "C: y el pedido y el artículo de siempre");
@@ -211,8 +220,8 @@ try {
     reiniciar();
     tablas.pedidos.push(pedido("ped-2", 102, "entregado", [{ product_id: "p-veo-2", precio_eur: 60 }]));
     const orden = [];
-    for (let i = 0; i < 3; i++) orden.push(...(await vuelta(retorno)).nuevos.map((n) => n.mensaje.evento));
-    ok(orden.join(",") === "pedido,pedido_pagado", `E: primero «pedido» y después «pedido_pagado» (${orden.join(",")})`);
+    for (let i = 0; i < 3; i++) orden.push(...(await vuelta(retorno)).nuevos.map(tipo));
+    ok(orden.join(",") === "pedido,pagado", `E: primero el «pedido» sin cliente y después el de pagado (${orden.join(",")})`);
   }
 
   // F) Sin artículos de VeoAura, o cancelado: nada con datos del cliente.
@@ -233,20 +242,26 @@ try {
     tablas.pedidos.push(pedido("ped-6", 106, "pendiente", [{ product_id: "p-veo-2", precio_eur: 40 }]));
     const g = [];
     for (let i = 0; i < 2; i++) g.push(...(await vuelta(retorno)).nuevos);
-    const numeros = g.filter((n) => n.mensaje.evento === "pedido").map((n) => n.mensaje.pedido.numero).sort();
-    ok(numeros.join(",") === "105,106" && !g.some((n) => n.mensaje.evento === "pedido_pagado"), `G: sin la migración, los «pedido» de siempre salen igual (${numeros.join(",")}) y los datos del cliente esperan`);
+    const numeros = g.filter((n) => tipo(n) === "pedido").map((n) => n.mensaje.pedido.numero).sort();
+    ok(numeros.join(",") === "105,106" && !g.some(esPagado), `G: sin la migración, los «pedido» de siempre salen igual (${numeros.join(",")}) y los datos del cliente esperan`);
     sinMigracionPagado = false;
-    const tras = (await vuelta(retorno)).nuevos.map((n) => n.mensaje.evento);
-    ok(tras.join(",") === "pedido_pagado", `G: aplicada la migración, sale el que esperaba (${tras.join(",")})`);
+    const tras = (await vuelta(retorno)).nuevos.map(tipo);
+    ok(tras.join(",") === "pagado", `G: aplicada la migración, sale el que esperaba (${tras.join(",")})`);
   }
 
   // H) Datos muy largos: se recortan.
   {
     reiniciar();
     tablas.pedidos.push(pedido("ped-7", 107, "entregado", [{ product_id: "p-veo-1", precio_eur: 10 }], { nombre: "N".repeat(300), email: `${"c".repeat(300)}@x.es`, telefono: "6".repeat(80) }));
-    let cliente = null;
-    for (let i = 0; i < 3 && !cliente; i++) cliente = (await vuelta(retorno)).nuevos.find((n) => n.mensaje.evento === "pedido_pagado")?.mensaje.cliente ?? null;
-    ok(!!cliente && cliente.nombre.length === 120 && cliente.correo.length === 254 && cliente.telefono.length === 30, `H: se recortan (${cliente?.nombre.length}, ${cliente?.correo.length}, ${cliente?.telefono.length})`);
+    tablas.pedidos.push(pedido("ped-7b", 117, "entregado", [{ product_id: "p-veo-2", precio_eur: 10 }], { email: `${"d".repeat(155)}@x.es` }));
+    const fichas = {};
+    for (let i = 0; i < 3; i++) for (const n of (await vuelta(retorno)).nuevos) if (esPagado(n)) fichas[n.mensaje.pedido.numero] = n.mensaje.pedido.cliente;
+    const largo = fichas[107];
+    ok(
+      !!largo && largo.nombre.length === 120 && largo.telefono.length === 40 && !("correo" in largo),
+      `H: topes del contrato: nombre 120, teléfono 40 y un correo de más de 160 se queda fuera sin recortar (${largo?.nombre?.length}, ${largo?.telefono?.length}, ${largo?.correo ?? "fuera"})`
+    );
+    ok(fichas[117]?.correo?.length === 160, `H: un correo de 160 va entero (${fichas[117]?.correo?.length})`);
   }
 
   // I) Entregado y cancelado después, con «pedido_pagado» aún por enviar (la vuelta anterior se quedó sin tiempo):
@@ -276,6 +291,16 @@ try {
     const fuga = [];
     for (let i = 0; i < 2; i++) fuga.push(...(await vuelta(manejador)).nuevos);
     ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) con «pagado» mal puesto salen datos de un pedido pendiente: la comprobación A SÍ lo detecta");
+    rmSync(carpeta, { recursive: true, force: true });
+  }
+  // CONTROL) Una copia que manda el de pagado con otro nombre de evento (VeoAura no lo admite): C lo detecta.
+  {
+    reiniciar();
+    const { manejador, carpeta } = await cargar("mutado-evento", ['evento: pagado ? "pedido" : s.evento,', "evento: s.evento,"]);
+    tablas.pedidos.push(pedido("ped-10", 110, "entregado", [{ product_id: "p-veo-1", precio_eur: 10 }]));
+    const todos = [];
+    for (let i = 0; i < 3; i++) todos.push(...(await vuelta(manejador)).nuevos);
+    ok(!todos.some(esPagado), `(control) con el evento «${todos.at(-1)?.mensaje.evento}» la comprobación C SÍ lo detecta (no lo reconoce como el de pagado)`);
     rmSync(carpeta, { recursive: true, force: true });
   }
   // CONTROL) Una copia que no vuelve a mirar el estado antes de enviar la ficha la manda de un pedido cancelado: I lo detecta.
