@@ -133,12 +133,17 @@
  *    se mide sin la dirección; «Completa tu perfil» no la pide; sin la migración no se ofrece y no pide columnas (sin fila,
  *    guarda lo demás y lo dice); el pago se rellena solo; Usuarios (contador, chip, CP en cada fila, uso) y la ficha.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO» o «DI» de cuarto
+ *  - SE) Mi perfil → «Inicio de sesión y seguridad»: Blue no aparece con «Mi perfil» desplegado (y vuelve al plegarlo);
+ *    cambiar el correo (comprobaciones, enlaces a los dos correos, «cambio pendiente», correo de otra cuenta en español) y
+ *    la contraseña (la actual se comprueba, las nuevas coinciden, «Mostrar», «¿No recuerdas la actual?»); la vuelta desde
+ *    los enlaces del correo; la analítica sin correos y la línea de Administración → Usuarios.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI» o «SE» de cuarto
  * argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo,
  * Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el
- * encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la contraseña o
- * la dirección del perfil).
+ * encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la contraseña,
+ * la dirección del perfil o la seguridad de la cuenta).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -515,6 +520,33 @@ async function contexto(navegador, usuario, rol, estado) {
       estado.canjes = [...(estado.canjes ?? []), cuerpo];
       if (cuerpo.auth_code !== "codigo-bueno") return json({ code: 400, error_code: "flow_state_not_found", msg: "invalid flow state, no valid flow state found" }, 400);
       return json(sesionDe());
+    }
+    // «Inicio de sesión y seguridad» (sección SE): entrar con la contraseña actual, renovar la sesión y cambiar correo o
+    // contraseña, como Supabase.
+    if (url.pathname.endsWith("/auth/v1/token") && url.searchParams.get("grant_type") === "password") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.entradas = [...(estado.entradas ?? []), { email: cuerpo.email, ok: cuerpo.password === estado.claveActual }];
+      if (cuerpo.password !== estado.claveActual) return json({ code: 400, error_code: "invalid_credentials", msg: "Invalid login credentials" }, 400);
+      return json(sesionDe());
+    }
+    if (url.pathname.endsWith("/auth/v1/token") && url.searchParams.get("grant_type") === "refresh_token") {
+      estado.renovaciones = (estado.renovaciones ?? 0) + 1;
+      return json(sesionDe());
+    }
+    if (url.pathname.endsWith("/auth/v1/user") && metodo === "PUT" && estado.seguridad) {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      if (cuerpo.email) {
+        estado.cambiosCorreo = [...(estado.cambiosCorreo ?? []), { email: cuerpo.email, redirect_to: url.searchParams.get("redirect_to") }];
+        if (estado.correoOcupado) return json({ code: 422, error_code: "email_exists", msg: "A user with this email address has already been registered" }, 422);
+        return json({ ...usuario, new_email: cuerpo.email });
+      }
+      if (cuerpo.password) {
+        estado.clavesNuevas = [...(estado.clavesNuevas ?? []), cuerpo.password];
+        return json(usuario);
+      }
+    }
+    if (url.pathname.endsWith("/auth/v1/user") && metodo === "GET" && estado.correoPendiente) {
+      return json({ ...usuario, new_email: estado.correoPendiente });
     }
     if (url.pathname.endsWith("/auth/v1/user") && metodo === "PUT" && estado.contrasenaError) {
       estado.cuenta = JSON.parse(peticion.postData() ?? "{}");
@@ -3356,6 +3388,175 @@ async function seccionDI() {
   }
 }
 
+// ===== SE) Mi perfil → «Inicio de sesión y seguridad»: cambiar el correo y la contraseña; Blue no aparece con «Mi
+// perfil» desplegado; su parte en Administración → Usuarios =======================================================
+async function seccionSE() {
+  const perfilCompleto = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const aviso = (p) => p.evaluate(() => (document.getElementById("perfil-seguridad-aviso")?.innerText ?? "").trim());
+  const abrirPerfil = async (p) => {
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.locator("#perfil-seguridad").waitFor({ timeout: 15000 }).catch(() => {});
+  };
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+
+  // SE1) Blue no aparece con «Mi perfil» desplegado y vuelve al plegarlo.
+  {
+    const estado = { filas: perfilCompleto, guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.waitForTimeout(12500); // Blue aparece a los 10 s de entrar
+    ok((await p.locator("#blue-flotante").count()) === 0, "SE: con «Mi perfil» desplegado, Blue no aparece");
+    await p.locator("#perfil-cabecera").click();
+    await p.locator("#blue-flotante").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#blue-flotante").count()) === 1, "SE: al plegarlo, Blue vuelve");
+    ok(p.errores.length === 0, `SE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // SE2) Cambiar el correo: comprobaciones, enlaces a los dos correos y «cambio pendiente».
+  {
+    const estado = { filas: perfilCompleto, guardados: [], aceptaAnalitica: true, seguridad: true, claveActual: "vieja123" };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    const t0 = (await p.locator("#perfil-seguridad").innerText().catch(() => "")).replace(/\n+/g, " | ");
+    ok(/Inicio de sesión y seguridad/.test(t0) && /Correo electrónico/.test(t0) && /Contraseña/.test(t0) && t0.includes(CLIENTE.email), `SE: «Mi perfil» tiene «Inicio de sesión y seguridad» con el correo y la contraseña (${t0.slice(0, 120)})`);
+    const altos = await p.evaluate(() => ["perfil-seguridad-correo", "perfil-seguridad-contrasena"].map((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().height ?? 0)));
+    ok(altos.every((h) => h >= 44), `SE: las dos filas se tocan bien (${altos.join(", ")} px)`);
+    await p.locator("#perfil-seguridad-correo").click();
+    await p.locator("#perfil-correo-nuevo").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.locator("#perfil-correo-nuevo").fill("abc");
+    await p.locator("#perfil-correo-enviar").click();
+    await p.waitForTimeout(300);
+    ok(/Escribe un correo válido/.test(await aviso(p)) && !(estado.cambiosCorreo ?? []).length, "SE: un correo mal escrito no se manda");
+    await p.locator("#perfil-correo-nuevo").fill(CLIENTE.email.toUpperCase());
+    await p.locator("#perfil-correo-enviar").click();
+    await p.waitForTimeout(300);
+    ok(/Ese ya es tu correo/.test(await aviso(p)) && !(estado.cambiosCorreo ?? []).length, "SE: el mismo correo tampoco");
+    await p.locator("#perfil-correo-nuevo").fill("Nuevo@Example.com");
+    await p.locator("#perfil-correo-enviar").click();
+    await esperar(p, () => (estado.cambiosCorreo ?? []).length > 0);
+    await p.waitForTimeout(500);
+    const cambio = (estado.cambiosCorreo ?? [])[0];
+    ok(cambio?.email === "nuevo@example.com" && cambio?.redirect_to === `${BASE}/perfil?cuenta=correo`, `SE: pide el cambio al correo nuevo y los enlaces vuelven a Mi perfil (${cambio?.email}, ${cambio?.redirect_to})`);
+    ok(/Te hemos enviado un enlace a cliente@example\.com y otro a nuevo@example\.com/.test(await aviso(p)), "SE: explica que hay que confirmar en los dos correos");
+    ok(/Cambio pendiente a nuevo@example\.com/.test(await p.locator("#perfil-seguridad-correo").innerText()), "SE: y la fila dice «Cambio pendiente»");
+    await esperar(p, () => evento(estado, "perfil_correo_cambio_pedido").length > 0);
+    ok(evento(estado, "perfil_correo_cambio_pedido").length === 1 && !JSON.stringify(estado.eventosEnviados ?? []).includes("nuevo@example.com"), "SE: la analítica lo cuenta, sin el correo");
+    await capturar(p, "SE2-cambiar-correo");
+
+    // Correo de otra cuenta: en español.
+    estado.correoOcupado = true;
+    await p.locator("#perfil-seguridad-correo").click();
+    await p.locator("#perfil-correo-nuevo").fill("otra@example.com");
+    await p.locator("#perfil-correo-enviar").click();
+    await esperar(p, () => (estado.cambiosCorreo ?? []).length > 1);
+    await p.waitForTimeout(400);
+    ok(/Ya hay otra cuenta con ese correo/.test(await aviso(p)), `SE: si el correo ya es de otra cuenta, lo dice en español (${await aviso(p)})`);
+    ok(p.errores.length === 0, `SE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // SE3) Cambiar la contraseña: la actual se comprueba, la nueva dos veces, errores en español y «¿No recuerdas la actual?».
+  {
+    const estado = { filas: perfilCompleto, guardados: [], aceptaAnalitica: true, seguridad: true, claveActual: "vieja123" };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-seguridad-contrasena").click();
+    await p.locator("#perfil-clave-actual").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#perfil-clave-actual").getAttribute("type")) === "password", "SE: las contraseñas salen ocultas");
+    await p.locator("#perfil-clave-actual").fill("mala123");
+    await p.locator("#perfil-clave-nueva").fill("nueva123");
+    await p.locator("#perfil-clave-repite").fill("nueva124");
+    await p.locator("#perfil-clave-guardar").click();
+    await p.waitForTimeout(400);
+    ok(/no coinciden/.test(await aviso(p)) && !(estado.entradas ?? []).length, "SE: si las nuevas no coinciden, no se manda nada");
+    await p.locator("#perfil-clave-repite").fill("nueva123");
+    await p.locator("#perfil-clave-guardar").click();
+    await esperar(p, () => (estado.entradas ?? []).length > 0);
+    await p.waitForTimeout(500);
+    ok(/La contraseña actual no es correcta/.test(await aviso(p)) && !(estado.clavesNuevas ?? []).length, "SE: con la actual equivocada no se cambia y lo dice en español");
+    await esperar(p, () => evento(estado, "perfil_contrasena_error").length > 0);
+    ok(evento(estado, "perfil_contrasena_error")[0]?.metadata?.motivo === "actual", "SE: y se cuenta como «contraseña actual equivocada»");
+    await p.getByRole("button", { name: "Mostrar las contraseñas" }).click();
+    ok((await p.locator("#perfil-clave-actual").getAttribute("type")) !== "password", "SE: «Mostrar» deja ver lo escrito");
+    await p.locator("#perfil-clave-actual").fill("vieja123");
+    await p.locator("#perfil-clave-guardar").click();
+    await esperar(p, () => (estado.clavesNuevas ?? []).length > 0);
+    await p.waitForTimeout(500);
+    ok((estado.entradas ?? []).some((e) => e.ok && e.email === CLIENTE.email) && (estado.clavesNuevas ?? [])[0] === "nueva123", "SE: comprueba la actual volviendo a entrar y guarda la nueva");
+    ok(/Contraseña cambiada/.test(await aviso(p)) && (await p.locator("#perfil-clave-actual").count()) === 0, "SE: lo confirma y cierra el formulario");
+    await esperar(p, () => evento(estado, "perfil_contrasena_cambiada").length > 0);
+    ok(evento(estado, "perfil_contrasena_cambiada").length === 1, "SE: la analítica cuenta la contraseña cambiada");
+    await p.locator("#perfil-seguridad-contrasena").click();
+    await p.locator("#perfil-clave-olvidada").click();
+    await esperar(p, () => (estado.recover ?? []).length > 0);
+    await p.waitForTimeout(400);
+    ok((estado.recover ?? [])[0]?.cuerpo?.email === CLIENTE.email && /Te hemos enviado un enlace/.test(await aviso(p)), "SE: «¿No recuerdas la actual?» manda el enlace de recuperar");
+    await capturar(p, "SE3-cambiar-contrasena");
+    ok(p.errores.length === 0, `SE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // SE4) Al volver de los enlaces del correo: la tarjeta se abre y dice cómo va, en español; la dirección se limpia.
+  {
+    const casos = [
+      ["/perfil?cuenta=correo&message=Confirmation+link+accepted.+Please+proceed+to+confirm+link+sent+to+the+other+email", /Primer enlace confirmado/],
+      ["/perfil?cuenta=correo#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", /ha caducado o ya se ha usado/],
+      ["/perfil?cuenta=correo", /Tu correo ya está cambiado/],
+    ];
+    const vistos = [];
+    for (const [ruta, esperado] of casos) {
+      const estado = { filas: perfilCompleto, guardados: [], aceptaAnalitica: true, seguridad: true };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado);
+      const p = await pagina(ctx, ruta);
+      await p.locator("#perfil-seguridad-aviso").waitFor({ timeout: 20000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const t = await aviso(p);
+      await capturar(p, `SE4-vuelta-${vistos.length + 1}`);
+      vistos.push({ ok: esperado.test(t) && !/invalid|expired|Confirmation/i.test(t), limpia: !/cuenta=correo/.test(p.url()), t: t.slice(0, 60), ev: evento(estado, "perfil_correo_cambiado").length });
+      await ctx.close();
+    }
+    ok(vistos.every((v) => v.ok), `SE: al volver de los enlaces lo explica en español (${vistos.map((v) => v.t).join(" | ")})`);
+    ok(vistos.every((v) => v.limpia), "SE: y quita el enlace de la dirección");
+    ok(vistos[2].ev === 1 && vistos[0].ev === 0, "SE: la analítica cuenta el correo cambiado solo cuando termina");
+  }
+
+  // SE5) Administración → Usuarios: cuántos cambian el correo y la contraseña (30 días).
+  {
+    const ev = (event_name, metadata = {}) => ({ event_name, user_id: null, session_id: `s${Math.random()}`, metadata });
+    const estado = {
+      guardados: [],
+      filas: [],
+      usuarios: [],
+      eventos: [
+        ev("perfil_correo_cambio_pedido"),
+        ev("perfil_correo_cambio_pedido"),
+        ev("perfil_correo_cambiado"),
+        ev("perfil_contrasena_cambiada"),
+        ev("perfil_contrasena_error", { motivo: "actual" }),
+        ev("perfil_contrasena_error", { motivo: "contrasena" }),
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-seguridad").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#admin-seguridad").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(
+      /cambios de correo pedidos 2 · terminados 1/.test(t) && /contraseñas cambiadas desde Mi perfil 1/.test(t) && /intentos fallidos 2 \(contraseña actual equivocada 1\)/.test(t),
+      `SE: Usuarios cuenta los cambios de correo y de contraseña (${t})`
+    );
+    ok(p.errores.length === 0, `SE: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -3515,6 +3716,7 @@ try {
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
+  if (SOLO === "SE") await seccionSE();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -4449,6 +4651,7 @@ try {
   await seccionME();
   await seccionCO();
   await seccionDI();
+  await seccionSE();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

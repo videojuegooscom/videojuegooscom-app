@@ -727,6 +727,15 @@ export default function PerfilScreen() {
     hydrateSessionState();
   }, [hydrateSessionState]);
 
+  // Cambio de correo confirmado (Mi perfil → «Inicio de sesión y seguridad»): al renovarse la sesión, se ve el nuevo.
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((evento, sesion) => {
+      const nuevo = sesion?.user?.email;
+      if ((evento === "USER_UPDATED" || evento === "TOKEN_REFRESHED") && nuevo) setSessionEmail(normalizeEmail(nuevo));
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
   // «Comprar ya» sin sesión deja aquí la ficha a la que volver: en cuanto hay sesión (al iniciar
   // sesión o al crear la cuenta) se vuelve a esa ficha. La marca caduca a los 30 minutos.
   useEffect(() => {

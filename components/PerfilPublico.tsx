@@ -15,6 +15,10 @@
  *   perfil) y localidad, dirección (calle o avenida y número de portal, o «s/n») y piso/puerta/letra. Si se empieza, tiene
  *   que estar entera; nunca impide tener el perfil completo. Rellena el pago (app/checkout.tsx). Columnas codigo_postal,
  *   localidad, direccion y piso (migración 20261102120000_perfiles_direccion.sql); sin ellas no se ofrece.
+ *   «Inicio de sesión y seguridad» (SeguridadCuenta, con la tarjeta abierta, dueño 2026-11-03): cambiar el correo (enlace
+ *   al de antes y al nuevo; se cambia al confirmar los dos y, mientras, sale «Cambio pendiente») y la contraseña (pide la
+ *   actual, que se comprueba volviendo a entrar; la nueva dos veces; «Mostrar»; «¿No recuerdas la actual?»). Al volver de
+ *   un enlace (/perfil?cuenta=correo) la tarjeta se abre y dice en español cómo va.
  * - perfilesPublicos(ids): usuario y foto de varias personas para el Foro (función perfiles_publicos de la base de datos,
  *   que solo devuelve eso; si aún no existe, el Foro sigue como antes).
  * - PerfilObligatorio (montado una vez en app/_layout.tsx): con sesión iniciada y el perfil sin completar, una pantalla
@@ -34,7 +38,7 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextIn
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
+import { mensajeAuthEnEspanol, motivoErrorAuth, pedirEnlaceContrasena, supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
 import CargaMarca from "./marca/CargaMarca";
@@ -303,6 +307,25 @@ export function usePerfilObligatorioVisible(): boolean {
   return useSyncExternalStore(suscribirVisible, () => obligatorioVisible, () => false);
 }
 
+// ¿Está desplegado «Mi perfil» en Mi cuenta? Blue no aparece mientras tanto (dueño, 2026-11-03; components/Campanita.tsx,
+// que además mira que se esté en /perfil: las pestañas de la tienda se quedan montadas al cambiar de una a otra).
+let miPerfilAbierto = false;
+const oyentesMiPerfil = new Set<() => void>();
+function fijarMiPerfilAbierto(v: boolean) {
+  if (miPerfilAbierto === v) return;
+  miPerfilAbierto = v;
+  oyentesMiPerfil.forEach((f) => f());
+}
+const suscribirMiPerfil = (f: () => void) => {
+  oyentesMiPerfil.add(f);
+  return () => {
+    oyentesMiPerfil.delete(f);
+  };
+};
+export function useMiPerfilAbierto(): boolean {
+  return useSyncExternalStore(suscribirMiPerfil, () => miPerfilAbierto, () => false);
+}
+
 // --- piezas de la tarjeta ----------------------------------------------------------------------------------------
 
 // Caja redondeada de cada dato: ✓ verde a la izquierda cuando está bien, flechas ⌃⌄ a la derecha en los desplegables y,
@@ -426,6 +449,8 @@ export default function PerfilPublico({
   onDisponible?: (disponible: boolean) => void;
 }) {
   const obligatorio = modo === "obligatorio";
+  // Vuelta de un enlace de «cambiar el correo» (Inicio de sesión y seguridad): la tarjeta se abre para decir cómo va.
+  const [retornoCorreo] = useState<RetornoCorreo>(() => (obligatorio ? null : tomarRetornoCorreo()));
   const [estado, setEstado] = useState<"cargando" | "no-disponible" | "listo">("cargando");
   const [recorte, setRecorte] = useState<string | null>(null); // foto elegida, a la espera de recortarla
   useEffect(() => {
@@ -459,8 +484,8 @@ export default function PerfilPublico({
         if (l.datos) {
           setDatos(l.datos);
           setGuardado(l.datos);
-          // Completo: en Mi cuenta se enseña plegado (se abre al tocarlo).
-          if (!obligatorio && perfilCompleto(l.datos)) setAbierto(false);
+          // Completo: en Mi cuenta se enseña plegado (se abre al tocarlo), salvo al volver de un enlace del correo.
+          if (!obligatorio && perfilCompleto(l.datos) && !retornoCorreo) setAbierto(false);
         } else {
           // Todavía sin guardar: se rellena con lo que escribió al registrarse (queda pendiente de guardar).
           const { data: s } = await supabase.auth.getSession();
@@ -477,7 +502,14 @@ export default function PerfilPublico({
     return () => {
       vivo = false;
     };
-  }, [uid, obligatorio]);
+  }, [uid, obligatorio, retornoCorreo]);
+
+  // «Mi perfil» desplegado en Mi cuenta: Blue no aparece (y vuelve al plegarlo o al salir de la tarjeta).
+  useEffect(() => {
+    if (obligatorio) return;
+    fijarMiPerfilAbierto(estado === "listo" && abierto);
+    return () => fijarMiPerfilAbierto(false);
+  }, [obligatorio, estado, abierto]);
 
   // En «Completa tu perfil» no sale la dirección: sus avisos tampoco.
   const errores = useMemo(() => (obligatorio || !conDireccion ? erroresObligatorios(datos) : erroresPerfil(datos)), [datos, obligatorio, conDireccion]);
@@ -1062,6 +1094,8 @@ export default function PerfilPublico({
         </Text>
       ) : null}
       {abierto ? formulario : null}
+      {/* Inicio de sesión y seguridad: cambiar el correo y la contraseña (con la tarjeta abierta). */}
+      {abierto && correo ? <SeguridadCuenta correo={correo} retorno={retornoCorreo} /> : null}
       {/* Los botones de la cuenta, siempre a mano (también plegado); abierto, separados de los datos por una línea fina. */}
       {cuenta ? (
         <View style={{ width: "100%", maxWidth: 460, ...(abierto ? { borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 } : null) }}>
@@ -1069,6 +1103,362 @@ export default function PerfilPublico({
         </View>
       ) : null}
       {ventanaRecorte}
+    </View>
+  );
+}
+
+// --- Inicio de sesión y seguridad: cambiar el correo y la contraseña (dueño, 2026-11-03, «que se vea profesional») ---
+// Correo: se escribe el nuevo y Supabase manda un enlace al correo de antes y otro al nuevo («Secure email change»
+// activado; plantilla supabase/templates/email_change.html). Se cambia al confirmar los dos; mientras, se dice que está
+// pendiente. Los enlaces vuelven a /perfil?cuenta=correo y aquí se explica en español cómo va.
+// Contraseña: la actual (se comprueba volviendo a entrar con ella), la nueva dos veces y «Mostrar»; si no se recuerda la
+// actual, se manda el enlace de «¿Olvidaste tu contraseña?». Todos los errores de Supabase, en español.
+// Analítica propia (Administración → Usuarios, nunca el correo): perfil_correo_cambio_pedido / _error, perfil_correo_cambiado,
+// perfil_contrasena_cambiada / _error (con el motivo).
+
+type RetornoCorreo = { tipo: "ok" | "medio" | "error"; texto: string } | null;
+
+// Lo que trae la dirección al volver de un enlace de cambio de correo (se lee una vez; la dirección se limpia después de
+// que Supabase haya leído su código, en SeguridadCuenta).
+function leerRetornoCorreo(): RetornoCorreo {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  const q = new URLSearchParams(window.location.search);
+  const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const leer = (k: string) => q.get(k) ?? h.get(k) ?? "";
+  if (leer("cuenta") !== "correo") return null;
+  const error = leer("error_description") || leer("error");
+  if (error) {
+    return { tipo: "error", texto: mensajeAuthEnEspanol({ code: leer("error_code"), message: error }, "No se ha podido cambiar el correo. Vuelve a intentarlo.") };
+  }
+  if (leer("message")) {
+    return { tipo: "medio", texto: "Primer enlace confirmado. Abre también el que te hemos enviado al otro correo para terminar el cambio." };
+  }
+  return { tipo: "ok", texto: "¡Listo! Tu correo ya está cambiado: desde ahora entras con el nuevo." };
+}
+
+// Se lee al cargar la página: el enrutador quita el «#…» de la dirección en cuanto arranca (y con él el error del enlace),
+// antes de que la tarjeta se abra. Se usa una sola vez.
+let retornoAlCargar: RetornoCorreo = leerRetornoCorreo();
+function tomarRetornoCorreo(): RetornoCorreo {
+  const r = retornoAlCargar ?? leerRetornoCorreo();
+  retornoAlCargar = null;
+  return r;
+}
+
+const esCorreoValido = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+function FilaSeguridad({
+  id,
+  icono,
+  titulo,
+  detalle,
+  abierta,
+  onPress,
+}: {
+  id: string;
+  icono: React.ComponentProps<typeof Ionicons>["name"];
+  titulo: string;
+  detalle: string;
+  abierta: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      nativeID={id}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${titulo}: ${abierta ? "cerrar" : "cambiar"}`}
+      {...({ "aria-expanded": abierta } as object)}
+      style={({ pressed }) => ({
+        minHeight: 56,
+        borderRadius: 16,
+        borderWidth: 1.5,
+        borderColor: abierta ? P.accent : P.line,
+        backgroundColor: "#FFFFFF",
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        gap: 10,
+        opacity: pressed ? 0.88 : 1,
+      })}
+    >
+      <Ionicons name={icono} size={20} color={P.accent} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={{ color: P.text, fontWeight: "900", fontSize: 15 }}>{titulo}</Text>
+        <Text numberOfLines={1} style={{ color: P.muted, fontWeight: "700", fontSize: 12.5 }}>
+          {detalle}
+        </Text>
+      </View>
+      <Text style={{ color: P.accent, fontWeight: "900", fontSize: 14 }}>{abierta ? "Cerrar" : "Cambiar"}</Text>
+    </Pressable>
+  );
+}
+
+function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: RetornoCorreo }) {
+  const [abierta, setAbierta] = useState<"correo" | "contrasena" | null>(null);
+  const [aviso, setAviso] = useState<{ tipo: "ok" | "error"; texto: string } | null>(
+    retorno ? { tipo: retorno.tipo === "error" ? "error" : "ok", texto: retorno.texto } : null
+  );
+  const [enviando, setEnviando] = useState(false);
+  const [nuevoCorreo, setNuevoCorreo] = useState("");
+  const [pendiente, setPendiente] = useState<string | null>(null);
+  const [actual, setActual] = useState("");
+  const [nueva, setNueva] = useState("");
+  const [repite, setRepite] = useState("");
+  const [ver, setVer] = useState(false);
+  const marcador = "rgba(11,33,56,0.40)";
+  const sinOutline = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
+
+  // ¿Hay un cambio de correo a medias? Y, al volver de un enlace, cuando Supabase ya ha leído su código: se limpia la
+  // dirección, se pone al día la sesión (el correo nuevo) y se mide.
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      if (retorno) {
+        await supabase.auth.getSession();
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          try {
+            window.history.replaceState(window.history.state, "", window.location.pathname);
+          } catch {
+            // sin historial
+          }
+        }
+        if (retorno.tipo === "ok") {
+          try {
+            await supabase.auth.refreshSession();
+          } catch {
+            // el correo ya está cambiado en el servidor aunque esta sesión no se renueve
+          }
+          trackEvent("perfil_correo_cambiado", "Perfil: correo cambiado");
+        }
+      }
+      try {
+        const { data } = await supabase.auth.getUser();
+        const nuevo = data.user?.new_email;
+        if (vivo && nuevo && nuevo.toLowerCase() !== correo.toLowerCase()) setPendiente(nuevo);
+      } catch {
+        // sin datos: no se dice nada del cambio pendiente
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [correo, retorno]);
+
+  const alternar = (cual: "correo" | "contrasena") => {
+    setAviso(null);
+    setAbierta((a) => (a === cual ? null : cual));
+  };
+
+  const pedirCambioCorreo = async () => {
+    if (enviando) return;
+    const e = nuevoCorreo.trim().toLowerCase();
+    if (!esCorreoValido(e)) return setAviso({ tipo: "error", texto: "Escribe un correo válido." });
+    if (e === correo.trim().toLowerCase()) return setAviso({ tipo: "error", texto: "Ese ya es tu correo." });
+    setEnviando(true);
+    setAviso(null);
+    const redirectTo = Platform.OS === "web" && typeof window !== "undefined" ? `${window.location.origin}/perfil?cuenta=correo` : undefined;
+    let error: unknown = null;
+    try {
+      ({ error } = await supabase.auth.updateUser({ email: e }, { emailRedirectTo: redirectTo }));
+    } catch (err) {
+      error = err;
+    }
+    setEnviando(false);
+    if (error) {
+      void trackEvent("perfil_correo_cambio_error", "Perfil: no se pudo pedir el cambio de correo", { metadata: { motivo: motivoErrorAuth(error) } });
+      const codigo = String((error as { code?: unknown }).code ?? "");
+      setAviso({
+        tipo: "error",
+        texto:
+          codigo === "email_exists" || /already (been )?registered|already exists/i.test(String((error as { message?: unknown }).message ?? ""))
+            ? "Ya hay otra cuenta con ese correo."
+            : mensajeAuthEnEspanol(error, "No se ha podido pedir el cambio. Inténtalo de nuevo en unos minutos."),
+      });
+      return;
+    }
+    void trackEvent("perfil_correo_cambio_pedido", "Perfil: cambio de correo pedido");
+    setPendiente(e);
+    setNuevoCorreo("");
+    setAbierta(null);
+    setAviso({ tipo: "ok", texto: `Te hemos enviado un enlace a ${correo} y otro a ${e}. Ábrelos los dos para terminar el cambio (mira también en Spam).` });
+  };
+
+  const cambiarContrasena = async () => {
+    if (enviando) return;
+    const a = actual.trim();
+    const n = nueva.trim();
+    if (!a) return setAviso({ tipo: "error", texto: "Escribe tu contraseña actual." });
+    if (n.length < 6) return setAviso({ tipo: "error", texto: "La contraseña nueva debe tener al menos 6 caracteres." });
+    if (n !== repite.trim()) return setAviso({ tipo: "error", texto: "Las dos contraseñas nuevas no coinciden." });
+    if (n === a) return setAviso({ tipo: "error", texto: "La contraseña nueva tiene que ser distinta de la actual." });
+    setEnviando(true);
+    setAviso(null);
+    try {
+      // Se comprueba la actual volviendo a entrar con ella: nadie con el móvil desbloqueado la cambia sin saberla.
+      const { error: e1 } = await supabase.auth.signInWithPassword({ email: correo.trim().toLowerCase(), password: a });
+      if (e1) {
+        const mala = String((e1 as { code?: unknown }).code ?? "") === "invalid_credentials" || /invalid login credentials/i.test(e1.message);
+        void trackEvent("perfil_contrasena_error", "Perfil: no se pudo cambiar la contraseña", { metadata: { motivo: mala ? "actual" : motivoErrorAuth(e1) } });
+        setAviso({ tipo: "error", texto: mala ? "La contraseña actual no es correcta." : mensajeAuthEnEspanol(e1, "No se ha podido cambiar la contraseña. Inténtalo de nuevo.") });
+        return;
+      }
+      const { error: e2 } = await supabase.auth.updateUser({ password: n });
+      if (e2) {
+        void trackEvent("perfil_contrasena_error", "Perfil: no se pudo cambiar la contraseña", { metadata: { motivo: motivoErrorAuth(e2) } });
+        setAviso({ tipo: "error", texto: mensajeAuthEnEspanol(e2, "No se ha podido cambiar la contraseña. Inténtalo de nuevo.") });
+        return;
+      }
+      void trackEvent("perfil_contrasena_cambiada", "Perfil: contraseña cambiada");
+      setActual("");
+      setNueva("");
+      setRepite("");
+      setVer(false);
+      setAbierta(null);
+      setAviso({ tipo: "ok", texto: "Contraseña cambiada. La próxima vez entra con la nueva." });
+    } catch (err) {
+      setAviso({ tipo: "error", texto: mensajeAuthEnEspanol(err, "No se ha podido cambiar la contraseña. Inténtalo de nuevo.") });
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const olvidada = async () => {
+    if (enviando) return;
+    setEnviando(true);
+    const r = await pedirEnlaceContrasena(correo.trim().toLowerCase());
+    setEnviando(false);
+    if (r.ok) {
+      void trackEvent("contrasena_enlace_pedido", "Contraseña: enlace pedido", { metadata: { desde: "seguridad" } });
+      setAviso({ tipo: "ok", texto: `Te hemos enviado un enlace a ${correo} para crear una contraseña nueva (mira también en Spam).` });
+    } else {
+      void trackEvent("contrasena_enlace_error", "Contraseña: no se pudo pedir el enlace", { metadata: { desde: "seguridad", motivo: r.motivo } });
+      setAviso({ tipo: "error", texto: r.mensaje });
+    }
+  };
+
+  const campo = (
+    id: string,
+    valor: string,
+    cambiar: (t: string) => void,
+    placeholder: string,
+    etiqueta: string,
+    tipo: "correo" | "clave-actual" | "clave-nueva"
+  ) => (
+    <View style={{ flexDirection: "row" }}>
+      <CajaPerfil valido={tipo === "correo" ? esCorreoValido(valor) : valor.trim().length >= 6}>
+        <TextInput
+          nativeID={id}
+          value={valor}
+          onChangeText={(t) => {
+            cambiar(t);
+            setAviso(null);
+          }}
+          placeholder={placeholder}
+          placeholderTextColor={marcador}
+          accessibilityLabel={etiqueta}
+          secureTextEntry={tipo !== "correo" && !ver}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType={tipo === "correo" ? "email-address" : "default"}
+          autoComplete={tipo === "correo" ? "email" : tipo === "clave-actual" ? "current-password" : "new-password"}
+          textContentType={tipo === "correo" ? "emailAddress" : tipo === "clave-actual" ? "password" : "newPassword"}
+          style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, ...sinOutline }]}
+        />
+      </CajaPerfil>
+    </View>
+  );
+
+  const botonAzul = (texto: string, onPress: () => void, id: string) => (
+    <Pressable
+      nativeID={id}
+      onPress={onPress}
+      disabled={enviando}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        minHeight: 48,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: P.accent,
+        opacity: enviando ? 0.55 : pressed ? 0.88 : 1,
+      })}
+    >
+      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15.5 }}>{enviando ? "Un momento…" : texto}</Text>
+    </Pressable>
+  );
+
+  return (
+    <View nativeID="perfil-seguridad" style={{ width: "100%", maxWidth: 460, gap: 10, borderTopWidth: 1, borderTopColor: P.line, paddingTop: 14 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <Ionicons name="shield-checkmark-outline" size={18} color={P.accent} />
+        <Text style={{ color: P.text, fontWeight: "900", fontSize: 15.5 }}>Inicio de sesión y seguridad</Text>
+      </View>
+
+      <FilaSeguridad
+        id="perfil-seguridad-correo"
+        icono="mail-outline"
+        titulo="Correo electrónico"
+        detalle={pendiente ? `Cambio pendiente a ${pendiente}` : correo}
+        abierta={abierta === "correo"}
+        onPress={() => alternar("correo")}
+      />
+      {abierta === "correo" ? (
+        <View style={{ gap: 10 }}>
+          <Text style={{ color: P.muted, fontWeight: "700", fontSize: 13, textAlign: "center", lineHeight: 18 }}>
+            Te enviaremos un enlace a tu correo actual y otro al nuevo: el cambio se hace al confirmar los dos.
+          </Text>
+          {campo("perfil-correo-nuevo", nuevoCorreo, setNuevoCorreo, "Correo nuevo", "Correo nuevo", "correo")}
+          {botonAzul("Enviar los enlaces de confirmación", pedirCambioCorreo, "perfil-correo-enviar")}
+        </View>
+      ) : null}
+
+      <FilaSeguridad
+        id="perfil-seguridad-contrasena"
+        icono="key-outline"
+        titulo="Contraseña"
+        detalle="••••••••"
+        abierta={abierta === "contrasena"}
+        onPress={() => alternar("contrasena")}
+      />
+      {abierta === "contrasena" ? (
+        <View style={{ gap: 10 }}>
+          {campo("perfil-clave-actual", actual, setActual, "Contraseña actual", "Contraseña actual", "clave-actual")}
+          {campo("perfil-clave-nueva", nueva, setNueva, "Contraseña nueva (mínimo 6)", "Contraseña nueva", "clave-nueva")}
+          {campo("perfil-clave-repite", repite, setRepite, "Repite la contraseña nueva", "Repite la contraseña nueva", "clave-nueva")}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+            <Pressable
+              onPress={() => setVer((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={ver ? "Ocultar las contraseñas" : "Mostrar las contraseñas"}
+              style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Ionicons name={ver ? "eye-off-outline" : "eye-outline"} size={19} color={P.accent} />
+              <Text style={{ color: P.text, fontWeight: "800" }}>{ver ? "Ocultar" : "Mostrar"}</Text>
+            </Pressable>
+            <Pressable
+              nativeID="perfil-clave-olvidada"
+              onPress={olvidada}
+              disabled={enviando}
+              accessibilityRole="button"
+              style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingHorizontal: 4, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text style={{ color: P.text, fontWeight: "800", textDecorationLine: "underline" }}>¿No recuerdas la actual?</Text>
+            </Pressable>
+          </View>
+          {botonAzul("Cambiar contraseña", cambiarContrasena, "perfil-clave-guardar")}
+        </View>
+      ) : null}
+
+      {aviso ? (
+        <Text
+          nativeID="perfil-seguridad-aviso"
+          accessibilityRole="alert"
+          style={{ color: aviso.tipo === "ok" ? P.ok : P.danger, fontWeight: "800", textAlign: "center", lineHeight: 19 }}
+        >
+          {aviso.texto}
+        </Text>
+      ) : null}
     </View>
   );
 }

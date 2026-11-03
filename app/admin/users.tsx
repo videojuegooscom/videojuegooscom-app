@@ -41,6 +41,10 @@
  *   que no se pudieron pedir; si Supabase frena correos por su límite, un
  *   aviso en rojo de que hace falta el correo propio (SMTP). Analítica propia
  *   contrasena_* de app/(tabs)/perfil.tsx y app/reset-password.tsx.
+ * - «Inicio de sesión y seguridad (30 días)»: cambios de correo pedidos y
+ *   terminados, contraseñas cambiadas desde Mi perfil e intentos fallidos
+ *   (cuántos con la contraseña actual equivocada). Analítica propia
+ *   perfil_correo_* / perfil_contrasena_* de components/PerfilPublico.tsx.
  * - "Moderación del Foro": con el registro de moderación (tabla
  *   foro_moderacion, que rellena la base de datos sola), los mensajes y
  *   comentarios eliminados y los silencios de los últimos 30 días, y cuántos
@@ -197,6 +201,15 @@ const EVENTOS_CONTRASENA = [
   "contrasena_enlace_invalido",
   "contrasena_cambiada",
 ] as const;
+// Mi perfil → «Inicio de sesión y seguridad» (components/PerfilPublico.tsx): cambios de correo y de contraseña.
+const EVENTOS_SEGURIDAD = [
+  "perfil_correo_cambio_pedido",
+  "perfil_correo_cambio_error",
+  "perfil_correo_cambiado",
+  "perfil_contrasena_cambiada",
+  "perfil_contrasena_error",
+] as const;
+type UsoSeguridad = { correoPedidos: number; correoErrores: number; correoCambiados: number; contrasenas: number; contrasenaErrores: number; actualMal: number };
 type UsoContrasena = {
   pedidos: number;
   errores: number;
@@ -445,6 +458,8 @@ export default function AdminUsers() {
   const [usoMejoras, setUsoMejoras] = useState<{ abiertas: number; personas: number; porOrigen: Record<OrigenMejora, number> } | null>(null);
   // «Recuperar contraseña» en 30 días (analítica propia). null = sin analítica.
   const [usoContrasena, setUsoContrasena] = useState<UsoContrasena | null>(null);
+  // «Inicio de sesión y seguridad» en 30 días (analítica propia). null = sin analítica.
+  const [usoSeguridad, setUsoSeguridad] = useState<UsoSeguridad | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -463,7 +478,7 @@ export default function AdminUsers() {
         supabase
           .from("analytics_events")
           .select("event_name,user_id,session_id,metadata")
-          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO, ...EVENTOS_RESENAS, ...EVENTOS_MEJORAS, ...EVENTOS_CONTRASENA])
+          .in("event_name", [...EVENTOS_PERFIL, ...EVENTOS_SEGUIMIENTOS, ...EVENTOS_FORO, ...EVENTOS_RESENAS, ...EVENTOS_MEJORAS, ...EVENTOS_CONTRASENA, ...EVENTOS_SEGURIDAD])
           .gte("created_at", desde)
           .limit(5000),
         supabase.from("noticias_comentarios").select("id", { count: "exact", head: true }).eq("oculto", true),
@@ -515,7 +530,22 @@ export default function AdminUsers() {
         setUsoResenas(null);
         setUsoMejoras(null);
         setUsoContrasena(null);
+        setUsoSeguridad(null);
       } else {
+        // «Inicio de sesión y seguridad»: cuántas veces pasa cada cosa (sin correos ni datos de nadie).
+        const deSeguridad = ((eventosRes.data ?? []) as { event_name: string; metadata: { motivo?: unknown } | null }[]).filter((e) =>
+          (EVENTOS_SEGURIDAD as readonly string[]).includes(e.event_name)
+        );
+        const veces = (nombre: string, motivo?: string) =>
+          deSeguridad.filter((e) => e.event_name === nombre && (!motivo || String(e.metadata?.motivo ?? "") === motivo)).length;
+        setUsoSeguridad({
+          correoPedidos: veces("perfil_correo_cambio_pedido"),
+          correoErrores: veces("perfil_correo_cambio_error"),
+          correoCambiados: veces("perfil_correo_cambiado"),
+          contrasenas: veces("perfil_contrasena_cambiada"),
+          contrasenaErrores: veces("perfil_contrasena_error"),
+          actualMal: veces("perfil_contrasena_error", "actual"),
+        });
         // «Recuperar contraseña»: cuántas veces pasa cada cosa (y por qué fallan), sin datos de nadie.
         const deContrasena = ((eventosRes.data ?? []) as { event_name: string; metadata: { motivo?: unknown } | null }[]).filter((e) =>
           (EVENTOS_CONTRASENA as readonly string[]).includes(e.event_name)
@@ -1048,6 +1078,16 @@ export default function AdminUsers() {
                   </Text>
                 ) : null}
               </View>
+            ) : null}
+
+            {/* Mi perfil → «Inicio de sesión y seguridad»: cambios de correo (pedidos y terminados) y de contraseña (30 días). */}
+            {usoSeguridad ? (
+              <Text nativeID="admin-seguridad" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Inicio de sesión y seguridad (30 días): cambios de correo pedidos {usoSeguridad.correoPedidos} · terminados {usoSeguridad.correoCambiados}
+                {usoSeguridad.correoErrores ? ` · no se pudieron pedir ${usoSeguridad.correoErrores}` : ""} · contraseñas cambiadas desde Mi perfil{" "}
+                {usoSeguridad.contrasenas}
+                {usoSeguridad.contrasenaErrores ? ` · intentos fallidos ${usoSeguridad.contrasenaErrores} (contraseña actual equivocada ${usoSeguridad.actualMal})` : ""}
+              </Text>
             ) : null}
 
             {/* Perfil → «Mis seguimientos»: quién lo abre (analítica propia, 30 días) y cuántos deslizando la pestaña. */}

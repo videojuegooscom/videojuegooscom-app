@@ -42,6 +42,8 @@
  *   horizontales (no cambian scrollTop) no cuentan. Cerca del principio
  *   (scrollTop < 40) siempre se ve. No se oculta con su panel abierto, con un
  *   bocadillo o con el saludo a la vista, y vuelve a verse al cambiar de pantalla.
+ * - «Mi perfil» desplegado en Mi cuenta (/perfil; useMiPerfilAbierto de components/PerfilPublico.tsx): Blue no aparece
+ *   hasta que se pliega o se sale (dueño, 2026-11-03), como con «Completa tu perfil».
  * - Visor de fotos (components/ImageLightbox.tsx, foto ampliada de la ficha): mientras está abierto Blue se esconde
  *   del todo (dueño, 2026-10-31) y no dice nada: sus mensajes y su saludo esperan a que se cierre.
  * - Habla con bocadillos AL LADO de ella, en cristal transparente (se lee bien) y al
@@ -145,7 +147,7 @@ import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificacion
 import MarcaAnimada from "./marca/MarcaAnimada";
 import { asegurarCssSiriTexto, escribirEnBuscadorDemo, registrarAvisoLlegada, TextoSiri } from "./Barramagic";
 import { alRecargar } from "./TirarParaActualizar";
-import { usePerfilObligatorioVisible } from "./PerfilPublico";
+import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
 import { MejorasModal } from "./ReviewModal";
 
@@ -2194,6 +2196,8 @@ export default function Campanita() {
 
   // Con «Completa tu perfil» abierta (components/PerfilPublico.tsx) Blue se esconde y la guía espera.
   const perfilObligatorio = usePerfilObligatorioVisible();
+  // Con «Mi perfil» desplegado en Mi cuenta (/perfil), Blue no aparece (dueño, 2026-11-03).
+  const miPerfilAbierto = useMiPerfilAbierto() && pathname === "/perfil";
   useEffect(() => {
     if (guiaPendienteRef.current && !sitioSinGuia && !perfilObligatorio) {
       guiaPendienteRef.current = false;
@@ -2400,7 +2404,7 @@ export default function Campanita() {
   // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
   // En el panel de administración Blue solo aparece para el dueño (propone información de la
   // tienda); a cualquier otra persona no se le monta nunca allí.
-  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || (perfilObligatorio && !guiaAbierta)) return null;
+  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || ((perfilObligatorio || miPerfilAbierto) && !guiaAbierta)) return null;
 
   const derecha = sitio.lado === "r";
   // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
