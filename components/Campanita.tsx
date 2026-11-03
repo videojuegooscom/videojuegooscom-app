@@ -427,9 +427,9 @@ type Sitio = { lado: Lado; fy: number };
 const FY_MAX_DERECHA = 0.5;
 // En la ficha de producto Blue no baja NUNCA a la mitad de abajo, en ninguno de los dos lados (petición del dueño,
 // 2026-10-30): ahí están la galería, «Comprar ya», la ficha y «Volver atrás». Su sitio preferido no cambia: al salir
-// de la ficha vuelve a él.
+// de la ficha vuelve a él. La ficha de servicio tiene el mismo formato («Contratar servicio ahora»), así que igual.
 const FY_MAX_FICHA = 0.5;
-const esFichaProducto = (pathname: string) => pathname.startsWith("/producto/");
+const esFichaProducto = (pathname: string) => pathname.startsWith("/producto/") || pathname.startsWith("/servicio/");
 const SITIO_INICIAL: Sitio = { lado: "l", fy: 1 };
 // Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
 const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
