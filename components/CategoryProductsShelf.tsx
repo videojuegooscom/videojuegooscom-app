@@ -62,7 +62,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import SmartImage from "./SmartImage";
@@ -136,6 +136,124 @@ function fmtEUR(value: number) {
   const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
   const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
   return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
+// --- Tarjeta y rejilla de las listas de la tienda (Catálogo y Servicios) --------------------------------------------
+// Mismo diseño que las tarjetas de este estante (las de Inicio): fondo suave sin borde, foto entera sobre blanco, título
+// completo y precio en azul de marca. Sin etiquetas ni botones decorativos: toda la tarjeta es el enlace. «extra» es lo
+// que solo ve el administrador (el estado interno, en texto y sin recuadro). compact: móvil con 2 columnas.
+export const TarjetaProducto = React.memo(function TarjetaProducto({
+  titulo,
+  precioEUR,
+  imagenUrl,
+  onPress,
+  isMobile,
+  compact,
+  extra,
+}: {
+  titulo: string;
+  precioEUR: number;
+  imagenUrl: string | null;
+  onPress: () => void;
+  isMobile?: boolean;
+  compact?: boolean;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={`${titulo}, ${fmtEUR(precioEUR)}`}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.9 : 1,
+        borderRadius: 16,
+        backgroundColor: COLORS.tile,
+        padding: compact ? 8 : 10,
+        alignItems: "center",
+      })}
+    >
+      <View
+        style={{
+          width: "100%",
+          height: compact ? 150 : isMobile ? 200 : 180,
+          borderRadius: 12,
+          overflow: "hidden",
+          backgroundColor: "#FFFFFF",
+          position: "relative",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        {imagenUrl ? (
+          <SmartImage uri={imagenUrl} alt={titulo} ancho={compact ? 190 : 340} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+        ) : (
+          <View style={{ width: "100%", height: "100%", justifyContent: "center", alignItems: "center", paddingHorizontal: 18 }}>
+            <Text style={{ color: "rgba(11,33,56,0.15)", fontWeight: "900", fontSize: 40 }}>VG</Text>
+            <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 6, textAlign: "center" }}>Foto no disponible</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Sin numberOfLines a propósito: el título se ve completo, en dos o tres líneas. */}
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "800",
+          fontSize: compact ? 13 : 14.5,
+          lineHeight: compact ? 17 : 19,
+          marginTop: 8,
+          textAlign: "center",
+        }}
+      >
+        {titulo}
+      </Text>
+
+      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: compact ? 16 : 18, marginTop: 4, textAlign: "center" }}>
+        {fmtEUR(precioEUR)}
+      </Text>
+
+      {extra}
+    </Pressable>
+  );
+});
+
+// Rejilla de tarjetas en filas iguales (la última fila se completa con huecos para que no se estiren).
+export function RejillaTarjetas({ columns, gap, children }: { columns: number; gap: number; children: React.ReactNode }) {
+  // Reparto en filas memorizado: solo se rehace si cambian hijos o columnas.
+  const rows = useMemo(() => {
+    const kids = React.Children.toArray(children);
+    const chunked: React.ReactNode[][] = [];
+    for (let i = 0; i < kids.length; i += columns) {
+      chunked.push(kids.slice(i, i + columns));
+    }
+    return chunked;
+  }, [children, columns]);
+
+  return (
+    <View style={{ gap }}>
+      {rows.map((row, idx) => (
+        <View key={idx} style={{ flexDirection: columns === 1 ? "column" : "row", gap }}>
+          {row.map((child, j) => (
+            <View key={j} style={{ flex: 1 }}>
+              {child}
+            </View>
+          ))}
+          {row.length < columns
+            ? Array.from({ length: columns - row.length }).map((_, k) => <View key={`pad-${k}`} style={{ flex: 1 }} />)
+            : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Columnas de las listas: en el móvil, 1 si hay un solo elemento y 2 si hay más; en pantallas anchas, por ancho.
+export function columnasLista(ancho: number, esMovil: boolean, cuantos: number) {
+  if (esMovil) return cuantos > 1 ? 2 : 1;
+  if (ancho >= 1320) return 4;
+  if (ancho >= 980) return 3;
+  if (ancho >= 680) return 2;
+  return 1;
 }
 
 function normalizeMediaKind(value: unknown): ProductMediaKind | null {
