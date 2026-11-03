@@ -1,0 +1,27 @@
+<!--
+  Plantilla del correo «Cambiar el correo de la cuenta» (Supabase → Authentication → Emails → Templates → «Change email
+  address»). Asunto: Confirma el cambio de correo · VideojuegosZaragoza
+  Mismo diseño que recovery.html y confirmation.html. Con «Secure email change» activado, Supabase la envía a los DOS
+  correos (el de antes y el nuevo), cada uno con su enlace: el texto vale para los dos. Variables: {{ .Email }} (el de
+  antes), {{ .NewEmail }} (el nuevo) y {{ .ConfirmationURL }}. Se pega TODO lo que hay debajo de este comentario.
+-->
+<div style="margin:0;padding:24px 12px;background:#F4F9FD;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0B2138;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:20px;">
+    <tr>
+      <td style="padding:28px 24px;text-align:center;">
+        <p style="margin:0 0 6px;font-size:14px;font-weight:800;color:#1EA7E8;">VideojuegosZaragoza</p>
+        <h1 style="margin:0 0 14px;font-size:22px;font-weight:900;color:#0B2138;">Confirma el cambio de correo</h1>
+        <p style="margin:0 0 22px;font-size:15px;line-height:22px;color:#33475B;">
+          Hemos recibido una petición para cambiar el correo de tu cuenta de {{ .Email }} a {{ .NewEmail }}. Pulsa el botón para confirmarlo.
+        </p>
+        <a href="{{ .ConfirmationURL }}"
+           style="display:inline-block;padding:14px 26px;border-radius:999px;background:#1EA7E8;color:#FFFFFF;font-size:16px;font-weight:900;text-decoration:none;">
+          Confirmar el cambio
+        </a>
+        <p style="margin:22px 0 0;font-size:13px;line-height:19px;color:#5B6B7B;">
+          El enlace sirve una sola vez y caduca en 1 hora. Si no lo has pedido tú, no pulses el botón (el correo no cambiará) y cambia tu contraseña por seguridad.
+        </p>
+      </td>
+    </tr>
+  </table>
+</div>
