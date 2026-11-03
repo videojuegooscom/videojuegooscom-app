@@ -56,6 +56,9 @@
  *    usuario y foto; la privacidad lo explica una vez (con su «prueba de las pruebas»: sin las comprobaciones, entra «5»).
  *  - Resend en la privacidad (20261103100000_privacidad_resend.sql): una frase en «Con quién compartimos tus datos», una
  *    sola vez y sin tocar lo demás (con su «prueba de las pruebas»: sin la condición, la frase se repite).
+ *  - Nombre del titular y correo de protección de datos (20261017200000_politicas_nombre_titular.sql y
+ *    20261103130000_politicas_email_contacto.sql): solo cambian las marcas, las demás políticas no se tocan y aplicadas
+ *    otra vez no cambian nada (con su «prueba de las pruebas»: con la marca sin tilde, el correo no se pondría).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1171,6 +1174,75 @@ try {
     const repetida = ((await c28.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t.match(/Resend/g) ?? []).length;
     ok(repetida === 2, `(control) sin la condición la frase se repite (${repetida} veces): la prueba SÍ lo detecta`);
     await c28.end();
+  }
+
+  // 21) Nombre del titular y correo de protección de datos (20261017200000 y 20261103130000), como en producción el
+  // 2026-11-03: privacidad con el nombre una vez y el correo dos; términos con el nombre; las demás, sin marcas.
+  {
+    const NOMBRE = readFileSync("supabase/migrations/20261017200000_politicas_nombre_titular.sql", "utf8");
+    const CORREO = readFileSync("supabase/migrations/20261103130000_politicas_email_contacto.sql", "utf8");
+    const MARCA_N = "[NOMBRE LEGAL / RAZÓN SOCIAL]";
+    const MARCA_E = "[EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS]";
+    const EMAIL = "VideojuegosZaragoza.com@gmail.com";
+    const sql = (o) => `'${JSON.stringify(o).replace(/'/g, "''")}'::jsonb`;
+    const PRIV_C = [
+      { heading: "Responsable del tratamiento", body: `${MARCA_N}, con NIF/CIF Y4751659B y domicilio en C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza, es el responsable. Escribe a ${MARCA_E}.` },
+      { heading: "Con quién compartimos tus datos", body: "Resend envía los correos desde no-responder@videojuegoszaragoza.com." },
+      { heading: "Tus derechos", body: `Escribe a ${MARCA_E}. También puedes reclamar ante la AEPD (aepd.es).` },
+    ];
+    const TERM_C = [{ heading: "Quiénes somos", body: `Operada por ${MARCA_N}, NIF/CIF Y4751659B.` }];
+    const ENV_C = [{ heading: "Plazos", body: "España 1-2 días [texto entre corchetes que no es una marca]." }];
+    const ESQUEMA_C = `
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections, updated_at) values
+        ('privacidad', 'Política de privacidad', ${sql(PRIV_C)}, '2026-11-03 05:33:58+00'),
+        ('terminos', 'Términos y condiciones', ${sql(TERM_C)}, '2026-10-16 18:49:06+00'),
+        ('envios', 'Política de envíos', ${sql(ENV_C)}, '2026-10-15 20:46:39+00');
+    `;
+    const veces = (texto, aguja) => texto.split(aguja).length - 1;
+    const c29 = await nuevaBase("vz_aislada_politicas_titular_correo", ESQUEMA_C + NOMBRE + CORREO);
+    const tras1 = (await c29.query("select slug, sections::text as t, intro, updated_at from public.policy_pages order by slug")).rows;
+    await c29.query(NOMBRE + CORREO);
+    const tras2 = (await c29.query("select slug, sections::text as t, intro, updated_at from public.policy_pages order by slug")).rows;
+    const de = (filas, slug) => filas.find((f) => f.slug === slug);
+    const priv = de(tras2, "privacidad").t;
+    const term = de(tras2, "terminos").t;
+    ok(
+      veces(priv, EMAIL) === 2 && veces(priv, "Daniel Gutiérrez") === 1 && !priv.includes(MARCA_E) && !priv.includes(MARCA_N),
+      `Políticas: privacidad con el nombre una vez y el correo dos, sin marcas (${veces(priv, "Daniel Gutiérrez")} y ${veces(priv, EMAIL)})`
+    );
+    ok(veces(term, "Daniel Gutiérrez") === 1 && !term.includes(MARCA_N) && !term.includes(EMAIL), "Políticas: términos con el nombre y sin el correo (no lo tenía)");
+    const privJson = JSON.parse(priv);
+    ok(
+      privJson.length === 3 &&
+        privJson[1].body === PRIV_C[1].body &&
+        privJson[0].body === PRIV_C[0].body.replace(MARCA_N, "Daniel Gutiérrez").replace(MARCA_E, EMAIL) &&
+        privJson[2].body === PRIV_C[2].body.replace(MARCA_E, EMAIL),
+      "Políticas: solo cambian las marcas; el resto del texto, igual"
+    );
+    const envios = JSON.parse(de(tras2, "envios").t);
+    ok(
+      envios.length === 1 && envios[0].heading === ENV_C[0].heading && envios[0].body === ENV_C[0].body,
+      "Políticas: las que no tienen marcas no se tocan (ni sus corchetes normales)"
+    );
+    ok(
+      String(de(tras2, "envios").updated_at.toISOString()) === "2026-10-15T20:46:39.000Z" &&
+        de(tras2, "privacidad").updated_at.getTime() === de(tras1, "privacidad").updated_at.getTime() &&
+        de(tras2, "terminos").updated_at.getTime() === de(tras1, "terminos").updated_at.getTime(),
+      "Políticas: aplicadas otra vez no tocan nada (ni la fecha); envíos conserva la suya"
+    );
+    await c29.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la marca mal escrita (sin la tilde de PROTECCIÓN), el correo no se pondría.
+    const sinTilde = CORREO.replace(/PROTECCIÓN/g, "PROTECCION");
+    ok(sinTilde !== CORREO, "(control) se ha podido quitar la tilde de la marca en la copia de prueba");
+    const c30 = await nuevaBase("vz_aislada_politicas_correo_sin_tilde", ESQUEMA_C + sinTilde);
+    const quedan = veces((await c30.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t, MARCA_E);
+    ok(quedan === 2, `(control) con la marca mal escrita quedan ${quedan} marcas sin rellenar: la prueba SÍ lo detecta`);
+    await c30.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
