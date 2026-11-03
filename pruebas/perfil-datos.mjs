@@ -3441,6 +3441,33 @@ async function seccionSE() {
     await ctx.close();
   }
 
+  // SE1b) Como lo usa el dueño: Blue ya a la vista (cliente y administrador, entrando por la pestaña Perfil) y entonces se
+  // despliega «Mi perfil»: Blue se va en seguida y vuelve al plegarlo (dueño, 2026-11-03: «sigue apareciendo»).
+  for (const [usuario, rol] of [
+    [CLIENTE, "user"],
+    [ADMIN, "admin"],
+  ]) {
+    const estado = { filas: [{ ...perfilCompleto[0], user_id: usuario.id }], guardados: [] };
+    const ctx = await contexto(navegador, usuario, rol, estado);
+    const p = await pagina(ctx, "/");
+    await p.locator('[data-testid="pestana-perfil"]').first().click({ timeout: 30000 });
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#blue-flotante").waitFor({ timeout: 20000 }).catch(() => {});
+    const antes = await p.locator("#blue-flotante").count();
+    const plegado = (await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "")) !== "true";
+    await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(800);
+    const abierto = await p.locator("#blue-flotante").count();
+    await p.waitForTimeout(4000);
+    const despues = await p.locator("#blue-flotante").count();
+    ok(antes === 1 && plegado && abierto === 0 && despues === 0, `SE: ${rol === "admin" ? "administrador" : "cliente"}: con Blue ya a la vista, al desplegar «Mi perfil» Blue se va y no vuelve (${JSON.stringify({ antes, plegado, abierto, despues })})`);
+    await p.locator("#perfil-cabecera").click();
+    await p.locator("#blue-flotante").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#blue-flotante").count()) === 1, `SE: ${rol === "admin" ? "administrador" : "cliente"}: al plegarlo, Blue vuelve`);
+    ok(p.errores.length === 0, `SE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
   // SE2) Cambiar el correo: comprobaciones, enlaces a los dos correos y «cambio pendiente».
   {
     const estado = { filas: perfilCompleto, guardados: [], aceptaAnalitica: true, seguridad: true, claveActual: "vieja123" };
