@@ -144,12 +144,17 @@
  *    descripción, dirección oficial y su nombre como encabezado; los accesos desde Inicio y desde entrar/crear cuenta
  *    (con «Crear cuenta» abierto); la analítica propia y su línea en Administración → Analítica.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE|BI|QS]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI» o «QS»
- * de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes
- * junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las
- * reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la
- * contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA o «Quiénes somos»).
+ *  - HO) Blue IA y el horario del equipo (reloj fijado): la línea del horario (fuera de horario, en horario y el
+ *    domingo por la tarde), el aviso al pulsar «Hablar con el equipo» fuera de horario (no tapa la conversación),
+ *    «Seguir con Blue» y «Escribir al equipo igualmente», la analítica propia y su línea en Administración → Analítica.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE|BI|QS|HO]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS» o
+ * «HO» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
+ * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
+ * las reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar
+ * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
+ * horario del equipo en Blue IA).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -3892,6 +3897,128 @@ async function seccionQS() {
   }
 }
 
+// ===== HO) Blue IA y el horario del equipo (dueño, 2026-11-03): siempre a la vista junto a «Hablar con el equipo»;
+// fuera de horario, aviso que recomienda esperar y ofrece seguir con Blue; su parte en Administración → Analítica =====
+async function seccionHO() {
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const sinSesion = (ctx) =>
+    ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+  const texto = (p, sel) => p.evaluate((s) => (document.querySelector(s)?.innerText ?? "").replace(/\n+/g, " | "), sel);
+  const caja = (p, sel) =>
+    p.evaluate((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect();
+      return r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), ancho: window.innerWidth } : null;
+    }, sel);
+  const HORARIO = "Lunes a sábado 10:00–14:00 y 17:00–19:00 · Domingos 10:00–13:00";
+
+  // HO1) Fuera de horario (martes 08:15 en España): la línea lo dice; «Hablar con el equipo» enseña antes el aviso;
+  // «Seguir con Blue» vuelve al recuadro; «Escribir al equipo igualmente» sigue como siempre (sin sesión, a entrar).
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, blueIa: () => "Claro, te ayudo. ¿Qué le pasa a tu consola?" };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    // Reloj falso de Playwright que empieza a esa hora. Con él, el saludo de Blue IA no termina de escribirse en la captura
+    // (sus temporizadores van con ese reloj); sin reloj falso se escribe entero (sección BI).
+    await ctx.clock.install({ time: new Date("2026-11-03T07:15:00Z") });
+    const p = await pagina(ctx, "/blue-ia");
+    await p.locator("#blue-ia-horario").waitFor({ timeout: 30000 }).catch(() => {});
+    const linea = await texto(p, "#blue-ia-horario");
+    ok(/Equipo fuera de horario · vuelve hoy a las 10:00/.test(linea) && linea.includes(HORARIO), `HO: fuera de horario, la línea lo dice y enseña el horario (${linea})`);
+    // Una pregunta primero: el aviso no debe tapar la conversación.
+    await p.getByPlaceholder("Pregúntale a Blue IA…").fill("Mi consola no enciende");
+    await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+    await p.getByText("Claro, te ayudo.").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator('[aria-label="Hablar con el equipo"]').click();
+    await p.locator("#blue-ia-aviso-horario").waitFor({ timeout: 8000 }).catch(() => {});
+    const aviso = await texto(p, "#blue-ia-aviso-horario");
+    ok(/fuera del horario de atención\. El equipo vuelve hoy a las 10:00/.test(aviso) && /esperar a ese horario/.test(aviso) && /Blue puede intentar ayudarte/.test(aviso), `HO: «Hablar con el equipo» fuera de horario avisa, recomienda esperar y ofrece seguir con Blue (${aviso.slice(0, 160)})`);
+    const b1 = await caja(p, "#blue-ia-seguir-blue");
+    const b2 = await caja(p, "#blue-ia-escribir-igualmente");
+    ok([b1, b2].every((b) => !!b && b.h >= 44 && b.x >= 0 && b.x + b.w <= b.ancho), `HO: sus dos botones se tocan bien y no se salen (${JSON.stringify([b1, b2])})`);
+    ok(/\/blue-ia/.test(p.url()), "HO: y todavía no se va a ningún sitio");
+    // Con el aviso a la vista, la conversación se puede bajar hasta el final sin que el compositor la tape.
+    const tapa = await p.evaluate(() => {
+      const burbujas = Array.from(document.querySelectorAll('[data-avatar-blue="1"]'));
+      const ultima = burbujas.at(-1)?.parentElement?.getBoundingClientRect();
+      const scroll = Array.from(document.querySelectorAll("div")).find((d) => d.scrollHeight > d.clientHeight + 40 && getComputedStyle(d).overflowY !== "visible");
+      if (scroll) scroll.scrollTop = scroll.scrollHeight;
+      const aviso = document.getElementById("blue-ia-aviso-horario")?.getBoundingClientRect();
+      const ult = burbujas.at(-1)?.parentElement?.getBoundingClientRect();
+      return { antes: ultima ? Math.round(ultima.bottom) : null, despues: ult ? Math.round(ult.bottom) : null, aviso: aviso ? Math.round(aviso.top) : null };
+    });
+    ok(tapa.despues !== null && tapa.aviso !== null && tapa.despues <= tapa.aviso + 2, `HO: el aviso no tapa la última respuesta (respuesta hasta ${tapa.despues}, aviso desde ${tapa.aviso})`);
+    await capturar(p, "HO1-aviso-fuera-de-horario");
+    await p.locator("#blue-ia-seguir-blue").click();
+    await p.waitForTimeout(400);
+    const tras = await p.evaluate(() => ({ aviso: !!document.getElementById("blue-ia-aviso-horario"), foco: document.activeElement?.getAttribute("placeholder") ?? "" }));
+    ok(!tras.aviso && /Pregúntale a Blue IA/.test(tras.foco), `HO: «Seguir con Blue» quita el aviso y deja escribir a Blue (${JSON.stringify(tras)})`);
+    await p.locator('[aria-label="Hablar con el equipo"]').click();
+    await p.locator("#blue-ia-escribir-igualmente").click({ timeout: 8000 }).catch(() => {});
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    ok(/\/perfil/.test(p.url()), `HO: «Escribir al equipo igualmente» sigue como siempre (sin sesión, a entrar: ${new URL(p.url()).pathname})`);
+    for (let i = 0; i < 20 && evento(estado, "blue_ia_equipo_fuera_horario").length < 4; i++) await p.waitForTimeout(250);
+    const acciones = evento(estado, "blue_ia_equipo_fuera_horario").map((e) => e.metadata?.accion).join(",");
+    ok(acciones === "aviso,seguir_blue,aviso,escribir", `HO: la analítica propia cuenta el aviso y lo que hace cada uno (${acciones})`);
+    ok(p.errores.length === 0, `HO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // HO2) En horario (martes 12:00): la línea dice hasta cuándo y «Hablar con el equipo» va directo, sin aviso.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    await ctx.clock.install({ time: new Date("2026-11-03T11:00:00Z") });
+    const p = await pagina(ctx, "/blue-ia");
+    await p.locator("#blue-ia-horario").waitFor({ timeout: 30000 }).catch(() => {});
+    const linea = await texto(p, "#blue-ia-horario");
+    ok(/Equipo atendiendo hasta las 14:00/.test(linea) && linea.includes(HORARIO), `HO: en horario, la línea dice hasta cuándo (${linea})`);
+    await capturar(p, "HO2-en-horario");
+    await p.locator('[aria-label="Hablar con el equipo"]').click();
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    ok(/\/perfil/.test(p.url()) && evento(estado, "blue_ia_equipo_fuera_horario").length === 0, "HO: en horario, «Hablar con el equipo» va directo, sin aviso");
+    ok(p.errores.length === 0, `HO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // HO3) Domingo por la tarde: vuelve el lunes («mañana a las 10:00»).
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: [], guardados: [] });
+    await sinSesion(ctx);
+    await ctx.clock.install({ time: new Date("2026-11-08T15:00:00Z") });
+    const p = await pagina(ctx, "/blue-ia");
+    await p.locator("#blue-ia-horario").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(/vuelve mañana a las 10:00/.test(await texto(p, "#blue-ia-horario")), "HO: el domingo por la tarde dice que vuelve mañana a las 10:00");
+    await ctx.close();
+  }
+
+  // HO4) Administración → Analítica: cuántos pulsan «Hablar con el equipo» fuera de horario y qué hacen.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue IA: fuera de horario, aviso", sessions: 6 },
+        { step_label: "Blue IA: fuera de horario, sigue con Blue", sessions: 4 },
+        { step_label: "Blue IA: fuera de horario, escribe al equipo", sessions: 1 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-horario").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-blue-horario").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/fuera de horario: 6 sesiones · siguen con Blue: 4 · escriben igualmente: 1/.test(t), `HO: Administración → Analítica lo cuenta (${t})`);
+    ok(p.errores.length === 0, `HO: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -4054,6 +4181,7 @@ try {
   if (SOLO === "SE") await seccionSE();
   if (SOLO === "BI") await seccionBI();
   if (SOLO === "QS") await seccionQS();
+  if (SOLO === "HO") await seccionHO();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -4991,6 +5119,7 @@ try {
   await seccionSE();
   await seccionBI();
   await seccionQS();
+  await seccionHO();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
