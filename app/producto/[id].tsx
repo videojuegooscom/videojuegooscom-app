@@ -168,7 +168,7 @@ type ProductMedia = {
 };
 
 // Ficha técnica («características») que envía VeoAura: etiqueta y valor, en el orden en que llegan.
-type Caracteristica = { etiqueta: string; valor: string };
+export type Caracteristica = { etiqueta: string; valor: string };
 // «Mantenimiento básico realizado» que envía VeoAura: título, nota y puntos (etiqueta y valor), tal cual llegan.
 type Mantenimiento = { titulo: string; nota: string | null; puntos: Caracteristica[] };
 
@@ -1715,14 +1715,14 @@ function recolocarParaLeer(nodo: HTMLElement, suave: boolean) {
   (contenedor ?? window).scrollBy({ top: mover, behavior: suave ? "smooth" : "auto" });
 }
 
-function BloqueDescripcion({ descripcion }: { descripcion: string | null }) {
+const SIN_DESCRIPCION_PRODUCTO =
+  "Todavía no hay una descripción disponible para este producto. Aun así, puedes preguntarnos por su estado, contenido, compatibilidad o disponibilidad por el chat.";
+
+function BloqueDescripcion({ descripcion, sinDescripcion }: { descripcion: string | null; sinDescripcion: string }) {
   return descripcion?.trim() ? (
     <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>{descripcion.trim()}</Text>
   ) : (
-    <Text style={{ color: COLORS.muted2, lineHeight: 22, textAlign: "center" }}>
-      Todavía no hay una descripción disponible para este producto. Aun así, puedes preguntarnos por su estado,
-      contenido, compatibilidad o disponibilidad por el chat.
-    </Text>
+    <Text style={{ color: COLORS.muted2, lineHeight: 22, textAlign: "center" }}>{sinDescripcion}</Text>
   );
 }
 
@@ -1800,14 +1800,20 @@ function BloqueMantenimiento({ m }: { m: Mantenimiento }) {
   );
 }
 
-function FichaProducto({
+// También la usa la ficha de servicio (app/servicio/[id].tsx, mismo formato que la de producto): «prefijo» da los id
+// de sus partes (#servicio-ficha-carrusel…) y «sinDescripcion», el texto cuando no hay descripción.
+export function FichaProducto({
   caracteristicas,
   mantenimiento,
   descripcion,
+  prefijo = "producto",
+  sinDescripcion = SIN_DESCRIPCION_PRODUCTO,
 }: {
   caracteristicas: Caracteristica[];
   mantenimiento: Mantenimiento | null;
   descripcion: string | null;
+  prefijo?: "producto" | "servicio";
+  sinDescripcion?: string;
 }) {
   const pantallas: PantallaFicha[] = [];
   if (caracteristicas.length) pantallas.push("caracteristicas");
@@ -2000,11 +2006,11 @@ function FichaProducto({
   // Solo la descripción: sin carrusel.
   if (!varias) {
     return (
-      <View nativeID="producto-descripcion" style={[seccion, { gap: 8 }]}>
+      <View nativeID={`${prefijo}-descripcion`} style={[seccion, { gap: 8 }]}>
         <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
           Descripción
         </Text>
-        <BloqueDescripcion descripcion={descripcion} />
+        <BloqueDescripcion descripcion={descripcion} sinDescripcion={sinDescripcion} />
       </View>
     );
   }
@@ -2016,7 +2022,7 @@ function FichaProducto({
     ) : cual === "mantenimiento" ? (
       mantenimiento ? <BloqueMantenimiento m={mantenimiento} /> : null
     ) : (
-      <BloqueDescripcion descripcion={descripcion} />
+      <BloqueDescripcion descripcion={descripcion} sinDescripcion={sinDescripcion} />
     );
   const estrecho = anchoVentana < 420;
   const diminuto = anchoVentana < 360;
@@ -2036,7 +2042,7 @@ function FichaProducto({
     : undefined;
 
   return (
-    <View ref={cajaRef} nativeID="producto-ficha-carrusel" style={seccion}>
+    <View ref={cajaRef} nativeID={`${prefijo}-ficha-carrusel`} style={seccion}>
       {/* Pestañas (ordenador, teclado y lectores de pantalla); en el móvil, además, se desliza con el dedo. */}
       <View accessibilityRole="tablist" style={{ width: "100%", maxWidth: 520, flexDirection: "row", justifyContent: "center", gap: 4 }}>
         {pantallas.map((cual, i) => {
@@ -2101,7 +2107,7 @@ function FichaProducto({
             {pantallas.map((cual, i) => (
               <View
                 key={cual}
-                nativeID={`producto-${cual}`}
+                nativeID={`${prefijo}-${cual}`}
                 {...({ role: "tabpanel" } as object)}
                 // 1 px de margen: con el carrusel en una posición con decimales, no asoma el borde de la pantalla vecina.
                 style={{ width: ancho, paddingHorizontal: 1 }}
@@ -2150,7 +2156,7 @@ function FichaProducto({
           })}
         </View>
         <Pressable
-          nativeID="producto-ficha-pausa"
+          nativeID={`${prefijo}-ficha-pausa`}
           onPress={() => setParado((v) => !v)}
           accessibilityRole="button"
           accessibilityLabel={parado ? "Reanudar el pase automático" : "Pausar el pase automático"}
