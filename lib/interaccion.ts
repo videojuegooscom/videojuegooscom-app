@@ -15,8 +15,8 @@
  *   navegador y simplemente no se cuenta. Si el endpoint responde que NO (límite, petición no válida), no se
  *   usa la vía antigua: sería saltarse el límite.
  *
- * Conectado con: app/producto/[id].tsx (visitas y «me gusta»), app/servicio/[id].tsx (visitas),
- * api/interaccion.ts, lib/supabase.ts.
+ * Conectado con: app/producto/[id].tsx (visitas y «me gusta»), app/servicio/[id].tsx (visitas y «me gusta»),
+ * app/(tabs)/perfil.tsx (pestaña «Me gusta»), api/interaccion.ts, lib/supabase.ts.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -105,4 +105,58 @@ export async function fijarMeGusta(id: string, activo: boolean): Promise<number 
   const r = await llamar({ accion: "apoyo", id, activo, visitante: await identificadorDeVisitante() });
   if (r.ok) return r.total ?? null;
   return r.usarViaAntigua ? viaAntigua("adjust_product_like", { product_id: id, delta: activo ? 1 : -1 }) : null;
+}
+
+// Lo mismo para un servicio (supabase/migrations/20261103200000_servicios_me_gusta.sql). No hay vía antigua: si
+// el servidor no puede, null (la ficha deshace el cambio).
+export async function fijarMeGustaServicio(id: string, activo: boolean): Promise<number | null> {
+  const r = await llamar({ accion: "apoyo_servicio", id, activo, visitante: await identificadorDeVisitante() });
+  return r.ok ? r.total ?? null : null;
+}
+
+// «Me gusta» de ESTE dispositivo (también sin sesión): la ficha de producto guarda los suyos en
+// LIKED_PRODUCTS_KEY (app/producto/[id].tsx, la misma clave) y la de servicio, en LIKED_SERVICES_KEY.
+export const LIKED_PRODUCTS_KEY = "videojuegoszaragoza:liked_products";
+export const LIKED_SERVICES_KEY = "videojuegoszaragoza:liked_services";
+
+export async function meGustaLocales(clave: string): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(clave);
+    const lista = raw ? JSON.parse(raw) : [];
+    return Array.isArray(lista) ? lista.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function guardarMeGustaLocal(clave: string, id: string, activo: boolean): Promise<void> {
+  const ids = new Set(await meGustaLocales(clave));
+  if (activo) ids.add(id);
+  else ids.delete(id);
+  try {
+    await AsyncStorage.setItem(clave, JSON.stringify([...ids]));
+  } catch {
+    // sin almacenamiento: el «me gusta» ya se apuntó en el servidor
+  }
+}
+
+// «Me gusta» del usuario con sesión guardados en el servidor (los da en cualquier dispositivo). null sin sesión o si
+// no se pudo; la pestaña «Me gusta» de Perfil junta esto con los del dispositivo.
+export async function misMeGustaServidor(): Promise<{ productos: string[]; servicios: string[] } | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return null;
+    const r = await fetch(URL_INTERACCION, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ accion: "mis_me_gusta" }),
+    });
+    const datos = await r.json().catch(() => null);
+    if (!r.ok || !datos?.ok) return null;
+    const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+    return { productos: ids(datos.productos), servicios: ids(datos.servicios) };
+  } catch {
+    return null;
+  }
 }

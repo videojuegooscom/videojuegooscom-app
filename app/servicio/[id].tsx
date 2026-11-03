@@ -14,10 +14,11 @@
  * (?servicio=<id>) y, desde ahí, «Hablar con el equipo» abre el chat de la
  * tienda (sin WhatsApp; petición del dueño, 2026-11-03).
  *
- * No incluye (a diferencia de la ficha de producto): «me gusta» ni el chat
- * privado por artículo — ninguno de los dos se pidió para servicios y cada
- * uno necesitaría su propia tabla/columna en Supabase; si se quieren más
- * adelante, se añaden igual que en producto/[id].tsx.
+ * «Me gusta» (dueño, 2026-11-03), como en producto: uno por persona y servicio
+ * (api/interaccion.ts, acción apoyo_servicio; migración
+ * 20261103200000_servicios_me_gusta.sql). Este dispositivo recuerda los suyos
+ * (LIKED_SERVICES_KEY) y la pestaña «Me gusta» de Perfil los enseña. Sin la
+ * migración (services.like_count no existe) el corazón no sale y nada se rompe.
  *
  * "X Visitas": mismo mecanismo REAL que en producto/[id].tsx (ver
  * sql/services.sql, columna view_count y función increment_service_view).
@@ -50,7 +51,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import { contarVistaServicio } from "../../lib/interaccion";
+import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analytics";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
@@ -111,19 +112,25 @@ type Service = {
   description: string;
   priceEUR: number;
   media: ServiceMedia[];
+  // null: la base de datos aún no tiene los «me gusta» de servicios (migración 20261103200000 sin aplicar).
+  likeCount: number | null;
 };
 
+// ¿Falta una columna? (la migración aún no se ha aplicado): entonces se repite la consulta sin ella.
+function faltaColumna(error: unknown) {
+  const e = error as { code?: string; message?: string } | null;
+  return !!e && (e.code === "42703" || e.code === "PGRST204" || /column .* does not exist|Could not find the .* column/i.test(e.message ?? ""));
+}
+
 async function fetchService(serviceId: string): Promise<Service | null> {
-  const { data: row, error } = await supabase
-    .from("services")
-    .select("id,title,description,price_eur")
-    .eq("id", serviceId)
-    .eq("status", "PUBLISHED")
-    .eq("is_active", true)
-    .maybeSingle();
+  const consulta = (columnas: string) =>
+    supabase.from("services").select(columnas).eq("id", serviceId).eq("status", "PUBLISHED").eq("is_active", true).maybeSingle();
+  let { data: row, error } = await consulta("id,title,description,price_eur,like_count");
+  if (error && faltaColumna(error)) ({ data: row, error } = await consulta("id,title,description,price_eur"));
 
   if (error) throw error;
   if (!row) return null;
+  const fila = row as unknown as { id: string; title: string; description: string | null; price_eur: number | null; like_count?: number | null };
 
   const { data: media } = await supabase
     .from("service_media")
@@ -137,11 +144,12 @@ async function fetchService(serviceId: string): Promise<Service | null> {
     .map((m) => ({ id: m.id, publicUrl: m.public_url, isCover: Boolean(m.is_cover) }));
 
   return {
-    id: row.id,
-    title: row.title,
-    description: row.description ?? "",
-    priceEUR: Number(row.price_eur ?? 0),
+    id: fila.id,
+    title: fila.title,
+    description: fila.description ?? "",
+    priceEUR: Number(fila.price_eur ?? 0),
     media: normalizedMedia,
+    likeCount: "like_count" in fila ? Math.max(0, Number(fila.like_count ?? 0)) : null,
   };
 }
 
@@ -165,6 +173,10 @@ export default function ServicioScreen() {
   const [contratarOpen, setContratarOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  // «Me gusta», como en producto: uno por persona; este dispositivo recuerda los suyos (LIKED_SERVICES_KEY).
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState<number | null>(null);
+  const [likeBusy, setLikeBusy] = useState(false);
 
   // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
   async function load(silencioso = false) {
@@ -188,6 +200,8 @@ export default function ServicioScreen() {
       setS(row);
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
       setSelectedImageUrl(cover?.publicUrl ?? null);
+      setLikeCount(row.likeCount);
+      meGustaLocales(LIKED_SERVICES_KEY).then((ids) => setLiked(ids.includes(row.id)));
 
       if (!silencioso) {
         contarVistaServicio(row.id).then((total) => {
@@ -286,6 +300,29 @@ export default function ServicioScreen() {
       }
     },
   });
+
+  // Da o quita el «me gusta» al instante y lo confirma con el servidor (si falla, se deshace).
+  async function toggleLike() {
+    if (!s || likeBusy || likeCount === null) return;
+    const siguiente = !liked;
+    const delta = siguiente ? 1 : -1;
+    setLikeBusy(true);
+    setLiked(siguiente);
+    setLikeCount((v) => Math.max(0, (v ?? 0) + delta));
+    try {
+      const total = await fijarMeGustaServicio(s.id, siguiente);
+      if (total === null) throw new Error("no se pudo actualizar el me gusta");
+      setLikeCount(total);
+      await guardarMeGustaLocal(LIKED_SERVICES_KEY, s.id, siguiente);
+      trackEvent("servicio_me_gusta", siguiente ? "Servicio: me gusta" : "Servicio: quita el me gusta", { path: `/servicio/${s.id}` });
+    } catch (e) {
+      console.error("Error actualizando el me gusta del servicio:", e);
+      setLiked(!siguiente);
+      setLikeCount((v) => Math.max(0, (v ?? 0) - delta));
+    } finally {
+      setLikeBusy(false);
+    }
+  }
 
   function contratar() {
     setContratarOpen(true);
@@ -519,25 +556,50 @@ export default function ServicioScreen() {
                     </View>
                   ) : null}
 
-                  <Pressable
-                    onPress={shareService}
-                    accessibilityRole="button"
-                    accessibilityLabel="Compartir este servicio"
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.85 : 1,
-                      position: "absolute",
-                      right: 12,
-                      bottom: 12,
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: "rgba(11,33,56,0.60)",
-                    })}
-                  >
-                    <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
-                  </Pressable>
+                  <View style={{ position: "absolute", right: 12, bottom: 12, flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={shareService}
+                      accessibilityRole="button"
+                      accessibilityLabel="Compartir este servicio"
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.85 : 1,
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "rgba(11,33,56,0.60)",
+                      })}
+                    >
+                      <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
+                    </Pressable>
+
+                    {/* «Me gusta», como en producto (solo cuando la base de datos ya los tiene). */}
+                    {likeCount !== null ? (
+                      <Pressable
+                        nativeID="servicio-me-gusta"
+                        onPress={toggleLike}
+                        disabled={likeBusy}
+                        accessibilityRole="button"
+                        accessibilityLabel={liked ? "Quitar me gusta" : "Dar me gusta"}
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.85 : 1,
+                          minWidth: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          paddingHorizontal: 10,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 5,
+                          backgroundColor: "rgba(11,33,56,0.60)",
+                        })}
+                      >
+                        <Ionicons name={liked ? "heart" : "heart-outline"} size={15} color={liked ? "#FF5A7A" : "#FFFFFF"} />
+                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 11 }}>{likeCount}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
 
                 {imageGallery.length > 1 ? (

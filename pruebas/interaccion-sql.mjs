@@ -13,11 +13,15 @@
  *     quitar a la vez deja contador y apunte coherentes.
  *  4) Entradas inválidas y producto inexistente; visitas de producto y de servicio.
  *  5) Migración repetida (idempotente) y vuelta atrás (las funciones antiguas vuelven a funcionar).
+ *  6) «Me gusta» en los servicios (20261103200000_servicios_me_gusta.sql): los mismos permisos (solo service_role,
+ *     RLS sin políticas), uno por persona, concurrencia, entradas inválidas, la lista de un usuario que lee el
+ *     servidor para la pestaña «Me gusta» de Perfil, idempotencia y su control (sin quitar permisos, se detecta).
  * NO toca producción: solo habla con el servidor local de pruebas.
  *
  * Uso: node pruebas/interaccion-sql.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
  */
+import { readFileSync } from "node:fs";
 import { conectar } from "./sql-aislado.mjs";
 
 const servidor = process.argv[2];
@@ -189,6 +193,57 @@ try {
     ok((await n(b, "select count(*) from public.producto_apoyos")) === antes, "vuelta atrás: los apuntes ya hechos se conservan");
     await db.aplicar(b, [MIG]);
     ok(/permission denied/.test(await error(como(b, "anon", `select public.increment_product_view('${P1}')`))) && (await apoyo(b, P1, persona(9), true)) > 0, "tras la vuelta atrás se puede volver a aplicar la migración y funciona");
+  }
+
+  // 6) «Me gusta» en los servicios (20261103200000_servicios_me_gusta.sql): lo mismo que en los productos.
+  {
+    const MIG_S = "supabase/migrations/20261103200000_servicios_me_gusta.sql";
+    const likesS = (base) => n(base, `select like_count from public.services where id = '${S1}'`);
+    const apoyoS = (base, p, activo, rol = "service_role") => como(base, rol, `select public.fijar_apoyo_servicio('${S1}', '${p}', ${activo})`).then(Number);
+    await db.aplicar(b, [MIG_S]);
+    ok((await likesS(b)) === 0, "Servicios: la columna like_count existe y empieza en 0");
+    const f = "public.fijar_apoyo_servicio(uuid,text,boolean)";
+    const priv = await como(b, "postgres", `select has_function_privilege('anon','${f}','execute') || ',' || has_function_privilege('authenticated','${f}','execute') || ',' || has_function_privilege('service_role','${f}','execute')`);
+    ok(priv === "false,false,true", `Servicios: fijar_apoyo_servicio solo la ejecuta service_role (${priv})`);
+    ok((await como(b, "postgres", `select coalesce(proacl::text, '') ~ '(^\\{|,)=X' from pg_proc where proname = 'fijar_apoyo_servicio'`)) === "f", "Servicios: PUBLIC tampoco");
+    ok((await como(b, "postgres", "select prosecdef::text || ':' || array_to_string(proconfig, ',') from pg_proc where proname = 'fijar_apoyo_servicio'")) === "true:search_path=public", "Servicios: SECURITY DEFINER con search_path=public");
+    const eAnon = await error(como(b, "anon", `select public.fijar_apoyo_servicio('${S1}', 'visitante:hackhackhack', true)`));
+    ok(/permission denied/.test(eAnon) && (await likesS(b)) === 0, "Servicios: un visitante no puede llamarla (el contador no cambia)");
+    const lee = await error(como(b, "anon", "select * from public.servicio_apoyos"));
+    const esc = await error(como(b, "authenticated", `insert into public.servicio_apoyos (servicio_id, persona) values ('${S1}', 'visitante:hackhackhack')`));
+    ok(/permission denied/.test(lee) && /permission denied/.test(esc) && (await como(b, "postgres", "select relrowsecurity::text from pg_class where relname = 'servicio_apoyos'")) === "true", "Servicios: servicio_apoyos con RLS, sin lectura ni escritura desde el navegador");
+
+    ok((await apoyoS(b, persona(1), true)) === 1, "Servicios: dar «me gusta» suma 1");
+    let t = 0;
+    for (let i = 0; i < 30; i++) t = await apoyoS(b, persona(1), true);
+    ok(t === 1, `Servicios: repetirlo 30 veces sigue en ${t}`);
+    ok((await apoyoS(b, persona(2), true)) === 2 && (await apoyoS(b, persona(1), false)) === 1, "Servicios: otra persona suma; quitarlo resta");
+    ok((await apoyoS(b, persona(3), false)) === 1, "Servicios: quitar sin haberlo dado no resta");
+    const rafaga = await enRafaga(b, "service_role", Array.from({ length: 40 }, () => `select public.fijar_apoyo_servicio('${S1}', '${persona(600)}', true)`));
+    ok(rafaga.every((x) => x.ok) && (await likesS(b)) === 2, `Servicios: 40 SIMULTÁNEOS de la misma persona suman 1 (${await likesS(b)})`);
+    ok(/apoyo no válido/.test(await error(como(b, "service_role", `select public.fijar_apoyo_servicio('${S1}', 'corta', true)`))), "Servicios: persona no válida, falla");
+    ok(/servicio no encontrado/.test(await error(como(b, "service_role", `select public.fijar_apoyo_servicio('00000000-0000-4000-8000-0000000000fd', '${persona(7)}', true)`))), "Servicios: servicio inexistente, «servicio no encontrado»");
+
+    // Lo que lee api/interaccion.ts para la pestaña «Me gusta» de Perfil (con la clave de servidor).
+    const yo = "usuario:11111111-1111-4111-8111-111111111111";
+    await apoyo(b, P1, yo, true);
+    await apoyoS(b, yo, true);
+    const mios = await como(b, "service_role", `select (select string_agg(producto_id::text, ',') from public.producto_apoyos where persona = '${yo}' and activo) || '|' || (select string_agg(servicio_id::text, ',') from public.servicio_apoyos where persona = '${yo}' and activo)`);
+    ok(mios === `${P1}|${S1}`, `Servicios: el servidor lee los «me gusta» de un usuario, de productos y de servicios (${mios})`);
+
+    const cuantos = await n(b, "select count(*) from public.servicio_apoyos");
+    const contador = await likesS(b);
+    await db.aplicar(b, [MIG_S]);
+    ok((await n(b, "select count(*) from public.servicio_apoyos")) === cuantos && (await likesS(b)) === contador, "Servicios: repetir la migración no cambia nada (idempotente)");
+
+    // CONTROL: una copia de la migración sin quitar los permisos deja a un visitante dar «me gusta» sin límite, y la
+    // comprobación de permisos de arriba lo detecta.
+    const c = await nueva(true);
+    const sinRevoke = readFileSync(MIG_S, "utf8").replace(/^revoke all on function.*$/m, "").replace(/^grant execute on function.*$/m, "grant execute on function public.fijar_apoyo_servicio(uuid, text, boolean) to anon, authenticated, service_role;");
+    await como(c, "postgres", sinRevoke);
+    const privC = await como(c, "postgres", `select has_function_privilege('anon','${f}','execute')::text`);
+    const sube = await error(como(c, "anon", `select public.fijar_apoyo_servicio('${S1}', 'visitante:hackhackhack', true)`));
+    ok(privC === "true" && sube === "", "(control) sin quitar los permisos, un visitante llama a la función: la comprobación de permisos SÍ lo detecta");
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.message).slice(0, 800)}`);

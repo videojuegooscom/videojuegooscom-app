@@ -15,6 +15,8 @@
  *  5) Entradas inválidas (método, acción, id, activo, sin identificador, token de reserva): 4xx sin tocar la base de datos.
  *  6) Reservas de la cesta: un script con tokens inventados desde una IP solo consigue 4 reservas vivas (no las
  *     21 de la tienda), un usuario con sesión 8, 12 peticiones por IP cada 10 minutos, 404 si no existe.
+ *  7) «Me gusta» en servicios (uno por persona, 404 si no existe o no está publicado) y «mis_me_gusta»: solo con
+ *     sesión válida (401 si no), solo los de ESE usuario, sale al quitarlo y, sin las tablas, listas vacías.
  * NO toca producción ni Supabase real.
  *
  * Uso: node pruebas/interaccion-api.mjs postgresql://postgres@127.0.0.1:55432
@@ -49,7 +51,10 @@ await db.aplicar(base, [
   "supabase/migrations/20261018120000_limite_peticiones.sql",
   "supabase/migrations/20261018130000_visitas_y_apoyos_protegidos.sql",
   "supabase/migrations/20261018140000_reservas_protegidas.sql",
+  "supabase/migrations/20261103200000_servicios_me_gusta.sql",
 ]);
+// Con true, las tablas de «me gusta» «no existen» (migraciones sin aplicar): PostgREST responde PGRST205.
+let tablasAusentes = false;
 
 const FALSO = "https://falso.supabase.test";
 process.env.EXPO_PUBLIC_SUPABASE_URL = FALSO;
@@ -99,6 +104,19 @@ globalThis.fetch = async (entrada, opciones) => {
       filtros.push(`${columna}::text = ${literal(valor.slice(3))}`);
     }
     const salida = await db.psql(base, ["-c", "set role service_role", "-A", "-t", "-c", `select coalesce(json_agg(json_build_object('id', id)), '[]') from public.${tabla[1]} where ${filtros.join(" and ") || "true"}`]);
+    return new Response(salida.trim(), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  // «Me gusta» de un usuario (pestaña «Me gusta» de Perfil): lo que hay de verdad en la base aislada.
+  const apoyos = url.pathname.match(/^\/rest\/v1\/(producto_apoyos|servicio_apoyos)$/);
+  if (apoyos && (opciones?.method ?? "GET") === "GET") {
+    llamadasBD++;
+    if (tablasAusentes) {
+      return new Response(JSON.stringify({ code: "PGRST205", message: `Could not find the table 'public.${apoyos[1]}' in the schema cache` }), { status: 404, headers: { "content-type": "application/json" } });
+    }
+    const columna = url.searchParams.get("select");
+    const persona = url.searchParams.get("persona") ?? "";
+    if (!/^(producto|servicio)_id$/.test(columna ?? "") || !persona.startsWith("eq.") || url.searchParams.get("activo") !== "eq.true") throw new Error(`prueba: lectura inesperada de ${apoyos[1]}: ${url.search}`);
+    const salida = await db.psql(base, ["-c", "set role service_role", "-A", "-t", "-c", `select coalesce(json_agg(json_build_object('${columna}', ${columna}) order by actualizado_en desc), '[]') from public.${apoyos[1]} where persona = ${literal(persona.slice(3))} and activo`]);
     return new Response(salida.trim(), { status: 200, headers: { "content-type": "application/json" } });
   }
   return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
@@ -297,6 +315,44 @@ try {
     const publicada = await llamar({ accion: "vista_producto", id: prod(5) }, { cabeceras: ip });
     const servicio = await llamar({ accion: "vista_servicio", id: SERVICIO }, { cabeceras: { "x-vercel-forwarded-for": "198.51.100.71" } });
     ok(publicada.cuerpo?.contado === true && servicio.cuerpo?.contado === true, "una ficha publicada (producto o servicio) sí cuenta");
+    const servicioOculto = await llamar({ accion: "apoyo_servicio", id: SERVICIO_BORRADOR, activo: true, visitante: "visitante-ficha-oculta" }, { cabeceras: ip });
+    ok(servicioOculto.codigo === 404, "«me gusta» a un servicio en borrador: 404");
+  }
+
+  // 7) «Me gusta» en servicios y la lista de cada usuario (pestaña «Me gusta» de Perfil)
+  {
+    await reiniciarLimites();
+    const ip = () => ({ "x-vercel-forwarded-for": ipNueva() });
+    const v = { accion: "apoyo_servicio", id: SERVICIO, activo: true, visitante: "visitante-servicio-1" };
+    const a = await llamar(v, { cabeceras: ip() });
+    ok(a.codigo === 200 && a.cuerpo.total === 1, `servicio: un visitante da «me gusta» (total ${a.cuerpo?.total})`);
+    for (let i = 0; i < 10; i++) await llamar(v, { cabeceras: ip() });
+    ok((await contador("like_count", "services", SERVICIO)) === 1, "servicio: repetirlo 10 veces sigue en 1");
+    const u = await llamar({ ...v, visitante: "otro-navegador-u1" }, { cabeceras: { ...ip(), authorization: "Bearer token-u1" } });
+    ok(u.cuerpo?.total === 2, "servicio: un usuario con sesión suma aparte (total 2)");
+    const quita = await llamar({ ...v, activo: false }, { cabeceras: ip() });
+    ok(quita.cuerpo?.total === 1, "servicio: el visitante lo quita (total 1)");
+    const malo = await llamar({ ...v, activo: "si" }, { cabeceras: ip() });
+    const inexistente = await llamar({ ...v, id: "00000000-0000-4000-8000-0000000eeeee" }, { cabeceras: ip() });
+    ok(malo.codigo === 400 && inexistente.codigo === 404, `servicio: «activo» no booleano 400 y servicio inexistente 404 (${malo.codigo}, ${inexistente.codigo})`);
+
+    const sinSesion = await llamar({ accion: "mis_me_gusta" }, { cabeceras: ip() });
+    const tokenFalso = await llamar({ accion: "mis_me_gusta" }, { cabeceras: { ...ip(), authorization: "Bearer token-inventado" } });
+    ok(sinSesion.codigo === 401 && tokenFalso.codigo === 401, `mis «me gusta» sin sesión o con un token falso: 401 (${sinSesion.codigo}, ${tokenFalso.codigo})`);
+    const mios = await llamar({ accion: "mis_me_gusta" }, { cabeceras: { ...ip(), authorization: "Bearer token-u1" } });
+    ok(
+      mios.codigo === 200 && mios.cuerpo.productos.includes(prod(101)) && mios.cuerpo.servicios.join() === SERVICIO,
+      `mis «me gusta» con sesión: los productos y servicios de ESE usuario (${JSON.stringify(mios.cuerpo)})`
+    );
+    const ajenos = await llamar({ accion: "mis_me_gusta" }, { cabeceras: { ...ip(), authorization: "Bearer token-u2" } });
+    ok(ajenos.codigo === 200 && ajenos.cuerpo.productos.length === 0 && ajenos.cuerpo.servicios.length === 0, "otro usuario no ve los «me gusta» de nadie (listas vacías)");
+    await llamar({ accion: "apoyo_servicio", id: SERVICIO, activo: false, visitante: "x-navegador-u1" }, { cabeceras: { ...ip(), authorization: "Bearer token-u1" } });
+    const tras = await llamar({ accion: "mis_me_gusta" }, { cabeceras: { ...ip(), authorization: "Bearer token-u1" } });
+    ok(tras.cuerpo?.servicios.length === 0, "al quitar el «me gusta», sale de su lista");
+    tablasAusentes = true;
+    const sinTablas = await llamar({ accion: "mis_me_gusta" }, { cabeceras: { ...ip(), authorization: "Bearer token-u1" } });
+    tablasAusentes = false;
+    ok(sinTablas.codigo === 200 && sinTablas.cuerpo.productos.length === 0 && sinTablas.cuerpo.servicios.length === 0, "sin las tablas (migraciones sin aplicar): 200 con listas vacías, nunca un error");
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

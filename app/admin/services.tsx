@@ -148,6 +148,8 @@ type ServiceRow = {
   status: ServiceStatus;
   is_active: boolean;
   view_count: number;
+  // «Me gusta» de la ficha (null: la migración 20261103200000_servicios_me_gusta.sql aún no está aplicada).
+  like_count?: number | null;
   created_at: string;
   updated_at: string;
   media: ServiceMediaRow[];
@@ -508,10 +510,13 @@ export default function AdminServices() {
   const loadServices = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: rows, error } = await supabase
-        .from("services")
-        .select("id,title,description,price_eur,status,is_active,view_count,created_at,updated_at")
-        .order("created_at", { ascending: false });
+      // Con los «me gusta» si la base de datos ya los tiene; si no (columna que falta), sin ellos.
+      const columnas = "id,title,description,price_eur,status,is_active,view_count,created_at,updated_at";
+      const leer = (cols: string) => supabase.from("services").select(cols).order("created_at", { ascending: false });
+      let { data: rows, error } = await leer(`${columnas},like_count`);
+      if (error && (error.code === "42703" || error.code === "PGRST204" || /like_count/.test(error.message ?? ""))) {
+        ({ data: rows, error } = await leer(columnas));
+      }
       if (error) throw error;
 
       const ids = (rows ?? []).map((r: any) => r.id);
@@ -1040,6 +1045,7 @@ export default function AdminServices() {
                         <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
                           {fmtEUR(s.price_eur)} · {STATUS_LABEL[s.status]}
                           {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
+                          {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
                         </Text>
                       </View>
 
