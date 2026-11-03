@@ -537,6 +537,10 @@ export default function AdminAnalytics() {
       quienesVista: findExact("Quiénes somos: vista"),
       quienesInicio: findExact("Quiénes somos: desde Inicio"),
       quienesAcceso: findExact("Quiénes somos: desde el acceso"),
+      // Blue IA fuera del horario del equipo (app/(tabs)/blue-ia.tsx): quién pulsa «Hablar con el equipo» y qué hace.
+      fueraHorarioAviso: findExact("Blue IA: fuera de horario, aviso"),
+      fueraHorarioBlue: findExact("Blue IA: fuera de horario, sigue con Blue"),
+      fueraHorarioEscribe: findExact("Blue IA: fuera de horario, escribe al equipo"),
     };
   }, [funnel]);
 
@@ -904,6 +908,24 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Quiénes somos → la ven {coreFunnel.quienesVista} {coreFunnel.quienesVista === 1 ? "sesión" : "sesiones"} · llegan
                       desde Inicio: {coreFunnel.quienesInicio} · desde entrar o crear cuenta: {coreFunnel.quienesAcceso}
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-blue-horario"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Blue IA → «Hablar con el equipo» fuera de horario: {coreFunnel.fueraHorarioAviso}{" "}
+                      {coreFunnel.fueraHorarioAviso === 1 ? "sesión" : "sesiones"} · siguen con Blue: {coreFunnel.fueraHorarioBlue} ·
+                      escriben igualmente: {coreFunnel.fueraHorarioEscribe}
                     </Text>
                   </View>
                 </View>

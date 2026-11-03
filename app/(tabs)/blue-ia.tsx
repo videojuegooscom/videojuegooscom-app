@@ -29,6 +29,12 @@
  *   panel invita a iniciar sesión. Si llegan ?producto/?pedido/?reparacion/
  *   ?tema o ?q, se empieza una conversación nueva en vez de abrir la última.
  *   Si las tablas aún no existen, la pantalla funciona igual, sin guardar.
+ * - Horario del equipo (dueño, 2026-11-03): siempre a la vista junto a
+ *   «Hablar con el equipo» (si atiende ahora o cuándo vuelve, hora de España,
+ *   lib/horarioAtencion.ts). Fuera de horario, al pulsarlo sale antes un aviso
+ *   que recomienda esperar y ofrece «Seguir con Blue» o «Escribir al equipo
+ *   igualmente»; Blue IA también lo recuerda en sus respuestas (api/blue-ia.ts).
+ *   Analítica propia: blue_ia_equipo_fuera_horario {accion}.
  * - Saludo y «Nueva conversación» (dueño, 2026-11-03): hasta saber si hay una
  *   conversación guardada que abrir no se saluda (antes el saludo se escribía
  *   letra a letra y luego aparecía la conversación debajo, como si Blue IA
@@ -104,6 +110,7 @@ import {
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ProductChatThread";
 import { trackEvent } from "../../lib/analytics";
+import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 
@@ -963,6 +970,18 @@ export default function BlueIAScreen() {
     [draft, sending, contextoActivo, guardarVuelta]
   );
 
+  // Horario del equipo (dueño, 2026-11-03): siempre a la vista junto a «Hablar con el equipo», al día (se mira cada
+  // minuto). Fuera de horario, al pulsarlo sale antes un aviso que recomienda esperar y ofrece seguir con Blue.
+  const [atencion, setAtencion] = useState<EstadoAtencion>(() => estadoAtencion());
+  const [avisoHorario, setAvisoHorario] = useState(false);
+  useEffect(() => {
+    const t = setInterval(() => setAtencion(estadoAtencion()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const campoRef = useRef<TextInput | null>(null);
+  // Alto real del compositor (sugerencias, aviso, botones, horario y recuadro): la conversación deja ese hueco abajo.
+  const [altoCompositor, setAltoCompositor] = useState(0);
+
   // Pasa la conversación al equipo: chat privado de la tienda con un resumen.
   const handleHablarEquipo = useCallback(async () => {
     if (abriendoEquipo) return;
@@ -990,6 +1009,31 @@ export default function BlueIAScreen() {
       setAbriendoEquipo(false);
     }
   }, [abriendoEquipo, contextoActivo, contextoGuardado, usarContextoUrl, productoId]);
+
+  // «Hablar con el equipo»: en horario, directo; fuera de horario, primero el aviso (se mide en Administración →
+  // Analítica: aviso, siguen con Blue o escriben igualmente).
+  const pulsarHablarEquipo = useCallback(() => {
+    const ahora = estadoAtencion();
+    setAtencion(ahora);
+    if (ahora.abierto) {
+      handleHablarEquipo();
+      return;
+    }
+    setAvisoHorario(true);
+    void trackEvent("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, aviso", { metadata: { accion: "aviso" } });
+  }, [handleHablarEquipo]);
+
+  const seguirConBlue = useCallback(() => {
+    setAvisoHorario(false);
+    void trackEvent("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, sigue con Blue", { metadata: { accion: "seguir_blue" } });
+    campoRef.current?.focus();
+  }, []);
+
+  const escribirIgualmente = useCallback(() => {
+    setAvisoHorario(false);
+    void trackEvent("blue_ia_equipo_fuera_horario", "Blue IA: fuera de horario, escribe al equipo", { metadata: { accion: "escribir" } });
+    handleHablarEquipo();
+  }, [handleHablarEquipo]);
 
   // Si se llega aquí desde "Preguntas frecuentes" (Inicio → /blue-ia?q=...),
   // manda esa pregunta automáticamente una sola vez al entrar — igual que
@@ -1073,7 +1117,8 @@ export default function BlueIAScreen() {
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 14,
-            paddingBottom: showQuickSuggestions ? 230 : 160,
+            // Hueco para el compositor (crece con el horario y con el aviso fuera de horario).
+            paddingBottom: Math.max(showQuickSuggestions ? 230 : 160, altoCompositor + 28),
             alignItems: "center",
           }}
         >
@@ -1139,7 +1184,7 @@ export default function BlueIAScreen() {
             style={({ pressed }) => ({
               position: "absolute",
               right: 16,
-              bottom: showQuickSuggestions ? 208 : 148,
+              bottom: Math.max(showQuickSuggestions ? 208 : 148, altoCompositor + 20),
               width: 40,
               height: 40,
               borderRadius: 999,
@@ -1164,6 +1209,7 @@ export default function BlueIAScreen() {
             encima (solo antes de la primera pregunta) — mismo estilo que el
             compositor de Chat Global. */}
         <View
+          onLayout={(e) => setAltoCompositor(Math.round(e.nativeEvent.layout.height))}
           style={{
             position: "absolute",
             left: 12,
@@ -1182,15 +1228,71 @@ export default function BlueIAScreen() {
             </Text>
           )}
 
+          {/* Fuera de horario, antes de escribir al equipo: recomienda esperar al horario y ofrece seguir con Blue. */}
+          {avisoHorario && !atencion.abierto ? (
+            <View nativeID="blue-ia-aviso-horario" style={{ alignItems: "center", gap: 8, paddingHorizontal: 4 }}>
+              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+                Ahora estamos fuera del horario de atención. El equipo vuelve {atencion.vuelve}.
+              </Text>
+              <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center", maxWidth: 520 }}>
+                Te recomendamos esperar a ese horario para que te atendamos. Mientras, Blue puede intentar ayudarte con tu
+                problema.
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 8, rowGap: 6 }}>
+                <Pressable
+                  nativeID="blue-ia-seguir-blue"
+                  onPress={seguirConBlue}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    minHeight: 44,
+                    paddingHorizontal: 18,
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: COLORS.accent,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>Seguir con Blue</Text>
+                </Pressable>
+                <Pressable
+                  nativeID="blue-ia-escribir-igualmente"
+                  onPress={escribirIgualmente}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    minHeight: 44,
+                    paddingHorizontal: 14,
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Text style={{ color: COLORS.primary, fontWeight: "900", fontSize: 13 }}>Escribir al equipo igualmente</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Horario del equipo, siempre a la vista (dueño, 2026-11-03). */}
+          <Text nativeID="blue-ia-horario" style={{ color: COLORS.muted, fontSize: 11.5, lineHeight: 16, textAlign: "center" }}>
+            <Text style={{ color: atencion.abierto ? "#1F9E52" : COLORS.muted, fontWeight: "900" }}>
+              {atencion.abierto ? `● Equipo atendiendo hasta las ${atencion.hasta}` : `● Equipo fuera de horario · vuelve ${atencion.vuelve}`}
+            </Text>
+            {"\n"}
+            {HORARIO_CORTO}
+          </Text>
+
           {/* El único acceso al equipo, siempre a la vista junto al recuadro de escribir; con una conversación en marcha,
               a su lado «Nueva conversación» (la anterior queda en el Historial). */}
           <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", columnGap: 6 }}>
             {conversacionEmpezada ? <NuevaConversacionButton disabled={sending} onPress={() => nuevaConversacion("boton")} /> : null}
-            <HablarEquipoButton busy={abriendoEquipo} onPress={handleHablarEquipo} />
+            <HablarEquipoButton busy={abriendoEquipo} onPress={pulsarHablarEquipo} />
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <TextInput
+              ref={campoRef}
               value={draft}
               onChangeText={setDraft}
               placeholder="Pregúntale a Blue IA…"

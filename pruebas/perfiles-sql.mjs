@@ -59,6 +59,9 @@
  *  - Nombre del titular y correo de protección de datos (20261017200000_politicas_nombre_titular.sql y
  *    20261103130000_politicas_email_contacto.sql): solo cambian las marcas, las demás políticas no se tocan y aplicadas
  *    otra vez no cambian nada (con su «prueba de las pruebas»: con la marca sin tilde, el correo no se pondría).
+ *  - Tope diario del historial de Blue IA (20261103150000_blue_ia_limite_diario.sql): 300 mensajes y 40 conversaciones
+ *    nuevas al día por persona (también de golpe), por persona, sin tocar políticas y repetible (con su «prueba de las
+ *    pruebas»: sin los disparadores, entra el 301).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1243,6 +1246,56 @@ try {
     const quedan = veces((await c30.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t, MARCA_E);
     ok(quedan === 2, `(control) con la marca mal escrita quedan ${quedan} marcas sin rellenar: la prueba SÍ lo detecta`);
     await c30.end();
+  }
+
+  // 22) Tope diario del historial de Blue IA (20261103150000), sobre las tablas tal cual las creó 20261013170000:
+  // 300 mensajes y 40 conversaciones nuevas al día por persona, sin tocar permisos.
+  {
+    const HISTORIAL = readFileSync("supabase/migrations/20261013170000_historial_blue_ia.sql", "utf8");
+    const TOPE = readFileSync("supabase/migrations/20261103150000_blue_ia_limite_diario.sql", "utf8");
+    const c31 = await nuevaBase("vz_aislada_blue_ia_tope", HISTORIAL + TOPE);
+    let repetidaTope = true;
+    try {
+      await c31.query(TOPE);
+    } catch (e) {
+      repetidaTope = false;
+      console.log(String(e.message));
+    }
+    const disparadoresTope = (await c31.query("select tgrelid::regclass::text as t, tgname from pg_trigger where tgname like '%limite_diario' order by 1")).rows;
+    const politicasTope = (await c31.query("select policyname from pg_policies where tablename like 'blue_ia_%' order by 1")).rows.map((r) => r.policyname);
+    ok(repetidaTope && disparadoresTope.length === 2, `Blue IA: el tope se puede aplicar dos veces sin duplicar disparadores (${disparadoresTope.map((d) => d.tgname).join(", ")})`);
+    ok(politicasTope.join(",") === "blue_ia_conv_insert,blue_ia_conv_select,blue_ia_conv_update,blue_ia_msg_insert,blue_ia_msg_select", `Blue IA: no toca las políticas (${politicasTope.join(", ")})`);
+    const conv = (await como(c31, "authenticated", U1, "insert into public.blue_ia_conversaciones (titulo) values ('Hola') returning id", { confirmar: true })).filas?.[0]?.id;
+    const trescientos = await como(c31, "authenticated", U1, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) select '${conv}', 'user', 'mensaje ' || g from generate_series(1, 300) g`, { confirmar: true });
+    const elDeMas = await como(c31, "authenticated", U1, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) values ('${conv}', 'assistant', 'uno más')`);
+    ok(trescientos.ok && trescientos.cuantas === 300 && !elDeMas.ok && elDeMas.codigo === "P0001" && /máximo de mensajes/.test(elDeMas.mensaje), `Blue IA: entran 300 mensajes al día por persona y el 301 no, con un mensaje claro (${elDeMas.codigo}: ${elDeMas.mensaje?.slice(0, 50)})`);
+    // (La conversación se crea antes, en su propia orden: la política de los mensajes no ve una conversación que se
+    // está creando en la misma orden.)
+    const convU2 = (await como(c31, "authenticated", U2, "insert into public.blue_ia_conversaciones (titulo) values ('Otra') returning id", { confirmar: true })).filas?.[0]?.id;
+    const enBloque = await como(c31, "authenticated", U2, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) select '${convU2}', 'user', 'x' from generate_series(1, 301) g`);
+    ok(!enBloque.ok && enBloque.codigo === "P0001", `Blue IA: tampoco entran 301 de golpe en una sola orden (${enBloque.codigo})`);
+    const otra = await como(c31, "authenticated", U2, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) values ('${convU2}', 'user', 'hola')`, { confirmar: true });
+    ok(otra.ok, `Blue IA: el tope es por persona (otra persona sí guarda${otra.ok ? "" : `: ${otra.codigo}`})`);
+    const conversaciones = await como(c31, "authenticated", U1, "insert into public.blue_ia_conversaciones (titulo) select 'Conv ' || g from generate_series(1, 39) g", { confirmar: true });
+    const conv41 = await como(c31, "authenticated", U1, "insert into public.blue_ia_conversaciones (titulo) values ('La 41')");
+    ok(conversaciones.ok && !conv41.ok && conv41.codigo === "P0001" && /conversaciones nuevas/.test(conv41.mensaje), `Blue IA: como mucho 40 conversaciones nuevas al día (${conv41.codigo})`);
+    await c31.query(`update public.blue_ia_mensajes set created_at = now() - interval '2 days' where user_id = '${U1}'`);
+    await c31.query(`update public.blue_ia_conversaciones set created_at = now() - interval '2 days' where user_id = '${U1}'`);
+    const manana = await como(c31, "authenticated", U1, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) values ('${conv}', 'user', 'Al día siguiente')`);
+    const mananaConv = await como(c31, "authenticated", U1, "insert into public.blue_ia_conversaciones (titulo) values ('Al día siguiente')");
+    ok(manana.ok && mananaConv.ok, "Blue IA: al día siguiente se vuelve a guardar");
+    const ajeno = await como(c31, "authenticated", U2, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) values ('${conv}', 'user', 'En la conversación de otro')`);
+    ok(!ajeno.ok && ajeno.codigo === "42501", `Blue IA: sigue sin poder escribirse en la conversación de otra persona (${ajeno.codigo})`);
+    await c31.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin los disparadores, el mensaje 301 entraría.
+    const sinTope = TOPE.replace(/do \$\$\s*begin\s*if not exists \(select 1 from pg_trigger[\s\S]*?end \$\$;/, "");
+    ok(sinTope !== TOPE, "(control) se han podido quitar los disparadores del tope en la copia de prueba");
+    const c32 = await nuevaBase("vz_aislada_blue_ia_sin_tope", HISTORIAL + sinTope);
+    const conv2 = (await como(c32, "authenticated", U1, "insert into public.blue_ia_conversaciones (titulo) values ('Hola') returning id", { confirmar: true })).filas?.[0]?.id;
+    const sinLimite = await como(c32, "authenticated", U1, `insert into public.blue_ia_mensajes (conversacion_id, rol, texto) select '${conv2}', 'user', 'x' from generate_series(1, 301) g`);
+    ok(sinLimite.ok && sinLimite.cuantas === 301, "(control) sin el tope entran 301 mensajes: la prueba SÍ lo detecta");
+    await c32.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
