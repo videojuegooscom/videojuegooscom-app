@@ -54,6 +54,8 @@
  *  - Dirección de envío en «Mi perfil» (20261102120000_perfiles_direccion.sql): 4 columnas con sus comprobaciones, sin tocar
  *    permisos; cada cliente guarda y cambia la suya, nadie más que él y el administrador la ve, el Foro sigue dando solo
  *    usuario y foto; la privacidad lo explica una vez (con su «prueba de las pruebas»: sin las comprobaciones, entra «5»).
+ *  - Resend en la privacidad (20261103100000_privacidad_resend.sql): una frase en «Con quién compartimos tus datos», una
+ *    sola vez y sin tocar lo demás (con su «prueba de las pruebas»: sin la condición, la frase se repite).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1132,6 +1134,43 @@ try {
     await c26.query(`insert into public.perfiles_cliente (user_id, nombre) values ('${U1}', 'Ana')`);
     ok((await como(c26, "authenticated", U1, "update public.perfiles_cliente set codigo_postal = '5' where user_id = (select auth.uid())")).ok, "(control) sin las comprobaciones entra un código postal de una cifra: la prueba SÍ lo detecta");
     await c26.end();
+  }
+
+  // 20) Resend en la política de privacidad (20261103100000): una frase en «Con quién compartimos tus datos», una vez.
+  {
+    const RESEND = readFileSync("supabase/migrations/20261103100000_privacidad_resend.sql", "utf8");
+    const TITULOS_R = ["Responsable del tratamiento", "Qué datos tratamos", "Para qué usamos tus datos", "Base legal", "Con quién compartimos tus datos", "Cuánto tiempo conservamos tus datos", "Cookies y analítica propia", "Tus derechos"];
+    const PRIV_R = JSON.stringify(TITULOS_R.map((heading) => ({ heading, body: `Texto de hoy de «${heading}».` })));
+    const ESQUEMA_R = `
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad', '${PRIV_R.replace(/'/g, "''")}'::jsonb), ('terminos', 'Términos', '[]'::jsonb);
+    `;
+    const c27 = await nuevaBase("vz_aislada_privacidad_resend", ESQUEMA_R + RESEND);
+    await c27.query(RESEND);
+    const seccionesR = (await c27.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const conQuien = seccionesR.find((s) => s.heading === "Con quién compartimos tus datos")?.body ?? "";
+    ok(
+      conQuien.startsWith("Texto de hoy de «Con quién compartimos tus datos».") &&
+        (conQuien.match(/Resend/g) ?? []).length === 1 &&
+        /no-responder@videojuegoszaragoza\.com/.test(conQuien) &&
+        JSON.stringify(seccionesR.map((s) => s.heading)) === JSON.stringify(TITULOS_R) &&
+        seccionesR.filter((s) => s.heading !== "Con quién compartimos tus datos").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      "Privacidad: nombra a Resend una sola vez (aunque se aplique dos veces) y el resto queda igual"
+    );
+    ok(Number((await c27.query("select count(*) as n from public.policy_pages where slug = 'terminos' and sections = '[]'::jsonb")).rows[0].n) === 1, "Privacidad: las otras políticas no se tocan");
+    await c27.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la condición «not exists», aplicarla dos veces repetiría la frase.
+    const sinGuarda = RESEND.replace(/\n\s*and not exists \(select 1 from jsonb_array_elements\(p\.sections\) as s \(sec\) where s\.sec ->> 'body' like '%Resend%'\);/, ";");
+    ok(sinGuarda !== RESEND, "(control) se ha podido quitar la condición en la copia de prueba");
+    const c28 = await nuevaBase("vz_aislada_privacidad_resend_sin_guarda", ESQUEMA_R + sinGuarda);
+    await c28.query(sinGuarda);
+    const repetida = ((await c28.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t.match(/Resend/g) ?? []).length;
+    ok(repetida === 2, `(control) sin la condición la frase se repite (${repetida} veces): la prueba SÍ lo detecta`);
+    await c28.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
