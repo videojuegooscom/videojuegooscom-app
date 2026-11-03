@@ -156,9 +156,12 @@
  *  - VA) Ficha de clientes para VeoAura: Escaparate cuenta las fichas enviadas y por enviar sin mezclarlas con las
  *    ventas sin confirmar; Pedidos avisa de qué se manda al marcar «Entregado».
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA]
+ *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
+ *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
- * «HO», «AD», «SV» o «VA» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
+ * «HO», «AD», «SV», «VA» o «FS» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
  * las reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
@@ -186,6 +189,7 @@ const TIPOS = {
 };
 const DINAMICAS = [
   [/^\/producto\/[^/]+$/, "producto/[id].html"],
+  [/^\/servicio\/[^/]+$/, "servicio/[id].html"],
   [/^\/admin\/cliente\/[^/]+$/, "admin/cliente/[userId].html"],
 ];
 const buscar = (ruta) => {
@@ -524,6 +528,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (estado.salidas && url.pathname.endsWith("/rest/v1/escaparate_salida") && metodo === "GET") return json(estado.salidas);
     if (estado.salidas && url.pathname.endsWith("/rest/v1/escaparate_registro") && metodo === "GET") return json([]);
     if (estado.salidas && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /id_veoaura=not\.is\.null/.test(url.search)) return json(estado.articulosVeo ?? []);
+    // Ficha de un servicio (sección FS): un servicio ficticio con sus fotos.
+    if (estado.servicio && url.pathname.endsWith("/rest/v1/services") && metodo === "GET") {
+      return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.servicio) : json([estado.servicio]);
+    }
+    if (estado.servicio && url.pathname.endsWith("/rest/v1/service_media") && metodo === "GET") return json(estado.fotosServicio ?? []);
     // Administración → Servicios (sección SV): servicios ficticios con sus fotos.
     if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/services") && metodo === "GET") return json(estado.serviciosAdmin);
     if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/service_media") && metodo === "GET") return json(estado.serviciosMedia ?? []);
@@ -4287,6 +4296,185 @@ async function seccionSV() {
   }
 }
 
+// ===== FS) Ficha de servicio con el formato de la de producto (dueño, 2026-11-03): galería con posición, foto en
+// grande con zoom, precio, «Contratar servicio ahora» y «Preguntar por WhatsApp» como los botones de producto, ficha
+// con pestañas «Características» y «Descripción», «Volver atrás» al final (sin el «Volver» flotante) y sin los bloques
+// que la de producto no tiene; su uso en Administración → Analítica. En el móvil y en el ordenador ====================
+async function seccionFS() {
+  const ID = "5e000000-0000-4000-8000-0000000000f1";
+  const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000f2";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/servicios/fs${n}.jpg`;
+  const estadoBase = () => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    aceptaAnalitica: true,
+    servicio: { id: ID, title: "Mantenimiento Consola Playstation 5", description: "¿Nunca has realizado mantenimiento a tu consola?", price_eur: 45 },
+    fotosServicio: [1, 2, 3].map((n) => ({ id: `fs${n}`, public_url: foto(n), is_cover: n === 1, sort_order: n - 1 })),
+    producto: {
+      id: PRODUCTO, title: "Forza Horizon PS4", description: "Juego revisado.", price_eur: 9, status: "PUBLISHED", is_active: true,
+      category_id: null, images: [], updated_at: "2026-10-30T10:00:00Z", created_at: "2026-10-30T10:00:00Z", condition: "GOOD",
+      like_count: 0, reference: null, caracteristicas: [{ etiqueta: "Plataforma", valor: "PS4" }], mantenimiento: null, category: null,
+    },
+    fotosProducto: [],
+  });
+  const caja = (p, sel) =>
+    p.evaluate((s) => {
+      const el = typeof s === "string" ? document.querySelector(s) : null;
+      const r = el?.getBoundingClientRect();
+      if (!r) return null;
+      const cs = getComputedStyle(el);
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), radio: cs.borderRadius, fondo: cs.backgroundColor };
+    }, sel);
+  const botonConTexto = (p, texto) =>
+    p.evaluate((t) => {
+      // El icono de dentro también es texto: se compara solo con letras, números y espacios.
+      const el = [...document.querySelectorAll('[role="button"]')].find((b) => b.innerText.replace(/[^\p{L}\p{N} ]/gu, "").trim() === t);
+      const r = el?.getBoundingClientRect();
+      if (!r) return null;
+      const cs = getComputedStyle(el);
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), radio: cs.borderRadius, fondo: cs.backgroundColor, borde: cs.borderTopColor };
+    }, texto);
+
+  for (const [nombre, vista] of [
+    ["móvil", {}],
+    ["ordenador", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, `/servicio/${ID}`);
+    await p.locator("#servicio-ficha-carrusel").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(700);
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+
+    // FS1) Título como h1, subtítulo, posición de la galería y miniaturas.
+    const h1 = await p.evaluate(() => document.querySelector('h1, [role="heading"][aria-level="1"]')?.innerText.trim() ?? "");
+    ok(h1 === "Mantenimiento Consola Playstation 5" && /Servicio profesional · Reparación y limpieza/.test(t), `FS (${nombre}): título como h1 y subtítulo (${h1})`);
+    const pos = await p.locator("#galeria-posicion").innerText().catch(() => "");
+    ok(pos.trim() === "1 / 3" && (await p.locator("#galeria-miniaturas").count()) === 1, `FS (${nombre}): la galería dice en qué foto está y lleva miniaturas (${pos.trim()})`);
+
+    // FS2) El orden de la ficha de producto: precio, botón principal, preguntar, ficha con pestañas y «Volver atrás».
+    const orden = await p.evaluate(() => {
+      const y = (s) => document.querySelector(s)?.getBoundingClientRect().top ?? -1;
+      const precio = [...document.querySelectorAll("div")].find((d) => d.childElementCount === 0 && d.innerText.trim() === "45,00€");
+      return [precio ? precio.getBoundingClientRect().top : -1, y("#servicio-contratar"), y("#servicio-whatsapp"), y("#servicio-ficha-carrusel"), y("#servicio-volver")];
+    });
+    ok(orden.every((v) => v >= 0) && orden.every((v, i) => i === 0 || v > orden[i - 1]), `FS (${nombre}): precio, «Contratar», «Preguntar», ficha y «Volver atrás», en ese orden (${orden.map(Math.round).join(" < ")})`);
+
+    // FS3) Pestañas «Características» y «Descripción», con lo que contaba «Información del servicio».
+    const pestanas = await p.evaluate(() => [...document.querySelectorAll('#servicio-ficha-carrusel [role="tab"]')].map((x) => x.innerText.trim()));
+    const ficha = (await p.locator("#servicio-caracteristicas").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(pestanas.join("|") === "Características|Descripción", `FS (${nombre}): pestañas «Características» y «Descripción» (${pestanas.join(", ")})`);
+    ok(/Tipo\s*Reparación \/ Limpieza/.test(ficha) && /Precio\s*45,00€/.test(ficha) && /Contratación\s*Disponible ahora/.test(ficha), `FS (${nombre}): «Características» con tipo, precio y contratación (${ficha})`);
+
+    // FS4) Sin lo que la ficha de producto no tiene: bloques de confianza, el WhatsApp repetido y el «Volver» flotante.
+    const whatsapps = await p.evaluate(() => [...document.querySelectorAll('[role="button"]')].filter((b) => /WhatsApp/.test(b.innerText)).length);
+    ok(!/Contrata con tranquilidad|¿Tienes dudas antes de contratar\?|Volver a servicios/.test(t) && whatsapps === 1, `FS (${nombre}): sin bloques de confianza ni WhatsApp repetido (${whatsapps} botón)`);
+    ok((await p.locator('[aria-label="Volver"]').count()) === 0, `FS (${nombre}): sin el «Volver» flotante (lleva «Volver atrás» al final, como producto)`);
+
+    // FS5) Los botones, iguales que los de la ficha de producto (alto, forma y color).
+    const contratar = await caja(p, "#servicio-contratar");
+    const preguntar = await caja(p, "#servicio-whatsapp");
+    const volver = await caja(p, "#servicio-volver");
+    const q = await pagina(ctx, `/producto/${PRODUCTO}`);
+    await q.locator("#producto-ficha-carrusel").waitFor({ timeout: 40000 }).catch(() => {});
+    await q.waitForTimeout(500);
+    const comprar = await botonConTexto(q, "Comprar ya");
+    const preguntarProducto = await botonConTexto(q, "Preguntar por este producto");
+    const volverProducto = await botonConTexto(q, "Volver atrás");
+    const igual = (a, b) => !!a && !!b && a.h === b.h && a.w === b.w && a.radio === b.radio && a.fondo === b.fondo;
+    const sinPos = (a) => a && { w: a.w, h: a.h, radio: a.radio, fondo: a.fondo };
+    ok(igual(contratar, comprar), `FS (${nombre}): «Contratar servicio ahora» mide y se ve como «Comprar ya» (${JSON.stringify([sinPos(contratar), sinPos(comprar)])})`);
+    ok(igual(preguntar, preguntarProducto), `FS (${nombre}): «Preguntar por WhatsApp» como «Preguntar por este producto» (${JSON.stringify([sinPos(preguntar), sinPos(preguntarProducto)])})`);
+    ok(igual(volver, volverProducto), `FS (${nombre}): «Volver atrás» como el de producto (${JSON.stringify([sinPos(volver), sinPos(volverProducto)])})`);
+    ok((await q.locator("#producto-caracteristicas").count()) === 1 && q.errores.length === 0, `FS (${nombre}): la ficha de producto sigue con sus pestañas y sin errores (${q.errores[0] ?? "ninguno"})`);
+    await q.close();
+
+    // FS6) Nada se sale por los lados.
+    const anchos = await p.evaluate(() => ({ pagina: document.documentElement.scrollWidth, ventana: window.innerWidth }));
+    ok(anchos.pagina <= anchos.ventana, `FS (${nombre}): nada se sale por los lados (${anchos.pagina} de ${anchos.ventana} px)`);
+    await capturar(p, `FS1-servicio-${nombre === "móvil" ? "movil" : "ordenador"}`);
+
+    // FS7) En el ordenador, flechas para pasar de foto; tocar la foto la abre en grande (con zoom) y se cuenta.
+    if (nombre === "ordenador") {
+      await p.locator('[aria-label="Foto siguiente"]').first().click();
+      await p.waitForTimeout(300);
+      ok((await p.locator("#galeria-posicion").innerText().catch(() => "")).trim() === "2 / 3", "FS (ordenador): la flecha pasa a la foto siguiente (2 / 3)");
+    }
+    const f = await caja(p, "#servicio-foto");
+    if (!f) {
+      ok(false, `FS (${nombre}): no se encuentra la foto principal`);
+      await ctx.close();
+      continue;
+    }
+    if (nombre === "móvil") {
+      const cdp = await ctx.newCDPSession(p);
+      const toque = (tipo, puntos) => cdp.send("Input.dispatchTouchEvent", { type: tipo, touchPoints: puntos.map(([x, y]) => ({ x, y, id: 0 })) });
+      await toque("touchStart", [[f.x + f.w / 2, f.y + f.h / 2]]);
+      await toque("touchEnd", []);
+    } else {
+      await p.mouse.click(f.x + f.w / 2, f.y + f.h / 2);
+    }
+    await p.locator("#visor-fotos").waitFor({ timeout: 5000 }).catch(() => {});
+    const visor = await p.locator("#visor-fotos").isVisible().catch(() => false);
+    ok(visor, `FS (${nombre}): al tocar la foto se abre en grande con el visor de zoom`);
+    if (visor) await capturar(p, `FS2-visor-${nombre === "móvil" ? "movil" : "ordenador"}`);
+    await p.locator('[aria-label="Cerrar el visor de fotos"]').click().catch(() => {});
+    await p.waitForTimeout(400);
+
+    // FS8) «Contratar servicio ahora» abre su formulario; los dos botones se cuentan en la analítica.
+    await p.locator("#servicio-contratar").click();
+    const formulario = await p.getByText("Contratar: Mantenimiento Consola Playstation 5").first().isVisible({ timeout: 5000 }).catch(() => false);
+    ok(formulario, `FS (${nombre}): «Contratar servicio ahora» abre su formulario`);
+    await p.keyboard.press("Escape").catch(() => {});
+    await p.waitForTimeout(300);
+    const etiquetas = (estado.eventosEnviados ?? []).map((e) => e.step_label);
+    ok(etiquetas.includes("Servicio: foto ampliada") && etiquetas.includes("Servicio: Contratar servicio ahora"), `FS (${nombre}): la foto ampliada y «Contratar» se cuentan (${etiquetas.filter((e) => /^Servicio/.test(e)).join(", ")})`);
+    ok(p.errores.length === 0, `FS (${nombre}): sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // FS9) «Preguntar por WhatsApp» abre WhatsApp con el servicio y se cuenta.
+  {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    // WhatsApp no se abre de verdad: se apunta adónde iría.
+    const aWhatsApp = [];
+    await ctx.route(/wa\.me|whatsapp\.com/, (r) => {
+      aWhatsApp.push(r.request().url());
+      return r.fulfill({ status: 200, contentType: "text/html", body: "<p>WhatsApp</p>" });
+    });
+    const p = await pagina(ctx, `/servicio/${ID}`);
+    await p.locator("#servicio-whatsapp").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#servicio-whatsapp").click();
+    await p.waitForTimeout(1500);
+    const destino = decodeURIComponent(aWhatsApp[0] ?? "");
+    ok(/^https:\/\/wa\.me\/34627748741\?text=/.test(destino) && destino.includes("Servicio: Mantenimiento Consola Playstation 5"), `FS: «Preguntar por WhatsApp» abre WhatsApp con el servicio (${destino.slice(0, 120).replace(/\n/g, " ")})`);
+    await p.waitForTimeout(400);
+    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Servicio: Preguntar por WhatsApp"), "FS: y se cuenta en la analítica");
+    await ctx.close();
+  }
+
+  // FS10) Administración → Analítica lo cuenta.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Servicio: foto ampliada", sessions: 4 },
+        { step_label: "Servicio: Contratar servicio ahora", sessions: 2 },
+        { step_label: "Servicio: Preguntar por WhatsApp", sessions: 3 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-ficha-servicio").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-ficha-servicio").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/fotos ampliadas 4 · «Contratar servicio ahora» 2 · «Preguntar por WhatsApp» 3/.test(t), `FS: Administración → Analítica lo cuenta (${t})`);
+    ok(p.errores.length === 0, `FS: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
 // cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
 // confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
@@ -4486,6 +4674,7 @@ try {
   if (SOLO === "AD") await seccionAD();
   if (SOLO === "SV") await seccionSV();
   if (SOLO === "VA") await seccionVA();
+  if (SOLO === "FS") await seccionFS();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -5427,6 +5616,7 @@ try {
   await seccionAD();
   await seccionSV();
   await seccionVA();
+  await seccionFS();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
