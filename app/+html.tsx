@@ -35,8 +35,11 @@ const BOOT_CSS =
 
 // Ficha de la tienda para Google y las IA (datos estructurados de schema.org), en todas las páginas. La
 // tienda es SOLO ONLINE: sin dirección (el domicilio fiscal solo va en los textos legales). Solo datos que ha
-// dado el dueño; lo mismo que dicen app/quienes-somos.tsx y public/llms.txt.
+// dado el dueño; lo mismo que dicen app/quienes-somos.tsx y public/llms.txt. El fundador tiene su propia ficha
+// (Person) y «Quiénes somos» es su página (AboutPage): el dueño quiere salir al buscar «Daniel Gutiérrez»
+// (2026-11-03). Sin fecha de nacimiento ni foto (no las ha dado para publicar).
 const DOMINIO = "https://videojuegoszaragoza.com";
+const FUNDADOR_ID = `${DOMINIO}/quienes-somos#daniel-gutierrez`;
 const DATOS_ESTRUCTURADOS = {
   "@context": "https://schema.org",
   "@graph": [
@@ -49,7 +52,7 @@ const DATOS_ESTRUCTURADOS = {
       description:
         "Tienda online de Zaragoza: compraventa de consolas, videojuegos y electrónica desde 2022, con reparación y mantenimiento de consolas, mandos, móviles, portátiles y PC. Envíos a toda España.",
       foundingDate: "2022",
-      founder: { "@type": "Person", name: "Daniel Enrique Gutiérrez Mejía", alternateName: "Daniel Gutiérrez" },
+      founder: { "@id": FUNDADOR_ID },
       numberOfEmployees: { "@type": "QuantitativeValue", value: 4 },
       areaServed: { "@type": "Country", name: "España" },
       sameAs: [
@@ -74,6 +77,30 @@ const DATOS_ESTRUCTURADOS = {
         "Limpieza y mantenimiento de consolas y electrónica",
       ].map((name) => ({ "@type": "Offer", itemOffered: { "@type": "Service", name } })),
     },
+    {
+      "@type": "Person",
+      "@id": FUNDADOR_ID,
+      name: "Daniel Gutiérrez",
+      alternateName: "Daniel Enrique Gutiérrez Mejía",
+      givenName: "Daniel",
+      familyName: "Gutiérrez",
+      jobTitle: "Fundador de Videojuegoszaragoza.com",
+      description:
+        "Fundó Videojuegoszaragoza.com en 2022 y la dirige junto a un equipo de tres profesionales: compraventa de consolas y electrónica, reparación y mantenimiento, y desarrollo de software propio y para otros negocios.",
+      url: `${DOMINIO}/quienes-somos`,
+      worksFor: { "@id": `${DOMINIO}/#tienda` },
+      knowsAbout: ["Videoconsolas", "Videojuegos", "Electrónica", "Reparación de consolas", "Desarrollo de software"],
+    },
+    {
+      "@type": "AboutPage",
+      "@id": `${DOMINIO}/quienes-somos#pagina`,
+      url: `${DOMINIO}/quienes-somos`,
+      name: "Quiénes somos · Daniel Gutiérrez, fundador",
+      inLanguage: "es",
+      isPartOf: { "@id": `${DOMINIO}/#web` },
+      about: { "@id": `${DOMINIO}/#tienda` },
+      mainEntity: { "@id": FUNDADOR_ID },
+    },
     { "@type": "WebSite", "@id": `${DOMINIO}/#web`, name: "Videojuegoszaragoza.com", url: `${DOMINIO}/`, inLanguage: "es", publisher: { "@id": `${DOMINIO}/#tienda` } },
   ],
 };
@@ -86,7 +113,7 @@ const ENLACES_SIN_JS: [string, string][] = [
   ["/catalogo", "Catálogo"],
   ["/servicios", "Reparación y mantenimiento"],
   ["/vender", "Vender o intercambiar tu consola"],
-  ["/quienes-somos", "Quiénes somos"],
+  ["/quienes-somos", "Quiénes somos: Daniel Gutiérrez y el equipo"],
   ["/blog", "Blog"],
   ["/politicas/envios", "Envíos"],
   ["/politicas/devoluciones", "Devoluciones"],

@@ -16,14 +16,20 @@
  * Para Google y las IA esta página es texto normal para personas; lo «técnico» (datos estructurados de la
  * tienda, resumen sin JavaScript) va aparte en app/+html.tsx y public/llms.txt, que deben decir lo mismo.
  *
+ * El dueño quiere salir en Google al buscar «Daniel Gutiérrez» (2026-11-03): su nombre va en el título y la
+ * descripción (SiteHead), como encabezado en «Quién está detrás» y como ficha Person en app/+html.tsx. La página se
+ * enlaza también desde Inicio y desde entrar/crear cuenta; visitas y procedencia, en Administración → Analítica.
+ *
  * Conectado con: components/SiteHead.tsx (título y descripción), components/SiteFooter.tsx y
- * components/Barramagic.tsx (enlaces), api/sitemap.ts (mapa del sitio), app/_layout.tsx (ruta).
+ * components/Barramagic.tsx (enlaces), app/(tabs)/index.tsx y app/(tabs)/perfil.tsx (accesos), api/sitemap.ts
+ * (mapa del sitio), app/_layout.tsx (ruta), app/admin/analytics.tsx (medición).
  */
-import React from "react";
+import React, { useEffect } from "react";
 import { Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } from "react-native";
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import CabeceraMarca from "../components/CabeceraMarca";
+import { trackEvent } from "../lib/analytics";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -227,6 +233,11 @@ export default function QuienesSomosScreen() {
   const pagePadding = isMobile ? 16 : 24;
   const cols = (n: number) => (isMobile ? 1 : n);
 
+  // Analítica propia (Administración → Analítica): cuántas sesiones ven la página (y, aparte, desde dónde llegan).
+  useEffect(() => {
+    void trackEvent("quienes_somos_visto", "Quiénes somos: vista", { path: "/quienes-somos" });
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
@@ -271,7 +282,15 @@ export default function QuienesSomosScreen() {
 
           <Seccion titulo="Quién está detrás">
             <View style={{ alignItems: "center", gap: 4 }}>
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17 }}>Daniel Gutiérrez</Text>
+              {/* Encabezado de verdad (h3): el nombre del fundador es lo que se busca en Google. */}
+              <Text
+                nativeID="quienes-somos-fundador"
+                accessibilityRole="header"
+                {...({ "aria-level": 3 } as object)}
+                style={{ color: COLORS.text, fontWeight: "900", fontSize: 17 }}
+              >
+                Daniel Gutiérrez
+              </Text>
               <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14 }}>Fundador</Text>
             </View>
             <Parrafos
