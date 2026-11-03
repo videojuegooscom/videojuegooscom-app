@@ -148,9 +148,14 @@
  *    domingo por la tarde), el aviso al pulsar «Hablar con el equipo» fuera de horario (no tapa la conversación),
  *    «Seguir con Blue» y «Escribir al equipo igualmente», la analítica propia y su línea en Administración → Analítica.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE|BI|QS|HO]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS» o
- * «HO» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
+ *  - AD) Blue en el panel de administración: en sus 20 pantallas, en el móvil y en el ordenador, solo mensajes del panel
+ *    (con un aviso de la tienda activo que sí sale en la tienda), también al entrar desde la tienda sin recargar.
+ *  - SV) Administración → Servicios: buscador arriba y del mismo alto que en Productos, 4 contadores en una fila, «+»
+ *    flotante, sin recuadros, foto en grande con zoom y deslizar entre pestañas en bucle, en el móvil y en el ordenador.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
+ * «HO», «AD» o «SV» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
  * las reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
@@ -239,8 +244,9 @@ const ADMIN = { ...CLIENTE, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
 
 // Contexto con sesión simulada. `estado` es lo que «responde» la base de datos ficticia y recoge lo que la tienda manda guardar.
-async function contexto(navegador, usuario, rol, estado) {
-  const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
+// `vista` cambia la ventana (por defecto, un móvil de 390 × 844; p. ej. un ordenador en la sección AD).
+async function contexto(navegador, usuario, rol, estado, vista = {}) {
+  const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES", ...vista });
   await ctx.addInitScript(([u, acepta]) => {
     try {
       localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
@@ -509,6 +515,11 @@ async function contexto(navegador, usuario, rol, estado) {
     }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticias) return json(estado.noticias);
+    // Avisos de la tienda que Blue dice en la tienda (Noticias Flash, sección AD).
+    if (url.pathname.endsWith("/rest/v1/flash_news") && metodo === "GET" && estado.flash) return json(estado.flash);
+    // Administración → Servicios (sección SV): servicios ficticios con sus fotos.
+    if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/services") && metodo === "GET") return json(estado.serviciosAdmin);
+    if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/service_media") && metodo === "GET") return json(estado.serviciosMedia ?? []);
     if (url.pathname.endsWith("/rest/v1/noticias_comentarios")) {
       if (metodo === "HEAD") return json([], 200, { "content-range": `*/${estado.comentariosOcultos ?? 0}`, "access-control-expose-headers": "*" });
       if (metodo === "PATCH") {
@@ -726,7 +737,7 @@ async function contexto(navegador, usuario, rol, estado) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -4019,6 +4030,256 @@ async function seccionHO() {
   }
 }
 
+// ===== AD) Blue en el panel de administración (dueño, 2026-11-03): en TODAS sus pantallas, en el móvil y en el
+// ordenador, Blue solo dice mensajes del panel (pedidos olvidados, «Lo que Blue sabe»…); los de la tienda (avisos,
+// ficha, envíos, instalar, reservas, seguimientos) nunca, tampoco al entrar desde la tienda sin recargar. Con el reloj
+// simulado de Playwright (cada pantalla «vive» 44 s en pocos segundos de verdad).
+async function seccionAD() {
+  const AVISO = "Esta semana, mandos revisados con un 20 % menos";
+  const RUTAS_PANEL = [
+    "/admin", "/admin/products", "/admin/pedidos", "/admin/services", "/admin/users", `/admin/cliente/${CLIENTE.id}`,
+    "/admin/chats", "/admin/inventario", "/admin/escaparate", "/admin/cotizaciones", "/admin/categories", "/admin/blog",
+    "/admin/flash-news", "/admin/policies", "/admin/redes-sociales", "/admin/marca-seo", "/admin/analytics",
+    "/admin/auditorias", "/admin/aprendizajes", "/admin/conocimiento",
+  ];
+  const DE_LA_TIENDA = /mandos revisados con un 20|Realizamos entregas|Instala la tienda|Tu reserva de|seguimiento|Pregúntame por|Foro/i;
+  const DEL_PANEL = /48 h sin cambios|me lo cuentas para responder mejor|¡Guardado!|clientes? te ha/;
+  const VISTAS = [
+    ["móvil", {}],
+    ["ordenador", { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ];
+  const mensaje = (p) => p.evaluate(() => (document.getElementById("blue-mensaje")?.innerText ?? "").replace(/\s+/g, " ").trim()).catch(() => "");
+  // Adelanta el reloj simulado de 2 en 2 s (dejando llegar las respuestas) y apunta todo lo que dice Blue.
+  const correr = async (p, segundos, vistos) => {
+    for (let s = 0; s < segundos; s += 2) {
+      await p.clock.runFor(2000);
+      await p.waitForTimeout(120);
+      const t = await mensaje(p);
+      if (t) vistos.add(t);
+    }
+  };
+  for (const [nombre, vista] of VISTAS) {
+    const estado = {
+      filas: [{ user_id: ADMIN.id, nombre: "Daniel", usuario: "daniel", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2003-08-01", foto_url: null }],
+      guardados: [],
+      aceptaAnalitica: true,
+      flash: [{ message: AVISO, sort_order: 0 }],
+      olvidados: { pedidos: 1, reparaciones: 0 },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await ctx.clock.install({ time: new Date("2026-11-03T10:00:00Z") }); // martes, 11:00 en España (Blue propone temas de 9 a 21 h)
+
+    // AD1) En la tienda, Blue SÍ dice el aviso de la tienda: la prueba provoca de verdad un mensaje de la tienda.
+    const p = await pagina(ctx, "/");
+    const enTienda = new Set();
+    await correr(p, 40, enTienda);
+    ok([...enTienda].some((t) => t.includes(AVISO)), `AD (${nombre}): en la tienda Blue dice el aviso de la tienda (${[...enTienda].join(" / ").slice(0, 120) || "nada"})`);
+
+    // AD2) Con el aviso a la vista, al panel sin recargar (Perfil → «Panel de control»): se va y no vuelve.
+    await p.locator('[data-testid="pestana-perfil"]').first().click({ timeout: 30000 });
+    await p.locator("#perfil-datos").getByRole("button", { name: "Panel de control" }).click({ timeout: 30000 });
+    await p.waitForURL(/\/admin\/?$/, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(300);
+    const nadaMasEntrar = await mensaje(p);
+    const trasEntrar = new Set();
+    await correr(p, 40, trasEntrar);
+    const deTienda = [...trasEntrar].filter((t) => DE_LA_TIENDA.test(t) || !DEL_PANEL.test(t));
+    ok(/\/admin\/?$/.test(new URL(p.url()).pathname) && !DE_LA_TIENDA.test(nadaMasEntrar) && deTienda.length === 0, `AD (${nombre}): al entrar en el panel desde la tienda, el aviso de la tienda se va y solo salen los del panel (${[...trasEntrar].join(" / ").slice(0, 140) || "nada"})`);
+    await p.close();
+
+    // AD3) Todas las pantallas del panel, cargadas de cero.
+    const fugas = [];
+    const fallosJs = [];
+    let conPanel = 0;
+    for (const ruta of RUTAS_PANEL) {
+      const q = await pagina(ctx, ruta);
+      const vistos = new Set();
+      await correr(q, 44, vistos);
+      const malos = [...vistos].filter((t) => DE_LA_TIENDA.test(t) || !DEL_PANEL.test(t));
+      if (malos.length) fugas.push(`${ruta}: ${malos.join(" / ").slice(0, 100)}`);
+      if ([...vistos].some((t) => DEL_PANEL.test(t))) conPanel++;
+      const js = q.errores.filter((e) => e.startsWith("error JS"));
+      if (js.length) fallosJs.push(`${ruta}: ${js[0]}`);
+      if (ruta === "/admin/products") await capturar(q, `AD-${nombre}-productos`);
+      await q.close();
+    }
+    ok(fugas.length === 0, `AD (${nombre}): en las ${RUTAS_PANEL.length} pantallas del panel Blue no dice ningún mensaje de la tienda (${fugas.join(" | ") || "ninguno"})`);
+    ok(conPanel >= 1, `AD (${nombre}): y los mensajes del panel siguen saliendo (en ${conPanel} pantallas)`);
+    ok(fallosJs.length === 0, `AD (${nombre}): ninguna pantalla del panel da errores de JavaScript (${fallosJs.join(" | ") || "ninguno"})`);
+    await ctx.close();
+  }
+}
+
+// ===== SV) Administración → Servicios (dueño, 2026-11-03): buscador arriba y del mismo alto que en Productos, los
+// cuatro contadores en una fila, «Nuevo servicio» como «+» flotante, sin recuadros alrededor, la foto se abre en grande
+// con zoom y deslizando el dedo se cambia de pestaña en bucle; en el móvil y en el ordenador ===========================
+async function seccionSV() {
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/servicios/${n}.jpg`;
+  const servicio = (n, title, extra = {}) => ({
+    id: `5e000000-0000-4000-8000-00000000000${n}`, title, description: `Descripción de ${title}`, price_eur: 20 + n * 5, status: "PUBLISHED",
+    is_active: true, view_count: n * 5, created_at: `2026-10-0${n}T10:00:00Z`, updated_at: `2026-10-0${n}T10:00:00Z`, ...extra,
+  });
+  const serviciosAdmin = [
+    servicio(1, "Mantenimiento PlayStation 5"),
+    servicio(2, "Mantenimiento Consola PlayStation 4"),
+    servicio(3, "Sustitución de joysticks"),
+  ];
+  const serviciosMedia = [
+    { id: "5f000000-0000-4000-8000-000000000011", service_id: serviciosAdmin[0].id, storage_path: "servicios/1.jpg", public_url: foto(1), file_name: "1.jpg", sort_order: 0, is_cover: true },
+    { id: "5f000000-0000-4000-8000-000000000012", service_id: serviciosAdmin[0].id, storage_path: "servicios/2.jpg", public_url: foto(2), file_name: "2.jpg", sort_order: 1, is_cover: false },
+    { id: "5f000000-0000-4000-8000-000000000021", service_id: serviciosAdmin[1].id, storage_path: "servicios/3.jpg", public_url: foto(3), file_name: "3.jpg", sort_order: 0, is_cover: true },
+    { id: "5f000000-0000-4000-8000-000000000031", service_id: serviciosAdmin[2].id, storage_path: "servicios/4.jpg", public_url: foto(4), file_name: "4.jpg", sort_order: 0, is_cover: true },
+  ];
+  const estadoBase = () => ({ guardados: [], filas: [], serviciosAdmin, serviciosMedia });
+  const caja = (p, sel) =>
+    p.evaluate((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect();
+      return r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), ancho: window.innerWidth, alto: window.innerHeight } : null;
+    }, sel);
+  const pestanaActiva = (p) =>
+    p.evaluate(() => [...document.querySelectorAll('#servicios-pestanas [role="tab"]')].find((t) => t.getAttribute("aria-selected") === "true")?.innerText.trim() ?? "");
+
+  // SV1–SV5) En el móvil.
+  {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await p.getByText("Sustitución de joysticks").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+
+    // SV1) Buscador arriba de los contadores y del mismo alto que el de Productos.
+    const buscar = await caja(p, "#servicios-buscar");
+    const contadores = await caja(p, "#servicios-contadores");
+    const q = await ctx.newPage();
+    await q.goto(`${BASE}/admin/products`, { waitUntil: "load", timeout: 60000 });
+    await q.locator("#productos-buscar").waitFor({ timeout: 30000 }).catch(() => {});
+    const buscarProductos = await caja(q, "#productos-buscar");
+    await q.close();
+    ok(!!buscar && !!contadores && buscar.y < contadores.y, `SV: el buscador va arriba de los contadores (${buscar?.y} < ${contadores?.y})`);
+    ok(!!buscar && !!buscarProductos && Math.abs(buscar.h - buscarProductos.h) <= 1 && buscar.w >= buscarProductos.w - 2, `SV: y mide lo mismo que el de Productos (${buscar?.h} y ${buscarProductos?.h} px de alto)`);
+
+    // SV2) Los cuatro contadores en una sola fila, sin cortarse ni salirse.
+    const tarjetas = await p.evaluate(() =>
+      [...(document.getElementById("servicios-contadores")?.children ?? [])].map((t) => {
+        const r = t.getBoundingClientRect();
+        const cortados = [...t.querySelectorAll("div")].filter((d) => d.childElementCount === 0 && d.scrollWidth > d.clientWidth + 1).length;
+        return { y: Math.round(r.y), x: Math.round(r.x), w: Math.round(r.width), cortados, texto: t.innerText.replace(/\n/g, " ") };
+      })
+    );
+    ok(
+      tarjetas.length === 4 && tarjetas.every((t) => t.y === tarjetas[0].y) && tarjetas.every((t) => t.x >= 0 && t.x + t.w <= 390) && tarjetas.every((t) => t.cortados === 0),
+      `SV: los 4 contadores van en una fila y no se cortan (${tarjetas.map((t) => `${t.texto}@${t.x},${t.y}`).join(" | ")})`
+    );
+
+    // SV3) Sin «+ Nuevo servicio» grande: el «+» flotante abajo a la derecha, que abre el formulario.
+    const mas = await caja(p, "#servicio-nuevo");
+    ok((await p.getByText("+ Nuevo servicio").count()) === 0 && !!mas && mas.w >= 44 && mas.h >= 44 && mas.ancho - (mas.x + mas.w) <= 20 && mas.alto - (mas.y + mas.h) <= 24, `SV: «Nuevo servicio» es el «+» flotante abajo a la derecha (${JSON.stringify(mas)})`);
+    await capturar(p, "SV1-servicios-movil");
+
+    // SV4) Sin recuadros alrededor: ni cápsulas en las pestañas ni tarjeta en cada servicio.
+    const fondos = await p.evaluate(() => ({
+      filas: [...(document.getElementById("servicios-lista")?.children ?? [])].map((f) => getComputedStyle(f).backgroundColor),
+      pestanas: [...document.querySelectorAll('#servicios-pestanas [role="tab"]')].map((t) => getComputedStyle(t).backgroundColor),
+    }));
+    const transparente = (c) => c === "rgba(0, 0, 0, 0)" || c === "transparent";
+    ok(fondos.filas.length === 3 && fondos.filas.every(transparente) && fondos.pestanas.every(transparente), `SV: sin recuadros alrededor de los servicios ni de las pestañas (${JSON.stringify(fondos)})`);
+
+    // SV5) Tocar la foto la abre en grande, con zoom.
+    await p.getByRole("button", { name: "Ver las fotos de Mantenimiento PlayStation 5" }).click();
+    await p.locator("#visor-fotos").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    const visor = await p.evaluate(() => {
+      const img = document.querySelector("#visor-fotos-capa img");
+      return {
+        abierto: !!document.getElementById("visor-fotos"),
+        texto: document.getElementById("visor-fotos")?.innerText.replace(/\n/g, " ") ?? "",
+        cargada: !!img && img.complete && img.naturalWidth > 0 && img.getBoundingClientRect().width > 200,
+      };
+    });
+    ok(visor.abierto && /1 \/ 2/.test(visor.texto) && visor.cargada, `SV: tocar la foto abre el visor en la 1 de 2 y la foto se ve (${visor.texto.slice(0, 40)}, cargada: ${visor.cargada})`);
+    const cv = await p.locator("#visor-fotos").boundingBox();
+    const cdp = await ctx.newCDPSession(p);
+    const tocar = async (x, y) => {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    };
+    await tocar(cv.x + cv.width / 2, cv.y + cv.height / 2);
+    await p.waitForTimeout(80);
+    await tocar(cv.x + cv.width / 2, cv.y + cv.height / 2);
+    await p.waitForTimeout(500);
+    const zoom = await p.evaluate(() => /scale\(([\d.]+)\)/.exec(document.getElementById("visor-fotos-capa")?.style.transform ?? "")?.[1] ?? "1");
+    ok(Number(zoom) > 2, `SV: con doble toque se acerca (zoom ×${zoom})`);
+    await capturar(p, "SV2-visor-servicio");
+    await p.getByRole("button", { name: "Cerrar el visor de fotos" }).click();
+    await p.waitForTimeout(400);
+    ok((await p.locator("#visor-fotos").count()) === 0, "SV: y se cierra");
+    await cdp.detach();
+
+    // SV6) Deslizar el dedo cambia de pestaña, en bucle.
+    const deslizar = async (dx, dy) => {
+      const zona = await p.locator("#servicios-pestanas").boundingBox();
+      const x = 195;
+      const y = zona.y + zona.height + 60;
+      const c = await ctx.newCDPSession(p);
+      await c.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let i = 1; i <= 10; i++) {
+        await c.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + (dx * i) / 10, y: y + (dy * i) / 10 }] });
+        await p.waitForTimeout(16);
+      }
+      await c.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await c.detach();
+      await p.waitForTimeout(700);
+    };
+    const recorrido = [await pestanaActiva(p)];
+    await deslizar(-200, 6);
+    recorrido.push(await pestanaActiva(p));
+    await deslizar(-200, 4);
+    recorrido.push(await pestanaActiva(p));
+    await deslizar(200, -4);
+    recorrido.push(await pestanaActiva(p));
+    await deslizar(6, -200);
+    recorrido.push(await pestanaActiva(p));
+    ok(recorrido.join(",") === "Catálogo,Solicitudes,Catálogo,Solicitudes,Solicitudes", `SV: deslizar cambia de pestaña en bucle y un gesto vertical no (${recorrido.join(" → ")})`);
+    ok((await p.locator("#servicio-nuevo").count()) === 0, "SV: en «Solicitudes» no sale el «+» de crear servicio");
+    await p.locator("#servicios-pestanas").getByText("Catálogo", { exact: true }).click();
+    await p.waitForTimeout(400);
+    ok((await pestanaActiva(p)) === "Catálogo", "SV: tocar la pestaña sigue funcionando");
+    const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
+    ok(ancho.a <= ancho.p + 1, `SV: la página no se ensancha (${ancho.a}/${ancho.p})`);
+
+    await p.locator("#servicio-nuevo").click();
+    await p.getByText("Nuevo servicio", { exact: true }).first().waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.getByText("Nuevo servicio", { exact: true }).count()) >= 1, "SV: el «+» abre el formulario de «Nuevo servicio»");
+    ok(p.errores.filter((e) => e.startsWith("error JS")).length === 0, `SV: sin errores de JavaScript (${p.errores.join(" | ").slice(0, 160)})`);
+    await ctx.close();
+  }
+
+  // SV7) En el ordenador: los contadores en una fila y el «+» abajo a la derecha.
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", estadoBase(), { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false });
+    const p = await pagina(ctx, "/admin/services");
+    await p.getByText("Sustitución de joysticks").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const filas = await p.evaluate(() => [...(document.getElementById("servicios-contadores")?.children ?? [])].map((t) => Math.round(t.getBoundingClientRect().y)));
+    const mas = await caja(p, "#servicio-nuevo");
+    const buscar = await caja(p, "#servicios-buscar");
+    const contadores = await caja(p, "#servicios-contadores");
+    ok(filas.length === 4 && filas.every((y) => y === filas[0]) && !!mas && mas.ancho - (mas.x + mas.w) <= 20 && buscar.y < contadores.y, `SV: en el ordenador también (contadores ${filas.join(",")}; «+» ${JSON.stringify(mas)})`);
+    await p.getByRole("button", { name: "Ver las fotos de Sustitución de joysticks" }).click();
+    await p.locator("#visor-fotos").waitFor({ timeout: 8000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const fotoOrdenador = await p.evaluate(() => {
+      const img = document.querySelector("#visor-fotos-capa img");
+      const r = img?.getBoundingClientRect();
+      return img ? { cargada: img.complete && img.naturalWidth > 0, w: Math.round(r.width), h: Math.round(r.height), src: (img.getAttribute("src") ?? "").slice(0, 90) } : null;
+    });
+    ok(!!fotoOrdenador && fotoOrdenador.cargada && fotoOrdenador.w > 200 && fotoOrdenador.h > 200, `SV: en el ordenador la foto también se abre en grande y se ve (${JSON.stringify(fotoOrdenador)})`);
+    await capturar(p, "SV3-servicios-ordenador");
+    ok(p.errores.filter((e) => e.startsWith("error JS")).length === 0, `SV: sin errores de JavaScript en el ordenador (${p.errores.join(" | ").slice(0, 160)})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -4182,6 +4443,8 @@ try {
   if (SOLO === "BI") await seccionBI();
   if (SOLO === "QS") await seccionQS();
   if (SOLO === "HO") await seccionHO();
+  if (SOLO === "AD") await seccionAD();
+  if (SOLO === "SV") await seccionSV();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -5120,6 +5383,8 @@ try {
   await seccionBI();
   await seccionQS();
   await seccionHO();
+  await seccionAD();
+  await seccionSV();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
