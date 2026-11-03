@@ -29,6 +29,14 @@
  *   panel invita a iniciar sesión. Si llegan ?producto/?pedido/?reparacion/
  *   ?tema o ?q, se empieza una conversación nueva en vez de abrir la última.
  *   Si las tablas aún no existen, la pantalla funciona igual, sin guardar.
+ * - Saludo y «Nueva conversación» (dueño, 2026-11-03): hasta saber si hay una
+ *   conversación guardada que abrir no se saluda (antes el saludo se escribía
+ *   letra a letra y luego aparecía la conversación debajo, como si Blue IA
+ *   reescribiera el primer mensaje). Con una conversación en marcha, el saludo
+ *   se queda quieto y junto a «Hablar con el equipo» sale «Nueva conversación»
+ *   (la anterior queda en el Historial). Analítica propia:
+ *   blue_ia_conversacion_retomada y blue_ia_conversacion_nueva {desde}, en
+ *   Administración → Analítica.
  * - Las respuestas de Blue IA nunca traen enlaces ni markdown escrito por el
  *   modelo (antes se veía feo, tipo "[texto](url)", porque este texto se
  *   pinta en un <Text> normal sin ningún intérprete de markdown): cuando la
@@ -95,6 +103,7 @@ import {
 } from "react-native";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ProductChatThread";
+import { trackEvent } from "../../lib/analytics";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 
@@ -423,25 +432,44 @@ export default function BlueIAScreen() {
     }, 24);
   }, []);
 
+  // Elige el siguiente saludo de la rotación y lo escribe.
+  const saludarSiguiente = useCallback(
+    async (sigue: () => boolean = () => true) => {
+      let previo: number | null = null;
+      try {
+        const raw = await AsyncStorage.getItem(SALUDO_KEY);
+        const n = raw === null ? NaN : Number(raw);
+        previo = Number.isFinite(n) ? n : null;
+      } catch {
+        // sin almacenamiento: siempre el primero
+      }
+      if (!sigue()) return;
+      const idx = previo === null ? 0 : (previo + 1) % SALUDOS.length;
+      AsyncStorage.setItem(SALUDO_KEY, String(idx)).catch(() => {});
+      escribirSaludo(SALUDOS[idx]());
+    },
+    [escribirSaludo]
+  );
+
+  // Al abrir una conversación guardada, el saludo queda quieto y entero (no se vuelve a escribir encima de ella).
+  const dejarSaludoQuieto = useCallback(() => {
+    if (escrituraRef.current) clearInterval(escrituraRef.current);
+    escrituraRef.current = null;
+    setEscribiendo(false);
+    setSaludoMostrado(WELCOME_MESSAGE.text);
+  }, []);
+
+  // false mientras se mira si hay una conversación guardada que abrir (con sesión): hasta saberlo no se saluda. Antes se
+  // escribía el saludo y luego aparecía la conversación debajo: parecía que Blue IA reescribía el primer mensaje (dueño,
+  // 2026-11-03). Una vez true, ya no vuelve a false.
+  const [historialListo, setHistorialListo] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
+      if (!historialListo) return;
       let vivo = true;
-      (async () => {
-        // Con una conversación en marcha, el saludo ya no se ve como tal: no se cambia.
-        if (mensajesRef.current.length > 1) return;
-        let previo: number | null = null;
-        try {
-          const raw = await AsyncStorage.getItem(SALUDO_KEY);
-          const n = raw === null ? NaN : Number(raw);
-          previo = Number.isFinite(n) ? n : null;
-        } catch {
-          // sin almacenamiento: siempre el primero
-        }
-        if (!vivo) return;
-        const idx = previo === null ? 0 : (previo + 1) % SALUDOS.length;
-        AsyncStorage.setItem(SALUDO_KEY, String(idx)).catch(() => {});
-        escribirSaludo(SALUDOS[idx]());
-      })();
+      // Con una conversación en marcha (o la última, recién abierta), el saludo no se vuelve a escribir.
+      if (mensajesRef.current.length <= 1) saludarSiguiente(() => vivo);
       return () => {
         vivo = false;
         if (escrituraRef.current) {
@@ -451,7 +479,7 @@ export default function BlueIAScreen() {
         // Al salir se deja completo el que estaba, para que al volver no parpadee.
         setEscribiendo(false);
       };
-    }, [escribirSaludo])
+    }, [historialListo, saludarSiguiente])
   );
   const [sending, setSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -535,36 +563,57 @@ export default function BlueIAScreen() {
     });
   }, []);
 
-  // Con sesión y sin contexto de entrada: abre la última conversación no archivada.
+  // Sin sesión o con una pregunta/contexto de entrada no hay conversación guardada que esperar: se saluda ya.
+  useEffect(() => {
+    if (userId === null || entraConContexto) setHistorialListo(true);
+  }, [userId, entraConContexto]);
+
+  // Con la red muy lenta no se deja la pantalla esperando: a los 4 s se saluda igual (si la conversación llega después
+  // y la persona aún no ha escrito, se abre y el saludo se queda quieto).
+  useEffect(() => {
+    if (historialListo) return;
+    const t = setTimeout(() => setHistorialListo(true), 4000);
+    return () => clearTimeout(t);
+  }, [historialListo]);
+
+  // Con sesión y sin contexto de entrada: abre la última conversación no archivada (sin volver a escribir el saludo).
   useEffect(() => {
     if (!userId || ultimaCargadaRef.current || entraConContexto) return;
     ultimaCargadaRef.current = true;
     let vivo = true;
     (async () => {
-      const { data, error } = await supabase
-        .from("blue_ia_conversaciones")
-        .select("id,titulo,contexto,updated_at")
-        .eq("archivada", false)
-        .order("updated_at", { ascending: false })
-        .limit(1);
-      if (error) {
-        if (tablaNoExiste(error)) historialDisponibleRef.current = false;
-        else console.warn("Blue IA: no se ha podido cargar el historial", error);
-        return;
+      try {
+        const { data, error } = await supabase
+          .from("blue_ia_conversaciones")
+          .select("id,titulo,contexto,updated_at")
+          .eq("archivada", false)
+          .order("updated_at", { ascending: false })
+          .limit(1);
+        if (error) {
+          if (tablaNoExiste(error)) historialDisponibleRef.current = false;
+          else console.warn("Blue IA: no se ha podido cargar el historial", error);
+          return;
+        }
+        const conv = (data?.[0] ?? null) as ConversacionGuardada | null;
+        if (!conv || !vivo) return;
+        const msgs = await cargarMensajes(conv);
+        // Si la persona ya ha empezado a escribir aquí, no se pisa su conversación.
+        if (!vivo || !msgs || !msgs.length || messagesRef.current.some((m) => m.role === "user")) return;
+        conversacionIdRef.current = conv.id;
+        setContextoGuardado(conv.contexto);
+        dejarSaludoQuieto();
+        setMessages([WELCOME_MESSAGE, ...msgs]);
+        void trackEvent("blue_ia_conversacion_retomada", "Blue IA: conversación retomada");
+      } catch (e) {
+        console.warn("Blue IA: error abriendo la última conversación", e);
+      } finally {
+        setHistorialListo(true);
       }
-      const conv = (data?.[0] ?? null) as ConversacionGuardada | null;
-      if (!conv || !vivo) return;
-      const msgs = await cargarMensajes(conv);
-      // Si la persona ya ha empezado a escribir aquí, no se pisa su conversación.
-      if (!vivo || !msgs || messagesRef.current.some((m) => m.role === "user")) return;
-      conversacionIdRef.current = conv.id;
-      setContextoGuardado(conv.contexto);
-      setMessages([WELCOME_MESSAGE, ...msgs]);
     })();
     return () => {
       vivo = false;
     };
-  }, [userId, entraConContexto, cargarMensajes]);
+  }, [userId, entraConContexto, cargarMensajes, dejarSaludoQuieto]);
 
   // Guarda una vuelta (pregunta + respuesta); crea la conversación si es la primera.
   const guardarVuelta = useCallback(
@@ -641,16 +690,22 @@ export default function BlueIAScreen() {
     cargarLista();
   }, [cargarLista]);
 
-  // Deja la pantalla como recién abierta (sin contexto de URL).
-  const nuevaConversacion = useCallback(async () => {
-    await guardadoRef.current;
-    conversacionIdRef.current = null;
-    setUsarContextoUrl(false);
-    setContextoGuardado(null);
-    setErrorText(null);
-    setMessages([WELCOME_MESSAGE]);
-    setHistorialOpen(false);
-  }, []);
+  // Deja la pantalla como recién abierta (sin contexto de URL) y Blue IA saluda de nuevo. La conversación anterior
+  // sigue guardada en el Historial. «desde»: el botón junto al recuadro de escribir o el Historial (analítica propia).
+  const nuevaConversacion = useCallback(
+    async (desde: "boton" | "historial" = "historial") => {
+      await guardadoRef.current;
+      conversacionIdRef.current = null;
+      setUsarContextoUrl(false);
+      setContextoGuardado(null);
+      setErrorText(null);
+      setMessages([WELCOME_MESSAGE]);
+      setHistorialOpen(false);
+      saludarSiguiente();
+      void trackEvent("blue_ia_conversacion_nueva", "Blue IA: nueva conversación", { metadata: { desde } });
+    },
+    [saludarSiguiente]
+  );
 
   const abrirConversacion = useCallback(
     async (conv: ConversacionGuardada) => {
@@ -661,10 +716,11 @@ export default function BlueIAScreen() {
       setUsarContextoUrl(false);
       setContextoGuardado(conv.contexto);
       setErrorText(null);
+      dejarSaludoQuieto();
       setMessages([WELCOME_MESSAGE, ...msgs]);
       setHistorialOpen(false);
     },
-    [cargarMensajes]
+    [cargarMensajes, dejarSaludoQuieto]
   );
 
   // Archivar (no se borra nada); si era la abierta, se empieza una nueva.
@@ -685,9 +741,10 @@ export default function BlueIAScreen() {
         setUsarContextoUrl(false);
         setContextoGuardado(null);
         setMessages([WELCOME_MESSAGE]);
+        saludarSiguiente();
       }
     },
-    []
+    [saludarSiguiente]
   );
 
   const quickActions = useMemo<QuickAction[]>(
@@ -951,7 +1008,10 @@ export default function BlueIAScreen() {
   // Las sugerencias rápidas solo tienen sentido antes de que exista una
   // conversación real: en cuanto hay alguna pregunta (o se está esperando
   // respuesta), desaparecen para dejar toda la pantalla a la conversación.
-  const showQuickSuggestions = messages.length <= 1 && !sending;
+  // Mientras se mira si hay una conversación guardada, ni sugerencias ni saludo: así no aparecen y desaparecen al abrirla.
+  const showQuickSuggestions = historialListo && messages.length <= 1 && !sending;
+  // Con una conversación en marcha, junto al recuadro de escribir sale «Nueva conversación» (dueño, 2026-11-03).
+  const conversacionEmpezada = messages.length > 1;
 
   // Autoscroll: cada vez que llega un mensaje nuevo (o empieza/termina la
   // espera de respuesta), baja la conversación hasta el final.
@@ -1055,13 +1115,17 @@ export default function BlueIAScreen() {
                 <MarcaAnimada cual="tienda" ancho={120} />
               </View>
             )}
-            {messages.map((message) => (
-              <BlueIABubble
-                key={message.id}
-                // El saludo se escribe letra a letra (cursor mientras escribe).
-                message={message.id === WELCOME_MESSAGE.id ? { ...message, text: saludoMostrado + (escribiendo ? "▍" : "") } : message}
-              />
-            ))}
+            {!historialListo ? (
+              <ActivityIndicator nativeID="blue-ia-cargando" color={COLORS.accent} style={{ paddingVertical: 24 }} />
+            ) : (
+              messages.map((message) => (
+                <BlueIABubble
+                  key={message.id}
+                  // El saludo se escribe letra a letra (cursor mientras escribe).
+                  message={message.id === WELCOME_MESSAGE.id ? { ...message, text: saludoMostrado + (escribiendo ? "▍" : "") } : message}
+                />
+              ))
+            )}
             {sending && <BlueIATypingBubble />}
             {/* «Hablar con el equipo» sale una sola vez, junto al recuadro de escribir (petición del dueño, 2026-11-01):
                 antes se repetía bajo la respuesta con «¿Prefieres que te atienda una persona?». */}
@@ -1118,8 +1182,10 @@ export default function BlueIAScreen() {
             </Text>
           )}
 
-          {/* El único acceso al equipo, siempre a la vista junto al recuadro de escribir. */}
-          <View style={{ alignItems: "center" }}>
+          {/* El único acceso al equipo, siempre a la vista junto al recuadro de escribir; con una conversación en marcha,
+              a su lado «Nueva conversación» (la anterior queda en el Historial). */}
+          <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", columnGap: 6 }}>
+            {conversacionEmpezada ? <NuevaConversacionButton disabled={sending} onPress={() => nuevaConversacion("boton")} /> : null}
             <HablarEquipoButton busy={abriendoEquipo} onPress={handleHablarEquipo} />
           </View>
 
@@ -1172,7 +1238,7 @@ export default function BlueIAScreen() {
       cargando={cargandoLista}
       conversaciones={conversaciones}
       abiertaId={conversacionIdRef.current}
-      onNueva={nuevaConversacion}
+      onNueva={() => nuevaConversacion("historial")}
       onAbrir={abrirConversacion}
       onArchivar={archivarConversacion}
     />
@@ -1708,6 +1774,34 @@ function HablarEquipoButton({ busy, onPress }: { busy?: boolean; onPress: () => 
     >
       {busy ? <ActivityIndicator size="small" color={color} /> : <Ionicons name="headset-outline" size={15} color={color} />}
       <Text style={{ color, fontWeight: "900", fontSize: 13 }}>Hablar con el equipo</Text>
+    </Pressable>
+  );
+}
+
+// «Nueva conversación»: mismo estilo que «Hablar con el equipo», a su lado. La conversación de ahora se queda en el
+// Historial (con sesión); mientras Blue IA contesta, espera.
+function NuevaConversacionButton({ disabled, onPress }: { disabled?: boolean; onPress: () => void }) {
+  const color = COLORS.primary;
+  return (
+    <Pressable
+      nativeID="blue-ia-nueva"
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel="Nueva conversación"
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 7,
+        borderRadius: 999,
+        minHeight: 44,
+        paddingHorizontal: 12,
+        opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
+      })}
+    >
+      <Ionicons name="create-outline" size={15} color={color} />
+      <Text style={{ color, fontWeight: "900", fontSize: 13 }}>Nueva conversación</Text>
     </Pressable>
   );
 }
