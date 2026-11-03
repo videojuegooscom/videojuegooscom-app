@@ -137,13 +137,16 @@
  *    cambiar el correo (comprobaciones, enlaces a los dos correos, «cambio pendiente», correo de otra cuenta en español) y
  *    la contraseña (la actual se comprueba, las nuevas coinciden, «Mostrar», «¿No recuerdas la actual?»); la vuelta desde
  *    los enlaces del correo; la analítica sin correos y la línea de Administración → Usuarios.
+ *  - BI) Blue IA con una conversación ya empezada: mientras mira si hay una guardada no saluda; al abrirla, el saludo no
+ *    se vuelve a escribir; «Nueva conversación» junto a «Hablar con el equipo» (con y sin sesión); al cambiar de pestaña
+ *    no se reescribe; la analítica propia y su línea en Administración → Analítica.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI» o «SE» de cuarto
- * argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto al logo,
- * Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas, el
- * encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la contraseña,
- * la dirección del perfil o la seguridad de la cuenta).
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE|BI]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE» o «BI» de
+ * cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto
+ * al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas,
+ * el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la
+ * contraseña, la dirección del perfil, la seguridad de la cuenta o las conversaciones de Blue IA).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -332,6 +335,26 @@ async function contexto(navegador, usuario, rol, estado) {
       if (metodo === "GET") {
         const chatId = (url.searchParams.get("chat_id") ?? "").replace(/^eq\./, "");
         return json((estado.mensajesChat ?? []).filter((m) => !chatId || m.chat_id === chatId));
+      }
+    }
+    // Historial de Blue IA (sección BI): conversaciones y mensajes guardados ficticios; la lista tarda `retraso` ms (como
+    // una red lenta) para ver qué hace la pantalla mientras tanto. Se apunta lo que se guardaría.
+    if (estado.blueHistorial && /\/rest\/v1\/blue_ia_(conversaciones|mensajes)$/.test(url.pathname)) {
+      const h = estado.blueHistorial;
+      const esConversaciones = url.pathname.endsWith("/blue_ia_conversaciones");
+      if (metodo === "POST") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        h.guardado = [...(h.guardado ?? []), { tabla: esConversaciones ? "conversaciones" : "mensajes", cuerpo }];
+        if (esConversaciones) return json({ id: "c0000000-0000-4000-8000-0000000000b2" }, 201);
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "GET" && esConversaciones) {
+        if (h.retraso) await new Promise((fin) => setTimeout(fin, h.retraso));
+        return json(h.conversaciones ?? []);
+      }
+      if (metodo === "GET") {
+        const id = (url.searchParams.get("conversacion_id") ?? "").replace(/^eq\./, "");
+        return json((h.mensajes ?? []).filter((m) => m.conversacion_id === id));
       }
     }
     // Blue IA (sección X): respuestas ficticias (nada llega a la IA real); se apunta cuántas preguntas se mandan.
@@ -695,7 +718,7 @@ async function contexto(navegador, usuario, rol, estado) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions|services|service_media|seguimiento_intentos)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -3557,6 +3580,159 @@ async function seccionSE() {
   }
 }
 
+// ===== BI) Blue IA con una conversación ya empezada: el saludo no se vuelve a escribir y sale «Nueva conversación»
+// (dueño, 2026-11-03); su parte en Administración → Analítica ======================================================
+async function seccionBI() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const texto = async (p) => (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+  const cursores = (p) => p.evaluate(() => window.__cursores ?? 0);
+  // Cuenta las veces que se ve el cursor «▍» del saludo escribiéndose (desde que carga la página).
+  const vigilarCursor = (ctx) =>
+    ctx.addInitScript(() => {
+      window.__cursores = 0;
+      const mirar = () => {
+        if ((document.body?.textContent ?? "").includes("▍")) window.__cursores++;
+      };
+      const empezar = () => new MutationObserver(mirar).observe(document.body, { childList: true, subtree: true, characterData: true });
+      if (document.body) empezar();
+      else document.addEventListener("DOMContentLoaded", empezar);
+    });
+  const conv = { id: "c0000000-0000-4000-8000-0000000000b1", titulo: "¿Tenéis PS5?", contexto: null, updated_at: "2026-11-02T10:00:00Z" };
+  const mensajes = [
+    { id: "d0000000-0000-4000-8000-000000000001", conversacion_id: conv.id, rol: "user", texto: "¿Tenéis PS5?" },
+    { id: "d0000000-0000-4000-8000-000000000002", conversacion_id: conv.id, rol: "assistant", texto: "Sí, tenemos varias PS5 revisadas." },
+  ];
+
+  // BI1–BI3) Con sesión y una conversación guardada (que tarda en llegar).
+  {
+    const estado = {
+      filas: perfil,
+      guardados: [],
+      aceptaAnalitica: true,
+      blueHistorial: { conversaciones: [conv], mensajes, retraso: 2500 },
+      blueIa: () => "Claro: enviamos a toda España en 1-2 días.",
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await vigilarCursor(ctx);
+    const p = await pagina(ctx, "/blue-ia");
+    await p.waitForTimeout(900);
+    const cargando = await p.evaluate(() => ({ rueda: !!document.getElementById("blue-ia-cargando"), sugerencias: /Quiero vender/.test(document.body.innerText) }));
+    ok(cargando.rueda && !cargando.sugerencias, `BI: mientras mira si hay una conversación guardada, espera sin saludar ni sugerir (${JSON.stringify(cargando)})`);
+    await p.getByText("Sí, tenemos varias PS5 revisadas.").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const t = await texto(p);
+    ok(/¿Tenéis PS5\?/.test(t) && /Sí, tenemos varias PS5 revisadas/.test(t), "BI: al entrar se abre la última conversación");
+    ok((await cursores(p)) === 0, `BI: con una conversación ya empezada, el saludo no se vuelve a escribir (${await cursores(p)} veces se vio el cursor)`);
+    ok((t.match(/Hola, soy Blue IA/g) ?? []).length === 1 && !/Quiero vender/.test(t), "BI: el saludo sale una vez, quieto y entero, y sin sugerencias");
+    const m = await p.evaluate(() => {
+      const caja = (sel) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        return r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } : null;
+      };
+      return { nueva: caja("#blue-ia-nueva"), equipo: caja('[aria-label="Hablar con el equipo"]'), campo: caja('textarea[placeholder="Pregúntale a Blue IA…"]'), ancho: window.innerWidth };
+    });
+    const dentro = (c) => !!c && c.x >= 0 && c.x + c.w <= m.ancho && c.h >= 44;
+    ok(dentro(m.nueva) && dentro(m.equipo) && !!m.campo && m.nueva.y < m.campo.y, `BI: «Nueva conversación» sale junto a «Hablar con el equipo», encima del recuadro, y se toca bien (${JSON.stringify(m)})`);
+    for (let i = 0; i < 20 && !evento(estado, "blue_ia_conversacion_retomada").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "blue_ia_conversacion_retomada").length === 1, "BI: la analítica propia cuenta la conversación retomada");
+    await capturar(p, "BI1-conversacion-retomada");
+
+    // BI2) «Nueva conversación»: pantalla limpia, sugerencias y saludo nuevo (escribiéndose).
+    const antes = await cursores(p);
+    await p.locator("#blue-ia-nueva").click();
+    await p.waitForTimeout(3000);
+    const t2 = await texto(p);
+    // («¿Tenéis PS5?» también es una sugerencia: se mira la respuesta guardada.)
+    ok(!/Sí, tenemos varias PS5 revisadas/.test(t2) && /Quiero vender/.test(t2), "BI: «Nueva conversación» deja la pantalla como recién abierta, con las sugerencias");
+    ok((await cursores(p)) > antes, "BI: y Blue IA saluda de nuevo");
+    ok((await p.locator("#blue-ia-nueva").count()) === 0, "BI: sin conversación, el botón no sale");
+    for (let i = 0; i < 20 && !evento(estado, "blue_ia_conversacion_nueva").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "blue_ia_conversacion_nueva")[0]?.metadata?.desde === "boton", `BI: la analítica propia cuenta la nueva y desde dónde (${JSON.stringify(evento(estado, "blue_ia_conversacion_nueva")[0]?.metadata ?? null)})`);
+    await capturar(p, "BI2-nueva-conversacion");
+
+    // BI3) Se pregunta en la nueva; al cambiar de pestaña y volver, la conversación sigue y el saludo no se reescribe.
+    await p.getByPlaceholder("Pregúntale a Blue IA…").fill("¿Hacéis envíos?");
+    await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+    await p.getByText("Claro: enviamos a toda España en 1-2 días.").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const guardadas = (estado.blueHistorial.guardado ?? []).filter((g) => g.tabla === "conversaciones");
+    ok(guardadas.length === 1 && /Hacéis envíos/.test(guardadas[0].cuerpo?.titulo ?? ""), "BI: la nueva se guarda aparte (la anterior sigue en el Historial)");
+    const antes3 = await cursores(p);
+    await p.locator('[data-testid="pestana-cesta"]').first().click({ timeout: 30000 });
+    await p.waitForTimeout(1000);
+    await p.locator('[data-testid="pestana-blue-ia"]').first().click({ timeout: 30000 });
+    await p.waitForTimeout(2500);
+    const t3 = await texto(p);
+    ok((await cursores(p)) === antes3 && /¿Hacéis envíos\?/.test(t3) && (await p.locator("#blue-ia-nueva").count()) === 1, "BI: al cambiar de pestaña y volver, la conversación sigue y el saludo no se reescribe");
+    ok(p.errores.length === 0, `BI: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BI4) Sin sesión: no hay nada guardado que esperar; saluda escribiendo y «Nueva conversación» sale al preguntar.
+  {
+    const estado = { filas: [], guardados: [], blueIa: () => "Claro, dime qué buscas." };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    await vigilarCursor(ctx);
+    const p = await pagina(ctx, "/blue-ia");
+    await p.waitForTimeout(3000);
+    ok((await cursores(p)) > 0 && (await p.locator("#blue-ia-nueva").count()) === 0 && /Quiero vender/.test(await texto(p)), "BI: sin sesión, Blue IA saluda escribiendo, con sugerencias y sin «Nueva conversación»");
+    await p.getByPlaceholder("Pregúntale a Blue IA…").fill("Busco una Switch");
+    await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+    await p.getByText("Claro, dime qué buscas.").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#blue-ia-nueva").click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok(!/Busco una Switch/.test(await texto(p)), "BI: sin sesión, «Nueva conversación» también empieza de cero");
+    ok(p.errores.length === 0, `BI: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BI6) Red muy lenta (la conversación tarda 6 s): a los 4 s saluda igual y, cuando llega, se abre con el saludo quieto.
+  {
+    const estado = { filas: perfil, guardados: [], blueHistorial: { conversaciones: [conv], mensajes, retraso: 6000 } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/blue-ia");
+    await p.waitForTimeout(5200);
+    const antes = await p.evaluate(() => ({ rueda: !!document.getElementById("blue-ia-cargando"), sugerencias: /Quiero vender/.test(document.body.innerText) }));
+    ok(!antes.rueda && antes.sugerencias, `BI: con la red muy lenta no se queda esperando: a los 4 s saluda igual (${JSON.stringify(antes)})`);
+    await p.getByText("Sí, tenemos varias PS5 revisadas.").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    const t = await texto(p);
+    ok(
+      /Sí, tenemos varias PS5 revisadas/.test(t) && !t.includes("▍") && (t.match(/Hola, soy Blue IA/g) ?? []).length === 1 && (await p.locator("#blue-ia-nueva").count()) === 1,
+      "BI: y cuando llega la conversación, se abre con el saludo quieto y «Nueva conversación»"
+    );
+    ok(p.errores.length === 0, `BI: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BI5) Administración → Analítica: cuántas sesiones siguen su conversación y cuántas empiezan una nueva.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue IA: conversación retomada", sessions: 4 },
+        { step_label: "Blue IA: nueva conversación", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-conversaciones").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-blue-conversaciones").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/siguen su última conversación: 4 sesiones · empiezan una nueva: 2/.test(t), `BI: Administración → Analítica lo cuenta (${t})`);
+    ok(p.errores.length === 0, `BI: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -3717,6 +3893,7 @@ try {
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
   if (SOLO === "SE") await seccionSE();
+  if (SOLO === "BI") await seccionBI();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -4652,6 +4829,7 @@ try {
   await seccionCO();
   await seccionDI();
   await seccionSE();
+  await seccionBI();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

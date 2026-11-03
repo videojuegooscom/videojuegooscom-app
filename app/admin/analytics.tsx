@@ -530,6 +530,9 @@ export default function AdminAnalytics() {
       fotoZoom: findExact("Ficha: zoom en la foto"),
       // «Blue, ayúdame a elegir un artículo» de la Cesta (app/(tabs)/cesta.tsx): abre Blue IA con la pregunta enviada.
       blueElegir: findExact("Cesta: Blue, ayúdame a elegir"),
+      // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
+      blueRetomada: findExact("Blue IA: conversación retomada"),
+      blueNueva: findExact("Blue IA: nueva conversación"),
     };
   }, [funnel]);
 
@@ -863,6 +866,23 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Cesta → «Blue, ayúdame a elegir un artículo»: {coreFunnel.blueElegir}{" "}
                       {coreFunnel.blueElegir === 1 ? "sesión" : "sesiones"}
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-blue-conversaciones"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="chatbubbles-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Blue IA → siguen su última conversación: {coreFunnel.blueRetomada}{" "}
+                      {coreFunnel.blueRetomada === 1 ? "sesión" : "sesiones"} · empiezan una nueva: {coreFunnel.blueNueva}
                     </Text>
                   </View>
                 </View>
