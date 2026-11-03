@@ -84,7 +84,7 @@ import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto 
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
-import { MejorasModal } from "../../components/ReviewModal";
+import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
 import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trackEvent } from "../../lib/analytics";
@@ -1848,6 +1848,10 @@ function SeguimientosSeccion() {
   const [reparaciones, setReparaciones] = useState<ReparacionSeg[]>([]);
   // ¿Existen ya los números de seguimiento? (migración 20261031170000). Sin ellos no se ofrece añadir uno.
   const [numerosOk, setNumerosOk] = useState(false);
+  // Reseñas de los servicios entregados (migración 20261103210000): estrellas que ya les dio, por solicitud. null: aún
+  // no se pueden valorar (sin la migración no sale el botón).
+  const [valoradas, setValoradas] = useState<Record<string, number> | null>(null);
+  const [valorando, setValorando] = useState<{ solicitudId: string; titulo: string } | null>(null);
 
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
   const cargar = useCallback(async (silencioso = false) => {
@@ -1936,6 +1940,18 @@ function SeguimientosSeccion() {
             etapa: String(r.seguimiento ?? "solicitado"),
             actualizado: String(r.seguimiento_actualizado ?? ""),
           });
+        }
+        // Las entregadas se pueden valorar una vez: ¿cuáles ya tienen su reseña? (si la columna aún no existe, ninguna
+        // se ofrece).
+        const entregadas = (repRes.data ?? []).filter((r: any) => r.seguimiento === "entregado").map((r: any) => String(r.id));
+        if (!entregadas.length) setValoradas({});
+        else {
+          const res = await supabase.from("store_reviews").select("service_request_id,rating").eq("user_id", uid).in("service_request_id", entregadas);
+          setValoradas(
+            res.error
+              ? null
+              : Object.fromEntries(((res.data ?? []) as { service_request_id: string; rating: number }[]).map((f) => [f.service_request_id, f.rating]))
+          );
         }
       }
 
@@ -2031,11 +2047,48 @@ function SeguimientosSeccion() {
                   <Text style={{ color: SEG.text, textAlign: "center", lineHeight: 20 }}>{r.seguimiento_nota}</Text>
                 </View>
               ) : null}
+              {/* Terminado: se pide su valoración (una vez); con ella, sus estrellas. */}
+              {r.seguimiento === "entregado" && valoradas !== null ? (
+                valoradas[r.id] ? (
+                  <Text nativeID={`valorado-${r.id}`} style={{ color: SEG.muted, fontWeight: "800", fontSize: 13 }}>
+                    Tu valoración: <Text style={{ color: "#F5A524" }}>{"★".repeat(valoradas[r.id])}</Text>
+                  </Text>
+                ) : (
+                  <Pressable
+                    nativeID={`valorar-${r.id}`}
+                    onPress={() => {
+                      trackEvent("resena_servicio_pedida", "Seguimientos: valorar el servicio", { metadata: { solicitud: r.id } });
+                      setValorando({ solicitudId: r.id, titulo: r.service_title });
+                    }}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      borderRadius: 999,
+                      minHeight: 44,
+                      paddingHorizontal: 22,
+                      justifyContent: "center",
+                      backgroundColor: SEG.accentDark,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Valorar el servicio</Text>
+                  </Pressable>
+                )
+              ) : null}
               <PreguntarBoton onPress={() => router.push(`/blue-ia?reparacion=${r.id}`)} />
             </View>
           ))
         )}
       </View>
+
+      <ReviewModal
+        visible={!!valorando}
+        servicio={valorando}
+        onClose={() => setValorando(null)}
+        onPublished={(resena) => {
+          const id = valorando?.solicitudId;
+          if (id) setValoradas((v) => ({ ...(v ?? {}), [id]: resena.rating }));
+        }}
+      />
     </View>
   );
 }

@@ -535,6 +535,9 @@ export default function AdminAnalytics() {
       // «Me gusta»: la pestaña de Perfil (app/(tabs)/perfil.tsx) y los dados a servicios (app/servicio/[id].tsx).
       meGustaPestana: findExact("Perfil: Me gusta"),
       meGustaServicio: findExact("Servicio: me gusta"),
+      // Reseñas de servicios terminados: «Valorar el servicio» en «Mis seguimientos» y las publicadas.
+      resenaServicioPedida: findExact("Seguimientos: valorar el servicio"),
+      resenaServicioPublicada: findExact("Reseña de servicio publicada"),
       // «Blue, ayúdame a elegir un artículo» de la Cesta (app/(tabs)/cesta.tsx): abre Blue IA con la pregunta enviada.
       blueElegir: findExact("Cesta: Blue, ayúdame a elegir"),
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
@@ -879,7 +882,7 @@ export default function AdminAnalytics() {
                   >
                     <Ionicons name="construct-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
-                      Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} (sesiones)
+                      Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} · «Valorar el servicio» {coreFunnel.resenaServicioPedida} · reseñas publicadas {coreFunnel.resenaServicioPublicada} (sesiones)
                     </Text>
                   </View>
                   <View

@@ -1385,6 +1385,82 @@ try {
     ok(repetidaFrase === 2, `(control) sin la condición la frase se repite (${repetidaFrase} veces): la prueba SÍ lo detecta`);
     await c34.end();
   }
+
+  // 24) Reseñas de servicios terminados (20261103210000), sobre store_reviews como en producción (sql/store_reviews.sql,
+  // con el disparador y los permisos de entonces) y service_requests como en producción.
+  {
+    const RESENAS = readFileSync("supabase/migrations/20261103210000_resenas_servicios.sql", "utf8");
+    const TIENDA = readFileSync("sql/store_reviews.sql", "utf8").replace(/do \$\$\s*begin\s*alter publication[\s\S]*?end \$\$;/, "");
+    const SERV_A = "5e000000-0000-4000-8000-0000000000a1";
+    const ESQUEMA_R = `
+      -- Los datos de la cuenta, como en Supabase (de ahí saca el disparador el nombre de quien reseña).
+      alter table auth.users add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
+      update auth.users set raw_user_meta_data = jsonb_build_object('full_name', 'Ana García', 'username', 'ana_g') where id = '${U1}';
+      create table public.services (id uuid primary key default gen_random_uuid(), title text not null);
+      insert into public.services (id, title) values ('${SERV_A}', 'Limpieza PS5');
+      create table public.service_requests (
+        id uuid primary key default gen_random_uuid(), service_id uuid, service_title text not null, nombre text not null default '',
+        customer_user_id uuid references auth.users (id) on delete set null, seguimiento text not null default 'solicitado');
+      alter table public.service_requests enable row level security;
+      create policy service_requests_select_own on public.service_requests for select to authenticated using (customer_user_id = auth.uid());
+      insert into public.service_requests (id, service_id, service_title, customer_user_id, seguimiento) values
+        ('5f000000-0000-4000-8000-000000000001', '${SERV_A}', 'Limpieza PS5', '${U1}', 'entregado'),
+        ('5f000000-0000-4000-8000-000000000002', '${SERV_A}', 'Limpieza PS5', '${U1}', 'reparando'),
+        ('5f000000-0000-4000-8000-000000000003', '${SERV_A}', 'Limpieza PS5', '${U2}', 'entregado'),
+        ('5f000000-0000-4000-8000-000000000004', null, 'Reparación por chat', '${U1}', 'entregado');
+      insert into auth.users (id, email) values ('44444444-4444-4444-8444-444444444444', 'u4@example.com');
+    `;
+    const SR = (n) => `5f000000-0000-4000-8000-00000000000${n}`;
+    const c35 = await nuevaBase("vz_aislada_resenas_servicios", ESQUEMA_R + TIENDA);
+    // Una reseña de la tienda de antes de la migración (con el disparador de entonces).
+    const vieja = await como(c35, "authenticated", "44444444-4444-4444-8444-444444444444", "insert into public.store_reviews (rating, comment) values (5, 'Antigua')", { confirmar: true });
+    const antiguas = Number((await c35.query("select count(*) as n from public.store_reviews")).rows[0].n);
+    ok(vieja.ok && antiguas === 1, `Reseñas de servicios: antes de la migración se reseña la tienda como siempre (${vieja.ok ? antiguas : vieja.mensaje})`);
+    await c35.query(RESENAS);
+    let repetidaR = true;
+    try {
+      await c35.query(RESENAS);
+    } catch (e) {
+      repetidaR = false;
+      console.log(String(e.message));
+    }
+    const columnasR = (await c35.query("select column_name from information_schema.columns where table_name = 'store_reviews' and column_name like 'service%' order by 1")).rows.map((r) => r.column_name);
+    ok(repetidaR && columnasR.join(",") === "service_id,service_request_id,service_title", `Reseñas de servicios: añade las columnas y se puede aplicar dos veces (${columnasR.join(", ")})`);
+    ok(Number((await c35.query("select count(*) as n from public.store_reviews")).rows[0].n) === antiguas, "Reseñas de servicios: no toca las reseñas que ya había");
+    const politicasR = (await c35.query("select policyname from pg_policies where tablename = 'store_reviews' order by 1")).rows.map((r) => r.policyname);
+    ok(politicasR.join(",") === "store_reviews_delete_admin,store_reviews_insert_authenticated,store_reviews_select_public", `Reseñas de servicios: no toca las políticas (${politicasR.join(", ")})`);
+
+    const resena = (uid, sr, extra = "") => como(c35, "authenticated", uid, `insert into public.store_reviews (rating, comment, service_request_id${extra ? ", service_id" : ""}) values (5, 'Muy bien', ${sr ? `'${sr}'` : "null"}${extra ? `, '${extra}'` : ""}) returning service_id, service_title, user_id`, { confirmar: true });
+    const propia = await resena(U1, SR(1));
+    ok(propia.ok && propia.filas[0].service_id === SERV_A && propia.filas[0].service_title === "Limpieza PS5" && propia.filas[0].user_id === U1, `Reseñas de servicios: el cliente valora su servicio entregado y la reseña queda en ese servicio (${propia.ok ? propia.filas[0].service_title : propia.mensaje})`);
+    const otraVez = await resena(U1, SR(1));
+    ok(!otraVez.ok && otraVez.codigo === "23505", `Reseñas de servicios: una sola reseña por solicitud (${otraVez.codigo})`);
+    const sinEntregar = await resena(U1, SR(2));
+    ok(!sinEntregar.ok && /ya te hayamos entregado/.test(sinEntregar.mensaje), "Reseñas de servicios: no se puede valorar un servicio que aún no está entregado");
+    const ajena = await resena(U1, SR(3));
+    ok(!ajena.ok && /ya te hayamos entregado/.test(ajena.mensaje), "Reseñas de servicios: ni la solicitud de otra persona");
+    const inventada = await resena(U1, "5f000000-0000-4000-8000-0000000000ff");
+    ok(!inventada.ok, `Reseñas de servicios: ni una solicitud que no existe (${inventada.codigo})`);
+    const colada = await resena(U2, null, SERV_A);
+    ok(colada.ok && colada.filas[0].service_id === null, "Reseñas de servicios: una reseña de la tienda no puede colarse en la ficha de un servicio (service_id se queda vacío)");
+    const deChat = await resena(U1, SR(4));
+    ok(deChat.ok && deChat.filas[0].service_id === null && deChat.filas[0].service_title === "Reparación por chat", "Reseñas de servicios: una solicitud sin servicio (de chat o VeoAura) se valora igual, sin ficha");
+    const sinSesion = await como(c35, "anon", null, `insert into public.store_reviews (rating, comment, service_request_id) values (5, 'x', '${SR(3)}')`);
+    ok(!sinSesion.ok, `Reseñas de servicios: sin sesión no se puede (${sinSesion.codigo})`);
+    const lectura = await como(c35, "anon", null, `select display_name, rating, comment from public.store_reviews where service_id = '${SERV_A}'`);
+    ok(lectura.ok && lectura.filas.length === 1, `Reseñas de servicios: cualquiera lee las reseñas de un servicio (como las de Inicio) (${lectura.filas?.length})`);
+    const acl = (await c35.query("select coalesce(proacl::text, '') as acl, prosecdef from pg_proc where proname = 'store_reviews_before_insert'")).rows[0];
+    ok(acl.prosecdef === true && !/(^\{|,)=X|anon=|authenticated=/.test(acl.acl), `Reseñas de servicios: la función sigue sin poder ejecutarla nadie desde el navegador (${acl.acl})`);
+    await c35.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la función de antes (sin la comprobación), cualquiera valoraría la solicitud de otro.
+    const sinComprobacion = RESENAS.replace(/  -- Reseña de un servicio:[\s\S]*?  end if;\n\n  return new;/, "  return new;");
+    ok(sinComprobacion !== RESENAS, "(control) se ha podido quitar la comprobación en la copia de prueba");
+    const c36 = await nuevaBase("vz_aislada_resenas_servicios_sin_comprobacion", ESQUEMA_R + TIENDA + sinComprobacion);
+    const ajenaSin = await como(c36, "authenticated", U1, `insert into public.store_reviews (rating, comment, service_request_id, service_id) values (1, 'Malo', '${SR(3)}', '${SERV_A}') returning id`, { confirmar: true });
+    ok(ajenaSin.ok, "(control) sin la comprobación, alguien valora la solicitud de otro: la prueba SÍ lo detecta");
+    await c36.end();
+  }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {

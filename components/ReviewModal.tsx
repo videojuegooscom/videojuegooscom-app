@@ -285,14 +285,19 @@ function StarPicker({ rating, onChange }: { rating: number; onChange: (n: number
   );
 }
 
+// servicio: valorar un servicio terminado desde «Mis seguimientos» (dueño, 2026-11-03). La reseña va unida a esa
+// solicitud (service_request_id) y la base de datos solo la acepta si es del cliente y ya está «entregado», una vez
+// (supabase/migrations/20261103210000_resenas_servicios.sql); la ficha del servicio la enseña.
 export default function ReviewModal({
   visible,
   onClose,
   onPublished,
+  servicio,
 }: {
   visible: boolean;
   onClose: () => void;
   onPublished: (review: PublishedReview) => void;
+  servicio?: { solicitudId: string; titulo: string } | null;
 }) {
   const [phase, setPhase] = useState<Phase>("checking");
   const [rating, setRating] = useState(5);
@@ -392,7 +397,7 @@ export default function ReviewModal({
     try {
       const { data, error } = await supabase
         .from("store_reviews")
-        .insert({ rating, comment: comment.trim() })
+        .insert(servicio ? { rating, comment: comment.trim(), service_request_id: servicio.solicitudId } : { rating, comment: comment.trim() })
         .select("id,created_at,user_id,display_name,rating,comment")
         .single();
 
@@ -400,7 +405,7 @@ export default function ReviewModal({
 
       // Analítica propia (Administración → Usuarios): estrellas, ideas usadas y emojis propuestos que se quedaron.
       const final = comment.trim();
-      void trackEvent("resena_publicada", "Reseña publicada", {
+      void trackEvent(servicio ? "resena_servicio_publicada" : "resena_publicada", servicio ? "Reseña de servicio publicada" : "Reseña publicada", {
         metadata: {
           estrellas: rating,
           sugerencias: SUGERENCIAS_RESENA.filter((s) => final.includes(s.texto)).map((s) => s.id),
@@ -411,8 +416,13 @@ export default function ReviewModal({
       setPhase("success");
     } catch (e: any) {
       const msg = String(e?.message ?? "");
+      const codigo = String(e?.code ?? "");
       if (msg.toLowerCase().includes("iniciar sesión")) {
         setPhase("auth-required");
+      } else if (servicio && codigo === "23505") {
+        setErrorMsg("Ya has valorado este servicio. ¡Gracias!");
+      } else if (servicio && /ya te hayamos entregado/.test(msg)) {
+        setErrorMsg("Podrás valorarlo cuando te lo hayamos entregado.");
       } else {
         setErrorMsg("No se pudo publicar la reseña. Inténtalo de nuevo en unos segundos.");
       }
@@ -602,8 +612,13 @@ export default function ReviewModal({
                 <View style={{ gap: 14, paddingTop: 6 }}>
                   <View style={{ alignItems: "center", paddingHorizontal: 30, gap: 4 }}>
                     <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: "900", textAlign: "center" }}>
-                      Cuéntanos tu experiencia
+                      {servicio ? "¿Qué tal el servicio?" : "Cuéntanos tu experiencia"}
                     </Text>
+                    {servicio ? (
+                      <Text nativeID="resena-servicio-titulo" style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>
+                        {servicio.titulo}
+                      </Text>
+                    ) : null}
                     {previewName ? (
                       <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>
                         Se publicará como {previewName}

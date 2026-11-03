@@ -20,6 +20,11 @@
  * (LIKED_SERVICES_KEY) y la pestaña «Me gusta» de Perfil los enseña. Sin la
  * migración (services.like_count no existe) el corazón no sale y nada se rompe.
  *
+ * Reseñas (dueño, 2026-11-03): «Mis seguimientos» pide valorar el servicio al
+ * entregarlo y aquí salen la media junto al precio y las opiniones debajo de
+ * las pestañas (store_reviews con service_id; sin la migración
+ * 20261103210000_resenas_servicios.sql, no sale nada).
+ *
  * "X Visitas": mismo mecanismo REAL que en producto/[id].tsx (ver
  * sql/services.sql, columna view_count y función increment_service_view).
  *
@@ -116,6 +121,26 @@ type Service = {
   likeCount: number | null;
 };
 
+type ResenaServicio = { id: string; created_at: string; display_name: string; rating: number; comment: string };
+
+// Reseñas de los clientes que contrataron ESTE servicio (las une a su solicitud la base de datos, migración
+// 20261103210000_resenas_servicios.sql). null: aún no se pueden leer (sin la migración, el bloque no sale).
+async function fetchResenas(serviceId: string): Promise<ResenaServicio[] | null> {
+  const { data, error } = await supabase
+    .from("store_reviews")
+    .select("id,created_at,display_name,rating,comment")
+    .eq("service_id", serviceId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) return null;
+  return (data ?? []) as ResenaServicio[];
+}
+
+function estrellas(n: number) {
+  const v = Math.max(0, Math.min(5, Math.round(n)));
+  return "★".repeat(v) + "☆".repeat(5 - v);
+}
+
 // ¿Falta una columna? (la migración aún no se ha aplicado): entonces se repite la consulta sin ella.
 function faltaColumna(error: unknown) {
   const e = error as { code?: string; message?: string } | null;
@@ -177,6 +202,7 @@ export default function ServicioScreen() {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState<number | null>(null);
   const [likeBusy, setLikeBusy] = useState(false);
+  const [resenas, setResenas] = useState<ResenaServicio[] | null>(null);
 
   // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
   async function load(silencioso = false) {
@@ -202,6 +228,7 @@ export default function ServicioScreen() {
       setSelectedImageUrl(cover?.publicUrl ?? null);
       setLikeCount(row.likeCount);
       meGustaLocales(LIKED_SERVICES_KEY).then((ids) => setLiked(ids.includes(row.id)));
+      fetchResenas(row.id).then(setResenas);
 
       if (!silencioso) {
         contarVistaServicio(row.id).then((total) => {
@@ -240,6 +267,8 @@ export default function ServicioScreen() {
         : [],
     [s]
   );
+
+  const media = resenas?.length ? resenas.reduce((t, r) => t + r.rating, 0) / resenas.length : null;
 
   const imageGallery = s?.media ?? [];
   const lightboxImages: LightboxImage[] = useMemo(() => (s?.media ?? []).map((m) => ({ id: m.id, url: m.publicUrl })), [s]);
@@ -679,6 +708,14 @@ export default function ServicioScreen() {
                     {fmtEUR(s.priceEUR)}
                   </Text>
 
+                  {/* La valoración de quienes ya lo contrataron (solo si hay reseñas). */}
+                  {media !== null && resenas ? (
+                    <Text nativeID="servicio-valoracion" style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>
+                      <Text style={{ color: "#F5A524" }}>★</Text> {media.toFixed(1).replace(".", ",")} · {resenas.length}{" "}
+                      {resenas.length === 1 ? "reseña" : "reseñas"} de clientes
+                    </Text>
+                  ) : null}
+
                   <View style={{ gap: 10, width: "100%", maxWidth: 460 }}>
                     {/* Acción principal: una sola, clara (como «Comprar ya» en producto). */}
                     <Pressable
@@ -731,6 +768,35 @@ export default function ServicioScreen() {
                     descripcion={s.description}
                     sinDescripcion={SIN_DESCRIPCION_SERVICIO}
                   />
+
+                  {/* Reseñas de quienes ya lo contrataron (se piden en «Mis seguimientos» al entregarlo). */}
+                  {resenas && resenas.length ? (
+                    <View nativeID="servicio-resenas" style={{ width: "100%", maxWidth: 520, gap: 4, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#EEF3F8" }}>
+                      <Text
+                        accessibilityRole="header"
+                        {...({ "aria-level": 2 } as object)}
+                        style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center", marginBottom: 6 }}
+                      >
+                        Opiniones de clientes
+                      </Text>
+                      {resenas.slice(0, 10).map((r, i) => (
+                        <View key={r.id} style={{ gap: 3, paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "#EEF3F8" }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                            <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 14 }}>
+                              {r.display_name || "Cliente"}
+                            </Text>
+                            <Text accessibilityLabel={`${r.rating} de 5 estrellas`} style={{ color: "#F5A524", fontSize: 14 }}>
+                              {estrellas(r.rating)}
+                            </Text>
+                          </View>
+                          {r.comment ? <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{r.comment}</Text> : null}
+                          <Text style={{ color: COLORS.muted, fontSize: 12 }}>
+                            {new Date(r.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               </View>
             </View>
