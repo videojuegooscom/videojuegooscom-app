@@ -4297,7 +4297,7 @@ async function seccionSV() {
 }
 
 // ===== FS) Ficha de servicio con el formato de la de producto (dueño, 2026-11-03): galería con posición, foto en
-// grande con zoom, precio, «Contratar servicio ahora» y «Preguntar por WhatsApp» como los botones de producto, ficha
+// grande con zoom, precio, «Contratar servicio ahora» y «Preguntar por este servicio» como los botones de producto, ficha
 // con pestañas «Características» y «Descripción», «Volver atrás» al final (sin el «Volver» flotante) y sin los bloques
 // que la de producto no tiene; su uso en Administración → Analítica. En el móvil y en el ordenador ====================
 async function seccionFS() {
@@ -4356,7 +4356,7 @@ async function seccionFS() {
     const orden = await p.evaluate(() => {
       const y = (s) => document.querySelector(s)?.getBoundingClientRect().top ?? -1;
       const precio = [...document.querySelectorAll("div")].find((d) => d.childElementCount === 0 && d.innerText.trim() === "45,00€");
-      return [precio ? precio.getBoundingClientRect().top : -1, y("#servicio-contratar"), y("#servicio-whatsapp"), y("#servicio-ficha-carrusel"), y("#servicio-volver")];
+      return [precio ? precio.getBoundingClientRect().top : -1, y("#servicio-contratar"), y("#servicio-preguntar"), y("#servicio-ficha-carrusel"), y("#servicio-volver")];
     });
     ok(orden.every((v) => v >= 0) && orden.every((v, i) => i === 0 || v > orden[i - 1]), `FS (${nombre}): precio, «Contratar», «Preguntar», ficha y «Volver atrás», en ese orden (${orden.map(Math.round).join(" < ")})`);
 
@@ -4366,14 +4366,14 @@ async function seccionFS() {
     ok(pestanas.join("|") === "Características|Descripción", `FS (${nombre}): pestañas «Características» y «Descripción» (${pestanas.join(", ")})`);
     ok(/Tipo\s*Reparación \/ Limpieza/.test(ficha) && /Precio\s*45,00€/.test(ficha) && /Contratación\s*Disponible ahora/.test(ficha), `FS (${nombre}): «Características» con tipo, precio y contratación (${ficha})`);
 
-    // FS4) Sin lo que la ficha de producto no tiene: bloques de confianza, el WhatsApp repetido y el «Volver» flotante.
+    // FS4) Sin lo que la ficha de producto no tiene: bloques de confianza, WhatsApp y el «Volver» flotante.
     const whatsapps = await p.evaluate(() => [...document.querySelectorAll('[role="button"]')].filter((b) => /WhatsApp/.test(b.innerText)).length);
-    ok(!/Contrata con tranquilidad|¿Tienes dudas antes de contratar\?|Volver a servicios/.test(t) && whatsapps === 1, `FS (${nombre}): sin bloques de confianza ni WhatsApp repetido (${whatsapps} botón)`);
+    ok(!/Contrata con tranquilidad|¿Tienes dudas antes de contratar\?|Volver a servicios/.test(t) && whatsapps === 0, `FS (${nombre}): sin bloques de confianza ni WhatsApp (${whatsapps} botones de WhatsApp)`);
     ok((await p.locator('[aria-label="Volver"]').count()) === 0, `FS (${nombre}): sin el «Volver» flotante (lleva «Volver atrás» al final, como producto)`);
 
     // FS5) Los botones, iguales que los de la ficha de producto (alto, forma y color).
     const contratar = await caja(p, "#servicio-contratar");
-    const preguntar = await caja(p, "#servicio-whatsapp");
+    const preguntar = await caja(p, "#servicio-preguntar");
     const volver = await caja(p, "#servicio-volver");
     const q = await pagina(ctx, `/producto/${PRODUCTO}`);
     await q.locator("#producto-ficha-carrusel").waitFor({ timeout: 40000 }).catch(() => {});
@@ -4384,7 +4384,7 @@ async function seccionFS() {
     const igual = (a, b) => !!a && !!b && a.h === b.h && a.w === b.w && a.radio === b.radio && a.fondo === b.fondo;
     const sinPos = (a) => a && { w: a.w, h: a.h, radio: a.radio, fondo: a.fondo };
     ok(igual(contratar, comprar), `FS (${nombre}): «Contratar servicio ahora» mide y se ve como «Comprar ya» (${JSON.stringify([sinPos(contratar), sinPos(comprar)])})`);
-    ok(igual(preguntar, preguntarProducto), `FS (${nombre}): «Preguntar por WhatsApp» como «Preguntar por este producto» (${JSON.stringify([sinPos(preguntar), sinPos(preguntarProducto)])})`);
+    ok(igual(preguntar, preguntarProducto), `FS (${nombre}): «Preguntar por este servicio» como «Preguntar por este producto» (${JSON.stringify([sinPos(preguntar), sinPos(preguntarProducto)])})`);
     ok(igual(volver, volverProducto), `FS (${nombre}): «Volver atrás» como el de producto (${JSON.stringify([sinPos(volver), sinPos(volverProducto)])})`);
     ok((await q.locator("#producto-caracteristicas").count()) === 1 && q.errores.length === 0, `FS (${nombre}): la ficha de producto sigue con sus pestañas y sin errores (${q.errores[0] ?? "ninguno"})`);
     await q.close();
@@ -4433,24 +4433,26 @@ async function seccionFS() {
     await ctx.close();
   }
 
-  // FS9) «Preguntar por WhatsApp» abre WhatsApp con el servicio y se cuenta.
+  // FS9) «Preguntar por este servicio» abre Blue IA con el servicio como contexto (como en producto; desde ahí,
+  // «Hablar con el equipo» abre el chat de la tienda) y se cuenta. Nada de WhatsApp.
   {
     const estado = estadoBase();
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
-    // WhatsApp no se abre de verdad: se apunta adónde iría.
     const aWhatsApp = [];
     await ctx.route(/wa\.me|whatsapp\.com/, (r) => {
       aWhatsApp.push(r.request().url());
       return r.fulfill({ status: 200, contentType: "text/html", body: "<p>WhatsApp</p>" });
     });
     const p = await pagina(ctx, `/servicio/${ID}`);
-    await p.locator("#servicio-whatsapp").waitFor({ timeout: 40000 }).catch(() => {});
-    await p.locator("#servicio-whatsapp").click();
-    await p.waitForTimeout(1500);
-    const destino = decodeURIComponent(aWhatsApp[0] ?? "");
-    ok(/^https:\/\/wa\.me\/34627748741\?text=/.test(destino) && destino.includes("Servicio: Mantenimiento Consola Playstation 5"), `FS: «Preguntar por WhatsApp» abre WhatsApp con el servicio (${destino.slice(0, 120).replace(/\n/g, " ")})`);
-    await p.waitForTimeout(400);
-    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Servicio: Preguntar por WhatsApp"), "FS: y se cuenta en la analítica");
+    await p.locator("#servicio-preguntar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#servicio-preguntar").click();
+    await p.waitForURL(/\/blue-ia\?servicio=/, { timeout: 15000 }).catch(() => {});
+    await p.getByText(/el servicio Mantenimiento Consola Playstation 5, 45,00€/).first().waitFor({ timeout: 20000 }).catch(() => {});
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(p.url().includes(`/blue-ia?servicio=${ID}`) && /el servicio Mantenimiento Consola Playstation 5, 45,00€/.test(t), `FS: «Preguntar por este servicio» abre Blue IA con el servicio (${p.url().replace(BASE, "")})`);
+    ok(aWhatsApp.length === 0, `FS: y no abre WhatsApp (${aWhatsApp.length})`);
+    await capturar(p, "FS3-blue-ia-servicio");
+    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Servicio: Preguntar por este servicio"), "FS: y se cuenta en la analítica");
     await ctx.close();
   }
 
@@ -4462,14 +4464,14 @@ async function seccionFS() {
         { step_label: "Inicio", sessions: 10 },
         { step_label: "Servicio: foto ampliada", sessions: 4 },
         { step_label: "Servicio: Contratar servicio ahora", sessions: 2 },
-        { step_label: "Servicio: Preguntar por WhatsApp", sessions: 3 },
+        { step_label: "Servicio: Preguntar por este servicio", sessions: 3 },
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/analytics");
     await p.locator("#analitica-ficha-servicio").waitFor({ timeout: 40000 }).catch(() => {});
     const t = (await p.locator("#analitica-ficha-servicio").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/fotos ampliadas 4 · «Contratar servicio ahora» 2 · «Preguntar por WhatsApp» 3/.test(t), `FS: Administración → Analítica lo cuenta (${t})`);
+    ok(/fotos ampliadas 4 · «Contratar servicio ahora» 2 · «Preguntar por este servicio» 3/.test(t), `FS: Administración → Analítica lo cuenta (${t})`);
     ok(p.errores.length === 0, `FS: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }

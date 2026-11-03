@@ -531,7 +531,7 @@ export default function AdminAnalytics() {
       // Ficha de servicio (app/servicio/[id].tsx, con el formato de la de producto): fotos ampliadas y sus dos botones.
       servicioFoto: findExact("Servicio: foto ampliada"),
       servicioContratar: findExact("Servicio: Contratar servicio ahora"),
-      servicioWhatsapp: findExact("Servicio: Preguntar por WhatsApp"),
+      servicioPreguntar: findExact("Servicio: Preguntar por este servicio"),
       // «Blue, ayúdame a elegir un artículo» de la Cesta (app/(tabs)/cesta.tsx): abre Blue IA con la pregunta enviada.
       blueElegir: findExact("Cesta: Blue, ayúdame a elegir"),
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
@@ -876,7 +876,7 @@ export default function AdminAnalytics() {
                   >
                     <Ionicons name="construct-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
-                      Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por WhatsApp» {coreFunnel.servicioWhatsapp} (sesiones)
+                      Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} (sesiones)
                     </Text>
                   </View>
                   <View

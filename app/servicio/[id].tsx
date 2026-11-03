@@ -9,7 +9,10 @@
  * «Descripción» (FichaProducto, la misma de producto) y «Volver atrás» al
  * final. Las diferencias que pidió Jefe se mantienen: no hay «Añadir a la
  * cesta» ni Cantidad, y «Comprar ya» es «Contratar servicio ahora», que abre
- * components/ContratarServicioModal.tsx. Las dudas van por WhatsApp.
+ * components/ContratarServicioModal.tsx. Las dudas, como en producto:
+ * «Preguntar por este servicio» abre Blue IA con el servicio como contexto
+ * (?servicio=<id>) y, desde ahí, «Hablar con el equipo» abre el chat de la
+ * tienda (sin WhatsApp; petición del dueño, 2026-11-03).
  *
  * No incluye (a diferencia de la ficha de producto): «me gusta» ni el chat
  * privado por artículo — ninguno de los dos se pidió para servicios y cada
@@ -20,7 +23,7 @@
  * sql/services.sql, columna view_count y función increment_service_view).
  *
  * Analítica (Administración → Analítica, #analitica-ficha-servicio): fotos
- * ampliadas, «Contratar servicio ahora» y «Preguntar por WhatsApp».
+ * ampliadas, «Contratar servicio ahora» y «Preguntar por este servicio».
  *
  * Conectado con:
  * - lib/supabase.ts → tablas services, service_media.
@@ -34,7 +37,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -50,7 +52,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { contarVistaServicio } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analytics";
-import { openExternalLink } from "../../lib/openExternalLink";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
@@ -75,12 +76,8 @@ const COLORS = {
   accentDark: "#1EA7E8",
 };
 
-const BRAND = {
-  whatsappPhoneE164: "+34627748741",
-};
-
 const SIN_DESCRIPCION_SERVICIO =
-  "Todavía no hay una descripción disponible para este servicio. Aun así, puedes preguntarnos por su alcance, tiempo estimado o garantía por WhatsApp.";
+  "Todavía no hay una descripción disponible para este servicio. Aun así, puedes preguntarnos por su alcance, tiempo estimado o garantía con «Preguntar por este servicio».";
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
@@ -88,18 +85,6 @@ function fmtEUR(n: number) {
   const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
   const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
   return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
-
-function openWhatsApp(prefill: string) {
-  const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
-  const text = encodeURIComponent(String(prefill ?? "").trim().slice(0, 500));
-  const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
-
-  try {
-    openExternalLink(url);
-  } catch {
-    Linking.openURL(`https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`);
-  }
 }
 
 function smartBack() {
@@ -229,13 +214,6 @@ export default function ServicioScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarga]);
 
-  const whatsappText = `Hola, vengo desde Videojuegoszaragoza.com.
-
-Servicio: ${s?.title ?? "Reparación/Limpieza"}
-${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
-
-¿Podéis darme más información sobre este servicio?`;
-
   // La ficha con pestañas (la misma de producto): lo que ya contaba «Información del servicio».
   const caracteristicas: Caracteristica[] = useMemo(
     () =>
@@ -314,9 +292,12 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
     trackEvent("servicio_contratar", "Servicio: Contratar servicio ahora", { path: `/servicio/${s?.id ?? ""}` });
   }
 
-  function preguntarWhatsApp() {
-    openWhatsApp(whatsappText);
-    trackEvent("servicio_whatsapp", "Servicio: Preguntar por WhatsApp", { path: `/servicio/${s?.id ?? ""}` });
+  // Dudas, como en producto: primero Blue IA con el servicio como contexto; desde ahí, «Hablar con el equipo» abre el
+  // chat de la tienda.
+  function preguntar() {
+    if (!s) return;
+    trackEvent("servicio_preguntar", "Servicio: Preguntar por este servicio", { path: `/servicio/${s.id}` });
+    router.push(`/blue-ia?servicio=${encodeURIComponent(s.id)}` as any);
   }
 
   async function shareService() {
@@ -655,12 +636,12 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                       <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Contratar servicio ahora</Text>
                     </Pressable>
 
-                    {/* Dudas: por WhatsApp (en producto, «Preguntar por este producto» abre Blue IA). */}
+                    {/* Dudas: primero Blue IA con el servicio como contexto; desde ahí, el chat con el equipo. */}
                     <Pressable
-                      nativeID="servicio-whatsapp"
-                      onPress={preguntarWhatsApp}
+                      nativeID="servicio-preguntar"
+                      onPress={preguntar}
                       accessibilityRole="button"
-                      accessibilityLabel="Preguntar por WhatsApp"
+                      accessibilityLabel="Preguntar por este servicio"
                       style={({ pressed }) => ({
                         opacity: pressed ? 0.88 : 1,
                         flexDirection: "row",
@@ -674,8 +655,8 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                         backgroundColor: "#FFFFFF",
                       })}
                     >
-                      <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Preguntar por WhatsApp</Text>
+                      <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Preguntar por este servicio</Text>
                     </Pressable>
                   </View>
 
