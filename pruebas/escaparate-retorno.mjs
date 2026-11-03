@@ -16,8 +16,11 @@
  *  G) Si la migración de «pedido_pagado» aún no está aplicada (la base de datos lo rechaza), los avisos de siempre
  *     («pedido») de otros pedidos se siguen apuntando y enviando.
  *  H) Datos muy largos se recortan (nombre 120, correo 254, teléfono 30).
- *  CONTROL) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
- *     tiempo: la comprobación A lo detecta.
+ *  I) Entregado y cancelado después con la ficha aún por enviar: no salen los datos del cliente, la ficha queda
+ *     «descartado» y VeoAura solo recibe la anulación.
+ *  CONTROLES) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
+ *     tiempo: la comprobación A lo detecta. Otra que no vuelve a mirar el estado al enviar los manda de un pedido
+ *     cancelado: la comprobación I lo detecta.
  *
  * Uso: node pruebas/escaparate-retorno.mjs
  * Sale con código 1 si algo falla.
@@ -246,6 +249,25 @@ try {
     ok(!!cliente && cliente.nombre.length === 120 && cliente.correo.length === 254 && cliente.telefono.length === 30, `H: se recortan (${cliente?.nombre.length}, ${cliente?.correo.length}, ${cliente?.telefono.length})`);
   }
 
+  // I) Entregado y cancelado después, con «pedido_pagado» aún por enviar (la vuelta anterior se quedó sin tiempo):
+  //    los datos del cliente no salen y el aviso queda «descartado».
+  const casoI = async (manejador) => {
+    reiniciar();
+    tablas.pedidos.push(pedido("ped-9", 109, "cancelado", [{ product_id: "p-veo-1", precio_eur: 25 }]));
+    for (const [evento, estado] of [["pedido", "enviado"], ["pedido_pagado", "pendiente"]]) {
+      tablas.escaparate_salida.push({ id: randomUUID(), creado_en: ahoraIso(), evento, id_veoaura: "VEO-1", pedido_id: "ped-9", estado, intentos: estado === "enviado" ? 1 : 0, ultimo_intento: null, enviado_en: null, detalle: null });
+    }
+    const todos = [];
+    for (let i = 0; i < 2; i++) todos.push(...(await vuelta(manejador)).nuevos);
+    return todos;
+  };
+  {
+    const i = await casoI(retorno);
+    const ficha = tablas.escaparate_salida.find((s) => s.evento === "pedido_pagado");
+    ok(!i.some((n) => PII.test(n.cuerpo)) && ficha?.estado === "descartado", `I: entregado y cancelado después: sin datos del cliente y la ficha queda «descartado» (${ficha?.estado})`);
+    ok(i.map((n) => n.mensaje.evento).join(",") === "pedido_anulado", `I: VeoAura solo recibe la anulación (${i.map((n) => n.mensaje.evento).join(",")})`);
+  }
+
   // CONTROL) Una copia que da por pagado un pedido pendiente manda los datos antes de tiempo: A lo detecta.
   {
     reiniciar();
@@ -254,6 +276,13 @@ try {
     const fuga = [];
     for (let i = 0; i < 2; i++) fuga.push(...(await vuelta(manejador)).nuevos);
     ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) con «pagado» mal puesto salen datos de un pedido pendiente: la comprobación A SÍ lo detecta");
+    rmSync(carpeta, { recursive: true, force: true });
+  }
+  // CONTROL) Una copia que no vuelve a mirar el estado antes de enviar la ficha la manda de un pedido cancelado: I lo detecta.
+  {
+    const { manejador, carpeta } = await cargar("mutado-cancelado", ["if (!ahora || ahora.estado !== ESTADO_PAGADO) {", "if (!ahora) {"]);
+    const fuga = await casoI(manejador);
+    ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) sin mirar el estado al enviar salen los datos de un pedido cancelado: la comprobación I SÍ lo detecta");
     rmSync(carpeta, { recursive: true, force: true });
   }
 } catch (e) {
