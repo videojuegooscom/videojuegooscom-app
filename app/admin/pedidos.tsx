@@ -290,6 +290,12 @@ export default function PedidosAdmin() {
           <Text style={{ color: COLORS.muted, textAlign: "center" }}>
             {loading ? "Cargando…" : `${visibles.length} de ${pedidos.length} pedidos`}
           </Text>
+          {/* Dueño, 2026-11-03: «Entregado» cuenta como pagado; si el pedido lleva artículos de VeoAura, su ficha de cliente
+              (nombre, correo y teléfono) va a VeoAura (api/escaparate-retorno.ts). Se ve en Administración → Escaparate. */}
+          <Text nativeID="pedidos-veoaura-cliente" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del
+            cliente (nunca su dirección).
+          </Text>
           {numerosOk && !loading ? (
             <Text nativeID="pedidos-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
               Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculados}) ·

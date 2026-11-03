@@ -43,7 +43,8 @@ const COLORS = {
 type Salida = {
   id: string;
   creado_en: string;
-  evento: "pedido" | "pedido_anulado";
+  // «pedido_pagado»: el pedido se entregó y VeoAura recibe el nombre, el correo y el teléfono del cliente.
+  evento: "pedido" | "pedido_anulado" | "pedido_pagado";
   id_veoaura: string;
   pedido_id: string;
   estado: "pendiente" | "enviando" | "enviado" | "error" | "descartado";
@@ -219,7 +220,12 @@ export default function AdminEscaparate() {
   }, [enviarAhora]);
 
   const porVeoaura = useMemo(() => new Map(articulos.map((a) => [a.id_veoaura, a])), [articulos]);
-  const sinConfirmar = salidas.filter((s) => s.estado === "pendiente" || s.estado === "error" || s.estado === "enviando").length;
+  const sinConfirmar = salidas.filter(
+    (s) => s.evento !== "pedido_pagado" && (s.estado === "pendiente" || s.estado === "error" || s.estado === "enviando")
+  ).length;
+  // Fichas de cliente (nombre, correo y teléfono de pedidos entregados) ya enviadas a VeoAura y las que faltan.
+  const fichasEnviadas = salidas.filter((s) => s.evento === "pedido_pagado" && s.estado === "enviado").length;
+  const fichasPorEnviar = salidas.filter((s) => s.evento === "pedido_pagado" && ["pendiente", "error", "enviando"].includes(s.estado)).length;
   const aLaVenta = articulos.filter((a) => a.is_active).length;
 
   return (
@@ -274,6 +280,11 @@ export default function AdminEscaparate() {
             {aLaVenta} a la venta · {articulos.length} recibidos de VeoAura
             {sinConfirmar ? ` · ${sinConfirmar} ventas sin confirmar a VeoAura` : ""}
           </Text>
+          {/* Clientes compartidos con VeoAura: solo de pedidos entregados (cuentan como pagados), nombre, correo y teléfono. */}
+          <Text nativeID="escaparate-fichas-clientes" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            Fichas de cliente enviadas a VeoAura: {fichasEnviadas}
+            {fichasPorEnviar ? ` · por enviar: ${fichasPorEnviar}` : ""} · solo de pedidos entregados (nombre, correo y teléfono)
+          </Text>
 
           <Pressable
             onPress={enviarAhora}
@@ -321,7 +332,11 @@ export default function AdminEscaparate() {
                         {art?.title ?? "Artículo de VeoAura"}
                       </Text>
                       <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
-                        {s.evento === "pedido" ? "Pedido" : "Pedido cancelado"}
+                        {s.evento === "pedido"
+                          ? "Pedido"
+                          : s.evento === "pedido_anulado"
+                            ? "Pedido cancelado"
+                            : "Pedido entregado · ficha del cliente (nombre, correo y teléfono)"}
                         {numero ? ` #${numero}` : ""} · {fmtFechaHora(s.creado_en)}
                       </Text>
                       <Text style={{ color: est.color, fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>
