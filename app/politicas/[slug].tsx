@@ -17,11 +17,12 @@
  * - "sections" en Supabase es un jsonb con forma [{heading, body}, ...],
  *   igual que el tipo PolicySection de este archivo.
  *
- * IMPORTANTE — texto legal pendiente de revisar por Jefe: las políticas de
- * privacidad y términos siguen teniendo placeholders entre corchetes
- * ("[NOMBRE LEGAL / RAZÓN SOCIAL]", "[NIF/CIF]", "[DIRECCIÓN FISCAL]",
- * "[EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS]") — se editan ahora desde
- * app/admin/policies.tsx, sin tocar este archivo. El derecho de
+ * Datos legales (dueño, 2026-10-16/17 y 2026-11-03): titular Daniel Gutiérrez,
+ * NIF Y4751659B, domicilio C. Miguel Servet, 3, 50410 Cuarte de Huerva,
+ * Zaragoza, y correo de protección de datos VideojuegosZaragoza.com@gmail.com.
+ * Los textos buenos viven en policy_pages (migraciones 20261017150000,
+ * 20261017200000 y 20261103130000) y se editan desde app/admin/policies.tsx;
+ * el respaldo de este archivo lleva los mismos datos. El derecho de
  * desistimiento (14 días) y las menciones de RGPD siguen la base legal
  * estándar en España, pero conviene que un gestor/abogado lo revise antes de
  * darlo por definitivo — esto no sustituye asesoría legal real.
@@ -142,7 +143,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Responsable del tratamiento",
         body:
-          "[NOMBRE LEGAL / RAZÓN SOCIAL], con NIF/CIF [NIF/CIF] y domicilio en [DIRECCIÓN FISCAL], es el responsable del tratamiento de tus datos personales. Para cualquier consulta sobre privacidad, puedes escribir a [EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS].",
+          "Daniel Gutiérrez, con NIF/CIF Y4751659B y domicilio en C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza, es el responsable del tratamiento de tus datos personales. Para cualquier consulta sobre privacidad, puedes escribir a VideojuegosZaragoza.com@gmail.com.",
       },
       {
         heading: "Qué datos tratamos",
@@ -172,7 +173,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Tus derechos",
         body:
-          "Puedes solicitar acceso, rectificación, supresión, oposición, limitación o portabilidad de tus datos escribiendo a [EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS]. También tienes derecho a reclamar ante la Agencia Española de Protección de Datos (aepd.es).",
+          "Puedes solicitar acceso, rectificación, supresión, oposición, limitación o portabilidad de tus datos escribiendo a VideojuegosZaragoza.com@gmail.com. También tienes derecho a reclamar ante la Agencia Española de Protección de Datos (aepd.es).",
       },
     ],
   },
@@ -213,7 +214,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Quiénes somos",
         body:
-          "Videojuegoszaragoza.com es una tienda de compraventa de videoconsolas y electrónica, operada por [NOMBRE LEGAL / RAZÓN SOCIAL], NIF/CIF [NIF/CIF], con domicilio en [DIRECCIÓN FISCAL].",
+          "Videojuegoszaragoza.com es una tienda de compraventa de videoconsolas y electrónica, operada por Daniel Gutiérrez, NIF/CIF Y4751659B, con domicilio en C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza.",
       },
       {
         heading: "Nuestros productos y servicios",
