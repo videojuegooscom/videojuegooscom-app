@@ -533,6 +533,10 @@ export default function AdminAnalytics() {
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
       blueRetomada: findExact("Blue IA: conversación retomada"),
       blueNueva: findExact("Blue IA: nueva conversación"),
+      // «Quiénes somos» (app/quienes-somos.tsx): quién la ve y cuántos llegan desde Inicio o desde entrar/crear cuenta.
+      quienesVista: findExact("Quiénes somos: vista"),
+      quienesInicio: findExact("Quiénes somos: desde Inicio"),
+      quienesAcceso: findExact("Quiénes somos: desde el acceso"),
     };
   }, [funnel]);
 
@@ -883,6 +887,23 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Blue IA → siguen su última conversación: {coreFunnel.blueRetomada}{" "}
                       {coreFunnel.blueRetomada === 1 ? "sesión" : "sesiones"} · empiezan una nueva: {coreFunnel.blueNueva}
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-quienes-somos"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="people-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Quiénes somos → la ven {coreFunnel.quienesVista} {coreFunnel.quienesVista === 1 ? "sesión" : "sesiones"} · llegan
+                      desde Inicio: {coreFunnel.quienesInicio} · desde entrar o crear cuenta: {coreFunnel.quienesAcceso}
                     </Text>
                   </View>
                 </View>
