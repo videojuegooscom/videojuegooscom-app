@@ -8,8 +8,10 @@
  * estadística (StatCard), botones tipo chip (ChipButton), botones solo con
  * icono (IconButton, 44 px, con su nombre para lectores de pantalla), el
  * botón redondo flotante abajo a la derecha (BotonFlotante, p. ej. «+»
- * para crear), filtros tipo píldora (FilterPill) y la miniatura de
- * foto/vídeo de un producto (MediaThumb).
+ * para crear), filtros tipo píldora (FilterPill), la miniatura de
+ * foto/vídeo de un producto (MediaThumb) y las pestañas de una pantalla
+ * (PestanasPanel, con subrayado como en Perfil) con su gesto de deslizar
+ * el dedo para pasar a la siguiente, en bucle (useGestoPestanas).
  *
  * Cómo funciona: son componentes de presentación puros (sin llamadas a
  * Supabase); reciben props y pintan según la paleta COLORS del tema claro
@@ -30,8 +32,8 @@
  *   AdminNotice, EmptyState y StatCard para que todas las pestañas del
  *   panel se vean iguales.
  */
-import React from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Image, PanResponder, Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -313,6 +315,9 @@ export function StatCard({
   // flexBasis + flexGrow (en vez de anchos fijos en %) para que la rejilla
   // nunca se desborde por el hueco entre tarjetas en móviles estrechos.
   const basis = cols === 2 ? "40%" : cols === 3 ? "28%" : "20%";
+  // Cuatro en una fila del móvil (dueño, 2026-11-03: «en fila horizontal… así hacemos espacio»): el icono encima del
+  // nombre, todo más pequeño, para que quepa sin cortarse.
+  const estrecha = !!isMobile && cols === 4;
 
   return (
     <View
@@ -320,17 +325,17 @@ export function StatCard({
         flexGrow: 1,
         flexBasis: basis,
         minWidth: 0,
-        borderRadius: 18,
+        borderRadius: estrecha ? 14 : 18,
         backgroundColor: COLORS.cardSoft,
-        paddingVertical: isMobile ? 10 : 14,
-        paddingHorizontal: 10,
+        paddingVertical: estrecha ? 8 : isMobile ? 10 : 14,
+        paddingHorizontal: estrecha ? 4 : 10,
         alignItems: "center",
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <View style={{ flexDirection: estrecha ? "column" : "row", alignItems: "center", justifyContent: "center", gap: estrecha ? 2 : 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
         <Text
-          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, textAlign: "center", flexShrink: 1 }}
+          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: estrecha ? 11 : 12, textAlign: "center", flexShrink: 1 }}
           numberOfLines={1}
         >
           {label}
@@ -341,8 +346,8 @@ export function StatCard({
         style={{
           color: COLORS.text,
           fontWeight: "900",
-          fontSize: isMobile ? 18 : 20,
-          marginTop: 6,
+          fontSize: estrecha ? 17 : isMobile ? 18 : 20,
+          marginTop: estrecha ? 2 : 6,
           textAlign: "center",
         }}
       >
@@ -350,6 +355,150 @@ export function StatCard({
       </Text>
     </View>
   );
+}
+
+// Pestañas de una pantalla del panel: texto con subrayado azul en la activa, sin cápsulas (como «Mi cuenta / Mis
+// seguimientos» en Perfil).
+export function PestanasPanel<T extends string>({
+  pestanas,
+  actual,
+  onChange,
+  nativeID,
+}: {
+  pestanas: { key: T; label: string }[];
+  actual: T;
+  onChange: (t: T) => void;
+  nativeID?: string;
+}) {
+  return (
+    <View nativeID={nativeID} role="tablist" style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 2 }}>
+      {pestanas.map((t) => {
+        const activa = actual === t.key;
+        return (
+          <Pressable
+            key={t.key}
+            onPress={() => onChange(t.key)}
+            role="tab"
+            aria-selected={activa}
+            style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Text style={{ color: activa ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: 15 }}>{t.label}</Text>
+            <View style={{ height: 3, width: 28, borderRadius: 2, backgroundColor: activa ? COLORS.accent : "transparent" }} />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// Deslizar el dedo a la izquierda o a la derecha sobre el contenido para pasar a la pestaña siguiente o a la anterior,
+// en bucle (dueño, 2026-11-03: «si no hay más, que sea en bucle»). Lo mismo que el gesto de Perfil: en la web se mira el
+// dedo de verdad (la página no se mueve arriba o abajo mientras se desliza en horizontal; en vertical, desplaza como
+// siempre), cambia con 60 px o con un deslizamiento corto y rápido, y el contenido acompaña un poco al dedo. Devuelve lo
+// que hay que poner en la zona deslizable: ref, panHandlers y el desplazamiento animado (translateX).
+export function useGestoPestanas<T extends string>(pestanas: readonly T[], actual: T, cambiar: (t: T, como: "deslizar") => void) {
+  const [desliz] = useState(() => new Animated.Value(0));
+  const actualRef = useRef(actual);
+  actualRef.current = actual;
+  const pestanasRef = useRef(pestanas);
+  pestanasRef.current = pestanas;
+  const cambiarRef = useRef(cambiar);
+  cambiarRef.current = cambiar;
+  const soltar = useCallback(
+    (dx: number, vx: number) => {
+      const lista = pestanasRef.current;
+      const rapido = Math.abs(dx) > 24 && Math.abs(vx) > 0.35 && Math.sign(vx) === Math.sign(dx);
+      if (lista.length > 1 && (Math.abs(dx) > 60 || rapido)) {
+        const i = Math.max(0, lista.indexOf(actualRef.current));
+        // Hacia la izquierda, la siguiente; hacia la derecha, la anterior; al final, vuelve a empezar.
+        const destino = lista[(i + (dx < 0 ? 1 : -1) + lista.length) % lista.length];
+        actualRef.current = destino;
+        cambiarRef.current(destino, "deslizar");
+        desliz.setValue(dx < 0 ? 70 : -70);
+      }
+      Animated.spring(desliz, { toValue: 0, useNativeDriver: false, speed: 18, bounciness: 4 }).start();
+    },
+    [desliz]
+  );
+  const ref = useRef<View>(null);
+  const dedo = useRef<{ x0: number; y0: number; eje: "h" | "v" | null; muestras: { x: number; t: number }[]; reconocido: boolean }>({
+    x0: 0,
+    y0: 0,
+    eje: null,
+    muestras: [],
+    reconocido: false,
+  });
+  const recorrido = useCallback(() => {
+    const d = dedo.current;
+    const ultima = d.muestras[d.muestras.length - 1];
+    if (!ultima || d.muestras.length < 2) return null;
+    const antes = d.muestras.find((m) => ultima.t - m.t <= 100) ?? ultima;
+    return { dx: ultima.x - d.x0, vx: ultima.t > antes.t ? (ultima.x - antes.x) / (ultima.t - antes.t) : 0 };
+  }, []);
+  useEffect(() => {
+    const zona = ref.current as unknown as HTMLElement | null;
+    if (Platform.OS !== "web" || !zona?.addEventListener) return;
+    const inicio = (e: TouchEvent) => {
+      const t = e.touches[0];
+      dedo.current = {
+        x0: t?.clientX ?? 0,
+        y0: t?.clientY ?? 0,
+        eje: e.touches.length === 1 ? null : "v",
+        muestras: t ? [{ x: t.clientX, t: e.timeStamp }] : [],
+        reconocido: false,
+      };
+    };
+    const mover = (e: TouchEvent) => {
+      const d = dedo.current;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      d.muestras.push({ x: t.clientX, t: e.timeStamp });
+      if (d.muestras.length > 8) d.muestras.shift();
+      const dx = t.clientX - d.x0;
+      const dy = t.clientY - d.y0;
+      if (d.eje === null && Math.hypot(dx, dy) >= 8) d.eje = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
+      if (d.eje === "h" && e.cancelable) e.preventDefault();
+    };
+    const fin = () => {
+      const r = recorrido();
+      if (dedo.current.eje === "h" && !dedo.current.reconocido && r) soltar(r.dx, r.vx);
+    };
+    zona.addEventListener("touchstart", inicio, { passive: true });
+    zona.addEventListener("touchmove", mover, { passive: false });
+    zona.addEventListener("touchend", fin);
+    return () => {
+      zona.removeEventListener("touchstart", inicio);
+      zona.removeEventListener("touchmove", mover);
+      zona.removeEventListener("touchend", fin);
+    };
+  }, [recorrido, soltar]);
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => {
+          if (Platform.OS !== "web") return Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 2;
+          const eje = dedo.current.eje ?? (Math.hypot(g.dx, g.dy) >= 8 ? (Math.abs(g.dx) > Math.abs(g.dy) * 1.2 ? "h" : "v") : null);
+          return eje === "h";
+        },
+        onPanResponderGrant: () => {
+          dedo.current.reconocido = true;
+        },
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderMove: (_e, g) => {
+          const dx = recorrido()?.dx ?? g.dx;
+          desliz.setValue(Math.max(-90, Math.min(90, dx * 0.35)));
+        },
+        onPanResponderRelease: (_e, g) => {
+          const r = recorrido() ?? { dx: g.dx, vx: g.vx };
+          soltar(r.dx, r.vx);
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(desliz, { toValue: 0, useNativeDriver: false }).start();
+        },
+      }),
+    [desliz, recorrido, soltar]
+  );
+  return { ref, panHandlers: responder.panHandlers, desliz };
 }
 
 export function ChipButton({

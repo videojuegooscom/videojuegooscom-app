@@ -26,8 +26,15 @@
  *   contenido centrado en pantallas anchas (columnStyle, maxWidth 1160).
  * - Scroll: cabecera fija y compacta (volver + título centrado) y, debajo,
  *   pestañas y contenido de la pestaña activa en un único ScrollView (flex 1,
- *   margen final 48 px + zona segura). El modal de alta/edición se desplaza
- *   entero y, en iOS, deja sitio al teclado.
+ *   margen final con hueco para el «+» flotante + zona segura). El modal de
+ *   alta/edición se desplaza entero y, en iOS, deja sitio al teclado.
+ * - Dueño, 2026-11-03: pestañas con subrayado (PestanasPanel) y, deslizando
+ *   el dedo sobre el contenido, se pasa a la otra en bucle (useGestoPestanas);
+ *   en «Catálogo» el buscador va arriba (como en Productos), los cuatro
+ *   contadores en una fila también en el móvil, «Nuevo servicio» es el «+»
+ *   flotante abajo a la derecha, los servicios y las solicitudes van sin
+ *   recuadro alrededor (separados por una línea) y al tocar la foto de un
+ *   servicio se abre en grande con zoom (components/ImageLightbox.tsx).
  *
  * Rendimiento: uploadNewPhotos() sube las fotos a Storage una a una (no se
  * puede agrupar) pero guarda sus filas en "service_media" con un único
@@ -53,6 +60,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -67,14 +75,18 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
+import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import CargaMarca from "../../components/marca/CargaMarca";
 import {
   AdminHeader,
   AdminNotice,
+  BotonFlotante,
   EmptyState,
   IconButton,
+  PestanasPanel,
   PrimaryButton,
   StatCard,
+  useGestoPestanas,
 } from "../../lib/admin/products.components";
 import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/products.constants";
 import type { LocalPickedMedia } from "../../lib/admin/products.types";
@@ -249,6 +261,19 @@ function coverUrl(media: ServiceMediaRow[]): string | null {
   const cover = media.find((m) => m.is_cover) ?? media[0];
   return cover?.public_url || null;
 }
+
+// Las fotos de un servicio para el visor (la portada primero, luego en su orden).
+function fotosDelServicio(media: ServiceMediaRow[]): LightboxImage[] {
+  const conUrl = (media ?? []).filter((m) => !!m.public_url);
+  const portada = conUrl.find((m) => m.is_cover) ?? conUrl[0];
+  return [...(portada ? [portada] : []), ...conUrl.filter((m) => m !== portada)].map((m) => ({ id: m.id, url: m.public_url as string }));
+}
+
+const PESTANAS_SERVICIOS = [
+  { key: "catalogo" as const, label: "Catálogo" },
+  { key: "solicitudes" as const, label: "Solicitudes" },
+];
+const ORDEN_PESTANAS = PESTANAS_SERVICIOS.map((p) => p.key);
 
 // --- Piezas visuales compartidas ----------------------------------------
 
@@ -470,6 +495,10 @@ export default function AdminServices() {
   const insets = useSafeAreaInsets();
 
   const [tab, setTab] = useState<"catalogo" | "solicitudes">("catalogo");
+  // Deslizar el dedo sobre el contenido cambia de pestaña, en bucle (dueño, 2026-11-03).
+  const gesto = useGestoPestanas(ORDEN_PESTANAS, tab, (t) => setTab(t));
+  // Visor de fotos a pantalla completa con zoom al tocar la foto de un servicio (dueño, 2026-11-03).
+  const [visor, setVisor] = useState<{ fotos: LightboxImage[]; inicio: number } | null>(null);
 
   // --- Catálogo ---
   const [loading, setLoading] = useState(true);
@@ -907,59 +936,50 @@ export default function AdminServices() {
         style={{ flex: 1 }}
         contentContainerStyle={{
           padding: pagePadding,
-          paddingBottom: 48 + insets.bottom,
+          // Hueco para el «+» flotante: nunca tapa el último servicio.
+          paddingBottom: 96 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={CIERRE_TECLADO}
       >
-        <View style={{ ...columnStyle, gap: sectionGap }}>
-          <View>
-            <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
-              <ChipButton
-                label="Catálogo"
-                onPress={() => setTab("catalogo")}
-                variant={tab === "catalogo" ? "primary" : "ghost"}
-                isMobile={isMobile}
-              />
-              <ChipButton
-                label="Solicitudes"
-                onPress={() => setTab("solicitudes")}
-                variant={tab === "solicitudes" ? "primary" : "ghost"}
-                isMobile={isMobile}
-              />
-            </View>
-          </View>
+        {/* Deslizar el dedo a un lado u otro sobre el contenido cambia de pestaña, en bucle (useGestoPestanas). */}
+        <Animated.View
+          ref={gesto.ref}
+          nativeID="servicios-deslizable"
+          {...gesto.panHandlers}
+          style={{ ...columnStyle, gap: sectionGap, transform: [{ translateX: gesto.desliz }] }}
+        >
+          <PestanasPanel nativeID="servicios-pestanas" pestanas={PESTANAS_SERVICIOS} actual={tab} onChange={setTab} />
 
       {tab === "catalogo" ? (
           <>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <StatCard label="Servicios" value={String(stats.total)} icon="construct-outline" isMobile={isMobile} />
-              <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} />
-              <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} />
-              <StatCard label="Visitas totales" value={String(stats.views)} icon="trending-up-outline" isMobile={isMobile} />
-            </View>
+            {/* El buscador arriba de los contadores, igual que en Productos (mismo alto y mismo sitio). */}
+            <TextInput
+              nativeID="servicios-buscar"
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Buscar por título o descripción"
+              placeholderTextColor="rgba(11,33,56,0.40)"
+              style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 14,
+                paddingHorizontal: 12,
+                paddingVertical: 12,
+                color: COLORS.text,
+                backgroundColor: "#F8FBFE",
+                // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
+                fontSize: 16,
+              }}
+            />
 
-            <View style={{ gap: 14 }}>
-              <TextInput
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Buscar por título o descripción…"
-                placeholderTextColor={COLORS.muted2}
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 999,
-                  paddingHorizontal: 16,
-                  paddingVertical: 10,
-                  // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
-                  fontSize: 16,
-                  color: COLORS.text,
-                  backgroundColor: COLORS.cardSoft,
-                  textAlign: "center",
-                }}
-              />
-              <PrimaryButton label="+ Nuevo servicio" onPress={openCreate} />
+            {/* Los cuatro contadores en una sola fila, también en el móvil (dueño, 2026-11-03). */}
+            <View nativeID="servicios-contadores" style={{ flexDirection: "row", flexWrap: "nowrap", gap: isMobile ? 8 : 10 }}>
+              <StatCard label="Servicios" value={String(stats.total)} icon="construct-outline" isMobile={isMobile} columns={4} />
+              <StatCard label="Publicados" value={String(stats.published)} icon="checkmark-circle-outline" isMobile={isMobile} columns={4} />
+              <StatCard label="Visibles" value={String(stats.visible)} icon="eye-outline" isMobile={isMobile} columns={4} />
+              <StatCard label="Visitas" value={String(stats.views)} icon="trending-up-outline" isMobile={isMobile} columns={4} />
             </View>
 
             {loading ? (
@@ -971,8 +991,10 @@ export default function AdminServices() {
                 text="Crea el primero (por ejemplo «Reparación de pantalla» o «Limpieza interna») para que aparezca en la categoría «Reparación/Limpieza» de Inicio."
               />
             ) : (
-              <View style={{ gap: 10 }}>
-                {filteredServices.map((s) => {
+              // Sin recuadro alrededor de cada servicio (dueño, 2026-11-03: «quitar las burbujas envolventes»): filas
+              // separadas por una línea fina.
+              <View nativeID="servicios-lista">
+                {filteredServices.map((s, i) => {
                   const cover = coverUrl(s.media);
                   return (
                     <View
@@ -981,13 +1003,21 @@ export default function AdminServices() {
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 12,
-                        borderRadius: 18,
-                        backgroundColor: COLORS.card,
-                        padding: 12,
+                        paddingVertical: 12,
+                        borderTopWidth: i === 0 ? 0 : 1,
+                        borderTopColor: COLORS.border,
                       }}
                     >
                       {cover ? (
-                        <SmartImage uri={cover} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                        // Tocar la foto la abre en grande, con zoom.
+                        <Pressable
+                          onPress={() => setVisor({ fotos: fotosDelServicio(s.media), inicio: 0 })}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Ver las fotos de ${s.title || "el servicio"}`}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+                        >
+                          <SmartImage uri={cover} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                        </Pressable>
                       ) : (
                         <View
                           style={{
@@ -1067,17 +1097,18 @@ export default function AdminServices() {
                 text="Aquí aparecerán los clientes que pulsen «Contratar servicio ahora» en la ficha de un servicio."
               />
             ) : (
-              <View style={{ gap: 10 }}>
-                {filteredRequests.map((r) => {
+              // Sin recuadro alrededor de cada solicitud: separadas por una línea fina, como el catálogo.
+              <View nativeID="solicitudes-lista">
+                {filteredRequests.map((r, i) => {
                   const sc = REQUEST_STATUS_COLORS[r.status];
                   return (
                     <View
                       key={r.id}
                       style={{
-                        borderRadius: 18,
-                        backgroundColor: COLORS.card,
-                        padding: 14,
+                        paddingVertical: 16,
                         gap: 10,
+                        borderTopWidth: i === 0 ? 0 : 1,
+                        borderTopColor: COLORS.border,
                       }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
@@ -1195,8 +1226,19 @@ export default function AdminServices() {
             )}
           </>
       )}
-        </View>
+        </Animated.View>
       </ScrollView>
+
+      {/* «Nuevo servicio»: el «+» flotante abajo a la derecha, como en Productos (al alcance del pulgar). */}
+      {tab === "catalogo" && !loading ? <BotonFlotante nativeID="servicio-nuevo" label="Nuevo servicio" onPress={openCreate} /> : null}
+
+      {/* Las fotos de un servicio en grande, con zoom (el mismo visor que la ficha de producto). */}
+      <ImageLightbox
+        visible={!!visor}
+        images={visor?.fotos ?? []}
+        initialIndex={visor?.inicio ?? 0}
+        onClose={() => setVisor(null)}
+      />
 
       {/* Modal crear/editar servicio: cabecera fija con la X y el
           formulario desplazable dentro (maxHeight), con sitio para el
