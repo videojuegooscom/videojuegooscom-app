@@ -2,8 +2,8 @@
 -- Migración: tope diario del historial de Blue IA por persona (revisión de seguridad de Blue IA, 2026-11-03).
 -- Qué hace: como mucho 300 mensajes y 40 conversaciones nuevas al día por persona en el historial de Blue IA (lo que
 --           la app guarda al hablar con Blue IA con la sesión iniciada). Una conversación normal no se acerca (Blue IA
---           contesta como mucho 120 preguntas por hora a una persona); así nadie puede llenar la base de datos
---           guardando mensajes sin parar. Si se llega al tope, Blue IA sigue contestando: solo deja de guardarse ese día.
+--           contesta como mucho 120 preguntas por hora a una persona). Si se llega al tope, Blue IA sigue contestando:
+--           solo deja de guardarse ese día.
 -- Cómo:     un disparador antes de cada inserción cuenta lo del último día de ESA persona (lo ve por su propia
 --           política, así que no necesita más permisos) y dos índices para contarlo rápido.
 -- Tipo:     aditiva (función, disparadores e índices). No toca permisos, políticas ni datos. Repetible.
