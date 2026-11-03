@@ -532,6 +532,9 @@ export default function AdminAnalytics() {
       servicioFoto: findExact("Servicio: foto ampliada"),
       servicioContratar: findExact("Servicio: Contratar servicio ahora"),
       servicioPreguntar: findExact("Servicio: Preguntar por este servicio"),
+      // «Me gusta»: la pestaña de Perfil (app/(tabs)/perfil.tsx) y los dados a servicios (app/servicio/[id].tsx).
+      meGustaPestana: findExact("Perfil: Me gusta"),
+      meGustaServicio: findExact("Servicio: me gusta"),
       // «Blue, ayúdame a elegir un artículo» de la Cesta (app/(tabs)/cesta.tsx): abre Blue IA con la pregunta enviada.
       blueElegir: findExact("Cesta: Blue, ayúdame a elegir"),
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
@@ -877,6 +880,22 @@ export default function AdminAnalytics() {
                     <Ionicons name="construct-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} (sesiones)
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-me-gusta"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="heart-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      «Me gusta»: abren su pestaña de Perfil {coreFunnel.meGustaPestana} sesiones · dan «me gusta» a un servicio {coreFunnel.meGustaServicio}
                     </Text>
                   </View>
                   <View

@@ -24,7 +24,8 @@
  *    comentarios de noticias se eliminan igual (se marcan ocultos); un cliente no ve ninguna papelera; Administración →
  *    Usuarios cuenta los comentarios eliminados («Moderación del Foro», con datos de la base de datos). El aviso de
  *    silencio enlaza a las Normas del Foro (/politicas/normas-foro) y Usuarios cuenta quién las abre desde el aviso.
- *  - Perfil: deslizar el dedo a la izquierda abre «Mis seguimientos» y a la derecha vuelve a «Mi cuenta» (tocar las
+ *  - Perfil: deslizar el dedo a la izquierda abre «Mis seguimientos» (y después «Me gusta», la última) y a la derecha
+ *    vuelve a la anterior hasta «Mi cuenta» (tocar las
  *    pestañas sigue funcionando); un gesto vertical no cambia de pestaña; «Reparaciones y Mantenimientos» con su texto
  *    nuevo; Administración → Usuarios cuenta quién abre «Mis seguimientos» y cuántos deslizando.
  *  - «Completa tu perfil» (obligatorio): con sesión y el perfil a medias tapa Inicio; «Guardar y continuar» solo con todo lo
@@ -159,9 +160,12 @@
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS]
+ *  - MG) «Me gusta»: corazón en la ficha de servicio (sin él si falta la migración), pestaña «Me gusta» de Perfil (los
+ *    de la cuenta y los del dispositivo), la lista de Servicios con la tarjeta del Catálogo y su parte en Administración.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
- * «HO», «AD», «SV», «VA» o «FS» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
+ * «HO», «AD», «SV», «VA», «FS» o «MG» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
  * las reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
@@ -528,6 +532,18 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (estado.salidas && url.pathname.endsWith("/rest/v1/escaparate_salida") && metodo === "GET") return json(estado.salidas);
     if (estado.salidas && url.pathname.endsWith("/rest/v1/escaparate_registro") && metodo === "GET") return json([]);
     if (estado.salidas && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /id_veoaura=not\.is\.null/.test(url.search)) return json(estado.articulosVeo ?? []);
+    // Pestaña «Me gusta» y lista de Servicios (sección MG): productos y servicios ficticios, filtrados por id=in.(…).
+    if (estado.megusta && /\/rest\/v1\/(products|services)$/.test(url.pathname) && metodo === "GET") {
+      const lista = url.pathname.endsWith("/products") ? estado.megusta.productos : estado.megusta.servicios;
+      const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").filter(Boolean);
+      const filas = ids.length && /^in\./.test(url.searchParams.get("id") ?? "") ? lista.filter((f) => ids.includes(f.id)) : lista;
+      return json(filas);
+    }
+    if (estado.megusta && /\/rest\/v1\/(product_media|service_media)$/.test(url.pathname) && metodo === "GET") return json([]);
+    // Ficha de un servicio sin la columna de «me gusta» (migración sin aplicar): PostgREST la rechaza.
+    if (estado.servicioSinMeGusta && url.pathname.endsWith("/rest/v1/services") && metodo === "GET" && /like_count/.test(url.searchParams.get("select") ?? "")) {
+      return json({ code: "42703", message: "column services.like_count does not exist" }, 400);
+    }
     // Ficha de un servicio (sección FS): un servicio ficticio con sus fotos.
     if (estado.servicio && url.pathname.endsWith("/rest/v1/services") && metodo === "GET") {
       return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.servicio) : json([estado.servicio]);
@@ -1191,7 +1207,9 @@ async function seccionR() {
 
     // El gesto de las pestañas, con toques reales (CDP) desde distintos sitios de las dos pestañas.
     const deslizable = async () => p.locator("#perfil-deslizable").boundingBox();
-    const pestana = async () => (await p.getByText("Reparaciones y Mantenimientos").count()) ? "seguimientos" : (await p.locator("#perfil-cabecera").count()) ? "cuenta" : "?";
+    const pestana = async () =>
+      (await p.getByText("Reparaciones y Mantenimientos").count()) ? "seguimientos" : (await p.locator("#perfil-me-gusta").count()) ? "megusta" : (await p.locator("#perfil-cabecera").count()) ? "cuenta" : "?";
+    const NOMBRE_PESTANA = { seguimientos: "Mis seguimientos", megusta: "Me gusta", cuenta: "Mi cuenta" };
     const seleccionada = async () => p.locator('#perfil-pestanas [role="tab"][aria-selected="true"]').innerText().catch(() => "");
     // El contenedor con scroll de la página (el de la tienda, no la ventana).
     const scroll = async () => p.evaluate(() => {
@@ -1227,7 +1245,7 @@ async function seccionR() {
       const despues = await pestana();
       const tab = await seleccionada();
       const quieto = await desplazamiento();
-      const bien = despues === espera && (despues === "?" || tab === (espera === "seguimientos" ? "Mis seguimientos" : "Mi cuenta")) && Math.abs(quieto) <= 1;
+      const bien = despues === espera && (despues === "?" || tab === NOMBRE_PESTANA[espera]) && Math.abs(quieto) <= 1;
       casos.push(bien);
       ok(bien, `R: ${nombre}: de «${antes}» a «${despues}» (pestaña marcada «${tab}», contenido en su sitio: ${quieto} px)`);
     };
@@ -1266,7 +1284,12 @@ async function seccionR() {
     await caso("en «Mi cuenta», deslizar a la derecha no hace nada (no hay otra pestaña)", "cuenta", async () => dedo(await sobre(p.locator("#perfil-cabecera"), 90), 200, 0));
     await p.locator("#perfil-pestanas").getByText("Mis seguimientos", { exact: true }).click();
     await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
-    await caso("en «Mis seguimientos», deslizar a la izquierda no hace nada", "seguimientos", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 300), -200, 0));
+    // Tres pestañas (dueño, 2026-11-03): desde «Mis seguimientos», a la izquierda está «Me gusta», la última.
+    await caso("en «Mis seguimientos», deslizar a la izquierda abre «Me gusta»", "megusta", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 300), -200, 0));
+    await p.locator("#perfil-me-gusta").waitFor({ timeout: 8000 }).catch(() => {});
+    await caso("en «Me gusta», deslizar a la izquierda no hace nada (es la última)", "megusta", async () => dedo(await sobre(p.locator("#perfil-me-gusta"), 300), -200, 0));
+    await caso("y a la derecha vuelve a «Mis seguimientos»", "seguimientos", async () => dedo(await sobre(p.locator("#perfil-me-gusta"), 90), 200, 0));
+    await p.getByText("Reparaciones y Mantenimientos").waitFor({ timeout: 8000 }).catch(() => {});
     // Vertical: la página se desplaza como siempre y no cambia de pestaña.
     const zona = await deslizable();
     const s0 = await scroll();
@@ -4477,6 +4500,197 @@ async function seccionFS() {
   }
 }
 
+// ===== MG) «Me gusta» (dueño, 2026-11-03): corazón en la ficha de servicio (y sin él si falta la migración), pestaña
+// «Me gusta» en Perfil con los de la cuenta y los del dispositivo, la lista de Servicios con la tarjeta del Catálogo,
+// «me gusta» por servicio en Administración → Servicios y su uso en Analítica ======================================
+async function seccionMG() {
+  const SERV = "5e000000-0000-4000-8000-0000000000c1";
+  const SERV2 = "5e000000-0000-4000-8000-0000000000c2";
+  const SERV3 = "5e000000-0000-4000-8000-0000000000c3";
+  const PROD_LOCAL = "b7c1d2e3-0000-4000-8000-0000000000c4";
+  const PROD_CUENTA = "b7c1d2e3-0000-4000-8000-0000000000c5";
+  const servicio = (id, title, extra = {}) => ({ id, title, description: `Descripción de ${title}`, price_eur: 45, ...extra });
+  const producto = (id, title, price_eur) => ({ id, title, price_eur });
+  // api/interaccion.ts falso: apunta lo que se le pide y contesta como el de verdad.
+  const interaccion = async (ctx, estado) =>
+    ctx.route(/\/api\/interaccion$/, (r) => {
+      const cuerpo = JSON.parse(r.request().postData() ?? "{}");
+      estado.interacciones = [...(estado.interacciones ?? []), cuerpo];
+      const responde = (b) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
+      if (cuerpo.accion === "mis_me_gusta") return responde({ ok: true, productos: estado.cuentaProductos ?? [], servicios: estado.cuentaServicios ?? [] });
+      if (cuerpo.accion === "apoyo_servicio") return responde({ ok: true, total: cuerpo.activo ? 4 : 3 });
+      return responde({ ok: true, contado: false });
+    });
+  const conMeGusta = (ctx, productos, servicios) =>
+    ctx.addInitScript(([pr, se]) => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:liked_products", JSON.stringify(pr));
+        localStorage.setItem("videojuegoszaragoza:liked_services", JSON.stringify(se));
+      } catch {
+        // sin almacenamiento
+      }
+    }, [productos, servicios]);
+
+  // MG1) Ficha de servicio: corazón con su número; al tocarlo suma, se recuerda en el dispositivo y se cuenta.
+  {
+    // Perfil completo: sin la ventana obligatoria de «Completa tu perfil» encima.
+    const estado = {
+      guardados: [],
+      filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+      aceptaAnalitica: true,
+      servicio: servicio(SERV, "Limpieza PS5", { like_count: 3 }),
+      fotosServicio: [],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await interaccion(ctx, estado);
+    const p = await pagina(ctx, `/servicio/${SERV}`);
+    await p.locator("#servicio-me-gusta").waitFor({ timeout: 30000 }).catch(() => {});
+    const antes = (await p.locator("#servicio-me-gusta").innerText().catch(() => "")).trim();
+    const encima = await p.evaluate(() => {
+      const r = document.getElementById("servicio-me-gusta")?.getBoundingClientRect();
+      if (!r) return "sin corazón";
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      if (el?.closest("#servicio-me-gusta")) return "el corazón";
+      const cadena = [];
+      for (let n = el; n && cadena.length < 6; n = n.parentElement) cadena.push(`${n.tagName}${n.id ? "#" + n.id : ""}[${getComputedStyle(n).position},z${getComputedStyle(n).zIndex}]`);
+      return `${cadena.join(" < ")} ${(el?.outerHTML ?? "").slice(0, 160)}`;
+    });
+    if (encima !== "el corazón") console.log(`MG (aviso): encima del corazón hay ${encima}`);
+    await p.locator("#servicio-me-gusta").click().catch((e) => console.log(`MG (aviso): ${String(e.message).slice(0, 200)}`));
+    await p.waitForTimeout(700);
+    const despues = (await p.locator("#servicio-me-gusta").innerText().catch(() => "")).trim();
+    const guardado = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:liked_services") ?? "");
+    const pedido = (estado.interacciones ?? []).find((i) => i.accion === "apoyo_servicio");
+    ok(/3$/.test(antes) && /4$/.test(despues) && pedido?.id === SERV && pedido?.activo === true, `MG: la ficha de servicio tiene «me gusta» y al tocarlo suma (${antes} → ${despues})`);
+    ok(guardado.includes(SERV), "MG: y el dispositivo lo recuerda (para la pestaña «Me gusta»)");
+    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Servicio: me gusta"), "MG: y se cuenta en la analítica");
+    ok(p.errores.length === 0, `MG: ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MG2) Sin la migración (no existe services.like_count): la ficha sale igual, sin corazón.
+  {
+    const estado = { guardados: [], filas: [], servicio: servicio(SERV, "Limpieza PS5"), fotosServicio: [], servicioSinMeGusta: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/servicio/${SERV}`);
+    await p.locator("#servicio-contratar").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#servicio-contratar").count()) === 1 && (await p.locator("#servicio-me-gusta").count()) === 0, "MG: sin la migración la ficha funciona y no enseña el corazón");
+    await ctx.close();
+  }
+
+  // MG3) Perfil → «Me gusta»: los de la cuenta (servidor) primero y luego los de este dispositivo, con la tarjeta del
+  // Catálogo; tocar uno abre su ficha. Tres pestañas que caben en 360 px.
+  {
+    const estado = {
+      guardados: [],
+      filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+      aceptaAnalitica: true,
+      megusta: {
+        productos: [producto(PROD_LOCAL, "Mando DualSense", 59), producto(PROD_CUENTA, "Juego Forza Horizon", 9)],
+        servicios: [servicio(SERV, "Limpieza PS5"), servicio(SERV2, "Cambio de joysticks")],
+      },
+      cuentaProductos: [PROD_CUENTA],
+      cuentaServicios: [SERV2],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: 360, height: 780 } });
+    await interaccion(ctx, estado);
+    await conMeGusta(ctx, [PROD_LOCAL], [SERV]);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-pestanas").waitFor({ timeout: 30000 }).catch(() => {});
+    const pestanas = await p.evaluate(() =>
+      [...document.querySelectorAll('#perfil-pestanas [role="tab"]')].map((t) => {
+        const r = t.getBoundingClientRect();
+        return { texto: t.innerText.trim(), x: Math.round(r.x), fin: Math.round(r.x + r.width) };
+      })
+    );
+    ok(pestanas.map((t) => t.texto).join("|") === "Mi cuenta|Mis seguimientos|Me gusta" && pestanas.every((t) => t.x >= 0 && t.fin <= 360), `MG: tres pestañas en Perfil y caben en 360 px (${pestanas.map((t) => `${t.texto}@${t.x}-${t.fin}`).join(", ")})`);
+    await p.locator("#perfil-pestanas").getByText("Me gusta", { exact: true }).click();
+    await p.locator("#perfil-me-gusta-productos").waitFor({ timeout: 15000 }).catch(() => {});
+    const orden = async (id) => p.evaluate((s) => [...document.querySelectorAll(`#${s} [role="link"]`)].map((a) => a.getAttribute("aria-label") ?? ""), id);
+    const prods = await orden("perfil-me-gusta-productos");
+    const servs = await orden("perfil-me-gusta-servicios");
+    ok(prods.length === 2 && /^Juego Forza Horizon/.test(prods[0]) && /^Mando DualSense/.test(prods[1]), `MG: productos: primero el de la cuenta y luego el del dispositivo (${prods.join(" | ")})`);
+    ok(servs.length === 2 && /^Cambio de joysticks/.test(servs[0]) && /^Limpieza PS5/.test(servs[1]), `MG: servicios igual (${servs.join(" | ")})`);
+    const tarjeta = await p.evaluate(() => {
+      const t = document.querySelector('#perfil-me-gusta-productos [role="link"]');
+      const cs = t ? getComputedStyle(t) : null;
+      return cs ? { radio: cs.borderRadius, fondo: cs.backgroundColor, borde: cs.borderTopWidth } : null;
+    });
+    ok(tarjeta?.radio === "16px" && tarjeta?.fondo === "rgb(246, 250, 253)" && tarjeta?.borde === "0px", `MG: con la tarjeta del Catálogo (sin borde, fondo suave) (${JSON.stringify(tarjeta)})`);
+    ok((estado.interacciones ?? []).some((i) => i.accion === "mis_me_gusta"), "MG: pide al servidor los «me gusta» de la cuenta");
+    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Perfil: Me gusta"), "MG: abrir la pestaña se cuenta en la analítica");
+    const ancho = await p.evaluate(() => document.documentElement.scrollWidth);
+    ok(ancho <= 360, `MG: nada se sale por los lados a 360 px (${ancho})`);
+    await capturar(p, "MG1-perfil-me-gusta");
+    await p.locator('#perfil-me-gusta-servicios [role="link"]').first().click();
+    await p.waitForURL(new RegExp(`/servicio/${SERV2}`), { timeout: 15000 }).catch(() => {});
+    ok(p.url().includes(`/servicio/${SERV2}`), "MG: tocar un servicio abre su ficha");
+    ok(p.errores.length === 0, `MG: Perfil sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MG4) Sin ningún «me gusta»: lo explica y lleva al catálogo.
+  {
+    const estado = { guardados: [], filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }], megusta: { productos: [], servicios: [] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await interaccion(ctx, estado);
+    const p = await pagina(ctx, "/perfil?tab=megusta");
+    await p.getByText(/Aún no tienes «me gusta»/).waitFor({ timeout: 20000 }).catch(() => {});
+    ok((await p.getByText(/Aún no tienes «me gusta»/).count()) === 1 && (await p.getByText("Ver el catálogo").count()) === 1, "MG: sin «me gusta», lo explica y ofrece ver el catálogo (?tab=megusta abre la pestaña)");
+    await ctx.close();
+  }
+
+  // MG5) La lista de Servicios con la misma tarjeta que el Catálogo: 2 columnas en el móvil, sin descripción ni «Ver
+  // servicio →».
+  {
+    const estado = { guardados: [], filas: [], megusta: { productos: [], servicios: [servicio(SERV, "Limpieza PS5"), servicio(SERV2, "Cambio de joysticks"), servicio(SERV3, "Reparación HDMI")] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/servicios");
+    await p.locator("#servicios-lista").waitFor({ timeout: 30000 }).catch(() => {});
+    const tarjetas = await p.evaluate(() =>
+      [...document.querySelectorAll('[role="link"]')]
+        .filter((a) => /€/.test(a.getAttribute("aria-label") ?? ""))
+        .map((a) => {
+          const r = a.getBoundingClientRect();
+          const cs = getComputedStyle(a);
+          return { y: Math.round(r.y), x: Math.round(r.x), radio: cs.borderRadius, fondo: cs.backgroundColor, borde: cs.borderTopWidth };
+        })
+    );
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(tarjetas.length === 3 && tarjetas[0].y === tarjetas[1].y && tarjetas[2].y > tarjetas[0].y, `MG: Servicios en 2 columnas en el móvil (${tarjetas.map((c) => `${c.x},${c.y}`).join(" | ")})`);
+    ok(tarjetas.every((c) => c.radio === "16px" && c.fondo === "rgb(246, 250, 253)" && c.borde === "0px"), `MG: con la tarjeta del Catálogo (${JSON.stringify(tarjetas[0])})`);
+    ok(!/Ver servicio →|Descripción de Limpieza PS5/.test(t), "MG: sin descripción ni «Ver servicio →» de adorno");
+    await capturar(p, "MG2-servicios-tarjetas");
+    ok(p.errores.length === 0, `MG: Servicios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MG6) Administración: «me gusta» de cada servicio y uso en Analítica.
+  {
+    const estado = {
+      guardados: [],
+      filas: [],
+      serviciosAdmin: [{ id: SERV, title: "Limpieza PS5", description: "", price_eur: 45, status: "PUBLISHED", is_active: true, view_count: 12, like_count: 3, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" }],
+      serviciosMedia: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Perfil: Me gusta", sessions: 5 },
+        { step_label: "Servicio: me gusta", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await p.getByText("Limpieza PS5").first().waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.getByText(/12 visitas · 3 me gusta/).count()) === 1, "MG: Administración → Servicios enseña los «me gusta» de cada servicio");
+    const q = await pagina(ctx, "/admin/analytics");
+    await q.locator("#analitica-me-gusta").waitFor({ timeout: 40000 }).catch(() => {});
+    const a = (await q.locator("#analitica-me-gusta").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/abren su pestaña de Perfil 5 sesiones · dan «me gusta» a un servicio 2/.test(a), `MG: Analítica cuenta la pestaña «Me gusta» y los «me gusta» a servicios (${a})`);
+    ok(p.errores.length === 0 && q.errores.length === 0, `MG: Administración sin errores de JavaScript (${p.errores[0] ?? q.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
 // cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
 // confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
@@ -4677,6 +4891,7 @@ try {
   if (SOLO === "SV") await seccionSV();
   if (SOLO === "VA") await seccionVA();
   if (SOLO === "FS") await seccionFS();
+  if (SOLO === "MG") await seccionMG();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -5619,6 +5834,7 @@ try {
   await seccionSV();
   await seccionVA();
   await seccionFS();
+  await seccionMG();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
