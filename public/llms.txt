@@ -49,7 +49,7 @@
 - [Catálogo](https://videojuegoszaragoza.com/catalogo): consolas, videojuegos y electrónica a la venta.
 - [Reparación y mantenimiento](https://videojuegoszaragoza.com/servicios): servicios de reparación, limpieza y mantenimiento.
 - [Vender o intercambiar](https://videojuegoszaragoza.com/vender): formulario para vendernos o intercambiar tu consola o dispositivo.
-- [Quiénes somos](https://videojuegoszaragoza.com/quienes-somos): quién está detrás de la tienda y cómo trabajamos.
+- [Quiénes somos](https://videojuegoszaragoza.com/quienes-somos): quién está detrás de la tienda (Daniel Gutiérrez, su fundador, y su equipo) y cómo trabajamos.
 - [Blue IA](https://videojuegoszaragoza.com/blue-ia): asistente de la tienda; desde ahí también se habla con el equipo.
 - [Política de envíos](https://videojuegoszaragoza.com/politicas/envios)
 - [Política de devoluciones](https://videojuegoszaragoza.com/politicas/devoluciones)

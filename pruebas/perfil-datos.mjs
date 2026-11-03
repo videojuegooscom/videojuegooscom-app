@@ -140,13 +140,16 @@
  *  - BI) Blue IA con una conversación ya empezada: mientras mira si hay una guardada no saluda; al abrirla, el saludo no
  *    se vuelve a escribir; «Nueva conversación» junto a «Hablar con el equipo» (con y sin sesión); al cambiar de pestaña
  *    no se reescribe; la analítica propia y su línea en Administración → Analítica.
+ *  - QS) «Quiénes somos» para Google: la ficha de persona de Daniel Gutiérrez en el HTML que recibe Google, título,
+ *    descripción, dirección oficial y su nombre como encabezado; los accesos desde Inicio y desde entrar/crear cuenta
+ *    (con «Crear cuenta» abierto); la analítica propia y su línea en Administración → Analítica.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE|BI]
- * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE» o «BI» de
- * cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes junto
- * al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las reseñas,
- * el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la
- * contraseña, la dirección del perfil, la seguridad de la cuenta o las conversaciones de Blue IA).
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|R|S|T|V|W|X|Y|Z|RE|EN|NO|BU|ME|CO|DI|SE|BI|QS]
+ * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI» o «QS»
+ * de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel, redes
+ * junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue, las
+ * reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar la
+ * contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA o «Quiénes somos»).
  * Requisitos: playwright-core y npm run build hecho.
  */
 import { createServer } from "node:http";
@@ -3760,6 +3763,135 @@ async function seccionBI() {
   }
 }
 
+// ===== QS) «Quiénes somos» para Google («Daniel Gutiérrez») y sus accesos desde Inicio y desde entrar/crear cuenta
+// (dueño, 2026-11-03); su parte en Administración → Analítica ======================================================
+async function seccionQS() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const caja = (p, sel) =>
+    p.evaluate((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect();
+      return r ? { x: Math.round(r.x), w: Math.round(r.width), h: Math.round(r.height), ancho: window.innerWidth } : null;
+    }, sel);
+  const dentro = (c) => !!c && c.h >= 44 && c.x >= 0 && c.x + c.w <= c.ancho;
+
+  // QS1) El HTML que recibe Google (antes de ejecutar nada) ya lleva la ficha de Daniel Gutiérrez como fundador.
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [] });
+    const p = await ctx.newPage();
+    const html = await (await p.request.get(`${BASE}/quienes-somos`)).text();
+    const json = (html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/) ?? [])[1] ?? "{}";
+    const grafo = JSON.parse(json)["@graph"] ?? [];
+    const persona = grafo.find((n) => n["@type"] === "Person");
+    const tienda = grafo.find((n) => n["@type"] === "OnlineStore");
+    const pagina = grafo.find((n) => n["@type"] === "AboutPage");
+    ok(
+      persona?.name === "Daniel Gutiérrez" && persona?.alternateName === "Daniel Enrique Gutiérrez Mejía" && persona?.url === "https://videojuegoszaragoza.com/quienes-somos" && /Fundador/.test(persona?.jobTitle ?? ""),
+      `QS: el HTML lleva la ficha de persona de Daniel Gutiérrez, fundador (${JSON.stringify(persona ?? null).slice(0, 160)})`
+    );
+    ok(!!persona && tienda?.founder?.["@id"] === persona["@id"] && pagina?.mainEntity?.["@id"] === persona["@id"] && pagina?.url === persona.url, "QS: la tienda la nombra fundador y «Quiénes somos» es su página");
+    ok(!/"birthDate"|"address"|Miguel Servet/.test(json), "QS: sin fecha de nacimiento ni dirección en los datos para Google");
+    ok(/fundada en 2022 por Daniel Gutiérrez/.test(html) && /Quiénes somos: Daniel Gutiérrez y el equipo/.test(html), "QS: el resumen sin JavaScript también lo dice y enlaza a la página");
+    await ctx.close();
+  }
+
+  // QS2) Inicio: «Quiénes somos» con su nombre y el paso a la página; la página con título, descripción, dirección oficial
+  // y su nombre como encabezado; la analítica cuenta de dónde llega.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#inicio-quienes-somos").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#inicio-quienes-somos").scrollIntoViewIfNeeded().catch(() => {});
+    await p.waitForTimeout(600);
+    const t = (await p.locator("#inicio-quienes-somos").innerText().catch(() => "")).replace(/\n+/g, " ");
+    ok(/Quiénes somos/.test(t) && /Daniel Gutiérrez fundó Videojuegoszaragoza\.com en 2022/.test(t) && /Conoce nuestra historia/.test(t), `QS: Inicio tiene «Quiénes somos» con su nombre (${t.slice(0, 120)})`);
+    const c = await caja(p, "#inicio-quienes-somos-enlace");
+    ok(dentro(c), `QS: el enlace de Inicio se toca bien y no se sale (${JSON.stringify(c)})`);
+    ok((await p.evaluate(() => document.querySelector('link[rel="canonical"]')?.getAttribute("href"))) === "https://videojuegoszaragoza.com/", "QS: Inicio tiene su dirección oficial");
+    await capturar(p, "QS1-inicio");
+    await p.locator("#inicio-quienes-somos-enlace").click();
+    await p.waitForURL(/\/quienes-somos/, { timeout: 15000 }).catch(() => {});
+    await p.locator("#quienes-somos-fundador").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const cabeza = await p.evaluate(() => ({
+      titulo: document.title,
+      descripcion: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "",
+      canonica: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "",
+      encabezado: (() => {
+        const e = document.getElementById("quienes-somos-fundador");
+        return e ? `${e.tagName}|${e.getAttribute("role") ?? ""}|${e.getAttribute("aria-level") ?? ""}|${e.textContent}` : "";
+      })(),
+    }));
+    ok(/^Daniel Gutiérrez, fundador · Quiénes somos \| /.test(cabeza.titulo) && /^Daniel Gutiérrez fundó Videojuegoszaragoza\.com en 2022/.test(cabeza.descripcion), `QS: título y descripción con su nombre (${cabeza.titulo} · ${cabeza.descripcion.slice(0, 50)})`);
+    ok(cabeza.canonica === "https://videojuegoszaragoza.com/quienes-somos", `QS: dirección oficial de la página (${cabeza.canonica})`);
+    ok(
+      (cabeza.encabezado.startsWith("H3|") || /\|heading\|3\|/.test(cabeza.encabezado)) && cabeza.encabezado.endsWith("|Daniel Gutiérrez"),
+      `QS: «Daniel Gutiérrez» es un encabezado de la página (${cabeza.encabezado})`
+    );
+    await esperar(p, () => evento(estado, "quienes_somos_visto").length > 0 && evento(estado, "quienes_somos_abierto").length > 0);
+    ok(evento(estado, "quienes_somos_abierto")[0]?.metadata?.desde === "inicio" && evento(estado, "quienes_somos_abierto")[0]?.step_label === "Quiénes somos: desde Inicio", "QS: la analítica propia cuenta que llegó desde Inicio");
+    ok(evento(estado, "quienes_somos_visto").length === 1, "QS: y la visita a la página");
+    await capturar(p, "QS2-quienes-somos");
+    ok(p.errores.length === 0, `QS: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // QS3) Entrar / crear cuenta (sin sesión): el acceso se ve con los formularios cerrados y con «Crear cuenta» abierto.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-acceso").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#perfil-quienes-somos").waitFor({ timeout: 10000 }).catch(() => {});
+    const t = (await p.locator("#perfil-quienes-somos").innerText().catch(() => "")).replace(/\n+/g, " ");
+    const c1 = await caja(p, "#perfil-quienes-somos");
+    ok(/Conoce a Daniel Gutiérrez y al equipo/.test(t) && dentro(c1), `QS: entrar/crear cuenta tiene el acceso a «Quiénes somos» y se toca bien (${t}; ${JSON.stringify(c1)})`);
+    await p.locator("#perfil-acceso").getByText("Crear cuenta").click();
+    await p.waitForTimeout(700);
+    const c2 = await caja(p, "#perfil-quienes-somos");
+    ok(dentro(c2), `QS: con «Crear cuenta» abierto sigue ahí (${JSON.stringify(c2)})`);
+    await capturar(p, "QS3-crear-cuenta");
+    await p.locator("#perfil-quienes-somos").click();
+    await p.waitForURL(/\/quienes-somos/, { timeout: 15000 }).catch(() => {});
+    await esperar(p, () => evento(estado, "quienes_somos_abierto").length > 0);
+    const ev = evento(estado, "quienes_somos_abierto")[0];
+    ok(/\/quienes-somos/.test(p.url()) && ev?.metadata?.desde === "acceso" && ev?.metadata?.modo === "signup", `QS: lleva a «Quiénes somos» y se cuenta desde el acceso (${JSON.stringify(ev?.metadata ?? null)})`);
+    ok(p.errores.length === 0, `QS: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // QS4) Administración → Analítica: cuántas sesiones la ven y desde dónde llegan.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Quiénes somos: vista", sessions: 7 },
+        { step_label: "Quiénes somos: desde Inicio", sessions: 3 },
+        { step_label: "Quiénes somos: desde el acceso", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-quienes-somos").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-quienes-somos").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/la ven 7 sesiones · llegan desde Inicio: 3 · desde entrar o crear cuenta: 2/.test(t), `QS: Administración → Analítica lo cuenta (${t})`);
+    ok(p.errores.length === 0, `QS: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -3921,6 +4053,7 @@ try {
   if (SOLO === "DI") await seccionDI();
   if (SOLO === "SE") await seccionSE();
   if (SOLO === "BI") await seccionBI();
+  if (SOLO === "QS") await seccionQS();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -4857,6 +4990,7 @@ try {
   await seccionDI();
   await seccionSE();
   await seccionBI();
+  await seccionQS();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

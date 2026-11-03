@@ -2070,6 +2070,31 @@ export default function HomeScreen() {
 
           <Separador isMobile={isMobile} />
 
+          {/* Quiénes somos (dueño, 2026-11-03): quién está detrás, con su nombre, y el paso a la página. Datos que dio
+              él (fundada en 2022, equipo de tres profesionales). Se mide en Administración → Analítica. */}
+          <View nativeID="inicio-quienes-somos" style={{ gap: 10, alignItems: "center" }}>
+            <SectionTitle title="Quiénes somos" isMobile={isMobile} />
+            <Text style={{ color: COLORS.muted, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 560 }}>
+              Daniel Gutiérrez fundó Videojuegoszaragoza.com en 2022. Hoy, junto a un equipo de tres profesionales,
+              compramos, vendemos y reparamos consolas y electrónica.
+            </Text>
+            <Pressable
+              nativeID="inicio-quienes-somos-enlace"
+              onPress={() => {
+                void trackEvent("quienes_somos_abierto", "Quiénes somos: desde Inicio", { path: "/", metadata: { desde: "inicio" } });
+                pushRoute("/quienes-somos" as Href);
+              }}
+              accessibilityRole="link"
+              style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingHorizontal: 8, opacity: pressed ? 0.8 : 1 })}
+            >
+              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+                Conoce nuestra historia →
+              </Text>
+            </Pressable>
+          </View>
+
+          <Separador isMobile={isMobile} />
+
           <View style={{ gap: 12 }}>
             {/* Las dos mascotas de la tienda dan paso a las preguntas
                 frecuentes; al tocarlas se animan. */}

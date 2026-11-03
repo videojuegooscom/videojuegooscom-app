@@ -25,6 +25,8 @@
  * - pone/actualiza <meta name="description"> y <meta property="og:description">.
  * - si hay logo_url, lo pone como <link rel="icon">,
  *   <link rel="apple-touch-icon"> y <meta property="og:image">.
+ * - en cada ruta, <link rel="canonical"> y og:url con la dirección oficial
+ *   (https://videojuegoszaragoza.com + la ruta, sin «?…»).
  * upsertMeta()/upsertLink() reutilizan la etiqueta si ya existe (a partir
  * del favicon fijo que trae app.json) en vez de duplicarla.
  *
@@ -55,10 +57,12 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  // El dueño quiere salir en Google al buscar «Daniel Gutiérrez» (2026-11-03): su nombre va en el título y en la
+  // descripción, igual que en la página y en sus datos estructurados (app/+html.tsx).
   "/quienes-somos": {
-    titulo: "Quiénes somos",
+    titulo: "Daniel Gutiérrez, fundador · Quiénes somos",
     descripcion:
-      "Desde 2022, compraventa de consolas y electrónica, con reparación de consolas, mandos, móviles, portátiles y PC. Tienda online de Zaragoza con envíos a toda España.",
+      "Daniel Gutiérrez fundó Videojuegoszaragoza.com en 2022: compraventa de consolas y electrónica, con reparación de consolas, mandos, móviles, portátiles y PC. Tienda online de Zaragoza con envíos a toda España.",
   },
   "/politicas/envios": { titulo: "Política de envíos" },
   "/politicas/devoluciones": { titulo: "Política de devoluciones" },
@@ -68,6 +72,11 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
 };
 
 type Ajustes = { title: string; description: string; logoUrl: string };
+
+// Dirección oficial de cada página (canonical): la misma página también se abre por las direcciones de Vercel o con
+// «?…» detrás, y así Google sabe cuál es la buena y no las cuenta como copias.
+const DOMINIO = "https://videojuegoszaragoza.com";
+const MARCA = "Videojuegoszaragoza.com";
 
 function upsertMeta(attr: "name" | "property", key: string, content: string) {
   if (typeof document === "undefined") return;
@@ -136,13 +145,18 @@ export default function SiteHead() {
     };
   }, []);
 
-  // En cada página: su título y su descripción (o los generales de «Marca y SEO»).
+  // En cada página: su título, su descripción (o los generales de «Marca y SEO») y su dirección oficial. Las páginas
+  // de PAGINAS llevan los suyos aunque «Marca y SEO» no haya cargado (con el nombre de la marca de siempre).
   useEffect(() => {
-    if (Platform.OS !== "web" || typeof document === "undefined" || !ajustes) return;
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
     const ruta = pathname.replace(/\/+$/, "") || "/";
+    upsertLink("canonical", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
+    upsertMeta("property", "og:url", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
     const pagina = PAGINAS[ruta];
-    const titulo = pagina ? (ajustes.title ? `${pagina.titulo} | ${ajustes.title}` : pagina.titulo) : ajustes.title;
-    const descripcion = pagina?.descripcion ?? ajustes.description;
+    if (!pagina && !ajustes) return;
+    const marca = ajustes?.title || MARCA;
+    const titulo = pagina ? `${pagina.titulo} | ${marca}` : marca;
+    const descripcion = pagina?.descripcion ?? ajustes?.description;
 
     if (titulo) {
       document.title = titulo;

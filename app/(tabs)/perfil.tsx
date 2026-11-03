@@ -1299,6 +1299,32 @@ export default function PerfilScreen() {
                         </View>
                       </RevealPanel>
                     ) : null}
+
+                    {/* Quién está detrás, antes de crear la cuenta o entrar (dueño, 2026-11-03). Se mide en
+                        Administración → Analítica («desde el acceso»). */}
+                    <Pressable
+                      nativeID="perfil-quienes-somos"
+                      onPress={() => {
+                        void trackEvent("quienes_somos_abierto", "Quiénes somos: desde el acceso", {
+                          path: "/perfil",
+                          metadata: { desde: "acceso", modo: formOpen ? mode : "ninguno" },
+                        });
+                        router.push("/quienes-somos");
+                      }}
+                      accessibilityRole="link"
+                      style={({ pressed }) => ({
+                        alignSelf: "center",
+                        minHeight: 44,
+                        justifyContent: "center",
+                        paddingHorizontal: 8,
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text style={{ color: COLORS.muted, fontSize: 13.5, textAlign: "center", lineHeight: 20 }}>
+                        ¿Quién está detrás de la tienda?{" "}
+                        <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Conoce a Daniel Gutiérrez y al equipo →</Text>
+                      </Text>
+                    </Pressable>
                   </>
                 ) : (
                   <View style={{ gap: 12 }}>
