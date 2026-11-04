@@ -722,7 +722,7 @@ export default function AdminFlashNews() {
                   setMessage(v);
                   setModalErr(null);
                 }}
-                placeholder="Ej: Te compramos tu electrónica hoy mismo"
+                placeholder="Escribe aquí el aviso"
                 placeholderTextColor="rgba(11,33,56,0.40)"
                 multiline
                 maxLength={140}
