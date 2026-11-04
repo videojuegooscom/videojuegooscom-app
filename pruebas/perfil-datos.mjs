@@ -3350,6 +3350,144 @@ async function seccionNA() {
   }
 }
 
+// ===== FT) Fichas: «Características» / «Descripción» siempre encajadas y descripción sin emojis (dueño, 2026-11-04) ===
+// Al cambiar de pestaña, la pantalla queda entera en su sitio (ni un trozo de la otra). Si el deslizamiento se queda a
+// medias (en el iPhone se corta a veces) o el dedo lo suelta entre dos pantallas, se coloca solo: se simula cortando el
+// deslizamiento con el ajuste del navegador apagado. La descripción (ficha, datos para Google) sale sin emojis, en
+// producto y en servicio; en el panel se avisa al escribirlos. Control: la tienda anterior falla.
+async function seccionFT() {
+  const ID = "b7c1d2e3-0000-4000-8000-0000000000f7";
+  const SERV = "5e000000-0000-4000-8000-0000000000f8";
+  const CON_EMOJIS = "¿Tu PlayStation 4 falla? 🎮\n\n✅ Reparación rápida.\n💎 1 año de garantía en la reparación\n🚚 Opción de recogida y entrega a domicilio\n\nPlayStation® y Nintendo Switch™ revisadas.";
+  const estadoBase = () => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    producto: {
+      id: ID, title: "PS4 Slim revisada", description: CON_EMOJIS, price_eur: 189, status: "PUBLISHED", is_active: true,
+      category_id: null, images: [], updated_at: "2026-11-01T10:00:00Z", created_at: "2026-11-01T10:00:00Z", condition: "USED",
+      like_count: 0, reference: null, caracteristicas: [{ etiqueta: "Plataforma", valor: "PS4" }, { etiqueta: "Almacenamiento", valor: "500 GB" }, { etiqueta: "Mandos", valor: "1" }],
+      mantenimiento: null, category: null,
+    },
+    fotosProducto: [],
+    servicio: { id: SERV, title: "Reparación / Limpieza PS4", description: CON_EMOJIS, price_eur: 30 },
+    fotosServicio: [],
+  });
+  // Cómo de encajada está una pantalla del carrusel: lo que se separa de su sitio y lo que asoma de las otras.
+  const medir = (p, prefijo, cual) =>
+    p.evaluate(
+      ([prefijo, cual]) => {
+        const panel = document.getElementById(`${prefijo}-${cual}`);
+        let s = panel?.parentElement ?? null;
+        while (s && !/(auto|scroll)/.test(getComputedStyle(s).overflowX)) s = s.parentElement;
+        if (!panel || !s) return null;
+        const r = s.getBoundingClientRect();
+        const pr = panel.getBoundingClientRect();
+        return { desfase: Math.round(pr.left - r.left), ancho: Math.round(r.width), x: Math.round(s.scrollLeft) };
+      },
+      [prefijo, cual]
+    );
+  // Corta el deslizamiento a medias: sin el ajuste del navegador (scroll-snap), el carrusel se deja entre dos pantallas.
+  const dejarAMedias = (p, prefijo, cual) =>
+    p.evaluate(
+      ([prefijo, cual]) => {
+        const panel = document.getElementById(`${prefijo}-${cual}`);
+        let s = panel?.parentElement ?? null;
+        while (s && !/(auto|scroll)/.test(getComputedStyle(s).overflowX)) s = s.parentElement;
+        if (!s) return false;
+        s.style.scrollSnapType = "none";
+        s.scrollLeft = Math.round(s.clientWidth * 0.55);
+        return true;
+      },
+      [prefijo, cual]
+    );
+  const tieneEmojis = (t) => /\p{Extended_Pictographic}/u.test((t ?? "").replace(/[©®™]/g, ""));
+  const pestana = (p, prefijo, texto) => p.locator(`#${prefijo}-ficha-carrusel [role="tab"]`).filter({ hasText: texto }).first();
+
+  for (const [nombre, vista] of [
+    ["móvil", {}],
+    ["ordenador", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    for (const [prefijo, ruta] of [
+      ["producto", `/producto/${ID}`],
+      ["servicio", `/servicio/${SERV}`],
+    ]) {
+      const ctx = await contexto(navegador, CLIENTE, "user", estadoBase(), vista);
+      const p = await pagina(ctx, ruta);
+      await p.locator(`#${prefijo}-ficha-carrusel`).waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(800);
+
+      // FT1) Tocar «Descripción»: entera en su sitio.
+      await pestana(p, prefijo, "Descripción").click({ timeout: 10000 }).catch(() => {});
+      await p.waitForTimeout(1500);
+      const d1 = await medir(p, prefijo, "descripcion");
+      ok(!!d1 && Math.abs(d1.desfase) <= 1, `FT (${nombre}, ${prefijo}): al tocar «Descripción» queda entera en su sitio (se separa ${d1?.desfase ?? "?"} px)`);
+      await capturar(p, `FT1-${prefijo}-${nombre === "móvil" ? "movil" : "ordenador"}-descripcion`);
+
+      // FT2) El deslizamiento se queda a medias: se coloca solo, sin tocar nada.
+      await dejarAMedias(p, prefijo, "descripcion");
+      await p.waitForTimeout(1600);
+      const d2 = await medir(p, prefijo, "descripcion");
+      ok(!!d2 && Math.abs(d2.desfase) <= 1, `FT (${nombre}, ${prefijo}): si se queda entre dos pantallas, se coloca sola en la suya (se separa ${d2?.desfase ?? "?"} px)`);
+
+      // FT3) Volver a «Características» con el deslizamiento cortado en mitad del camino: también queda en su sitio.
+      await pestana(p, prefijo, "Características").click({ timeout: 10000 }).catch(() => {});
+      await p.waitForTimeout(60);
+      await dejarAMedias(p, prefijo, "caracteristicas");
+      await p.waitForTimeout(1600);
+      const d3 = await medir(p, prefijo, "caracteristicas");
+      ok(!!d3 && Math.abs(d3.desfase) <= 1, `FT (${nombre}, ${prefijo}): al volver a «Características», aunque el deslizamiento se corte, queda en su sitio (se separa ${d3?.desfase ?? "?"} px)`);
+
+      // FT4) La descripción, sin emojis (y con ©, ® y ™, que no son emojis).
+      const texto = await p.locator(`#${prefijo}-descripcion`).innerText().catch(() => "");
+      ok(!!texto && !tieneEmojis(texto) && /Reparación rápida\./.test(texto) && /1 año de garantía/.test(texto) && /PlayStation® y Nintendo Switch™/.test(texto), `FT (${nombre}, ${prefijo}): la descripción sale sin emojis («${texto.replace(/\n+/g, " | ").slice(0, 90)}»)`);
+      if (prefijo === "producto") {
+        const google = await p.evaluate(() => {
+          try {
+            return JSON.parse(document.getElementById("datos-producto")?.textContent ?? "{}").description ?? "";
+          } catch {
+            return "";
+          }
+        });
+        ok(!!google && !tieneEmojis(google), `FT (${nombre}): los datos para Google tampoco llevan emojis («${String(google).slice(0, 60)}»)`);
+      }
+      ok(p.errores.length === 0, `FT (${nombre}, ${prefijo}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // FT5) Administración: al escribir emojis en la descripción se avisa de que no saldrán en la tienda.
+  {
+    const estado = {
+      guardados: [],
+      filas: [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }],
+      serviciosAdmin: [],
+      serviciosMedia: [],
+      categorias: [],
+      productosAdmin: [],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const s = await pagina(ctx, "/admin/services");
+    await s.locator("#servicio-nuevo").click({ timeout: 30000 }).catch(() => {});
+    await s.getByPlaceholder("Qué incluye el servicio, tiempo estimado, garantía…").fill("✅ Reparación rápida 💎 con garantía");
+    await s.locator("#servicio-aviso-emojis").waitFor({ timeout: 5000 }).catch(() => {});
+    const avisoS = await s.locator("#servicio-aviso-emojis").innerText().catch(() => "");
+    ok(/se verá sin sus 2 emojis/.test(avisoS), `FT: en Administración → Servicios se avisa de que los emojis no saldrán («${avisoS}»)`);
+    await s.getByPlaceholder("Qué incluye el servicio, tiempo estimado, garantía…").fill("Reparación rápida con garantía");
+    await s.waitForTimeout(300);
+    ok((await s.locator("#servicio-aviso-emojis").count()) === 0, "FT: sin emojis, no hay aviso");
+    const q = await pagina(ctx, "/admin/products");
+    await q.locator('[aria-label="Nuevo producto"]').click({ timeout: 30000 }).catch(() => {});
+    // (el campo sale plegado con el texto de partida de los productos: se despliega tocándolo)
+    await q.getByText(/^Estado Funcional/).first().click({ timeout: 10000 }).catch(() => {});
+    await q.getByPlaceholder("Descripción", { exact: true }).fill("Estado 10/10 🎮", { timeout: 10000 }).catch(() => {});
+    await q.locator("#producto-aviso-emojis").waitFor({ timeout: 5000 }).catch(() => {});
+    const avisoP = await q.locator("#producto-aviso-emojis").innerText().catch(() => "");
+    ok(/se verá sin su emoji/.test(avisoP), `FT: y en Productos («${avisoP}»)`);
+    await capturar(q, "FT5-panel-aviso-emojis");
+    await ctx.close();
+  }
+}
+
 // ===== MC) Los mensajes de Blue se cierran solos y el aviso de una noticia nueva abre esa noticia (dueño, 2026-11-04) ==
 // El saludo se va a los ~3 s; un mensaje, a los 10–15 s a la vista (y con la X, cuando se quiera); la analítica cuenta cómo
 // acaba. El aviso «Noticia nueva: …» lleva a esa noticia (/chat-global?noticia=<id>), no a la lista. Administración →
@@ -5727,6 +5865,7 @@ try {
   if (SOLO === "BF") await seccionBF();
   if (SOLO === "NA") await seccionNA();
   if (SOLO === "MC") await seccionMC();
+  if (SOLO === "FT") await seccionFT();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
@@ -6679,6 +6818,7 @@ try {
   await seccionBF();
   await seccionNA();
   await seccionMC();
+  await seccionFT();
   await seccionME();
   await seccionCO();
   await seccionDI();
