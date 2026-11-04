@@ -5827,39 +5827,6 @@ async function seccionVP() {
   }
 }
 
-// ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
-// cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
-// confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
-async function seccionVA() {
-  const salida = (n, evento, estado) => ({
-    id: `0e000000-0000-4000-8000-00000000000${n}`, creado_en: `2026-11-03T1${n}:00:00Z`, evento, id_veoaura: "0a000000-0000-4000-8000-000000000001",
-    pedido_id: `0b000000-0000-4000-8000-00000000000${n}`, estado, intentos: estado === "enviado" ? 1 : 0, enviado_en: estado === "enviado" ? `2026-11-03T1${n}:05:00Z` : null, detalle: null,
-  });
-  const estado = {
-    guardados: [],
-    filas: [],
-    salidas: [salida(1, "pedido", "pendiente"), salida(2, "pedido_pagado", "enviado"), salida(3, "pedido_pagado", "pendiente"), salida(4, "pedido", "enviado")],
-    articulosVeo: [{ id: "0c000000-0000-4000-8000-000000000001", id_veoaura: "0a000000-0000-4000-8000-000000000001", title: "PS5 Slim", price_eur: 399, is_active: true, vendido_en: null, retirado_en: null, view_count: 5, like_count: 1 }],
-  };
-  const ctx = await contexto(navegador, ADMIN, "admin", estado);
-  const p = await pagina(ctx, "/admin/escaparate");
-  await p.locator("#escaparate-fichas-clientes").waitFor({ timeout: 30000 }).catch(() => {});
-  await p.waitForTimeout(500);
-  const fichas = (await p.locator("#escaparate-fichas-clientes").innerText().catch(() => "")).replace(/\n/g, " ");
-  ok(/Fichas de cliente enviadas a VeoAura: 1 · por enviar: 1 · solo de pedidos entregados \(nombre, correo y teléfono\)/.test(fichas), `VA: Escaparate cuenta las fichas de cliente enviadas y por enviar (${fichas})`);
-  const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
-  ok(/1 ventas sin confirmar a VeoAura/.test(t), "VA: las fichas por enviar no cuentan como «ventas sin confirmar» (solo 1, la del pedido)");
-  ok((t.match(/Pedido entregado · ficha del cliente \(nombre, correo y teléfono\)/g) ?? []).length === 2, "VA: cada aviso de ficha de cliente se ve con su nombre en la lista");
-  await capturar(p, "VA1-escaparate-fichas");
-  ok(p.errores.length === 0, `VA: Escaparate sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
-  const q = await pagina(ctx, "/admin/pedidos");
-  await q.locator("#pedidos-veoaura-cliente").waitFor({ timeout: 30000 }).catch(() => {});
-  const aviso = (await q.locator("#pedidos-veoaura-cliente").innerText().catch(() => "")).replace(/\n/g, " ");
-  ok(/Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del cliente \(nunca su dirección\)/.test(aviso), `VA: Pedidos avisa de qué se manda al marcar «Entregado» (${aviso.slice(0, 80)})`);
-  ok(q.errores.length === 0, `VA: Pedidos sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
-  await ctx.close();
-}
-
 // ===== BV) Bienvenida al abrir la tienda (dueño, 2026-11-04): «VideojuegosZaragoza.com» con las mascotas al instante
 // (también en el HTML estático), 3 s la primera vez en cada visita mientras la tienda carga debajo, no al recargar, un
 // toque la quita antes, empieza en Inicio si se abre por otra sección (salvo enlaces concretos) y su parte en
@@ -6055,6 +6022,39 @@ async function seccionBV() {
   }
 }
 
+// ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
+// cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
+// confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
+async function seccionVA() {
+  const salida = (n, evento, estado) => ({
+    id: `0e000000-0000-4000-8000-00000000000${n}`, creado_en: `2026-11-03T1${n}:00:00Z`, evento, id_veoaura: "0a000000-0000-4000-8000-000000000001",
+    pedido_id: `0b000000-0000-4000-8000-00000000000${n}`, estado, intentos: estado === "enviado" ? 1 : 0, enviado_en: estado === "enviado" ? `2026-11-03T1${n}:05:00Z` : null, detalle: null,
+  });
+  const estado = {
+    guardados: [],
+    filas: [],
+    salidas: [salida(1, "pedido", "pendiente"), salida(2, "pedido_pagado", "enviado"), salida(3, "pedido_pagado", "pendiente"), salida(4, "pedido", "enviado")],
+    articulosVeo: [{ id: "0c000000-0000-4000-8000-000000000001", id_veoaura: "0a000000-0000-4000-8000-000000000001", title: "PS5 Slim", price_eur: 399, is_active: true, vendido_en: null, retirado_en: null, view_count: 5, like_count: 1 }],
+  };
+  const ctx = await contexto(navegador, ADMIN, "admin", estado);
+  const p = await pagina(ctx, "/admin/escaparate");
+  await p.locator("#escaparate-fichas-clientes").waitFor({ timeout: 30000 }).catch(() => {});
+  await p.waitForTimeout(500);
+  const fichas = (await p.locator("#escaparate-fichas-clientes").innerText().catch(() => "")).replace(/\n/g, " ");
+  ok(/Fichas de cliente enviadas a VeoAura: 1 · por enviar: 1 · solo de pedidos entregados \(nombre, correo y teléfono\)/.test(fichas), `VA: Escaparate cuenta las fichas de cliente enviadas y por enviar (${fichas})`);
+  const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+  ok(/1 ventas sin confirmar a VeoAura/.test(t), "VA: las fichas por enviar no cuentan como «ventas sin confirmar» (solo 1, la del pedido)");
+  ok((t.match(/Pedido entregado · ficha del cliente \(nombre, correo y teléfono\)/g) ?? []).length === 2, "VA: cada aviso de ficha de cliente se ve con su nombre en la lista");
+  await capturar(p, "VA1-escaparate-fichas");
+  ok(p.errores.length === 0, `VA: Escaparate sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+  const q = await pagina(ctx, "/admin/pedidos");
+  await q.locator("#pedidos-veoaura-cliente").waitFor({ timeout: 30000 }).catch(() => {});
+  const aviso = (await q.locator("#pedidos-veoaura-cliente").innerText().catch(() => "")).replace(/\n/g, " ");
+  ok(/Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del cliente \(nunca su dirección\)/.test(aviso), `VA: Pedidos avisa de qué se manda al marcar «Entregado» (${aviso.slice(0, 80)})`);
+  ok(q.errores.length === 0, `VA: Pedidos sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
+  await ctx.close();
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -6222,6 +6222,7 @@ try {
   if (SOLO === "SE") await seccionSE();
   if (SOLO === "BI") await seccionBI();
   if (SOLO === "QS") await seccionQS();
+  if (SOLO === "BV") await seccionBV();
   if (SOLO === "HO") await seccionHO();
   if (SOLO === "AD") await seccionAD();
   if (SOLO === "SV") await seccionSV();
@@ -6230,7 +6231,6 @@ try {
   if (SOLO === "MG") await seccionMG();
   if (SOLO === "RS") await seccionRS();
   if (SOLO === "VP") await seccionVP();
-  if (SOLO === "BV") await seccionBV();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -7177,6 +7177,7 @@ try {
   await seccionSE();
   await seccionBI();
   await seccionQS();
+  await seccionBV();
   await seccionHO();
   await seccionAD();
   await seccionSV();
@@ -7185,7 +7186,6 @@ try {
   await seccionMG();
   await seccionRS();
   await seccionVP();
-  await seccionBV();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
