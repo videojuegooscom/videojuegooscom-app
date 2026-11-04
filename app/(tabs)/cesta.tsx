@@ -22,6 +22,14 @@
  *   cesta vacía o llena) abre Blue IA y le manda la pregunta sola (?q=); los
  *   toques se cuentan con la analítica propia («cesta_blue_elegir») y se ven
  *   en Administración → Analítica.
+ * - lib/envio.ts → tarifas de envío (Administración → Tarifas de envío): si
+ *   todas están a 0 € dice «Gratis»; si no, el envío se calcula al finalizar
+ *   la compra con el código postal.
+ *
+ * Diseño (dueño, 2026-11-04): iconos sueltos, sin burbujas alrededor (quitar
+ * es una papelera roja; «Vaciar cesta», «Seguir comprando» y Blue son textos
+ * con su icono), la foto entera sobre blanco y el precio en el azul de la
+ * marca, como en el resto de la tienda.
  */
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -32,7 +40,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
-  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -45,7 +52,9 @@ import CategoryProductsShelf from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import SiteFooter from "../../components/SiteFooter";
+import SmartImage from "../../components/SmartImage";
 import { useRecarga } from "../../components/TirarParaActualizar";
+import { cargarTarifas, gratisDesdeMinimo, hayEnviosDePago, type ZonaEnvio } from "../../lib/envio";
 import {
   formatoCuentaAtras,
   liberarReserva,
@@ -121,81 +130,81 @@ function AnimatedPressable({
   );
 }
 
-// Botón de acción principal/secundario, mismo estilo que app/(tabs)/perfil.tsx
-// (fondo azul sólido con texto blanco en "primary", fondo suave con borde en
-// "secondary"), para que la cesta se sienta parte de la misma app.
+// Botón principal de la tienda: píldora azul de marca con texto blanco (y su icono), como «Comprar ya» en la ficha.
 function ActionButton({
   title,
   onPress,
   disabled,
-  variant = "primary",
+  icon,
+  nativeID,
 }: {
   title: string;
   onPress: () => void;
   disabled?: boolean;
-  variant?: "primary" | "secondary";
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
+  nativeID?: string;
 }) {
-  const isPrimary = variant === "primary";
-
   return (
     <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
       style={{
-        borderRadius: 16,
-        paddingVertical: 14,
-        paddingHorizontal: 14,
+        minHeight: 52,
+        borderRadius: 999,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        borderWidth: isPrimary ? 0 : 1,
-        borderColor: isPrimary ? "transparent" : COLORS.border,
-        backgroundColor: isPrimary ? COLORS.accent : COLORS.cardSoft,
+        gap: 8,
+        backgroundColor: COLORS.accent,
         opacity: disabled ? 0.45 : 1,
       }}
     >
-      <Text
-        style={{
-          color: isPrimary ? "#FFFFFF" : COLORS.text,
-          fontWeight: "900",
-          fontSize: 15,
-        }}
-      >
-        {title}
-      </Text>
+      <View nativeID={nativeID} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>{title}</Text>
+        {icon ? <Ionicons name={icon} size={18} color="#FFFFFF" /> : null}
+      </View>
     </AnimatedPressable>
   );
 }
 
-// Insignia pequeña en píldora, mismo componente que app/(tabs)/perfil.tsx:
-// se usa para el contador de artículos y para destacar "Envío gratis".
-function Badge({
-  text,
-  tone = "default",
+// Acción secundaria: solo el texto con su icono, sin burbuja alrededor (44 px de alto para el dedo).
+function AccionTexto({
+  texto,
+  icon,
+  onPress,
+  color = COLORS.accent,
+  nativeID,
+  accessibilityLabel,
 }: {
-  text: string;
-  tone?: "default" | "accent" | "success";
+  texto: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  onPress: () => void;
+  color?: string;
+  nativeID?: string;
+  accessibilityLabel?: string;
 }) {
-  const toneStyles =
-    tone === "accent"
-      ? { bg: COLORS.accent2, border: COLORS.accentBorder, color: COLORS.text }
-      : tone === "success"
-      ? { bg: COLORS.successBg, border: COLORS.successBorder, color: COLORS.success }
-      : { bg: "#F6FAFD", border: COLORS.border, color: COLORS.text };
-
   return (
-    <View
-      style={{
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? texto}
+      style={({ pressed }) => ({
         alignSelf: "center",
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: toneStyles.border,
-        backgroundColor: toneStyles.bg,
-      }}
+        minHeight: 44,
+        paddingHorizontal: 8,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        opacity: pressed ? 0.6 : 1,
+      })}
     >
-      <Text style={{ color: toneStyles.color, fontWeight: "900", fontSize: 12 }}>{text}</Text>
-    </View>
+      <Ionicons name={icon} size={18} color={color} />
+      <Text style={{ color, fontWeight: "800", fontSize: 14 }}>{texto}</Text>
+    </Pressable>
   );
 }
 
@@ -268,26 +277,21 @@ function BotonBlueElegir({ conArticulos }: { conArticulos: boolean }) {
       }}
       accessibilityRole="button"
       accessibilityLabel="Blue, ayúdame a elegir un artículo"
+      // Sin burbuja: el icono de Blue y el texto en azul (como un enlace), 48 px de alto para el dedo.
       style={({ pressed }) => ({
         alignSelf: "center",
-        width: "100%",
         maxWidth: 360,
         minHeight: 48,
-        borderRadius: 999,
-        paddingHorizontal: 18,
+        paddingHorizontal: 8,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
-        borderWidth: 1,
-        borderColor: COLORS.accentBorder,
-        backgroundColor: COLORS.accent2,
-        opacity: pressed ? 0.88 : 1,
-        transform: [{ scale: pressed ? 0.97 : 1 }],
+        opacity: pressed ? 0.6 : 1,
       })}
     >
-      <Ionicons name="sparkles" size={18} color={COLORS.accent} />
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center", flexShrink: 1 }}>
+      <Ionicons name="sparkles" size={20} color={COLORS.accent} />
+      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center", flexShrink: 1 }}>
         Blue, ayúdame a elegir un artículo
       </Text>
     </Pressable>
@@ -597,8 +601,21 @@ export default function CestaScreen() {
     [items]
   );
 
-  const shipping = 0;
-  const total = subtotal + shipping;
+  // Tarifas de envío (Administración → Tarifas de envío). Sin código postal aún: si todo es gratis se dice; si no, el
+  // envío se calcula al finalizar la compra. Sin la migración, gratis como siempre.
+  const [tarifas, setTarifas] = useState<ZonaEnvio[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    cargarTarifas().then((t) => {
+      if (vivo) setTarifas(t);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const envioDePago = hayEnviosDePago(tarifas);
+  const gratisDesde = gratisDesdeMinimo(tarifas);
+  const total = subtotal;
 
   const persist = useCallback(async (next: CartItem[]) => {
     setItems(next);
@@ -812,7 +829,7 @@ export default function CestaScreen() {
               </Text>
 
               <View style={{ marginTop: 6, width: "100%", maxWidth: 260 }}>
-                <ActionButton title="Ir al catálogo" onPress={() => pushRoute("/catalogo" as Href)} />
+                <ActionButton title="Ir al catálogo" icon="arrow-forward" onPress={() => pushRoute("/catalogo" as Href)} />
               </View>
             </View>
           ) : (
@@ -829,16 +846,16 @@ export default function CestaScreen() {
                     borderTopColor: COLORS.border,
                   }}
                 >
-                  {/* Miniatura del artículo, misma foto de portada que en
-                      el catálogo y la ficha de producto. Si no hay foto,
-                      se muestra un icono a modo de marcador. */}
+                  {/* Miniatura del artículo, misma foto de portada que en el catálogo y la ficha: entera (sin
+                      recortar) sobre blanco y en tamaño pequeño (optimizador de Vercel, no la foto original).
+                      Si no hay foto, un icono a modo de marcador. */}
                   {it.imageUrl ? (
-                    <Image
-                      source={{ uri: it.imageUrl }}
-                      alt={it.title}
-                      style={{ width: 88, height: 88, borderRadius: 16 }}
-                      resizeMode="cover"
-                    />
+                    <View
+                      nativeID={`cesta-foto-${it.id}`}
+                      style={{ width: 104, height: 104, borderRadius: 16, overflow: "hidden", backgroundColor: "#FFFFFF" }}
+                    >
+                      <SmartImage uri={it.imageUrl} alt={it.title} ancho={104} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                    </View>
                   ) : (
                     <Ionicons name="image-outline" size={34} color={COLORS.mutedSoft} />
                   )}
@@ -853,7 +870,7 @@ export default function CestaScreen() {
                     </Text>
                   ) : null}
 
-                  <Text style={{ color: COLORS.gold, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
+                  <Text nativeID={`cesta-precio-${it.id}`} style={{ color: COLORS.accent, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
                     {fmtEUR(it.priceEUR * it.qty)}
                   </Text>
 
@@ -866,46 +883,32 @@ export default function CestaScreen() {
                     Segunda mano: cada artículo es una unidad única, así que no hay
                     selector de cantidad; solo se puede quitar.
                   */}
-                  <View style={{ alignItems: "center", gap: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
                     <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
                       Unidad única
                     </Text>
-                    <AnimatedPressable
+                    {/* Quitar: solo la papelera roja, sin burbuja (44 × 44 para el dedo). */}
+                    <Pressable
+                      nativeID={`cesta-quitar-${it.id}`}
                       onPress={() => remove(it.id)}
-                      style={{
-                        minHeight: 44,
-                        paddingHorizontal: 14,
-                        borderRadius: 999,
-                        flexDirection: "row",
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar ${it.title} de la cesta`}
+                      style={({ pressed }) => ({
+                        width: 44,
+                        height: 44,
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: 6,
-                        borderWidth: 1,
-                        borderColor: "#F5B5B5",
-                        backgroundColor: "#FDECEC",
-                      }}
+                        opacity: pressed ? 0.6 : 1,
+                        transform: [{ scale: pressed ? 0.92 : 1 }],
+                      })}
                     >
-                      <Ionicons name="trash-outline" size={16} color="#B91C1C" />
-                      <Text style={{ color: "#B91C1C", fontWeight: "900", fontSize: 13 }}>Quitar</Text>
-                    </AnimatedPressable>
+                      <Ionicons name="trash-outline" size={22} color="#B91C1C" />
+                    </Pressable>
                   </View>
                 </View>
               ))}
 
-              <AnimatedPressable
-                onPress={clear}
-                style={{
-                  alignSelf: "center",
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
-                  backgroundColor: "#F6FAFD",
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>Vaciar cesta</Text>
-              </AnimatedPressable>
+              <AccionTexto nativeID="cesta-vaciar" texto="Vaciar cesta" icon="trash-bin-outline" color={COLORS.muted} onPress={clear} />
             </View>
           )}
 
@@ -925,25 +928,28 @@ export default function CestaScreen() {
             </Text>
 
             <Row label="Subtotal" value={fmtEUR(subtotal)} />
-            <Row label="Envío" value={fmtEUR(shipping)} freeBadge={shipping === 0} />
+            {/* Envío: «Gratis» en verde (sin burbuja) si todas las tarifas están a 0 €; si no, se calcula al pagar. */}
+            <Row
+              nativeID="cesta-envio"
+              label="Envío"
+              value={envioDePago ? "Se calcula con tu código postal" : "Gratis"}
+              tono={envioDePago ? "suave" : "gratis"}
+            />
+            {envioDePago && gratisDesde !== null ? (
+              <Text nativeID="cesta-envio-gratis-desde" style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+                {subtotal >= gratisDesde
+                  ? "Con este importe el envío puede salir gratis: se confirma con tu código postal"
+                  : `Envío gratis desde ${fmtEUR(gratisDesde)} (según la zona)`}
+              </Text>
+            ) : null}
             <View style={{ height: 1, backgroundColor: "#E3EAF2" }} />
-            <Row label="Total" value={fmtEUR(total)} strong />
+            <Row label={envioDePago ? "Total sin envío" : "Total"} value={fmtEUR(total)} strong />
 
             <View style={{ marginTop: 4 }}>
-              <ActionButton
-                title="Ir a pagar"
-                onPress={() => pushRoute("/checkout" as Href)}
-              />
+              <ActionButton nativeID="cesta-pagar" title="Ir a pagar" icon="arrow-forward" onPress={() => pushRoute("/checkout" as Href)} />
             </View>
 
-            <Pressable
-              onPress={() => replaceRoute("/" as Href)}
-              style={{ alignItems: "center", paddingVertical: 6 }}
-            >
-              <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>
-                ← Seguir comprando
-              </Text>
-            </Pressable>
+            <AccionTexto nativeID="cesta-seguir" texto="Seguir comprando" icon="arrow-back" onPress={() => replaceRoute("/" as Href)} />
           </View>
           ) : null}
           </View>
@@ -966,18 +972,23 @@ function Row({
   label,
   value,
   strong,
-  freeBadge,
+  tono,
+  nativeID,
 }: {
   label: string;
   value: string;
   strong?: boolean;
-  freeBadge?: boolean;
+  /** «gratis»: en verde; «suave»: en gris (un aviso, no un importe). Siempre solo texto, sin burbuja. */
+  tono?: "gratis" | "suave";
+  nativeID?: string;
 }) {
   return (
     // Etiqueta y valor juntos y centrados (nada pegado a los lados).
     <View
+      nativeID={nativeID}
       style={{
         flexDirection: "row",
+        flexWrap: "wrap",
         justifyContent: "center",
         alignItems: "center",
         gap: 8,
@@ -991,11 +1002,14 @@ function Row({
       >
         {label}:
       </Text>
-      {freeBadge ? (
-        <Badge text="Gratis" tone="success" />
-      ) : (
-        <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
-      )}
+      <Text
+        style={{
+          color: tono === "gratis" ? COLORS.success : tono === "suave" ? COLORS.muted : "#0B2138",
+          fontWeight: tono === "suave" ? "700" : strong ? "900" : "800",
+        }}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
