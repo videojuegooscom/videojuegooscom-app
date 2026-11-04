@@ -525,6 +525,14 @@ export default function AdminAnalytics() {
         dropPct: top > 0 ? Math.round((1 - s.sessions / top) * 100) : 0,
       })),
       scroll,
+      // Bienvenida al abrir la tienda (app/_layout.tsx): cuántas sesiones la ven, en cuánto estaba lista la tienda debajo,
+      // quién la quita antes con un toque y cuántas empiezan en Inicio aunque se abrieran por otra sección.
+      bienvenida: findExact("Bienvenida: vista"),
+      bienvenidaRapida: findExact("Bienvenida: tienda lista en menos de 1 s"),
+      bienvenidaMedia: findExact("Bienvenida: tienda lista entre 1 y 3 s"),
+      bienvenidaLenta: findExact("Bienvenida: tienda lista en más de 3 s"),
+      bienvenidaSaltada: findExact("Bienvenida: saltada con un toque"),
+      bienvenidaInicio: findExact("Bienvenida: empieza en Inicio"),
       // Visor de fotos de la ficha (components/ImageLightbox.tsx): quién amplía y quién llega a usar el zoom.
       fotoAmpliada: findExact("Ficha: foto ampliada"),
       fotoZoom: findExact("Ficha: zoom en la foto"),
@@ -862,6 +870,25 @@ export default function AdminAnalytics() {
                     <Ionicons name="swap-vertical-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Sesiones con scroll (en cualquier punto del recorrido): {coreFunnel.scroll}
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-bienvenida"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="hand-left-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Pantalla de bienvenida: la ven {coreFunnel.bienvenida} {coreFunnel.bienvenida === 1 ? "sesión" : "sesiones"} · la
+                      tienda estaba lista en menos de 1 s: {coreFunnel.bienvenidaRapida} · entre 1 y 3 s: {coreFunnel.bienvenidaMedia} · en más
+                      de 3 s: {coreFunnel.bienvenidaLenta} · la quitan antes con un toque: {coreFunnel.bienvenidaSaltada} · empiezan en Inicio
+                      aunque la abrieran por otra sección: {coreFunnel.bienvenidaInicio}
                     </Text>
                   </View>
                   <View

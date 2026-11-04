@@ -9,6 +9,9 @@
  *
  * Pantalla de carga: es también la versión pre-generada de cada página (la tienda se
  * pinta solo ya montada en el dispositivo, con su ancho real; ver «montado» abajo).
+ * Es la bienvenida (components/BrandLoadingScreen.tsx): la primera vez en cada visita se
+ * queda al menos 3 s encima de la tienda, que carga debajo, y la tienda empieza en Inicio
+ * (ver BIENVENIDA_* abajo).
  * Además espera a la fuente de Ionicons (la usa TODA la app),
  * vía useFonts() de expo-font, para que los iconos no salgan en blanco la
  * primera vez. Como mucho BOOT_FONT_TIMEOUT_MS (1,5 s): si la fuente tarda más
@@ -48,14 +51,14 @@
  *   pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
  */
-import React, { useEffect, useRef, useState } from "react";
-import { Platform, View } from "react-native";
-import { Stack, usePathname } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Animated, Platform, View } from "react-native";
+import { Stack, router, usePathname } from "expo-router";
 import Head from "expo-router/head";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
-import BrandLoadingScreen from "../components/BrandLoadingScreen";
+import BrandLoadingScreen, { BIENVENIDA_MS } from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
@@ -79,6 +82,16 @@ const ACTUALIZAR_ENFRIAR_MS = 10 * 60_000;
 const ACTUALIZAR_MIN_ENTRE_REVISIONES_MS = 60_000;
 const ACTUALIZAR_RUTAS_OCUPADAS = /^\/(vender|checkout|chat|blue-ia|admin|reset-password)/;
 const ACTUALIZAR_CLAVE = "videojuegoszaragoza:actualizada_en";
+
+// Bienvenida (dueño, 2026-11-04): la primera vez en cada visita (cada pestaña del navegador, o cada vez que se abre la
+// app instalada) la pantalla de bienvenida se queda al menos BIENVENIDA_MS, contados desde que se abrió la página,
+// mientras la tienda carga debajo; luego se va con un fundido (un toque la quita antes, si la tienda ya está lista). Y la
+// tienda empieza en Inicio si se abrió por otra sección de la barra de abajo sin un enlace concreto («?…»). Al recargar
+// en la misma visita («Desliza para actualizar», la actualización automática) sale solo lo que tarde en cargar y se
+// queda donde estaba. Los enlaces a fichas, noticias, políticas, correos o el panel se respetan siempre.
+const BIENVENIDA_CLAVE = "videojuegoszaragoza:bienvenida_vista";
+const BIENVENIDA_FUNDIDO_MS = 350;
+const SECCIONES_A_INICIO = /^\/(perfil|cesta|chat-global|blue-ia)\/?$/;
 
 function hayTextoEscrito(): boolean {
   const campos = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
@@ -184,17 +197,102 @@ export default function RootLayout() {
   // Nunca se bloquea: si la fuente falla o tarda más de 1,5 s, se entra igual.
   const bootLoading = !montado || (!fontsLoaded && !fontError && !fontTimedOut);
 
+  // Bienvenida: «visible» (encima de la tienda), «saliendo» (fundido) o «fuera».
+  const [bienvenida, setBienvenida] = useState<"visible" | "saliendo" | "fuera">("visible");
+  const fundido = useRef(new Animated.Value(1)).current;
+  const bienvenidaInfo = useRef({ listaMs: 0, desde: "/", aInicio: false, medida: false });
+
+  const quitarBienvenida = useCallback(
+    (porToque: boolean) => {
+      const info = bienvenidaInfo.current;
+      if (!info.medida) {
+        info.medida = true;
+        // Analítica propia (Administración → Analítica, «Pantalla de bienvenida»): sin ningún dato de la persona.
+        const tramo = info.listaMs < 1000 ? "en menos de 1 s" : info.listaMs <= BIENVENIDA_MS ? "entre 1 y 3 s" : "en más de 3 s";
+        const metadata = { lista_ms: info.listaMs, saltada: porToque, desde: info.desde };
+        void trackEvent("bienvenida", "Bienvenida: vista", { path: info.desde, metadata });
+        void trackEvent("bienvenida_lista", `Bienvenida: tienda lista ${tramo}`, { path: info.desde, metadata });
+        if (porToque) void trackEvent("bienvenida_saltada", "Bienvenida: saltada con un toque", { path: info.desde, metadata });
+        if (info.aInicio) void trackEvent("bienvenida_inicio", "Bienvenida: empieza en Inicio", { path: info.desde, metadata });
+      }
+      setBienvenida((b) => (b === "visible" ? "saliendo" : b));
+      Animated.timing(fundido, { toValue: 0, duration: BIENVENIDA_FUNDIDO_MS, useNativeDriver: Platform.OS !== "web" }).start(() =>
+        setBienvenida("fuera")
+      );
+    },
+    [fundido]
+  );
+
+  useEffect(() => {
+    if (bootLoading || bienvenida !== "visible") return;
+    // La tienda ya está montada y lista debajo. ¿Es la primera vez en esta visita?
+    if (Platform.OS !== "web" || typeof window === "undefined") {
+      setBienvenida("fuera");
+      return;
+    }
+    let primera = true;
+    try {
+      primera = window.sessionStorage.getItem(BIENVENIDA_CLAVE) !== "1";
+      window.sessionStorage.setItem(BIENVENIDA_CLAVE, "1");
+    } catch {
+      // sin almacenamiento: se trata como primera vez
+    }
+    const navegacion = performance.getEntriesByType?.("navigation")?.[0] as PerformanceNavigationTiming | undefined;
+    if (navegacion?.type === "reload") primera = false;
+    if (!primera) {
+      setBienvenida("fuera");
+      return;
+    }
+    const info = bienvenidaInfo.current;
+    info.listaMs = Math.round(performance.now());
+    info.desde = window.location.pathname;
+    // Empieza en Inicio si se abrió por otra sección de la barra de abajo sin un enlace concreto.
+    if (SECCIONES_A_INICIO.test(window.location.pathname) && !window.location.search) {
+      info.aInicio = true;
+      setTimeout(() => {
+        try {
+          router.replace("/");
+        } catch {
+          // si la navegación aún no está lista, se queda donde estaba
+        }
+      }, 0);
+    }
+    const timer = setTimeout(() => quitarBienvenida(false), Math.max(0, BIENVENIDA_MS - performance.now()));
+    return () => clearTimeout(timer);
+  }, [bootLoading, bienvenida, quitarBienvenida]);
+
+  // La bienvenida va encima de todo (también de Blue y del aviso de cookies) y bloquea los toques mientras se ve.
+  const capaBienvenida =
+    bienvenida !== "fuera" ? (
+      <Animated.View
+        key="bienvenida"
+        pointerEvents={bienvenida === "visible" ? "auto" : "none"}
+        style={{
+          position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 2147483000,
+          opacity: fundido,
+        }}
+      >
+        <BrandLoadingScreen onEntrar={!bootLoading && bienvenida === "visible" ? () => quitarBienvenida(true) : undefined} />
+      </Animated.View>
+    ) : null;
+
   if (bootLoading) {
     // Esta es la versión que se genera de antemano (HTML estático): lleva ya el título de la
     // tienda para que el <title> no salga vacío para Google y los lectores de enlaces. Cuando
     // la tienda arranca, SiteHead pone el título de «Marca y SEO» y el de cada página.
+    // (La misma estructura que la de abajo: la bienvenida no se vuelve a montar al entrar.)
     return (
-      <>
+      <View style={{ flex: 1 }}>
         <Head>
           <title>Videojuegoszaragoza.com</title>
         </Head>
-        <BrandLoadingScreen message="Cargando tienda..." />
-      </>
+        {capaBienvenida}
+      </View>
     );
   }
 
@@ -262,6 +360,9 @@ export default function RootLayout() {
 
       {/* Título/descripción/logo para Google y el navegador. No pinta nada. */}
       <SiteHead />
+
+      {/* Bienvenida: encima de todo mientras la tienda termina de cargar debajo. */}
+      {capaBienvenida}
     </View>
   );
 }
