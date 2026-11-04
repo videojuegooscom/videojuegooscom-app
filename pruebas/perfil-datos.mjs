@@ -531,7 +531,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         return /return=representation/.test(peticion.headers()["prefer"] ?? "") ? json([estado.productosAdmin.find((f) => f.id === id)]) : r.fulfill({ status: 204, headers: CORS, body: "" });
       }
     }
-    if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json([]);
+    if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.productosMedia ?? []);
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
@@ -604,6 +604,25 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     // Administración → Servicios (sección SV): servicios ficticios con sus fotos.
     if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/services") && metodo === "GET") return json(estado.serviciosAdmin);
     if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/service_media") && metodo === "GET") return json(estado.serviciosMedia ?? []);
+    // Guardar un servicio en Administración (sección AF): se apunta lo que se manda, sin tocar nada real. Con
+    // `precioEntero` la columna aún es de enteros (antes de la migración 20261104150000): un precio con céntimos da 22P02.
+    if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/services") && (metodo === "PATCH" || metodo === "POST")) {
+      const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+      estado.serviciosGuardados = [...(estado.serviciosGuardados ?? []), cuerpo];
+      if (estado.precioEntero && !Number.isInteger(Number(cuerpo.price_eur))) {
+        return json({ code: "22P02", message: `invalid input syntax for type integer: "${cuerpo.price_eur}"` }, 400);
+      }
+      if (metodo === "POST") return json({ id: "5e000000-0000-4000-8000-00000000a0f1" }, 201);
+      return r.fulfill({ status: 204, headers: CORS, body: "" });
+    }
+    if (estado.serviciosAdmin && url.pathname.endsWith("/rest/v1/service_media") && metodo !== "GET") {
+      estado.fotosServicioCambios = [...(estado.fotosServicioCambios ?? []), { metodo, filtro: decodeURIComponent(url.search) }];
+      return r.fulfill({ status: metodo === "POST" ? 201 : 204, headers: CORS, body: "" });
+    }
+    if (estado.serviciosAdmin && /\/storage\/v1\/object\/product-media\/?$/.test(url.pathname) && metodo === "DELETE") {
+      estado.archivosBorrados = [...(estado.archivosBorrados ?? []), ...(JSON.parse(peticion.postData() ?? "{}").prefixes ?? [])];
+      return json([]);
+    }
     if (url.pathname.endsWith("/rest/v1/noticias_comentarios")) {
       if (metodo === "HEAD") return json([], 200, { "content-range": `*/${estado.comentariosOcultos ?? 0}`, "access-control-expose-headers": "*" });
       if (metodo === "PATCH") {
@@ -3350,6 +3369,141 @@ async function seccionNA() {
   }
 }
 
+// ===== AF) Administración: quitar varias fotos a la vez, «Estado» con el selector del móvil y precios con céntimos
+// (dueño, 2026-11-04) ==================================================================================================
+// En Servicios: «Seleccionar varias», elegir dos, «Quitar (2)», «Deshacer», y al guardar se borran esas dos (filas y
+// archivos); «Estado» es un <select> de verdad (en el iPhone abre la rueda de iOS); el precio admite 45,50 (teclado
+// decimal) y se guarda 45.5; si la base de datos aún no admite céntimos, se guarda redondeado y se avisa. En Productos:
+// Estado, Condición y Categoría con el mismo selector y la misma selección de varias fotos.
+async function seccionAF() {
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const SERV = "5e000000-0000-4000-8000-0000000000af";
+  const PROD = "p0000000-0000-4000-8000-0000000000af";
+  const TITULO = "Mantenimiento Playstation 5";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/servicios/af${n}.jpg`;
+  const idFoto = (n) => `5f000000-0000-4000-8000-0000000000a${n}`;
+  const estadoBase = (extra = {}) => ({
+    guardados: [],
+    filas: perfilAdmin,
+    categorias: [],
+    productosAdmin: [
+      {
+        id: PROD, title: "Mando DualSense", description: "Revisado.", price_eur: 49.9, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], condition: "USED", reference: null, is_featured_home: false, created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z",
+      },
+    ],
+    productosMedia: [1, 2, 3].map((n) => ({
+      id: `6f000000-0000-4000-8000-0000000000a${n}`, product_id: PROD, kind: "image", storage_path: `products/af${n}.jpg`, public_url: foto(n),
+      file_name: `af${n}.jpg`, sort_order: n - 1, is_cover: n === 1, created_at: "2026-10-30T10:00:00Z", duration_seconds: null,
+    })),
+    serviciosAdmin: [
+      { id: SERV, title: TITULO, description: "¿Nunca has realizado mantenimiento a tu consola?", price_eur: 45, status: "PUBLISHED", is_active: true, view_count: 3, like_count: 0, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" },
+    ],
+    serviciosMedia: [1, 2, 3, 4].map((n) => ({ id: idFoto(n), service_id: SERV, storage_path: `services/af${n}.jpg`, public_url: foto(n), file_name: `af${n}.jpg`, sort_order: n - 1, is_cover: n === 1 })),
+    ...extra,
+  });
+  const fotosEnVentana = (p) => p.evaluate(() => [...document.querySelectorAll('[id^="servicio-foto-"]')].map((e) => e.id.replace("servicio-foto-", "")));
+  const abrirEditar = async (p) => {
+    await p.locator(`[aria-label="Editar ${TITULO}"]`).click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#servicio-ventana-pie").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+  };
+  const guardar = async (p) => {
+    await p.getByText("Guardar cambios", { exact: true }).click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+  };
+
+  // AF1) Servicios: estado, precio con céntimos y quitar varias fotos.
+  {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await abrirEditar(p);
+
+    const sel = await p.evaluate(() => {
+      const s = document.querySelector("#servicio-estado select");
+      return s ? { valor: s.value, opciones: [...s.options].map((o) => o.textContent), visible: document.getElementById("servicio-estado")?.innerText.replace(/\s+/g, " ") ?? "" } : null;
+    });
+    ok(!!sel && sel.valor === "PUBLISHED" && sel.opciones.join("|") === "Borrador|Publicado" && /Publicado/.test(sel.visible), `AF: «Estado» es un desplegable del sistema (en el iPhone, la rueda de iOS) con «Borrador» y «Publicado» (${JSON.stringify(sel)})`);
+    await p.locator("#servicio-estado select").selectOption("DRAFT").catch(() => {});
+    await p.waitForTimeout(300);
+    ok(/Borrador/.test(await p.locator("#servicio-estado").innerText().catch(() => "")), "AF: al elegir en el selector, la caja dice «Borrador»");
+
+    const precio = p.getByPlaceholder("0,00", { exact: true });
+    const modo = await precio.getAttribute("inputmode").catch(() => null);
+    ok(modo === "decimal" && (await precio.inputValue().catch(() => "")) === "45", `AF: el precio usa el teclado con coma (inputmode ${modo}) y sale el actual (45)`);
+    await precio.fill("45,50");
+
+    ok((await fotosEnVentana(p)).length === 4, "AF: el servicio tiene sus 4 fotos en la ventana");
+    await p.locator("#fotos-seleccionar").click({ timeout: 10000 }).catch(() => {});
+    await p.locator(`#servicio-foto-${idFoto(2)} [role="checkbox"]`).click({ timeout: 10000 }).catch(() => {});
+    await p.locator(`#servicio-foto-${idFoto(3)} [role="checkbox"]`).click({ timeout: 10000 }).catch(() => {});
+    const quitar = (await p.locator("#fotos-quitar").innerText().catch(() => "")).trim();
+    ok(quitar === "Quitar (2)" && /2 fotos elegidas/.test(await p.locator("#fotos-seleccion").innerText().catch(() => "")), `AF: «Seleccionar varias» deja elegir dos fotos («${quitar}»)`);
+    await capturar(p, "AF1-servicio-elegir-fotos");
+    await p.locator("#fotos-quitar").click();
+    await p.waitForTimeout(300);
+    const quedan = await fotosEnVentana(p);
+    ok(quedan.length === 2 && !quedan.includes(idFoto(2)) && !quedan.includes(idFoto(3)), `AF: «Quitar (2)» quita las dos a la vez (${quedan.length} quedan)`);
+    ok(/2 fotos quitadas: se borran al guardar/.test(await p.locator("#servicio-fotos-quitadas").innerText().catch(() => "")), "AF: avisa de que se borran al guardar, con «Deshacer»");
+    await p.locator("#servicio-fotos-quitadas").getByText("Deshacer").click();
+    await p.waitForTimeout(300);
+    ok((await fotosEnVentana(p)).length === 4, "AF: «Deshacer» las devuelve");
+    await p.locator("#fotos-seleccionar").click({ timeout: 10000 }).catch(() => {});
+    await p.locator(`#servicio-foto-${idFoto(2)} [role="checkbox"]`).click().catch(() => {});
+    await p.locator(`#servicio-foto-${idFoto(3)} [role="checkbox"]`).click().catch(() => {});
+    await p.locator("#fotos-quitar").click().catch(() => {});
+    await capturar(p, "AF2-servicio-fotos-quitadas");
+    await guardar(p);
+
+    const guardado = (estado.serviciosGuardados ?? []).at(-1);
+    ok(guardado?.price_eur === 45.5 && guardado?.status === "DRAFT", `AF: se guarda el precio con céntimos (45.5) y el estado elegido (${JSON.stringify(guardado)})`);
+    const borradas = (estado.fotosServicioCambios ?? []).find((c) => c.metodo === "DELETE");
+    ok(!!borradas && borradas.filtro.includes(idFoto(2)) && borradas.filtro.includes(idFoto(3)) && !borradas.filtro.includes(idFoto(1)), `AF: al guardar se borran esas dos fotos de la base de datos (${borradas?.filtro ?? "nada"})`);
+    ok((estado.archivosBorrados ?? []).join("|") === "services/af2.jpg|services/af3.jpg", `AF: y sus archivos del almacén (${(estado.archivosBorrados ?? []).join(", ")})`);
+    ok(p.errores.length === 0, `AF: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AF2) Si la base de datos aún no admite céntimos (antes de la migración): se guarda redondeado y se avisa.
+  {
+    const estado = estadoBase({ precioEntero: true, serviciosMedia: [] });
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await abrirEditar(p);
+    await p.getByPlaceholder("0,00", { exact: true }).fill("45,50");
+    await guardar(p);
+    const precios = (estado.serviciosGuardados ?? []).map((g) => g.price_eur);
+    const aviso = await p.getByText(/Guardado con 46,00€ en vez de 45,50€/).first().innerText().catch(() => "");
+    ok(precios.join("|") === "45.5|46" && !!aviso, `AF: sin la migración, se guarda redondeado y se avisa (${precios.join(" → ")}; «${aviso.slice(0, 60)}»)`);
+    await capturar(p, "AF3-aviso-sin-centimos");
+    await ctx.close();
+  }
+
+  // AF3) Productos: Estado, Condición y Categoría con el mismo selector, y quitar varias fotos.
+  {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/products");
+    await p.locator('[aria-label="Editar Mando DualSense"]').click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#producto-ventana-pie").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const selects = await p.evaluate(() => ["producto-estado", "producto-condicion", "producto-categoria"].map((id) => !!document.querySelector(`#${id} select`)));
+    ok(selects.every(Boolean), `AF: en Productos, Estado, Condición y Categoría usan el mismo selector del sistema (${JSON.stringify(selects)})`);
+    await p.locator("#fotos-seleccionar").click({ timeout: 10000 }).catch(() => {});
+    const casillas = p.locator('[role="checkbox"][aria-label^="Foto"]');
+    await casillas.nth(0).click().catch(() => {});
+    await casillas.nth(1).click().catch(() => {});
+    await p.locator("#fotos-quitar").click().catch(() => {});
+    await p.waitForTimeout(300);
+    const quitadas = await p.locator("#producto-fotos-quitadas").innerText().catch(() => "");
+    ok(/2 quitadas: se borran al guardar/.test(quitadas), `AF: en Productos también se quitan varias a la vez («${quitadas.replace(/\s+/g, " ")}»)`);
+    await capturar(p, "AF4-producto-fotos-quitadas");
+    ok(p.errores.length === 0, `AF: Productos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== FT) Fichas: «Características» / «Descripción» siempre encajadas y descripción sin emojis (dueño, 2026-11-04) ===
 // Al cambiar de pestaña, la pantalla queda entera en su sitio (ni un trozo de la otra). Si el deslizamiento se queda a
 // medias (en el iPhone se corta a veces) o el dedo lo suelta entre dos pantallas, se coloca solo: se simula cortando el
@@ -5866,6 +6020,7 @@ try {
   if (SOLO === "NA") await seccionNA();
   if (SOLO === "MC") await seccionMC();
   if (SOLO === "FT") await seccionFT();
+  if (SOLO === "AF") await seccionAF();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
@@ -6819,6 +6974,7 @@ try {
   await seccionNA();
   await seccionMC();
   await seccionFT();
+  await seccionAF();
   await seccionME();
   await seccionCO();
   await seccionDI();
