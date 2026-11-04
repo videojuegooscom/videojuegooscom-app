@@ -608,18 +608,8 @@ export default function AdminRedesSociales() {
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 12,
-                        backgroundColor: COLORS.accent2,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {meta.icon(COLORS.accentDark, 18)}
-                    </View>
+                    {/* Solo el icono de la red, sin burbuja (dueño, 2026-11-04). */}
+                    <View style={{ width: 28, alignItems: "center", justifyContent: "center" }}>{meta.icon(COLORS.accentDark, 22)}</View>
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, flex: 1 }}>
                       {r.label}
                     </Text>
@@ -632,32 +622,28 @@ export default function AdminRedesSociales() {
                         disabled={index === 0}
                         hitSlop={6}
                         style={({ pressed }) => ({
-                          width: 30,
-                          height: 30,
-                          borderRadius: 10,
+                          width: 36,
+                          height: 36,
                           alignItems: "center",
                           justifyContent: "center",
-                          backgroundColor: COLORS.cardSoft,
-                          opacity: index === 0 ? 0.35 : pressed ? 0.8 : 1,
+                          opacity: index === 0 ? 0.3 : pressed ? 0.6 : 1,
                         })}
                       >
-                        <Ionicons name="chevron-up" size={16} color={COLORS.text} />
+                        <Ionicons name="chevron-up" size={20} color={COLORS.text} />
                       </Pressable>
                       <Pressable
                         onPress={() => moveRow(r.platform, 1)}
                         disabled={index === rows.length - 1}
                         hitSlop={6}
                         style={({ pressed }) => ({
-                          width: 30,
-                          height: 30,
-                          borderRadius: 10,
+                          width: 36,
+                          height: 36,
                           alignItems: "center",
                           justifyContent: "center",
-                          backgroundColor: COLORS.cardSoft,
-                          opacity: index === rows.length - 1 ? 0.35 : pressed ? 0.8 : 1,
+                          opacity: index === rows.length - 1 ? 0.3 : pressed ? 0.6 : 1,
                         })}
                       >
-                        <Ionicons name="chevron-down" size={16} color={COLORS.text} />
+                        <Ionicons name="chevron-down" size={20} color={COLORS.text} />
                       </Pressable>
                     </View>
 

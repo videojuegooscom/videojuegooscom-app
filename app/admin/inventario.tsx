@@ -54,6 +54,7 @@ import {
   AdminNotice,
   EmptyState,
   IconButton,
+  PieVentana,
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
@@ -642,33 +643,23 @@ export default function Inventario() {
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
-              {/* Botones centrados: primero la acción principal, debajo "Cancelar". */}
-              <View style={{ gap: 10, marginTop: 4, alignItems: "center" }}>
-                <PrimaryButton
-                  label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear artículo"}
-                  onPress={save}
-                  disabled={saving}
-                />
-
-                <Pressable
-                  onPress={() => {
+              {/* La acción principal y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
+              <View style={{ marginTop: 4 }}>
+                <PieVentana
+                  onCerrar={() => {
                     setOpen(false);
                     resetForm();
                   }}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                    width: "100%",
-                    maxWidth: 420,
-                  })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cancelar</Text>
-                </Pressable>
+                  <View style={{ flex: 1 }}>
+                    <PrimaryButton
+                      label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear artículo"}
+                      onPress={save}
+                      disabled={saving}
+                      fullWidth
+                    />
+                  </View>
+                </PieVentana>
               </View>
             </View>
           </ScrollView>
@@ -709,9 +700,12 @@ export default function Inventario() {
               . Esta acción no se puede deshacer.
             </Text>
 
-            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "center", marginTop: 6 }}>
-              <ChipButton label="Cancelar" variant="ghost" onPress={() => setConfirmDelete(null)} isMobile={isMobile} fullWidth={isMobile} />
-              <ChipButton label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth={isMobile} />
+            <View style={{ marginTop: 6 }}>
+              <PieVentana onCerrar={() => setConfirmDelete(null)}>
+                <View style={{ flex: 1 }}>
+                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth />
+                </View>
+              </PieVentana>
             </View>
           </View>
         </View>

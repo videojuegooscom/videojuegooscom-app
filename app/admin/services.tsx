@@ -84,6 +84,7 @@ import {
   EmptyState,
   IconButton,
   PestanasPanel,
+  PieVentana,
   PrimaryButton,
   StatCard,
   useGestoPestanas,
@@ -1064,11 +1065,12 @@ export default function AdminServices() {
                         </View>
                       )}
 
-                      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, textAlign: "center" }}>
+                      {/* Título y datos enteros, en las líneas que hagan falta (dueño, 2026-11-04: «que se vean perfectamente»). */}
+                      <View nativeID={`servicio-fila-${s.id}`} style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, lineHeight: 19, textAlign: "center" }}>
                           {s.title || "Sin título"}
                         </Text>
-                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
+                        <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
                           {fmtEUR(s.price_eur)} · {STATUS_LABEL[s.status]}
                           {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
                           {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
@@ -1313,29 +1315,9 @@ export default function AdminServices() {
                 borderBottomColor: COLORS.border,
               }}
             >
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontWeight: "900",
-                  fontSize: 17,
-                  textAlign: "center",
-                  paddingHorizontal: 34,
-                }}
-              >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
                 {editing ? "Editar servicio" : "Nuevo servicio"}
               </Text>
-              <Pressable
-                onPress={closeModal}
-                style={({ pressed }) => ({
-                  position: "absolute",
-                  right: 10,
-                  top: 10,
-                  opacity: pressed ? 0.7 : 1,
-                  padding: 4,
-                })}
-              >
-                <Ionicons name="close" size={22} color={COLORS.text} />
-              </Pressable>
             </View>
 
             <ScrollView
@@ -1415,19 +1397,12 @@ export default function AdminServices() {
                       </Pressable>
                       <Pressable
                         onPress={() => removeExistingPhoto(m.id)}
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          right: 4,
-                          backgroundColor: "rgba(11,33,56,0.7)",
-                          borderRadius: 999,
-                          width: 20,
-                          height: 20,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Quitar esta foto"
+                        style={{ position: "absolute", top: 0, right: 0, width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
                       >
-                        <Ionicons name="close" size={13} color="#FFFFFF" />
+                        {/* El icono ya es redondo y oscuro (se ve sobre cualquier foto): sin burbuja alrededor. */}
+                        <Ionicons name="close-circle" size={22} color="rgba(11,33,56,0.85)" />
                       </Pressable>
                     </View>
                   ))}
@@ -1453,19 +1428,11 @@ export default function AdminServices() {
                       </Pressable>
                       <Pressable
                         onPress={() => removeNewPhoto(m.id)}
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          right: 4,
-                          backgroundColor: "rgba(11,33,56,0.7)",
-                          borderRadius: 999,
-                          width: 20,
-                          height: 20,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Quitar esta foto"
+                        style={{ position: "absolute", top: 0, right: 0, width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
                       >
-                        <Ionicons name="close" size={13} color="#FFFFFF" />
+                        <Ionicons name="close-circle" size={22} color="rgba(11,33,56,0.85)" />
                       </Pressable>
                     </View>
                   ))}
@@ -1502,14 +1469,21 @@ export default function AdminServices() {
               </View>
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
-
-              <PrimaryButton
-                label={saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear servicio"}
-                onPress={save}
-                disabled={saving}
-                fullWidth
-              />
             </ScrollView>
+
+            {/* Abajo y siempre a la vista: el botón principal y, a su derecha, la X para cerrar. */}
+            <View style={{ padding: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
+              <PieVentana nativeID="servicio-ventana-pie" onCerrar={closeModal}>
+                <View style={{ flex: 1 }}>
+                  <PrimaryButton
+                    label={saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear servicio"}
+                    onPress={save}
+                    disabled={saving}
+                    fullWidth
+                  />
+                </View>
+              </PieVentana>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1522,14 +1496,11 @@ export default function AdminServices() {
             <Text style={{ color: COLORS.muted, lineHeight: 19, textAlign: "center" }}>
               Se borrará «{deleteTarget?.title}» y sus fotos. Esta acción no se puede deshacer.
             </Text>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <ChipButton label="Cancelar" onPress={() => setDeleteTarget(null)} fullWidth />
-              </View>
+            <PieVentana onCerrar={() => setDeleteTarget(null)}>
               <View style={{ flex: 1 }}>
                 <ChipButton label={deleting ? "Borrando…" : "Borrar"} onPress={confirmDelete} variant="danger" disabled={deleting} fullWidth />
               </View>
-            </View>
+            </PieVentana>
           </View>
         </View>
       </Modal>
@@ -1542,14 +1513,11 @@ export default function AdminServices() {
             <Text style={{ color: COLORS.muted, lineHeight: 19, textAlign: "center" }}>
               Se borrará la solicitud de {deleteRequestTarget?.nombre}. Esta acción no se puede deshacer.
             </Text>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <ChipButton label="Cancelar" onPress={() => setDeleteRequestTarget(null)} fullWidth />
-              </View>
+            <PieVentana onCerrar={() => setDeleteRequestTarget(null)}>
               <View style={{ flex: 1 }}>
                 <ChipButton label="Borrar" onPress={confirmDeleteRequest} variant="danger" fullWidth />
               </View>
-            </View>
+            </PieVentana>
           </View>
         </View>
       </Modal>

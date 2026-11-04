@@ -36,7 +36,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton } from "../../lib/admin/products.components";
+import { IconButton, PieVentana } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
 
@@ -320,10 +320,10 @@ export default function AdminConocimiento() {
               />
               <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>{respuesta.length} / 800</Text>
               {!!modalErr && <Text style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center" }}>{modalErr}</Text>}
-              <View style={{ flexDirection: "row", gap: 10, justifyContent: "center" }}>
-                {boton("Cancelar", () => setOpen(false))}
-                {boton(saving ? "Guardando…" : "Guardar", guardar, true)}
-              </View>
+              {/* «Guardar» y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
+              <PieVentana onCerrar={() => setOpen(false)}>
+                <View style={{ flex: 1 }}>{boton(saving ? "Guardando…" : "Guardar", guardar, true)}</View>
+              </PieVentana>
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
@@ -337,10 +337,9 @@ export default function AdminConocimiento() {
           <Pressable onPress={() => undefined} style={{ width: "100%", maxWidth: 420, backgroundColor: COLORS.bg, borderRadius: 24, padding: 18, gap: 12 }}>
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>¿Borrar «{borrar?.tema}»?</Text>
             <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>Blue dejará de usar esta información.</Text>
-            <View style={{ flexDirection: "row", gap: 10, justifyContent: "center" }}>
-              {boton("Cancelar", () => setBorrar(null))}
-              {boton("Borrar", borrarConfirmado, true)}
-            </View>
+            <PieVentana onCerrar={() => setBorrar(null)}>
+              <View style={{ flex: 1 }}>{boton("Borrar", borrarConfirmado, true)}</View>
+            </PieVentana>
           </Pressable>
         </Pressable>
       </Modal>

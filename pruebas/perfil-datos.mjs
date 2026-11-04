@@ -166,9 +166,12 @@
  *  - RS) Reseñas de servicios terminados: «Mis seguimientos» pide valorarlos (una vez), la ficha enseña la media y las
  *    opiniones de ese servicio, y Administración y Analítica las ven.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS]
+ *  - VP) Ventanas del panel: la X abajo a la derecha del botón principal (sin «Cancelar»), iconos sin burbuja y títulos
+ *    enteros en la lista de Servicios, en el móvil y en el ordenador.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
- * «HO», «AD», «SV», «VA», «FS», «MG» o «RS» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
+ * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
  * las reseñas, el encuadre de las portadas, el panel en rejilla, Blue y el buscador, las mejoras en la tienda, recuperar
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
@@ -2410,7 +2413,10 @@ async function seccionNO() {
     await p.locator('[aria-label="Nueva categoría"]').click();
     const nueva = await p.getByText("Nueva categoría", { exact: true }).count();
     ok(nueva >= 1 && (await p.getByPlaceholder("Nombre de la categoría").count()) === 1, "NO: el «+» abre «Nueva categoría»");
-    await p.getByText("Cancelar", { exact: true }).last().click();
+    // Se cierra con la X de abajo a la derecha (dueño, 2026-11-04: ya no hay «Cancelar» en las ventanas del panel).
+    await p.locator('[aria-label="Cerrar"]').last().click();
+    await p.waitForTimeout(400);
+    ok((await p.getByPlaceholder("Nombre de la categoría").count()) === 0, "NO: la X de abajo cierra «Nueva categoría»");
     ok(p.errores.length === 0, `NO: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -4834,6 +4840,113 @@ async function seccionRS() {
   }
 }
 
+// ===== VP) Ventanas del panel (dueño, 2026-11-04): la X para cerrar abajo a la derecha, a la altura del botón principal
+// (en vez de arriba o de «Cancelar»), iconos sin burbuja alrededor y títulos y datos enteros en las listas ==============
+async function seccionVP() {
+  const SERV = "5e000000-0000-4000-8000-0000000000e1";
+  const LARGO = "Mantenimiento Consola Playstation 5 con limpieza a fondo y cambio de pasta térmica";
+  const perfilAdmin = [{ user_id: ADMIN.id, nombre: "Dani", usuario: "dani_vz", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-01-01" }];
+  const estadoBase = () => ({
+    guardados: [],
+    filas: perfilAdmin,
+    serviciosAdmin: [{ id: SERV, title: LARGO, description: "", price_eur: 45, status: "PUBLISHED", is_active: true, view_count: 13, like_count: 2, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" }],
+    serviciosMedia: [],
+    // Productos y categorías ficticios (sin ellos, la pantalla de Productos iría a la base de datos real).
+    categorias: [],
+    productosAdmin: [
+      {
+        id: "p0000000-0000-4000-8000-0000000000e1", title: "Mando DualSense", description: "Revisado.", price_eur: 49.9, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], condition: "USED", reference: null, is_featured_home: false, created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z",
+      },
+    ],
+  });
+  const rect = (p, sel) =>
+    p.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), fondo: cs.backgroundColor, borde: cs.borderTopWidth };
+    }, sel);
+  // El botón que lleva ese texto: se sube desde el texto hasta el último contenedor que solo dice eso.
+  const botonConTexto = (p, texto) =>
+    p.evaluate((t) => {
+      let el = [...document.querySelectorAll("div")].find((d) => d.childElementCount === 0 && d.innerText.trim() === t);
+      while (el?.parentElement && el.parentElement.innerText.trim() === t) el = el.parentElement;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+    }, texto);
+  const sinBurbuja = (c) => !!c && (c.fondo === "rgba(0, 0, 0, 0)" || c.fondo === "transparent") && c.borde === "0px";
+  const misma = (a, b) => !!a && !!b && Math.abs(a.y + a.h / 2 - (b.y + b.h / 2)) <= 6 && b.x >= a.x + a.w;
+
+  for (const [nombre, vista] of [
+    ["móvil", {}],
+    ["ordenador", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/services");
+    await p.locator(`#servicio-fila-${SERV}`).waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(400);
+
+    // VP1) Título y datos enteros, sin «…».
+    const fila = await p.evaluate((id) => {
+      const textos = [...(document.getElementById(id)?.children ?? [])];
+      return textos.map((t) => ({ texto: t.innerText.replace(/\n/g, " "), nowrap: getComputedStyle(t).whiteSpace === "nowrap", corta: t.scrollWidth > t.clientWidth + 1 }));
+    }, `servicio-fila-${SERV}`);
+    ok(fila.length === 2 && fila[0].texto === LARGO && /13 visitas · 2 me gusta/.test(fila[1].texto) && fila.every((f) => !f.nowrap && !f.corta), `VP (${nombre}): el título y los datos del servicio se leen enteros (${JSON.stringify(fila.map((f) => ({ nowrap: f.nowrap, corta: f.corta })))})`);
+
+    // VP2) Editar y borrar: solo el icono, sin burbuja.
+    const editar = await rect(p, `[aria-label="Editar ${LARGO}"]`);
+    const borrar = await rect(p, `[aria-label="Borrar ${LARGO}"]`);
+    ok(sinBurbuja(editar) && sinBurbuja(borrar) && editar.w >= 44 && editar.h >= 44, `VP (${nombre}): editar y borrar son solo el icono, sin burbuja, y de 44 px para el dedo (${JSON.stringify([editar, borrar])})`);
+    await capturar(p, `VP1-servicios-${nombre === "móvil" ? "movil" : "ordenador"}`);
+
+    // VP3) «Nuevo servicio»: la X abajo, a la derecha de «Crear servicio» (y ninguna arriba).
+    await p.locator("#servicio-nuevo").click();
+    await p.locator("#servicio-ventana-pie").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(600); // la ventana aparece con un fundido
+    const crear = await botonConTexto(p, "Crear servicio");
+    const cerrar = await rect(p, '[aria-label="Cerrar"]');
+    const titulo = await p.evaluate(() => {
+      const t = [...document.querySelectorAll("div")].find((d) => d.childElementCount === 0 && d.innerText.trim() === "Nuevo servicio");
+      return t ? Math.round(t.getBoundingClientRect().y) : -1;
+    });
+    ok(misma(crear, cerrar) && cerrar.y > titulo, `VP (${nombre}): la X va abajo, a la derecha y a la altura de «Crear servicio» (${JSON.stringify({ crear, cerrar, titulo })})`);
+    ok(sinBurbuja(cerrar) && (await p.locator('[aria-label="Cerrar"]').count()) === 1, `VP (${nombre}): una sola X, sin burbuja`);
+    await capturar(p, `VP2-nuevo-servicio-${nombre === "móvil" ? "movil" : "ordenador"}`);
+    await p.locator('[aria-label="Cerrar"]').click();
+    await p.waitForTimeout(400);
+    ok((await p.getByText("Nuevo servicio", { exact: true }).count()) === 0, `VP (${nombre}): la X cierra la ventana`);
+
+    // VP4) Confirmar el borrado: «Borrar» con la X a su derecha, sin «Cancelar».
+    await p.locator(`[aria-label="Borrar ${LARGO}"]`).click();
+    await p.getByText("¿Borrar este servicio?").waitFor({ timeout: 10000 }).catch(() => {});
+    const borrarBoton = await botonConTexto(p, "Borrar");
+    const cerrar2 = await rect(p, '[aria-label="Cerrar"]');
+    ok(misma(borrarBoton, cerrar2) && (await p.getByText("Cancelar", { exact: true }).count()) === 0, `VP (${nombre}): al confirmar el borrado, «Borrar» y la X a su derecha, sin «Cancelar»`);
+    await p.locator('[aria-label="Cerrar"]').click();
+    await p.waitForTimeout(400);
+    ok((await p.getByText("¿Borrar este servicio?").count()) === 0 && (await p.locator(`#servicio-fila-${SERV}`).count()) === 1, `VP (${nombre}): la X cierra sin borrar nada (el servicio sigue en la lista)`);
+
+    // VP5) Productos: lo mismo con «Crear producto».
+    const q = await pagina(ctx, "/admin/products");
+    await q.locator('[aria-label="Nuevo producto"]').waitFor({ timeout: 30000 }).catch(() => {});
+    await q.locator('[aria-label="Nuevo producto"]').click();
+    await q.locator("#producto-ventana-pie").waitFor({ timeout: 10000 }).catch(() => {});
+    const crearP = await botonConTexto(q, "Crear producto");
+    const cerrarP = await rect(q, '[aria-label="Cerrar"]');
+    ok(misma(crearP, cerrarP) && sinBurbuja(cerrarP), `VP (${nombre}): en Productos, la X a la derecha de «Crear producto», sin burbuja (${JSON.stringify({ crearP, cerrarP })})`);
+    await capturar(q, `VP3-nuevo-producto-${nombre === "móvil" ? "movil" : "ordenador"}`);
+    await q.locator('[aria-label="Cerrar"]').click();
+    await q.waitForTimeout(400);
+    ok((await q.locator("#producto-ventana-pie").count()) === 0, `VP (${nombre}): y la X la cierra`);
+    ok(p.errores.length === 0 && q.errores.length === 0, `VP (${nombre}): sin errores de JavaScript (${p.errores[0] ?? q.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
 // cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
 // confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
@@ -5036,6 +5149,7 @@ try {
   if (SOLO === "FS") await seccionFS();
   if (SOLO === "MG") await seccionMG();
   if (SOLO === "RS") await seccionRS();
+  if (SOLO === "VP") await seccionVP();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -5980,6 +6094,7 @@ try {
   await seccionFS();
   await seccionMG();
   await seccionRS();
+  await seccionVP();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

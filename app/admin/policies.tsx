@@ -48,7 +48,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { IconButton } from "../../lib/admin/products.components";
+import { IconButton, PieVentana } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -892,42 +892,31 @@ export default function AdminPolicies() {
                 </View>
               )}
 
-              <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "center", marginTop: 4 }}>
-                <Pressable
-                  onPress={() => {
+              {/* La acción principal y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
+              <View style={{ marginTop: 4 }}>
+                <PieVentana
+                  onCerrar={() => {
                     setOpen(false);
                     resetForm();
                   }}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                    width: isMobile ? "100%" : undefined,
-                  })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>Cancelar</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={save}
-                  disabled={saving}
-                  style={({ pressed }) => ({
-                    opacity: saving ? 0.6 : pressed ? 0.9 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 18,
-                    backgroundColor: COLORS.accentDark,
-                    width: isMobile ? "100%" : undefined,
-                  })}
-                >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
-                    {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear política"}
-                  </Text>
-                </Pressable>
+                  <Pressable
+                    onPress={save}
+                    disabled={saving}
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      opacity: saving ? 0.6 : pressed ? 0.9 : 1,
+                      borderRadius: 999,
+                      paddingVertical: 12,
+                      paddingHorizontal: 18,
+                      backgroundColor: COLORS.accentDark,
+                    })}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900", textAlign: "center" }}>
+                      {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear política"}
+                    </Text>
+                  </Pressable>
+                </PieVentana>
               </View>
             </View>
           </ScrollView>
@@ -961,21 +950,12 @@ export default function AdminPolicies() {
               . Su enlace en el pie de página dejará de tener contenido.
             </Text>
 
-            <View style={{ flexDirection: isMobile ? "column" : "row", gap: 10, justifyContent: "center", marginTop: 6 }}>
-              <ChipButton
-                label="Cancelar"
-                variant="ghost"
-                onPress={() => setConfirmDelete(null)}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
-              <ChipButton
-                label="Sí, borrar"
-                variant="danger"
-                onPress={removeConfirmed}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
+            <View style={{ marginTop: 6 }}>
+              <PieVentana onCerrar={() => setConfirmDelete(null)}>
+                <View style={{ flex: 1 }}>
+                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth />
+                </View>
+              </PieVentana>
             </View>
           </View>
         </View>
