@@ -199,6 +199,7 @@ export default function AdminLayout() {
       <Stack.Screen name="redes-sociales" />
       <Stack.Screen name="aprendizajes" />
       <Stack.Screen name="pedidos" />
+      <Stack.Screen name="envios" />
       <Stack.Screen name="escaparate" />
     </Stack>
   );

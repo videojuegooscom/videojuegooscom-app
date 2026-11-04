@@ -20,14 +20,19 @@
  * - Números de seguimiento (migración 20261031170000): cada pedido enseña el suyo, si es una ficha
  *   creada en VeoAura (api/escaparate-veoaura.ts, evento «seguimiento») y si el cliente ya lo tiene
  *   en su cuenta; recuento arriba y filtros «Sin cuenta» y «De VeoAura».
+ * - Envío (migración 20261104210000, dueño 2026-11-04): cada pedido enseña artículos, envío (con su
+ *   zona) y total. El envío lo calcula la base de datos con las tarifas (Administración → Tarifas de
+ *   envío); aquí se puede poner A MANO para ese pedido (queda «a mano» y ya no se recalcula) o
+ *   devolverlo al automático. Sin la migración, no se enseña.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, StatusBar, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
+import { cargarTarifas, type ZonaEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
@@ -57,7 +62,18 @@ type Pedido = {
   vinculado_en?: string | null;
   // Nota interna: «Asignado desde el chat» si lo creó el administrador desde Administración → Chat.
   nota_admin?: string | null;
+  // Envío (migración 20261104210000; puede no existir aún): artículos + envío = total.
+  productos_eur?: number | null;
+  envio_eur?: number | null;
+  zona_envio?: string | null;
+  envio_manual?: boolean | null;
 };
+
+// «5,90» → 5.9; vacío o mal escrito → null.
+function leerImporte(texto: string): number | null {
+  const t = texto.trim().replace(/\s|€/g, "").replace(",", ".");
+  return /^\d{1,3}(\.\d{1,2})?$/.test(t) ? Number(t) : null;
+}
 
 // La pone api/asignar-seguimiento.ts al asignar un seguimiento desde el chat.
 const NOTA_ASIGNADO_CHAT = "Asignado desde el chat";
@@ -153,16 +169,26 @@ export default function PedidosAdmin() {
   const [guardando, setGuardando] = useState<string | null>(null);
   // false = aún no hay números de seguimiento (migración sin aplicar): no se enseñan.
   const [numerosOk, setNumerosOk] = useState(false);
+  // false = aún no hay columnas de envío (migración 20261104210000 sin pegar): no se enseñan.
+  const [envioOk, setEnvioOk] = useState(false);
+  const [zonas, setZonas] = useState<ZonaEnvio[] | null>(null);
+  // Envío escrito a mano en cada pedido (texto, con coma) y el pedido que se está guardando.
+  const [envioEscrito, setEnvioEscrito] = useState<Record<string, string>>({});
+  const [envioMsg, setEnvioMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
     setErr(null);
     const base =
       "id,numero,created_at,estado,entrega,nombre,email,telefono,direccion,codigo_postal,ciudad,notas,total_eur,pedido_items(id,product_id,titulo,precio_eur)";
+    const NUMEROS = ",user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin";
+    const ENVIO = ",productos_eur,envio_eur,zona_envio,envio_manual";
     const consulta = (columnas: string) => supabase.from("pedidos").select(columnas).order("created_at", { ascending: false }).limit(200);
-    let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(
-      `${base},user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin`
-    );
+    let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(`${base}${NUMEROS}${ENVIO}`);
+    const sinEnvio = !!res.error && /productos_eur|envio_eur|zona_envio|envio_manual/.test(String(res.error.message ?? ""));
+    if (sinEnvio) res = await consulta(`${base}${NUMEROS}`);
+    setEnvioOk(!res.error && !sinEnvio);
+    if (!sinEnvio) cargarTarifas().then(setZonas);
     const sinNumeros = !!res.error && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(String(res.error.message ?? "")));
     if (sinNumeros) res = await consulta(base);
     setNumerosOk(!res.error && !sinNumeros);
@@ -219,6 +245,35 @@ export default function PedidosAdmin() {
     }
     setGuardando(null);
   }
+
+  // Envío A MANO para este pedido (la base de datos lo marca «a mano» y suma el total) o vuelta al automático (la base
+  // de datos lo recalcula con la tarifa). Se lee la fila que deja la base de datos.
+  async function guardarEnvio(p: Pedido, automatico: boolean) {
+    const precio = automatico ? null : leerImporte(envioEscrito[p.id] ?? "");
+    if (!automatico && precio === null) {
+      setEnvioMsg({ id: p.id, tipo: "error", texto: "Escribe el envío con números (por ejemplo 6,90), de 0 a 999 €." });
+      return;
+    }
+    setGuardando(p.id);
+    setEnvioMsg(null);
+    const { data, error } = await supabase
+      .from("pedidos")
+      .update(automatico ? { envio_manual: false } : { envio_eur: precio })
+      .eq("id", p.id)
+      .select("productos_eur,envio_eur,zona_envio,envio_manual,total_eur")
+      .single();
+    if (error || !data) {
+      setEnvioMsg({ id: p.id, tipo: "error", texto: "No se pudo cambiar el envío de este pedido." });
+    } else {
+      const fila = data as Pick<Pedido, "productos_eur" | "envio_eur" | "zona_envio" | "envio_manual" | "total_eur">;
+      setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...fila } : x)));
+      setEnvioEscrito((e) => ({ ...e, [p.id]: "" }));
+      setEnvioMsg({ id: p.id, tipo: "ok", texto: automatico ? "Envío otra vez automático (con la tarifa)." : "Envío de este pedido puesto a mano." });
+    }
+    setGuardando(null);
+  }
+
+  const nombreZona = (z: string | null | undefined) => (z ? zonas?.find((x) => x.zona === z)?.nombre.split(" (")[0] ?? z : null);
 
   function whatsapp(p: Pedido) {
     const tel = p.telefono.replace(/[^\d]/g, "");
@@ -364,9 +419,70 @@ export default function PedidosAdmin() {
 
                 {(p.pedido_items ?? []).map((it) => (
                   <Text key={it.id} style={{ color: COLORS.text, textAlign: "center" }}>
-                    {it.titulo} · <Text style={{ color: COLORS.gold, fontWeight: "800" }}>{fmtEUR(it.precio_eur)}</Text>
+                    {it.titulo} · <Text style={{ color: COLORS.accent, fontWeight: "800" }}>{fmtEUR(it.precio_eur)}</Text>
                   </Text>
                 ))}
+
+                {/* Envío del pedido: automático (con la tarifa) o a mano para este pedido. */}
+                {envioOk ? (
+                  <View nativeID={`pedido-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
+                      Artículos {fmtEUR(Number(p.productos_eur ?? p.total_eur))} · Envío {Number(p.envio_eur ?? 0) === 0 ? "gratis" : fmtEUR(Number(p.envio_eur))}
+                      {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""} · {p.envio_manual ? "a mano" : "automático"}
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                      <TextInput
+                        nativeID={`pedido-envio-campo-${p.numero}`}
+                        value={envioEscrito[p.id] ?? ""}
+                        onChangeText={(t) => setEnvioEscrito((e) => ({ ...e, [p.id]: t }))}
+                        placeholder="Envío a mano (€)"
+                        placeholderTextColor="rgba(11,33,56,0.35)"
+                        keyboardType="decimal-pad"
+                        accessibilityLabel={`Envío a mano del pedido ${p.numero}`}
+                        style={{
+                          width: 150,
+                          minHeight: 44,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          paddingHorizontal: 10,
+                          color: COLORS.text,
+                          fontSize: 16,
+                          fontWeight: "700",
+                          textAlign: "center",
+                        }}
+                      />
+                      {/* Guardar: solo el icono, sin burbuja (44 × 44). */}
+                      <Pressable
+                        nativeID={`pedido-envio-guardar-${p.numero}`}
+                        disabled={guardando === p.id}
+                        onPress={() => guardarEnvio(p, false)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Guardar el envío a mano del pedido ${p.numero}`}
+                        style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                      >
+                        <Ionicons name="checkmark-circle" size={28} color={COLORS.accent} />
+                      </Pressable>
+                      {p.envio_manual ? (
+                        <Pressable
+                          nativeID={`pedido-envio-automatico-${p.numero}`}
+                          disabled={guardando === p.id}
+                          onPress={() => guardarEnvio(p, true)}
+                          accessibilityRole="button"
+                          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
+                        >
+                          <Ionicons name="refresh-outline" size={18} color={COLORS.accent} />
+                          <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Volver al automático</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    {envioMsg?.id === p.id ? (
+                      <Text nativeID={`pedido-envio-mensaje-${p.numero}`} style={{ color: envioMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                        {envioMsg.texto}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
 
                 <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{p.nombre}</Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>

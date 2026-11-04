@@ -370,6 +370,13 @@ export default function AdminHome() {
         onPress: () => router.push("/admin/pedidos"),
       },
       {
+        key: "envios",
+        title: "Tarifas de envío",
+        subtitle: "Precio del envío por zona y desde qué importe es gratis: la tienda lo calcula sola en cada pedido",
+        icon: "cube-outline" as IoniconName,
+        onPress: () => router.push("/admin/envios" as never),
+      },
+      {
         key: "escaparate",
         title: "Escaparate VeoAura",
         subtitle: "Lo que llega de VeoAura, sus visitas y las ventas de la tienda avisadas a VeoAura",
