@@ -260,6 +260,66 @@ export function leerOrigenVender(): string | null {
   return origenVender?.origen ?? null;
 }
 
+// Redes sociales (dueño, 2026-11-04, tras publicar el carrusel «Regístrate»): de qué red llega la visita y si crea una
+// cuenta en esa visita, para saber qué red funciona mejor. Se mira una sola vez al abrir la tienda: el enlace de la
+// biografía con ?utm_source=instagram|tiktok, la página de la que viene o el navegador de la propia app. Solo vive en
+// memoria (no se guarda nada en el dispositivo) y se cuenta con trackEvent: solo llega a la analítica de quien la
+// acepta. Administración → Analítica lo enseña en «Redes sociales: Instagram y TikTok».
+export type RedSocial = "instagram" | "tiktok";
+export const NOMBRE_RED: Record<RedSocial, string> = { instagram: "Instagram", tiktok: "TikTok" };
+let redOrigen: RedSocial | null = null;
+let llegadaMedida = false;
+
+/** De qué red llega una visita (o null). `via`: el enlace con utm, la página de la que viene o el navegador de la app. */
+export function detectarRedOrigen(
+  direccion: string,
+  referente: string,
+  agente: string
+): { red: RedSocial; via: "enlace" | "pagina" | "app" } | null {
+  try {
+    const params = new URL(direccion).searchParams;
+    for (const clave of ["utm_source", "ref", "origen"]) {
+      const valor = (params.get(clave) ?? "").trim().toLowerCase();
+      if (valor === "instagram" || valor === "ig") return { red: "instagram", via: "enlace" };
+      if (valor === "tiktok" || valor === "tt") return { red: "tiktok", via: "enlace" };
+    }
+  } catch {
+    // dirección rara: se mira lo demás
+  }
+  try {
+    const host = referente ? new URL(referente).hostname.toLowerCase() : "";
+    if (/(^|\.)instagram\.com$/.test(host)) return { red: "instagram", via: "pagina" };
+    if (/(^|\.)tiktok\.com$/.test(host)) return { red: "tiktok", via: "pagina" };
+  } catch {
+    // sin página de origen válida
+  }
+  // Navegador dentro de la app: Instagram pone «Instagram» en su identificador y TikTok, «musical_ly» o «Bytedance».
+  if (/Instagram/.test(agente)) return { red: "instagram", via: "app" };
+  if (/musical_ly|BytedanceWebview|TikTok/i.test(agente)) return { red: "tiktok", via: "app" };
+  return null;
+}
+
+/** Al abrir la tienda (app/_layout.tsx): si la visita llega de Instagram o TikTok, se cuenta una vez. */
+export function medirLlegadaDesdeRedes(): void {
+  if (llegadaMedida || typeof window === "undefined" || typeof document === "undefined") return;
+  llegadaMedida = true;
+  const origen = detectarRedOrigen(window.location.href, document.referrer ?? "", navigator.userAgent ?? "");
+  if (!origen) return;
+  redOrigen = origen.red;
+  trackEvent("llegada_redes", `Redes: llegada desde ${NOMBRE_RED[origen.red]}`, {
+    path: window.location.pathname,
+    metadata: { red: origen.red, via: origen.via },
+  });
+}
+
+/** Al crear una cuenta (app/(tabs)/perfil.tsx): se cuenta y, si la visita llegó de una red, también de cuál. */
+export function medirCuentaCreada(): void {
+  trackEvent("registro", "Registro: cuenta creada", { metadata: { red: redOrigen ?? "otra" } });
+  if (redOrigen) {
+    trackEvent("registro_redes", `Redes: registro desde ${NOMBRE_RED[redOrigen]}`, { metadata: { red: redOrigen } });
+  }
+}
+
 const lastTrackedAt = new Map<string, number>();
 
 /**
