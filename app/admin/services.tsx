@@ -80,14 +80,18 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import {
   AdminHeader,
   AdminNotice,
+  BarraSeleccionFotos,
   BotonFlotante,
   EmptyState,
   IconButton,
+  MarcaSeleccion,
   PestanasPanel,
   PieVentana,
   PrimaryButton,
+  SelectorIOS,
   StatCard,
   useGestoPestanas,
+  useSeleccionFotos,
 } from "../../lib/admin/products.components";
 import { ERRORS, MAX_IMAGES, MEDIA_BUCKET } from "../../lib/admin/products.constants";
 import type { LocalPickedMedia } from "../../lib/admin/products.types";
@@ -97,7 +101,7 @@ import {
   contarEmojis,
   fmtEUR,
   pickMediaFilesWeb,
-  toIntSafe,
+  toPriceSafe,
 } from "../../lib/admin/products.utils";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -343,7 +347,8 @@ function TextField({
   onChangeText: (v: string) => void;
   placeholder?: string;
   multiline?: boolean;
-  keyboardType?: "default" | "numeric";
+  // decimal-pad (no numeric) para los precios: el teclado del iPhone trae la coma para los céntimos.
+  keyboardType?: "default" | "numeric" | "decimal-pad";
 }) {
   return (
     <View style={{ gap: 6, alignItems: "center" }}>
@@ -580,9 +585,14 @@ export default function AdminServices() {
   const [coverId, setCoverId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
+  // Precio guardado sin céntimos porque la base de datos aún no los admite (ver save()).
+  const [avisoPrecio, setAvisoPrecio] = useState<string | null>(null);
+  // «Seleccionar varias» fotos para quitarlas a la vez (dueño, 2026-11-04).
+  const seleccion = useSeleccionFotos();
   const [picking, setPicking] = useState(false);
 
   function openCreate() {
+    seleccion.terminar();
     setEditing(null);
     setTitle("");
     setDesc("");
@@ -598,10 +608,12 @@ export default function AdminServices() {
   }
 
   function openEdit(s: ServiceRow) {
+    seleccion.terminar();
     setEditing(s);
     setTitle(s.title);
     setDesc(s.description);
-    setPrice(String(s.price_eur ?? 0));
+    // Con coma para los céntimos, como se escribe en España (45,50).
+    setPrice(String(s.price_eur ?? 0).replace(".", ","));
     setStatus(s.status);
     setIsActive(s.is_active);
     setExistingMedia(s.media);
@@ -695,6 +707,34 @@ export default function AdminServices() {
     if (coverId === id) setCoverId(null);
   }
 
+  // «Seleccionar varias»: quita del formulario las fotos elegidas (se borran de verdad al guardar los cambios). Si la
+  // portada estaba entre ellas, pasa a serlo la primera que queda.
+  function quitarElegidas() {
+    const ids = new Set(seleccion.elegidas);
+    const quitadas = existingMedia.filter((m) => ids.has(m.id));
+    const nuevasQuitadas = newMedia.filter((m) => ids.has(m.id));
+    nuevasQuitadas.forEach((m) => {
+      try {
+        URL.revokeObjectURL(m.previewUrl);
+      } catch {
+        // ignore
+      }
+    });
+    const quedanExistentes = existingMedia.filter((m) => !ids.has(m.id));
+    const quedanNuevas = newMedia.filter((m) => !ids.has(m.id));
+    setExistingMedia(quedanExistentes);
+    setNewMedia(quedanNuevas);
+    if (quitadas.length) setRemovedMedia((prev) => [...prev, ...quitadas]);
+    if (coverId && ids.has(coverId)) setCoverId(quedanExistentes[0]?.id ?? quedanNuevas[0]?.id ?? null);
+    seleccion.terminar();
+  }
+
+  // Devuelve las fotos quitadas (mientras no se haya guardado).
+  function deshacerQuitadas() {
+    setExistingMedia((prev) => [...prev, ...removedMedia].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)));
+    setRemovedMedia([]);
+  }
+
   async function uploadNewPhotos(serviceId: string) {
     if (!newMedia.length) return;
     const startIndex = existingMedia.length;
@@ -781,24 +821,36 @@ export default function AdminServices() {
     setModalErr(null);
 
     try {
+      // Con céntimos (45,50 → 45.5; dueño, 2026-11-04). Hasta que se aplique la migración 20261104150000 la columna
+      // es de enteros: entonces se guarda redondeado y se avisa (el servicio no se queda sin guardar).
+      const precio = Math.round(toPriceSafe(price, 0) * 100) / 100;
       const payload = {
         title: cleanTitle,
         description: desc.trim(),
-        price_eur: toIntSafe(price, 0),
+        price_eur: precio,
         status,
         is_active: isActive,
       };
+      const guardar = async (datos: typeof payload, id: string | null) => {
+        if (id) {
+          const { error } = await supabase.from("services").update(datos).eq("id", id);
+          return { id, error };
+        }
+        const { data, error } = await supabase.from("services").insert(datos).select("id").single();
+        return { id: (data as { id: string } | null)?.id ?? null, error };
+      };
 
       let serviceId = editing?.id ?? null;
-
-      if (serviceId) {
-        const { error } = await supabase.from("services").update(payload).eq("id", serviceId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("services").insert(payload).select("id").single();
-        if (error) throw error;
-        serviceId = data.id;
-      }
+      let res = await guardar(payload, serviceId);
+      const sinCentimos = !!res.error && String((res.error as { code?: string }).code ?? "") === "22P02" && !Number.isInteger(precio);
+      if (sinCentimos) res = await guardar({ ...payload, price_eur: Math.round(precio) }, serviceId);
+      if (res.error) throw res.error;
+      serviceId = res.id;
+      setAvisoPrecio(
+        sinCentimos
+          ? `Guardado con ${fmtEUR(Math.round(precio))} en vez de ${fmtEUR(precio)}: para guardar céntimos en los servicios falta aplicar un ajuste en la base de datos (migración 20261104150000).`
+          : null
+      );
 
       if (serviceId) {
         await deleteRemovedPhotos();
@@ -1006,6 +1058,8 @@ export default function AdminServices() {
                 fontSize: 16,
               }}
             />
+
+            {avisoPrecio ? <AdminNotice tone="warning" text={avisoPrecio} /> : null}
 
             {/* Los cuatro contadores en una sola fila, también en el móvil (dueño, 2026-11-03). */}
             <View nativeID="servicios-contadores" style={{ flexDirection: "row", flexWrap: "nowrap", gap: isMobile ? 8 : 10 }}>
@@ -1342,21 +1396,17 @@ export default function AdminServices() {
                   En la tienda la descripción se verá sin {contarEmojis(desc) === 1 ? "su emoji" : `sus ${contarEmojis(desc)} emojis`}.
                 </Text>
               ) : null}
-              <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0" keyboardType="numeric" />
+              <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0,00" keyboardType="decimal-pad" />
 
-              <View style={{ gap: 6, alignItems: "center" }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>Estado</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-                  {(["DRAFT", "PUBLISHED"] as ServiceStatus[]).map((st) => (
-                    <ChipButton
-                      key={st}
-                      label={STATUS_LABEL[st]}
-                      onPress={() => setStatus(st)}
-                      variant={status === st ? "primary" : "ghost"}
-                    />
-                  ))}
-                </View>
-              </View>
+              {/* Desplegable con el selector del propio móvil (en el iPhone, la rueda de iOS; dueño, 2026-11-04). */}
+              <SelectorIOS
+                nativeID="servicio-estado"
+                label="Estado"
+                centrado
+                value={status}
+                onChange={(v) => setStatus(v as ServiceStatus)}
+                options={(["DRAFT", "PUBLISHED"] as ServiceStatus[]).map((st) => ({ value: st, label: STATUS_LABEL[st] }))}
+              />
 
               <Pressable
                 onPress={() => setIsActive((v) => !v)}
@@ -1382,67 +1432,78 @@ export default function AdminServices() {
                   Fotos ({existingMedia.length + newMedia.length}/{MAX_IMAGES})
                 </Text>
 
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-                  {existingMedia.map((m) => (
-                    <View key={m.id} style={{ width: 76, height: 76 }}>
-                      <SmartImage uri={m.public_url ?? ""} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
-                      <Pressable
-                        onPress={() => setCoverId(m.id)}
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          left: 4,
-                          backgroundColor: coverId === m.id ? COLORS.accent : "rgba(11,33,56,0.55)",
-                          borderRadius: 999,
-                          paddingHorizontal: 6,
-                          paddingVertical: 2,
-                        }}
-                      >
-                        <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "900" }}>
-                          {coverId === m.id ? "Portada" : "Usar"}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => removeExistingPhoto(m.id)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Quitar esta foto"
-                        style={{ position: "absolute", top: 0, right: 0, width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
-                      >
-                        {/* El icono ya es redondo y oscuro (se ve sobre cualquier foto): sin burbuja alrededor. */}
-                        <Ionicons name="close-circle" size={22} color="rgba(11,33,56,0.85)" />
-                      </Pressable>
-                    </View>
-                  ))}
+                {/* Quitar varias a la vez (dueño, 2026-11-04). */}
+                <BarraSeleccionFotos
+                  total={existingMedia.length + newMedia.length}
+                  seleccionando={seleccion.seleccionando}
+                  elegidas={seleccion.elegidas.length}
+                  onEmpezar={seleccion.empezar}
+                  onTodas={() => seleccion.setElegidas([...existingMedia.map((m) => m.id), ...newMedia.map((m) => m.id)])}
+                  onQuitar={quitarElegidas}
+                  onTerminar={seleccion.terminar}
+                />
 
-                  {newMedia.map((m) => (
-                    <View key={m.id} style={{ width: 76, height: 76 }}>
-                      <SmartImage uri={m.previewUrl} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
-                      <Pressable
-                        onPress={() => setCoverId(m.id)}
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          left: 4,
-                          backgroundColor: coverId === m.id ? COLORS.accent : "rgba(11,33,56,0.55)",
-                          borderRadius: 999,
-                          paddingHorizontal: 6,
-                          paddingVertical: 2,
-                        }}
-                      >
-                        <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "900" }}>
-                          {coverId === m.id ? "Portada" : "Usar"}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => removeNewPhoto(m.id)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Quitar esta foto"
-                        style={{ position: "absolute", top: 0, right: 0, width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
-                      >
-                        <Ionicons name="close-circle" size={22} color="rgba(11,33,56,0.85)" />
-                      </Pressable>
-                    </View>
-                  ))}
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                  {/* Las fotos ya guardadas y las nuevas, igual. Eligiendo varias, toda la miniatura se toca y lleva su
+                      marca (sin «Usar» ni la X); si no, «Usar»/«Portada» y la X de cada una. */}
+                  {[
+                    ...existingMedia.map((m) => ({ id: m.id, uri: m.public_url ?? "", quitar: () => removeExistingPhoto(m.id) })),
+                    ...newMedia.map((m) => ({ id: m.id, uri: m.previewUrl, quitar: () => removeNewPhoto(m.id) })),
+                  ].map((f) => {
+                    const elegida = seleccion.elegidas.includes(f.id);
+                    return (
+                      <View key={f.id} nativeID={`servicio-foto-${f.id}`} style={{ width: 76, height: 76 }}>
+                        <SmartImage uri={f.uri} style={{ width: 76, height: 76, borderRadius: 12, backgroundColor: COLORS.cardSoft }} />
+                        {seleccion.seleccionando ? (
+                          <Pressable
+                            onPress={() => seleccion.alternar(f.id)}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: elegida }}
+                            accessibilityLabel="Elegir esta foto"
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              borderRadius: 12,
+                              borderWidth: elegida ? 3 : 0,
+                              borderColor: COLORS.accent,
+                              backgroundColor: elegida ? "rgba(30,167,232,0.22)" : "transparent",
+                            }}
+                          >
+                            <MarcaSeleccion elegida={elegida} />
+                          </Pressable>
+                        ) : (
+                          <>
+                            <Pressable
+                              onPress={() => setCoverId(f.id)}
+                              style={{
+                                position: "absolute",
+                                top: 4,
+                                left: 4,
+                                backgroundColor: coverId === f.id ? COLORS.accent : "rgba(11,33,56,0.55)",
+                                borderRadius: 999,
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                              }}
+                            >
+                              <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "900" }}>{coverId === f.id ? "Portada" : "Usar"}</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={f.quitar}
+                              accessibilityRole="button"
+                              accessibilityLabel="Quitar esta foto"
+                              style={{ position: "absolute", top: 0, right: 0, width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
+                            >
+                              {/* El icono ya es redondo y oscuro (se ve sobre cualquier foto): sin burbuja alrededor. */}
+                              <Ionicons name="close-circle" size={22} color="rgba(11,33,56,0.85)" />
+                            </Pressable>
+                          </>
+                        )}
+                      </View>
+                    );
+                  })}
 
                   <Pressable
                     onPress={pickPhotos}
@@ -1473,6 +1534,18 @@ export default function AdminServices() {
                     HEIC del iPhone.
                   </Text>
                 )}
+
+                {/* Las quitadas se borran al guardar; hasta entonces se pueden devolver. */}
+                {removedMedia.length > 0 ? (
+                  <View nativeID="servicio-fotos-quitadas" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+                      {removedMedia.length === 1 ? "1 foto quitada" : `${removedMedia.length} fotos quitadas`}: se borran al guardar los cambios.
+                    </Text>
+                    <Pressable onPress={deshacerQuitadas} accessibilityRole="button" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}>
+                      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 13 }}>Deshacer</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}

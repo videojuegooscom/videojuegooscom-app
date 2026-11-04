@@ -33,7 +33,7 @@
  *   panel se vean iguales.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Image, PanResponder, Platform, Pressable, Text, View } from "react-native";
+import { Animated, Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -722,10 +722,17 @@ export function MediaThumb({
   media,
   isMobile,
   onRemove,
+  seleccionando,
+  elegida,
+  onAlternar,
 }: {
   media: ProductMediaRow | LocalPickedMedia;
   isMobile?: boolean;
   onRemove?: () => void;
+  // Modo «Seleccionar varias» (useSeleccionFotos): la miniatura entera se toca para elegirla.
+  seleccionando?: boolean;
+  elegida?: boolean;
+  onAlternar?: () => void;
 }) {
   const kind = getMediaKind(media);
   const mediaName = getMediaName(media);
@@ -878,7 +885,7 @@ export function MediaThumb({
               : "Archivo multimedia del producto"}
         </Text>
 
-        {!!onRemove && (
+        {!!onRemove && !seleccionando && (
           <View style={{ alignItems: "center", marginTop: 2 }}>
             <IconButton
               icon="trash-outline"
@@ -889,6 +896,249 @@ export function MediaThumb({
           </View>
         )}
       </View>
+      {/* Eligiendo varias para quitarlas: toda la miniatura se toca y lleva su marca. */}
+      {seleccionando ? (
+        <Pressable
+          onPress={onAlternar}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: !!elegida }}
+          accessibilityLabel={`${kind === "video" ? "Vídeo" : "Foto"} ${mediaName}`}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: elegida ? "rgba(30,167,232,0.18)" : "transparent" }}
+        >
+          <MarcaSeleccion elegida={!!elegida} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// --- Quitar varias fotos a la vez (dueño, 2026-11-04) ----------------------------------------------------------------
+// «Seleccionar varias» pone las miniaturas en modo elegir: se tocan las que se quieren quitar (o «Todas») y «Quitar (N)»
+// las quita del formulario. Como con la papelera de cada una, se borran de verdad al guardar los cambios (la X de la
+// ventana cierra sin guardar y las deja como estaban). Se usa en Productos y en Servicios.
+export function useSeleccionFotos() {
+  const [seleccionando, setSeleccionando] = useState(false);
+  const [elegidas, setElegidas] = useState<string[]>([]);
+  const alternar = useCallback((id: string) => setElegidas((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])), []);
+  const empezar = useCallback(() => {
+    setElegidas([]);
+    setSeleccionando(true);
+  }, []);
+  const terminar = useCallback(() => {
+    setElegidas([]);
+    setSeleccionando(false);
+  }, []);
+  return { seleccionando, elegidas, alternar, empezar, terminar, setElegidas };
+}
+
+// La marca de elegida (círculo con ✓) en la esquina de una miniatura.
+export function MarcaSeleccion({ elegida }: { elegida: boolean }) {
+  return (
+    <View pointerEvents="none" style={{ position: "absolute", top: 4, right: 4 }}>
+      <Ionicons name={elegida ? "checkmark-circle" : "ellipse-outline"} size={24} color={elegida ? COLORS.accent : "#FFFFFF"} />
+    </View>
+  );
+}
+
+export function BarraSeleccionFotos({
+  total,
+  seleccionando,
+  elegidas,
+  onEmpezar,
+  onTodas,
+  onQuitar,
+  onTerminar,
+}: {
+  total: number;
+  seleccionando: boolean;
+  elegidas: number;
+  onEmpezar: () => void;
+  onTodas: () => void;
+  onQuitar: () => void;
+  onTerminar: () => void;
+}) {
+  if (!seleccionando) {
+    if (total < 2) return null;
+    return (
+      <Pressable
+        nativeID="fotos-seleccionar"
+        onPress={onEmpezar}
+        accessibilityRole="button"
+        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, paddingHorizontal: 10, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.accent} />
+        <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14 }}>Seleccionar varias</Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View nativeID="fotos-seleccion" style={{ alignItems: "center", gap: 6 }}>
+      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
+        {elegidas === 0 ? "Toca las fotos que quieras quitar" : elegidas === 1 ? "1 foto elegida" : `${elegidas} fotos elegidas`}
+      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <Pressable
+          onPress={onTodas}
+          accessibilityRole="button"
+          style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 12, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+        >
+          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14 }}>Todas</Text>
+        </Pressable>
+        <Pressable
+          nativeID="fotos-quitar"
+          onPress={onQuitar}
+          disabled={elegidas === 0}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: elegidas === 0 }}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            paddingHorizontal: 16,
+            borderRadius: 999,
+            justifyContent: "center",
+            backgroundColor: elegidas === 0 ? COLORS.border : COLORS.danger,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Text style={{ color: elegidas === 0 ? COLORS.muted : "#FFFFFF", fontWeight: "900", fontSize: 14 }}>
+            {elegidas === 0 ? "Quitar" : `Quitar (${elegidas})`}
+          </Text>
+        </Pressable>
+        <IconButton icon="close" label="Dejar de seleccionar" onPress={onTerminar} />
+      </View>
+    </View>
+  );
+}
+
+// --- Desplegable con el selector del propio móvil (dueño, 2026-11-04) -----------------------------------------------
+// Una caja con el valor elegido; al tocarla se abre el selector del sistema: en el iPhone, la rueda de iOS con las
+// opciones disponibles; en el ordenador, la lista del navegador. En la web es un <select> de verdad, transparente,
+// encima de la caja (así lo abre el sistema); fuera de la web, una ventana con las opciones. Se usa para «Estado» en
+// Servicios y para Estado, Condición y Categoría en Productos.
+export function SelectorIOS({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+  nativeID,
+  centrado,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+  placeholder?: string;
+  nativeID?: string;
+  centrado?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value);
+  const caja = (
+    <View
+      style={{
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        backgroundColor: "#F8FBFE",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+      }}
+    >
+      {/* (centrado, como los demás campos del formulario de Servicios: un hueco a la izquierda equilibra la flecha) */}
+      {centrado ? <View style={{ width: 16 }} /> : null}
+      <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, flexShrink: 1, ...(centrado ? { flex: 1, textAlign: "center" as const } : null) }}>
+        {current?.label ?? placeholder ?? "Seleccionar"}
+      </Text>
+      <Ionicons name="chevron-down" size={16} color={COLORS.muted} />
+    </View>
+  );
+  return (
+    <View nativeID={nativeID} style={{ gap: 6 }}>
+      <Text style={{ color: centrado ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 13, textAlign: centrado ? "center" : "left" }}>{label}</Text>
+      {Platform.OS === "web" ? (
+        <View style={{ position: "relative" }}>
+          {caja}
+          <select
+            aria-label={label}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              opacity: 0,
+              cursor: "pointer",
+              border: 0,
+              // 16 px: Safari en iPhone no hace zoom al abrirlo.
+              fontSize: 16,
+              appearance: "none",
+            }}
+          >
+            {!current && placeholder ? (
+              <option value="" disabled>
+                {placeholder}
+              </option>
+            ) : null}
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </View>
+      ) : (
+        <>
+          <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={`${label}: ${current?.label ?? placeholder ?? ""}`}>
+            {caja}
+          </Pressable>
+          <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+            <Pressable
+              onPress={() => setOpen(false)}
+              style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 20 }}
+            >
+              <Pressable
+                onPress={() => {}}
+                style={{ width: "100%", maxWidth: 380, maxHeight: "80%", borderRadius: 18, backgroundColor: "#FFFFFF", padding: 14, gap: 10 }}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>{label}</Text>
+                <ScrollView style={{ maxHeight: 360 }}>
+                  <View style={{ gap: 8 }}>
+                    {options.map((o) => {
+                      const selected = o.value === value;
+                      return (
+                        <Pressable
+                          key={o.value}
+                          onPress={() => {
+                            onChange(o.value);
+                            setOpen(false);
+                          }}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.88 : 1,
+                            borderRadius: 12,
+                            paddingVertical: 12,
+                            paddingHorizontal: 14,
+                            backgroundColor: selected ? COLORS.accent2 : "#F6FAFD",
+                            alignItems: "center",
+                          })}
+                        >
+                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>{o.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        </>
+      )}
     </View>
   );
 }

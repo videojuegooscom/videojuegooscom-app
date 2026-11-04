@@ -90,6 +90,7 @@ import {
   AdminHeader,
   AdminLoading,
   AdminNotice,
+  BarraSeleccionFotos,
   BotonFlotante,
   ChipButton,
   EmptyState,
@@ -98,7 +99,9 @@ import {
   MediaThumb,
   PieVentana,
   PrimaryButton,
+  SelectorIOS,
   StatCard,
+  useSeleccionFotos,
 } from "../../lib/admin/products.components";
 import {
   COLORS,
@@ -382,132 +385,8 @@ async function fetchAdminProductsSafe(): Promise<{
   throw new Error("No se pudo cargar la lista de productos.");
 }
 
-// Selector "desplegable": una caja con el valor actual que, al tocarla,
-// abre un panel centrado en pantalla con las opciones disponibles (igual
-// que cualquier selector nativo). Se usa para Estado, Condición y
-// Categoría en el formulario de producto, en vez de tener siempre todas
-// las opciones visibles como chips — así el formulario ocupa mucho menos
-// alto y es más rápido de escanear.
-function DropdownField({
-  label,
-  value,
-  options,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const current = options.find((o) => o.value === value);
-
-  return (
-    <View style={{ gap: 6 }}>
-      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13 }}>{label}</Text>
-
-      <Pressable
-        onPress={() => setOpen(true)}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.9 : 1,
-          borderWidth: 1,
-          borderColor: COLORS.border,
-          borderRadius: 14,
-          paddingHorizontal: 12,
-          paddingVertical: 12,
-          backgroundColor: "#F8FBFE",
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-        })}
-      >
-        <Text
-          style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, flexShrink: 1 }}
-          numberOfLines={1}
-        >
-          {current?.label ?? placeholder ?? "Seleccionar"}
-        </Text>
-        <Ionicons name="chevron-down" size={16} color={COLORS.muted} />
-      </Pressable>
-
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable
-          onPress={() => setOpen(false)}
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.55)",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
-          }}
-        >
-          <Pressable
-            onPress={() => {}}
-            style={{
-              width: "100%",
-              maxWidth: 380,
-              maxHeight: "80%",
-              borderRadius: 18,
-              backgroundColor: "#FFFFFF",
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 14,
-              gap: 10,
-            }}
-          >
-            <Text
-              style={{
-                color: COLORS.text,
-                fontWeight: "900",
-                fontSize: 16,
-                textAlign: "center",
-              }}
-            >
-              {label}
-            </Text>
-
-            <ScrollView style={{ maxHeight: 360 }}>
-              <View style={{ gap: 8 }}>
-                {options.map((o) => {
-                  const selected = o.value === value;
-                  return (
-                    <Pressable
-                      key={o.value}
-                      onPress={() => {
-                        onChange(o.value);
-                        setOpen(false);
-                      }}
-                      style={({ pressed }) => ({
-                        opacity: pressed ? 0.88 : 1,
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        paddingHorizontal: 14,
-                        backgroundColor: selected ? COLORS.accent2 : "#F6FAFD",
-                        borderWidth: 1,
-                        borderColor: selected ? COLORS.accentBorder : "#E3EAF2",
-                        alignItems: "center",
-                      })}
-                    >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-                        {o.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-
-            {/* Cerrar sin elegir: la X abajo a la derecha, como en todas las ventanas del panel. */}
-            <PieVentana onCerrar={() => setOpen(false)}>{null}</PieVentana>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </View>
-  );
-}
+// Estado, Condición y Categoría del formulario de producto: SelectorIOS (lib/admin/products.components.tsx), el mismo
+// desplegable de Servicios, que abre el selector del propio móvil (en el iPhone, la rueda de iOS; dueño, 2026-11-04).
 
 type ProductListItemData = ProductRow & { catName: string };
 
@@ -747,6 +626,9 @@ export default function AdminProducts() {
   const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
   const [descExpanded, setDescExpanded] = useState(false);
   const [picking, setPicking] = useState(false);
+  // «Seleccionar varias» fotos para quitarlas a la vez (dueño, 2026-11-04), como en Servicios.
+  const seleccion = useSeleccionFotos();
+  const terminarSeleccion = seleccion.terminar;
 
   // Subidas de fotos/vídeo en curso EN SEGUNDO PLANO, una entrada por
   // producto (clave = product_id). A petición de Daniel: al pulsar "Crear
@@ -996,7 +878,8 @@ export default function AdminProducts() {
     setModalErr(null);
     setDescExpanded(false);
     setPicking(false);
-  }, []);
+    terminarSeleccion();
+  }, [terminarSeleccion]);
 
   const openCreate = useCallback(() => {
     resetForm();
@@ -1009,7 +892,8 @@ export default function AdminProducts() {
       setEditing(p);
       setTitle(p.title ?? "");
       setDesc(p.description ?? "");
-      setPrice(String(p.price_eur ?? 0));
+      // Con coma para los céntimos, como se escribe en España (17,97).
+      setPrice(String(p.price_eur ?? 0).replace(".", ","));
       setStatus(p.status ?? "DRAFT");
       setCondition(p.condition ?? "GOOD");
       setReference(p.reference ?? "");
@@ -1125,6 +1009,24 @@ export default function AdminProducts() {
       }
       return prev.filter((m) => m.id !== id);
     });
+  }
+
+  // «Seleccionar varias»: quita del formulario las fotos y vídeos elegidos (se borran de verdad al guardar).
+  function quitarElegidas() {
+    const ids = new Set(seleccion.elegidas);
+    const quitadas = existingMedia.filter((m) => ids.has(m.id));
+    const nuevasQuitadas = newMedia.filter((m) => ids.has(m.id));
+    if (nuevasQuitadas.length) revokeLocalMedia(nuevasQuitadas);
+    setExistingMedia(existingMedia.filter((m) => !ids.has(m.id)));
+    setNewMedia(newMedia.filter((m) => !ids.has(m.id)));
+    if (quitadas.length) setRemovedMedia((prev) => [...prev, ...quitadas]);
+    seleccion.terminar();
+  }
+
+  // Devuelve lo quitado (mientras no se haya guardado).
+  function deshacerQuitadas() {
+    setExistingMedia((prev) => [...prev, ...removedMedia].sort(sortMediaRows));
+    setRemovedMedia([]);
   }
 
   // Antes "uploadNewMedia()"/"deleteRemovedMedia()" leían "newMedia" /
@@ -1945,6 +1847,17 @@ export default function AdminProducts() {
                   Actualmente: {currentImageCount}/{MAX_IMAGES} imágenes · {currentVideoCount}/1 vídeo
                 </Text>
 
+                {/* Quitar varias a la vez (dueño, 2026-11-04), como en Servicios. */}
+                <BarraSeleccionFotos
+                  total={existingMedia.length + newMedia.length}
+                  seleccionando={seleccion.seleccionando}
+                  elegidas={seleccion.elegidas.length}
+                  onEmpezar={seleccion.empezar}
+                  onTodas={() => seleccion.setElegidas([...existingMedia.map((m) => m.id), ...newMedia.map((m) => m.id)])}
+                  onQuitar={quitarElegidas}
+                  onTerminar={seleccion.terminar}
+                />
+
                 {!!existingMedia.length && (
                   <View style={{ gap: 8 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900" }}>Media actual</Text>
@@ -1956,6 +1869,9 @@ export default function AdminProducts() {
                             media={m}
                             isMobile={isMobile}
                             onRemove={() => removeExistingMedia(m.id)}
+                            seleccionando={seleccion.seleccionando}
+                            elegida={seleccion.elegidas.includes(m.id)}
+                            onAlternar={() => seleccion.alternar(m.id)}
                           />
                         ))}
                       </View>
@@ -1974,17 +1890,33 @@ export default function AdminProducts() {
                             media={m}
                             isMobile={isMobile}
                             onRemove={() => removeNewMedia(m.id)}
+                            seleccionando={seleccion.seleccionando}
+                            elegida={seleccion.elegidas.includes(m.id)}
+                            onAlternar={() => seleccion.alternar(m.id)}
                           />
                         ))}
                       </View>
                     </ScrollView>
                   </View>
                 )}
+
+                {/* Lo quitado se borra al guardar; hasta entonces se puede devolver. */}
+                {removedMedia.length > 0 ? (
+                  <View nativeID="producto-fotos-quitadas" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+                      {removedMedia.length === 1 ? "1 quitada" : `${removedMedia.length} quitadas`}: se borran al guardar los cambios.
+                    </Text>
+                    <Pressable onPress={deshacerQuitadas} accessibilityRole="button" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}>
+                      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 13 }}>Deshacer</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
 
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <DropdownField
+                  <SelectorIOS
+                    nativeID="producto-estado"
                     label="Estado"
                     value={status}
                     onChange={(v) => setStatus(v as ProductStatus)}
@@ -1996,7 +1928,8 @@ export default function AdminProducts() {
                 </View>
 
                 <View style={{ flex: 1 }}>
-                  <DropdownField
+                  <SelectorIOS
+                    nativeID="producto-condicion"
                     label="Condición"
                     value={condition}
                     onChange={(v) => setCondition(v as ProductCondition)}
@@ -2007,7 +1940,8 @@ export default function AdminProducts() {
                 </View>
               </View>
 
-              <DropdownField
+              <SelectorIOS
+                nativeID="producto-categoria"
                 label="Categoría"
                 value={categoryId ?? ""}
                 onChange={(v) => setCategoryId(v || null)}
