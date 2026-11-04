@@ -121,6 +121,7 @@ import {
   CIERRE_TECLADO,
   buildMediaPath,
   clampText,
+  contarEmojis,
   fmtEUR,
   getPrimaryMedia,
   labelCond,
@@ -1859,6 +1860,12 @@ export default function AdminProducts() {
                     }}
                   />
                 )}
+                {/* Los emojis no salen en la tienda (sinEmojis; dueño, 2026-11-04): se avisa al escribirlos. */}
+                {contarEmojis(desc) > 0 ? (
+                  <Text nativeID="producto-aviso-emojis" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    En la tienda la descripción se verá sin {contarEmojis(desc) === 1 ? "su emoji" : `sus ${contarEmojis(desc)} emojis`}.
+                  </Text>
+                ) : null}
               </View>
 
               <TextInput

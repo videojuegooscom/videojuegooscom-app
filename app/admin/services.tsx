@@ -94,6 +94,7 @@ import type { LocalPickedMedia } from "../../lib/admin/products.types";
 import {
   CIERRE_TECLADO,
   buildMediaPath,
+  contarEmojis,
   fmtEUR,
   pickMediaFilesWeb,
   toIntSafe,
@@ -1335,6 +1336,12 @@ export default function AdminServices() {
                 placeholder="Qué incluye el servicio, tiempo estimado, garantía…"
                 multiline
               />
+              {/* Los emojis no salen en la tienda (sinEmojis; dueño, 2026-11-04): se avisa al escribirlos. */}
+              {contarEmojis(desc) > 0 ? (
+                <Text nativeID="servicio-aviso-emojis" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center", marginTop: -6 }}>
+                  En la tienda la descripción se verá sin {contarEmojis(desc) === 1 ? "su emoji" : `sus ${contarEmojis(desc)} emojis`}.
+                </Text>
+              ) : null}
               <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0" keyboardType="numeric" />
 
               <View style={{ gap: 6, alignItems: "center" }}>

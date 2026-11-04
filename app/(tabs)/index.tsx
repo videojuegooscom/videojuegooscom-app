@@ -108,6 +108,7 @@ import { RedJuntoAlLogo, ResenasCanales, useRedesJuntoAlLogo, useResenasCanales 
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { supabase } from "../../lib/supabase";
+import { sinEmojis } from "../../lib/admin/products.utils";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { useTabBarBottomInset } from "../../lib/tabBar";
 
@@ -1481,8 +1482,9 @@ function FeaturedOfferCard({
           </View>
 
           <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-            {item.description?.trim()
-              ? clampText(item.description, 180)
+            {/* (sin emojis, como en la ficha: dueño, 2026-11-04) */}
+            {sinEmojis(item.description)
+              ? clampText(sinEmojis(item.description), 180)
               : "Producto revisado y seleccionado para destacar esta semana por su excelente relación calidad-precio."}
           </Text>
 
