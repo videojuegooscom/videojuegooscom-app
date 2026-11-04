@@ -183,7 +183,8 @@ try {
   await p.getByRole("tab", { name: /Noticias y avisos/ }).tap();
   await p.waitForTimeout(1200);
   const avisos = await p.evaluate(() => document.body.innerText);
-  ok(/AVISOS/.test(avisos) && /NOTICIAS/.test(avisos) && /MIS AVISOS/.test(avisos), "Noticias y avisos: se ven los apartados Avisos, Noticias y Mis avisos");
+  // (Desde 2026-11-04 un apartado vacío no sale: «Avisos» solo con avisos y nada de «Estás al día» ni «No hay noticias».)
+  ok(/MIS AVISOS/.test(avisos) && !/Estás al día/.test(avisos) && !/No hay noticias ahora mismo/.test(avisos), "Noticias y avisos: sale «Mis avisos» y ningún apartado vacío");
   ok(/Avisarme de los artículos nuevos/.test(avisos) && /Avísame cuando llegue/.test(avisos), "Noticias y avisos: están los dos ajustes («Avisarme de los artículos nuevos» y «Avísame cuando llegue»)");
   ok((await p.locator('[aria-label="Avisarme de los artículos nuevos"]').count()) >= 1, "Noticias y avisos: el interruptor de artículos nuevos está");
   if (SESION) {
