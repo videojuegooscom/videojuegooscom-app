@@ -961,16 +961,13 @@ export default function AdminUsers() {
                           style={({ pressed }) => ({
                             width: 44,
                             height: 44,
-                            borderRadius: 22,
                             alignItems: "center",
                             justifyContent: "center",
-                            borderWidth: 1,
-                            borderColor: m.leida ? COLORS.border : COLORS.accent,
-                            backgroundColor: m.leida ? "#FFFFFF" : COLORS.accent,
-                            opacity: marcandoMejora === m.id ? 0.5 : pressed ? 0.85 : 1,
+                            opacity: marcandoMejora === m.id ? 0.5 : pressed ? 0.6 : 1,
                           })}
                         >
-                          <Ionicons name={m.leida ? "mail-unread-outline" : "checkmark"} size={20} color={m.leida ? COLORS.text : "#FFFFFF"} />
+                          {/* Solo el icono, sin burbuja (dueño, 2026-11-04). */}
+                          <Ionicons name={m.leida ? "mail-unread-outline" : "checkmark-done"} size={24} color={m.leida ? COLORS.text : COLORS.accent} />
                         </Pressable>
                       </View>
                     );

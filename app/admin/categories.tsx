@@ -107,6 +107,7 @@ import {
   BotonFlotante,
   EmptyState,
   IconButton,
+  PieVentana,
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
@@ -1103,18 +1104,17 @@ export default function AdminCategories() {
                             accessibilityLabel={`Pasar la portada ${i + 1} delante`}
                             style={({ pressed }) => ({
                               position: "absolute",
-                              left: 4,
-                              top: 4,
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
+                              left: 2,
+                              top: 2,
+                              width: 36,
+                              height: 36,
                               alignItems: "center",
                               justifyContent: "center",
-                              backgroundColor: "rgba(11,33,56,0.72)",
-                              opacity: pressed ? 0.8 : 1,
+                              opacity: pressed ? 0.7 : 1,
                             })}
                           >
-                            <Ionicons name="arrow-back" size={17} color="#FFFFFF" />
+                            {/* El icono ya es redondo y oscuro (se ve sobre cualquier foto): sin burbuja alrededor. */}
+                            <Ionicons name="arrow-back-circle" size={30} color="rgba(11,33,56,0.85)" />
                           </Pressable>
                         )}
                         <Pressable
@@ -1123,18 +1123,16 @@ export default function AdminCategories() {
                           accessibilityLabel={`Quitar la portada ${i + 1}`}
                           style={({ pressed }) => ({
                             position: "absolute",
-                            right: 4,
-                            top: 4,
-                            width: 32,
-                            height: 32,
-                            borderRadius: 16,
+                            right: 2,
+                            top: 2,
+                            width: 36,
+                            height: 36,
                             alignItems: "center",
                             justifyContent: "center",
-                            backgroundColor: "rgba(11,33,56,0.72)",
-                            opacity: pressed ? 0.8 : 1,
+                            opacity: pressed ? 0.7 : 1,
                           })}
                         >
-                          <Ionicons name="close" size={18} color="#FFFFFF" />
+                          <Ionicons name="close-circle" size={30} color="rgba(11,33,56,0.85)" />
                         </Pressable>
                       </View>
                     ))}
@@ -1213,14 +1211,12 @@ export default function AdminCategories() {
                           style={({ pressed }) => ({
                             width: 44,
                             height: 44,
-                            borderRadius: 22,
                             alignItems: "center",
                             justifyContent: "center",
-                            backgroundColor: COLORS.accent2,
-                            opacity: opacidad <= OPACIDAD_PORTADA_MIN ? 0.4 : pressed ? 0.75 : 1,
+                            opacity: opacidad <= OPACIDAD_PORTADA_MIN ? 0.4 : pressed ? 0.6 : 1,
                           })}
                         >
-                          <Ionicons name="remove" size={22} color={COLORS.accent} />
+                          <Ionicons name="remove" size={26} color={COLORS.accent} />
                         </Pressable>
                         {Platform.OS === "web" ? (
                           <input
@@ -1244,14 +1240,12 @@ export default function AdminCategories() {
                           style={({ pressed }) => ({
                             width: 44,
                             height: 44,
-                            borderRadius: 22,
                             alignItems: "center",
                             justifyContent: "center",
-                            backgroundColor: COLORS.accent2,
-                            opacity: opacidad >= 100 ? 0.4 : pressed ? 0.75 : 1,
+                            opacity: opacidad >= 100 ? 0.4 : pressed ? 0.6 : 1,
                           })}
                         >
-                          <Ionicons name="add" size={22} color={COLORS.accent} />
+                          <Ionicons name="add" size={26} color={COLORS.accent} />
                         </Pressable>
                       </View>
                       <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 13, textAlign: "center" }}>
@@ -1377,35 +1371,23 @@ export default function AdminCategories() {
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
 
-              {/* Botones centrados: primero la acción principal, debajo "Cancelar". */}
-              <View style={{ gap: 10, marginTop: 4, alignItems: "center" }}>
-                <PrimaryButton
-                  label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear categoría"}
-                  onPress={save}
-                  disabled={saving}
-                />
-
-                <Pressable
-                  onPress={() => {
+              {/* La acción principal y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
+              <View style={{ marginTop: 4 }}>
+                <PieVentana
+                  onCerrar={() => {
                     setOpen(false);
                     resetForm();
                   }}
-                  style={({ pressed }) => ({
-                    opacity: pressed ? 0.88 : 1,
-                    borderRadius: 999,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor: "#F6FAFD",
-                    width: "100%",
-                    maxWidth: 420,
-                  })}
                 >
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>
-                    Cancelar
-                  </Text>
-                </Pressable>
+                  <View style={{ flex: 1 }}>
+                    <PrimaryButton
+                      label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear categoría"}
+                      onPress={save}
+                      disabled={saving}
+                      fullWidth
+                    />
+                  </View>
+                </PieVentana>
               </View>
             </View>
           </ScrollView>
@@ -1452,28 +1434,12 @@ export default function AdminCategories() {
               Si hay productos vinculados a esta categoría, se quedarán sin categoría asignada.
             </Text>
 
-            <View
-              style={{
-                flexDirection: isMobile ? "column" : "row",
-                gap: 10,
-                justifyContent: "center",
-                marginTop: 6,
-              }}
-            >
-              <ChipButton
-                label="Cancelar"
-                variant="ghost"
-                onPress={() => setConfirmDelete(null)}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
-              <ChipButton
-                label="Sí, borrar"
-                variant="danger"
-                onPress={removeCategoryConfirmed}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
+            <View style={{ marginTop: 6 }}>
+              <PieVentana onCerrar={() => setConfirmDelete(null)}>
+                <View style={{ flex: 1 }}>
+                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeCategoryConfirmed} isMobile={isMobile} fullWidth />
+                </View>
+              </PieVentana>
             </View>
           </View>
         </View>

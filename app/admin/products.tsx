@@ -96,6 +96,7 @@ import {
   FilterPill,
   IconButton,
   MediaThumb,
+  PieVentana,
   PrimaryButton,
   StatCard,
 } from "../../lib/admin/products.components";
@@ -498,17 +499,8 @@ function DropdownField({
               </View>
             </ScrollView>
 
-            <Pressable
-              onPress={() => setOpen(false)}
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.88 : 1,
-                borderRadius: 12,
-                paddingVertical: 10,
-                alignItems: "center",
-              })}
-            >
-              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cancelar</Text>
-            </Pressable>
+            {/* Cerrar sin elegir: la X abajo a la derecha, como en todas las ventanas del panel. */}
+            <PieVentana onCerrar={() => setOpen(false)}>{null}</PieVentana>
           </Pressable>
         </Pressable>
       </Modal>
@@ -606,9 +598,8 @@ const ProductListItem = React.memo(function ProductListItem({
         </View>
 
         <View style={{ gap: 6, paddingHorizontal: 2 }}>
-          <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>
-            {p.title}
-          </Text>
+          {/* Título y datos enteros, en las líneas que hagan falta (dueño, 2026-11-04). */}
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>{p.title}</Text>
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text>
 
           {/* Estado (con su color) + el resto de datos en una línea de texto. */}
@@ -625,7 +616,7 @@ const ProductListItem = React.memo(function ProductListItem({
             >
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11.5 }}>{statusUi.text}</Text>
             </View>
-            <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12, lineHeight: 16, flexShrink: 1 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12, lineHeight: 16, flexShrink: 1 }}>
               {p.is_active ? "Visible" : "Oculto"} · {labelCond(p.condition)} · {p.catName} · {imageCount} foto{imageCount === 1 ? "" : "s"}
               {hasVideo ? " + vídeo" : ""}
             </Text>
@@ -1759,70 +1750,35 @@ export default function AdminProducts() {
             paddingHorizontal: isMobile ? 10 : 16,
           }}
         >
-          {/* El formulario es largo: se desplaza entero dentro del modal y
-              siempre se llega al botón de guardar, también con el teclado abierto. */}
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{
-              flexGrow: 1,
-              justifyContent: "center",
-              paddingTop: insets.top + 16,
-              paddingBottom: insets.bottom + 32,
-            }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={CIERRE_TECLADO}
-          >
+          {/* El formulario es largo: se desplaza dentro de la ventana y el pie (guardar y, a su derecha, la X para
+              cerrar) queda siempre a la vista abajo, al alcance del pulgar (dueño, 2026-11-04). */}
+          <View style={{ flex: 1, justifyContent: "center", paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }}>
             <View
               style={{
                 width: "100%",
                 maxWidth: 720,
+                maxHeight: "100%",
                 alignSelf: "center",
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 backgroundColor: COLORS.bg,
-                padding: isMobile ? 14 : 16,
-                gap: 12,
+                overflow: "hidden",
               }}
             >
-              <View style={{ position: "relative", justifyContent: "center" }}>
-                <Text
-                  style={{
-                    color: COLORS.text,
-                    fontSize: isMobile ? 19 : 20,
-                    fontWeight: "900",
-                    textAlign: "center",
-                    paddingHorizontal: 40,
-                  }}
-                >
+              <View style={{ padding: isMobile ? 14 : 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                <Text style={{ color: COLORS.text, fontSize: isMobile ? 19 : 20, fontWeight: "900", textAlign: "center" }}>
                   {isEdit ? "Editar producto" : "Nuevo producto"}
                 </Text>
-
-                <Pressable
-                  onPress={() => {
-                    setOpen(false);
-                    resetForm();
-                  }}
-                  hitSlop={8}
-                  style={({ pressed }) => ({
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    opacity: pressed ? 0.75 : 1,
-                    width: 34,
-                    height: 34,
-                    borderRadius: 17,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: "#F6FAFD",
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                  })}
-                >
-                  <Ionicons name="close" size={19} color={COLORS.text} />
-                </Pressable>
               </View>
+
+              <ScrollView
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={{ padding: isMobile ? 14 : 16, gap: 12 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={CIERRE_TECLADO}
+              >
 
               <TextInput
                 value={title}
@@ -2111,19 +2067,28 @@ export default function AdminProducts() {
               </Text>
 
               {!!modalErr && <AdminNotice tone="danger" text={modalErr} />}
+              </ScrollView>
 
-              {/* Antes había un botón "Cancelar" aquí al lado de "Guardar".
-                  Se quitó a petición de Daniel: la "X" de arriba del modal ya
-                  cierra sin guardar, así que era un botón redundante. */}
-              <View style={{ marginTop: 4 }}>
-                <PrimaryButton
-                  label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
-                  onPress={save}
-                  disabled={saving}
-                />
+              {/* Guardar y, a su derecha, la X para cerrar sin guardar (antes la X iba arriba). */}
+              <View style={{ padding: isMobile ? 14 : 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
+                <PieVentana
+                  nativeID="producto-ventana-pie"
+                  onCerrar={() => {
+                    setOpen(false);
+                    resetForm();
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <PrimaryButton
+                      label={saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear producto"}
+                      onPress={save}
+                      disabled={saving}
+                    />
+                  </View>
+                </PieVentana>
               </View>
             </View>
-          </ScrollView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -2166,28 +2131,12 @@ export default function AdminProducts() {
               . Esta acción no se puede deshacer.
             </Text>
 
-            <View
-              style={{
-                flexDirection: isMobile ? "column" : "row",
-                gap: 10,
-                justifyContent: "center",
-                marginTop: 6,
-              }}
-            >
-              <ChipButton
-                label="Cancelar"
-                variant="ghost"
-                onPress={() => setConfirmDelete(null)}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
-              <ChipButton
-                label="Sí, borrar"
-                variant="danger"
-                onPress={removeProductConfirmed}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
+            <View style={{ marginTop: 6 }}>
+              <PieVentana onCerrar={() => setConfirmDelete(null)}>
+                <View style={{ flex: 1 }}>
+                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeProductConfirmed} isMobile={isMobile} fullWidth />
+                </View>
+              </PieVentana>
             </View>
           </View>
         </View>
@@ -2407,8 +2356,9 @@ function MarkSoldModal({
             )}
           </View>
 
-          <View style={{ flexDirection: "row", justifyContent: "center", marginTop: 4 }}>
-            <ChipButton label="Cerrar" variant="ghost" onPress={onClose} isMobile={isMobile} />
+          {/* Se elige tocando al cliente; para salir, la X abajo a la derecha. */}
+          <View style={{ marginTop: 4 }}>
+            <PieVentana onCerrar={onClose}>{null}</PieVentana>
           </View>
         </View>
       </KeyboardAvoidingView>

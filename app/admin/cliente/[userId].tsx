@@ -222,18 +222,8 @@ function SectionCard({
   return (
     <View style={{ borderRadius: 18, backgroundColor: COLORS.card, padding: 14, gap: 10 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
-            backgroundColor: COLORS.accent2,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name={icon} size={16} color={COLORS.accentDark} />
-        </View>
+        {/* Solo el icono, sin burbuja (dueño, 2026-11-04). */}
+        <Ionicons name={icon} size={20} color={COLORS.accentDark} />
         <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>{title}</Text>
         {count !== undefined ? <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>{count}</Text> : null}
       </View>
@@ -697,18 +687,7 @@ export default function ClienteFicha() {
 
               <View style={{ borderRadius: 18, backgroundColor: COLORS.card, padding: 14, gap: 10 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <View
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 10,
-                      backgroundColor: COLORS.accent2,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="document-text-outline" size={16} color={COLORS.accentDark} />
-                  </View>
+                  <Ionicons name="document-text-outline" size={20} color={COLORS.accentDark} />
                   <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>
                     Notas internas
                   </Text>

@@ -566,7 +566,8 @@ export function ChipButton({
 }
 
 // Botón de acción solo con icono (petición del dueño, 2026-11-01: en el panel, los botones que puedan ser un icono, con
-// icono): 44 × 44 para el pulgar, el nombre para los lectores de pantalla y, en el ordenador, al pasar el ratón.
+// icono): 44 × 44 para el pulgar, el nombre para los lectores de pantalla y, en el ordenador, al pasar el ratón. Sin
+// burbuja alrededor (dueño, 2026-11-04): solo el icono, con el color de lo que hace (azul, verde, rojo o el del texto).
 export function IconButton({
   icon,
   label,
@@ -582,14 +583,8 @@ export function IconButton({
   disabled?: boolean;
   nativeID?: string;
 }) {
-  const tono =
-    variant === "primary"
-      ? { borde: COLORS.accentBorder, fondo: COLORS.accent2, icono: COLORS.accent }
-      : variant === "success"
-        ? { borde: COLORS.successBorder, fondo: COLORS.successBg, icono: COLORS.success }
-        : variant === "danger"
-          ? { borde: COLORS.dangerBorder, fondo: COLORS.dangerBg, icono: COLORS.danger }
-          : { borde: COLORS.border, fondo: "#F6FAFD", icono: COLORS.text };
+  const icono =
+    variant === "primary" ? COLORS.accent : variant === "success" ? COLORS.success : variant === "danger" ? COLORS.danger : COLORS.text;
   return (
     <Pressable
       nativeID={nativeID}
@@ -601,18 +596,42 @@ export function IconButton({
       style={({ pressed }) => ({
         width: 44,
         height: 44,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: tono.borde,
-        backgroundColor: tono.fondo,
         alignItems: "center",
         justifyContent: "center",
-        opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
-        transform: [{ scale: pressed ? 0.94 : 1 }],
+        opacity: disabled ? 0.45 : pressed ? 0.6 : 1,
+        transform: [{ scale: pressed ? 0.92 : 1 }],
       })}
     >
-      <Ionicons name={icon} size={20} color={tono.icono} />
+      <Ionicons name={icon} size={23} color={icono} />
     </Pressable>
+  );
+}
+
+// Cerrar una ventana del panel (dueño, 2026-11-04): la X va abajo a la derecha, a la altura del botón principal (al
+// alcance del pulgar), sin burbuja. 44 × 44 para tocarla bien.
+export function BotonCerrarVentana({ onPress, nativeID }: { onPress: () => void; nativeID?: string }) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Cerrar"
+      {...({ title: "Cerrar" } as object)}
+      style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+    >
+      <Ionicons name="close" size={28} color={COLORS.text} />
+    </Pressable>
+  );
+}
+
+// Pie de las ventanas del panel: el botón (o botones) de la acción y, a su derecha, la X para cerrar. Va fuera de lo
+// que se desplaza, así siempre está a la vista abajo.
+export function PieVentana({ onCerrar, children, nativeID }: { onCerrar: () => void; children: React.ReactNode; nativeID?: string }) {
+  return (
+    <View nativeID={nativeID} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+      <View style={{ flex: 1, flexDirection: "row", gap: 10 }}>{children}</View>
+      <BotonCerrarVentana onPress={onCerrar} />
+    </View>
   );
 }
 

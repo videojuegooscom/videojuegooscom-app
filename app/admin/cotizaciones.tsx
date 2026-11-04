@@ -73,6 +73,7 @@ import {
   AdminNotice,
   EmptyState,
   IconButton,
+  PieVentana,
   StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
@@ -746,28 +747,12 @@ export default function AdminCotizaciones() {
               . Esta acción no se puede deshacer.
             </Text>
 
-            <View
-              style={{
-                flexDirection: isMobile ? "column" : "row",
-                gap: 10,
-                justifyContent: "center",
-                marginTop: 6,
-              }}
-            >
-              <ChipButton
-                label="Cancelar"
-                variant="ghost"
-                onPress={() => setConfirmDelete(null)}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
-              <ChipButton
-                label="Sí, borrar"
-                variant="danger"
-                onPress={removeConfirmed}
-                isMobile={isMobile}
-                fullWidth={isMobile}
-              />
+            <View style={{ marginTop: 6 }}>
+              <PieVentana onCerrar={() => setConfirmDelete(null)}>
+                <View style={{ flex: 1 }}>
+                  <ChipButton label="Sí, borrar" variant="danger" onPress={removeConfirmed} isMobile={isMobile} fullWidth />
+                </View>
+              </PieVentana>
             </View>
           </View>
         </View>
