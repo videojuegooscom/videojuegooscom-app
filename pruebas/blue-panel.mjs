@@ -46,7 +46,10 @@ const TIPOS = {
   ".woff": "font/woff", ".woff2": "font/woff2", ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
 };
 // Las fichas (/producto/<id>) las sirve la misma página para cualquier id.
-const DINAMICAS = [[/^\/producto\/[^/]+$/, "producto/[id].html"]];
+const DINAMICAS = [
+  [/^\/producto\/[^/]+$/, "producto/[id].html"],
+  [/^\/servicio\/[^/]+$/, "servicio/[id].html"],
+];
 const buscar = (ruta) => {
   const limpia = normalize(decodeURIComponent(ruta)).replace(/^(\.\.[/\\])+/, "");
   for (const c of [limpia, `${limpia}.html`, join(limpia, "index.html")]) {
