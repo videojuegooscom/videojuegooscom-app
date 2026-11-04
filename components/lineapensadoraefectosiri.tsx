@@ -78,15 +78,17 @@ const GROSOR = 3;
 
 // Paleta con brillo y saturación parecidos (ninguno "desaparece" sobre blanco):
 // azul de marca, cian, lavanda, violeta, rosa y azul cielo. Va dos veces en la
-// vuelta, así los lados opuestos llevan los mismos colores a la vez.
-const PALETA = ["#1EA7E8", "#3FC6F0", "#6F8CF7", "#A774F2", "#EE7DBA", "#5B9DF9"];
-const COLORES_SIRI = [...PALETA, ...PALETA, PALETA[0]].join(",");
+// vuelta, así los lados opuestos llevan los mismos colores a la vez. (La bienvenida,
+// components/BrandLoadingScreen.tsx, usa la misma paleta y la misma máscara.)
+export const PALETA_SIRI = ["#1EA7E8", "#3FC6F0", "#6F8CF7", "#A774F2", "#EE7DBA", "#5B9DF9"];
+const PALETA = PALETA_SIRI;
+export const COLORES_SIRI = [...PALETA, ...PALETA, PALETA[0]].join(",");
 
 // Máscara del marco: 4 franjas iguales que se desvanecen hacia dentro
 // (resplandor simétrico) + el aro opaco (caja completa menos la caja de
 // contenido = el padding de 3 px).
 const DESVANECIDO = "rgba(0,0,0,.46),rgba(0,0,0,.2) 9px,rgba(0,0,0,.07) 19px,rgba(0,0,0,0) 30px";
-const MASCARA = [
+export const MASCARA_MARCO_SIRI = [
   `linear-gradient(to bottom,${DESVANECIDO})`,
   `linear-gradient(to top,${DESVANECIDO})`,
   `linear-gradient(to right,${DESVANECIDO})`,
@@ -94,6 +96,7 @@ const MASCARA = [
   "linear-gradient(#000,#000) content-box",
   "linear-gradient(#000,#000)",
 ].join(",");
+const MASCARA = MASCARA_MARCO_SIRI;
 
 const CSS_SIRI = [
   // Capa fija con fundido. Por defecto cubre el viewport; el componente le pone
