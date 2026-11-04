@@ -75,7 +75,9 @@
  *   vez que las vio (lo más reciente entre preferencias_usuario.noticias_vistas_hasta
  *   y NOTICIAS_VISTAS_KEY; si no hay ninguna, las de las últimas 24 h). Se suman al
  *   número rojo y salen en «Noticias y avisos» ("Ver noticias"). Si no están activados,
- *   ahí mismo se explica cómo activarlos (campana de Noticias Gaming).
+ *   «Activa los avisos de noticias» los activa ahí mismo con un toque (activarAvisosNoticias; lo
+ *   mismo que la campana de Noticias Gaming). En esa pestaña un apartado vacío no sale (ni
+ *   «Estás al día» ni «No hay noticias ahora mismo»; dueño, 2026-11-04).
  * - Avisos de la tienda (en «Noticias y avisos», con sus ajustes en «Mis avisos»):
  *   · Artículos nuevos: si el cliente lo activa (preferencias_usuario.avisos_novedades o,
  *     sin sesión, NOVEDADES_AVISOS_KEY), cuenta los productos con products.novedad_en
@@ -2098,6 +2100,55 @@ export default function Campanita() {
     [guardarPreferenciasNovedades]
   );
 
+  // «Activa los avisos de noticias» (pestaña «Noticias y avisos», dueño 2026-11-04: que funcione con un toque): se activan
+  // aquí mismo, como con la campana de Noticias Gaming (app/(tabs)/chat-global.tsx): en el dispositivo y, con sesión, en
+  // la cuenta (preferencias_usuario). Se cuenta desde ahora (sin avisar de las noticias que ya había). Si la cuenta no
+  // lo guarda, no se da por activado y se dice; sin la tabla (migración sin aplicar) queda en el dispositivo, como allí.
+  const [activandoNoticias, setActivandoNoticias] = useState(false);
+  const [noticiasRecienActivadas, setNoticiasRecienActivadas] = useState(false);
+  const [errorAvisosNoticias, setErrorAvisosNoticias] = useState<string | null>(null);
+  const activarAvisosNoticias = useCallback(async () => {
+    if (activandoNoticias) return;
+    setActivandoNoticias(true);
+    setErrorAvisosNoticias(null);
+    const ahora = new Date().toISOString();
+    let ok = true;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      if (user) {
+        const { error } = await supabase
+          .from("preferencias_usuario")
+          .upsert({ user_id: user.id, avisos_noticias: true, noticias_vistas_hasta: ahora, updated_at: ahora }, { onConflict: "user_id" });
+        if (error && !/^(PGRST205|42P01)$/.test(String(error.code ?? ""))) ok = false;
+      }
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      try {
+        await AsyncStorage.setItem(NOTICIAS_AVISOS_KEY, "1");
+        await AsyncStorage.setItem(NOTICIAS_VISTAS_KEY, ahora);
+      } catch {
+        // sin almacenamiento local: queda en la cuenta
+      }
+      setAvisosNoticias(true);
+      setNoticiasNuevas(0);
+      setNoticiasRecienActivadas(true);
+      void trackEvent("avisos_noticias_activados", "Blue: avisos de noticias activados", { metadata: { desde: "panel de Blue" } });
+    } else {
+      setErrorAvisosNoticias("No se han podido activar. Inténtalo de nuevo.");
+    }
+    setActivandoNoticias(false);
+  }, [activandoNoticias]);
+  // La confirmación («Avisos de noticias activados») se ve mientras el panel sigue abierto.
+  useEffect(() => {
+    if (!panelOpen) {
+      setNoticiasRecienActivadas(false);
+      setErrorAvisosNoticias(null);
+    }
+  }, [panelOpen]);
+
   const verNovedades = useCallback(async () => {
     const ahora = new Date().toISOString();
     setNovedadesTienda(0);
@@ -2566,11 +2617,10 @@ export default function Campanita() {
               {/* «Noticias y avisos»: lo que ha pasado (avisos y noticias) y los ajustes de avisos, en una sola pestaña. */}
               {pestana === "avisos" && !enAdmin ? (
               <View style={{ width: "100%", maxWidth: 460, gap: 2 }}>
-                <TituloSeccionBlue texto="Avisos" />
-                {totalCount === 0 && reservasActivas.length === 0 ? (
-                  <FilaBlue icono="checkmark-circle-outline" titulo="Estás al día: no tienes avisos nuevos." />
-                ) : (
+                {/* «Avisos» solo si hay alguno (dueño, 2026-11-04: sin «Estás al día» cuando no hay nada). */}
+                {totalCount === 0 && reservasActivas.length === 0 ? null : (
                   <>
+                    <TituloSeccionBlue texto="Avisos" />
                     {/* Novedades de tus pedidos y reparaciones (la etapa cambió desde la última vez que los viste). */}
                     {segAvisos.map((a) => (
                       <Aviso
@@ -2684,29 +2734,45 @@ export default function Campanita() {
                         onPress={() => verBajada(b)}
                       />
                     ))}
+                    {!isLoggedIn ? (
+                      <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, paddingVertical: 4 }}>
+                        Inicia sesión para ver también los avisos de tus conversaciones.
+                      </Text>
+                    ) : null}
                   </>
                 )}
-                {!isLoggedIn ? (
-                  <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, paddingVertical: 4 }}>
-                    Inicia sesión para ver también los avisos de tus conversaciones.
-                  </Text>
-                ) : null}
 
-                <TituloSeccionBlue texto="Noticias" />
-                {noticias.length ? (
-                  noticias.map((n) => <FilaBlue key={n} icono="megaphone-outline" titulo={n} />)
-                ) : (
-                  <FilaBlue icono="megaphone-outline" titulo="No hay noticias ahora mismo." apagada />
-                )}
-                {/* Sin avisos de noticias activados: cómo activarlos (con la campana de Noticias Gaming). */}
-                {!avisosNoticias ? (
-                  <Aviso
-                    icono="notifications-outline"
-                    titulo="Activa los avisos de noticias"
-                    detalle="Con la campana de Noticias Gaming"
-                    accion="Ir a Noticias Gaming"
-                    onPress={() => ir("/chat-global?tab=news")}
-                  />
+                {/* «Noticias»: las Noticias Flash activas y los avisos de Noticias Gaming. Sin nada que enseñar, no sale
+                    (sin la fila vacía «No hay noticias ahora mismo»). */}
+                {noticias.length || !avisosNoticias || noticiasRecienActivadas ? (
+                  <>
+                    <TituloSeccionBlue texto="Noticias" />
+                    {noticias.map((n) => (
+                      <FilaBlue key={n} icono="megaphone-outline" titulo={n} />
+                    ))}
+                    {/* Se activan aquí mismo, con un toque (activarAvisosNoticias). */}
+                    {!avisosNoticias ? (
+                      <View nativeID="blue-activar-noticias">
+                        <Aviso
+                          icono="notifications-outline"
+                          titulo={activandoNoticias ? "Activando los avisos de noticias…" : "Activa los avisos de noticias"}
+                          detalle={errorAvisosNoticias ?? "Te avisamos aquí de cada noticia nueva de Noticias Gaming"}
+                          accion="Activar"
+                          onPress={activarAvisosNoticias}
+                        />
+                      </View>
+                    ) : noticiasRecienActivadas ? (
+                      <View nativeID="blue-noticias-activadas">
+                        <Aviso
+                          icono="notifications"
+                          titulo="Avisos de noticias activados"
+                          detalle="Te avisaremos aquí de cada noticia nueva"
+                          accion="Ver noticias"
+                          onPress={() => ir("/chat-global?tab=news")}
+                        />
+                      </View>
+                    ) : null}
+                  </>
                 ) : null}
 
                 {/* Ajustes de los avisos de la tienda. */}

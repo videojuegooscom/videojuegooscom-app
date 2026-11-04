@@ -545,6 +545,21 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.eventosEnviados = [...(estado.eventosEnviados ?? []), ...[].concat(JSON.parse(peticion.postData() ?? "[]"))];
       return r.fulfill({ status: 201, headers: CORS, body: "" });
     }
+    // Preferencias de avisos de la persona (sección NA): su fila y lo que se manda guardar. Con `preferenciasFalla`, la
+    // base de datos no lo guarda (error 500).
+    if (url.pathname.endsWith("/rest/v1/preferencias_usuario") && estado.preferencias !== undefined) {
+      const objeto = /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "");
+      if (metodo === "GET") {
+        if (!estado.preferencias) return objeto ? json({ code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned", details: "The result contains 0 rows" }, 406) : json([]);
+        return json(objeto ? estado.preferencias : [estado.preferencias]);
+      }
+      if (metodo === "POST") {
+        estado.preferenciasGuardadas = [...(estado.preferenciasGuardadas ?? []), ...[].concat(JSON.parse(peticion.postData() ?? "{}"))];
+        if (estado.preferenciasFalla) return json({ code: "XX000", message: "fallo de prueba" }, 500);
+        estado.preferencias = { ...(estado.preferencias ?? {}), ...[].concat(JSON.parse(peticion.postData() ?? "{}"))[0] };
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+    }
     // Administración → Analítica con un embudo ficticio.
     if (estado.embudo && /\/rpc\/analytics_(totals|daily_visitors|funnel)$/.test(url.pathname)) {
       if (url.pathname.endsWith("_funnel")) return json(estado.embudo);
@@ -3183,6 +3198,154 @@ async function seccionBF() {
   }
 }
 
+// ===== NA) «Noticias y avisos» de Blue sin apartados vacíos y «Activa los avisos de noticias» con un toque (dueño,
+// 2026-11-04) ==========================================================================================================
+// Sin avisos no sale «Avisos» («Estás al día…»), sin noticias no sale la fila vacía; con avisos y noticias sí (control).
+// «Activa los avisos de noticias» los activa ahí mismo: en la cuenta (preferencias_usuario), en el dispositivo y en la
+// analítica; la campana de Noticias Gaming lo ve; si la cuenta no lo guarda, se dice y no se da por activado; sin sesión,
+// en el dispositivo. Administración → Analítica lo cuenta.
+async function seccionNA() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const APARTADOS = ["AVISOS", "NOTICIAS", "MIS AVISOS"];
+  const apartados = (p) =>
+    p.evaluate((nombres) => [...document.querySelectorAll('[role="heading"]')].map((h) => (h.textContent ?? "").trim()).filter((t) => nombres.includes(t)), APARTADOS);
+  const texto = (p) => p.evaluate(() => document.body.innerText.replace(/\s+/g, " "));
+  // Que no haya avisos de partida (las novedades del Foro ya vistas).
+  const sinNovedadesForo = (ctx) =>
+    ctx.addInitScript(() => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:novedades_seen_version", "1");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+  const abrirNoticiasYAvisos = async (p) => {
+    await p.locator("#blue-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click({ timeout: 10000 }).catch(() => {});
+    await p.getByRole("tab", { name: /Noticias y avisos/ }).first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+  };
+  const claveLocal = (p) => p.evaluate(() => localStorage.getItem("videojuegoszaragoza:noticias_avisos"));
+
+  // NA1) Con sesión, sin avisos ni noticias y con los avisos de noticias apagados.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, flash: [], preferencias: { user_id: CLIENTE.id, avisos_noticias: false, noticias_vistas_hasta: null } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinNovedadesForo(ctx);
+    const p = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(p);
+    const a = await apartados(p);
+    const t = await texto(p);
+    ok(!a.includes("AVISOS") && a.includes("NOTICIAS") && a.includes("MIS AVISOS"), `NA: sin avisos no sale el apartado «Avisos» (apartados: ${a.join(", ")})`);
+    ok(!/Estás al día/.test(t) && !/No hay noticias ahora mismo/.test(t), "NA: ni «Estás al día: no tienes avisos nuevos» ni la fila vacía de noticias");
+    ok(/Activa los avisos de noticias/.test(t) && (await p.locator("#blue-activar-noticias").count()) === 1, "NA: sale «Activa los avisos de noticias»");
+    await capturar(p, "NA1-noticias-y-avisos-sin-nada");
+
+    await p.locator("#blue-activar-noticias [role=\"button\"]").first().click({ timeout: 10000 }).catch(() => {});
+    await p.locator("#blue-noticias-activadas").waitFor({ timeout: 10000 }).catch(() => {});
+    const guardado = (estado.preferenciasGuardadas ?? []).at(-1);
+    ok((await p.locator("#blue-noticias-activadas").count()) === 1 && /Avisos de noticias activados/.test(await texto(p)), "NA: con un toque quedan activados y lo dice («Avisos de noticias activados»)");
+    ok(guardado?.user_id === CLIENTE.id && guardado?.avisos_noticias === true && !!guardado?.noticias_vistas_hasta, `NA: se guarda en la cuenta (${JSON.stringify(guardado ?? null)})`);
+    ok((await claveLocal(p)) === "1", "NA: y en el dispositivo (lo que lee Blue para contar las noticias nuevas)");
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "avisos_noticias_activados"); i++) await p.waitForTimeout(300);
+    const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "avisos_noticias_activados");
+    ok(ev?.step_label === "Blue: avisos de noticias activados", `NA: y se apunta en la analítica propia (${ev?.step_label ?? "nada"})`);
+    await capturar(p, "NA2-avisos-de-noticias-activados");
+
+    // «Ver noticias» lleva a Noticias Gaming y su campana ya sale activada.
+    await p.locator("#blue-noticias-activadas [role=\"button\"]").first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForURL(/\/chat-global/, { timeout: 15000 }).catch(() => {});
+    await p.locator('[aria-label="Avisos de noticias activados"]').first().waitFor({ timeout: 20000 }).catch(() => {});
+    ok(/\/chat-global/.test(p.url()) && (await p.locator('[aria-label="Avisos de noticias activados"]').count()) >= 1, `NA: «Ver noticias» lleva a Noticias Gaming y su campana sale activada (${new URL(p.url()).pathname})`);
+    await p.close();
+
+    // Otra visita: ya activados y sin noticias, el apartado «Noticias» no sale.
+    const q = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(q);
+    const a2 = await apartados(q);
+    ok(!a2.includes("NOTICIAS") && !/Activa los avisos de noticias/.test(await texto(q)) && a2.includes("MIS AVISOS"), `NA: ya activados y sin noticias, no sale el apartado «Noticias» (apartados: ${a2.join(", ")})`);
+    ok(q.errores.length === 0, `NA: sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // NA2) Control: con avisos (2 mensajes) y una noticia, los apartados sí salen con lo suyo.
+  {
+    const estado = {
+      filas: perfil, guardados: [], flash: [{ message: "Esta semana, mandos revisados con un 20 % menos", sort_order: 0 }], novedades: { chatsSinLeer: 2 },
+      preferencias: { user_id: CLIENTE.id, avisos_noticias: true, noticias_vistas_hasta: new Date().toISOString() },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinNovedadesForo(ctx);
+    const p = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(p);
+    const a = await apartados(p);
+    const t = await texto(p);
+    ok(a.join("|") === "AVISOS|NOTICIAS|MIS AVISOS" && /Tienes 2 mensajes nuevos/.test(t) && /mandos revisados/.test(t), `NA: control: con avisos y una noticia salen los tres apartados con lo suyo (${a.join(", ")})`);
+    ok(!/Activa los avisos de noticias/.test(t), "NA: con los avisos de noticias ya activados no se ofrece activarlos");
+    await ctx.close();
+  }
+
+  // NA3) Si la cuenta no lo guarda: se dice y no se da por activado.
+  {
+    const estado = { filas: perfil, guardados: [], flash: [], preferencias: { user_id: CLIENTE.id, avisos_noticias: false, noticias_vistas_hasta: null }, preferenciasFalla: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinNovedadesForo(ctx);
+    const p = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(p);
+    await p.locator("#blue-activar-noticias [role=\"button\"]").first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const t = await texto(p);
+    ok(/No se han podido activar/.test(t) && (await p.locator("#blue-noticias-activadas").count()) === 0 && (await claveLocal(p)) !== "1", "NA: si la cuenta no lo guarda, lo dice y no se da por activado");
+    await ctx.close();
+  }
+
+  // NA4) Sin sesión: se activan en el dispositivo (sin escribir en ninguna base de datos).
+  {
+    const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
+        localStorage.setItem("videojuegoos.analytics.consent", "declined");
+        localStorage.setItem("videojuegoszaragoza:novedades_seen_version", "1");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const escrituras = [];
+    await ctx.route("**/*", (r) => {
+      const m = r.request().method();
+      if (m === "GET" || m === "HEAD" || m === "OPTIONS") return r.continue();
+      escrituras.push(new URL(r.request().url()).pathname);
+      return r.abort();
+    });
+    const p = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(p);
+    await p.locator("#blue-activar-noticias [role=\"button\"]").first().click({ timeout: 10000 }).catch(() => {});
+    await p.locator("#blue-noticias-activadas").waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.locator("#blue-noticias-activadas").count()) === 1 && (await claveLocal(p)) === "1", "NA: sin sesión también se activan, en el dispositivo");
+    ok(!escrituras.some((e) => /preferencias_usuario/.test(e)), `NA: sin sesión no se intenta guardar nada en la cuenta (${escrituras.join(", ") || "nada"})`);
+    await ctx.close();
+  }
+
+  // NA5) Administración → Analítica lo cuenta.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue: avisos de noticias activados", sessions: 3 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-flotante").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-blue-flotante").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/activan desde su panel los avisos de noticias 3/.test(t), `NA: Administración → Analítica cuenta quién los activa desde Blue (${t})`);
+    await ctx.close();
+  }
+}
+
 // ===== ME) «Mejoras en la tienda»: la cajita de ideas (pie de página, Blue y Mi cuenta) y su parte en Administración ===
 async function seccionME() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
@@ -5440,6 +5603,7 @@ try {
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();
   if (SOLO === "BF") await seccionBF();
+  if (SOLO === "NA") await seccionNA();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
@@ -6390,6 +6554,7 @@ try {
   await seccionNO();
   await seccionBU();
   await seccionBF();
+  await seccionNA();
   await seccionME();
   await seccionCO();
   await seccionDI();
