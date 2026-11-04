@@ -2,14 +2,14 @@
  * components/Campanita.tsx — "Blue", la asistente flotante de ventas
  *
  * Qué hace: antes era una campanita; ahora es Blue, el capibara asistente de la
- * tienda, flotando en una esquina de TODA la app (se monta una sola vez en
- * app/_layout.tsx, fuera del Stack, así que no se reinicia al navegar).
- * - Se mueve sola (components/marca/MarcaAnimada.tsx) y se puede arrastrar a
- *   cualquier altura de los dos lados (se recuerda en AsyncStorage).
- * - Se aparta sola (web): si debajo de ella hay texto, un botón, un campo o una foto
- *   (document.elementsFromPoint en 9 puntos de su caja), busca el hueco libre más
- *   cercano en su lado (o en el otro) y vuelve a su sitio cuando queda libre. Lo mira
- *   al cambiar de pantalla, al dejar de desplazarse y cada 4 s.
+ * tienda (se monta una sola vez en app/_layout.tsx, fuera del Stack, así que no se
+ * reinicia al navegar).
+ * - SOLO sale en Inicio, en las fichas de producto y de servicio y, para el dueño, en el panel (pantallaConBlue;
+ *   dueño, 2026-11-04). En el resto de pantallas no se ve ni dice nada; la guía, si está abierta, sigue pasando por ellas.
+ * - FIJO arriba a la derecha, donde no estorba (posicionFija): en las fichas, dentro de la cabecera, a la altura de la
+ *   flecha de volver; en Inicio, justo debajo del buscador (en el móvil, si ahí está Instagram junto al logo, justo
+ *   debajo de Instagram). Mide 52 px. Ya no se arrastra ni se aparta: si al desplazar la página queda un botón debajo de
+ *   su sitio, se esconde hasta que quede libre (algoDebajoDeBlue). Se mueve sola (components/marca/MarcaAnimada.tsx).
  * - Guía de bienvenida (GuiaBlue): a los 15 s, una vez por dispositivo, solo sin
  *   sesión y solo si está en Inicio (en una ficha, el catálogo, un chat… espera a que
  *   llegue a Inicio, sin interrumpirle). 17 pasos (18 si se puede instalar la tienda), con más imagen que letra: una mano
@@ -43,29 +43,27 @@
  *   (scrollTop < 40) siempre se ve. No se oculta con su panel abierto, con un
  *   bocadillo o con el saludo a la vista, y vuelve a verse al cambiar de pantalla.
  * - «Mi perfil» desplegado en Mi cuenta (/perfil; useMiPerfilAbierto de components/PerfilPublico.tsx): Blue no aparece
- *   hasta que se pliega o se sale (dueño, 2026-11-03), como con «Completa tu perfil».
+ *   (dueño, 2026-11-03), como con «Completa tu perfil». Desde 2026-11-04 Blue ya no sale en Mi cuenta (solo lo hace si
+ *   la guía lo lleva allí).
  * - Visor de fotos (components/ImageLightbox.tsx, foto ampliada de la ficha): mientras está abierto Blue se esconde
  *   del todo (dueño, 2026-10-31) y no dice nada: sus mensajes y su saludo esperan a que se cierre.
- * - Habla con bocadillos AL LADO de ella, en cristal transparente (se lee bien) y al
- *   tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
+ * - Habla con bocadillos DEBAJO de ella (pegados a su borde derecho; al lado tapaban la cabecera de las fichas), en
+ *   cristal transparente (se lee bien) y al tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
  *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
  *     descripción menciona la garantía, esa frase; si no, que es unidad única y se
  *     reserva 15 minutos en la cesta) y después cómo se entrega (en persona en
  *     Zaragoza o envío a toda España); al tocarlos se abre el chat de la tienda
  *     (Blue IA con el producto ya indicado; desde ahí, si hace falta, el equipo).
- *   · En el resto de la tienda, tras 12 s: una de las "Noticias Flash" activas
+ *   · En Inicio, tras 12 s: una de las "Noticias Flash" activas
  *     (tabla flash_news, se editan en app/admin/flash-news.tsx).
  *   Cada bocadillo sale una sola vez por visita y se cierra con la X.
  *   TODOS los que Blue dice por su cuenta pasan por una cola (`decir`, petición del dueño 2026-10-30): el
  *   primero, como pronto a los 15 s de entrar en la pantalla (antes se deja leer lo que hay) y entre uno y
  *   el siguiente, al menos 15 s; al cambiar de pantalla la cola se vacía.
- * - Si la persona mueve a Blue, se queda FIJO donde lo dejó (ya no se aparta solo) hasta que cierra la
- *   sesión del navegador (sessionStorage BLUE_FIJO_KEY); siguen las reglas de siempre (nunca abajo a la
- *   derecha; en la ficha de producto, nunca en la mitad de abajo).
- * - NUNCA encima de la barra de búsqueda (dueño, 2026-11-01): ni Blue ni su mensaje tapan la barra flotante
- *   (#buscador-flotante, también escondida un momento por el scroll o movida abajo) ni su lista de resultados.
- *   Al apartarse es lo último que tapa, y aunque la persona lo deje ahí (fijo) se aparta lo justo
- *   (sitioSinBuscador). Se prueba con la sección BU de pruebas/perfil-datos.mjs.
+ * - NUNCA encima de la barra de búsqueda (dueño, 2026-11-01): en Inicio Blue va justo debajo de la barra flotante
+ *   (#buscador-flotante), también mientras está escondida un momento por el scroll, y se esconde mientras la lista de
+ *   resultados está abierta encima de su sitio. Se prueba con las secciones BU y BF de pruebas/perfil-datos.mjs y con
+ *   pruebas/blue-regresion.mjs.
  * - Al tocar a Blue se abre su panel con 2 pestañas: "Asistente" (UN solo botón «Hablar con
  *   Blue IA o el equipo» —Blue IA responde primero y desde ese chat se pasa al equipo—, la guía,
  *   "Vender", instalar) y "Noticias y avisos" (antes eran dos pestañas, «Notificaciones» y «Noticias»:
@@ -181,7 +179,6 @@ const TEXTO_CRISTAL = {
   ...(Platform.OS === "web" ? ({ textShadow: "0 0 6px rgba(255,255,255,0.9)" } as object) : {}),
 };
 
-const CORNER_KEY = "videojuegoszaragoza:campanita_corner";
 // El aviso de Blue sobre el selector de pestañas del Foro sale una sola vez por dispositivo
 // (también cuenta como visto si se enseñó en la guía).
 const SELECTOR_VISTO_KEY = "videojuegoszaragoza:blue_aviso_selector_visto";
@@ -385,11 +382,13 @@ async function leerJsonLocal<T>(clave: string, porDefecto: T): Promise<T> {
   }
 }
 
-const BLUE_SIZE = 72;
+// 52 px (antes 72): fijo en la esquina de arriba a la derecha cabe en la cabecera de las fichas y, en Inicio, bajo el
+// buscador sin tapar el bloque de Instagram (dueño, 2026-11-04). Sigue siendo más de 44 px para el dedo.
+const BLUE_SIZE = 52;
 const EDGE_INSET = 6;
-const TOP_INSET = 40;
-const BOTTOM_INSET = 84;
-const TAP_THRESHOLD = 6;
+// Altura de Blue fijo cuando no hay buscador arriba: centrado en la cabecera de las fichas (a la altura de la flecha
+// de volver, al otro lado).
+const ARRIBA_FIJO = 9;
 const POLL_MS = 45000;
 const PRODUCTO_ESPERA_MS = 8000;
 const SEGUNDO_MENSAJE_MS = 7000;
@@ -398,9 +397,6 @@ const NOTICIA_ESPERA_MS = 12000;
 // al menos 15 s entre uno y el siguiente. Los que llegan antes esperan su turno, en orden (cola de «decir»).
 const MENSAJE_TRAS_ENTRAR_MS = 15000;
 const ENTRE_MENSAJES_MS = 15000;
-// Si la persona mueve a Blue, se queda FIJO donde lo dejó (ya no se aparta solo) hasta que cierra la sesión del navegador
-// (sessionStorage). Las reglas de siempre siguen: nunca abajo a la derecha y, en la ficha, nunca en la mitad de abajo.
-const BLUE_FIJO_KEY = "videojuegoszaragoza:blue_fijo";
 // Blue aparece 10 s después de entrar en la web; el saludo se ve unos segundos.
 const APARECER_MS = 10000;
 // Guía de bienvenida: a los 15 s, una sola vez, para quien entra sin cuenta.
@@ -418,24 +414,13 @@ const DESLIZ_OCULTO = BLUE_SIZE + EDGE_INSET + 16;
 // Animaciones por el hilo nativo salvo en web (allí no existe).
 const USA_NATIVO = Platform.OS !== "web";
 
-// Dónde está Blue: pegado a un lado ("l" izquierda, "r" derecha) y a qué altura (fy: 0 =
-// arriba del todo, 1 = abajo del todo, dentro de la zona útil). Antes solo había 4 esquinas.
+// Dónde está Blue: a un lado ("l" izquierda, "r" derecha) y a qué altura (fy: 0 = arriba). Desde 2026-11-04 siempre
+// fijo arriba a la derecha (SITIO_FIJO): el mensaje sale debajo de él y crece hacia abajo.
 type Lado = "l" | "r";
 type Sitio = { lado: Lado; fy: number };
-// Blue NUNCA se pone abajo a la derecha (petición del dueño): ahí están el botón de volver
-// arriba, «Volver» y el de enviar, y es donde llega el pulgar. En el lado derecho solo
-// puede estar de la mitad de la pantalla hacia arriba.
-const FY_MAX_DERECHA = 0.5;
-// En la ficha de producto Blue no baja NUNCA a la mitad de abajo, en ninguno de los dos lados (petición del dueño,
-// 2026-10-30): ahí están la galería, «Comprar ya», la ficha y «Volver atrás». Su sitio preferido no cambia: al salir
-// de la ficha vuelve a él. La ficha de servicio tiene el mismo formato («Contratar servicio ahora»), así que igual.
-const FY_MAX_FICHA = 0.5;
 const esFichaProducto = (pathname: string) => pathname.startsWith("/producto/") || pathname.startsWith("/servicio/");
-const SITIO_INICIAL: Sitio = { lado: "l", fy: 1 };
-// Alturas que prueba cuando tiene que apartarse (se ordenan por cercanía a su sitio).
-const ALTURAS_CANDIDATAS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0];
-// Cada cuánto mira si está tapando algo y cuánto espera tras dejar de desplazarse o tras
-// tocar algo (por ejemplo, al abrirse un desplegable). Se aparta en seguida.
+// Cada cuánto mira si su sitio fijo ha cambiado (en Inicio, bajo el buscador) y cuánto espera tras dejar de
+// desplazarse o tras tocar algo.
 const APARTARSE_CADA_MS = 1200;
 const APARTARSE_TRAS_SCROLL_MS = 220;
 // id del contenedor de Blue en la web (para no confundirse a sí mismo con el contenido).
@@ -545,226 +530,95 @@ function limitar(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
 }
 
-// Un sitio permitido: nunca abajo a la derecha y, en la ficha de producto, nunca en la mitad de abajo. Si cae ahí,
-// sube en el mismo lado.
-function sitioPermitido(s: Sitio, enFicha = false): Sitio {
-  const max = Math.min(s.lado === "r" ? FY_MAX_DERECHA : 1, enFicha ? FY_MAX_FICHA : 1);
-  return s.fy > max ? { lado: s.lado, fy: max } : s;
+// --- Blue fijo arriba a la derecha (dueño, 2026-11-04) -----------------------------------------------------------
+// Blue solo sale en Inicio, en las fichas de producto y de servicio y, para el dueño, en el panel; y va FIJO en la
+// esquina de arriba a la derecha, donde no estorba: ya no se arrastra ni se aparta solo.
+const SITIO_FIJO: Sitio = { lado: "r", fy: 0 };
+export function pantallaConBlue(pathname: string) {
+  return pathname === "/" || esFichaProducto(pathname) || pathname.startsWith("/admin");
 }
-
-function sitioToXY(s: Sitio) {
-  const { width, height } = Dimensions.get("window");
-  const x = s.lado === "r" ? width - BLUE_SIZE - EDGE_INSET : EDGE_INSET;
-  const yMin = TOP_INSET;
-  const yMax = Math.max(yMin, height - BLUE_SIZE - BOTTOM_INSET);
-  return { x, y: yMin + (yMax - yMin) * limitar(s.fy, 0, 1) };
+// En Inicio el buscador va arriba: Blue se pone justo debajo (nunca encima de él), también mientras el buscador está
+// escondido un momento por el scroll (se mide donde volverá a salir). Si la persona lo ha bajado, Blue va arriba del todo.
+// En el móvil, debajo del buscador están TikTok e Instagram junto al logo (components/SocialLinks.tsx): si ese sitio cae
+// encima de uno, Blue va justo debajo de él. Se mide donde están con la página arriba del todo (sumando lo desplazado),
+// para que Blue no se mueva al desplazarla.
+const JUNTO_AL_LOGO = ["inicio-instagram", "inicio-tiktok"];
+function desplazado(el: Element): number {
+  let total = window.scrollY || 0;
+  for (let n = el.parentElement; n; n = n.parentElement) total += n.scrollTop || 0;
+  return total;
 }
-
-// Posición guardada: la nueva ({lado, fy}) o la antigua de 4 esquinas ("tl", "br"…).
-function leerSitio(raw: string | null): Sitio {
-  if (!raw) return SITIO_INICIAL;
-  const esquinas: Record<string, Sitio> = {
-    tl: { lado: "l", fy: 0 },
-    tr: { lado: "r", fy: 0 },
-    bl: { lado: "l", fy: 1 },
-    br: { lado: "r", fy: 1 },
-  };
-  if (esquinas[raw]) return sitioPermitido(esquinas[raw]);
-  try {
-    const s = JSON.parse(raw);
-    if ((s?.lado === "l" || s?.lado === "r") && Number.isFinite(s?.fy)) {
-      return sitioPermitido({ lado: s.lado, fy: limitar(Number(s.fy), 0, 1) });
-    }
-  } catch {
-    // formato desconocido
+function posicionFija(enInicio: boolean) {
+  const { width } = Dimensions.get("window");
+  const x = width - BLUE_SIZE - EDGE_INSET;
+  let y = ARRIBA_FIJO;
+  if (Platform.OS !== "web" || typeof document === "undefined") return { x, y };
+  const barra = barraDelBuscador();
+  if (barra && barra.arriba < 160) y = Math.max(y, Math.round(barra.abajo + 4));
+  if (!enInicio) return { x, y };
+  for (const id of JUNTO_AL_LOGO) {
+    const el = document.getElementById(id);
+    const r = el?.getBoundingClientRect();
+    if (!el || !r?.width || !r.height) continue;
+    const d = desplazado(el);
+    if (r.left < x + BLUE_SIZE && r.right > x && r.top + d < y + BLUE_SIZE && r.bottom + d > y) y = Math.round(r.bottom + d + 4);
   }
-  return SITIO_INICIAL;
+  return { x, y };
 }
 
-// --- Apartarse cuando tapa algo (solo web) --------------------------------------------
-// ¿Lo que hay en ese punto es contenido (texto, botón, campo, imagen…) y no un fondo vacío?
-function esContenido(el: Element): boolean {
-  if (el.closest(`#${BLUE_DOM_ID}`)) return false;
-  const tag = el.tagName;
-  if (tag === "HTML" || tag === "BODY") return false;
-  if (["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A", "IMG", "VIDEO", "CANVAS", "svg", "SVG", "path"].includes(tag)) return true;
-  if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return true;
-  // Botones de react-native-web (Pressable): no son <button> ni llevan rol, pero se pueden
-  // enfocar (tabindex) y tienen cursor de mano. Sin esto, Blue se quedaba encima de la
-  // parte de color de «Aceptar» del aviso de cookies.
-  const tocable = el.closest('[tabindex]:not([tabindex="-1"])');
-  if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return true;
-  if (typeof window !== "undefined" && window.getComputedStyle(el).cursor === "pointer") return true;
-  for (const n of Array.from(el.childNodes)) {
-    if (n.nodeType === 3 && (n.textContent ?? "").trim()) return true;
-  }
-  // Fotos de React Native Web (fondo con imagen).
-  const fondo = typeof window !== "undefined" ? window.getComputedStyle(el).backgroundImage : "";
-  return !!fondo && fondo.includes("url(");
+// Analítica propia (Administración → Analítica, tarjeta «Blue flotante»): en qué pantalla se abre Blue. Solo en la tienda
+// (el dueño en el panel no cuenta); trackEvent ya respeta a quien rechazó la analítica.
+function contarBlueAbierto(pathname: string) {
+  const donde = pathname === "/" ? "Inicio" : pathname.startsWith("/producto/") ? "la ficha de producto" : pathname.startsWith("/servicio/") ? "la ficha de servicio" : null;
+  if (donde) void trackEvent("blue_flotante_abierto", `Blue flotante: abierto en ${donde}`, { metadata: { pantalla: donde } });
 }
 
-// Cuántos puntos de la caja de Blue en (x, y) caen sobre contenido (0 = sitio libre).
-// Cuánto «molesta» taparlo: los controles (botones, enlaces, campos, el botón de volver) pesan
-// más que el texto, y el texto más que una foto. Así Blue prefiere quedarse sobre una foto antes
-// que sobre un botón, aunque la foto ocupe más sitio.
-function pesoContenido(el: Element): number {
-  if (!esContenido(el)) return 0;
-  if (el.closest('button,a,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"]')) return 6;
-  const tocable = el.closest('[tabindex]:not([tabindex="-1"])');
-  if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return 6;
-  if (window.getComputedStyle(el).cursor === "pointer") return 6;
-  if (["IMG", "VIDEO", "CANVAS"].includes(el.tagName)) return 1;
-  return 2;
-}
-
-// Puntuación de lo que hay debajo de la caja de Blue en (x, y): 0 = sitio libre; cuanto más alta,
-// peor (controles > texto > fotos). Se mira con una rejilla de 4 × 4 puntos para no dejar escapar
-// botones pequeños como el de volver (40 px).
-function contenidoDebajo(x: number, y: number): number {
-  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
-  let tapados = 0;
-  const pasos = [0.1, 0.37, 0.63, 0.9];
-  for (const fx of pasos) {
-    for (const fy of pasos) {
-      const px = x + BLUE_SIZE * fx;
-      const py = y + BLUE_SIZE * fy;
-      // El primero que no sea el propio Blue es lo que se ve debajo.
-      const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
-      if (debajo) tapados += pesoContenido(debajo);
+// Lo que se toca (botones, enlaces, campos y, en react-native-web, lo enfocable con tabindex 0) y que Blue no debe tapar.
+const TOCABLES = 'button,a[href],input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[tabindex="0"]';
+// Blue va fijo: si al desplazar la página queda un botón debajo de su sitio (o la lista de resultados del buscador), en
+// vez de taparlo se esconde hasta que quede libre. Se mira en 9 puntos de su sitio qué hay debajo de él.
+function algoDebajoDeBlue(xy: { x: number; y: number }): boolean {
+  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return false;
+  if (listaEncimaDeBlue(xy)) return true;
+  for (const fx of [0.2, 0.5, 0.8]) {
+    for (const fy of [0.2, 0.5, 0.8]) {
+      const debajo = document.elementsFromPoint(xy.x + BLUE_SIZE * fx, xy.y + BLUE_SIZE * fy).find((e) => !e.closest(`#${BLUE_DOM_ID}`));
+      const tocable = debajo?.closest(TOCABLES);
+      // (lo que ocupa todo el ancho es un contenedor, no un botón)
+      if (tocable && tocable.getBoundingClientRect().width < window.innerWidth * 0.95) return true;
     }
   }
-  return tapados;
+  return false;
 }
 
-// Lo mismo para el mensaje que sale al lado de Blue, si hay uno a la vista: sale hacia
-// el centro de la pantalla (a la izquierda si Blue está a la derecha) y, según la altura, pegado
-// arriba o abajo. Se mira con una rejilla de 6 × 3 puntos. Así Blue no se queda en un sitio donde
-// su mensaje taparía «Comprar ya» (en escritorio el mensaje mide hasta 330 px).
-// Solo cuentan los controles (botones, enlaces, campos): taparlos es lo grave; tapar texto o una
-// foto con un mensaje que se cierra con la X no. Y un roce con un solo punto no justifica moverse.
-// Esta puntuación pesa mucho menos que la de la propia Blue (ver PESO_BLUE): lo primero es que Blue
-// no tape nada, y solo entre sitios igual de libres se prefiere el que deja libre el mensaje.
-const PESO_BLUE = 1000;
-function contenidoDebajoDelMensaje(s: Sitio, x: number, y: number): number {
-  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return 0;
-  const m = document.getElementById(BLUE_MENSAJE_DOM_ID);
-  if (!m || !m.offsetWidth || !m.offsetHeight) return 0;
-  const ancho = m.offsetWidth;
-  const alto = m.offsetHeight;
-  const izq = s.lado === "r" ? x - 6 - ancho : x + BLUE_SIZE + 6;
-  const arriba = s.fy < 0.5;
-  const sup = arriba ? y + 2 : y + BLUE_SIZE - 2 - alto;
-  const { width, height } = Dimensions.get("window");
-  let tapados = 0;
-  for (let i = 0; i < 6; i++) {
-    for (let j = 0; j < 3; j++) {
-      const px = izq + ancho * ((i + 0.5) / 6);
-      const py = sup + alto * ((j + 0.5) / 3);
-      if (px < 0 || py < 0 || px >= width || py >= height) continue;
-      const debajo = document.elementsFromPoint(px, py).find((el) => !el.closest(`#${BLUE_DOM_ID}`));
-      const peso = debajo ? pesoContenido(debajo) : 0;
-      if (peso >= 6) tapados += peso;
-    }
-  }
-  return tapados >= 12 ? tapados : 0;
-}
-
-// --- La barra de búsqueda es zona prohibida (solo web) ----------------------------------
-// Blue y su mensaje no se ponen NUNCA encima de la barra de búsqueda flotante (components/Barramagic.tsx) ni de su lista
-// de resultados: ni al apartarse, ni donde lo dejó la persona, ni mientras la barra está escondida un momento por el
-// scroll (vuelve a salir en cuanto se sube). Se mide la barra de verdad (el hijo de #buscador-flotante: la capa de fuera
-// ocupa todo el ancho), con un margen para que no se rocen.
+// --- La barra de búsqueda: Blue nunca encima (solo web) ----------------------------------
+// Blue no se pone NUNCA encima de la barra de búsqueda flotante (components/Barramagic.tsx): en Inicio va justo debajo
+// (posicionFija), también mientras la barra está escondida un momento por el scroll (vuelve a salir en cuanto se sube).
+// Se mide la barra de verdad (el hijo de #buscador-flotante: la capa de fuera ocupa todo el ancho). La lista de
+// resultados baja por debajo de la barra: mientras está abierta encima del sitio de Blue, Blue se esconde.
 const BUSCADOR_DOM_ID = "buscador-flotante";
 const BUSCADOR_RESULTADOS_DOM_ID = "buscador-resultados";
-const MARGEN_BUSCADOR = 10;
-// Más que tapar todos los botones a la vez (16 puntos × 6 × PESO_BLUE): antes cualquier otra cosa que la barra.
-const PESO_BUSCADOR = 1_000_000;
 type Borde = { izq: number; arriba: number; der: number; abajo: number };
-function zonasDelBuscador(): Borde[] {
-  if (typeof document === "undefined") return [];
-  const zonas: Borde[] = [];
+function barraDelBuscador(): Borde | undefined {
+  if (typeof document === "undefined") return undefined;
   const capa = document.getElementById(BUSCADOR_DOM_ID);
   const barra = capa?.firstElementChild?.getBoundingClientRect();
-  if (capa && barra?.width && barra.height) {
-    // Escondida por el scroll sube un poco (y se vuelve transparente): se cuenta donde estará al volver a salir.
-    let dy = 0;
-    try {
-      const t = window.getComputedStyle(capa).transform;
-      if (t && t !== "none") dy = new DOMMatrixReadOnly(t).m42;
-    } catch {
-      dy = 0;
-    }
-    zonas.push({ izq: barra.left, arriba: barra.top - dy, der: barra.right, abajo: barra.bottom - dy });
+  if (!capa || !barra?.width || !barra.height) return undefined;
+  // Escondida por el scroll sube un poco (y se vuelve transparente): se cuenta donde estará al volver a salir.
+  let dy = 0;
+  try {
+    const t = window.getComputedStyle(capa).transform;
+    if (t && t !== "none") dy = new DOMMatrixReadOnly(t).m42;
+  } catch {
+    dy = 0;
   }
-  const lista = document.getElementById(BUSCADOR_RESULTADOS_DOM_ID)?.getBoundingClientRect();
-  if (lista?.width && lista.height) zonas.push({ izq: lista.left, arriba: lista.top, der: lista.right, abajo: lista.bottom });
-  return zonas;
+  return { izq: barra.left, arriba: barra.top - dy, der: barra.right, abajo: barra.bottom - dy };
 }
-function seCruzan(a: Borde, b: Borde): boolean {
-  const m = MARGEN_BUSCADOR;
-  return a.izq < b.der + m && a.der > b.izq - m && a.arriba < b.abajo + m && a.abajo > b.arriba - m;
-}
-// ¿Blue (o su mensaje, si hay uno a la vista; sale como en contenidoDebajoDelMensaje) taparía la barra en ese sitio?
-function tapaBuscador(s: Sitio, zonas: Borde[]): boolean {
-  if (!zonas.length) return false;
-  const { x, y } = sitioToXY(s);
-  const cajas: Borde[] = [{ izq: x, arriba: y, der: x + BLUE_SIZE, abajo: y + BLUE_SIZE }];
-  const m = document.getElementById(BLUE_MENSAJE_DOM_ID);
-  if (m?.offsetWidth && m.offsetHeight) {
-    const izq = s.lado === "r" ? x - 6 - m.offsetWidth : x + BLUE_SIZE + 6;
-    const sup = s.fy < 0.5 ? y + 2 : y + BLUE_SIZE - 2 - m.offsetHeight;
-    cajas.push({ izq, arriba: sup, der: izq + m.offsetWidth, abajo: sup + m.offsetHeight });
-  }
-  return cajas.some((c) => zonas.some((z) => seCruzan(c, z)));
-}
-// El sitio permitido más cercano a «s» que no tapa la barra (primero en su lado, luego en el otro): para cuando la
-// persona dejó a Blue ahí o la barra se ha movido encima de Blue. Se aparta lo justo.
-function sitioSinBuscador(s: Sitio, enFicha = false): Sitio {
-  const zonas = zonasDelBuscador();
-  if (!tapaBuscador(s, zonas)) return s;
-  const alturas = Array.from({ length: 41 }, (_, i) => i / 40).sort((a, b) => Math.abs(a - s.fy) - Math.abs(b - s.fy));
-  for (const lado of [s.lado, s.lado === "r" ? "l" : "r"] as Lado[]) {
-    for (const fy of alturas) {
-      const c: Sitio = { lado, fy };
-      if (sitioPermitido(c, enFicha) === c && !tapaBuscador(c, zonas)) return c;
-    }
-  }
-  return s;
-}
-
-// Mejor sitio libre: primero el que eligió la persona; si tapa algo, el hueco más vacío
-// (mismo lado antes que el otro, y lo más cerca posible de donde estaba). Solo entre los
-// sitios permitidos en esa pantalla (en la ficha de producto, nunca la mitad de abajo).
-function buscarSitioLibre(preferidoElegido: Sitio, actualAhora: Sitio, enFicha = false): Sitio | null {
-  const preferido = sitioPermitido(preferidoElegido, enFicha);
-  const actual = sitioPermitido(actualAhora, enFicha);
-  const zonas = zonasDelBuscador();
-  const puntuar = (s: Sitio) => {
-    if (tapaBuscador(s, zonas)) return PESO_BUSCADOR;
-    const { x, y } = sitioToXY(s);
-    return contenidoDebajo(x, y) * PESO_BLUE + contenidoDebajoDelMensaje(s, x, y);
-  };
-  if (puntuar(preferido) === 0) return preferido;
-  const enActual = puntuar(actual);
-  if (enActual === 0) return actual;
-  let mejor: { s: Sitio; tapados: number; distancia: number } | null = null;
-  // De la altura más cercana a la preferida a la más lejana.
-  const alturas = [...ALTURAS_CANDIDATAS, preferido.fy].sort((a, b) => Math.abs(a - preferido.fy) - Math.abs(b - preferido.fy));
-  for (const lado of [preferido.lado, preferido.lado === "r" ? "l" : "r"] as Lado[]) {
-    for (const fy of alturas) {
-      const s = { lado, fy };
-      // Abajo a la derecha (y en la ficha, abajo en ningún lado) no se pone nunca, ni siquiera para apartarse.
-      if (sitioPermitido(s, enFicha) !== s) continue;
-      const tapados = puntuar(s);
-      const distancia = Math.abs(fy - preferido.fy) + (lado === preferido.lado ? 0 : 0.5);
-      if (!mejor || tapados < mejor.tapados || (tapados === mejor.tapados && distancia < mejor.distancia)) {
-        mejor = { s, tapados, distancia };
-      }
-      if (tapados === 0 && lado === preferido.lado) break;
-    }
-    if (mejor?.tapados === 0) break;
-  }
-  return mejor && mejor.tapados < enActual ? mejor.s : null;
+function listaEncimaDeBlue(xy: { x: number; y: number }): boolean {
+  if (typeof document === "undefined") return false;
+  const l = document.getElementById(BUSCADOR_RESULTADOS_DOM_ID)?.getBoundingClientRect();
+  if (!l?.width || !l.height) return false;
+  return l.left < xy.x + BLUE_SIZE && l.right > xy.x && l.top < xy.y + BLUE_SIZE && l.bottom > xy.y;
 }
 
 // A dónde lleva un aviso de «Noticias Flash» según lo que dice (lo escribe el dueño).
@@ -827,26 +681,14 @@ export default function Campanita() {
     pathname.startsWith("/chat/") ||
     // La página de venta es un formulario largo: Blue taparía los campos y el botón de enviar.
     pathname.startsWith("/vender");
+  // Blue solo sale en Inicio, en las fichas de producto y de servicio y en el panel (dueño, 2026-11-04). En el resto
+  // de pantallas no se ve (como en los chats); la guía, si está abierta, sigue pasando por ellas.
+  const sinBlue = enChat || !pantallaConBlue(pathname);
 
   const [ready, setReady] = useState(false);
-  // sitio = donde está ahora; preferidoRef = donde lo dejó la persona (vuelve ahí en cuanto
-  // ese sitio no tapa nada).
-  const sitioRef = useRef<Sitio>(SITIO_INICIAL);
-  const preferidoRef = useRef<Sitio>(SITIO_INICIAL);
-  const [sitio, setSitio] = useState<Sitio>(SITIO_INICIAL);
-  // En la ficha de producto, Blue solo puede estar en la mitad de arriba (FY_MAX_FICHA).
-  const enFichaRef = useRef(esFichaProducto(pathname));
-  enFichaRef.current = esFichaProducto(pathname);
-  // Movido por la persona en esta sesión del navegador: fijo donde lo dejó (no se aparta solo).
-  const fijoRef = useRef(false);
-  useEffect(() => {
-    try {
-      fijoRef.current = typeof sessionStorage !== "undefined" && sessionStorage.getItem(BLUE_FIJO_KEY) === "1";
-    } catch {
-      // sin sesión del navegador: se aparta como siempre
-    }
-  }, []);
-  const arrastrandoRef = useRef(false);
+  // Siempre fijo arriba a la derecha (dueño, 2026-11-04).
+  const sitioRef = useRef<Sitio>(SITIO_FIJO);
+  const [sitio, setSitio] = useState<Sitio>(SITIO_FIJO);
   const posRef = useRef({ x: 0, y: 0 });
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
@@ -945,7 +787,9 @@ export default function Campanita() {
     const enPanelAhora = pantallaRef.current.startsWith("/admin");
     colaMensajesRef.current = colaMensajesRef.current.filter((b) => !!b.panel === enPanelAhora);
     const siguiente = colaMensajesRef.current[0];
-    if (!siguiente || visorFotos) return;
+    // En una pantalla sin Blue no se dice nada (no se gasta el mensaje): al cambiar de pantalla la cola se vacía y cada
+    // pantalla con Blue vuelve a pedir los suyos.
+    if (!siguiente || visorFotos || !pantallaConBlue(pantallaRef.current)) return;
     const ahora = Date.now();
     const listo = Math.max(entradaPantallaRef.current + MENSAJE_TRAS_ENTRAR_MS, ultimoMensajeRef.current + ENTRE_MENSAJES_MS);
     if (ahora < listo) {
@@ -1035,39 +879,26 @@ export default function Campanita() {
   const [aparecido, setAparecido] = useState(false);
   const [saludando, setSaludando] = useState(false);
   const [ocultoScroll, setOcultoScroll] = useState(false);
+  // Hay un botón (o la lista de resultados del buscador) debajo de su sitio fijo: se esconde mientras tanto.
+  const [algoDebajo, setAlgoDebajo] = useState(false);
 
   // --- posición -------------------------------------------------------------
+  // Fijo arriba a la derecha desde el principio (ya no se recuerda un sitio elegido: no se arrastra).
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      let initial: Sitio = SITIO_INICIAL;
-      try {
-        initial = leerSitio(await AsyncStorage.getItem(CORNER_KEY));
-      } catch {
-        // se queda abajo a la derecha
-      }
-      if (!alive) return;
-      // Se recuerda el sitio elegido; si se entra por una ficha de producto, se enseña en la mitad de arriba.
-      preferidoRef.current = initial;
-      initial = sitioPermitido(initial, enFichaRef.current);
-      sitioRef.current = initial;
-      setSitio(initial);
-      const xy = sitioToXY(initial);
-      posRef.current = xy;
-      pan.setValue(xy);
-      setReady(true);
-    })();
-    return () => {
-      alive = false;
-    };
+    sitioRef.current = SITIO_FIJO;
+    setSitio(SITIO_FIJO);
+    const xy = posicionFija(pantallaRef.current === "/");
+    posRef.current = xy;
+    pan.setValue(xy);
+    setReady(true);
   }, [pan]);
 
-  // Mueve a Blue (con un muelle suave) a otro sitio sin cambiar el que eligió la persona.
+  // Lo lleva (con un muelle suave) a su sitio fijo, por ejemplo cuando el buscador de Inicio cambia de altura.
   const moverA = useCallback(
     (s: Sitio) => {
       sitioRef.current = s;
       setSitio(s);
-      const xy = sitioToXY(s);
+      const xy = posicionFija(pantallaRef.current === "/");
       posRef.current = xy;
       // overshootClamping: el muelle no se pasa del sitio (no asoma fuera de la pantalla).
       Animated.spring(pan, { toValue: xy, useNativeDriver: false, friction: 8, tension: 50, overshootClamping: true }).start();
@@ -1075,23 +906,9 @@ export default function Campanita() {
     [pan]
   );
 
-  // Al entrar en una ficha de producto, si Blue está en la mitad de abajo sube ya, sin animación ni espera (al salir,
-  // la comprobación de siempre lo devuelve a su sitio preferido en cuanto no tapa nada).
-  useEffect(() => {
-    if (!ready) return;
-    const actual = sitioRef.current;
-    const permitido = sitioPermitido(actual, esFichaProducto(pathname));
-    if (permitido === actual) return;
-    sitioRef.current = permitido;
-    setSitio(permitido);
-    const xy = sitioToXY(permitido);
-    posRef.current = xy;
-    pan.setValue(xy);
-  }, [pathname, ready, pan]);
-
   useEffect(() => {
     const sub = Dimensions.addEventListener("change", () => {
-      const xy = sitioToXY(sitioRef.current);
+      const xy = posicionFija(pantallaRef.current === "/");
       posRef.current = xy;
       pan.setValue(xy);
     });
@@ -1806,7 +1623,7 @@ export default function Campanita() {
   const chipAnim = useRef(new Animated.Value(0)).current;
   const ocultar = useRef(new Animated.Value(0)).current;
   const entradaHechaRef = useRef(false);
-  const enPantalla = aparecido && ready && !enChat;
+  const enPantalla = aparecido && ready && !sinBlue;
 
   // Una reserva de la cesta a punto de vencer: un mensaje de Blue, UNA vez por reserva y solo si Blue no está diciendo otra cosa.
   // No sale en la Cesta (allí ya se ve la cuenta atrás) ni en el pedido, y con el aviso de cookies sin contestar Blue no habla.
@@ -2055,7 +1872,7 @@ export default function Campanita() {
 
   // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote. Con el visor de fotos abierto,
   // siempre (la foto ampliada se ve entera).
-  const oculto = visorFotos || (ocultoScroll && !panelOpen && !saludando);
+  const oculto = visorFotos || (algoDebajo && !panelOpen && !guiaAbierta) || (ocultoScroll && !panelOpen && !saludando);
   useEffect(() => {
     Animated.timing(ocultar, {
       toValue: oculto ? 1 : 0,
@@ -2084,25 +1901,19 @@ export default function Campanita() {
 
   const openPanelRef = useRef(openPanel);
   openPanelRef.current = openPanel;
-  const moverAReflejo = useRef(moverA);
-  moverAReflejo.current = moverA;
 
-  // Si Blue tapa texto, un botón, un campo o una foto, se aparta solo al hueco libre más
-  // cercano; y vuelve a su sitio en cuanto ese sitio queda libre. Se mira al cambiar de
-  // pantalla, al dejar de desplazarse y cada pocos segundos (solo web).
+  // Blue va fijo arriba a la derecha (ya no se aparta solo): solo se recoloca si su sitio fijo ha cambiado (en Inicio,
+  // bajo el buscador, si el buscador cambia de altura o se baja) y se esconde mientras haya un botón debajo de su sitio
+  // (al desplazar la página) o la lista de resultados del buscador esté abierta encima. Se mira al cambiar de pantalla,
+  // al tocar algo, al dejar de desplazarse y cada pocos segundos (solo web).
   const enPantallaRef = useRef(false);
   enPantallaRef.current = enPantalla && !oculto && !panelOpen && !guiaAbierta;
   const comprobarSitio = useCallback(() => {
-    if (Platform.OS !== "web" || !enPantallaRef.current || arrastrandoRef.current) return;
-    const actual = sitioRef.current;
-    // Movido por la persona: su sitio, sin apartarse (solo las reglas de siempre de esta pantalla). Si no, el hueco libre
-    // más cercano; y si no hay uno mejor, al menos un sitio permitido en esta pantalla. En los dos casos, nunca encima
-    // de la barra de búsqueda.
-    const elegido = fijoRef.current
-      ? sitioPermitido(preferidoRef.current, enFichaRef.current)
-      : buscarSitioLibre(preferidoRef.current, actual, enFichaRef.current) ?? sitioPermitido(actual, enFichaRef.current);
-    const libre = sitioSinBuscador(elegido, enFichaRef.current);
-    if (libre.lado !== actual.lado || Math.abs(libre.fy - actual.fy) > 0.01) moverA(libre);
+    if (Platform.OS !== "web") return;
+    const xy = posicionFija(pantallaRef.current === "/");
+    setAlgoDebajo(algoDebajoDeBlue(xy));
+    if (!enPantallaRef.current) return;
+    if (Math.abs(xy.x - posRef.current.x) > 1 || Math.abs(xy.y - posRef.current.y) > 1) moverA(SITIO_FIJO);
   }, [moverA]);
 
   useEffect(() => {
@@ -2149,28 +1960,22 @@ export default function Campanita() {
     return () => clearTimeout(t);
   }, [pathname, comprobarSitio]);
 
-  // Nada más aparecer (y otra vez al acabar el saludo): si cae encima de algo, por ejemplo
-  // del botón «Aceptar» del aviso de cookies, se aparta ya, sin esperar a la siguiente vuelta.
+  // Nada más aparecer (y otra vez al acabar el saludo): si cae encima de un botón, por ejemplo del «Aceptar» del aviso
+  // de cookies, se esconde ya, sin esperar a la siguiente vuelta.
   useEffect(() => {
     if (!enPantalla) return;
-    // Antes de que se vea (entra transparente): si su sitio tapa la barra de búsqueda, aparece ya apartado, sin muelle.
-    if (Platform.OS === "web" && !arrastrandoRef.current) {
-      const s = sitioSinBuscador(sitioRef.current, enFichaRef.current);
-      if (s !== sitioRef.current) {
-        sitioRef.current = s;
-        setSitio(s);
-        const xy = sitioToXY(s);
-        posRef.current = xy;
-        pan.setValue(xy);
-      }
-    }
+    // Antes de que se vea (entra transparente): ya en su sitio fijo de esta pantalla, sin muelle.
+    const xy = posicionFija(pantallaRef.current === "/");
+    posRef.current = xy;
+    pan.setValue(xy);
     const t1 = setTimeout(comprobarSitio, 150);
     const t2 = setTimeout(comprobarSitio, SALUDO_MS + 700);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [enPantalla, comprobarSitio, pan]);
+    // (también al pasar de una pantalla con Blue a otra, p. ej. de Inicio a una ficha: va a su sitio sin deslizarse)
+  }, [enPantalla, pathname, comprobarSitio, pan]);
 
   // --- guía de bienvenida -------------------------------------------------------------
   // A los 15 s de entrar, una sola vez por dispositivo y solo a quien no tiene sesión (es
@@ -2226,60 +2031,8 @@ export default function Campanita() {
     if (guiaAbierta) ponerOcultoScroll(false);
   }, [guiaAbierta, ponerOcultoScroll]);
 
-  // El toque lo gestiona un Pressable (clic normal, fiable en Safari del iPhone). El
-  // arrastre solo se activa cuando el dedo ya se ha movido unos píxeles: antes el
-  // PanResponder se quedaba con todos los toques y en el móvil el navegador los
-  // cancelaba, así que tocar a Blue no hacía nada.
-  const empiezaArrastre = (_e: unknown, g: { dx: number; dy: number }) =>
-    Math.abs(g.dx) + Math.abs(g.dy) >= TAP_THRESHOLD;
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: empiezaArrastre,
-      onMoveShouldSetPanResponderCapture: empiezaArrastre,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        arrastrandoRef.current = true;
-        pan.setOffset(posRef.current);
-        pan.setValue({ x: 0, y: 0 });
-      },
-      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-      onPanResponderRelease: (_evt, g) => {
-        arrastrandoRef.current = false;
-        pan.flattenOffset();
-        if (Math.abs(g.dx) + Math.abs(g.dy) < TAP_THRESHOLD) {
-          pan.setValue(posRef.current);
-          openPanelRef.current();
-          return;
-        }
-        // Se queda pegado al lado más cercano y a la altura donde se soltó: ese es ahora
-        // su sitio preferido (se recuerda).
-        const { width, height } = Dimensions.get("window");
-        const cx = posRef.current.x + g.dx + BLUE_SIZE / 2;
-        const y = posRef.current.y + g.dy;
-        const yMax = Math.max(TOP_INSET + 1, height - BLUE_SIZE - BOTTOM_INSET);
-        const next: Sitio = sitioPermitido({
-          lado: cx < width / 2 ? "l" : "r",
-          fy: limitar((y - TOP_INSET) / (yMax - TOP_INSET), 0, 1),
-        });
-        preferidoRef.current = next;
-        AsyncStorage.setItem(CORNER_KEY, JSON.stringify(next)).catch(() => {});
-        // Desde ahora, en esta sesión del navegador, se queda fijo ahí (no se aparta solo).
-        fijoRef.current = true;
-        try {
-          sessionStorage.setItem(BLUE_FIJO_KEY, "1");
-        } catch {
-          // sin sesión del navegador: fijo hasta recargar
-        }
-        // En la ficha de producto, si se suelta en la mitad de abajo, sube a media pantalla en ese lado. Si se suelta
-        // encima de la barra de búsqueda, se aparta lo justo para no taparla.
-        moverAReflejo.current(sitioSinBuscador(sitioPermitido(next, enFichaRef.current), enFichaRef.current));
-      },
-      onPanResponderTerminate: () => {
-        arrastrandoRef.current = false;
-      },
-    })
-  ).current;
+  // El toque lo gestiona un Pressable (clic normal, fiable en Safari del iPhone). Blue ya no se arrastra: va fijo arriba
+  // a la derecha (dueño, 2026-11-04).
 
   // --- acciones -----------------------------------------------------------------
   // Tocar un mensaje lleva directamente a lo que dice.
@@ -2408,15 +2161,14 @@ export default function Campanita() {
   // Blue IA): Blue no se ve ahí (sigue escondido), pero la guía no puede desaparecer.
   // En el panel de administración Blue solo aparece para el dueño (propone información de la
   // tienda); a cualquier otra persona no se le monta nunca allí.
-  if (!ready || (enChat && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || ((perfilObligatorio || miPerfilAbierto) && !guiaAbierta)) return null;
+  if (!ready || (sinBlue && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || ((perfilObligatorio || miPerfilAbierto) && !guiaAbierta)) return null;
 
   const derecha = sitio.lado === "r";
-  // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
-  const arriba = sitio.fy < 0.5;
-  // Los mensajes salen AL LADO de Blue (hacia el centro), con el ancho que quepa.
+  // Los mensajes salen DEBAJO de Blue, pegados a su borde derecho y creciendo hacia abajo, con el ancho que quepa.
+  // A su izquierda (como antes) tapaban la cabecera de las fichas, con «Volver atrás», ahora que Blue va fijo en ella.
   // Alargado (más ancho que alto): pocas líneas, sin título ni botón aparte.
-  const anchoMensaje = Math.max(170, Math.min(330, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
-  const ladoMensaje = { [derecha ? "right" : "left"]: BLUE_SIZE + 6, [arriba ? "top" : "bottom"]: 2 };
+  const anchoMensaje = Math.max(170, Math.min(330, Dimensions.get("window").width - EDGE_INSET * 2));
+  const ladoMensaje = { right: 0, top: BLUE_SIZE + 6 };
   const pistaAccion =
     bocadillo?.accion === "chat"
       ? { icono: "chatbubble-ellipses-outline" as const, texto: "Escribir ahora" }
@@ -2535,7 +2287,10 @@ export default function Campanita() {
               }}
             >
               <Pressable
-                onPress={() => openPanel()}
+                onPress={() => {
+                  contarBlueAbierto(pantallaRef.current);
+                  openPanel();
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="Hola, soy Blue. Abrir el asistente"
                 style={[CRISTAL, { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }]}
@@ -2548,18 +2303,19 @@ export default function Campanita() {
             </Animated.View>
           ) : null}
 
-          {/* Cuerpo de Blue: se arrastra y se toca como siempre. */}
+          {/* Cuerpo de Blue: fijo arriba a la derecha; se toca para abrir su panel. */}
           <Animated.View style={{ width: BLUE_SIZE, height: BLUE_SIZE, transform: [{ scale: escalaCuerpo }, { rotate: giroSaludo }] }}>
             <View
-              {...panResponder.panHandlers}
               style={[
                 { width: BLUE_SIZE, height: BLUE_SIZE, alignItems: "center", justifyContent: "center" },
-                // En web: que el navegador no se quede el gesto (desplazar la página) al arrastrar.
-                Platform.OS === "web" ? ({ touchAction: "none", cursor: "pointer" } as object) : null,
+                Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null,
               ]}
             >
               <Pressable
-                onPress={() => openPanelRef.current()}
+                onPress={() => {
+                  contarBlueAbierto(pantallaRef.current);
+                  openPanelRef.current();
+                }}
                 // En el paso de la guía que le señala, solo se mira: no abre el panel.
                 disabled={guiaAbierta}
                 accessibilityRole="button"

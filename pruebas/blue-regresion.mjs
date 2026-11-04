@@ -3,14 +3,18 @@
  *
  * Qué hace: abre la tienda con Chromium sin pantalla (playwright-core) en cuatro tamaños de
  * pantalla (iPhone pequeño, iPhone, tableta y escritorio) y comprueba:
- * 1. Con una posición antigua guardada abajo a la derecha, Blue no aparece abajo a la derecha.
- * 2. Si se pone un botón justo debajo de Blue, Blue se aparta en menos de 2,5 s.
- * 3. En cada página y tamaño, ningún elemento tocable (botón, enlace, campo, pestaña…) tiene
- *    a Blue encima: se mira qué elemento recibe el toque en el centro de cada uno
- *    (document.elementFromPoint) y se falla si ese elemento es Blue.
+ * 1. Con una posición antigua guardada abajo a la derecha, Blue sale fijo arriba a la derecha
+ *    (desde 2026-11-04 Blue va siempre ahí: lo guardado de antes no cuenta).
+ * 2. Si se pone un botón justo debajo de Blue, Blue no se mueve (ya no se aparta: se esconde).
+ * 3. En Inicio y en las fichas de producto y de servicio, ningún elemento tocable (botón,
+ *    enlace, campo, pestaña…) tiene a Blue encima: se mira qué elemento recibe el toque en el
+ *    centro de cada uno (document.elementFromPoint) y se falla si ese elemento es Blue. Ahí Blue
+ *    está arriba a la derecha (en Inicio, debajo del buscador y sin tocarlo). En las fichas cuenta
+ *    también su mensaje; en Inicio lo que quede bajo el mensaje solo se apunta (INFO).
  * 4. El botón «Volver atrás» de la cabecera no se solapa con Blue ni un píxel.
- * Se repite el punto 3 en una primera visita de verdad (sin nada guardado: sale el aviso de
- * cookies y Blue aparece a los 10 s).
+ * 5. En el resto de páginas (catálogo, servicios, blog, políticas, cesta, perfil) Blue no sale.
+ * Se repiten los puntos 3 y 5 en una primera visita de verdad (sin nada guardado: sale el aviso
+ * de cookies y Blue aparece a los 10 s).
  *
  * Uso (Claude lo lanza antes de publicar cambios que afecten a Blue o a las cabeceras):
  *   node pruebas/blue-regresion.mjs [direccion_o_carpeta] [carpeta_salida]
@@ -99,10 +103,13 @@ const TAMANOS = [
   { nombre: "tableta", w: 768, h: 1024, movil: true },
   { nombre: "escritorio", w: 1280, h: 800, movil: false },
 ];
-const RUTAS = ["/", "/catalogo", "/servicios", "/blog", "/politicas/envios", "/cesta", "/perfil"];
+// Blue solo sale en Inicio y en las fichas (de producto y de servicio, que se buscan en la tienda); en estas, no.
+const RUTAS = ["/"];
+const RUTAS_SIN_BLUE = ["/catalogo", "/servicios", "/blog", "/politicas/envios", "/cesta", "/perfil"];
 
 const fallos = [];
 let comprobadas = 0; // páginas en las que Blue estaba en pantalla y se midió de verdad
+let sinBlueVistas = 0; // páginas en las que se comprobó que Blue no sale
 let fichasConMensaje = 0; // fichas de producto medidas con el mensaje de Blue a la vista
 const ok = (cond, msg) => {
   console.log(`${cond ? "OK   " : "FALLO"} ${msg}`);
@@ -155,6 +162,7 @@ function medirTapados() {
   const b = blue.getBoundingClientRect();
   const SEL = 'button,a[href],input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[tabindex="0"]';
   const tapados = [];
+  const bajoMensaje = [];
   for (const el of document.querySelectorAll(SEL)) {
     if (el.closest("#blue-flotante")) continue;
     const r = el.getBoundingClientRect();
@@ -168,8 +176,10 @@ function medirTapados() {
     // Se prueban varios puntos del elemento: si Blue recibe el toque en alguno, lo tapa. Solo
     // cuenta si SIN Blue ese punto sí sería del elemento (si ya lo tapaba otra cosa, por ejemplo
     // el aviso de cookies, no es culpa de Blue).
+    // Se separa lo que tapa Blue (su sitio de 52 px) de lo que tapa su mensaje o su saludo (a su izquierda, con la X).
     const puntos = [[0.5, 0.5], [0.2, 0.5], [0.8, 0.5], [0.5, 0.2], [0.5, 0.8]];
-    let encima = false;
+    let porBlue = false;
+    let porMensaje = false;
     for (const [fx, fy] of puntos) {
       const x = r.left + r.width * fx;
       const y = r.top + r.height * fy;
@@ -180,9 +190,13 @@ function medirTapados() {
       blue.style.visibility = "hidden";
       const sinBlue = document.elementFromPoint(x, y);
       blue.style.visibility = antes;
-      if (sinBlue && el.contains(sinBlue)) encima = true;
+      if (!sinBlue || !el.contains(sinBlue)) continue;
+      if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom && !tope.closest("#blue-mensaje")) porBlue = true;
+      else porMensaje = true;
     }
-    if (encima) tapados.push((el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40));
+    const nombre = (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40);
+    if (porBlue) tapados.push(nombre);
+    if (porMensaje) bajoMensaje.push(nombre);
   }
   const volver = document.querySelector('[aria-label="Volver atrás"]');
   let solapeVolver = null;
@@ -192,7 +206,24 @@ function medirTapados() {
     const h = Math.max(0, Math.min(b.bottom, v.bottom) - Math.max(b.top, v.top));
     solapeVolver = Math.round(((w * h) / (v.width * v.height)) * 100);
   }
-  return { tapados, solapeVolver, blue: [Math.round(b.x), Math.round(b.y)] };
+  // La barra del buscador (en Inicio): Blue nunca encima, ni un píxel.
+  const barra = document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect();
+  let solapeBuscador = null;
+  if (barra?.width && barra.height) {
+    const w = Math.max(0, Math.min(b.right, barra.right) - Math.max(b.left, barra.left));
+    const h = Math.max(0, Math.min(b.bottom, barra.bottom) - Math.max(b.top, barra.top));
+    solapeBuscador = Math.round(w * h);
+  }
+  return {
+    tapados,
+    bajoMensaje,
+    solapeVolver,
+    solapeBuscador,
+    blue: [Math.round(b.x), Math.round(b.y)],
+    derecha: Math.round(window.innerWidth - b.right),
+    arriba: Math.round(b.top),
+    lado: Math.round(b.width),
+  };
 }
 
 // espera: ms entre que Blue aparece y se mide. En una primera visita la guía automática se abre
@@ -223,10 +254,47 @@ async function revisarPagina(ctx, t, ruta, etiqueta, espera = 6000) {
   }
   comprobadas++;
   if (conMensaje && (await p.evaluate(() => !!document.getElementById("blue-mensaje")))) fichasConMensaje++;
-  ok(m.tapados.length === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no tapa ningún botón${conMensaje ? " (con su mensaje a la vista)" : ""}${m.tapados.length ? ` (tapa: ${m.tapados.join(" · ")})` : ""}`);
+  // En las fichas, ni Blue ni su mensaje tapan un botón (el mensaje sale en la cabecera, encima de nada que se toque). En
+  // Inicio, lo que quede bajo su mensaje (a su izquierda, hasta que se cierra con la X) se apunta aparte.
+  const enFicha = /^\/(producto|servicio)\//.test(ruta);
+  const malos = enFicha ? [...m.tapados, ...m.bajoMensaje] : m.tapados;
+  ok(malos.length === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no tapa ningún botón${conMensaje ? " (con su mensaje a la vista)" : ""}${malos.length ? ` (tapa: ${malos.join(" · ")})` : ""}`);
+  if (!enFicha && m.bajoMensaje.length) console.log(`INFO  ${etiqueta} ${t.nombre} ${ruta}: bajo el mensaje o el saludo de Blue queda: ${m.bajoMensaje.join(" · ")}`);
   if (m.solapeVolver !== null) ok(m.solapeVolver === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no se solapa con «Volver atrás» (${m.solapeVolver} %)`);
-  if (m.tapados.length || (m.solapeVolver ?? 0) > 0) await p.screenshot({ path: join(SALIDA, `${etiqueta}-${t.nombre}-${ruta.replace(/\W+/g, "_")}.png`) });
+  if (m.solapeBuscador !== null) ok(m.solapeBuscador === 0, `${etiqueta} ${t.nombre} ${ruta}: Blue no se solapa con el buscador (${m.solapeBuscador} px²)`);
+  const arribaDerecha = m.derecha >= 2 && m.derecha <= 10 && m.arriba >= 0 && m.arriba <= 260 && Math.abs(m.lado - 52) <= 3;
+  ok(arribaDerecha, `${etiqueta} ${t.nombre} ${ruta}: Blue fijo arriba a la derecha, de 52 px (a ${m.derecha} px del borde derecho y ${m.arriba} px de arriba, ${m.lado} px)`);
+  if (m.tapados.length || (m.solapeVolver ?? 0) > 0 || (m.solapeBuscador ?? 0) > 0 || !arribaDerecha) await p.screenshot({ path: join(SALIDA, `${etiqueta}-${t.nombre}-${ruta.replace(/\W+/g, "_")}.png`) });
   await p.close();
+}
+
+// En las demás páginas Blue no sale: se espera más de lo que tarda en aparecer (10 s desde que se abre la web).
+async function revisarSinBlue(ctx, t, ruta, etiqueta) {
+  const p = await ctx.newPage();
+  await p.goto(BASE + ruta, { waitUntil: "load", timeout: 60000 });
+  await p.waitForTimeout(14000);
+  const hay = await p.evaluate(() => !!document.getElementById("blue-flotante"));
+  sinBlueVistas++;
+  ok(!hay, `${etiqueta} ${t.nombre} ${ruta}: Blue no sale en esta página`);
+  if (hay) await p.screenshot({ path: join(SALIDA, `${etiqueta}-${t.nombre}-sin-blue-${ruta.replace(/\W+/g, "_")}.png`) });
+  await p.close();
+}
+
+// La primera ficha de una lista (catálogo o servicios): las tarjetas no son enlaces <a>, así que se pulsa el primer
+// precio y se lee la dirección a la que lleva.
+async function primeraFicha(ctx, lista, destino) {
+  const p0 = await ctx.newPage();
+  await p0.goto(BASE + lista, { waitUntil: "load", timeout: 60000 });
+  let enlace = null;
+  try {
+    await p0.getByText(/\d,\d\d€/).first().click({ timeout: 25000 });
+    await p0.waitForURL(destino, { timeout: 15000 });
+    enlace = new URL(p0.url()).pathname;
+  } catch {
+    enlace = null;
+  }
+  await p0.close();
+  return enlace;
 }
 
 // --- pruebas -----------------------------------------------------------------------------
@@ -241,7 +309,7 @@ try {
     await p.waitForSelector("#blue-flotante", { timeout: 40000 });
     await p.waitForTimeout(4000);
     const c = await cajaBlue(p);
-    ok(c && !(c.x + c.w / 2 > c.W / 2 && c.y + c.h / 2 > c.H / 2), `${t.nombre}: con la posición antigua abajo a la derecha, Blue no aparece abajo a la derecha`);
+    ok(c && c.W - (c.x + c.w) >= 2 && c.W - (c.x + c.w) <= 10 && c.y <= 260, `${t.nombre}: con la posición antigua abajo a la derecha guardada, Blue sale fijo arriba a la derecha (${c ? `${Math.round(c.x)}, ${Math.round(c.y)}` : "sin Blue"})`);
     await p.evaluate(() => {
       const e = document.getElementById("blue-flotante").getBoundingClientRect();
       const b = document.createElement("button");
@@ -250,46 +318,35 @@ try {
       document.body.appendChild(b);
     });
     const antes = await cajaBlue(p);
-    const t0 = Date.now();
-    let tarda = null;
-    while (Date.now() - t0 < 4000) {
+    let movido = 0;
+    for (let i = 0; i < 30; i++) {
       await p.waitForTimeout(100);
       const c2 = await cajaBlue(p);
-      if (c2 && (Math.abs(c2.x - antes.x) > 30 || Math.abs(c2.y - antes.y) > 30)) {
-        tarda = Date.now() - t0;
-        break;
-      }
+      if (c2) movido = Math.max(movido, Math.abs(c2.x - antes.x), Math.abs(c2.y - antes.y));
     }
-    ok(tarda !== null && tarda < 2500, `${t.nombre}: Blue se aparta en menos de 2,5 s de un botón puesto debajo (${tarda ?? "no se movió"} ms)`);
+    ok(movido <= 2, `${t.nombre}: Blue no se mueve con un botón puesto debajo (se movió ${Math.round(movido)} px en 3 s; en vez de apartarse, se esconde)`);
     await ctx.close();
   }
 
-  // 3) y 4) todas las páginas en todos los tamaños, con la guía ya vista.
+  // 3), 4) y 5) todas las páginas en todos los tamaños, con la guía ya vista.
   for (const t of toca("paginas") ? TAMANOS : []) {
     const ctx = await contexto(navegador, t);
-    // La ficha de producto: se toca el primer producto del catálogo (las tarjetas no son
-    // enlaces <a>, así que se pulsa el primer precio y se lee la dirección a la que lleva).
-    const p0 = await ctx.newPage();
-    await p0.goto(BASE + "/catalogo", { waitUntil: "load", timeout: 60000 });
-    let enlace = null;
-    try {
-      await p0.getByText(/\d,\d\d€/).first().click({ timeout: 25000 });
-      await p0.waitForURL(/\/producto\//, { timeout: 15000 });
-      enlace = new URL(p0.url()).pathname;
-    } catch {
-      enlace = null;
-    }
-    await p0.close();
-    const rutas = enlace ? [...RUTAS, enlace] : RUTAS;
-    if (!enlace) console.log(`AVISO ${t.nombre}: no se encontró ningún producto en el catálogo; se omite la ficha`);
-    await Promise.all(rutas.map((r) => revisarPagina(ctx, t, r, "guía vista")));
+    const producto = await primeraFicha(ctx, "/catalogo", /\/producto\//);
+    const servicio = await primeraFicha(ctx, "/servicios", /\/servicio\//);
+    if (!producto) console.log(`AVISO ${t.nombre}: no se encontró ningún producto en el catálogo; se omite su ficha`);
+    if (!servicio) console.log(`AVISO ${t.nombre}: no se encontró ningún servicio; se omite su ficha`);
+    const rutas = [...RUTAS, producto, servicio].filter(Boolean);
+    await Promise.all([
+      ...rutas.map((r) => revisarPagina(ctx, t, r, "guía vista")),
+      ...RUTAS_SIN_BLUE.map((r) => revisarSinBlue(ctx, t, r, "guía vista")),
+    ]);
     await ctx.close();
   }
 
-  // 3) primera visita de verdad (aviso de cookies y Blue a los 10 s), móvil y escritorio.
+  // 3) y 5) primera visita de verdad (aviso de cookies y Blue a los 10 s), móvil y escritorio.
   for (const t of toca("primera") ? [TAMANOS[1], TAMANOS[3]] : []) {
     const ctx = await contexto(navegador, t, { guardado: false });
-    await Promise.all(["/", "/catalogo"].map((r) => revisarPagina(ctx, t, r, "primera visita", 2500)));
+    await Promise.all([revisarPagina(ctx, t, "/", "primera visita", 2500), revisarSinBlue(ctx, t, "/catalogo", "primera visita")]);
     await ctx.close();
   }
 } catch (e) {
@@ -301,7 +358,8 @@ try {
 
 if (comprobadas === 0 && (SOLO === "todo" || SOLO === "paginas" || SOLO === "primera")) fallos.push("no se midió ninguna página (Blue no apareció en ninguna)");
 if (comprobadas > 0 && (SOLO === "todo" || SOLO === "paginas") && fichasConMensaje === 0) fallos.push("no se vio ningún mensaje de Blue en las fichas de producto: el caso del mensaje no se probó");
-console.log(`páginas medidas con Blue en pantalla: ${comprobadas} (fichas con el mensaje de Blue a la vista: ${fichasConMensaje})`);
+if (sinBlueVistas === 0 && (SOLO === "todo" || SOLO === "paginas" || SOLO === "primera")) fallos.push("no se comprobó ninguna página sin Blue");
+console.log(`páginas medidas con Blue en pantalla: ${comprobadas} (fichas con el mensaje de Blue a la vista: ${fichasConMensaje}); páginas sin Blue comprobadas: ${sinBlueVistas}`);
 for (const f of fallos) console.log(`FALLO ${f}`);
 console.log(fallos.length ? `${fallos.length} fallos` : "todo bien");
 console.log(`capturas de los fallos en ${SALIDA}`);

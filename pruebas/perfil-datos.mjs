@@ -2784,9 +2784,10 @@ async function seccionZ() {
 }
 
 // ===== BU) Blue nunca tapa la barra de búsqueda (dueño, 2026-11-01) =================================================
-// Ni cuando la persona lo deja encima (se queda fijo donde lo suelta), ni al arrastrarlo encima, ni sobre la lista de
-// resultados. Se mide la capa visible de Blue y la barra de verdad (el hijo de #buscador-flotante, cuya capa ocupa todo
-// el ancho), solo cuando las dos se ven.
+// Desde 2026-11-04 Blue va fijo arriba a la derecha: en Inicio, justo debajo de la barra (aunque hubiera un sitio antiguo
+// guardado encima de ella), no se arrastra y se esconde mientras la lista de resultados está abierta. Se mide la capa
+// visible de Blue y la barra de verdad (el hijo de #buscador-flotante, cuya capa ocupa todo el ancho), solo cuando las
+// dos se ven.
 async function seccionBU() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
   const medir = (p, otro = null) => p.evaluate((idOtro) => {
@@ -2824,33 +2825,33 @@ async function seccionBU() {
   await p.locator("#buscador-flotante").waitFor({ timeout: 30000 }).catch(() => {});
   await p.waitForTimeout(1200);
 
-  // BU1) La persona dejó a Blue justo encima de la barra (y desde entonces se queda fijo donde lo deja): al volver a la
-  // tienda se aparta lo justo, en su mismo lado.
+  // BU1) Aunque hubiera guardado un sitio antiguo justo encima de la barra (cuando se podía arrastrar), Blue sale fijo
+  // arriba a la derecha, justo debajo de la barra.
   const barra = await p.evaluate(() => {
     const r = document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect();
     return r ? { arriba: r.top, abajo: r.bottom, alto: window.innerHeight } : null;
   });
   ok(!!barra, `BU: Inicio tiene la barra de búsqueda (${JSON.stringify(barra)})`);
-  // Mismas cuentas que sitioToXY de components/Campanita.tsx (72 px, 40 arriba, 84 abajo).
-  const fyEncima = barra ? Math.min(1, Math.max(0, ((barra.arriba + barra.abajo) / 2 - 36 - 40) / (barra.alto - 72 - 84 - 40))) : 0;
-  await p.evaluate((fy) => {
-    localStorage.setItem("videojuegoszaragoza:campanita_corner", JSON.stringify({ lado: "l", fy }));
+  await p.evaluate(() => {
+    localStorage.setItem("videojuegoszaragoza:campanita_corner", JSON.stringify({ lado: "l", fy: 0.05 }));
     sessionStorage.setItem("videojuegoszaragoza:blue_fijo", "1");
-  }, fyEncima);
+  });
   await p.reload({ waitUntil: "load" });
   await esperarBlue(p);
   const fijo = await vigilar(p, 2400);
-  ok(!!fijo.ultima?.seVe && fijo.tapada === 0, `BU: Blue, dejado encima de la barra, ya no la tapa (${fijo.tapada} veces encima; Blue ${JSON.stringify(fijo.ultima?.blue)}, barra ${JSON.stringify(fijo.ultima?.barra)})`);
-  ok(!!fijo.ultima && fijo.ultima.blue[0] < 40 && fijo.ultima.hueco >= 0 && fijo.ultima.hueco <= 40, `BU: se aparta lo justo, en su mismo lado (a ${fijo.ultima?.hueco} px de la barra)`);
+  const ancho = await p.evaluate(() => window.innerWidth);
+  const derecha = fijo.ultima ? ancho - (fijo.ultima.blue[0] + fijo.ultima.blue[2]) : null;
+  ok(!!fijo.ultima?.seVe && fijo.tapada === 0, `BU: Blue no tapa la barra (${fijo.tapada} veces encima; Blue ${JSON.stringify(fijo.ultima?.blue)}, barra ${JSON.stringify(fijo.ultima?.barra)})`);
+  ok(derecha !== null && derecha >= 2 && derecha <= 10 && fijo.ultima.hueco >= 0 && fijo.ultima.hueco <= 12, `BU: fijo arriba a la derecha, justo debajo de la barra, sin hacer caso del sitio antiguo guardado (a ${derecha} px del borde y ${fijo.ultima?.hueco} px de la barra)`);
   await capturar(p, "BU1-blue-junto-al-buscador");
 
-  // BU2) Arrastrarlo con el dedo al otro lado, encima de la barra: al soltarlo se aparta en seguida, en ese lado.
+  // BU2) Arrastrarlo con el dedo ya no lo mueve: se queda en su sitio fijo.
   const caja = await p.locator("#blue-flotante").boundingBox();
   const b2 = await p.evaluate(() => document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect().toJSON());
   if (caja && b2) {
     const cdp = await ctx.newCDPSession(p);
     const [x0, y0] = [caja.x + caja.width / 2, caja.y + caja.height / 2];
-    const [x1, y1] = [b2.x + b2.width - 30, b2.y + b2.height / 2];
+    const [x1, y1] = [b2.x + 40, y0 + 220];
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y: y0 }] });
     for (let i = 1; i <= 12; i++) {
       await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + ((x1 - x0) * i) / 12, y: y0 + ((y1 - y0) * i) / 12 }] });
@@ -2859,14 +2860,14 @@ async function seccionBU() {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   }
   const arrastrado = await vigilar(p, 2000);
-  const guardado = JSON.parse((await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:campanita_corner"))) ?? "null");
-  ok(guardado?.lado === "r" && (arrastrado.ultima?.blue?.[0] ?? 0) > 200, `BU: se puede arrastrar con el dedo al otro lado, encima de la barra (${JSON.stringify(guardado)}; Blue ${JSON.stringify(arrastrado.ultima?.blue)})`);
-  ok(!!caja && !!b2 && arrastrado.ultima?.seVe && arrastrado.tapada <= 3 && !arrastrado.ultima.tapa, `BU: al soltarlo encima de la barra se aparta en seguida (${arrastrado.tapada} vistas encima mientras se mueve; Blue ${JSON.stringify(arrastrado.ultima?.blue)}, barra ${JSON.stringify(arrastrado.ultima?.barra)})`);
-  ok(!!arrastrado.ultima && arrastrado.ultima.hueco >= 0 && arrastrado.ultima.hueco <= 40, `BU: y se queda pegado a la barra, en el lado donde lo soltó (a ${arrastrado.ultima?.hueco} px)`);
-  ok((await p.locator('[aria-modal="true"]').count()) === 0, "BU: arrastrarlo no abre su panel (ninguna ventana encima)");
-  await capturar(p, "BU2-blue-arrastrado");
+  const cajaDespues = await p.locator("#blue-flotante").boundingBox();
+  const movido = caja && cajaDespues ? Math.round(Math.max(Math.abs(cajaDespues.x - caja.x), Math.abs(cajaDespues.y - caja.y))) : null;
+  ok(!!caja && !!b2 && movido !== null && movido <= 2, `BU: arrastrarlo con el dedo no lo mueve (se movió ${movido} px)`);
+  ok(arrastrado.tapada === 0 && !!arrastrado.ultima?.seVe, `BU: y sigue sin tapar la barra (${arrastrado.tapada} vistas encima)`);
+  await capturar(p, "BU2-blue-no-se-arrastra");
 
-  // BU3) La barra recibe el toque (nada la tapa) y, al escribir, sale la lista de resultados: Blue tampoco la tapa.
+  // BU3) La barra recibe el toque (nada la tapa) y, al escribir, sale la lista de resultados: Blue se esconde mientras
+  // está abierta y vuelve a su sitio al cerrarla.
   const recibe = await p.evaluate(() => {
     const campo = document.querySelector("#buscador-flotante input");
     const r = campo?.getBoundingClientRect();
@@ -2883,10 +2884,303 @@ async function seccionBU() {
   await p.waitForTimeout(600);
   const lista = await vigilar(p, 2400, "buscador-resultados");
   const conLista = !!(await p.evaluate(() => document.getElementById("buscador-resultados")));
-  ok(conLista && lista.tapada <= 3 && !lista.ultima?.tapa, `BU: con la lista de resultados abierta, Blue no la tapa (${lista.tapada} vistas encima mientras se aparta; Blue ${JSON.stringify(lista.ultima?.blue)}, lista ${JSON.stringify(lista.ultima?.barra)})`);
+  ok(conLista && lista.tapada <= 3 && !lista.ultima?.tapa, `BU: con la lista de resultados abierta, Blue no la tapa (${lista.tapada} vistas encima mientras se esconde; Blue ${JSON.stringify(lista.ultima?.blue)}, lista ${JSON.stringify(lista.ultima?.barra)})`);
   await capturar(p, "BU3-blue-y-resultados");
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(400);
+  const cerrada = !(await p.evaluate(() => document.getElementById("buscador-resultados")));
+  await esperarBlue(p);
+  const vuelve = await vigilar(p, 1200);
+  ok(cerrada && !!vuelve.ultima?.seVe && vuelve.tapada === 0 && vuelve.ultima.hueco >= 0 && vuelve.ultima.hueco <= 12, `BU: al cerrar la lista, Blue vuelve a su sitio bajo la barra (lista cerrada: ${cerrada}; a ${vuelve.ultima?.hueco} px de la barra)`);
   ok(p.errores.length === 0, `BU: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
   await ctx.close();
+}
+
+// ===== BF) Blue solo en Inicio, las fichas y el panel, y fijo arriba a la derecha (dueño, 2026-11-04) ================
+// En móvil y ordenador: dónde sale y dónde no (también navegando sin recargar), su sitio fijo (a 6 px del borde derecho,
+// 52 px; en las fichas dentro de la cabecera, en Inicio bajo el buscador y, en el móvil, bajo Instagram), que Blue no
+// tapa ningún botón (arriba ni con la pantalla desplazada: si queda uno debajo, se esconde), que su mensaje no tapa el
+// buscador y que tocarlo abre su panel. Con su «prueba de la prueba»: un botón puesto debajo de Blue tiene que salir
+// como tapado.
+async function seccionBF() {
+  const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000b1";
+  const SERVICIO = "5e000000-0000-4000-8000-0000000000b2";
+  const AVISO = "Esta semana, mandos revisados con un 20 % menos";
+  const estadoBase = (usuario) => ({
+    filas: [{ user_id: usuario.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    aceptaAnalitica: true,
+    flash: [{ message: AVISO, sort_order: 0 }],
+    olvidados: { pedidos: 1, reparaciones: 0 },
+    servicio: { id: SERVICIO, title: "Mantenimiento Consola Playstation 5", description: "Limpieza completa y cambio de pasta térmica.", price_eur: 45 },
+    fotosServicio: [],
+    producto: {
+      id: PRODUCTO, title: "Nintendo Switch OLED", description: "Consola revisada.", price_eur: 249.99, status: "PUBLISHED", is_active: true,
+      category_id: null, images: [], updated_at: "2026-10-30T10:00:00Z", created_at: "2026-10-30T10:00:00Z", condition: "USED",
+      like_count: 0, reference: null, caracteristicas: null, mantenimiento: null, category: null,
+    },
+    fotosProducto: [],
+  });
+  // Dónde está Blue y qué botones tapa: en varios puntos de cada botón, si el toque lo recibe Blue y sin Blue lo recibiría
+  // el botón. Como pruebas/blue-regresion.mjs. `tapados`: los que tapa Blue (su sitio de 52 px); `bajoMensaje`: los que
+  // tapan su mensaje o su saludo, que salen a su izquierda y se cierran con la X (se cuentan aparte).
+  const medir = (p) =>
+    p.evaluate(() => {
+      const blue = document.getElementById("blue-flotante");
+      if (!blue) return null;
+      const b = blue.getBoundingClientRect();
+      const capa = blue.firstElementChild;
+      const SEL = 'button,a[href],input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[tabindex="0"]';
+      const tapados = [];
+      const bajoMensaje = [];
+      for (const el of document.querySelectorAll(SEL)) {
+        if (el.closest("#blue-flotante")) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4 || r.width >= window.innerWidth * 0.95) continue;
+        if (r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight) continue;
+        let porBlue = false;
+        let porMensaje = false;
+        for (const [fx, fy] of [[0.5, 0.5], [0.2, 0.5], [0.8, 0.5], [0.5, 0.2], [0.5, 0.8]]) {
+          const x = r.left + r.width * fx;
+          const y = r.top + r.height * fy;
+          if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+          const tope = document.elementFromPoint(x, y);
+          if (!tope || !tope.closest("#blue-flotante")) continue;
+          const antes = blue.style.visibility;
+          blue.style.visibility = "hidden";
+          const sinBlue = document.elementFromPoint(x, y);
+          blue.style.visibility = antes;
+          if (!sinBlue || !el.contains(sinBlue)) continue;
+          const enSuSitio = x >= b.left && x <= b.right && y >= b.top && y <= b.bottom && !tope.closest("#blue-mensaje");
+          if (enSuSitio) porBlue = true;
+          else porMensaje = true;
+        }
+        const nombre = (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40);
+        if (porBlue) tapados.push(nombre);
+        if (porMensaje) bajoMensaje.push(nombre);
+      }
+      const solape = (r) => (r ? Math.max(0, Math.min(b.right, r.right) - Math.max(b.left, r.left)) * Math.max(0, Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top)) : 0);
+      const msj = document.getElementById("blue-mensaje")?.getBoundingClientRect();
+      const barra = document.getElementById("buscador-flotante")?.firstElementChild?.getBoundingClientRect();
+      const mensajeSobreBuscador = msj && barra ? Math.max(0, Math.min(msj.right, barra.right) - Math.max(msj.left, barra.left)) * Math.max(0, Math.min(msj.bottom, barra.bottom) - Math.max(msj.top, barra.top)) : 0;
+      return {
+        derecha: Math.round(window.innerWidth - b.right),
+        arriba: Math.round(b.top),
+        lado: Math.round(b.width),
+        seVe: !!capa && Number(getComputedStyle(capa).opacity) > 0.3,
+        mensaje: (document.getElementById("blue-mensaje")?.innerText ?? "").replace(/\s+/g, " ").trim(),
+        mensajeDentro: !msj || (msj.left >= 0 && msj.right <= window.innerWidth),
+        mensajeSobreBuscador: Math.round(mensajeSobreBuscador),
+        tapados,
+        bajoMensaje,
+        solapeVolver: Math.round(solape(document.querySelector('[aria-label="Volver atrás"]')?.getBoundingClientRect())),
+      };
+    });
+  const esperarBlue = async (p, veces = 70) => {
+    for (let i = 0; i < veces && !(await medir(p))?.seVe; i++) await p.waitForTimeout(400);
+    await p.waitForTimeout(1500); // que acabe de entrar (rebote y saludo)
+    return medir(p);
+  };
+  const enSuSitio = (m, maxArriba) => !!m && m.seVe && m.derecha >= 2 && m.derecha <= 10 && m.arriba >= 0 && m.arriba <= maxArriba && Math.abs(m.lado - 52) <= 3;
+  const desc = (m) => (m ? `a ${m.derecha} px del borde derecho y ${m.arriba} px de arriba, ${m.lado} px${m.tapados.length ? `; tapa: ${m.tapados.join(" · ")}` : ""}` : "sin Blue");
+  // Baja la página (la de la ventana o la del contenedor que se desplaza) y espera a que Blue vuelva al parar.
+  const bajar = async (p, px) => {
+    await p.evaluate((d) => {
+      const caja = [...document.querySelectorAll("div")].find((e) => e.scrollHeight > e.clientHeight + 200 && /(auto|scroll)/.test(getComputedStyle(e).overflowY));
+      if (caja) caja.scrollTop += d;
+      else window.scrollBy(0, d);
+    }, px);
+    await p.waitForTimeout(2600);
+  };
+
+  for (const [nombre, vista] of [
+    ["móvil", {}],
+    ["ordenador", { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ]) {
+    // BF1) Cliente: Inicio, la ficha de producto y la de servicio. Blue fijo arriba a la derecha y sin tapar nada.
+    const estado = estadoBase(CLIENTE);
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/");
+    const inicio = await esperarBlue(p);
+    ok(enSuSitio(inicio, 260) && inicio.tapados.length === 0, `BF (${nombre}): en Inicio, Blue fijo arriba a la derecha bajo el buscador y sin tapar nada (${desc(inicio)})`);
+    await capturar(p, `BF1-${nombre}-inicio`);
+    // Su mensaje (el aviso de la tienda) sale a su izquierda, dentro de la pantalla, y no tapa el buscador. Lo que quede
+    // debajo hasta que se cierre con la X se apunta (no es un fallo: Blue ya no se mueve para dejarle sitio).
+    let conMensaje = inicio;
+    for (let i = 0; i < 60 && !conMensaje?.mensaje; i++) {
+      await p.waitForTimeout(500);
+      conMensaje = await medir(p);
+    }
+    ok(/mandos revisados/.test(conMensaje?.mensaje ?? "") && conMensaje.tapados.length === 0 && conMensaje.mensajeDentro && conMensaje.mensajeSobreBuscador === 0, `BF (${nombre}): en Inicio, con su mensaje a la vista Blue sigue sin tapar nada y el mensaje no tapa el buscador («${(conMensaje?.mensaje ?? "").slice(0, 60)}»; encima del buscador: ${conMensaje?.mensajeSobreBuscador ?? "?"} px²)`);
+    console.log(`INFO  BF (${nombre}): en Inicio, bajo el mensaje de Blue queda: ${conMensaje?.bajoMensaje.join(" · ") || "nada que se toque"}`);
+    await capturar(p, `BF1-${nombre}-inicio-mensaje`);
+    await p.locator('[aria-label="Cerrar mensaje de Blue"]').first().click({ timeout: 5000 }).catch(() => {});
+    // Con la pantalla desplazada, ni encima de una tarjeta ni de un botón: si hay uno debajo de su sitio, se esconde (sin
+    // moverse) y vuelve a verse cuando queda libre.
+    const tapadosBajando = [];
+    let escondido = 0;
+    let quieto = true;
+    for (let i = 0; i < 4; i++) {
+      await bajar(p, 380);
+      const m = await medir(p);
+      if (m?.seVe && m.tapados.length) tapadosBajando.push(...m.tapados);
+      if (m && !m.seVe) escondido++;
+      if (m?.seVe && (m.derecha !== inicio.derecha || m.arriba !== inicio.arriba)) quieto = false;
+    }
+    ok(tapadosBajando.length === 0, `BF (${nombre}): en Inicio, bajando la página Blue no se queda encima de ningún botón (${tapadosBajando.join(" · ") || "ninguno"}; escondido en ${escondido} de 4 paradas)`);
+    ok(quieto, `BF (${nombre}): y no se mueve de su sitio al desplazar la página`);
+    await capturar(p, `BF1-${nombre}-inicio-bajado`);
+    // Arriba del todo otra vez (Inicio se desplaza dentro de su contenedor, no la ventana).
+    await bajar(p, -100000);
+
+    // Navegando sin recargar: en la Cesta y en Perfil no sale; al volver a Inicio, sí y en su sitio.
+    const sinBlueEn = [];
+    for (const pestana of ["pestana-cesta", "pestana-perfil"]) {
+      await p.locator(`[data-testid="${pestana}"]`).first().click({ timeout: 15000 }).catch(() => {});
+      await p.waitForTimeout(1500);
+      if ((await p.locator("#blue-flotante").count()) === 0) sinBlueEn.push(pestana);
+    }
+    ok(sinBlueEn.length === 2, `BF (${nombre}): navegando, en la Cesta y en Perfil Blue no sale (${sinBlueEn.join(", ") || "sale en las dos"})`);
+    await p.locator('[data-testid="pestana-index"]').first().click({ timeout: 15000 }).catch(() => {});
+    const vuelta = await esperarBlue(p, 20);
+    ok(enSuSitio(vuelta, 260) && vuelta.arriba === inicio.arriba, `BF (${nombre}): al volver a Inicio, Blue vuelve a su sitio fijo (${desc(vuelta)})`);
+
+    // Tocarlo abre su panel.
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click({ timeout: 10000 }).catch(() => {});
+    const panel = await p.getByRole("tab", { name: /Asistente/ }).first().waitFor({ timeout: 8000 }).then(() => true).catch(() => false);
+    ok(panel, `BF (${nombre}): tocar a Blue abre su panel`);
+    const abierto = () => (estado.eventosEnviados ?? []).filter((e) => e.event_name === "blue_flotante_abierto");
+    for (let i = 0; i < 20 && !abierto().length; i++) await p.waitForTimeout(300);
+    ok(abierto()[0]?.step_label === "Blue flotante: abierto en Inicio" && abierto()[0]?.metadata?.pantalla === "Inicio", `BF (${nombre}): y se apunta en la analítica propia en qué pantalla («${abierto()[0]?.step_label ?? "nada"}»)`);
+    await p.close();
+
+    // Las dos fichas: dentro de la cabecera (arriba del todo), sin tocar «Volver atrás» ni otro botón, también bajando.
+    for (const [cual, ruta] of [
+      ["producto", `/producto/${PRODUCTO}`],
+      ["servicio", `/servicio/${SERVICIO}`],
+    ]) {
+      const f = await pagina(ctx, ruta);
+      const m = await esperarBlue(f);
+      ok(enSuSitio(m, 20) && m.tapados.length === 0 && m.solapeVolver === 0, `BF (${nombre}): en la ficha de ${cual}, Blue fijo arriba a la derecha, en la cabecera, sin tapar nada (${desc(m)}; con «Volver atrás»: ${m?.solapeVolver ?? "?"} px²)`);
+      await capturar(f, `BF2-${nombre}-ficha-${cual}`);
+      // Con su mensaje a la vista (la ficha de producto saca uno), la flecha «Volver atrás» de la cabecera sigue
+      // recibiendo el toque: el mensaje sale debajo de Blue, no encima de la cabecera (lo pilló pruebas/guia-blue.mjs).
+      if (cual === "producto") {
+        await f.locator("#blue-mensaje").waitFor({ timeout: 40000 }).catch(() => {});
+        await f.waitForTimeout(800);
+        const mm = await medir(f);
+        const volverLibre = await f.evaluate(() => {
+          const b = document.querySelector('[aria-label="Volver atrás"]');
+          const r = b?.getBoundingClientRect();
+          if (!r) return "sin botón";
+          const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return e && b.contains(e) ? "sí" : e?.closest("#blue-flotante") ? "tapado por Blue" : "tapado";
+        });
+        ok(!!mm?.mensaje && volverLibre === "sí" && mm.bajoMensaje.length === 0, `BF (${nombre}): con el mensaje de Blue a la vista en la ficha, «Volver atrás» recibe el toque y el mensaje no tapa ningún botón («${(mm?.mensaje ?? "sin mensaje").slice(0, 50)}»; «Volver atrás»: ${volverLibre}${mm?.bajoMensaje.length ? `; bajo el mensaje: ${mm.bajoMensaje.join(" · ")}` : ""})`);
+        await capturar(f, `BF2-${nombre}-ficha-${cual}-mensaje`);
+      }
+      const bajando = [];
+      for (let i = 0; i < 3; i++) {
+        await bajar(f, 320);
+        const mb = await medir(f);
+        if (mb?.seVe && mb.tapados.length) bajando.push(...mb.tapados);
+      }
+      ok(bajando.length === 0, `BF (${nombre}): en la ficha de ${cual}, bajando la página Blue no se queda encima de ningún botón (${bajando.join(" · ") || "ninguno"})`);
+      ok(f.errores.length === 0, `BF (${nombre}): ficha de ${cual} sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+      await f.close();
+    }
+
+    // Las demás pantallas de la tienda, cargadas de cero: Blue no sale (aparece a los 10 s; se espera más).
+    const conBlue = [];
+    await Promise.all(
+      ["/catalogo", "/servicios", "/cesta", "/perfil", "/quienes-somos", "/blog", "/politicas/envios"].map(async (ruta) => {
+        const q = await pagina(ctx, ruta);
+        await q.waitForTimeout(13000);
+        if ((await q.locator("#blue-flotante").count()) > 0) conBlue.push(ruta);
+        await q.close();
+      })
+    );
+    ok(conBlue.length === 0, `BF (${nombre}): en Catálogo, Servicios, Cesta, Perfil, Quiénes somos, Blog y Políticas Blue no sale (${conBlue.join(", ") || "en ninguna"})`);
+
+    // La prueba de la prueba: un botón de la página puesto justo debajo de Blue (junto a su capa y por debajo de ella, para
+    // que Blue quede encima, como con el contenido de la tienda) tiene que salir como tapado si Blue no se escondiera; y
+    // Blue, de verdad, se esconde.
+    const c = await pagina(ctx, "/");
+    await esperarBlue(c);
+    await c.evaluate(() => {
+      const blue = document.getElementById("blue-flotante");
+      const e = blue.getBoundingClientRect();
+      const b = document.createElement("button");
+      b.textContent = "Botón de control";
+      b.style.cssText = `position:fixed;left:${e.left + 4}px;top:${e.top + 4}px;width:${e.width - 8}px;height:${e.height - 8}px;z-index:0;`;
+      const capa = blue.parentElement;
+      capa.parentElement.insertBefore(b, capa);
+    });
+    const control = await medir(c);
+    ok(!!control && control.tapados.includes("Botón de control"), `BF (${nombre}): control: la medida sí detecta un botón tapado por Blue (${control?.tapados.join(" · ") || "no lo detecta"})`);
+    let seEsconde = false;
+    for (let i = 0; i < 12 && !seEsconde; i++) {
+      await c.waitForTimeout(250);
+      seEsconde = (await medir(c))?.seVe === false;
+    }
+    ok(seEsconde, `BF (${nombre}): con un botón debajo de su sitio, Blue se esconde en menos de 3 s (sin moverse)`);
+    await c.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent === "Botón de control")?.remove());
+    let vuelveAVerse = false;
+    for (let i = 0; i < 16 && !vuelveAVerse; i++) {
+      await c.waitForTimeout(250);
+      vuelveAVerse = (await medir(c))?.seVe === true;
+    }
+    ok(vuelveAVerse, `BF (${nombre}): y al quitar el botón vuelve a verse en su sitio`);
+    await c.close();
+    await ctx.close();
+
+    // BF3) El dueño, en el panel: Blue sale en sus pantallas, fijo arriba a la derecha y sin tapar nada.
+    const estadoAdmin = estadoBase(ADMIN);
+    const ctxA = await contexto(navegador, ADMIN, "admin", estadoAdmin, vista);
+    const malos = [];
+    let vistas = 0;
+    await Promise.all(
+      ["/admin", "/admin/products", "/admin/services", "/admin/users", "/admin/pedidos", "/admin/analytics"].map(async (ruta) => {
+        const q = await pagina(ctxA, ruta);
+        const m = await esperarBlue(q);
+        if (m?.seVe) vistas++;
+        if (!enSuSitio(m, 20) || m.tapados.length) malos.push(`${ruta}: ${desc(m)}`);
+        if (ruta === "/admin") await capturar(q, `BF3-${nombre}-panel`);
+        await q.close();
+      })
+    );
+    ok(vistas === 6 && malos.length === 0, `BF (${nombre}): en el panel, Blue sale para el dueño fijo arriba a la derecha y sin tapar nada (${vistas}/6${malos.length ? `; ${malos.join(" | ")}` : ""})`);
+    // El dueño abriendo Blue en el panel no cuenta en la analítica de la tienda.
+    const a = await pagina(ctxA, "/admin");
+    await esperarBlue(a);
+    await a.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click({ timeout: 10000 }).catch(() => {});
+    await a.waitForTimeout(1500);
+    ok(!(estadoAdmin.eventosEnviados ?? []).some((e) => e.event_name === "blue_flotante_abierto"), `BF (${nombre}): abrir a Blue en el panel no se cuenta como uso de la tienda`);
+    await a.close();
+    await ctxA.close();
+  }
+
+  // BF4) Administración → Analítica: en qué pantalla abren a Blue (sesiones), sin colarse en el recorrido.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue flotante: abierto en Inicio", sessions: 7 },
+        { step_label: "Blue flotante: abierto en la ficha de producto", sessions: 4 },
+        { step_label: "Blue flotante: abierto en la ficha de servicio", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-flotante").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-blue-flotante").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/en Inicio 7 · en la ficha de producto 4 · en la ficha de servicio 2/.test(t), `BF: Administración → Analítica cuenta en qué pantalla abren a Blue (${t})`);
+    const resto = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(!/Blue flotante: abierto/.test(resto), "BF: y no se cuela como paso del recorrido");
+    ok(p.errores.length === 0, `BF: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
 }
 
 // ===== ME) «Mejoras en la tienda»: la cajita de ideas (pie de página, Blue y Mi cuenta) y su parte en Administración ===
@@ -2939,8 +3233,13 @@ async function seccionME() {
     await p.locator("#mejoras-ventana").getByText("Cerrar", { exact: true }).click().catch(() => {});
     await p.waitForTimeout(500);
 
-    // Desde Blue (pestaña Asistente).
-    await p.evaluate(() => window.scrollTo(0, 0));
+    // Desde Blue (pestaña Asistente). Arriba del todo otra vez: Inicio se desplaza dentro de su contenedor, no la ventana
+    // (abajo, con el pie, Blue tiene botones debajo de su sitio y se esconde, como debe).
+    await p.evaluate(() => {
+      window.scrollTo(0, 0);
+      for (const e of document.querySelectorAll("div")) if (e.scrollTop > 0) e.scrollTop = 0;
+    });
+    await p.waitForTimeout(1500);
     await p.waitForSelector("#blue-flotante", { timeout: 25000 }).catch(() => {});
     await p.waitForTimeout(2500);
     await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click();
@@ -3520,7 +3819,8 @@ async function seccionSE() {
     for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
   };
 
-  // SE1) Blue no aparece con «Mi perfil» desplegado y vuelve al plegarlo.
+  // SE1) Blue no aparece en Mi cuenta (desde 2026-11-04 solo sale en Inicio y en las fichas), ni con «Mi perfil»
+  // desplegado ni al plegarlo.
   {
     const estado = { filas: perfilCompleto, guardados: [] };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
@@ -3529,14 +3829,14 @@ async function seccionSE() {
     await p.waitForTimeout(12500); // Blue aparece a los 10 s de entrar
     ok((await p.locator("#blue-flotante").count()) === 0, "SE: con «Mi perfil» desplegado, Blue no aparece");
     await p.locator("#perfil-cabecera").click();
-    await p.locator("#blue-flotante").waitFor({ timeout: 8000 }).catch(() => {});
-    ok((await p.locator("#blue-flotante").count()) === 1, "SE: al plegarlo, Blue vuelve");
+    await p.waitForTimeout(3000);
+    ok((await p.locator("#blue-flotante").count()) === 0, "SE: y al plegarlo tampoco (Blue ya no sale en Mi cuenta)");
     ok(p.errores.length === 0, `SE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 
-  // SE1b) Como lo usa el dueño: Blue ya a la vista (cliente y administrador, entrando por la pestaña Perfil) y entonces se
-  // despliega «Mi perfil»: Blue se va en seguida y vuelve al plegarlo (dueño, 2026-11-03: «sigue apareciendo»).
+  // SE1b) Como lo usa el dueño: Blue ya a la vista en Inicio (cliente y administrador) y entonces se entra por la pestaña
+  // Perfil: Blue se va, no vuelve ni con «Mi perfil» desplegado ni plegado, y sale otra vez al volver a Inicio.
   for (const [usuario, rol] of [
     [CLIENTE, "user"],
     [ADMIN, "admin"],
@@ -3544,20 +3844,23 @@ async function seccionSE() {
     const estado = { filas: [{ ...perfilCompleto[0], user_id: usuario.id }], guardados: [] };
     const ctx = await contexto(navegador, usuario, rol, estado);
     const p = await pagina(ctx, "/");
-    await p.locator('[data-testid="pestana-perfil"]').first().click({ timeout: 30000 });
-    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
     await p.locator("#blue-flotante").waitFor({ timeout: 20000 }).catch(() => {});
     const antes = await p.locator("#blue-flotante").count();
+    await p.locator('[data-testid="pestana-perfil"]').first().click({ timeout: 30000 });
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const enPerfil = await p.locator("#blue-flotante").count();
     const plegado = (await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "")) !== "true";
     await p.locator("#perfil-cabecera").click();
     await p.waitForTimeout(800);
     const abierto = await p.locator("#blue-flotante").count();
-    await p.waitForTimeout(4000);
-    const despues = await p.locator("#blue-flotante").count();
-    ok(antes === 1 && plegado && abierto === 0 && despues === 0, `SE: ${rol === "admin" ? "administrador" : "cliente"}: con Blue ya a la vista, al desplegar «Mi perfil» Blue se va y no vuelve (${JSON.stringify({ antes, plegado, abierto, despues })})`);
     await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(3000);
+    const plegadoOtraVez = await p.locator("#blue-flotante").count();
+    ok(antes === 1 && enPerfil === 0 && plegado && abierto === 0 && plegadoOtraVez === 0, `SE: ${rol === "admin" ? "administrador" : "cliente"}: Blue, a la vista en Inicio, se va al entrar en Mi cuenta y no vuelve ni con «Mi perfil» desplegado ni plegado (${JSON.stringify({ antes, enPerfil, plegado, abierto, plegadoOtraVez })})`);
+    await p.locator('[data-testid="pestana-index"]').first().click({ timeout: 15000 }).catch(() => {});
     await p.locator("#blue-flotante").waitFor({ timeout: 8000 }).catch(() => {});
-    ok((await p.locator("#blue-flotante").count()) === 1, `SE: ${rol === "admin" ? "administrador" : "cliente"}: al plegarlo, Blue vuelve`);
+    ok((await p.locator("#blue-flotante").count()) === 1, `SE: ${rol === "admin" ? "administrador" : "cliente"}: al volver a Inicio, Blue vuelve`);
     ok(p.errores.length === 0, `SE: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -5136,6 +5439,7 @@ try {
   if (SOLO === "EN") await seccionEN();
   if (SOLO === "NO") await seccionNO();
   if (SOLO === "BU") await seccionBU();
+  if (SOLO === "BF") await seccionBF();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
@@ -5844,11 +6148,15 @@ try {
     // G2: mientras está abierta Blue no se ve; «Cerrar sesión» la quita.
     const estado = { filas: [], guardados: [] };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
-    const p = await pagina(ctx, "/catalogo");
+    const c = await pagina(ctx, "/catalogo");
+    await c.locator("#perfil-obligatorio").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await c.locator("#perfil-obligatorio").count()) === 1, "G: también en el catálogo (en cualquier pantalla de la tienda)");
+    await c.close();
+    // En Inicio, donde Blue sí sale (desde 2026-11-04 solo en Inicio y en las fichas).
+    const p = await pagina(ctx, "/");
     await p.locator("#perfil-obligatorio").waitFor({ timeout: 30000 }).catch(() => {});
-    ok((await p.locator("#perfil-obligatorio").count()) === 1, "G: también en el catálogo (en cualquier pantalla de la tienda)");
     await p.waitForTimeout(11500);
-    ok((await p.locator("#blue-flotante").count()) === 0, "G: pasados 10 s, Blue no aparece encima");
+    ok((await p.locator("#perfil-obligatorio").count()) === 1 && (await p.locator("#blue-flotante").count()) === 0, "G: en Inicio, pasados 10 s, Blue no aparece encima");
     await p.getByText("Cerrar sesión").click();
     await p.waitForFunction(() => !document.getElementById("perfil-obligatorio"), null, { timeout: 10000 }).catch(() => {});
     ok(estado.salio === true && (await p.locator("#perfil-obligatorio").count()) === 0, "G: «Cerrar sesión» cierra la sesión y la pantalla desaparece");
@@ -6081,6 +6389,7 @@ try {
   await seccionEN();
   await seccionNO();
   await seccionBU();
+  await seccionBF();
   await seccionME();
   await seccionCO();
   await seccionDI();
