@@ -56,7 +56,8 @@
  *     (Blue IA con el producto ya indicado; desde ahí, si hace falta, el equipo).
  *   · En Inicio, tras 12 s: una de las "Noticias Flash" activas
  *     (tabla flash_news, se editan en app/admin/flash-news.tsx).
- *   Cada bocadillo sale una sola vez por visita y se cierra con la X.
+ *   Cada bocadillo sale una sola vez por visita y se cierra con la X o solo, a los 12 s a la vista (MENSAJE_VISIBLE_MS,
+ *   dueño 2026-11-04); el saludo «¡Hola! Soy Blue», a los 2,8 s (SALUDO_MS).
  *   TODOS los que Blue dice por su cuenta pasan por una cola (`decir`, petición del dueño 2026-10-30): el
  *   primero, como pronto a los 15 s de entrar en la pantalla (antes se deja leer lo que hay) y entre uno y
  *   el siguiente, al menos 15 s; al cambiar de pantalla la cola se vacía.
@@ -74,7 +75,8 @@
  *   local NOTICIAS_AVISOS_KEY = "1"), cuenta las noticias publicadas desde la última
  *   vez que las vio (lo más reciente entre preferencias_usuario.noticias_vistas_hasta
  *   y NOTICIAS_VISTAS_KEY; si no hay ninguna, las de las últimas 24 h). Se suman al
- *   número rojo y salen en «Noticias y avisos» ("Ver noticias"). Si no están activados,
+ *   número rojo y salen en «Noticias y avisos» con el título de la más reciente («Noticia nueva: …»), que se abre
+ *   directamente al tocar el aviso (/chat-global?noticia=<id>; dueño, 2026-11-04). Si no están activados,
  *   «Activa los avisos de noticias» los activa ahí mismo con un toque (activarAvisosNoticias; lo
  *   mismo que la campana de Noticias Gaming). En esa pestaña un apartado vacío no sale (ni
  *   «Estás al día» ni «No hay noticias ahora mismo»; dueño, 2026-11-04).
@@ -568,6 +570,16 @@ function posicionFija(enInicio: boolean) {
   return { x, y };
 }
 
+// Los mensajes de Blue se cierran solos (dueño, 2026-11-04) a los 12 s a la vista: sin contar el tiempo en que Blue está
+// escondido (scroll, un botón debajo, el visor de fotos) ni con su panel abierto. Antes se quedaban hasta tocar la X.
+const MENSAJE_VISIBLE_MS = 12000;
+// Cómo acaba cada mensaje (tarjeta «Blue flotante» de Analítica): «tocado», «cerrado con la X» o «se cierra solo». Los del
+// panel del dueño no cuentan; trackEvent ya respeta a quien rechazó la analítica.
+function contarMensaje(b: Bocadillo, como: "tocado" | "cerrado con la X" | "se cierra solo") {
+  if (b.panel) return;
+  void trackEvent("blue_mensaje", `Blue: mensaje ${como}`, { metadata: { tipo: b.id.split(":")[0] } });
+}
+
 // Analítica propia (Administración → Analítica, tarjeta «Blue flotante»): en qué pantalla se abre Blue. Solo en la tienda
 // (el dueño en el panel no cuenta); trackEvent ya respeta a quien rechazó la analítica.
 function contarBlueAbierto(pathname: string) {
@@ -743,6 +755,8 @@ export default function Campanita() {
   // Avisos de Noticias Gaming: si están activados y cuántas hay sin ver.
   const [avisosNoticias, setAvisosNoticias] = useState(false);
   const [noticiasNuevas, setNoticiasNuevas] = useState(0);
+  // La más reciente de las noticias nuevas: su aviso la abre directamente (dueño, 2026-11-04), no la lista.
+  const [noticiaNueva, setNoticiaNueva] = useState<{ id: string; titulo: string } | null>(null);
   // Avisos de la tienda: artículos nuevos, «Avísame cuando llegue», bajadas de precio y,
   // solo el admin, ventas de VeoAura sin confirmar.
   const [avisosNovedades, setAvisosNovedades] = useState(false);
@@ -1034,21 +1048,28 @@ export default function Campanita() {
     setAvisosNoticias(activado);
     if (!activado) {
       setNoticiasNuevas(0);
+      setNoticiaNueva(null);
       return;
     }
 
     const vistasMs = Math.max(isoAMs(vistasCuenta), isoAMs(vistasLocal));
     const desde = new Date(vistasMs || Date.now() - DIA_MS).toISOString();
     try {
-      const { count, error } = await supabase
+      // Cuántas hay y cuál es la más reciente (su aviso la abre directamente).
+      const { data, count, error } = await supabase
         .from("noticias_gaming")
-        .select("id", { count: "exact", head: true })
+        .select("id,titulo", { count: "exact" })
         .eq("publicada", true)
-        .gt("created_at", desde);
+        .gt("created_at", desde)
+        .order("created_at", { ascending: false })
+        .limit(1);
       if (error) throw error;
+      const ultima = (data ?? [])[0] as { id: string; titulo: string | null } | undefined;
       setNoticiasNuevas(count ?? 0);
+      setNoticiaNueva(ultima ? { id: ultima.id, titulo: String(ultima.titulo ?? "").replace(/\s+/g, " ").trim() } : null);
     } catch {
       setNoticiasNuevas(0);
+      setNoticiaNueva(null);
     }
   }, []);
 
@@ -1875,6 +1896,18 @@ export default function Campanita() {
   // Ocultar: se desliza hacia su borde y se desvanece; al volver, con un leve rebote. Con el visor de fotos abierto,
   // siempre (la foto ampliada se ve entera).
   const oculto = visorFotos || (algoDebajo && !panelOpen && !guiaAbierta) || (ocultoScroll && !panelOpen && !saludando);
+
+  // El mensaje a la vista se cierra solo a los 12 s (MENSAJE_VISIBLE_MS); si Blue se esconde, la cuenta vuelve a empezar
+  // cuando se vuelve a ver.
+  useEffect(() => {
+    if (!bocadillo || oculto || panelOpen || !enPantalla) return;
+    const b = bocadillo;
+    const t = setTimeout(() => {
+      setBocadillo((actual) => (actual === b ? null : actual));
+      contarMensaje(b, "se cierra solo");
+    }, MENSAJE_VISIBLE_MS);
+    return () => clearTimeout(t);
+  }, [bocadillo, oculto, panelOpen, enPantalla]);
   useEffect(() => {
     Animated.timing(ocultar, {
       toValue: oculto ? 1 : 0,
@@ -2042,6 +2075,7 @@ export default function Campanita() {
     const b = bocadillo;
     setBocadillo(null);
     if (!b) return;
+    contarMensaje(b, "tocado");
     if (b.accion === "chat" || b.accion === "ruta") router.push((b.ruta ?? "/blue-ia") as Href);
     else if (b.accion === "vender") {
       marcarOrigenVender("blue");
@@ -2134,6 +2168,7 @@ export default function Campanita() {
       }
       setAvisosNoticias(true);
       setNoticiasNuevas(0);
+      setNoticiaNueva(null);
       setNoticiasRecienActivadas(true);
       void trackEvent("avisos_noticias_activados", "Blue: avisos de noticias activados", { metadata: { desde: "panel de Blue" } });
     } else {
@@ -2314,7 +2349,10 @@ export default function Campanita() {
                 </Text>
               </Pressable>
               <Pressable
-                onPress={() => setBocadillo(null)}
+                onPress={() => {
+                  if (bocadillo) contarMensaje(bocadillo, "cerrado con la X");
+                  setBocadillo(null);
+                }}
                 hitSlop={10}
                 accessibilityLabel="Cerrar mensaje de Blue"
                 style={{ position: "absolute", top: 7, right: 9 }}
@@ -2678,13 +2716,27 @@ export default function Campanita() {
                     {novedadesPending ? (
                       <Aviso icono="newspaper-outline" titulo="Hay novedades en el Foro" accion="Ver novedades" onPress={() => ir("/chat-global?tab=novedades")} />
                     ) : null}
+                    {/* Noticia nueva: abre directamente esa noticia (con varias, la más reciente), no la lista (dueño,
+                        2026-11-04); al verla se marcan como vistas y el aviso se va. */}
                     {noticiasNuevas > 0 ? (
-                      <Aviso
-                        icono="megaphone-outline"
-                        titulo={noticiasNuevas === 1 ? "Hay 1 noticia nueva" : `Hay ${noticiasNuevas} noticias nuevas`}
-                        accion="Ver noticias"
-                        onPress={() => ir("/chat-global?tab=news")}
-                      />
+                      <View nativeID="blue-aviso-noticia">
+                        <Aviso
+                          icono="megaphone-outline"
+                          titulo={
+                            noticiaNueva?.titulo
+                              ? `Noticia nueva: ${noticiaNueva.titulo.length > 90 ? `${noticiaNueva.titulo.slice(0, 89).trimEnd()}…` : noticiaNueva.titulo}`
+                              : noticiasNuevas === 1
+                                ? "Hay 1 noticia nueva"
+                                : `Hay ${noticiasNuevas} noticias nuevas`
+                          }
+                          detalle={noticiaNueva?.titulo && noticiasNuevas > 1 ? `Y ${noticiasNuevas - 1} más en Noticias Gaming` : undefined}
+                          accion="Leer la noticia"
+                          onPress={() => {
+                            void trackEvent("blue_aviso_noticia", "Blue: noticia abierta desde el aviso", { metadata: { nuevas: noticiasNuevas } });
+                            ir(noticiaNueva ? `/chat-global?noticia=${noticiaNueva.id}` : "/chat-global?tab=news");
+                          }}
+                        />
+                      </View>
                     ) : null}
                     {isAdmin && salidaPendiente > 0 ? (
                       <Aviso

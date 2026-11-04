@@ -573,6 +573,10 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         : r.fulfill({ status: 201, headers: CORS, body: "" });
     }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
+    // Noticias nuevas que cuenta Blue (sección MC): la más reciente y el total, como PostgREST (Content-Range).
+    if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticiasNuevasBlue && /select=id(%2C|,)titulo/.test(url.search)) {
+      return json(estado.noticiasNuevasBlue.slice(0, 1), 200, { "content-range": `0-0/${estado.noticiasNuevasBlue.length}`, "access-control-expose-headers": "content-range" });
+    }
     if (url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET" && estado.noticias) return json(estado.noticias);
     // Avisos de la tienda que Blue dice en la tienda (Noticias Flash, sección AD).
     if (url.pathname.endsWith("/rest/v1/flash_news") && metodo === "GET" && estado.flash) return json(estado.flash);
@@ -3346,6 +3350,124 @@ async function seccionNA() {
   }
 }
 
+// ===== MC) Los mensajes de Blue se cierran solos y el aviso de una noticia nueva abre esa noticia (dueño, 2026-11-04) ==
+// El saludo se va a los ~3 s; un mensaje, a los 10–15 s a la vista (y con la X, cuando se quiera); la analítica cuenta cómo
+// acaba. El aviso «Noticia nueva: …» lleva a esa noticia (/chat-global?noticia=<id>), no a la lista. Administración →
+// Analítica lo cuenta. Control: con la tienda anterior el mensaje no se cierra solo y el aviso lleva a la lista.
+async function seccionMC() {
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+  const AVISO = "Esta semana, mandos revisados con un 20 % menos";
+  const mensaje = (p) => p.evaluate(() => (document.getElementById("blue-mensaje")?.innerText ?? "").replace(/\s+/g, " ").trim()).catch(() => "");
+  const eventos = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperarEvento = async (p, estado, nombre) => {
+    for (let i = 0; i < 20 && !eventos(estado, nombre).length; i++) await p.waitForTimeout(300);
+    return eventos(estado, nombre);
+  };
+
+  // MC1) El saludo y el mensaje se van solos; la analítica lo apunta.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, flash: [{ message: AVISO, sort_order: 0 }] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    const saludo = p.locator('[aria-label="Hola, soy Blue. Abrir el asistente"]');
+    await saludo.waitFor({ timeout: 30000 }).catch(() => {});
+    const tSaludo = Date.now();
+    await saludo.waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const duraSaludo = Date.now() - tSaludo;
+    ok((await saludo.count()) === 0 && duraSaludo <= 5000, `MC: el saludo «¡Hola! Soy Blue» se va solo en unos segundos (${duraSaludo} ms)`);
+    await p.locator("#blue-mensaje").waitFor({ timeout: 40000 }).catch(() => {});
+    const t0 = Date.now();
+    const visto = await mensaje(p);
+    await capturar(p, "MC1-mensaje-a-la-vista");
+    await p.locator("#blue-mensaje").waitFor({ state: "detached", timeout: 25000 }).catch(() => {});
+    const dura = Date.now() - t0;
+    ok(/mandos revisados/.test(visto) && (await p.locator("#blue-mensaje").count()) === 0 && dura >= 10000 && dura <= 15000, `MC: el mensaje de Blue se cierra solo a los 10–15 s («${visto.slice(0, 40)}»; ${dura} ms)`);
+    const solo = await esperarEvento(p, estado, "blue_mensaje");
+    ok(solo[0]?.step_label === "Blue: mensaje se cierra solo" && solo[0]?.metadata?.tipo === "n", `MC: y se apunta en la analítica que se cerró solo (${solo[0]?.step_label ?? "nada"}, tipo ${solo[0]?.metadata?.tipo ?? "?"})`);
+    ok(p.errores.length === 0, `MC: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MC2) Con la X se cierra en el momento y se apunta como «cerrado con la X».
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true, flash: [{ message: AVISO, sort_order: 0 }] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#blue-mensaje").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator('[aria-label="Cerrar mensaje de Blue"]').first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const cerrado = await esperarEvento(p, estado, "blue_mensaje");
+    ok((await p.locator("#blue-mensaje").count()) === 0 && cerrado[0]?.step_label === "Blue: mensaje cerrado con la X", `MC: la X lo cierra en el momento y se apunta así (${cerrado[0]?.step_label ?? "nada"})`);
+    await ctx.close();
+  }
+
+  // MC3) El aviso de una noticia nueva enseña su título y abre ESA noticia (con varias, la más reciente).
+  {
+    const noticia = (id, titulo, creada) => ({
+      id, fuente: "Prueba", titulo, imagen_url: null, categoria: "Consolas", resumen: "Resumen de prueba.", puntos_clave: [], datos: [],
+      por_que_importa: null, afecta_a: null, publicada_en: creada, created_at: creada, imagenes: [], imagenes_verificadas: false,
+      imagenes_meta: [], me_gusta: 0, publicada: true,
+    });
+    const NUEVA = "abcd2222-0000-4000-8000-000000000002";
+    const nueva = noticia(NUEVA, "Nueva consola anunciada esta mañana", new Date(Date.now() - 3600000).toISOString());
+    const otra = noticia("abcd3333-0000-4000-8000-000000000003", "Otra noticia de hoy", new Date(Date.now() - 7200000).toISOString());
+    const estado = {
+      filas: perfil, guardados: [], aceptaAnalitica: true, flash: [],
+      preferencias: { user_id: CLIENTE.id, avisos_noticias: true, noticias_vistas_hasta: new Date(Date.now() - 2 * 86400000).toISOString() },
+      noticiasNuevasBlue: [nueva, otra],
+      noticias: [nueva, otra],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem("videojuegoszaragoza:novedades_seen_version", "1");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/");
+    await p.locator("#blue-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click({ timeout: 10000 }).catch(() => {});
+    await p.getByRole("tab", { name: /Noticias y avisos/ }).first().click({ timeout: 10000 }).catch(() => {});
+    await p.locator("#blue-aviso-noticia").waitFor({ timeout: 10000 }).catch(() => {});
+    const aviso = (await p.locator("#blue-aviso-noticia").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Noticia nueva: Nueva consola anunciada esta mañana/.test(aviso) && /Y 1 más en Noticias Gaming/.test(aviso), `MC: el aviso enseña el título de la noticia nueva más reciente («${aviso}»)`);
+    await capturar(p, "MC3-aviso-noticia-nueva");
+    await p.locator('#blue-aviso-noticia [role="button"]').first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForURL(/\/chat-global/, { timeout: 15000 }).catch(() => {});
+    await p.getByText("Nueva consola anunciada esta mañana").first().waitFor({ timeout: 20000 }).catch(() => {});
+    ok(new URL(p.url()).searchParams.get("noticia") === NUEVA && (await p.getByText("Nueva consola anunciada esta mañana").count()) >= 1, `MC: tocarlo abre esa noticia, no la lista (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
+    const abierta = await esperarEvento(p, estado, "blue_aviso_noticia");
+    ok(abierta[0]?.step_label === "Blue: noticia abierta desde el aviso", `MC: y se apunta en la analítica (${abierta[0]?.step_label ?? "nada"})`);
+    await capturar(p, "MC4-noticia-abierta");
+    ok(p.errores.length === 0, `MC: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // MC4) Administración → Analítica lo cuenta.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue: noticia abierta desde el aviso", sessions: 4 },
+        { step_label: "Blue: mensaje tocado", sessions: 3 },
+        { step_label: "Blue: mensaje cerrado con la X", sessions: 2 },
+        { step_label: "Blue: mensaje se cierra solo", sessions: 6 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-flotante").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-blue-flotante").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/abren una noticia nueva desde su aviso 4/.test(t) && /los tocan 3 · los cierran con la X 2 · se cierran solos 6/.test(t), `MC: Administración → Analítica cuenta los avisos de noticia y cómo acaban los mensajes (${t})`);
+    const resto = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(!/Blue: mensaje|Blue: noticia abierta/.test(resto), "MC: y no se cuela como paso del recorrido");
+    await ctx.close();
+  }
+}
+
 // ===== ME) «Mejoras en la tienda»: la cajita de ideas (pie de página, Blue y Mi cuenta) y su parte en Administración ===
 async function seccionME() {
   const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
@@ -5604,6 +5726,7 @@ try {
   if (SOLO === "BU") await seccionBU();
   if (SOLO === "BF") await seccionBF();
   if (SOLO === "NA") await seccionNA();
+  if (SOLO === "MC") await seccionMC();
   if (SOLO === "ME") await seccionME();
   if (SOLO === "CO") await seccionCO();
   if (SOLO === "DI") await seccionDI();
@@ -6555,6 +6678,7 @@ try {
   await seccionBU();
   await seccionBF();
   await seccionNA();
+  await seccionMC();
   await seccionME();
   await seccionCO();
   await seccionDI();
