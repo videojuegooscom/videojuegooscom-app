@@ -5893,6 +5893,201 @@ async function seccionVP() {
   }
 }
 
+// ===== BV) Bienvenida al abrir la tienda (dueño, 2026-11-04): «VideojuegosZaragoza.com» con las mascotas al instante
+// (también en el HTML estático), 3 s la primera vez en cada visita mientras la tienda carga debajo, no al recargar, un
+// toque la quita antes, empieza en Inicio si se abre por otra sección (salvo enlaces concretos) y su parte en
+// Administración → Analítica ========================================================================================
+async function seccionBV() {
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  // Contexto de una visita nueva DE VERDAD: sin la marca con la que las pruebas se saltan la bienvenida.
+  const visitaNueva = async (estado, vista) => {
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await ctx.addInitScript(() => {
+      try {
+        sessionStorage.removeItem("videojuegoszaragoza:bienvenida_vista");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    return ctx;
+  };
+  // Cuándo se quita la bienvenida (ms desde que se abrió la página), o null si sigue a los `limite` ms.
+  const quitadaEn = async (p, limite = 9000) => {
+    for (let i = 0; i < limite / 100; i++) {
+      const r = await p.evaluate(() => ({ hay: !!document.getElementById("bienvenida"), t: Math.round(performance.now()) }));
+      if (!r.hay) return r.t;
+      await p.waitForTimeout(100);
+    }
+    return null;
+  };
+  const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02", foto_url: null }];
+
+  // BV0) El HTML que llega antes de ejecutar nada ya es la bienvenida (sale al instante).
+  {
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: perfil, guardados: [] });
+    const p = await ctx.newPage();
+    const html = await (await p.request.get(`${BASE}/`)).text();
+    ok(/id="bienvenida"/.test(html) && /Tu tienda de electrónica en Zaragoza/.test(html) && /Zaragoza/.test(html), "BV: el HTML estático ya es la bienvenida, con la marca y su frase");
+    await ctx.close();
+  }
+
+  // BV1) Primera vez: marca y mascotas al momento, 3 s encima mientras la tienda carga debajo, y se va sola a Inicio.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
+    const ctx = await visitaNueva(estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#bienvenida").waitFor({ timeout: 5000 }).catch(() => {});
+    const vista = await p.evaluate(() => {
+      const b = document.getElementById("bienvenida")?.getBoundingClientRect();
+      const marca = document.getElementById("bienvenida-marca");
+      const mascotas = Array.from(document.querySelectorAll("#bienvenida img")).map((i) => i.getBoundingClientRect());
+      return {
+        cubre: !!b && b.width >= window.innerWidth - 1 && b.height >= window.innerHeight - 1,
+        marca: (marca?.textContent ?? "").replace(/\s+/g, ""),
+        mascotas: mascotas.some((r) => r.width >= 200 && r.left >= 0 && r.right <= window.innerWidth),
+        t: Math.round(performance.now()),
+      };
+    });
+    ok(vista.cubre && vista.marca === "VideojuegosZaragoza.com" && vista.mascotas, `BV: al abrir sale la bienvenida a pantalla completa con «VideojuegosZaragoza.com» y las mascotas (${JSON.stringify(vista)})`);
+    // La barra se llena con el tiempo (lo que ya ha pasado desde que se abrió la página, hasta los 3 s).
+    const relleno = () =>
+      p.evaluate(() => {
+        const barra = document.getElementById("bienvenida-progreso");
+        const r = barra?.getBoundingClientRect();
+        const f = barra?.firstElementChild?.getBoundingClientRect();
+        return { pct: r && f ? Math.round((f.width / r.width) * 100) : -1, t: Math.round(performance.now()) };
+      });
+    await p.waitForTimeout(Math.max(0, 1200 - vista.t));
+    const b1 = await relleno();
+    await capturar(p, "BV1-bienvenida");
+    await p.waitForTimeout(Math.max(0, 2200 - b1.t));
+    const b2 = await relleno();
+    const esperado = (b) => Math.round((b.t / 3000) * 100);
+    ok(
+      Math.abs(b1.pct - esperado(b1)) <= 15 && Math.abs(b2.pct - esperado(b2)) <= 15 && b2.pct > b1.pct,
+      `BV: la barra se llena con el tiempo (${b1.pct} % a los ${b1.t} ms, ${b2.pct} % a los ${b2.t} ms)`
+    );
+    const debajo = await p.evaluate(() => !!document.querySelector('[data-testid="pestana-index"]'));
+    ok(debajo, "BV: mientras se ve, la tienda ya carga debajo");
+    // A los 3 s se va con un fundido (no de golpe): a mitad del fundido la capa se ve a medias.
+    const opacidades = [];
+    for (let i = 0; i < 60; i++) {
+      const o = await p.evaluate(() => {
+        const capa = document.getElementById("bienvenida")?.parentElement;
+        return { t: Math.round(performance.now()), o: capa ? Number(getComputedStyle(capa).opacity) : null };
+      });
+      if (o.o === null) break;
+      if (o.t >= 3000) opacidades.push(o.o);
+      await p.waitForTimeout(40);
+    }
+    ok(opacidades.some((o) => o > 0.05 && o < 0.95), `BV: se va con un fundido suave (${opacidades.map((o) => o.toFixed(2)).join(" ")})`);
+    const quitada = await quitadaEn(p);
+    ok(quitada !== null && quitada >= 3000 && quitada <= 4600, `BV: se queda unos 3 s y se va sola (se quitó a los ${quitada} ms)`);
+    ok(new URL(p.url()).pathname === "/" && (await p.locator('[data-testid="pestana-index"]').count()) > 0, "BV: y queda Inicio");
+    await esperar(p, () => evento(estado, "bienvenida").length > 0 && evento(estado, "bienvenida_lista").length > 0);
+    const ev = evento(estado, "bienvenida")[0];
+    const lista = evento(estado, "bienvenida_lista")[0];
+    ok(ev?.step_label === "Bienvenida: vista" && ev?.metadata?.saltada === false && /^Bienvenida: tienda lista (en menos de 1 s|entre 1 y 3 s|en más de 3 s)$/.test(lista?.step_label ?? ""), `BV: la analítica cuenta la bienvenida y en cuánto estaba lista la tienda (${lista?.step_label})`);
+    await capturar(p, "BV1-inicio");
+
+    // BV2) Recargar en la misma visita: solo lo que tarde en cargar (sin los 3 s) y se queda donde estaba.
+    await p.reload({ waitUntil: "load" });
+    const quitada2 = await quitadaEn(p, 6000);
+    ok(quitada2 !== null && quitada2 < 2500, `BV: al recargar no vuelve a esperar los 3 s (se quitó a los ${quitada2} ms)`);
+    ok(p.errores.length === 0, `BV: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BV3) Se abre por otra sección de la barra de abajo (Perfil): tras la bienvenida empieza en Inicio.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
+    const ctx = await visitaNueva(estado);
+    const p = await pagina(ctx, "/perfil");
+    await quitadaEn(p);
+    await p.waitForTimeout(500);
+    ok(new URL(p.url()).pathname === "/", `BV: abierta por Perfil, empieza en Inicio (${new URL(p.url()).pathname})`);
+    await esperar(p, () => evento(estado, "bienvenida_inicio").length > 0);
+    ok(evento(estado, "bienvenida_inicio")[0]?.metadata?.desde === "/perfil", "BV: y se cuenta que empezó en Inicio viniendo de Perfil");
+    await ctx.close();
+  }
+
+  // BV4) Un enlace concreto (crear cuenta, una página de la tienda) se respeta.
+  for (const ruta of ["/perfil?acceso=registro", "/quienes-somos"]) {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
+    const ctx = await visitaNueva(estado);
+    const p = await pagina(ctx, ruta);
+    await quitadaEn(p);
+    await p.waitForTimeout(500);
+    const ahora = new URL(p.url());
+    ok(`${ahora.pathname}${ahora.search}` === ruta, `BV: el enlace ${ruta} se respeta (${ahora.pathname}${ahora.search})`);
+    await ctx.close();
+  }
+
+  // BV5) Un toque la quita antes, en cuanto la tienda está lista.
+  {
+    const estado = { filas: perfil, guardados: [], aceptaAnalitica: true };
+    const ctx = await visitaNueva(estado);
+    const p = await pagina(ctx, "/");
+    await p.locator('#bienvenida[aria-label="Entrar en la tienda"]').waitFor({ timeout: 2800 }).catch(() => {});
+    const antes = await p.evaluate(() => Math.round(performance.now()));
+    await p.locator("#bienvenida").click({ timeout: 2000 }).catch(() => {});
+    const quitada = await quitadaEn(p);
+    ok(antes < 2600 && quitada !== null && quitada < 2900, `BV: un toque la quita antes de los 3 s (tocada a los ${antes} ms, quitada a los ${quitada} ms)`);
+    await esperar(p, () => evento(estado, "bienvenida_saltada").length > 0);
+    ok(evento(estado, "bienvenida_saltada")[0]?.step_label === "Bienvenida: saltada con un toque", "BV: y se cuenta");
+    await ctx.close();
+  }
+
+  // BV6) Cabe en un móvil pequeño y en el ordenador, sin cortar la marca ni las mascotas.
+  for (const vista of [{ viewport: { width: 360, height: 640 } }, { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false }]) {
+    const ctx = await visitaNueva({ filas: perfil, guardados: [] }, vista);
+    const p = await pagina(ctx, "/");
+    await p.locator("#bienvenida-marca").waitFor({ timeout: 5000 }).catch(() => {});
+    const r = await p.evaluate(() => {
+      const caja = (el) => el?.getBoundingClientRect();
+      const dentro = (b) => !!b && b.left >= 0 && b.right <= window.innerWidth && b.top >= 0 && b.bottom <= window.innerHeight;
+      return {
+        marca: dentro(caja(document.getElementById("bienvenida-marca"))),
+        mascotas: Array.from(document.querySelectorAll("#bienvenida img")).every((i) => dentro(caja(i))),
+        ancho: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    });
+    ok(r.marca && r.mascotas && r.ancho, `BV: cabe en ${vista.viewport.width} × ${vista.viewport.height} (${JSON.stringify(r)})`);
+    if (vista.viewport.width === 1280) await capturar(p, "BV6-ordenador");
+    await ctx.close();
+  }
+
+  // BV7) Administración → Analítica: cuántos la ven, en cuánto estaba lista la tienda, quién la quita antes y cuántos
+  // empiezan en Inicio.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 20 },
+        { step_label: "Bienvenida: vista", sessions: 15 },
+        { step_label: "Bienvenida: tienda lista en menos de 1 s", sessions: 9 },
+        { step_label: "Bienvenida: tienda lista entre 1 y 3 s", sessions: 5 },
+        { step_label: "Bienvenida: tienda lista en más de 3 s", sessions: 1 },
+        { step_label: "Bienvenida: saltada con un toque", sessions: 4 },
+        { step_label: "Bienvenida: empieza en Inicio", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-bienvenida").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-bienvenida").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(
+      /la ven 15 sesiones · la tienda estaba lista en menos de 1 s: 9 · entre 1 y 3 s: 5 · en más de 3 s: 1 · la quitan antes con un toque: 4 · empiezan en Inicio aunque la abrieran por otra sección: 2/.test(t),
+      `BV: Administración → Analítica lo cuenta (${t})`
+    );
+    ok(p.errores.length === 0, `BV: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== VA) Ficha de clientes para VeoAura (dueño, 2026-11-03): Administración → Escaparate cuenta las fichas de
 // cliente (nombre, correo y teléfono de pedidos entregados) enviadas y por enviar, sin mezclarlas con las ventas sin
 // confirmar; Pedidos avisa de que «Entregado» las manda =============================================================
@@ -6589,6 +6784,7 @@ try {
   if (SOLO === "SE") await seccionSE();
   if (SOLO === "BI") await seccionBI();
   if (SOLO === "QS") await seccionQS();
+  if (SOLO === "BV") await seccionBV();
   if (SOLO === "HO") await seccionHO();
   if (SOLO === "AD") await seccionAD();
   if (SOLO === "SV") await seccionSV();
@@ -7545,6 +7741,7 @@ try {
   await seccionSE();
   await seccionBI();
   await seccionQS();
+  await seccionBV();
   await seccionHO();
   await seccionAD();
   await seccionSV();

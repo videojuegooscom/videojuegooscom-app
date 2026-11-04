@@ -80,7 +80,21 @@ export function vigilarFugas(contexto, registro = fotos.reales) {
   });
 }
 
+// Las pruebas entran sin la bienvenida de 3 s de app/_layout.tsx: cada página nueva es una visita nueva y la esperaría
+// entera (y taparía lo que se toca). La prueba de la bienvenida (perfil-datos.mjs, sección BV) borra esta marca.
+export const MARCA_BIENVENIDA = "videojuegoszaragoza:bienvenida_vista";
+async function saltarBienvenida(contexto) {
+  await contexto.addInitScript((clave) => {
+    try {
+      sessionStorage.setItem(clave, "1");
+    } catch {
+      // sin almacenamiento
+    }
+  }, MARCA_BIENVENIDA);
+}
+
 async function protegerContexto(contexto) {
+  await saltarBienvenida(contexto);
   await proteger(contexto);
   vigilarFugas(contexto);
   const nuevaPagina = contexto.newPage.bind(contexto);
