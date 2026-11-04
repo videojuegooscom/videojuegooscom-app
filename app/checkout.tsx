@@ -742,7 +742,7 @@ export default function CheckoutScreen() {
 
               {items.map((it) => (
                 <View key={it.id} nativeID={`pago-articulo-${it.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 }}>
-                  <View style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+                  <View nativeID={`pago-foto-${it.id}`} style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
                     {it.imageUrl ? (
                       <SmartImage uri={it.imageUrl} alt={it.title} ancho={72} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                     ) : (

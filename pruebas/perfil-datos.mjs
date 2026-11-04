@@ -6300,6 +6300,8 @@ async function seccionTE() {
         // sin almacenamiento
       }
     }, CESTA);
+  // Perfil completo (si no, «Completa tu perfil» tapa la tienda).
+  const perfil = () => [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Madrid", fecha_nacimiento: "1990-05-02", foto_url: null }];
   const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
   const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
   const sinDesbordar = (p) => p.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= window.innerWidth + 1);
@@ -6329,6 +6331,14 @@ async function seccionTE() {
       const src = img?.getAttribute("src") ?? "";
       return { ancho: Math.round(r?.width ?? 0), alto: Math.round(r?.height ?? 0), cargada: !!img && img.complete && img.naturalWidth > 0, optimizada: /\/_vercel\/image\?url=/.test(src), w: Number(new URL(src || "http://x", location.href).searchParams.get("w") ?? 0) };
     }, id);
+  // Cada bloque sigue aunque otro se corte (con la versión anterior, de control, falta casi todo): se cuenta como fallo.
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `TE: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
   // Deslizar el dedo hacia arriba desde (x, y), como en el móvil.
   const deslizar = async (ctx, p, x, y, dy) => {
     const cdp = await ctx.newCDPSession(p);
@@ -6343,8 +6353,8 @@ async function seccionTE() {
 
   // TE1) Cesta con las tarifas a 0 € (como las deja la migración): miniaturas, precios en azul, «Gratis» en verde y las
   // acciones con su icono y sin burbuja; «Ir a pagar» lleva al pago.
-  {
-    const estado = { filas: [], guardados: [], productosVacios: true, tarifas: GRATIS };
+  await bloque("TE1 cesta", async () => {
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: GRATIS };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await conCesta(ctx);
     const p = await pagina(ctx, "/cesta");
@@ -6352,8 +6362,8 @@ async function seccionTE() {
     await p.waitForTimeout(1200);
     const f1 = await miniatura(p, `cesta-foto-${A1}`);
     const f2 = await miniatura(p, `cesta-foto-${A2}`);
+    // (la foto pequeña del optimizador de Vercel solo se pide con https: aquí, en http, llega la original falsa)
     ok(f1.ancho === 104 && f1.alto === 104 && f1.cargada && f2.cargada, `TE: la cesta enseña la miniatura de cada artículo (104 × 104) (${JSON.stringify(f1)})`);
-    ok(f1.optimizada && f1.w > 0 && f1.w <= 320, `TE: y es la foto pequeña del optimizador, no la original (w=${f1.w})`);
     const colores = await p.evaluate((ids) => ids.map((i) => getComputedStyle(document.getElementById(i)).color), [`cesta-precio-${A1}`, `cesta-precio-${A2}`]);
     ok(colores.every((c) => c === AZUL), `TE: los precios van en el azul de la marca (${colores.join(", ")})`);
     const envio = await texto(p, "#cesta-envio");
@@ -6379,15 +6389,27 @@ async function seccionTE() {
     ok(await sinDesbordar(p), "TE: la cesta no se ensancha");
     await capturar(p, "TE1-cesta");
     ok(p.errores.length === 0, `TE: la cesta sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
-    await p.locator("#cesta-pagar").click();
+    // Como haría el cliente: lo trae al centro de la pantalla y lo toca (lo que haya encima recibe el toque y se apunta).
+    await p.evaluate(() => document.getElementById("cesta-pagar")?.scrollIntoView({ block: "center" }));
+    await p.waitForTimeout(400);
+    const encima = await p.evaluate(() => {
+      const b = document.getElementById("cesta-pagar")?.getBoundingClientRect();
+      if (!b) return "sin botón";
+      const e = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      let x = e;
+      while (x && x.id !== "cesta-pagar" && !(x.contains(document.getElementById("cesta-pagar")) && x.getBoundingClientRect().height < 80)) x = x.parentElement;
+      return x ? "sí" : `tapado por ${e?.id || e?.getAttribute("data-testid") || e?.className || e?.tagName}`;
+    });
+    ok(encima === "sí", `TE: «Ir a pagar» recibe el toque (${encima})`);
+    await p.locator("#cesta-pagar").click({ timeout: 10000 }).catch(() => {});
     await p.waitForURL(/\/checkout/, { timeout: 15000 }).catch(() => {});
     ok(/\/checkout/.test(p.url()), `TE: «Ir a pagar» lleva a «Finalizar compra» (${new URL(p.url()).pathname})`);
     await ctx.close();
-  }
+  });
 
   // TE2) Cesta con envíos de pago: el envío se calcula con el código postal, «gratis desde» y «Total sin envío».
-  {
-    const estado = { filas: [], guardados: [], productosVacios: true, tarifas: DE_PAGO };
+  await bloque("TE2 cesta con envíos de pago", async () => {
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: DE_PAGO };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await conCesta(ctx);
     const p = await pagina(ctx, "/cesta");
@@ -6400,24 +6422,20 @@ async function seccionTE() {
     ok(/Total sin envío: 100,00€/.test((await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ")), "TE: y el total es «Total sin envío»");
     await capturar(p, "TE2-cesta-envio-de-pago");
     await ctx.close();
-  }
+  });
 
   // TE3) «Finalizar compra» con envíos de pago: un solo desplazamiento (también desde un campo), miniaturas, el envío por
   // el código postal (Madrid, Zaragoza, Canarias sin envío, en mano) y el pedido con su envío.
-  {
-    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: DE_PAGO, pedidoNumero: 101 };
+  await bloque("TE3 pago", async () => {
+    const estado = { filas: perfil(), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: DE_PAGO, pedidoNumero: 101 };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await conCesta(ctx);
     const p = await pagina(ctx, "/checkout");
     await p.locator("#pago-desplazamiento").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(1200);
-    const a1 = await miniatura(p, `pago-articulo-${A1}`);
-    const imgPago = await p.evaluate((i) => {
-      const img = document.getElementById(i)?.querySelector("img");
-      const r = img?.parentElement?.getBoundingClientRect();
-      return { ancho: Math.round(r?.width ?? 0), alto: Math.round(r?.height ?? 0) };
-    }, `pago-articulo-${A1}`);
-    ok(a1.cargada && a1.optimizada && imgPago.ancho >= 70 && imgPago.ancho <= 74 && imgPago.alto >= 70 && imgPago.alto <= 74, `TE: el resumen del pago enseña la miniatura de cada artículo (${JSON.stringify(imgPago)}, w=${a1.w})`);
+    const a1 = await miniatura(p, `pago-foto-${A1}`);
+    const a2 = await miniatura(p, `pago-foto-${A2}`);
+    ok(a1.cargada && a2.cargada && a1.ancho === 72 && a1.alto === 72, `TE: el resumen del pago enseña la miniatura de cada artículo (72 × 72) (${JSON.stringify({ ancho: a1.ancho, alto: a1.alto, cargada: a1.cargada && a2.cargada })})`);
     const precioPago = await p.evaluate((i) => [...document.querySelectorAll(`#${i} *`)].filter((e) => /€$/.test(e.textContent ?? "") && e.children.length === 0).map((e) => getComputedStyle(e).color)[0] ?? "", `pago-articulo-${A1}`);
     ok(precioPago === AZUL, `TE: y su precio en el azul de la marca (${precioPago})`);
 
@@ -6431,10 +6449,14 @@ async function seccionTE() {
     await deslizar(ctx, p, 195, 640, -420);
     const tras1 = await p.evaluate(() => document.getElementById("pago-desplazamiento")?.scrollTop ?? 0);
     ok(tras1 >= 200, `TE: deslizar el dedo desplaza el pago (${Math.round(tras1)} px)`);
-    const campo = await p.getByPlaceholder("Nombre completo").boundingBox();
-    if (campo) await deslizar(ctx, p, campo.x + campo.width / 2, Math.min(campo.y + campo.height / 2, 780), -300);
+    // Ahora hacia el otro lado, empezando el gesto encima de un campo que se vea en la pantalla.
+    const campo = await p.evaluate(() => {
+      const r = [...document.querySelectorAll("#pago-desplazamiento input")].map((e) => e.getBoundingClientRect()).find((b) => b.top >= 120 && b.bottom <= 500);
+      return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+    });
+    if (campo) await deslizar(ctx, p, campo.x, campo.y, 300);
     const tras2 = await p.evaluate(() => document.getElementById("pago-desplazamiento")?.scrollTop ?? 0);
-    ok(!!campo && tras2 >= tras1 + 150, `TE: también empezando encima de un campo (${Math.round(tras1)} → ${Math.round(tras2)} px)`);
+    ok(!!campo && tras2 <= tras1 - 150, `TE: también empezando encima de un campo (${Math.round(tras1)} → ${Math.round(tras2)} px)`);
     const fuente = await p.evaluate(() => [...document.querySelectorAll("#pago-desplazamiento input, #pago-desplazamiento textarea")].map((e) => getComputedStyle(e).fontSize));
     ok(fuente.length >= 6 && fuente.every((f) => f === "16px"), `TE: los campos van a 16 px (el iPhone no amplía la página) (${[...new Set(fuente)].join(", ")})`);
 
@@ -6484,11 +6506,11 @@ async function seccionTE() {
     ok(!JSON.stringify(estado.eventosEnviados ?? []).includes("Calle Mayor"), "TE: y nunca la dirección");
     ok(p.errores.length === 0, `TE: el pago sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
-  }
+  });
 
   // TE4) Sin la migración (la tabla no existe): el pago sigue con el envío gratis, como hasta hoy.
-  {
-    const estado = { filas: [], guardados: [], productosVacios: true, tarifas: null };
+  await bloque("TE4 pago sin la migración", async () => {
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: null };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await conCesta(ctx);
     const p = await pagina(ctx, "/checkout");
@@ -6497,11 +6519,11 @@ async function seccionTE() {
     ok(/^Envío: Gratis$/.test(await texto(p, "#pago-envio")) && /^Total: 100,00€$/.test(await texto(p, "#pago-total")), `TE: sin la migración, el envío sigue gratis (${await texto(p, "#pago-envio")})`);
     ok((estado.tarifas404 ?? 0) === 1 && p.errores.length === 0, `TE: lo mira una sola vez y sin errores de JavaScript (${estado.tarifas404 ?? 0} lecturas)`);
     await ctx.close();
-  }
+  });
 
   // TE5) Administración → Tarifas de envío: desde el Panel, los pedidos de 30 días, editar precios, la calculadora y
   // guardar (solo lo cambiado); un importe mal escrito no se guarda.
-  {
+  await bloque("TE5 Tarifas de envío", async () => {
     const estado = {
       guardados: [],
       tarifas: GRATIS.map((z) => ({ ...z })),
@@ -6552,21 +6574,21 @@ async function seccionTE() {
     await capturar(p, "TE5-tarifas-envio");
     ok(p.errores.length === 0, `TE: Tarifas de envío sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
-  }
+  });
 
   // TE6) Tarifas de envío sin la migración: lo dice (la tienda sigue gratis).
-  {
+  await bloque("TE6 Tarifas sin la migración", async () => {
     const estado = { guardados: [], tarifas: null };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/envios");
     await p.locator("#envios-sin-migracion").waitFor({ timeout: 30000 }).catch(() => {});
     ok(/Falta preparar la base de datos/.test(await texto(p, "#envios-sin-migracion")) && (await p.locator('[id^="envio-zona-"]').count()) === 0 && p.errores.length === 0, "TE: sin la migración, Tarifas de envío lo dice y no enseña zonas (sin errores)");
     await ctx.close();
-  }
+  });
 
   // TE7) Administración → Pedidos: artículos, envío (con su zona) y total; el envío a mano para ese pedido y la vuelta
   // al automático (como el disparador de la base de datos). Sin la migración, nada de eso y la lista igual.
-  {
+  await bloque("TE7 Pedidos", async () => {
     const pedido = {
       id: "0d000000-0000-4000-8000-000000000101", numero: 101, created_at: new Date().toISOString(), estado: "pendiente", entrega: "envio",
       nombre: "Ana", email: "ana@example.com", telefono: "600111222", direccion: "Calle Mayor 5", codigo_postal: "28001", ciudad: "Madrid", notas: null,
@@ -6614,7 +6636,7 @@ async function seccionTE() {
     await p2.waitForTimeout(500);
     ok((await p2.getByText(/Pedido nº 101/).count()) >= 1 && (await p2.locator("#pedido-envio-101").count()) === 0 && (estado2.pedidos400 ?? 0) === 1 && p2.errores.length === 0, `TE: sin la migración, Pedidos sale igual sin el envío (${estado2.pedidos400 ?? 0} intento fallido, sin errores)`);
     await ctx2.close();
-  }
+  });
 }
 
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========

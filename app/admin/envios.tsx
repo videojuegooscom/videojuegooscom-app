@@ -408,8 +408,6 @@ export default function AdminEnvios() {
                         nativeID={`envio-activa-${z.zona}`}
                         value={b.activa}
                         onValueChange={(v) => cambiar(z.zona, "activa", v)}
-                        trackColor={{ false: "#E3EAF2", true: "#9ED8F5" }}
-                        thumbColor={b.activa ? COLORS.accent : "#FFFFFF"}
                         accessibilityLabel={`Se envía a ${z.zona}`}
                       />
                     </View>
