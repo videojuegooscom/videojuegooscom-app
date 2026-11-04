@@ -52,13 +52,13 @@
  * - app/admin/_layout.tsx → todas las rutas /admin.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Platform, View } from "react-native";
+import { Platform, View, type ViewStyle } from "react-native";
 import { Stack, router, usePathname } from "expo-router";
 import Head from "expo-router/head";
 import { useFonts } from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import BotonAtrasAlcance from "../components/BotonAtrasAlcance";
-import BrandLoadingScreen, { BIENVENIDA_MS } from "../components/BrandLoadingScreen";
+import BrandLoadingScreen, { BIENVENIDA_MS, BIENVENIDA_RELLENO_ID } from "../components/BrandLoadingScreen";
 import Campanita from "../components/Campanita";
 import CookieConsentBanner from "../components/CookieConsentBanner";
 import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
@@ -90,8 +90,33 @@ const ACTUALIZAR_CLAVE = "videojuegoszaragoza:actualizada_en";
 // en la misma visita («Desliza para actualizar», la actualización automática) sale solo lo que tarde en cargar y se
 // queda donde estaba. Los enlaces a fichas, noticias, políticas, correos o el panel se respetan siempre.
 const BIENVENIDA_CLAVE = "videojuegoszaragoza:bienvenida_vista";
-const BIENVENIDA_FUNDIDO_MS = 350;
+const BIENVENIDA_FUNDIDO_MS = 420;
 const SECCIONES_A_INICIO = /^\/(perfil|cesta|chat-global|blue-ia)\/?$/;
+// Fundido de salida en CSS (dueño, 2026-11-04: «que no haya tirones»): lo anima el navegador por su cuenta aunque la
+// tienda se esté pintando debajo (antes era Animated de JavaScript, que en la web va con el hilo principal). Se
+// desvanece y crece un poco, como si se abriera la puerta de la tienda.
+const BIENVENIDA_TRANSICION = (Platform.OS === "web"
+  ? {
+      transitionProperty: "opacity, transform",
+      transitionDuration: `${BIENVENIDA_FUNDIDO_MS}ms`,
+      transitionTimingFunction: "cubic-bezier(.4,0,.2,1)",
+      willChange: "opacity, transform",
+    }
+  : {}) as unknown as ViewStyle;
+
+// Lo que le falta a la barra de la bienvenida para llenarse (ms). La barra es una animación CSS que empezó al pintarse
+// la página (components/BrandLoadingScreen.tsx): la bienvenida se va justo cuando se llena. Sin ella (navegadores
+// antiguos), lo que falte hasta BIENVENIDA_MS desde que se abrió la página.
+function faltaParaLlenarse(): number {
+  try {
+    const relleno = document.getElementById(BIENVENIDA_RELLENO_ID) as (HTMLElement & { getAnimations?: () => Animation[] }) | null;
+    const t = relleno?.getAnimations?.()[0]?.currentTime;
+    if (typeof t === "number" && t >= 0) return Math.max(0, BIENVENIDA_MS - t);
+  } catch {
+    // sin animaciones: el reloj de la página
+  }
+  return Math.max(0, BIENVENIDA_MS - performance.now());
+}
 
 function hayTextoEscrito(): boolean {
   const campos = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
@@ -204,7 +229,6 @@ export default function RootLayout() {
 
   // Bienvenida: «visible» (encima de la tienda), «saliendo» (fundido) o «fuera».
   const [bienvenida, setBienvenida] = useState<"visible" | "saliendo" | "fuera">("visible");
-  const fundido = useRef(new Animated.Value(1)).current;
   const bienvenidaInfo = useRef({ listaMs: 0, desde: "/", aInicio: false, medida: false });
 
   const quitarBienvenida = useCallback(
@@ -221,11 +245,10 @@ export default function RootLayout() {
         if (info.aInicio) void trackEvent("bienvenida_inicio", "Bienvenida: empieza en Inicio", { path: info.desde, metadata });
       }
       setBienvenida((b) => (b === "visible" ? "saliendo" : b));
-      Animated.timing(fundido, { toValue: 0, duration: BIENVENIDA_FUNDIDO_MS, useNativeDriver: Platform.OS !== "web" }).start(() =>
-        setBienvenida("fuera")
-      );
+      // El fundido lo hace el CSS (BIENVENIDA_TRANSICION); al terminar se quita la capa.
+      setTimeout(() => setBienvenida("fuera"), BIENVENIDA_FUNDIDO_MS + 60);
     },
-    [fundido]
+    []
   );
 
   useEffect(() => {
@@ -262,28 +285,33 @@ export default function RootLayout() {
         }
       }, 0);
     }
-    const timer = setTimeout(() => quitarBienvenida(false), Math.max(0, BIENVENIDA_MS - performance.now()));
+    // Se va cuando la barra se llena (y entonces se funde).
+    const timer = setTimeout(() => quitarBienvenida(false), faltaParaLlenarse());
     return () => clearTimeout(timer);
   }, [bootLoading, bienvenida, quitarBienvenida]);
 
   // La bienvenida va encima de todo (también de Blue y del aviso de cookies) y bloquea los toques mientras se ve.
   const capaBienvenida =
     bienvenida !== "fuera" ? (
-      <Animated.View
+      <View
         key="bienvenida"
         pointerEvents={bienvenida === "visible" ? "auto" : "none"}
-        style={{
-          position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 2147483000,
-          opacity: fundido,
-        }}
+        style={[
+          {
+            position: (Platform.OS === "web" ? "fixed" : "absolute") as "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2147483000,
+            opacity: bienvenida === "saliendo" ? 0 : 1,
+            transform: [{ scale: bienvenida === "saliendo" ? 1.03 : 1 }],
+          },
+          BIENVENIDA_TRANSICION,
+        ]}
       >
         <BrandLoadingScreen onEntrar={!bootLoading && bienvenida === "visible" ? () => quitarBienvenida(true) : undefined} />
-      </Animated.View>
+      </View>
     ) : null;
 
   if (bootLoading) {
