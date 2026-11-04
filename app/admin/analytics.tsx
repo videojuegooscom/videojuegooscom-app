@@ -544,6 +544,8 @@ export default function AdminAnalytics() {
       blueInicio: findExact("Blue flotante: abierto en Inicio"),
       blueFichaProducto: findExact("Blue flotante: abierto en la ficha de producto"),
       blueFichaServicio: findExact("Blue flotante: abierto en la ficha de servicio"),
+      // «Activa los avisos de noticias» del panel de Blue (se activan con un toque).
+      blueAvisosNoticias: findExact("Blue: avisos de noticias activados"),
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
       blueRetomada: findExact("Blue IA: conversación retomada"),
       blueNueva: findExact("Blue IA: nueva conversación"),
@@ -936,7 +938,8 @@ export default function AdminAnalytics() {
                     <Ionicons name="happy-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Blue flotante (fijo arriba a la derecha), lo abren: en Inicio {coreFunnel.blueInicio} · en la ficha de producto{" "}
-                      {coreFunnel.blueFichaProducto} · en la ficha de servicio {coreFunnel.blueFichaServicio} (sesiones)
+                      {coreFunnel.blueFichaProducto} · en la ficha de servicio {coreFunnel.blueFichaServicio} · activan desde su panel los
+                      avisos de noticias {coreFunnel.blueAvisosNoticias} (sesiones)
                     </Text>
                   </View>
                   <View
