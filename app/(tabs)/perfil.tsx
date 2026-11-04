@@ -87,7 +87,7 @@ import PerfilPublico from "../../components/PerfilPublico";
 import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
 import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { trackEvent } from "../../lib/analytics";
+import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
 import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
 import { mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 
@@ -892,6 +892,8 @@ export default function PerfilScreen() {
         return;
       }
 
+      // Analítica propia: cuenta creada y, si la visita llegó de Instagram o TikTok, de cuál (sin ningún dato de la persona).
+      medirCuentaCreada();
       setOkMsg("Cuenta creada. Si te hemos enviado un correo para confirmarla, ábrelo antes de iniciar sesión (mira también en Spam).");
       setMode("signin");
       setPass("");
