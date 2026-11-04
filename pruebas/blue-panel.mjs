@@ -4,8 +4,9 @@
  * Comprueba:
  *  - Guías rápidas: el panel ofrece una por pantalla (Inicio, Catálogo, Artículo, Vender, Perfil, Cesta, Foro, Blue IA,
  *    Servicios; la de la pantalla actual va resaltada) que enseña SOLO los pasos de esa pantalla y termina con «Terminar».
- *    Si es la pantalla donde estás no te mueves de ella; si es otra (Blue no se ve en Vender, el Foro ni Blue IA) la guía
- *    te lleva y al terminar vuelves. No marca la guía de bienvenida como vista; la guía completa sigue empezando por «Empezar».
+ *    Si es la pantalla donde estás no te mueves de ella; si es otra (desde 2026-11-04 Blue solo se ve en Inicio, en las
+ *    fichas y en el panel) la guía te lleva y al terminar vuelves. No marca la guía de bienvenida como vista; la guía
+ *    completa sigue empezando por «Empezar».
  *  - Hay DOS pestañas, «Asistente» y «Noticias y avisos» (antes eran tres: Notificaciones y Noticias por separado).
  *  - «Asistente» tiene UN solo botón para hablar («Hablar con Blue IA o el equipo») que lleva a Blue IA, y ya no están
  *    «Hablar con Blue IA» ni «Hablar con nuestro equipo» por separado. Siguen «Ver la guía», «Vender…».
@@ -201,7 +202,11 @@ try {
     await p.getByRole("button", { name: /Avísame cuando llegue/ }).tap();
     await p.waitForTimeout(1500);
     ok(/\/perfil/.test(p.url()) && /acceso=entrar/.test(p.url()), `Sin sesión: tocar la fila lleva al acceso (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
-    ok((await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').count()) >= 1, "Después de ir al acceso Blue sigue en su sitio");
+    // Desde 2026-11-04 Blue solo sale en Inicio, en las fichas y en el panel: en Perfil (el acceso) no.
+    ok((await p.locator("#blue-flotante").count()) === 0, "Después de ir al acceso (Perfil), Blue no sale allí");
+    await p.goto(BASE + "/", { waitUntil: "load", timeout: 60000 });
+    await p.waitForSelector("#blue-flotante", { timeout: 25000 });
+    await p.waitForTimeout(2500);
     await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').tap();
     await p.waitForTimeout(1000);
   }
@@ -301,7 +306,8 @@ try {
   };
   const sinErrores = (q, etiqueta) => ok(q.errores.length === 0, `${etiqueta}: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
 
-  // 1) La guía de la pantalla donde estás: Inicio (con su chip resaltado) y Perfil. No te mueves de ella.
+  // 1) La guía de la pantalla donde estás: Inicio (con su chip resaltado). No te mueves de ella. (Blue ya no sale en
+  // Perfil: su guía se elige desde Inicio, en el punto 2.)
   {
     const q = await paginaMini("/");
     await recorrerMini(q, "Inicio");
@@ -312,14 +318,10 @@ try {
     ok(actual !== otro && /^rgba\(0, 0, 0, 0\)|transparent/.test(otro), `Guías rápidas: la de la pantalla actual va resaltada (Inicio ${actual}; Catálogo ${otro})`);
     sinErrores(q, "Guía rápida Inicio");
     await q.close();
-    const r = await paginaMini("/perfil");
-    await recorrerMini(r, "Perfil");
-    sinErrores(r, "Guía rápida Perfil");
-    await r.close();
   }
 
   // 2) Una guía de OTRA pantalla, desde Inicio: la guía te lleva allí y al terminar vuelves a Inicio.
-  for (const nombre of ["Catálogo", "Vender", "Cesta", "Foro", "Blue IA", "Servicios"]) {
+  for (const nombre of ["Catálogo", "Vender", "Perfil", "Cesta", "Foro", "Blue IA", "Servicios"]) {
     const q = await paginaMini("/");
     await recorrerMini(q, nombre, RUTA_MINI[nombre]);
     sinErrores(q, `Guía rápida ${nombre}`);
@@ -348,21 +350,34 @@ try {
     }
   }
 
-  // 4) En una pantalla sin guía propia (Blog) el panel ofrece igualmente las guías, sin ninguna resaltada, y la guía
-  // completa sigue como siempre.
+  // 4) En una pantalla con Blue pero sin guía propia (la ficha de un servicio; desde 2026-11-04 Blue solo sale en Inicio y
+  // en las fichas) el panel ofrece igualmente las guías, sin ninguna resaltada, y la guía completa sigue como siempre.
   {
+    const s = await ctx.newPage();
+    await s.goto(BASE + "/servicios", { waitUntil: "load", timeout: 60000 });
+    let fichaServicio = null;
+    try {
+      // (las tarjetas no son enlaces <a>: se toca el primer precio y se lee a dónde lleva)
+      await s.getByText(/\d,\d\d€/).first().tap({ timeout: 25000 });
+      await s.waitForURL(/\/servicio\//, { timeout: 15000 });
+      fichaServicio = new URL(s.url()).pathname;
+    } catch {
+      fichaServicio = null;
+    }
+    await s.close();
+    ok(!!fichaServicio, `Ficha de servicio: se abre desde Servicios (${fichaServicio})`);
     const q = await ctx.newPage();
-    await q.goto(BASE + "/blog", { waitUntil: "load", timeout: 60000 });
+    await q.goto(BASE + (fichaServicio ?? "/"), { waitUntil: "load", timeout: 60000 });
     await abrirAsistente(q);
     const chips = await q.getByRole("button", { name: /^Guía rápida: / }).evaluateAll((els) => els.map((e) => ({ t: e.getAttribute("aria-label"), fondo: getComputedStyle(e).backgroundColor, h: e.getBoundingClientRect().height })));
-    ok(chips.length === 9, `Blog: el panel ofrece las 9 guías rápidas (${chips.length})`);
-    ok(chips.every((c) => /^rgba\(0, 0, 0, 0\)|transparent/.test(c.fondo)), "Blog: ninguna va resaltada (no hay guía propia de esta pantalla)");
+    ok(chips.length === 9, `Ficha de servicio: el panel ofrece las 9 guías rápidas (${chips.length})`);
+    ok(chips.every((c) => /^rgba\(0, 0, 0, 0\)|transparent/.test(c.fondo)), "Ficha de servicio: ninguna va resaltada (no hay guía propia de esta pantalla)");
     ok(chips.every((c) => c.h >= 43.5), `Guías rápidas: los 9 botones miden 44 px o más (${chips.map((c) => Math.round(c.h)).join(", ")})`);
-    ok((await q.getByText("Ver la guía de la tienda").count()) >= 1, "Blog: sigue «Ver la guía de la tienda»");
+    ok((await q.getByText("Ver la guía de la tienda").count()) >= 1, "Ficha de servicio: sigue «Ver la guía de la tienda»");
     await capturar(q, "08-guias-rapidas");
     await q.close();
     const c = await ctx.newPage();
-    await c.goto(BASE + "/cesta", { waitUntil: "load", timeout: 60000 });
+    await c.goto(BASE + (fichaServicio ?? "/"), { waitUntil: "load", timeout: 60000 });
     await abrirAsistente(c);
     await c.getByText("Ver la guía de la tienda", { exact: true }).first().tap();
     await c.locator("#guia-tarjeta").waitFor({ timeout: 15000 }).catch(() => {});
@@ -604,6 +619,10 @@ try {
       () => ok(false, `Seguimientos S2: debía llevar a Perfil → Seguimientos (está en ${q.url()})`)
     );
     ok(await q.getByText("Mis pedidos").first().waitFor({ timeout: 20000 }).then(() => true, () => false), "Seguimientos S2: se ve «Mis pedidos»");
+    await q.waitForTimeout(1500);
+    // Blue no sale en Perfil (desde 2026-11-04): se vuelve a Inicio para abrir su panel.
+    await q.locator('[data-testid="pestana-index"]').tap();
+    await q.waitForSelector("#blue-flotante", { timeout: 25000 });
     await q.waitForTimeout(1500);
     await abrirPanelAvisos(q);
     const despues = await insignia(q);
