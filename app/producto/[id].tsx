@@ -108,6 +108,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import { sinEmojis } from "../../lib/admin/products.utils";
 import { contarVistaProducto, fijarMeGusta } from "../../lib/interaccion";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { productosReservadosPorOtros, RESERVA_MINUTOS, reservarProducto } from "../../lib/reservas";
@@ -813,7 +814,7 @@ export default function ProductoScreen() {
       name: p.title,
       url,
       ...(fotos.length ? { image: fotos } : p.imageUrl ? { image: [p.imageUrl] } : {}),
-      ...(p.description?.trim() ? { description: p.description.trim() } : {}),
+      ...(sinEmojis(p.description) ? { description: sinEmojis(p.description) } : {}),
       ...(p.reference ? { sku: p.reference } : {}),
       ...(p.category?.name ? { category: p.category.name } : {}),
       offers: {
@@ -1718,9 +1719,11 @@ function recolocarParaLeer(nodo: HTMLElement, suave: boolean) {
 const SIN_DESCRIPCION_PRODUCTO =
   "Todavía no hay una descripción disponible para este producto. Aun así, puedes preguntarnos por su estado, contenido, compatibilidad o disponibilidad por el chat.";
 
+// La descripción se enseña sin emojis aunque el dueño los escriba en el panel (sinEmojis; dueño, 2026-11-04).
 function BloqueDescripcion({ descripcion, sinDescripcion }: { descripcion: string | null; sinDescripcion: string }) {
-  return descripcion?.trim() ? (
-    <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>{descripcion.trim()}</Text>
+  const texto = sinEmojis(descripcion);
+  return texto ? (
+    <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>{texto}</Text>
   ) : (
     <Text style={{ color: COLORS.muted2, lineHeight: 22, textAlign: "center" }}>{sinDescripcion}</Text>
   );
@@ -1865,14 +1868,64 @@ export function FichaProducto({
     };
   }, []);
 
-  const moverA = useCallback((i: number) => {
-    destinoRef.current = i;
-    if (destinoTimer.current) clearTimeout(destinoTimer.current);
-    destinoTimer.current = setTimeout(() => {
-      destinoRef.current = null;
-    }, 1200);
-    carruselRef.current?.scrollTo({ x: i * anchoRef.current, animated: suaveRef.current });
+  // Cada pantalla, SIEMPRE entera en su sitio (dueño, 2026-11-04: al pasar de «Características» a «Descripción» se
+  // quedaba a medias y había que acomodarla con el dedo). En el iPhone el deslizamiento animado se corta a veces (a la
+  // vez cambia el alto del carrusel) y el dedo puede soltarlo entre dos pantallas: al pararse, se coloca en la que toca.
+  const dedoRef = useRef(false);
+  const totalRef = useRef(total);
+  totalRef.current = total;
+  const encajarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paradaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Dónde está de verdad el carrusel (en la web, el nodo que se desplaza; fuera de la web no hace falta).
+  const xActual = useCallback((): number | null => {
+    const nodo = (carruselRef.current as unknown as { getScrollableNode?: () => HTMLElement | null } | null)?.getScrollableNode?.();
+    return nodo && typeof nodo.scrollLeft === "number" ? nodo.scrollLeft : null;
   }, []);
+  // Si se quedó a medias, la pantalla «i» se coloca exacta, sin animación.
+  const encajar = useCallback(
+    (i: number) => {
+      const x = xActual();
+      const objetivo = i * anchoRef.current;
+      if (x === null || Math.abs(x - objetivo) <= 1) return;
+      destinoRef.current = i;
+      carruselRef.current?.scrollTo({ x: objetivo, animated: false });
+    },
+    [xActual]
+  );
+
+  const moverA = useCallback(
+    (i: number) => {
+      destinoRef.current = i;
+      if (destinoTimer.current) clearTimeout(destinoTimer.current);
+      destinoTimer.current = setTimeout(() => {
+        destinoRef.current = null;
+      }, 1200);
+      carruselRef.current?.scrollTo({ x: i * anchoRef.current, animated: suaveRef.current });
+      // El deslizamiento animado tarda unos 300-500 ms: después se comprueba que llegó y, si no, se encaja.
+      if (encajarTimer.current) clearTimeout(encajarTimer.current);
+      encajarTimer.current = setTimeout(() => {
+        encajarTimer.current = null;
+        encajar(i);
+      }, 650);
+    },
+    [encajar]
+  );
+
+  // Al dejar de desplazarse (y sin el dedo encima), si el carrusel está entre dos pantallas, va a la más cercana.
+  const revisarParada = useCallback(() => {
+    if (paradaTimer.current) clearTimeout(paradaTimer.current);
+    paradaTimer.current = setTimeout(() => {
+      paradaTimer.current = null;
+      if (dedoRef.current || destinoRef.current !== null) return;
+      const x = xActual();
+      const w = anchoRef.current;
+      if (x === null || !w) return;
+      const i = Math.max(0, Math.min(totalRef.current - 1, Math.round(x / w)));
+      if (Math.abs(x - i * w) > 1) moverA(i);
+    }, 220);
+  }, [xActual, moverA]);
+  const revisarParadaRef = useRef(revisarParada);
+  revisarParadaRef.current = revisarParada;
 
   // A los 3 s de cambiar de pantalla el cliente, se recoloca la página; si antes toca, teclea o mueve la página, no.
   const programarRecolocar = useCallback(() => {
@@ -1910,9 +1963,13 @@ export function FichaProducto({
   useEffect(() => {
     const recolocar = cancelarRecolocar;
     const destino = destinoTimer;
+    const encaje = encajarTimer;
+    const parada = paradaTimer;
     return () => {
       recolocar.current?.();
       if (destino.current) clearTimeout(destino.current);
+      if (encaje.current) clearTimeout(encaje.current);
+      if (parada.current) clearTimeout(parada.current);
     };
   }, []);
 
@@ -1936,9 +1993,14 @@ export function FichaProducto({
     };
     const toca = () => {
       destinoRef.current = null; // el dedo manda: lo que se mueva ahora lo mueve el cliente
+      dedoRef.current = true;
       marcar("dedo", true);
     };
-    const suelta = () => marcar("dedo", false);
+    const suelta = () => {
+      dedoRef.current = false;
+      marcar("dedo", false);
+      revisarParadaRef.current(); // si lo soltó entre dos pantallas, va a la más cercana
+    };
     const visibilidad = () => marcar("oculta", document.hidden);
     paginas.addEventListener("pointerenter", entra);
     paginas.addEventListener("pointerleave", sale);
@@ -2100,6 +2162,7 @@ export function FichaProducto({
                 setActiva(i);
                 cambioDelCliente();
               }
+              revisarParada();
             }}
             contentContainerStyle={{ alignItems: "flex-start" }}
             style={estiloAlto}

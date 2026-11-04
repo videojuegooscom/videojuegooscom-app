@@ -58,6 +58,24 @@ export function fmtEUR(n: number) {
   return `${entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${cent}€`;
 }
 
+// Emojis de la descripción de productos y servicios: el dueño puede escribirlos en el panel, pero en la tienda no salen
+// (dueño, 2026-11-04). Se quitan dibujos, banderas, tonos de piel, uniones y selectores de variante; se quedan ©, ® y ™,
+// que son signos de marca, no emojis. Después se arreglan los espacios y las líneas que quedan vacías.
+const EMOJI_RE = /(?![©®™])(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|[\u{1F1E6}-\u{1F1FF}]|⃣)/gu;
+export function contarEmojis(texto: string | null | undefined): number {
+  return (String(texto ?? "").match(EMOJI_RE) ?? []).length;
+}
+export function sinEmojis(texto: string | null | undefined): string {
+  return String(texto ?? "")
+    .replace(EMOJI_RE, "")
+    .replace(/[︎️‍]/g, "")
+    .split("\n")
+    .map((linea) => linea.replace(/[ \t]{2,}/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function clampText(s: string, max = 180) {
   const t = String(s ?? "").trim();
   if (!t) return "";

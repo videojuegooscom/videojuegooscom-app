@@ -144,6 +144,7 @@ import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { sinEmojis } from "../lib/admin/products.utils";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
 import MarcaAnimada from "./marca/MarcaAnimada";
@@ -674,7 +675,8 @@ function fraseGarantia(descripcion: string | null | undefined): string | null {
 }
 
 function mensajeProducto(titulo: string, descripcion: string | null): string {
-  const garantia = fraseGarantia(descripcion);
+  // (sin los emojis que pueda llevar la descripción: en la tienda no salen; dueño, 2026-11-04)
+  const garantia = fraseGarantia(sinEmojis(descripcion));
   if (garantia) {
     if (/^(incluye|tiene|viene|cuenta|lleva|está|esta)\b/i.test(garantia)) {
       return `¿Sabías que ${titulo} ${garantia.charAt(0).toLowerCase()}${garantia.slice(1)}?`;
