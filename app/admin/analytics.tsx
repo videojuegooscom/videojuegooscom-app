@@ -546,6 +546,11 @@ export default function AdminAnalytics() {
       blueFichaServicio: findExact("Blue flotante: abierto en la ficha de servicio"),
       // «Activa los avisos de noticias» del panel de Blue (se activan con un toque).
       blueAvisosNoticias: findExact("Blue: avisos de noticias activados"),
+      // El aviso de una noticia nueva abre esa noticia; y cómo acaban los mensajes de Blue (se cierran solos a los 12 s).
+      blueAvisoNoticia: findExact("Blue: noticia abierta desde el aviso"),
+      blueMensajeTocado: findExact("Blue: mensaje tocado"),
+      blueMensajeCerrado: findExact("Blue: mensaje cerrado con la X"),
+      blueMensajeSolo: findExact("Blue: mensaje se cierra solo"),
       // Blue IA (app/(tabs)/blue-ia.tsx): quién vuelve y sigue su última conversación y quién empieza una nueva.
       blueRetomada: findExact("Blue IA: conversación retomada"),
       blueNueva: findExact("Blue IA: nueva conversación"),
@@ -939,7 +944,9 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Blue flotante (fijo arriba a la derecha), lo abren: en Inicio {coreFunnel.blueInicio} · en la ficha de producto{" "}
                       {coreFunnel.blueFichaProducto} · en la ficha de servicio {coreFunnel.blueFichaServicio} · activan desde su panel los
-                      avisos de noticias {coreFunnel.blueAvisosNoticias} (sesiones)
+                      avisos de noticias {coreFunnel.blueAvisosNoticias} · abren una noticia nueva desde su aviso{" "}
+                      {coreFunnel.blueAvisoNoticia}. Sus mensajes: los tocan {coreFunnel.blueMensajeTocado} · los cierran con la X{" "}
+                      {coreFunnel.blueMensajeCerrado} · se cierran solos {coreFunnel.blueMensajeSolo} (sesiones)
                     </Text>
                   </View>
                   <View
