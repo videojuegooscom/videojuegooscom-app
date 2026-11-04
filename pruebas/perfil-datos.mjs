@@ -3396,8 +3396,13 @@ async function seccionME() {
     await p.locator("#mejoras-ventana").getByText("Cerrar", { exact: true }).click().catch(() => {});
     await p.waitForTimeout(500);
 
-    // Desde Blue (pestaña Asistente).
-    await p.evaluate(() => window.scrollTo(0, 0));
+    // Desde Blue (pestaña Asistente). Arriba del todo otra vez: Inicio se desplaza dentro de su contenedor, no la ventana
+    // (abajo, con el pie, Blue tiene botones debajo de su sitio y se esconde, como debe).
+    await p.evaluate(() => {
+      window.scrollTo(0, 0);
+      for (const e of document.querySelectorAll("div")) if (e.scrollTop > 0) e.scrollTop = 0;
+    });
+    await p.waitForTimeout(1500);
     await p.waitForSelector("#blue-flotante", { timeout: 25000 }).catch(() => {});
     await p.waitForTimeout(2500);
     await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click();
