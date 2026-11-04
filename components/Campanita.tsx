@@ -47,8 +47,8 @@
  *   la guía lo lleva allí).
  * - Visor de fotos (components/ImageLightbox.tsx, foto ampliada de la ficha): mientras está abierto Blue se esconde
  *   del todo (dueño, 2026-10-31) y no dice nada: sus mensajes y su saludo esperan a que se cierre.
- * - Habla con bocadillos AL LADO de ella, en cristal transparente (se lee bien) y al
- *   tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
+ * - Habla con bocadillos DEBAJO de ella (pegados a su borde derecho; al lado tapaban la cabecera de las fichas), en
+ *   cristal transparente (se lee bien) y al tocarlos llevan a lo que dicen (solo cuando ya ha aparecido):
  *   · En la ficha de un producto, tras 8 s: un dato real del producto (si la
  *     descripción menciona la garantía, esa frase; si no, que es unidad única y se
  *     reserva 15 minutos en la cesta) y después cómo se entrega (en persona en
@@ -415,7 +415,7 @@ const DESLIZ_OCULTO = BLUE_SIZE + EDGE_INSET + 16;
 const USA_NATIVO = Platform.OS !== "web";
 
 // Dónde está Blue: a un lado ("l" izquierda, "r" derecha) y a qué altura (fy: 0 = arriba). Desde 2026-11-04 siempre
-// fijo arriba a la derecha (SITIO_FIJO): el mensaje sale a su izquierda y crece hacia abajo.
+// fijo arriba a la derecha (SITIO_FIJO): el mensaje sale debajo de él y crece hacia abajo.
 type Lado = "l" | "r";
 type Sitio = { lado: Lado; fy: number };
 const esFichaProducto = (pathname: string) => pathname.startsWith("/producto/") || pathname.startsWith("/servicio/");
@@ -2164,12 +2164,11 @@ export default function Campanita() {
   if (!ready || (sinBlue && !guiaAbierta) || (enAdmin && !isAdmin) || !aparecido || ((perfilObligatorio || miPerfilAbierto) && !guiaAbierta)) return null;
 
   const derecha = sitio.lado === "r";
-  // En la mitad de arriba el mensaje crece hacia abajo; en la de abajo, hacia arriba.
-  const arriba = sitio.fy < 0.5;
-  // Los mensajes salen AL LADO de Blue (hacia el centro), con el ancho que quepa.
+  // Los mensajes salen DEBAJO de Blue, pegados a su borde derecho y creciendo hacia abajo, con el ancho que quepa.
+  // A su izquierda (como antes) tapaban la cabecera de las fichas, con «Volver atrás», ahora que Blue va fijo en ella.
   // Alargado (más ancho que alto): pocas líneas, sin título ni botón aparte.
-  const anchoMensaje = Math.max(170, Math.min(330, Dimensions.get("window").width - BLUE_SIZE - EDGE_INSET * 2 - 14));
-  const ladoMensaje = { [derecha ? "right" : "left"]: BLUE_SIZE + 6, [arriba ? "top" : "bottom"]: 2 };
+  const anchoMensaje = Math.max(170, Math.min(330, Dimensions.get("window").width - EDGE_INSET * 2));
+  const ladoMensaje = { right: 0, top: BLUE_SIZE + 6 };
   const pistaAccion =
     bocadillo?.accion === "chat"
       ? { icono: "chatbubble-ellipses-outline" as const, texto: "Escribir ahora" }

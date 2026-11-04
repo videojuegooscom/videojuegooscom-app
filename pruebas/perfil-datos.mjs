@@ -3063,6 +3063,22 @@ async function seccionBF() {
       const m = await esperarBlue(f);
       ok(enSuSitio(m, 20) && m.tapados.length === 0 && m.solapeVolver === 0, `BF (${nombre}): en la ficha de ${cual}, Blue fijo arriba a la derecha, en la cabecera, sin tapar nada (${desc(m)}; con «Volver atrás»: ${m?.solapeVolver ?? "?"} px²)`);
       await capturar(f, `BF2-${nombre}-ficha-${cual}`);
+      // Con su mensaje a la vista (la ficha de producto saca uno), la flecha «Volver atrás» de la cabecera sigue
+      // recibiendo el toque: el mensaje sale debajo de Blue, no encima de la cabecera (lo pilló pruebas/guia-blue.mjs).
+      if (cual === "producto") {
+        await f.locator("#blue-mensaje").waitFor({ timeout: 40000 }).catch(() => {});
+        await f.waitForTimeout(800);
+        const mm = await medir(f);
+        const volverLibre = await f.evaluate(() => {
+          const b = document.querySelector('[aria-label="Volver atrás"]');
+          const r = b?.getBoundingClientRect();
+          if (!r) return "sin botón";
+          const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return e && b.contains(e) ? "sí" : e?.closest("#blue-flotante") ? "tapado por Blue" : "tapado";
+        });
+        ok(!!mm?.mensaje && volverLibre === "sí" && mm.bajoMensaje.length === 0, `BF (${nombre}): con el mensaje de Blue a la vista en la ficha, «Volver atrás» recibe el toque y el mensaje no tapa ningún botón («${(mm?.mensaje ?? "sin mensaje").slice(0, 50)}»; «Volver atrás»: ${volverLibre}${mm?.bajoMensaje.length ? `; bajo el mensaje: ${mm.bajoMensaje.join(" · ")}` : ""})`);
+        await capturar(f, `BF2-${nombre}-ficha-${cual}-mensaje`);
+      }
       const bajando = [];
       for (let i = 0; i < 3; i++) {
         await bajar(f, 320);
