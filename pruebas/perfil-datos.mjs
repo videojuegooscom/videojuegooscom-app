@@ -5931,8 +5931,40 @@ async function seccionBV() {
     const p = await ctx.newPage();
     const html = await (await p.request.get(`${BASE}/`)).text();
     ok(/id="bienvenida"/.test(html) && /Tu tienda de electrónica en Zaragoza/.test(html) && /Zaragoza/.test(html), "BV: el HTML estático ya es la bienvenida, con la marca y su frase");
+    ok(/class="vzb-marco"/.test(html) && /id="bienvenida-relleno"/.test(html) && /@keyframes vzb-avance/.test(html), "BV: y ya trae el marco Siri y la barra con su animación CSS (se mueven desde el primer pintado)");
     await ctx.close();
   }
+
+  // Avance de la barra (0-100 %): dónde está el borde derecho del relleno dentro de la pista.
+  const avance = (p) =>
+    p.evaluate(() => {
+      const barra = document.getElementById("bienvenida-progreso");
+      const pista = barra?.getBoundingClientRect();
+      // (la barra de antes no tenía «bienvenida-relleno»: su relleno era el primer hijo; así el control la mide igual)
+      const relleno = (document.getElementById("bienvenida-relleno") ?? barra?.firstElementChild)?.getBoundingClientRect();
+      const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0;
+      return { pct: pista && relleno ? Math.round(((relleno.right - pista.left) / pista.width) * 100) : -1, t: Math.round(performance.now()), fcp: Math.round(fcp) };
+    });
+  // Lo que debería marcar: la curva de la barra (cubic-bezier(.4,0,.6,1), 3 s) desde que se pintó la página.
+  const curva = (x) => {
+    const [x1, y1, x2, y2] = [0.4, 0, 0.6, 1];
+    const b = (t, a, c) => 3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * c + t * t * t;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 40; i++) {
+      const m = (lo + hi) / 2;
+      if (b(m, x1, x2) < x) lo = m;
+      else hi = m;
+    }
+    return b((lo + hi) / 2, y1, y2);
+  };
+  // Entre lo que marcaría si hubiera empezado al pintarse la página (nunca menos: no ha vuelto a empezar) y si hubiera
+  // empezado al abrirla (nunca más). En local la tienda puede arrancar antes del primer pintado.
+  const enSuSitio = (m) => {
+    const minimo = Math.round(curva(Math.min(1, Math.max(0, (m.t - m.fcp) / 3000))) * 100) - 6;
+    const maximo = Math.round(curva(Math.min(1, m.t / 3000)) * 100) + 6;
+    return { bien: m.pct >= minimo && m.pct <= maximo, texto: `${m.pct} % a los ${m.t} ms, entre ${minimo} y ${maximo}` };
+  };
 
   // BV1) Primera vez: marca y mascotas al momento, 3 s encima mientras la tienda carga debajo, y se va sola a Inicio.
   {
@@ -5952,38 +5984,94 @@ async function seccionBV() {
       };
     });
     ok(vista.cubre && vista.marca === "VideojuegosZaragoza.com" && vista.mascotas, `BV: al abrir sale la bienvenida a pantalla completa con «VideojuegosZaragoza.com» y las mascotas (${JSON.stringify(vista)})`);
-    // La barra se llena con el tiempo (lo que ya ha pasado desde que se abrió la página, hasta los 3 s).
-    const relleno = () =>
-      p.evaluate(() => {
-        const barra = document.getElementById("bienvenida-progreso");
-        const r = barra?.getBoundingClientRect();
-        const f = barra?.firstElementChild?.getBoundingClientRect();
-        return { pct: r && f ? Math.round((f.width / r.width) * 100) : -1, t: Math.round(performance.now()) };
-      });
+    // La barra se llena con el tiempo, desde que se pintó la página y sin volver a empezar al arrancar la tienda.
     await p.waitForTimeout(Math.max(0, 1200 - vista.t));
-    const b1 = await relleno();
+    const b1 = await avance(p);
     await capturar(p, "BV1-bienvenida");
-    await p.waitForTimeout(Math.max(0, 2200 - b1.t));
-    const b2 = await relleno();
-    const esperado = (b) => Math.round((b.t / 3000) * 100);
-    ok(
-      Math.abs(b1.pct - esperado(b1)) <= 15 && Math.abs(b2.pct - esperado(b2)) <= 15 && b2.pct > b1.pct,
-      `BV: la barra se llena con el tiempo (${b1.pct} % a los ${b1.t} ms, ${b2.pct} % a los ${b2.t} ms)`
+    // Fluida: en cada fotograma marca un punto distinto (antes avanzaba a saltos de 0,1 s: unos 10 por segundo).
+    const fluidez = await p.evaluate(
+      () =>
+        new Promise((listo) => {
+          const pista = document.getElementById("bienvenida-progreso");
+          const relleno = document.getElementById("bienvenida-relleno") ?? pista?.firstElementChild;
+          const vistos = new Set();
+          let marcos = 0;
+          const inicio = performance.now();
+          const paso = () => {
+            if (pista && relleno) vistos.add((relleno.getBoundingClientRect().right - pista.getBoundingClientRect().left).toFixed(1));
+            marcos += 1;
+            if (performance.now() - inicio < 600) requestAnimationFrame(paso);
+            else listo({ distintos: vistos.size, marcos, segundos: (performance.now() - inicio) / 1000 });
+          };
+          requestAnimationFrame(paso);
+        })
     );
+    const porSegundo = Math.round(fluidez.distintos / fluidez.segundos);
+    ok(porSegundo >= 30 && fluidez.distintos >= fluidez.marcos * 0.8, `BV: la barra avanza fluida, un punto distinto en cada fotograma (${porSegundo} por segundo; ${fluidez.distintos} de ${fluidez.marcos} fotogramas)`);
+    // Lo anima el navegador por su cuenta (solo transform y opacity): no se para aunque el JavaScript vaya ocupado.
+    const animacion = () =>
+      p.evaluate(() => {
+        const anims = document.getElementById("bienvenida-relleno")?.getAnimations?.() ?? [];
+        const propiedades = anims.flatMap((a) => a.effect.getKeyframes().flatMap((k) => Object.keys(k))).filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k));
+        const t = anims[0]?.currentTime;
+        return { t: typeof t === "number" ? t : -1, propiedades: [...new Set(propiedades)] };
+      });
+    const antesOcupado = await animacion();
+    await p.evaluate(() => {
+      const t0 = performance.now();
+      while (performance.now() - t0 < 400) {
+        // JavaScript ocupado 0,4 s, como al arrancar la tienda
+      }
+    });
+    const trasOcupado = await animacion();
+    const avanzo = Math.round(trasOcupado.t - antesOcupado.t);
+    ok(
+      antesOcupado.t >= 0 && avanzo >= 390 && antesOcupado.propiedades.length > 0 && antesOcupado.propiedades.every((k) => k === "transform" || k === "opacity"),
+      `BV: la anima el navegador (solo ${antesOcupado.propiedades.join(" y ") || "nada"}) y sigue su reloj aunque el JavaScript esté ocupado (avanzó ${avanzo} ms con 400 ms ocupado)`
+    );
+    // (ya van unos 2,2 s: la fluidez y el JavaScript ocupado han llevado ~1 s)
+    const b2 = await avance(p);
+    const s1 = enSuSitio(b1);
+    const s2 = enSuSitio(b2);
+    ok(s1.bien && s2.bien && b2.pct > b1.pct, `BV: la barra se llena con el tiempo y no vuelve a empezar al arrancar la tienda (${s1.texto}; ${s2.texto}; pintada a los ${b1.fcp} ms)`);
+    // El marco Siri en los bordes, girando, y las mascotas flotando (también CSS).
+    const marco = await p.evaluate(() => {
+      const m = document.querySelector("#bienvenida .vzb-marco");
+      const g = document.querySelector("#bienvenida .vzb-giro");
+      const r = m?.getBoundingClientRect();
+      return {
+        cubre: !!r && r.left <= 0.5 && r.top <= 0.5 && r.right >= window.innerWidth - 0.5 && r.bottom >= window.innerHeight - 0.5,
+        colores: g ? /conic-gradient/.test(getComputedStyle(g).backgroundImage) : false,
+        gira: (g?.getAnimations?.() ?? []).some((a) => a.playState === "running"),
+        flotan: (document.querySelector("#bienvenida .vzb-flota")?.getAnimations?.() ?? []).some((a) => a.playState === "running"),
+        toques: m ? getComputedStyle(m).pointerEvents : "",
+      };
+    });
+    ok(marco.cubre && marco.colores && marco.gira && marco.toques === "none", `BV: el marco Siri brilla en los bordes y gira, sin quitar toques (${JSON.stringify(marco)})`);
+    ok(marco.flotan, "BV: las mascotas flotan suavemente (con CSS)");
     const debajo = await p.evaluate(() => !!document.querySelector('[data-testid="pestana-index"]'));
     ok(debajo, "BV: mientras se ve, la tienda ya carga debajo");
     // A los 3 s se va con un fundido (no de golpe): a mitad del fundido la capa se ve a medias.
     const opacidades = [];
-    for (let i = 0; i < 60; i++) {
+    let llenaAlSalir = null;
+    for (let i = 0; i < 80; i++) {
       const o = await p.evaluate(() => {
         const capa = document.getElementById("bienvenida")?.parentElement;
-        return { t: Math.round(performance.now()), o: capa ? Number(getComputedStyle(capa).opacity) : null };
+        const pista = document.getElementById("bienvenida-progreso")?.getBoundingClientRect();
+        const relleno = document.getElementById("bienvenida-relleno")?.getBoundingClientRect();
+        return {
+          t: Math.round(performance.now()),
+          o: capa ? Number(getComputedStyle(capa).opacity) : null,
+          pct: pista && relleno ? Math.round(((relleno.right - pista.left) / pista.width) * 100) : -1,
+        };
       });
       if (o.o === null) break;
-      if (o.t >= 3000) opacidades.push(o.o);
+      if (o.t >= 2900) opacidades.push(o.o);
+      if (llenaAlSalir === null && o.o < 0.99) llenaAlSalir = o.pct;
       await p.waitForTimeout(40);
     }
     ok(opacidades.some((o) => o > 0.05 && o < 0.95), `BV: se va con un fundido suave (${opacidades.map((o) => o.toFixed(2)).join(" ")})`);
+    ok(llenaAlSalir !== null && llenaAlSalir >= 97, `BV: se va justo cuando la barra se llena (${llenaAlSalir} % al empezar el fundido)`);
     const quitada = await quitadaEn(p);
     ok(quitada !== null && quitada >= 3000 && quitada <= 4600, `BV: se queda unos 3 s y se va sola (se quitó a los ${quitada} ms)`);
     ok(new URL(p.url()).pathname === "/" && (await p.locator('[data-testid="pestana-index"]').count()) > 0, "BV: y queda Inicio");
@@ -6057,6 +6145,24 @@ async function seccionBV() {
     });
     ok(r.marca && r.mascotas && r.ancho, `BV: cabe en ${vista.viewport.width} × ${vista.viewport.height} (${JSON.stringify(r)})`);
     if (vista.viewport.width === 1280) await capturar(p, "BV6-ordenador");
+    await ctx.close();
+  }
+
+  // BV6b) Con «reducir movimiento» del sistema: sin giro ni flotar, el marco quieto; la barra sí se llena y se va igual.
+  {
+    const ctx = await visitaNueva({ filas: perfil, guardados: [] }, { reducedMotion: "reduce" });
+    const p = await pagina(ctx, "/");
+    await p.locator("#bienvenida-progreso").waitFor({ timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    const r = await p.evaluate(() => ({
+      gira: (document.querySelector("#bienvenida .vzb-giro")?.getAnimations?.() ?? []).length,
+      flotan: (document.querySelector("#bienvenida .vzb-flota")?.getAnimations?.() ?? []).length,
+      marco: !!document.querySelector("#bienvenida .vzb-marco"),
+    }));
+    const b = await avance(p);
+    ok(r.marco && r.gira === 0 && r.flotan === 0 && b.pct > 5 && b.pct < 95, `BV: con «reducir movimiento», marco quieto y mascotas quietas, pero la barra se llena (${JSON.stringify(r)}, ${b.pct} %)`);
+    const quitada = await quitadaEn(p);
+    ok(quitada !== null && quitada >= 3000 && quitada <= 4600, `BV: y se va igual a los 3 s (${quitada} ms)`);
     await ctx.close();
   }
 
