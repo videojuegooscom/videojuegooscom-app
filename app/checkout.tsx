@@ -28,6 +28,15 @@
  * «Mi perfil» (código postal, localidad, dirección y piso; components/PerfilPublico.tsx), con un aviso «Con la
  * dirección de tu perfil». Se mide con la analítica propia («pago_direccion_perfil», Administración → Usuarios).
  *
+ * Envío (dueño, 2026-11-04): se calcula solo con las tarifas de Administración → Tarifas de envío (lib/envio.ts):
+ * entrega en mano o, a domicilio, por el código postal y el importe. Al guardar el pedido lo calcula también la base de
+ * datos con la misma regla (es lo que vale). Si la tienda no envía a esa zona desde la web, se pide escribir antes.
+ *
+ * Desplazamiento (dueño, 2026-11-04: «que el scroll funcione perfectamente como cualquier otra página»): todo va dentro
+ * del mismo desplazamiento (cabecera, resumen con la miniatura de cada artículo, entrega y el botón al final), como
+ * Servicios o Quiénes somos; los campos van a 16 px (el iPhone no amplía la página al escribir) y en la web el teclado
+ * no se cierra al desplazar (la propia web desplaza al campo que se toca).
+ *
  * Conectado con:
  * - app/(tabs)/cesta.tsx → de donde viene el carrito guardado.
  * - app/catalogo.tsx → a donde vuelve el usuario si el carrito está vacío
@@ -52,10 +61,13 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
+import SmartImage from "../components/SmartImage";
 import { abrirChatEquipo } from "../components/ProductChatThread";
+import { calcularEnvio, cargarTarifas, hayEnviosDePago, limpiarCodigoPostal, type ZonaEnvio } from "../lib/envio";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
@@ -72,8 +84,8 @@ const COLORS = {
   accent: "#1EA7E8",
   // Mismo azul oscuro de botón principal que la ficha de producto.
   accentDark: "#1EA7E8",
-  gold: "#B8860B",
   danger: "#DC2626",
+  success: "#15803D",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   inputBg: "#F6FAFD",
@@ -265,6 +277,7 @@ function openWhatsApp(prefill: string) {
 
 export default function CheckoutScreen() {
   useWindowDimensions(); // fuerza re-render en cambios de tamaño (web/responsive)
+  const insets = useSafeAreaInsets();
   // Columna centrada: en desktop el checkout no se estira de borde a borde,
   // se queda como una columna centrada (igual que cualquier checkout premium).
   const columnStyle = {
@@ -305,11 +318,32 @@ export default function CheckoutScreen() {
     [items]
   );
 
-  const shipping = 0; // MVP: gratis
+  // Envío: con las tarifas de la tienda (Administración → Tarifas de envío), por la entrega, el código postal y el
+  // importe. Sin la migración, gratis como antes. Lo que se guarda lo calcula la base de datos con la misma regla.
+  const [tarifas, setTarifas] = useState<ZonaEnvio[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    cargarTarifas().then((t) => {
+      if (vivo) setTarifas(t);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const envio = useMemo(
+    () => calcularEnvio(tarifas, { entrega, codigoPostal: postalCode, productos: subtotal }),
+    [tarifas, entrega, postalCode, subtotal]
+  );
+  // A domicilio y con envíos de pago: hasta tener un código postal de 5 cifras, el envío aún no se sabe.
+  const faltaCodigo = entrega === "envio" && hayEnviosDePago(tarifas) && limpiarCodigoPostal(postalCode).length !== 5;
+  const shipping = faltaCodigo ? 0 : envio.precio;
   const total = subtotal + shipping;
 
   const formOk = useMemo(() => {
     if (items.length === 0) return false;
+    // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega). Con envíos de
+    // pago, sin un código postal completo no se sabe el envío (ni el total).
+    if (!envio.disponible || faltaCodigo) return false;
 
     const nameOk = safeStr(fullName).length >= 2;
     const emailOk = isValidEmail(email);
@@ -322,7 +356,7 @@ export default function CheckoutScreen() {
     const cityOk = safeStr(city).length >= 2;
 
     return nameOk && emailOk && phoneOk && addrOk && cpOk && cityOk;
-  }, [items.length, fullName, email, phone, address1, postalCode, city, entrega]);
+  }, [items.length, fullName, email, phone, address1, postalCode, city, entrega, envio.disponible, faltaCodigo]);
 
   const buildWhatsText = useCallback((numero: number | null) => {
     const lines: string[] = [];
@@ -339,6 +373,7 @@ export default function CheckoutScreen() {
       for (const it of items) {
         lines.push(`- ${it.title} x${it.qty} (${fmtEUR(it.priceEUR * it.qty)})`);
       }
+      lines.push(`Envío: ${shipping === 0 ? "gratis" : fmtEUR(shipping)}`);
       lines.push(`Total: ${fmtEUR(total)}`);
       lines.push("");
     }
@@ -361,7 +396,7 @@ export default function CheckoutScreen() {
         : "¿Me confirmas disponibilidad y forma de pago/envío?"
     );
     return lines.join("\n");
-  }, [items, total, fullName, email, phone, address1, postalCode, city, notes, entrega]);
+  }, [items, total, shipping, fullName, email, phone, address1, postalCode, city, notes, entrega]);
 
   // Abre el chat de la tienda con el pedido; sin sesión, Blue IA con el pedido como contexto.
   const [abriendoChat, setAbriendoChat] = useState(false);
@@ -536,7 +571,7 @@ export default function CheckoutScreen() {
       if (!repetido) {
         trackEvent("order_whatsapp", "Pedido por WhatsApp", {
           path: "/checkout",
-          metadata: { numero, total, items: items.length, entrega },
+          metadata: { numero, total, items: items.length, entrega, envio: shipping, zona: envio.zona?.zona ?? null },
         });
         await markBuyNowSoldIfApplies(items);
       }
@@ -556,52 +591,43 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       enviandoRef.current = false;
     }
-  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, buildWhatsText]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildWhatsText]);
+
+  // Cabecera: con el formulario va DENTRO del desplazamiento (se desplaza con todo, como en Servicios); en las demás
+  // pantallas (cargando, confirmación, cesta vacía) arriba.
+  const enFormulario = !loading && !pedidoHecho && items.length > 0;
+  const cabecera = (
+    <View
+      style={{
+        backgroundColor: enFormulario ? "transparent" : COLORS.bg2,
+        paddingHorizontal: enFormulario ? 0 : 16,
+        paddingTop: enFormulario ? 0 : 14,
+        paddingBottom: enFormulario ? 4 : 12,
+        gap: 10,
+      }}
+    >
+      <View style={columnStyle}>
+        <CabeceraMarca onBack={smartBackToHome} />
+        <View style={{ marginTop: 8 }}>
+          <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
+            Finalizar compra
+          </Text>
+          <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>Rápido, claro y sin costes ocultos.</Text>
+        </View>
+
+        {/* Con el formulario, el aviso sale junto al botón (donde se ha tocado). */}
+        {err && !enFormulario ? (
+          <Text style={{ color: "#B91C1C", fontWeight: "800", marginTop: 10, lineHeight: 20, textAlign: "center" }}>{err}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header */}
-      <View
-        style={{
-          backgroundColor: COLORS.bg2,
-          borderBottomWidth: 1,
-          borderBottomColor: "#F6FAFD",
-          paddingHorizontal: 16,
-          paddingTop: 14,
-          paddingBottom: 12,
-          gap: 10,
-        }}
-      >
-        <View style={columnStyle}>
-          <CabeceraMarca onBack={smartBackToHome} />
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 10,
-              marginTop: 8,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
-                Finalizar compra
-              </Text>
-              <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>
-                Rápido, claro y sin costes ocultos.
-              </Text>
-            </View>
-          </View>
-
-          {err ? (
-            <Text style={{ color: "#B91C1C", fontWeight: "800", marginTop: 10, lineHeight: 20, textAlign: "center" }}>
-              {err}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+      {enFormulario ? null : cabecera}
 
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
@@ -675,64 +701,84 @@ export default function CheckoutScreen() {
 
             <Pressable
               onPress={() => router.push("/catalogo")}
-              style={{
+              accessibilityRole="button"
+              style={({ pressed }) => ({
                 marginTop: 6,
+                minHeight: 50,
                 borderRadius: 999,
-                paddingVertical: 12,
-                paddingHorizontal: 14,
-                backgroundColor: "#EAF6FD",
-                borderWidth: 1,
-                borderColor: "#BEE6FA",
+                paddingHorizontal: 22,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                backgroundColor: COLORS.accentDark,
                 alignSelf: "center",
-              }}
+                opacity: pressed ? 0.88 : 1,
+              })}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900" }}>Ir al catálogo</Text>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Ir al catálogo</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
         </View>
       ) : (
         <>
-          {/* Formulario: el primer toque fuera del teclado ya pulsa y al arrastrar se cierra. */}
+          {/* Todo en el mismo desplazamiento, como cualquier otra página de la tienda: cabecera, resumen, entrega y el
+              botón al final. El primer toque fuera del teclado ya pulsa; en la web el teclado no se cierra al
+              desplazar (la propia web desplaza hasta el campo que se toca). */}
           <ScrollView
+            nativeID="pago-desplazamiento"
+            style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            contentContainerStyle={{ padding: 16, paddingBottom: 140, alignItems: "center" }}
+            keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32 + insets.bottom, alignItems: "center" }}
           >
-            <View style={{ ...columnStyle, gap: 12 }}>
-            {/* Resumen pedido */}
-            <View style={{ gap: 10, alignItems: "center" }}>
+            <View style={{ ...columnStyle, gap: 14 }}>
+            {cabecera}
+            {/* Resumen pedido: cada artículo con su miniatura (foto entera sobre blanco, tamaño pequeño). */}
+            <View nativeID="pago-resumen" style={{ gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Resumen</Text>
 
               {items.map((it) => (
-                <View key={it.id} style={{ gap: 4, alignItems: "center", paddingVertical: 6 }}>
-                  <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }} numberOfLines={2}>
-                    {it.title}
-                  </Text>
-                  {it.subtitle ? (
-                    <Text style={{ color: COLORS.muted, textAlign: "center" }}>{it.subtitle}</Text>
-                  ) : null}
-                  <Text style={{ color: COLORS.gold, fontWeight: "900", textAlign: "center" }}>
-                    {fmtEUR(it.priceEUR * it.qty)}
-                  </Text>
+                <View key={it.id} nativeID={`pago-articulo-${it.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 }}>
+                  <View nativeID={`pago-foto-${it.id}`} style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}>
+                    {it.imageUrl ? (
+                      <SmartImage uri={it.imageUrl} alt={it.title} ancho={72} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+                    ) : (
+                      <Ionicons name="image-outline" size={28} color={COLORS.muted} />
+                    )}
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>{it.title}</Text>
+                    {it.subtitle ? <Text style={{ color: COLORS.muted, fontSize: 13 }}>{it.subtitle}</Text> : null}
+                    <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15 }}>{fmtEUR(it.priceEUR * it.qty)}</Text>
+                  </View>
                 </View>
               ))}
 
               <View style={{ height: 1, alignSelf: "stretch", backgroundColor: "#E3EAF2" }} />
               <Row label="Subtotal" value={fmtEUR(subtotal)} />
               <Row
-                label={entrega === "recogida" ? "Entrega" : "Envío"}
-                value={entrega === "recogida" ? "En mano" : shipping === 0 ? "Gratis" : fmtEUR(shipping)}
+                nativeID="pago-envio"
+                label={entrega === "recogida" ? "Entrega en mano" : envio.zona ? `Envío (${envio.zona.nombre.split(" (")[0]})` : "Envío"}
+                value={faltaCodigo ? "Escribe tu código postal" : shipping === 0 ? "Gratis" : fmtEUR(shipping)}
+                tono={faltaCodigo ? "suave" : shipping === 0 ? "gratis" : undefined}
               />
-              <Row label="Total" value={fmtEUR(total)} strong />
+              {envio.gratisPorImporte ? (
+                <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                  Envío gratis por el importe de tu pedido
+                </Text>
+              ) : null}
+              <Row nativeID="pago-total" label="Total" value={fmtEUR(total)} strong />
             </View>
 
             {/* Datos envío */}
             <View style={{ gap: 10, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Entrega</Text>
 
-              {/* Envío a domicilio o entrega en mano: dos opciones claras, una pulsada. */}
-              <View style={{ flexDirection: "row", justifyContent: "center", gap: 10 }}>
+              {/* Envío a domicilio o entrega en mano: dos opciones con su icono y su marca de elegida, sin burbujas. */}
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18 }}>
                 {(
                   [
                     { key: "envio", label: "Envío a domicilio", icon: "cube-outline" },
@@ -743,34 +789,24 @@ export default function CheckoutScreen() {
                   return (
                     <Pressable
                       key={op.key}
+                      nativeID={`pago-entrega-${op.key}`}
                       onPress={() => setEntrega(op.key)}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: activa }}
+                      accessibilityLabel={op.label}
                       style={({ pressed }) => ({
-                        flex: 1,
-                        maxWidth: 220,
-                        opacity: pressed ? 0.88 : 1,
+                        opacity: pressed ? 0.6 : 1,
                         minHeight: 48,
-                        paddingHorizontal: 10,
-                        borderRadius: 999,
+                        paddingHorizontal: 4,
                         flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "center",
                         gap: 6,
-                        borderWidth: 1.5,
-                        borderColor: activa ? COLORS.accent : COLORS.border,
-                        backgroundColor: activa ? COLORS.accent2 : "#FFFFFF",
                       })}
                     >
-                      <Ionicons name={op.icon} size={16} color={activa ? COLORS.accentDark : COLORS.muted} />
-                      <Text
-                        style={{
-                          color: activa ? COLORS.accentDark : COLORS.text,
-                          fontWeight: "900",
-                          fontSize: 13.5,
-                          textAlign: "center",
-                        }}
-                      >
+                      <Ionicons name={activa ? "radio-button-on" : "radio-button-off"} size={20} color={activa ? COLORS.accent : COLORS.muted} />
+                      <Ionicons name={op.icon} size={18} color={activa ? COLORS.accent : COLORS.muted} />
+                      <Text style={{ color: activa ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: 14.5, textAlign: "center" }}>
                         {op.label}
                       </Text>
                     </Pressable>
@@ -783,6 +819,14 @@ export default function CheckoutScreen() {
                   ? "Te lo entregamos en mano en Cuarte de Huerva. Te avisamos por el chat de la tienda cuando esté listo."
                   : "En Zaragoza te lo llevamos el mismo día. Al resto de España sale en 1-2 días y llega en 72 horas como máximo."}
               </Text>
+              {!envio.disponible ? (
+                <View nativeID="pago-zona-sin-envio" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} />
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+                    A {envio.zona?.nombre ?? "esta zona"} no enviamos desde la web: escríbenos por el chat de la tienda y te decimos cómo hacerlo.
+                  </Text>
+                </View>
+              ) : null}
 
               <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />
               <Field
@@ -865,79 +909,78 @@ export default function CheckoutScreen() {
               </View>
             </View>
 
-            {/* Acciones secundarias */}
-            <View style={{ alignItems: "center", gap: 10 }}>
+            {/* Una sola acción principal, clara y con el total a la vista, al final del formulario (dentro del
+                desplazamiento: nunca tapa los campos ni se queda bajo el teclado). */}
+            <View nativeID="pago-confirmar" style={{ gap: 10, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
+              {err ? (
+                <Text nativeID="pago-error" style={{ color: "#B91C1C", fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                  {err}
+                </Text>
+              ) : null}
+              <View style={{ ...columnStyle, maxWidth: 460 }}>
+                <Pressable
+                  disabled={!formOk || submitting}
+                  onPress={onPay}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    opacity: !formOk || submitting ? 0.45 : pressed ? 0.9 : 1,
+                    borderRadius: 999,
+                    minHeight: 54,
+                    paddingVertical: 10,
+                    paddingHorizontal: 18,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    backgroundColor: COLORS.accentDark,
+                  })}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                        Confirmar pedido · {fmtEUR(total)}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+
+              <Text style={{ color: "rgba(11,33,56,0.55)", textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
+                {formOk
+                  ? "Te confirmamos pago y entrega por el chat de la tienda. Sin pagos por adelantado en la web."
+                  : !envio.disponible
+                    ? "Escríbenos por el chat para envíos a esta zona."
+                    : faltaCodigo
+                      ? "Escribe tu código postal para calcular el envío."
+                      : entrega === "recogida"
+                        ? "Completa nombre, email y teléfono para confirmar el pedido."
+                        : "Completa los datos de envío para confirmar el pedido."}
+              </Text>
+
+              {/* Volver: solo el texto con su icono, sin burbuja. */}
               <Pressable
+                nativeID="pago-volver-cesta"
                 onPress={() => router.push("/cesta")}
+                accessibilityRole="button"
                 style={({ pressed }) => ({
-                  opacity: pressed ? 0.88 : 1,
-                  borderRadius: 999,
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                  borderWidth: 1,
-                  borderColor: "#E3EAF2",
-                  backgroundColor: "#F6FAFD",
+                  alignSelf: "center",
+                  minHeight: 44,
+                  paddingHorizontal: 8,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  opacity: pressed ? 0.6 : 1,
                 })}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900" }}>← Volver al carrito</Text>
+                <Ionicons name="arrow-back" size={18} color={COLORS.accent} />
+                <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14 }}>Volver a la cesta</Text>
               </Pressable>
-
             </View>
             </View>
           </ScrollView>
-
-          {/* Bottom CTA */}
-          <View
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: 14,
-              backgroundColor: "#FFFFFF",
-              borderTopWidth: 1,
-              borderTopColor: "#E3EAF2",
-              shadowColor: "#0B2138",
-              shadowOpacity: 0.08,
-              shadowRadius: 16,
-              shadowOffset: { width: 0, height: -4 },
-              elevation: 12,
-            }}
-          >
-            {/* Una sola acción principal, clara y con el total a la vista. */}
-            <View style={{ ...columnStyle, maxWidth: 460 }}>
-              <Pressable
-                disabled={!formOk || submitting}
-                onPress={onPay}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  opacity: !formOk || submitting ? 0.45 : pressed ? 0.9 : 1,
-                  borderRadius: 999,
-                  minHeight: 54,
-                  paddingVertical: 10,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: COLORS.accentDark,
-                })}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                    Confirmar pedido · {fmtEUR(total)}
-                  </Text>
-                )}
-              </Pressable>
-            </View>
-
-            <Text style={{ color: "rgba(11,33,56,0.55)", marginTop: 10, textAlign: "center", fontSize: 12.5 }}>
-              {formOk
-                ? "Te confirmamos pago y entrega por el chat de la tienda. Sin pagos por adelantado en la web."
-                : entrega === "recogida"
-                  ? "Completa nombre, email y teléfono para confirmar el pedido."
-                  : "Completa los datos de envío para confirmar el pedido."}
-            </Text>
-          </View>
         </>
       )}
     </View>
@@ -948,17 +991,29 @@ function Row({
   label,
   value,
   strong,
+  tono,
+  nativeID,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  /** «gratis»: en verde; «suave»: en gris (un aviso, no un importe). Solo texto, sin burbuja. */
+  tono?: "gratis" | "suave";
+  nativeID?: string;
 }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }}>
+    <View nativeID={nativeID} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 8 }}>
       <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: strong ? "900" : "700" }}>
         {label}:
       </Text>
-      <Text style={{ color: "#0B2138", fontWeight: strong ? "900" : "800" }}>{value}</Text>
+      <Text
+        style={{
+          color: tono === "gratis" ? COLORS.success : tono === "suave" ? COLORS.muted : "#0B2138",
+          fontWeight: tono === "suave" ? "700" : strong ? "900" : "800",
+        }}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -994,6 +1049,8 @@ function Field(props: {
           paddingVertical: Platform.select({ web: 12, default: 12 }),
           paddingHorizontal: 12,
           color: "#0B2138",
+          // 16 px: con menos, el iPhone amplía la página al tocar el campo y se descoloca el desplazamiento.
+          fontSize: 16,
           fontWeight: "800",
           minHeight: multiline ? 90 : undefined,
           textAlignVertical: multiline ? "top" : "auto",
