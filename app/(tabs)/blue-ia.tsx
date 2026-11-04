@@ -70,9 +70,12 @@
  *   funciona una vez desplegado en Vercel (no en `expo start --web` local,
  *   que no tiene funciones serverless).
  *
- * - Contexto por URL: ?producto=<id>, ?pedido=<nº>, ?reparacion=<id> o
- *   ?tema=<texto>. Se muestra "Preguntas por: …" arriba y se antepone al
- *   primer mensaje que se manda a la API (mismo formato {message, history}).
+ * - Contexto por URL: ?producto=<id>, ?servicio=<id>, ?pedido=<nº>,
+ *   ?reparacion=<id> o ?tema=<texto>. Se muestra "Preguntas por: …" arriba y
+ *   se antepone al primer mensaje que se manda a la API (mismo formato
+ *   {message, history}). ?servicio lo manda «Preguntar por este servicio» de
+ *   app/servicio/[id].tsx; desde aquí, «Hablar con el equipo» abre el chat de
+ *   la tienda con el resumen, que nombra el servicio.
  * - "Hablar con el equipo": un solo botón, siempre junto al recuadro de
  *   escribir (ya no se repite bajo la respuesta con «¿Prefieres que te
  *   atienda una persona?»; petición del dueño, 2026-11-01). Abre el chat
@@ -343,11 +346,13 @@ export default function BlueIAScreen() {
   const params = useLocalSearchParams<{
     q?: string;
     producto?: string;
+    servicio?: string;
     pedido?: string;
     reparacion?: string;
     tema?: string;
   }>();
   const productoId = paramTexto(params.producto);
+  const servicioId = paramTexto(params.servicio);
   const pedido = paramTexto(params.pedido);
   const reparacion = paramTexto(params.reparacion);
   const tema = paramTexto(params.tema);
@@ -381,6 +386,30 @@ export default function BlueIAScreen() {
     };
   }, [productoId]);
 
+  // Servicio por el que se pregunta (si se llega desde su ficha, «Preguntar por este servicio»).
+  const [servicio, setServicio] = useState<{ title: string; price: number | null } | null>(null);
+  useEffect(() => {
+    if (!servicioId) {
+      setServicio(null);
+      return;
+    }
+    let vivo = true;
+    supabase
+      .from("services")
+      .select("title,price_eur")
+      .eq("id", servicioId)
+      .maybeSingle<{ title: string; price_eur: number | null }>()
+      .then(
+        ({ data }) => {
+          if (vivo && data) setServicio({ title: data.title, price: data.price_eur == null ? null : Number(data.price_eur) });
+        },
+        () => {}
+      );
+    return () => {
+      vivo = false;
+    };
+  }, [servicioId]);
+
   // Texto visible ("Preguntas por: …") y prefijo para el primer mensaje a la IA.
   const contexto = useMemo(() => {
     if (productoId) {
@@ -391,12 +420,20 @@ export default function BlueIAScreen() {
         prefijo: `[Sobre el producto: ${producto.title}${precio}]`,
       };
     }
+    if (servicioId) {
+      if (!servicio) return { visible: "este servicio", prefijo: "" };
+      const precio = servicio.price != null && servicio.price > 0 ? `, ${fmtEUR(servicio.price)}` : "";
+      return {
+        visible: `el servicio ${servicio.title}${precio}`,
+        prefijo: `[Sobre el servicio: ${servicio.title}${precio}]`,
+      };
+    }
     if (pedido) return { visible: `tu pedido nº ${pedido}`, prefijo: `[Sobre mi pedido nº ${pedido}]` };
     if (reparacion)
       return { visible: `tu reparación ${reparacion}`, prefijo: `[Sobre mi reparación: ${reparacion}]` };
     if (tema) return { visible: tema, prefijo: `[Tema: ${tema}]` };
     return null;
-  }, [productoId, producto, pedido, reparacion, tema]);
+  }, [productoId, producto, servicioId, servicio, pedido, reparacion, tema]);
 
   const [draft, setDraft] = useState("");
   const [abriendoEquipo, setAbriendoEquipo] = useState(false);
@@ -524,7 +561,7 @@ export default function BlueIAScreen() {
   const ultimaCargadaRef = useRef(false);
 
   const contextoActivo = usarContextoUrl ? contexto : null;
-  const entraConContexto = !!(productoId || pedido || reparacion || tema || paramTexto(params.q));
+  const entraConContexto = !!(productoId || servicioId || pedido || reparacion || tema || paramTexto(params.q));
 
   useEffect(() => {
     let vivo = true;

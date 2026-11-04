@@ -9,18 +9,27 @@
  * «Descripción» (FichaProducto, la misma de producto) y «Volver atrás» al
  * final. Las diferencias que pidió Jefe se mantienen: no hay «Añadir a la
  * cesta» ni Cantidad, y «Comprar ya» es «Contratar servicio ahora», que abre
- * components/ContratarServicioModal.tsx. Las dudas van por WhatsApp.
+ * components/ContratarServicioModal.tsx. Las dudas, como en producto:
+ * «Preguntar por este servicio» abre Blue IA con el servicio como contexto
+ * (?servicio=<id>) y, desde ahí, «Hablar con el equipo» abre el chat de la
+ * tienda (sin WhatsApp; petición del dueño, 2026-11-03).
  *
- * No incluye (a diferencia de la ficha de producto): «me gusta» ni el chat
- * privado por artículo — ninguno de los dos se pidió para servicios y cada
- * uno necesitaría su propia tabla/columna en Supabase; si se quieren más
- * adelante, se añaden igual que en producto/[id].tsx.
+ * «Me gusta» (dueño, 2026-11-03), como en producto: uno por persona y servicio
+ * (api/interaccion.ts, acción apoyo_servicio; migración
+ * 20261103200000_servicios_me_gusta.sql). Este dispositivo recuerda los suyos
+ * (LIKED_SERVICES_KEY) y la pestaña «Me gusta» de Perfil los enseña. Sin la
+ * migración (services.like_count no existe) el corazón no sale y nada se rompe.
+ *
+ * Reseñas (dueño, 2026-11-03): «Mis seguimientos» pide valorar el servicio al
+ * entregarlo y aquí salen la media junto al precio y las opiniones debajo de
+ * las pestañas (store_reviews con service_id; sin la migración
+ * 20261103210000_resenas_servicios.sql, no sale nada).
  *
  * "X Visitas": mismo mecanismo REAL que en producto/[id].tsx (ver
  * sql/services.sql, columna view_count y función increment_service_view).
  *
  * Analítica (Administración → Analítica, #analitica-ficha-servicio): fotos
- * ampliadas, «Contratar servicio ahora» y «Preguntar por WhatsApp».
+ * ampliadas, «Contratar servicio ahora» y «Preguntar por este servicio».
  *
  * Conectado con:
  * - lib/supabase.ts → tablas services, service_media.
@@ -34,7 +43,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -48,9 +56,8 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
-import { contarVistaServicio } from "../../lib/interaccion";
+import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analytics";
-import { openExternalLink } from "../../lib/openExternalLink";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
@@ -75,12 +82,8 @@ const COLORS = {
   accentDark: "#1EA7E8",
 };
 
-const BRAND = {
-  whatsappPhoneE164: "+34627748741",
-};
-
 const SIN_DESCRIPCION_SERVICIO =
-  "Todavía no hay una descripción disponible para este servicio. Aun así, puedes preguntarnos por su alcance, tiempo estimado o garantía por WhatsApp.";
+  "Todavía no hay una descripción disponible para este servicio. Aun así, puedes preguntarnos por su alcance, tiempo estimado o garantía con «Preguntar por este servicio».";
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
@@ -88,18 +91,6 @@ function fmtEUR(n: number) {
   const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
   const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
   return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
-
-function openWhatsApp(prefill: string) {
-  const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
-  const text = encodeURIComponent(String(prefill ?? "").trim().slice(0, 500));
-  const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
-
-  try {
-    openExternalLink(url);
-  } catch {
-    Linking.openURL(`https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`);
-  }
 }
 
 function smartBack() {
@@ -126,19 +117,45 @@ type Service = {
   description: string;
   priceEUR: number;
   media: ServiceMedia[];
+  // null: la base de datos aún no tiene los «me gusta» de servicios (migración 20261103200000 sin aplicar).
+  likeCount: number | null;
 };
 
+type ResenaServicio = { id: string; created_at: string; display_name: string; rating: number; comment: string };
+
+// Reseñas de los clientes que contrataron ESTE servicio (las une a su solicitud la base de datos, migración
+// 20261103210000_resenas_servicios.sql). null: aún no se pueden leer (sin la migración, el bloque no sale).
+async function fetchResenas(serviceId: string): Promise<ResenaServicio[] | null> {
+  const { data, error } = await supabase
+    .from("store_reviews")
+    .select("id,created_at,display_name,rating,comment")
+    .eq("service_id", serviceId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) return null;
+  return (data ?? []) as ResenaServicio[];
+}
+
+function estrellas(n: number) {
+  const v = Math.max(0, Math.min(5, Math.round(n)));
+  return "★".repeat(v) + "☆".repeat(5 - v);
+}
+
+// ¿Falta una columna? (la migración aún no se ha aplicado): entonces se repite la consulta sin ella.
+function faltaColumna(error: unknown) {
+  const e = error as { code?: string; message?: string } | null;
+  return !!e && (e.code === "42703" || e.code === "PGRST204" || /column .* does not exist|Could not find the .* column/i.test(e.message ?? ""));
+}
+
 async function fetchService(serviceId: string): Promise<Service | null> {
-  const { data: row, error } = await supabase
-    .from("services")
-    .select("id,title,description,price_eur")
-    .eq("id", serviceId)
-    .eq("status", "PUBLISHED")
-    .eq("is_active", true)
-    .maybeSingle();
+  const consulta = (columnas: string) =>
+    supabase.from("services").select(columnas).eq("id", serviceId).eq("status", "PUBLISHED").eq("is_active", true).maybeSingle();
+  let { data: row, error } = await consulta("id,title,description,price_eur,like_count");
+  if (error && faltaColumna(error)) ({ data: row, error } = await consulta("id,title,description,price_eur"));
 
   if (error) throw error;
   if (!row) return null;
+  const fila = row as unknown as { id: string; title: string; description: string | null; price_eur: number | null; like_count?: number | null };
 
   const { data: media } = await supabase
     .from("service_media")
@@ -152,11 +169,12 @@ async function fetchService(serviceId: string): Promise<Service | null> {
     .map((m) => ({ id: m.id, publicUrl: m.public_url, isCover: Boolean(m.is_cover) }));
 
   return {
-    id: row.id,
-    title: row.title,
-    description: row.description ?? "",
-    priceEUR: Number(row.price_eur ?? 0),
+    id: fila.id,
+    title: fila.title,
+    description: fila.description ?? "",
+    priceEUR: Number(fila.price_eur ?? 0),
     media: normalizedMedia,
+    likeCount: "like_count" in fila ? Math.max(0, Number(fila.like_count ?? 0)) : null,
   };
 }
 
@@ -180,6 +198,11 @@ export default function ServicioScreen() {
   const [contratarOpen, setContratarOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  // «Me gusta», como en producto: uno por persona; este dispositivo recuerda los suyos (LIKED_SERVICES_KEY).
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState<number | null>(null);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [resenas, setResenas] = useState<ResenaServicio[] | null>(null);
 
   // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
   async function load(silencioso = false) {
@@ -203,6 +226,9 @@ export default function ServicioScreen() {
       setS(row);
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
       setSelectedImageUrl(cover?.publicUrl ?? null);
+      setLikeCount(row.likeCount);
+      meGustaLocales(LIKED_SERVICES_KEY).then((ids) => setLiked(ids.includes(row.id)));
+      fetchResenas(row.id).then(setResenas);
 
       if (!silencioso) {
         contarVistaServicio(row.id).then((total) => {
@@ -229,13 +255,6 @@ export default function ServicioScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarga]);
 
-  const whatsappText = `Hola, vengo desde Videojuegoszaragoza.com.
-
-Servicio: ${s?.title ?? "Reparación/Limpieza"}
-${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
-
-¿Podéis darme más información sobre este servicio?`;
-
   // La ficha con pestañas (la misma de producto): lo que ya contaba «Información del servicio».
   const caracteristicas: Caracteristica[] = useMemo(
     () =>
@@ -248,6 +267,8 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
         : [],
     [s]
   );
+
+  const media = resenas?.length ? resenas.reduce((t, r) => t + r.rating, 0) / resenas.length : null;
 
   const imageGallery = s?.media ?? [];
   const lightboxImages: LightboxImage[] = useMemo(() => (s?.media ?? []).map((m) => ({ id: m.id, url: m.publicUrl })), [s]);
@@ -309,14 +330,40 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
     },
   });
 
+  // Da o quita el «me gusta» al instante y lo confirma con el servidor (si falla, se deshace).
+  async function toggleLike() {
+    if (!s || likeBusy || likeCount === null) return;
+    const siguiente = !liked;
+    const delta = siguiente ? 1 : -1;
+    setLikeBusy(true);
+    setLiked(siguiente);
+    setLikeCount((v) => Math.max(0, (v ?? 0) + delta));
+    try {
+      const total = await fijarMeGustaServicio(s.id, siguiente);
+      if (total === null) throw new Error("no se pudo actualizar el me gusta");
+      setLikeCount(total);
+      await guardarMeGustaLocal(LIKED_SERVICES_KEY, s.id, siguiente);
+      trackEvent("servicio_me_gusta", siguiente ? "Servicio: me gusta" : "Servicio: quita el me gusta", { path: `/servicio/${s.id}` });
+    } catch (e) {
+      console.error("Error actualizando el me gusta del servicio:", e);
+      setLiked(!siguiente);
+      setLikeCount((v) => Math.max(0, (v ?? 0) - delta));
+    } finally {
+      setLikeBusy(false);
+    }
+  }
+
   function contratar() {
     setContratarOpen(true);
     trackEvent("servicio_contratar", "Servicio: Contratar servicio ahora", { path: `/servicio/${s?.id ?? ""}` });
   }
 
-  function preguntarWhatsApp() {
-    openWhatsApp(whatsappText);
-    trackEvent("servicio_whatsapp", "Servicio: Preguntar por WhatsApp", { path: `/servicio/${s?.id ?? ""}` });
+  // Dudas, como en producto: primero Blue IA con el servicio como contexto; desde ahí, «Hablar con el equipo» abre el
+  // chat de la tienda.
+  function preguntar() {
+    if (!s) return;
+    trackEvent("servicio_preguntar", "Servicio: Preguntar por este servicio", { path: `/servicio/${s.id}` });
+    router.push(`/blue-ia?servicio=${encodeURIComponent(s.id)}` as any);
   }
 
   async function shareService() {
@@ -538,25 +585,50 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                     </View>
                   ) : null}
 
-                  <Pressable
-                    onPress={shareService}
-                    accessibilityRole="button"
-                    accessibilityLabel="Compartir este servicio"
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.85 : 1,
-                      position: "absolute",
-                      right: 12,
-                      bottom: 12,
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: "rgba(11,33,56,0.60)",
-                    })}
-                  >
-                    <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
-                  </Pressable>
+                  <View style={{ position: "absolute", right: 12, bottom: 12, flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={shareService}
+                      accessibilityRole="button"
+                      accessibilityLabel="Compartir este servicio"
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.85 : 1,
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "rgba(11,33,56,0.60)",
+                      })}
+                    >
+                      <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
+                    </Pressable>
+
+                    {/* «Me gusta», como en producto (solo cuando la base de datos ya los tiene). */}
+                    {likeCount !== null ? (
+                      <Pressable
+                        nativeID="servicio-me-gusta"
+                        onPress={toggleLike}
+                        disabled={likeBusy}
+                        accessibilityRole="button"
+                        accessibilityLabel={liked ? "Quitar me gusta" : "Dar me gusta"}
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.85 : 1,
+                          minWidth: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          paddingHorizontal: 10,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 5,
+                          backgroundColor: "rgba(11,33,56,0.60)",
+                        })}
+                      >
+                        <Ionicons name={liked ? "heart" : "heart-outline"} size={15} color={liked ? "#FF5A7A" : "#FFFFFF"} />
+                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 11 }}>{likeCount}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
 
                 {imageGallery.length > 1 ? (
@@ -636,6 +708,14 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                     {fmtEUR(s.priceEUR)}
                   </Text>
 
+                  {/* La valoración de quienes ya lo contrataron (solo si hay reseñas). */}
+                  {media !== null && resenas ? (
+                    <Text nativeID="servicio-valoracion" style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>
+                      <Text style={{ color: "#F5A524" }}>★</Text> {media.toFixed(1).replace(".", ",")} · {resenas.length}{" "}
+                      {resenas.length === 1 ? "reseña" : "reseñas"} de clientes
+                    </Text>
+                  ) : null}
+
                   <View style={{ gap: 10, width: "100%", maxWidth: 460 }}>
                     {/* Acción principal: una sola, clara (como «Comprar ya» en producto). */}
                     <Pressable
@@ -655,12 +735,12 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                       <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 }}>Contratar servicio ahora</Text>
                     </Pressable>
 
-                    {/* Dudas: por WhatsApp (en producto, «Preguntar por este producto» abre Blue IA). */}
+                    {/* Dudas: primero Blue IA con el servicio como contexto; desde ahí, el chat con el equipo. */}
                     <Pressable
-                      nativeID="servicio-whatsapp"
-                      onPress={preguntarWhatsApp}
+                      nativeID="servicio-preguntar"
+                      onPress={preguntar}
                       accessibilityRole="button"
-                      accessibilityLabel="Preguntar por WhatsApp"
+                      accessibilityLabel="Preguntar por este servicio"
                       style={({ pressed }) => ({
                         opacity: pressed ? 0.88 : 1,
                         flexDirection: "row",
@@ -674,8 +754,8 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                         backgroundColor: "#FFFFFF",
                       })}
                     >
-                      <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Preguntar por WhatsApp</Text>
+                      <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.text} />
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>Preguntar por este servicio</Text>
                     </Pressable>
                   </View>
 
@@ -688,6 +768,35 @@ ${s?.priceEUR ? `Precio: ${fmtEUR(s.priceEUR)}` : ""}
                     descripcion={s.description}
                     sinDescripcion={SIN_DESCRIPCION_SERVICIO}
                   />
+
+                  {/* Reseñas de quienes ya lo contrataron (se piden en «Mis seguimientos» al entregarlo). */}
+                  {resenas && resenas.length ? (
+                    <View nativeID="servicio-resenas" style={{ width: "100%", maxWidth: 520, gap: 4, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#EEF3F8" }}>
+                      <Text
+                        accessibilityRole="header"
+                        {...({ "aria-level": 2 } as object)}
+                        style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center", marginBottom: 6 }}
+                      >
+                        Opiniones de clientes
+                      </Text>
+                      {resenas.slice(0, 10).map((r, i) => (
+                        <View key={r.id} style={{ gap: 3, paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "#EEF3F8" }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                            <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 14 }}>
+                              {r.display_name || "Cliente"}
+                            </Text>
+                            <Text accessibilityLabel={`${r.rating} de 5 estrellas`} style={{ color: "#F5A524", fontSize: 14 }}>
+                              {estrellas(r.rating)}
+                            </Text>
+                          </View>
+                          {r.comment ? <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{r.comment}</Text> : null}
+                          <Text style={{ color: COLORS.muted, fontSize: 12 }}>
+                            {new Date(r.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               </View>
             </View>

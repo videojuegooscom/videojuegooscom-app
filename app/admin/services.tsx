@@ -148,6 +148,8 @@ type ServiceRow = {
   status: ServiceStatus;
   is_active: boolean;
   view_count: number;
+  // «Me gusta» de la ficha (null: la migración 20261103200000_servicios_me_gusta.sql aún no está aplicada).
+  like_count?: number | null;
   created_at: string;
   updated_at: string;
   media: ServiceMediaRow[];
@@ -508,10 +510,13 @@ export default function AdminServices() {
   const loadServices = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: rows, error } = await supabase
-        .from("services")
-        .select("id,title,description,price_eur,status,is_active,view_count,created_at,updated_at")
-        .order("created_at", { ascending: false });
+      // Con los «me gusta» si la base de datos ya los tiene; si no (columna que falta), sin ellos.
+      const columnas = "id,title,description,price_eur,status,is_active,view_count,created_at,updated_at";
+      const leer = (cols: string) => supabase.from("services").select(cols).order("created_at", { ascending: false });
+      let { data: rows, error } = await leer(`${columnas},like_count`);
+      if (error && (error.code === "42703" || error.code === "PGRST204" || /like_count/.test(error.message ?? ""))) {
+        ({ data: rows, error } = await leer(columnas));
+      }
       if (error) throw error;
 
       const ids = (rows ?? []).map((r: any) => r.id);
@@ -841,6 +846,32 @@ export default function AdminServices() {
   const [seguimientoOk, setSeguimientoOk] = useState(true);
   // false = aún no hay números de seguimiento (migración 20261031170000 sin aplicar): no se enseñan.
   const [numerosOk, setNumerosOk] = useState(false);
+  // Reseñas de los servicios terminados (migración 20261103210000): la de cada solicitud y la media de cada servicio.
+  // Vacías si la migración aún no está aplicada.
+  const [resenasSolicitud, setResenasSolicitud] = useState<Record<string, { rating: number; comment: string }>>({});
+  const [mediaServicio, setMediaServicio] = useState<Record<string, { media: number; n: number }>>({});
+  useEffect(() => {
+    let vivo = true;
+    supabase
+      .from("store_reviews")
+      .select("service_request_id,service_id,rating,comment")
+      .not("service_request_id", "is", null)
+      .limit(2000)
+      .then(({ data, error }) => {
+        if (!vivo || error) return;
+        const filas = (data ?? []) as { service_request_id: string; service_id: string | null; rating: number; comment: string }[];
+        setResenasSolicitud(Object.fromEntries(filas.map((f) => [f.service_request_id, { rating: f.rating, comment: f.comment }])));
+        const suma: Record<string, { t: number; n: number }> = {};
+        for (const f of filas) {
+          if (!f.service_id) continue;
+          suma[f.service_id] = { t: (suma[f.service_id]?.t ?? 0) + f.rating, n: (suma[f.service_id]?.n ?? 0) + 1 };
+        }
+        setMediaServicio(Object.fromEntries(Object.entries(suma).map(([id, v]) => [id, { media: v.t / v.n, n: v.n }])));
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
@@ -1040,6 +1071,8 @@ export default function AdminServices() {
                         <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
                           {fmtEUR(s.price_eur)} · {STATUS_LABEL[s.status]}
                           {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
+                          {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
+                          {mediaServicio[s.id] ? ` · ★ ${mediaServicio[s.id].media.toFixed(1).replace(".", ",")} (${mediaServicio[s.id].n})` : ""}
                         </Text>
                       </View>
 
@@ -1192,6 +1225,13 @@ export default function AdminServices() {
                           <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>Detalles: </Text>
                             {r.comentario}
+                          </Text>
+                        ) : null}
+                        {resenasSolicitud[r.id] ? (
+                          <Text nativeID={`solicitud-resena-${r.id}`} style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
+                            <Text style={{ fontWeight: "800" }}>Valoración del cliente: </Text>
+                            <Text style={{ color: "#F5A524" }}>{"★".repeat(resenasSolicitud[r.id].rating)}</Text>
+                            {resenasSolicitud[r.id].comment ? ` «${resenasSolicitud[r.id].comment}»` : ""}
                           </Text>
                         ) : null}
                       </View>

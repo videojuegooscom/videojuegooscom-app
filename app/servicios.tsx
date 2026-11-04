@@ -8,8 +8,9 @@
  * "Reparación/Limpieza" de Inicio en vez de abrir WhatsApp directamente.
  *
  * Cómo funciona: carga "services" (status='PUBLISHED', is_active=true) +
- * su foto de portada desde "service_media", con una rejilla de tarjetas
- * (calcColumns, mismo criterio de columnas que app/catalogo.tsx) y un
+ * su foto de portada desde "service_media", con la MISMA tarjeta y rejilla
+ * que el Catálogo e Inicio (TarjetaProducto, RejillaTarjetas y columnasLista
+ * de components/CategoryProductsShelf.tsx: en el móvil, 2 columnas) y un
  * buscador simple por título/descripción. Al tocar una tarjeta lleva a
  * app/servicio/[id].tsx.
  *
@@ -32,7 +33,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
-import SmartImage from "../components/SmartImage";
+import { columnasLista, RejillaTarjetas, TarjetaProducto } from "../components/CategoryProductsShelf";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
@@ -70,28 +71,6 @@ type Service = {
   imageUrl: string | null;
 };
 
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
-}
-
-function clampText(s: string, max = 110) {
-  const t = String(s ?? "").trim();
-  if (!t) return "";
-  if (t.length <= max) return t;
-  return `${t.slice(0, max - 1).trimEnd()}…`;
-}
-
-function calcColumns(width: number) {
-  if (width >= 1320) return 4;
-  if (width >= 980) return 3;
-  if (width >= 680) return 2;
-  return 1;
-}
-
 async function loadServices(): Promise<Service[]> {
   const { data: rows, error } = await supabase
     .from("services")
@@ -128,70 +107,11 @@ async function loadServices(): Promise<Service[]> {
   }));
 }
 
-function ServiceCard({ s, onPress, compact }: { s: Service; onPress: () => void; compact?: boolean }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.94 : 1,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.card,
-        overflow: "hidden",
-      })}
-    >
-      <View
-        style={{
-          height: compact ? 150 : 180,
-          backgroundColor: COLORS.bg3,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.borderSoft,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        {s.imageUrl ? (
-          <SmartImage uri={s.imageUrl} alt={s.title} ancho={190} contentFit="contain" style={{ width: "100%", height: "100%" }} />
-        ) : (
-          <Ionicons name="construct-outline" size={34} color={COLORS.muted2} />
-        )}
-      </View>
-
-      <View style={{ padding: 14, gap: 6, alignItems: "center" }}>
-        {/* Sin numberOfLines: el título se ve siempre completo, igual que en
-            app/catalogo.tsx (antes se recortaba a 2 líneas con "..."). */}
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 20, textAlign: "center" }}>
-          {s.title}
-        </Text>
-        {!!s.description && (
-          <Text
-            numberOfLines={2}
-            style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 17, textAlign: "center" }}
-          >
-            {clampText(s.description, 90)}
-          </Text>
-        )}
-        {/* Precio y enlace apilados y centrados */}
-        <View style={{ alignItems: "center", gap: 2, marginTop: 4 }}>
-          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-            {fmtEUR(s.priceEUR)}
-          </Text>
-          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
-            Ver servicio →
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
 export default function ServiciosScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
   const pagePadding = isMobile ? 12 : 16;
-  const columns = calcColumns(widthSafe);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -226,6 +146,10 @@ export default function ServiciosScreen() {
       (s) => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
     );
   }, [services, search]);
+
+  // Las mismas columnas que el Catálogo: en el móvil, 2 en cuanto hay más de un servicio.
+  const columns = columnasLista(widthSafe, isMobile, filtered.length);
+  const compact = isMobile && columns > 1;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -331,14 +255,22 @@ export default function ServiciosScreen() {
               </Text>
             </View>
           ) : (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14 }}>
+            // La misma tarjeta y rejilla que el Catálogo e Inicio (components/CategoryProductsShelf.tsx).
+            <RejillaTarjetas columns={columns} gap={14}>
               {filtered.map((s, i) => (
                 // nativeID: la guía de Blue (components/Campanita.tsx) enmarca el primer servicio.
-                <View key={s.id} nativeID={i === 0 ? "servicios-lista" : undefined} style={{ width: `${100 / columns - 1.2}%` as any }}>
-                  <ServiceCard s={s} compact={columns >= 3} onPress={() => router.push(`/servicio/${s.id}` as any)} />
+                <View key={s.id} nativeID={i === 0 ? "servicios-lista" : undefined}>
+                  <TarjetaProducto
+                    titulo={s.title}
+                    precioEUR={s.priceEUR}
+                    imagenUrl={s.imageUrl}
+                    isMobile={isMobile}
+                    compact={compact}
+                    onPress={() => router.push(`/servicio/${s.id}` as any)}
+                  />
                 </View>
               ))}
-            </View>
+            </RejillaTarjetas>
           )}
         </View>
       </ScrollView>

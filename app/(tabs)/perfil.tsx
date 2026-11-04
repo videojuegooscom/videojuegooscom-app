@@ -80,14 +80,15 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { marcarSeguimientosVistos } from "../../components/Campanita";
-import CategoryProductsShelf from "../../components/CategoryProductsShelf";
+import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
-import { MejorasModal } from "../../components/ReviewModal";
+import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
 import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trackEvent } from "../../lib/analytics";
+import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
 import { mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
@@ -113,7 +114,9 @@ const COLORS = {
 type AccessState = "checking" | "idle" | "submitting" | "signingOut" | "resettingPassword";
 type SessionRole = "admin" | "user" | "guest";
 type AuthMode = "signin" | "signup";
-type PerfilTab = "cuenta" | "seguimientos";
+type PerfilTab = "cuenta" | "seguimientos" | "megusta";
+// Orden de las pestañas (deslizar el dedo pasa a la de al lado; en los extremos no hace nada).
+const ORDEN_PESTANAS: PerfilTab[] = ["cuenta", "seguimientos", "megusta"];
 
 function normalizeEmail(value: string) {
   return (value ?? "").trim().toLowerCase();
@@ -474,7 +477,7 @@ export default function PerfilScreen() {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<SessionRole>("guest");
 
-  // Pestañas del perfil con sesión: "Mi cuenta" | "Mis seguimientos" (?tab=seguimientos)
+  // Pestañas del perfil con sesión: "Mi cuenta" | "Mis seguimientos" (?tab=seguimientos) | "Me gusta" (?tab=megusta)
   // ?aviso=… lo manda quien trae aquí para iniciar sesión (p. ej. "Hablar con el equipo").
   // ?acceso=registro | entrar → abre directamente el formulario de crear cuenta o de iniciar
   // sesión (lo usa la guía de Blue, components/Campanita.tsx).
@@ -491,16 +494,18 @@ export default function PerfilScreen() {
     }
   }, [accesoParam]);
   const [perfilTab, setPerfilTab] = useState<PerfilTab>(
-    tabParam === "seguimientos" ? "seguimientos" : "cuenta"
+    tabParam === "seguimientos" || tabParam === "megusta" ? tabParam : "cuenta"
   );
   useEffect(() => {
-    if (tabParam === "seguimientos") setPerfilTab("seguimientos");
+    if (tabParam === "seguimientos" || tabParam === "megusta") setPerfilTab(tabParam);
   }, [tabParam]);
   const isLogged = sessionRole !== "guest";
   const showSeguimientos = isLogged && perfilTab === "seguimientos";
+  const showMeGusta = isLogged && perfilTab === "megusta";
 
-  // Cambiar de pestaña tocándola o deslizando el dedo sobre su contenido: hacia la izquierda, «Mis seguimientos»; hacia
-  // la derecha, «Mi cuenta». Abrir «Mis seguimientos» se mide (analítica propia, Administración → Usuarios).
+  // Cambiar de pestaña tocándola o deslizando el dedo sobre su contenido: hacia la izquierda, la siguiente («Mis
+  // seguimientos», «Me gusta»); hacia la derecha, la anterior. Abrir «Mis seguimientos» y «Me gusta» se mide (analítica
+  // propia, Administración → Usuarios y Analítica).
   const [desliz] = useState(() => new Animated.Value(0));
   const perfilTabRef = useRef<PerfilTab>(perfilTab);
   useEffect(() => {
@@ -510,6 +515,9 @@ export default function PerfilScreen() {
     if (perfilTabRef.current !== t && t === "seguimientos") {
       trackEvent("seguimientos_abiertos", "Perfil: Mis seguimientos", { metadata: { como } });
     }
+    if (perfilTabRef.current !== t && t === "megusta") {
+      trackEvent("megusta_abiertos", "Perfil: Me gusta", { metadata: { como } });
+    }
     perfilTabRef.current = t;
     setPerfilTab(t);
   }, []);
@@ -518,11 +526,12 @@ export default function PerfilScreen() {
   const soltarDedo = useCallback(
     (dx: number, vx: number) => {
       const rapido = Math.abs(dx) > 24 && Math.abs(vx) > 0.35 && Math.sign(vx) === Math.sign(dx);
-      const destino: PerfilTab | null = Math.abs(dx) > 60 || rapido ? (dx < 0 ? "seguimientos" : "cuenta") : null;
+      const actual = ORDEN_PESTANAS.indexOf(perfilTabRef.current);
+      const destino: PerfilTab | null = Math.abs(dx) > 60 || rapido ? ORDEN_PESTANAS[actual + (dx < 0 ? 1 : -1)] ?? null : null;
       if (destino && destino !== perfilTabRef.current) {
         cambiarPestana(destino, "deslizar");
         // Entra desde el lado del gesto.
-        desliz.setValue(destino === "seguimientos" ? 70 : -70);
+        desliz.setValue(dx < 0 ? 70 : -70);
       }
       Animated.spring(desliz, { toValue: 0, useNativeDriver: false, speed: 18, bounciness: 4 }).start();
     },
@@ -606,8 +615,8 @@ export default function PerfilScreen() {
         onPanResponderMove: (_e, g) => {
           // El contenido acompaña un poco al dedo (con resistencia) para que se note que se puede deslizar.
           const dx = recorrido()?.dx ?? g.dx;
-          const haciaSeguimientos = dx < 0;
-          const posible = haciaSeguimientos ? perfilTabRef.current === "cuenta" : perfilTabRef.current === "seguimientos";
+          const actual = ORDEN_PESTANAS.indexOf(perfilTabRef.current);
+          const posible = dx < 0 ? actual < ORDEN_PESTANAS.length - 1 : actual > 0;
           desliz.setValue(Math.max(-90, Math.min(90, dx * (posible ? 0.35 : 0.12))));
         },
         onPanResponderRelease: (_e, g) => {
@@ -1055,6 +1064,10 @@ export default function PerfilScreen() {
                 <SectionCard padding={cardPadding}>
                   <SeguimientosSeccion />
                 </SectionCard>
+              ) : showMeGusta ? (
+                <SectionCard padding={cardPadding}>
+                  <MeGustaSeccion />
+                </SectionCard>
               ) : (
               <>
               {/* «Mi perfil» (foto, usuario, nombre, país, provincia y edad) con la cuenta dentro, debajo de los datos. Si la
@@ -1390,13 +1403,15 @@ const SEG = {
 
 // Selector de pestañas centrado con subrayado azul en la activa.
 function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: PerfilTab) => void }) {
+  const { width } = useWindowDimensions();
   const tabs: { key: PerfilTab; label: string }[] = [
     { key: "cuenta", label: "Mi cuenta" },
     { key: "seguimientos", label: "Mis seguimientos" },
+    { key: "megusta", label: "Me gusta" },
   ];
   return (
-    // nativeID: la guía de Blue (components/Campanita.tsx) enmarca estas pestañas.
-    <View nativeID="perfil-pestanas" role="tablist" style={{ flexDirection: "row", justifyContent: "center", gap: 28, paddingTop: 4 }}>
+    // nativeID: la guía de Blue (components/Campanita.tsx) enmarca estas pestañas. Las tres caben en 360 px.
+    <View nativeID="perfil-pestanas" role="tablist" style={{ flexDirection: "row", justifyContent: "center", gap: width < 400 ? 18 : 28, paddingTop: 4 }}>
       {tabs.map((t) => {
         const active = value === t.key;
         return (
@@ -1706,6 +1721,126 @@ function SegSeparador() {
   return <View style={{ height: 1, backgroundColor: SEG.line, width: "100%", maxWidth: 460 }} />;
 }
 
+// --- «Me gusta» (dueño, 2026-11-03): los productos y servicios a los que el cliente ha dado «me gusta» -----------------
+// Junta los de su cuenta (api/interaccion.ts, «mis_me_gusta»: los da en cualquier dispositivo) con los de este
+// dispositivo (también los que dio sin sesión), los más recientes primero. Solo enseña lo que sigue a la venta, con la
+// misma tarjeta que el Catálogo.
+type FichaGustada = { id: string; titulo: string; precio: number; imagen: string | null };
+const UUID_GUSTO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function fichasGustadas(tipo: "producto" | "servicio", ids: string[]): Promise<FichaGustada[]> {
+  if (!ids.length) return [];
+  const tabla = tipo === "producto" ? "products" : "services";
+  const { data, error } = await supabase.from(tabla).select("id,title,price_eur").in("id", ids).eq("status", "PUBLISHED").eq("is_active", true);
+  if (error) throw error;
+  const filas = (data ?? []) as { id: string; title: string; price_eur: number | null }[];
+  const portada: Record<string, string> = {};
+  if (filas.length) {
+    const fotos =
+      tipo === "producto"
+        ? await supabase.from("product_media").select("product_id,public_url,is_cover,sort_order,kind").in("product_id", filas.map((f) => f.id)).order("is_cover", { ascending: false }).order("sort_order", { ascending: true })
+        : await supabase.from("service_media").select("service_id,public_url,is_cover,sort_order").in("service_id", filas.map((f) => f.id)).order("is_cover", { ascending: false }).order("sort_order", { ascending: true });
+    for (const m of (fotos.data ?? []) as { product_id?: string; service_id?: string; public_url: string | null; kind?: string | null }[]) {
+      const id = m.product_id ?? m.service_id;
+      if (id && m.public_url && !portada[id] && (!m.kind || m.kind === "image")) portada[id] = m.public_url;
+    }
+  }
+  const porId = new Map(filas.map((f) => [f.id, f]));
+  return ids
+    .map((id) => porId.get(id))
+    .filter((f): f is { id: string; title: string; price_eur: number | null } => !!f)
+    .map((f) => ({ id: f.id, titulo: f.title, precio: Number(f.price_eur ?? 0), imagen: portada[f.id] ?? null }));
+}
+
+function MeGustaSeccion() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 700;
+  const [estado, setEstado] = useState<"cargando" | "listo" | "error">("cargando");
+  const [productos, setProductos] = useState<FichaGustada[]>([]);
+  const [servicios, setServicios] = useState<FichaGustada[]>([]);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const [localesP, localesS, cuenta] = await Promise.all([
+          meGustaLocales(LIKED_PRODUCTS_KEY),
+          meGustaLocales(LIKED_SERVICES_KEY),
+          misMeGustaServidor(),
+        ]);
+        // Primero los de la cuenta (ya vienen del más reciente al más antiguo) y luego los de este dispositivo.
+        const unir = (cuentaIds: string[], locales: string[]) => [...new Set([...cuentaIds, ...[...locales].reverse()])].filter((id) => UUID_GUSTO.test(id)).slice(0, 100);
+        const [p, s] = await Promise.all([
+          fichasGustadas("producto", unir(cuenta?.productos ?? [], localesP)),
+          fichasGustadas("servicio", unir(cuenta?.servicios ?? [], localesS)),
+        ]);
+        if (!vivo) return;
+        setProductos(p);
+        setServicios(s);
+        setEstado("listo");
+      } catch (e) {
+        console.error("Error cargando los «me gusta»:", e);
+        if (vivo) setEstado("error");
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  if (estado === "cargando") {
+    return (
+      <View style={{ alignItems: "center", paddingVertical: 18 }}>
+        <ActivityIndicator color={SEG.accent} />
+      </View>
+    );
+  }
+  if (estado === "error") {
+    return <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 20 }}>No hemos podido cargar tus «me gusta». Inténtalo de nuevo en un rato.</Text>;
+  }
+  if (!productos.length && !servicios.length) {
+    return (
+      <View nativeID="perfil-me-gusta" style={{ gap: 14 }}>
+        <SegTitulo>Me gusta</SegTitulo>
+        <SegVacio
+          cual="tienda"
+          texto="Aún no tienes «me gusta». Toca el corazón de un artículo o de un servicio y lo tendrás aquí."
+          boton="Ver el catálogo"
+          destino="/catalogo"
+        />
+      </View>
+    );
+  }
+
+  const bloque = (titulo: string, lista: FichaGustada[], ruta: "/producto" | "/servicio", id: string) =>
+    lista.length ? (
+      <View nativeID={id} style={{ gap: 12 }}>
+        <SegTitulo>{titulo}</SegTitulo>
+        <RejillaTarjetas columns={columnasLista(width, isMobile, lista.length)} gap={12}>
+          {lista.map((f) => (
+            <TarjetaProducto
+              key={f.id}
+              titulo={f.titulo}
+              precioEUR={f.precio}
+              imagenUrl={f.imagen}
+              isMobile={isMobile}
+              compact={isMobile && lista.length > 1}
+              onPress={() => router.push(`${ruta}/${f.id}` as never)}
+            />
+          ))}
+        </RejillaTarjetas>
+      </View>
+    ) : null;
+
+  return (
+    <View nativeID="perfil-me-gusta" style={{ gap: 18 }}>
+      {bloque("Productos", productos, "/producto", "perfil-me-gusta-productos")}
+      {productos.length && servicios.length ? <SegSeparador /> : null}
+      {bloque("Servicios", servicios, "/servicio", "perfil-me-gusta-servicios")}
+    </View>
+  );
+}
+
 function SeguimientosSeccion() {
   const [cargando, setCargando] = useState(true);
   const [conSesion, setConSesion] = useState(false);
@@ -1713,6 +1848,10 @@ function SeguimientosSeccion() {
   const [reparaciones, setReparaciones] = useState<ReparacionSeg[]>([]);
   // ¿Existen ya los números de seguimiento? (migración 20261031170000). Sin ellos no se ofrece añadir uno.
   const [numerosOk, setNumerosOk] = useState(false);
+  // Reseñas de los servicios entregados (migración 20261103210000): estrellas que ya les dio, por solicitud. null: aún
+  // no se pueden valorar (sin la migración no sale el botón).
+  const [valoradas, setValoradas] = useState<Record<string, number> | null>(null);
+  const [valorando, setValorando] = useState<{ solicitudId: string; titulo: string } | null>(null);
 
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
   const cargar = useCallback(async (silencioso = false) => {
@@ -1801,6 +1940,18 @@ function SeguimientosSeccion() {
             etapa: String(r.seguimiento ?? "solicitado"),
             actualizado: String(r.seguimiento_actualizado ?? ""),
           });
+        }
+        // Las entregadas se pueden valorar una vez: ¿cuáles ya tienen su reseña? (si la columna aún no existe, ninguna
+        // se ofrece).
+        const entregadas = (repRes.data ?? []).filter((r: any) => r.seguimiento === "entregado").map((r: any) => String(r.id));
+        if (!entregadas.length) setValoradas({});
+        else {
+          const res = await supabase.from("store_reviews").select("service_request_id,rating").eq("user_id", uid).in("service_request_id", entregadas);
+          setValoradas(
+            res.error
+              ? null
+              : Object.fromEntries(((res.data ?? []) as { service_request_id: string; rating: number }[]).map((f) => [f.service_request_id, f.rating]))
+          );
         }
       }
 
@@ -1896,11 +2047,48 @@ function SeguimientosSeccion() {
                   <Text style={{ color: SEG.text, textAlign: "center", lineHeight: 20 }}>{r.seguimiento_nota}</Text>
                 </View>
               ) : null}
+              {/* Terminado: se pide su valoración (una vez); con ella, sus estrellas. */}
+              {r.seguimiento === "entregado" && valoradas !== null ? (
+                valoradas[r.id] ? (
+                  <Text nativeID={`valorado-${r.id}`} style={{ color: SEG.muted, fontWeight: "800", fontSize: 13 }}>
+                    Tu valoración: <Text style={{ color: "#F5A524" }}>{"★".repeat(valoradas[r.id])}</Text>
+                  </Text>
+                ) : (
+                  <Pressable
+                    nativeID={`valorar-${r.id}`}
+                    onPress={() => {
+                      trackEvent("resena_servicio_pedida", "Seguimientos: valorar el servicio", { metadata: { solicitud: r.id } });
+                      setValorando({ solicitudId: r.id, titulo: r.service_title });
+                    }}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      borderRadius: 999,
+                      minHeight: 44,
+                      paddingHorizontal: 22,
+                      justifyContent: "center",
+                      backgroundColor: SEG.accentDark,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Valorar el servicio</Text>
+                  </Pressable>
+                )
+              ) : null}
               <PreguntarBoton onPress={() => router.push(`/blue-ia?reparacion=${r.id}`)} />
             </View>
           ))
         )}
       </View>
+
+      <ReviewModal
+        visible={!!valorando}
+        servicio={valorando}
+        onClose={() => setValorando(null)}
+        onPublished={(resena) => {
+          const id = valorando?.solicitudId;
+          if (id) setValoradas((v) => ({ ...(v ?? {}), [id]: resena.rating }));
+        }}
+      />
     </View>
   );
 }

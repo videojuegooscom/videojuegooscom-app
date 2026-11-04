@@ -34,7 +34,8 @@
  * - components/CatalogFilters.tsx → botón "Filtros" con contador y panel
  *   (hoja inferior en móvil) con todos los filtros, orden y "Quitar filtros".
  * - components/Barramagic.tsx → buscador (modo "input").
- * - components/SmartImage.tsx → fotos de las tarjetas.
+ * - components/CategoryProductsShelf.tsx → la tarjeta y la rejilla (TarjetaProducto, RejillaTarjetas), las mismas
+ *   de Inicio y Servicios.
  * - app/producto/[id].tsx → a donde se navega al pulsar una tarjeta.
  * - app/(tabs)/index.tsx → los accesos por categoría de la home enlazan aquí
  *   con el parámetro ?cat=.
@@ -59,13 +60,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { trackEvent, trackEventThrottled } from "../lib/analytics";
 import Barramagic from "../components/Barramagic";
-import SmartImage from "../components/SmartImage";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import PortadasCategoria, { esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/Campanita";
+import { RejillaTarjetas, TarjetaProducto } from "../components/CategoryProductsShelf";
 import CatalogFilters, {
   Chip,
   USED_CONDITIONS,
@@ -156,14 +157,6 @@ function replaceRoute(route: Href) {
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
-}
-
-// Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
-function fmtEUR(n: number) {
-  const v = Number(n);
-  const cents = Math.round((Number.isFinite(v) ? v : 0) * 100);
-  const [ent, dec] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
 }
 
 function mapDbStatusToUi(s: DbStatus): UiStatus {
@@ -410,7 +403,6 @@ export default function CatalogoScreen() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const isTablet = widthSafe >= 700 && widthSafe < 1024;
   const pagePadding = isMobile ? 12 : 16;
 
   const params = useLocalSearchParams<{ cat?: string; categoria?: string; query?: string }>();
@@ -499,17 +491,26 @@ export default function CatalogoScreen() {
   const productCards = useMemo(
     () =>
       items.map((p) => (
-        <ProductCard
+        // La misma tarjeta que Inicio y Servicios (components/CategoryProductsShelf.tsx). Solo el administrador ve,
+        // en texto y sin recuadro, el estado interno del artículo.
+        <TarjetaProducto
           key={p.id}
-          p={p}
-          isAdmin={isAdmin}
+          titulo={p.title}
+          precioEUR={p.priceEUR}
+          imagenUrl={p.imageUrl}
           isMobile={isMobile}
-          isTablet={isTablet}
           compact={compactCards}
           onPress={() => pushRoute(`/producto/${p.id}` as Href)}
+          extra={
+            isAdmin ? (
+              <Text style={{ color: adminStatusColor(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
+                {adminStatusLabel(p.status)}
+              </Text>
+            ) : null
+          }
         />
       )),
-    [items, isAdmin, isMobile, isTablet, compactCards]
+    [items, isAdmin, isMobile, compactCards]
   );
 
   const currentFilters: ListFilters = useMemo(
@@ -913,9 +914,9 @@ export default function CatalogoScreen() {
                   ) : null}
                 </View>
               ) : (
-                <Grid columns={cols} gap={14}>
+                <RejillaTarjetas columns={cols} gap={14}>
                   {productCards}
-                </Grid>
+                </RejillaTarjetas>
               )}
 
               {items.length > 0 && hasMore ? (
@@ -1008,147 +1009,3 @@ export default function CatalogoScreen() {
     </View>
   );
 }
-
-function Grid({
-  columns,
-  gap,
-  children,
-}: {
-  columns: number;
-  gap: number;
-  children: React.ReactNode;
-}) {
-  // Reparto en filas memorizado: solo se rehace si cambian hijos o columnas.
-  const rows = useMemo(() => {
-    const kids = React.Children.toArray(children);
-    const chunked: React.ReactNode[][] = [];
-    for (let i = 0; i < kids.length; i += columns) {
-      chunked.push(kids.slice(i, i + columns));
-    }
-    return chunked;
-  }, [children, columns]);
-
-  return (
-    <View style={{ gap }}>
-      {rows.map((row, idx) => (
-        <View
-          key={idx}
-          style={{
-            flexDirection: columns === 1 ? "column" : "row",
-            gap,
-          }}
-        >
-          {row.map((child, j) => (
-            <View key={j} style={{ flex: 1 }}>
-              {child}
-            </View>
-          ))}
-          {row.length < columns
-            ? Array.from({ length: columns - row.length }).map((_, k) => (
-                <View key={`pad-${k}`} style={{ flex: 1 }} />
-              ))
-            : null}
-        </View>
-      ))}
-    </View>
-  );
-}
-
-const ProductCard = React.memo(function ProductCard({
-  p,
-  onPress,
-  isAdmin,
-  isMobile,
-  compact,
-}: {
-  p: Product;
-  onPress: () => void;
-  isAdmin: boolean;
-  isMobile?: boolean;
-  isTablet?: boolean;
-  /** Móvil + 2 columnas: tarjeta más estrecha, precio/botón necesitan menos aire. */
-  compact?: boolean;
-}) {
-  // Mismo diseño que las tarjetas de Inicio (CategoryProductsShelf): fondo suave sin borde,
-  // foto entera sobre blanco, título completo y precio en azul. Sin etiquetas ni botones
-  // decorativos: toda la tarjeta es el enlace. Solo el administrador ve, en texto y sin
-  // recuadro, el estado interno del artículo.
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="link"
-      accessibilityLabel={`${p.title}, ${fmtEUR(p.priceEUR)}`}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.9 : 1,
-        borderRadius: 16,
-        backgroundColor: COLORS.card,
-        padding: compact ? 8 : 10,
-        alignItems: "center",
-      })}
-    >
-      <View
-        style={{
-          width: "100%",
-          height: compact ? 150 : isMobile ? 200 : 180,
-          borderRadius: 12,
-          overflow: "hidden",
-          backgroundColor: "#FFFFFF",
-          position: "relative",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        {p.imageUrl ? (
-          <SmartImage uri={p.imageUrl} alt={p.title} ancho={compact ? 190 : 340} contentFit="contain" style={{ width: "100%", height: "100%" }} />
-        ) : (
-          <View
-            style={{
-              width: "100%",
-              height: "100%",
-              justifyContent: "center",
-              alignItems: "center",
-              paddingHorizontal: 18,
-            }}
-          >
-            <Text style={{ color: "rgba(11,33,56,0.15)", fontWeight: "900", fontSize: 40 }}>VG</Text>
-            <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 6, textAlign: "center" }}>
-              Foto no disponible
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Sin numberOfLines a propósito: el título se ve completo, en dos o tres líneas. */}
-      <Text
-        style={{
-          color: COLORS.text,
-          fontWeight: "800",
-          fontSize: compact ? 13 : 14.5,
-          lineHeight: compact ? 17 : 19,
-          marginTop: 8,
-          textAlign: "center",
-        }}
-      >
-        {p.title}
-      </Text>
-
-      <Text
-        style={{
-          color: COLORS.accent,
-          fontWeight: "900",
-          fontSize: compact ? 16 : 18,
-          marginTop: 4,
-          textAlign: "center",
-        }}
-      >
-        {fmtEUR(p.priceEUR)}
-      </Text>
-
-      {isAdmin ? (
-        <Text style={{ color: adminStatusColor(p.status), fontWeight: "800", fontSize: 11.5, marginTop: 4, textAlign: "center" }}>
-          {adminStatusLabel(p.status)}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-});

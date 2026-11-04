@@ -14,6 +14,10 @@
  * - {accion: "apoyo", id: <uuid de producto>, activo: true|false, visitante?: <identificador del navegador>}:
  *   da o quita el «me gusta» de UNA persona (el usuario con sesión, si manda su token; si no, el
  *   identificador anónimo del navegador). El contador solo cambia si cambia el apunte de esa persona.
+ * - {accion: "apoyo_servicio", …}: lo mismo para un servicio (fijar_apoyo_servicio,
+ *   supabase/migrations/20261103200000_servicios_me_gusta.sql).
+ * - {accion: "mis_me_gusta"}: SOLO con sesión, los productos y servicios a los que ese usuario ha dado «me gusta»
+ *   (pestaña «Me gusta» de Perfil), los más recientes primero. Si las tablas aún no existen, listas vacías.
  * - {accion: "reservar", id: <uuid de producto>, token: <uuid del dispositivo>}: reserva 15 minutos el artículo
  *   para la cesta (reservar_producto_limitado, supabase/migrations/20261018140000_reservas_protegidas.sql).
  *   Responde {ok:true, hasta:<fecha>} o {ok:true, hasta:null} si lo tiene reservado otro cliente. Una persona
@@ -27,7 +31,8 @@
  * Variables de entorno (Vercel → Settings → Environment Variables, solo servidor):
  * - EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR: llamar a las funciones de solo servidor.
  *
- * Conectado con: app/producto/[id].tsx (visitas y «me gusta»), app/servicio/[id].tsx (visitas). Si este
+ * Conectado con: app/producto/[id].tsx (visitas y «me gusta»), app/servicio/[id].tsx (visitas y «me gusta»),
+ * app/(tabs)/perfil.tsx (pestaña «Me gusta», mis_me_gusta). Si este
  * endpoint no responde, el navegador cae a las funciones antiguas (que dejan de funcionar al aplicar la
  * migración; entonces simplemente no se cuenta).
  */
@@ -164,12 +169,13 @@ export default async function handler(req: any, res: any) {
   const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
   const accion = typeof body.accion === "string" ? body.accion : "";
   const id = typeof body.id === "string" ? body.id.toLowerCase() : "";
-  if (!["vista_producto", "vista_servicio", "apoyo", "reservar"].includes(accion) || !UUID_RE.test(id)) {
+  const ACCIONES = ["vista_producto", "vista_servicio", "apoyo", "apoyo_servicio", "reservar", "mis_me_gusta"];
+  if (!ACCIONES.includes(accion) || (accion !== "mis_me_gusta" && !UUID_RE.test(id))) {
     responder(res, 400, { ok: false, error: "petición no válida" });
     return;
   }
   const visitante = typeof body.visitante === "string" && VISITANTE_RE.test(body.visitante) ? body.visitante : null;
-  if (accion === "apoyo" && typeof body.activo !== "boolean") {
+  if ((accion === "apoyo" || accion === "apoyo_servicio") && typeof body.activo !== "boolean") {
     responder(res, 400, { ok: false, error: "petición no válida" });
     return;
   }
@@ -253,9 +259,38 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    if (accion === "mis_me_gusta") {
+      // Pestaña «Me gusta» de Perfil: solo los del usuario con sesión (nunca los de un visitante anónimo, que viven en
+      // su navegador). Si una tabla aún no existe (migración sin aplicar), esa lista va vacía.
+      const usuario = await usuarioDeLaPeticion(supabase, req);
+      if (!usuario) {
+        responder(res, 401, { ok: false, error: "sin sesión" });
+        return;
+      }
+      const persona = `usuario:${usuario}`;
+      const leer = async (tabla: "producto_apoyos" | "servicio_apoyos", columna: "producto_id" | "servicio_id") => {
+        const { data, error } = await supabase
+          .from(tabla)
+          .select(columna)
+          .eq("persona", persona)
+          .eq("activo", true)
+          .order("actualizado_en", { ascending: false })
+          .limit(200);
+        if (error) {
+          if (/42P01|PGRST205/.test(`${error.code ?? ""} ${error.message ?? ""}`) || /does not exist|Could not find the table/i.test(error.message ?? "")) return [];
+          throw error;
+        }
+        return ((data ?? []) as Record<string, string>[]).map((f) => f[columna]).filter((v) => typeof v === "string");
+      };
+      const [productos, servicios] = await Promise.all([leer("producto_apoyos", "producto_id"), leer("servicio_apoyos", "servicio_id")]);
+      responder(res, 200, { ok: true, productos, servicios });
+      return;
+    }
+
     // «Me gusta»: por usuario con sesión o, si no, por el identificador anónimo del navegador.
-    if (!(await fichaPublicada(supabase, "products", id))) {
-      responder(res, 404, { ok: false, error: "producto no encontrado" });
+    const esServicio = accion === "apoyo_servicio";
+    if (!(await fichaPublicada(supabase, esServicio ? "services" : "products", id))) {
+      responder(res, 404, { ok: false, error: esServicio ? "servicio no encontrado" : "producto no encontrado" });
       return;
     }
     const usuario = await usuarioDeLaPeticion(supabase, req);
@@ -270,10 +305,12 @@ export default async function handler(req: any, res: any) {
       responder(res, 429, { ok: false, error: "demasiados cambios" });
       return;
     }
-    const { data, error } = await supabase.rpc("fijar_apoyo", { p_producto: id, p_persona: persona, p_activo: body.activo === true });
+    const { data, error } = esServicio
+      ? await supabase.rpc("fijar_apoyo_servicio", { p_servicio: id, p_persona: persona, p_activo: body.activo === true })
+      : await supabase.rpc("fijar_apoyo", { p_producto: id, p_persona: persona, p_activo: body.activo === true });
     if (error) {
       if (/no encontrado/.test(error.message ?? "")) {
-        responder(res, 404, { ok: false, error: "producto no encontrado" });
+        responder(res, 404, { ok: false, error: esServicio ? "servicio no encontrado" : "producto no encontrado" });
         return;
       }
       throw error;

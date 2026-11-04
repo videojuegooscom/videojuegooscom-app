@@ -270,7 +270,8 @@ function avisoReparacion(r: ReparacionSegDato, soloNota: boolean): string | null
     case "listo":
       return `Tu ${t} está lista para recoger`;
     case "entregado":
-      return `Tu ${t} está entregada`;
+      // Se pide la valoración: el aviso lleva a «Mis seguimientos», donde está «Valorar el servicio».
+      return `Tu ${t} está entregada. ¿Nos cuentas qué tal? Valórala en «Mis seguimientos»`;
     case "cancelado":
       return `Tu solicitud de ${t} se ha cancelado`;
     default:
