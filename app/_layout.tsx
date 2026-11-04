@@ -65,7 +65,7 @@ import LineaPensadoraEfectoSiri from "../components/lineapensadoraefectosiri";
 import { PerfilObligatorio } from "../components/PerfilPublico";
 import SiteHead from "../components/SiteHead";
 import TirarParaActualizar from "../components/TirarParaActualizar";
-import { trackEvent } from "../lib/analytics";
+import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analytics";
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
 const BOOT_FONT_TIMEOUT_MS = 1500;
@@ -117,6 +117,11 @@ export default function RootLayout() {
   // montada en el dispositivo, con su ancho real.
   const [montado, setMontado] = useState(false);
   useEffect(() => setMontado(true), []);
+
+  // ¿Llega de Instagram o TikTok? Se mira una vez al abrir la tienda (lib/analytics.ts).
+  useEffect(() => {
+    if (Platform.OS === "web") medirLlegadaDesdeRedes();
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) return;

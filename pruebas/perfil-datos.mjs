@@ -648,6 +648,16 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       if (estado.recoverError) return json(estado.recoverError.cuerpo, estado.recoverError.status);
       return json({});
     }
+    // Crear cuenta (sección RD), como Supabase con confirmación por correo: devuelve la cuenta nueva sin sesión. Se apunta
+    // solo el correo (nunca la contraseña).
+    if (url.pathname.endsWith("/auth/v1/signup") && metodo === "POST") {
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.altas = [...(estado.altas ?? []), cuerpo.email];
+      return json({
+        id: "22222222-2222-4222-8222-222222222222", aud: "authenticated", role: "authenticated", email: cuerpo.email,
+        user_metadata: cuerpo.data ?? {}, app_metadata: {}, identities: [{ id: "i1" }], created_at: new Date().toISOString(),
+      });
+    }
     const sesionDe = () => {
       const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
       const exp = Math.floor(Date.now() / 1000) + 3600;
@@ -6055,6 +6065,148 @@ async function seccionVA() {
   await ctx.close();
 }
 
+// ===== RD) Registros que vienen de Instagram/TikTok (dueño, 2026-11-04): la visita que llega de una red (enlace con
+// utm, página de origen o navegador de la app) se cuenta una vez y, si crea una cuenta, de qué red venía; nada de quien
+// rechaza la analítica; y su tarjeta en Administración → Analítica con la red que funciona mejor ====================
+async function seccionRD() {
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const sinSesion = (ctx) =>
+    ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+  // Crear una cuenta desde Perfil como lo haría el cliente (sin recargar la página).
+  const crearCuenta = async (p, correo) => {
+    await p.locator("#perfil-acceso").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#perfil-acceso").getByText("Crear cuenta").click();
+    await p.waitForTimeout(700);
+    await p.getByPlaceholder("Nombre y apellidos").fill("Lucía Pérez");
+    await p.getByPlaceholder("Nombre de usuario").fill("lucia_p");
+    await p.getByPlaceholder("País de residencia").fill("España");
+    await p.getByPlaceholder("tu@email.com").last().fill(correo);
+    await p.getByPlaceholder("Mínimo 6 caracteres").fill("clave123");
+    await p.getByPlaceholder("Mínimo 6 caracteres").press("Enter");
+  };
+
+  // RD1) Llega desde Instagram (enlace de la biografía con ?utm_source=instagram), va a Perfil y crea la cuenta.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/?utm_source=instagram");
+    await esperar(p, () => evento(estado, "llegada_redes").length > 0);
+    const llegada = evento(estado, "llegada_redes")[0];
+    ok(
+      llegada?.step_label === "Redes: llegada desde Instagram" && llegada?.metadata?.red === "instagram" && llegada?.metadata?.via === "enlace",
+      `RD: la visita que llega desde Instagram se cuenta (${JSON.stringify(llegada ?? null)})`
+    );
+    await p.locator('[data-testid="pestana-perfil"]').tap();
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    await crearCuenta(p, "lucia@example.com");
+    await esperar(p, () => evento(estado, "registro_redes").length > 0 && evento(estado, "registro").length > 0);
+    const registro = evento(estado, "registro")[0];
+    const desdeRed = evento(estado, "registro_redes")[0];
+    ok((estado.altas ?? []).length === 1 && (await p.getByText(/Cuenta creada/).count()) > 0, `RD: la cuenta se crea como siempre (${(estado.altas ?? []).length})`);
+    ok(registro?.step_label === "Registro: cuenta creada" && registro?.metadata?.red === "instagram", `RD: se cuenta la cuenta creada con su red (${JSON.stringify(registro ?? null)})`);
+    ok(desdeRed?.step_label === "Redes: registro desde Instagram" && desdeRed?.metadata?.red === "instagram", `RD: y el registro desde Instagram (${JSON.stringify(desdeRed ?? null)})`);
+    ok(evento(estado, "llegada_redes").length === 1, `RD: la llegada se cuenta una sola vez aunque navegue (${evento(estado, "llegada_redes").length})`);
+    ok(!/lucia@example\.com|lucia_p|Lucía|clave123/.test(JSON.stringify(estado.eventosEnviados ?? [])), "RD: la analítica no lleva el correo, el usuario, el nombre ni la contraseña");
+    await capturar(p, "RD1-registro-desde-instagram");
+    ok(p.errores.length === 0, `RD: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // RD2) Abre la tienda desde el navegador de la app de TikTok (sin utm ni página de origen).
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const agente =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 musical_ly_33.5.0 JsSdk/2.0 NetType/WIFI Channel/App Store ByteLocale/es Region/ES BytedanceWebview/d8a21c6";
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { userAgent: agente });
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/");
+    await esperar(p, () => evento(estado, "llegada_redes").length > 0);
+    const llegada = evento(estado, "llegada_redes")[0];
+    ok(
+      llegada?.step_label === "Redes: llegada desde TikTok" && llegada?.metadata?.red === "tiktok" && llegada?.metadata?.via === "app",
+      `RD: la visita desde la app de TikTok se cuenta (${JSON.stringify(llegada ?? null)})`
+    );
+    await ctx.close();
+  }
+
+  // RD3) Visita normal (sin redes): no hay llegada desde redes y la cuenta creada se cuenta como «otra».
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil");
+    await crearCuenta(p, "mario@example.com");
+    await esperar(p, () => evento(estado, "registro").length > 0);
+    await p.waitForTimeout(800);
+    ok(evento(estado, "llegada_redes").length === 0, "RD: sin venir de las redes no se cuenta ninguna llegada");
+    ok(evento(estado, "registro")[0]?.metadata?.red === "otra" && evento(estado, "registro_redes").length === 0, `RD: la cuenta se cuenta como «otra» y no como de una red (${JSON.stringify(evento(estado, "registro")[0] ?? null)})`);
+    await ctx.close();
+  }
+
+  // RD4) Quien rechaza la analítica: aunque llegue desde TikTok, no se envía nada.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: false, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/?utm_source=tiktok");
+    await p.waitForTimeout(3500);
+    ok((estado.eventosEnviados ?? []).length === 0, `RD: de quien rechaza la analítica no se cuenta nada (${(estado.eventosEnviados ?? []).length})`);
+    await ctx.close();
+  }
+
+  // RD5) Administración → Analítica: visitas y cuentas de cada red, y cuál funciona mejor (y sin datos, lo dice).
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 30 },
+        { step_label: "Redes: llegada desde Instagram", sessions: 12 },
+        { step_label: "Redes: registro desde Instagram", sessions: 3 },
+        { step_label: "Redes: llegada desde TikTok", sessions: 8 },
+        { step_label: "Redes: registro desde TikTok", sessions: 1 },
+        { step_label: "Registro: cuenta creada", sessions: 6 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-redes").waitFor({ timeout: 40000 }).catch(() => {});
+    const texto = async (sel) => (await p.locator(sel).innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    const ig = await texto("#analitica-redes-instagram");
+    const tt = await texto("#analitica-redes-tiktok");
+    const resumen = await texto("#analitica-redes-resumen");
+    // (el texto empieza por el icono de la red, un carácter de la fuente de iconos)
+    ok(/Instagram: 12 visitas · 3 cuentas creadas \(25 % de sus visitas\)$/.test(ig), `RD: Analítica cuenta Instagram (${ig})`);
+    ok(/TikTok: 8 visitas · 1 cuenta creada \(13 % de sus visitas\)$/.test(tt), `RD: y TikTok (${tt})`);
+    ok(/Funciona mejor: Instagram · cuentas creadas en total: 6/.test(resumen), `RD: dice qué red funciona mejor (${resumen})`);
+    const enlaces = await texto("#analitica-redes");
+    ok(/utm_source=instagram/.test(enlaces) && /utm_source=tiktok/.test(enlaces), "RD: y qué enlace poner en cada biografía");
+    const sinScroll = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+    ok(sinScroll, "RD: la tarjeta cabe en el móvil sin desbordar");
+    await p.locator("#analitica-redes").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "RD5-analitica-redes");
+    ok(p.errores.length === 0, `RD: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+
+    const vacio = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 4 }] };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", vacio);
+    const p2 = await pagina(ctx2, "/admin/analytics");
+    await p2.locator("#analitica-redes-resumen").waitFor({ timeout: 40000 }).catch(() => {});
+    const r2 = (await p2.locator("#analitica-redes-resumen").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Todavía no hay visitas desde las redes en estas fechas/.test(r2), `RD: sin datos lo dice claro (${r2})`);
+    await ctx2.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -6231,6 +6383,7 @@ try {
   if (SOLO === "MG") await seccionMG();
   if (SOLO === "RS") await seccionRS();
   if (SOLO === "VP") await seccionVP();
+  if (SOLO === "RD") await seccionRD();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -7186,6 +7339,7 @@ try {
   await seccionMG();
   await seccionRS();
   await seccionVP();
+  await seccionRD();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

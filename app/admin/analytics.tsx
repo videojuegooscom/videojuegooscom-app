@@ -573,6 +573,26 @@ export default function AdminAnalytics() {
     };
   }, [funnel]);
 
+  // Redes sociales (lib/analytics.ts → medirLlegadaDesdeRedes / medirCuentaCreada): visitas que llegan de Instagram y de
+  // TikTok, cuántas de ellas crean una cuenta y todas las cuentas creadas, para ver qué red funciona mejor.
+  const redes = useMemo(() => {
+    const exacto = (label: string) => funnel.find((f) => f.step_label === label)?.sessions ?? 0;
+    const fila = (red: string, nombre: string) => {
+      const llegadas = exacto(`Redes: llegada desde ${nombre}`);
+      const registros = exacto(`Redes: registro desde ${nombre}`);
+      return { red, nombre, llegadas, registros, pct: llegadas > 0 ? Math.round((registros / llegadas) * 100) : 0 };
+    };
+    const filas = [fila("instagram", "Instagram"), fila("tiktok", "TikTok")];
+    const [a, b] = filas;
+    const mejor =
+      a.registros !== b.registros
+        ? (a.registros > b.registros ? a : b).nombre
+        : a.llegadas !== b.llegadas
+          ? (a.llegadas > b.llegadas ? a : b).nombre
+          : null;
+    return { filas, mejor, cuentas: exacto("Registro: cuenta creada") };
+  }, [funnel]);
+
   // Guía de Blue y formulario de Vender: pasos de la guía (en orden), cómo termina y qué pasa
   // después en el formulario (abierto y enviado, y de ellos cuántos venían de la guía).
   const guiaVender = useMemo(() => {
@@ -1030,6 +1050,36 @@ export default function AdminAnalytics() {
                   </View>
                 </View>
               )}
+            </SectionCard>
+
+            <SectionCard
+              title="Redes sociales: Instagram y TikTok"
+              subtitle="Visitas que llegan desde cada red y cuántas de ellas crean una cuenta (solo visitantes que aceptaron la analítica)."
+            >
+              <View nativeID="analitica-redes" style={{ gap: 10 }}>
+                {redes.filas.map((f) => (
+                  <View
+                    key={f.red}
+                    nativeID={`analitica-redes-${f.red}`}
+                    style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}
+                  >
+                    <Ionicons name={f.red === "instagram" ? "logo-instagram" : "logo-tiktok"} size={18} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      {f.nombre}: {f.llegadas} {f.llegadas === 1 ? "visita" : "visitas"} · {f.registros}{" "}
+                      {f.registros === 1 ? "cuenta creada" : "cuentas creadas"}
+                      {f.llegadas > 0 ? ` (${f.pct} % de sus visitas)` : ""}
+                    </Text>
+                  </View>
+                ))}
+                <Text nativeID="analitica-redes-resumen" style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                  {redes.mejor ? `Funciona mejor: ${redes.mejor}` : "Todavía no hay visitas desde las redes en estas fechas"} · cuentas
+                  creadas en total: {redes.cuentas}
+                </Text>
+                <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
+                  Para que no se escape ninguna visita, pon en la biografía de Instagram videojuegoszaragoza.com/?utm_source=instagram y
+                  en la de TikTok videojuegoszaragoza.com/?utm_source=tiktok.
+                </Text>
+              </View>
             </SectionCard>
 
             <SectionCard
