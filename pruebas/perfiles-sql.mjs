@@ -1461,6 +1461,158 @@ try {
     ok(ajenaSin.ok, "(control) sin la comprobación, alguien valora la solicitud de otro: la prueba SÍ lo detecta");
     await c36.end();
   }
+
+  // Tarifas de envío (20261104210000_tarifas_envio.sql), sobre los pedidos como están en producción: la tabla de zonas
+  // (lectura pública, solo el administrador cambia precios, nadie crea ni borra zonas), la regla de la zona por código
+  // postal, el disparador que calcula el envío al crear el pedido (y en un reintento), el envío a mano del administrador
+  // y su vuelta al automático. Los mismos casos que la página (lib/envio.ts; pruebas/perfil-datos.mjs, sección TE).
+  {
+    const TARIFAS = readFileSync("supabase/migrations/20261104210000_tarifas_envio.sql", "utf8");
+    const ESQUEMA_T = `
+      create table public.pedidos (
+        id uuid primary key default gen_random_uuid(), numero bigint generated always as identity unique, created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(), user_id uuid references auth.users (id) on delete set null,
+        estado text not null default 'pendiente', entrega text not null default 'envio', nombre text not null, email text not null,
+        telefono text not null, direccion text, codigo_postal text, ciudad text, notas text, total_eur numeric not null default 0, nota_admin text);
+      create function public.set_pedidos_updated_at() returns trigger language plpgsql set search_path = public as $f$
+      begin new.updated_at := now(); return new; end $f$;
+      create trigger trg_pedidos_updated_at before update on public.pedidos for each row execute function public.set_pedidos_updated_at();
+      alter table public.pedidos enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      -- Lo que ya había (envío gratis hasta hoy).
+      insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values
+        ('Luis', 'luis@example.com', '600111222', 'envio', '28001', 100),
+        ('Marta', 'marta@example.com', '600333444', 'recogida', null, 55.5);`;
+    const c37 = await nuevaBase("vz_aislada_tarifas_envio", ESQUEMA_T + TARIFAS);
+    let repetidaT = true;
+    try {
+      await c37.query(TARIFAS);
+    } catch (e) {
+      repetidaT = false;
+      console.log(String(e.message));
+    }
+    const zonasT = (await c37.query("select zona, precio_eur::text as p, gratis_desde_eur, activa from public.tarifas_envio order by orden")).rows;
+    ok(repetidaT && zonasT.map((z) => z.zona).join(",") === "mano,local,peninsula,baleares,canarias,ceuta_melilla", `Tarifas: 6 zonas y se puede aplicar dos veces sin duplicar (${zonasT.map((z) => z.zona).join(", ")})`);
+    ok(zonasT.every((z) => z.p === "0.00" && z.gratis_desde_eur === null && z.activa === true), "Tarifas: todas empiezan a 0 € y activas (como hoy, gratis)");
+    const antiguos = (await c37.query("select productos_eur::text as pr, envio_eur::text as en, total_eur::text as t, envio_manual from public.pedidos order by numero")).rows;
+    ok(antiguos[0].pr === "100.00" && antiguos[0].en === "0.00" && Number(antiguos[0].t) === 100 && antiguos[1].pr === "55.50" && antiguos[1].envio_manual === false, `Tarifas: los pedidos que había quedan igual (artículos = total, envío 0) (${JSON.stringify(antiguos)})`);
+    const politicasT = (await c37.query("select policyname from pg_policies where tablename = 'tarifas_envio' order by 1")).rows.map((r) => r.policyname);
+    ok(politicasT.join(",") === "tarifas_envio_admin,tarifas_envio_leer" && (await c37.query("select relrowsecurity from pg_class where oid = 'public.tarifas_envio'::regclass")).rows[0].relrowsecurity, `Tarifas: RLS y sus 2 reglas, sin duplicar (${politicasT.join(", ")})`);
+
+    // Permisos.
+    const anonLee = await como(c37, "anon", null, "select zona, precio_eur from public.tarifas_envio");
+    ok(anonLee.ok && anonLee.filas.length === 6, "Tarifas: cualquiera las lee (se enseñan en la cesta y al pagar)");
+    const anonCambia = await como(c37, "anon", null, "update public.tarifas_envio set precio_eur = 1 where zona = 'local'");
+    ok(!anonCambia.ok && anonCambia.codigo === "42501", `Tarifas: un visitante no las cambia (${anonCambia.codigo})`);
+    const clienteCambia = await como(c37, "authenticated", U1, "update public.tarifas_envio set precio_eur = 1 where zona = 'local'", { confirmar: true });
+    ok(clienteCambia.ok && clienteCambia.cuantas === 0, `Tarifas: un cliente con sesión no las cambia (${clienteCambia.cuantas ?? clienteCambia.codigo})`);
+    const clienteCrea = await como(c37, "authenticated", ADMIN, "insert into public.tarifas_envio (zona, nombre) values ('luna', 'La Luna')");
+    ok(!clienteCrea.ok && clienteCrea.codigo === "42501", `Tarifas: nadie crea zonas desde la app, ni el administrador (${clienteCrea.codigo})`);
+    const adminBorra = await como(c37, "authenticated", ADMIN, "delete from public.tarifas_envio where zona = 'canarias'");
+    ok(!adminBorra.ok && adminBorra.codigo === "42501", `Tarifas: nadie borra zonas desde la app (${adminBorra.codigo})`);
+    const adminZona = await como(c37, "authenticated", ADMIN, "update public.tarifas_envio set zona = 'otra' where zona = 'local'");
+    ok(!adminZona.ok && adminZona.codigo === "42501", `Tarifas: el administrador no cambia la clave de una zona (${adminZona.codigo})`);
+    const negativo = await como(c37, "authenticated", ADMIN, "update public.tarifas_envio set precio_eur = -1 where zona = 'local'");
+    ok(!negativo.ok && negativo.codigo === "23514", `Tarifas: no admite precios negativos (${negativo.codigo})`);
+    const adminPone = await como(
+      c37,
+      "authenticated",
+      ADMIN,
+      `update public.tarifas_envio set precio_eur = case zona when 'local' then 4.90 when 'peninsula' then 6.90 when 'baleares' then 12 when 'canarias' then 20 when 'ceuta_melilla' then 25 else 0 end,
+         gratis_desde_eur = case zona when 'peninsula' then 150 else null end,
+         activa = zona <> 'canarias'`,
+      { confirmar: true }
+    );
+    ok(adminPone.ok && adminPone.cuantas === 6, `Tarifas: el administrador pone sus precios (${adminPone.cuantas ?? adminPone.mensaje})`);
+    const acls = (await c37.query("select proname, coalesce(proacl::text, '') as acl from pg_proc where proname in ('zona_envio', 'calcular_envio', 'pedidos_calcular_envio') order by 1")).rows;
+    ok(
+      acls.length === 3 &&
+        acls.every((a) => !/(^\{|,)=X/.test(a.acl)) &&
+        acls.filter((a) => a.proname !== "pedidos_calcular_envio").every((a) => /anon=X/.test(a.acl) && /authenticated=X/.test(a.acl)) &&
+        !/anon=|authenticated=/.test(acls.find((a) => a.proname === "pedidos_calcular_envio").acl),
+      `Tarifas: la regla la puede usar la página y nadie de fuera ejecuta la función del disparador (${acls.map((a) => `${a.proname} ${a.acl}`).join(" · ")})`
+    );
+
+    // La regla de la zona: los mismos casos que la página.
+    const CASOS = [
+      ["recogida", null, "mano"],
+      ["envio", "50003", "local"],
+      ["envio", "50410", "local"],
+      ["envio", "50022", "local"],
+      ["envio", "50023", "peninsula"],
+      ["envio", "28001", "peninsula"],
+      ["envio", "07001", "baleares"],
+      ["envio", "35001", "canarias"],
+      ["envio", "38500", "canarias"],
+      ["envio", "51001", "ceuta_melilla"],
+      ["envio", "52001", "ceuta_melilla"],
+      ["envio", "5000", null],
+      ["envio", "", null],
+      ["envio", null, null],
+      ["envio", "50 003", "local"],
+    ];
+    const zonasCalc = [];
+    for (const [entrega, cp, esperada] of CASOS) {
+      const z = (await c37.query("select public.zona_envio($1, $2) as z", [entrega, cp])).rows[0].z;
+      zonasCalc.push(`${cp ?? "—"}→${z ?? "sin zona"}${z === esperada ? "" : ` (esperaba ${esperada})`}`);
+    }
+    ok(zonasCalc.every((s) => !s.includes("esperaba")), `Tarifas: cada código postal va a su zona (${zonasCalc.join(", ")})`);
+
+    // El disparador: el pedido nuevo lleva su envío y el total con él (la función del pedido solo pone los artículos).
+    const nuevo = async (entrega, cp, articulos) =>
+      (await c37.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Ana', 'ana@example.com', '600999888', $1, $2, $3) returning id, productos_eur::text as pr, envio_eur::text as en, total_eur::text as t, zona_envio, envio_manual", [entrega, cp, articulos])).rows[0];
+    const pen = await nuevo("envio", "28001", 100);
+    ok(pen.pr === "100.00" && pen.en === "6.90" && Number(pen.t) === 106.9 && pen.zona_envio === "peninsula" && pen.envio_manual === false, `Tarifas: un pedido a Madrid suma 6,90 € de envío (${JSON.stringify(pen)})`);
+    const gratis = await nuevo("envio", "28001", 200);
+    ok(gratis.en === "0.00" && Number(gratis.t) === 200, `Tarifas: desde 150 € el envío a la península es gratis (${gratis.en})`);
+    const zgz = await nuevo("envio", "50003", 80);
+    ok(zgz.en === "4.90" && zgz.zona_envio === "local" && Number(zgz.t) === 84.9, `Tarifas: un pedido en Zaragoza suma 4,90 € (${zgz.en})`);
+    const mano = await nuevo("recogida", null, 80);
+    ok(mano.en === "0.00" && mano.zona_envio === "mano" && Number(mano.t) === 80, `Tarifas: la entrega en mano va con su tarifa (0 €) (${mano.en})`);
+    const isla = await nuevo("envio", "35001", 80);
+    ok(isla.en === "20.00" && isla.zona_envio === "canarias", `Tarifas: una zona sin envío desde la web lleva su precio si aun así llega un pedido (${isla.en})`);
+    const forzado = (await c37.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur, envio_eur, envio_manual) values ('Eva', 'eva@example.com', '600777666', 'envio', '28001', 100, 0, true) returning envio_eur::text as en, envio_manual")).rows[0];
+    ok(forzado.en === "6.90" && forzado.envio_manual === false, `Tarifas: un pedido nuevo no puede venir con el envío «a mano» (${JSON.stringify(forzado)})`);
+    // Un pedido asignado desde el chat (api/asignar-seguimiento.ts): a domicilio y sin código postal, sin envío automático.
+    const chat = (await c37.query("insert into public.pedidos (nombre, email, telefono, entrega, total_eur, nota_admin) values ('Ana', 'ana@example.com', 'sin teléfono', 'envio', 90, 'Asignado desde el chat') returning envio_eur::text as en, total_eur::text as t, zona_envio")).rows[0];
+    ok(chat.en === "0.00" && Number(chat.t) === 90 && chat.zona_envio === null, `Tarifas: sin código postal (un pedido asignado desde el chat) no se suma envío (${JSON.stringify(chat)})`);
+    // Una venta de VeoAura trae su total: nunca envío automático, ni al cambiarle la entrega (el disparador funciona sin
+    // la columna, como arriba, y con ella).
+    await c37.query("alter table public.pedidos add column id_veoaura text");
+    const veo = (await c37.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur, id_veoaura) values ('Pepe', 'pepe@example.com', '600123123', 'envio', '28001', 70, 'veo-1') returning id, envio_eur::text as en, total_eur::text as t, envio_manual")).rows[0];
+    const veoCambio = (await c37.query("update public.pedidos set entrega = 'recogida', estado = 'enviado' where id = $1 returning envio_eur::text as en, total_eur::text as t", [veo.id])).rows[0];
+    ok(veo.en === "0.00" && Number(veo.t) === 70 && veo.envio_manual === true && veoCambio.en === "0.00" && Number(veoCambio.t) === 70, `Tarifas: una venta de VeoAura se queda con su total, también al cambiarle la entrega (${JSON.stringify(veo)} → ${JSON.stringify(veoCambio)})`);
+    const webConColumna = await nuevo("envio", "28001", 100);
+    ok(webConColumna.en === "6.90", `Tarifas: con esa columna, los pedidos de la web siguen con su envío (${webConColumna.en})`);
+
+    // Un reintento del pedido (la función nueva corrige el pedido pendiente): cambia la entrega o los artículos.
+    const reintento = (await c37.query("update public.pedidos set entrega = 'recogida', codigo_postal = null, total_eur = 100 where id = $1 returning productos_eur::text as pr, envio_eur::text as en, total_eur::text as t, zona_envio", [pen.id])).rows[0];
+    ok(reintento.pr === "100.00" && reintento.en === "0.00" && Number(reintento.t) === 100 && reintento.zona_envio === "mano", `Tarifas: si el reintento cambia a entrega en mano, se recalcula (${JSON.stringify(reintento)})`);
+    const otrosArticulos = (await c37.query("update public.pedidos set entrega = 'envio', codigo_postal = '07001', total_eur = 120 where id = $1 returning productos_eur::text as pr, envio_eur::text as en, total_eur::text as t", [pen.id])).rows[0];
+    ok(otrosArticulos.pr === "120.00" && otrosArticulos.en === "12.00" && Number(otrosArticulos.t) === 132, `Tarifas: y si cambian los artículos y la dirección, también (${JSON.stringify(otrosArticulos)})`);
+
+    // A mano: el administrador pone el envío de ESE pedido; ya no se recalcula; «Volver al automático» lo devuelve.
+    const aMano = await como(c37, "authenticated", ADMIN, `update public.pedidos set envio_eur = 3 where id = '${pen.id}' returning envio_eur::text as en, envio_manual, total_eur::text as t`, { confirmar: true });
+    ok(aMano.ok && aMano.filas[0].en === "3.00" && aMano.filas[0].envio_manual === true && Number(aMano.filas[0].t) === 123, `Tarifas: el administrador pone el envío a mano y el total cambia (${JSON.stringify(aMano.filas?.[0] ?? aMano.mensaje)})`);
+    const estado = await como(c37, "authenticated", ADMIN, `update public.pedidos set estado = 'confirmado', codigo_postal = '28001' where id = '${pen.id}' returning envio_eur::text as en, total_eur::text as t`, { confirmar: true });
+    ok(estado.ok && estado.filas[0].en === "3.00" && Number(estado.filas[0].t) === 123, `Tarifas: a mano, ya no se recalcula aunque cambie el pedido (${JSON.stringify(estado.filas?.[0])})`);
+    const automatico = await como(c37, "authenticated", ADMIN, `update public.pedidos set envio_manual = false where id = '${pen.id}' returning envio_eur::text as en, envio_manual, total_eur::text as t, zona_envio`, { confirmar: true });
+    ok(automatico.ok && automatico.filas[0].en === "6.90" && automatico.filas[0].envio_manual === false && Number(automatico.filas[0].t) === 126.9 && automatico.filas[0].zona_envio === "peninsula", `Tarifas: «Volver al automático» lo recalcula con la tarifa (${JSON.stringify(automatico.filas?.[0])})`);
+    const clientePedido = await como(c37, "authenticated", U1, `update public.pedidos set envio_eur = 0 where id = '${pen.id}'`, { confirmar: true });
+    ok(clientePedido.ok && clientePedido.cuantas === 0, "Tarifas: un cliente no puede cambiar el envío de un pedido");
+    await c37.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin el disparador, el pedido a Madrid no llevaría su envío y la comprobación lo detecta.
+    const sinDisparador = TARIFAS.replace(/do \$\$\nbegin\n  if not exists \(select 1 from pg_trigger[\s\S]*?end \$\$;\n?$/, "");
+    ok(sinDisparador !== TARIFAS, "(control) se ha podido quitar el disparador en la copia de prueba");
+    const c38 = await nuevaBase("vz_aislada_tarifas_sin_disparador", ESQUEMA_T + sinDisparador);
+    await c38.query("update public.tarifas_envio set precio_eur = 6.90 where zona = 'peninsula'");
+    const sinEnvio = (await c38.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Ana', 'ana@example.com', '600999888', 'envio', '28001', 100) returning envio_eur::text as en, total_eur::text as t")).rows[0];
+    ok(sinEnvio.en !== "6.90" && Number(sinEnvio.t) === 100, `(control) sin el disparador el pedido no lleva su envío: la prueba SÍ lo detecta (${JSON.stringify(sinEnvio)})`);
+    await c38.end();
+  }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
 } finally {
