@@ -189,15 +189,15 @@ try {
   // Lo que cambia respecto al inicio son SOLO objetos nuevos que se quedan (sin permisos de navegador) y la
   // «foto» de lo que existía antes debe ser idéntica. Se compara por prefijos de elemento nuevo.
   const SE_QUEDAN = [
-    /^F (consumir_limite|crear_pedido_idempotente|fijar_apoyo|sumar_vista_producto|sumar_vista_servicio|reservar_producto_limitado|analytics_events_tope)\(/,
-    /^T (limites_peticiones|producto_apoyos) /,
-    /^C (limites_peticiones|producto_apoyos)\./,
+    /^F (consumir_limite|crear_pedido_idempotente|fijar_apoyo|sumar_vista_producto|sumar_vista_servicio|reservar_producto_limitado|analytics_events_tope|analitica_topes)\(/,
+    /^T (limites_peticiones|producto_apoyos|analitica_ritmo) /,
+    /^C (limites_peticiones|producto_apoyos|analitica_ritmo)\./,
     /^C pedidos\.(clave_unica|clave_huella) /,
     /^C reservas_cesta\.persona /,
-    /^I (limites_peticiones|producto_apoyos|pedidos|reservas_cesta)/,
-    /^K (analytics_events\.analytics_events_\w+_largo|limites_peticiones\.|producto_apoyos\.|pedidos\.)/,
+    /^I (limites_peticiones|producto_apoyos|pedidos|reservas_cesta|analitica_ritmo)/,
+    /^K (analytics_events\.analytics_events_\w+_largo|limites_peticiones\.|producto_apoyos\.|pedidos\.|analitica_ritmo\.)/,
     /^G analytics_events\.analytics_events_tope D$/,
-    /^P (limites_peticiones|producto_apoyos)\./,
+    /^P (limites_peticiones|producto_apoyos|analitica_ritmo)\./,
   ];
   const inesperadas = nuevas.filter((x) => !SE_QUEDAN.some((re) => re.test(x)));
   ok(cambiadas.length === 0, `tras deshacerlo todo, NADA de lo que ya existía queda distinto: permisos, políticas, cuerpos de función, disparadores y restricciones previas (${cambiadas.length} diferencias${cambiadas[0] ? `, p. ej. ${cambiadas[0].slice(0, 200)}` : ""})`);
