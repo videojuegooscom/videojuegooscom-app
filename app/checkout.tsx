@@ -3,8 +3,14 @@
  *
  * Qué hace: pantalla de checkout (finalizar compra). Lee el carrito guardado
  * en AsyncStorage, pide los datos de envío (nombre, email, teléfono,
- * dirección) y, al confirmar, registra el pedido y muestra la confirmación
- * (todavía no hay pasarela de pago tipo Stripe conectada).
+ * dirección) y, al confirmar, registra el pedido y muestra la confirmación.
+ *
+ * Pago con tarjeta (Stripe, dueño 2026-11-05; api/pago.ts): si el servidor dice que está disponible, el botón principal
+ * es «Pagar con tarjeta»: se guarda el pedido como siempre y se abre la página de pago segura de Stripe con el total que
+ * pone el servidor (nunca el del navegador). Al volver (?pago=ok&sesion=… o ?pago=cancelado), el servidor se lo
+ * pregunta a Stripe y solo entonces sale «pagado». «Confirmar sin pagar ahora» sigue como antes (pago por el chat). Con
+ * la clave de prueba de Stripe solo lo ve el administrador. Se mide con la analítica propia (pago_tarjeta y
+ * pago_tarjeta_ok, Administración → Analítica) y cada pedido enseña su pago en Administración → Pedidos.
  *
  * Cómo funciona: guarda el carrito en local con la misma clave que usa
  * cesta.tsx (CART_KEY = "videojuegoos_cart_v1"), valida el formulario campo
@@ -58,7 +64,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -188,6 +194,99 @@ function funcionNoDisponible(e: { code?: string; message?: string }): boolean {
   return e.code === "PGRST202" || e.code === "42883" || e.code === "42501" || /could not find the function|permission denied/i.test(e.message ?? "");
 }
 
+// --- Pago con tarjeta (api/pago.ts, Stripe) ---------------------------------------------------------------------------
+type PagoTarjeta = { disponible: boolean; modo: "prueba" | "real" | null };
+// En la confirmación: null = pedido sin pago con tarjeta (como siempre); el resto, cómo va el pago.
+type EstadoPago = "comprobando" | "pagado" | "sin_confirmar" | "cancelado" | "sin_abrir" | null;
+
+// El pedido que se está pagando, para volver a intentarlo si se cancela en la página de Stripe y para contar el pago una
+// sola vez al volver. Solo el número y la clave de la compra (que ya guarda este navegador), nunca datos de la tarjeta.
+const PAGO_PENDIENTE_KEY = "videojuegoszaragoza:pago_pendiente";
+type PagoPendiente = { numero: number; clave: string | null; creado: number };
+
+async function cabecerasConSesion(): Promise<Record<string, string>> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) h.Authorization = `Bearer ${token}`;
+  } catch {
+    // sin sesión: el pago se reconoce por la clave de la compra
+  }
+  return h;
+}
+
+async function leerPagoPendiente(): Promise<PagoPendiente | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PAGO_PENDIENTE_KEY);
+    const g = raw ? (JSON.parse(raw) as Partial<PagoPendiente>) : null;
+    // Un día como mucho: después, el pedido se habla por el chat.
+    if (g && Number.isInteger(g.numero) && typeof g.creado === "number" && Date.now() - g.creado < 86_400_000) {
+      return { numero: Number(g.numero), clave: typeof g.clave === "string" ? g.clave : null, creado: g.creado };
+    }
+  } catch {
+    // nada guardado
+  }
+  return null;
+}
+
+// Abre la página de pago de Stripe para ese pedido (el importe lo pone el servidor con el total guardado). Antes de salir
+// de la tienda espera a que la analítica apunte lo que tenga pendiente (`medir`, como mucho 1,5 s: si no, el navegador
+// lo cortaría al cambiar de página). Devuelve «redirigiendo», «pagado» (ya lo estaba) o el aviso para el cliente.
+async function irAlPagoConTarjeta(
+  numero: number,
+  clave: string | null,
+  medir: Promise<unknown>
+): Promise<"redirigiendo" | "pagado" | { aviso: string }> {
+  try {
+    const r = await fetch("/api/pago", {
+      method: "POST",
+      headers: await cabecerasConSesion(),
+      body: JSON.stringify({ accion: "crear", numero, clave }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; pagado?: boolean } | null;
+    if (r.ok && d?.pagado) return "pagado";
+    if (r.ok && typeof d?.url === "string" && /^https:\/\/checkout\.stripe\.com\//.test(d.url)) {
+      try {
+        await AsyncStorage.setItem(PAGO_PENDIENTE_KEY, JSON.stringify({ numero, clave, creado: Date.now() }));
+      } catch {
+        // sin almacenamiento: al volver se confirma igual (la vuelta trae la sesión de Stripe)
+      }
+      await Promise.race([medir, new Promise((fin) => setTimeout(fin, 1500))]);
+      window.location.assign(d.url);
+      return "redirigiendo";
+    }
+    if (r.status === 429) return { aviso: "Demasiados intentos seguidos. Espera unos minutos y vuelve a probar." };
+  } catch {
+    // sin conexión: abajo
+  }
+  return { aviso: "No hemos podido abrir el pago con tarjeta. Tu pedido está guardado: vuelve a intentarlo o háblalo con nosotros." };
+}
+
+// Al volver de Stripe: el servidor se lo pregunta a Stripe (la vuelta del navegador por sí sola no vale).
+async function confirmarPagoConTarjeta(sesion: string): Promise<{ pagado: boolean; numero: number | null } | null> {
+  if (!/^cs_(test|live)_[A-Za-z0-9]{8,240}$/.test(sesion)) return null;
+  try {
+    const r = await fetch("/api/pago", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "confirmar", sesion }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; pagado?: boolean; numero?: number } | null;
+    if (r.ok && d?.ok) return { pagado: d.pagado === true, numero: Number(d.numero) || null };
+  } catch {
+    // sin conexión: se puede comprobar otra vez
+  }
+  return null;
+}
+
+// Resumen corto del pedido para el chat cuando la cesta ya no está (al volver de Stripe).
+function textoDelPedido(numero: number | null, pago: EstadoPago): string {
+  const base = numero ? `¡Hola! Tengo el pedido nº ${numero} en Videojuegoszaragoza.com.` : "¡Hola! Tengo un pedido en Videojuegoszaragoza.com.";
+  if (pago === "pagado") return `${base} Ya lo he pagado con tarjeta. ¿Me confirmas la entrega?`;
+  return `${base} ¿Me confirmas disponibilidad, forma de pago y entrega?`;
+}
+
 const BRAND = {
   whatsappPhoneE164: "+34627748741",
 };
@@ -303,8 +402,15 @@ export default function CheckoutScreen() {
   // Envío a domicilio o entrega en mano en Cuarte de Huerva (la tienda es solo online: no hay tienda física). En la
   // base de datos la entrega en mano sigue llamándose «recogida»; con ella no se pide dirección.
   const [entrega, setEntrega] = useState<"envio" | "recogida">("envio");
-  // Número del pedido ya registrado (pantalla de confirmación).
-  const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; texto: string } | null>(null);
+  // Número del pedido ya registrado (pantalla de confirmación), con cómo va su pago con tarjeta y la clave de la compra
+  // (para volver a intentar el pago).
+  const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; texto: string; pago?: EstadoPago; clave?: string | null } | null>(null);
+  // Pago con tarjeta: si el servidor lo ofrece a quien mira (con la clave de prueba, solo al administrador).
+  const [pagoTarjeta, setPagoTarjeta] = useState<PagoTarjeta>({ disponible: false, modo: null });
+  const [avisoPago, setAvisoPago] = useState<string | null>(null);
+  // Saliendo hacia la página de Stripe (el botón se queda cargando hasta que el navegador cambia de página).
+  const [redirigiendo, setRedirigiendo] = useState(false);
+  const params = useLocalSearchParams<{ pago?: string; sesion?: string; pedido?: string }>();
 
   const bootedRef = useRef(false);
   // Guarda síncrona contra dos toques seguidos, como defensa extra: el botón ya se desactiva con
@@ -494,7 +600,102 @@ export default function CheckoutScreen() {
     };
   }, []);
 
-  const onPay = useCallback(async () => {
+  // ¿Se puede pagar con tarjeta? Lo dice el servidor (clave de Stripe puesta, columnas de pago y, en modo prueba, que
+  // quien mira sea el administrador). Solo en la web: la página de Stripe se abre en el navegador.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let vivo = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/pago", { headers: await cabecerasConSesion() });
+        const d = (await r.json().catch(() => null)) as { ok?: boolean; disponible?: boolean; modo?: string } | null;
+        if (vivo && r.ok && d?.ok) {
+          setPagoTarjeta({ disponible: d.disponible === true, modo: d.modo === "prueba" || d.modo === "real" ? d.modo : null });
+        }
+      } catch {
+        // sin servidor: como siempre, sin pago con tarjeta
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Vuelta de Stripe: ?pago=ok&sesion=cs_… (el servidor se lo pregunta a Stripe) o ?pago=cancelado&pedido=N.
+  const vueltaRef = useRef("");
+  const comprobarVuelta = useCallback(async (sesion: string) => {
+    const pendiente = await leerPagoPendiente();
+    const numeroGuardado = pendiente?.numero ?? null;
+    setPedidoHecho({ numero: numeroGuardado, texto: textoDelPedido(numeroGuardado, null), pago: "comprobando", clave: pendiente?.clave ?? null });
+    const r = await confirmarPagoConTarjeta(sesion);
+    const numero = r?.numero ?? numeroGuardado;
+    if (r?.pagado) {
+      // Se cuenta una sola vez: al recargar esta página ya no hay pago pendiente guardado.
+      if (pendiente) {
+        trackEvent("pago_tarjeta_ok", "Pagado con tarjeta", { path: "/checkout", metadata: { numero, modo: sesion.startsWith("cs_live_") ? "real" : "prueba" } });
+        try {
+          await AsyncStorage.removeItem(PAGO_PENDIENTE_KEY);
+        } catch {
+          // nada que borrar
+        }
+      }
+      setPedidoHecho({ numero, texto: textoDelPedido(numero, "pagado"), pago: "pagado", clave: null });
+    } else {
+      setPedidoHecho({ numero, texto: textoDelPedido(numero, null), pago: "sin_confirmar", clave: pendiente?.clave ?? null });
+    }
+  }, []);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const pago = typeof params.pago === "string" ? params.pago : "";
+    const sesion = typeof params.sesion === "string" ? params.sesion : "";
+    const clave = `${pago}|${sesion}|${params.pedido ?? ""}`;
+    if ((pago !== "ok" && pago !== "cancelado") || vueltaRef.current === clave) return;
+    vueltaRef.current = clave;
+    if (pago === "ok") {
+      comprobarVuelta(sesion);
+      return;
+    }
+    (async () => {
+      const pendiente = await leerPagoPendiente();
+      const enLaUrl = Number(params.pedido);
+      const numero = pendiente?.numero ?? (Number.isInteger(enLaUrl) && enLaUrl > 0 ? enLaUrl : null);
+      setPedidoHecho({ numero, texto: textoDelPedido(numero, null), pago: "cancelado", clave: pendiente?.clave ?? null });
+    })();
+  }, [params.pago, params.sesion, params.pedido, comprobarVuelta]);
+
+  // Vuelta atrás desde la página de Stripe: el navegador puede devolver esta página tal cual estaba (caché de páginas),
+  // con «Abriendo el pago…» en pantalla. El pedido sigue guardado y sin pagar: se enseña para volver a intentarlo.
+  const pagoEnCursoRef = useRef<{ numero: number; clave: string | null } | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const alVolver = (e: PageTransitionEvent) => {
+      const enCurso = pagoEnCursoRef.current;
+      if (!e.persisted || !enCurso) return;
+      setRedirigiendo(false);
+      setPedidoHecho((p) => p ?? { numero: enCurso.numero, texto: textoDelPedido(enCurso.numero, null), pago: "cancelado", clave: enCurso.clave });
+    };
+    window.addEventListener("pageshow", alVolver);
+    return () => window.removeEventListener("pageshow", alVolver);
+  }, []);
+
+  // Pagar con tarjeta un pedido ya guardado (desde la confirmación, tras cancelar en Stripe o si no se pudo abrir).
+  const pagarPedidoGuardado = useCallback(async () => {
+    if (!pedidoHecho?.numero || redirigiendo) return;
+    setAvisoPago(null);
+    setRedirigiendo(true);
+    pagoEnCursoRef.current = { numero: pedidoHecho.numero, clave: pedidoHecho.clave ?? null };
+    const medido = trackEvent("pago_tarjeta", "Pago con tarjeta", { path: "/checkout", metadata: { numero: pedidoHecho.numero, modo: pagoTarjeta.modo, reintento: true } });
+    const r = await irAlPagoConTarjeta(pedidoHecho.numero, pedidoHecho.clave ?? null, medido);
+    if (r === "redirigiendo") return;
+    setRedirigiendo(false);
+    if (r === "pagado") {
+      setPedidoHecho((p) => (p ? { ...p, pago: "pagado", texto: textoDelPedido(p.numero, "pagado") } : p));
+    } else {
+      setAvisoPago(r.aviso);
+    }
+  }, [pedidoHecho, redirigiendo, pagoTarjeta.modo]);
+
+  const onPay = useCallback(async (conTarjeta: boolean) => {
     if (enviandoRef.current) return;
     setErr(null);
 
@@ -526,6 +727,8 @@ export default function CheckoutScreen() {
       //    como hasta ahora.
       let numero: number | null = null;
       let repetido = false;
+      // La clave de esta compra: con ella (o con la cuenta) el servidor sabe que el pedido es de quien lo paga.
+      let claveCompra: string | null = null;
       try {
         const datos = {
           nombre: safeStr(fullName),
@@ -539,6 +742,7 @@ export default function CheckoutScreen() {
         };
         const ids = items.map((it) => it.id);
         const clave = await claveDelPedido(items);
+        claveCompra = clave;
         const r = await supabase.rpc("crear_pedido_idempotente", { p_clave: clave, p_datos: datos, p_productos: ids });
         if (!r.error && r.data && typeof r.data === "object") {
           const res = r.data as { numero?: number | string; repetido?: boolean };
@@ -568,10 +772,12 @@ export default function CheckoutScreen() {
       }
       // Un reintento (repetido) no vuelve a contar como una venta nueva: el primer intento ya lo
       // contó, aunque se quedara sin número.
+      const tarjeta = conTarjeta && pagoTarjeta.disponible && !!numero && Platform.OS === "web";
+      let medidoPedido: Promise<unknown> = Promise.resolve();
       if (!repetido) {
-        trackEvent("order_whatsapp", "Pedido por WhatsApp", {
+        medidoPedido = trackEvent("order_whatsapp", "Pedido por WhatsApp", {
           path: "/checkout",
-          metadata: { numero, total, items: items.length, entrega, envio: shipping, zona: envio.zona?.zona ?? null },
+          metadata: { numero, total, items: items.length, entrega, envio: shipping, zona: envio.zona?.zona ?? null, tarjeta },
         });
         await markBuyNowSoldIfApplies(items);
       }
@@ -582,8 +788,25 @@ export default function CheckoutScreen() {
         await saveCart([]);
         setItems([]);
       }
-      // 3) Pantalla de confirmación: desde ahí se habla con la tienda por el chat.
-      setPedidoHecho({ numero, texto });
+      // 3) Con tarjeta: a la página de pago de Stripe (con el total que pone el servidor). Si no se puede abrir, el pedido
+      //    ya está guardado y la confirmación ofrece volver a intentarlo o hablarlo por el chat.
+      if (tarjeta && numero) {
+        const medidoPago = trackEvent("pago_tarjeta", "Pago con tarjeta", { path: "/checkout", metadata: { numero, total, modo: pagoTarjeta.modo } });
+        setRedirigiendo(true);
+        pagoEnCursoRef.current = { numero, clave: claveCompra };
+        const r = await irAlPagoConTarjeta(numero, claveCompra, Promise.all([medidoPedido, medidoPago]));
+        if (r === "redirigiendo") return;
+        setRedirigiendo(false);
+        if (r === "pagado") {
+          setPedidoHecho({ numero, texto: textoDelPedido(numero, "pagado"), pago: "pagado", clave: null });
+        } else {
+          setAvisoPago(r.aviso);
+          setPedidoHecho({ numero, texto, pago: "sin_abrir", clave: claveCompra });
+        }
+        return;
+      }
+      // 4) Pantalla de confirmación: desde ahí se habla con la tienda por el chat.
+      setPedidoHecho({ numero, texto, pago: null, clave: claveCompra });
     } catch (e: any) {
       console.error("Error al finalizar el pedido:", e);
       setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
@@ -591,7 +814,7 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       enviandoRef.current = false;
     }
-  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildWhatsText]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildWhatsText, pagoTarjeta]);
 
   // Cabecera: con el formulario va DENTRO del desplazamiento (se desplaza con todo, como en Servicios); en las demás
   // pantallas (cargando, confirmación, cesta vacía) arriba.
@@ -633,19 +856,86 @@ export default function CheckoutScreen() {
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
           <CargaMarca texto="Cargando…" />
         </View>
+      ) : redirigiendo && !pedidoHecho ? (
+        // Pedido guardado y saliendo hacia la página de pago de Stripe.
+        <View nativeID="pago-abriendo-stripe" style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 }}>
+          <CargaMarca texto="Abriendo el pago seguro de Stripe…" />
+        </View>
       ) : pedidoHecho ? (
-        // Confirmación: el pedido ya está registrado (sin número, se completa por el chat).
+        // Confirmación: el pedido ya está registrado (sin número, se completa por el chat), con cómo va su pago con tarjeta.
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, alignItems: "center" }}>
-          <View style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
+          <View nativeID="pago-confirmacion" style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
             <MarcaAnimada cual="pareja" ancho={240} />
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
-              {pedidoHecho.numero ? `Pedido nº ${pedidoHecho.numero} recibido` : "Pedido enviado"}
+            <Text nativeID="pago-confirmacion-titulo" style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
+              {pedidoHecho.pago === "pagado"
+                ? pedidoHecho.numero
+                  ? `Pedido nº ${pedidoHecho.numero} pagado`
+                  : "Pedido pagado"
+                : pedidoHecho.numero
+                  ? `Pedido nº ${pedidoHecho.numero} recibido`
+                  : "Pedido enviado"}
             </Text>
-            <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>
-              {pedidoHecho.numero
-                ? "Te escribimos por el chat de la tienda para confirmar la disponibilidad, el pago y la entrega."
-                : "Escríbenos por el chat de la tienda y te confirmamos la disponibilidad, el pago y la entrega."}
-            </Text>
+            {pedidoHecho.pago === "comprobando" ? (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <ActivityIndicator size="small" color={COLORS.accent} />
+                <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>Comprobando el pago con Stripe…</Text>
+              </View>
+            ) : (
+              <Text nativeID="pago-confirmacion-texto" style={{ color: pedidoHecho.pago === "pagado" ? COLORS.success : COLORS.muted, fontWeight: pedidoHecho.pago === "pagado" ? "800" : "400", lineHeight: 22, textAlign: "center" }}>
+                {pedidoHecho.pago === "pagado"
+                  ? `Pago con tarjeta recibido${pagoTarjeta.modo === "prueba" ? " (pago de prueba: no se ha cobrado nada)" : ""}. Te escribimos por el chat de la tienda para la entrega.`
+                  : pedidoHecho.pago === "cancelado"
+                    ? "No se ha hecho el pago. Tu pedido sigue guardado: puedes pagarlo ahora con tarjeta o hablarlo con nosotros por el chat."
+                    : pedidoHecho.pago === "sin_confirmar"
+                      ? "Aún no nos consta el pago. Si te lo han cobrado, se confirmará solo en unos minutos; si no, vuelve a intentarlo o escríbenos."
+                      : pedidoHecho.numero
+                        ? "Te escribimos por el chat de la tienda para confirmar la disponibilidad, el pago y la entrega."
+                        : "Escríbenos por el chat de la tienda y te confirmamos la disponibilidad, el pago y la entrega."}
+              </Text>
+            )}
+            {avisoPago ? (
+              <Text nativeID="pago-aviso" style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                {avisoPago}
+              </Text>
+            ) : null}
+            {/* Volver a intentar el pago con tarjeta: tras cancelarlo en Stripe, si no se pudo abrir o si aún no consta. */}
+            {pagoTarjeta.disponible && pedidoHecho.numero && (pedidoHecho.pago === "cancelado" || pedidoHecho.pago === "sin_abrir" || pedidoHecho.pago === "sin_confirmar") ? (
+              <Pressable
+                nativeID="pago-reintentar-tarjeta"
+                onPress={pagarPedidoGuardado}
+                disabled={redirigiendo}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  opacity: redirigiendo ? 0.6 : pressed ? 0.88 : 1,
+                  marginTop: 6,
+                  minHeight: 50,
+                  paddingHorizontal: 22,
+                  borderRadius: 999,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  backgroundColor: COLORS.accentDark,
+                })}
+              >
+                {redirigiendo ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="card-outline" size={18} color="#FFFFFF" />}
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Pagar con tarjeta</Text>
+              </Pressable>
+            ) : null}
+            {pedidoHecho.pago === "sin_confirmar" ? (
+              <Pressable
+                nativeID="pago-comprobar-otra-vez"
+                onPress={() => {
+                  const sesion = typeof params.sesion === "string" ? params.sesion : "";
+                  if (sesion) comprobarVuelta(sesion);
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+              >
+                <Ionicons name="refresh-outline" size={18} color={COLORS.accent} />
+                <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Comprobar otra vez</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={hablarConNosotros}
               disabled={abriendoChat}
@@ -919,11 +1209,12 @@ export default function CheckoutScreen() {
               ) : null}
               <View style={{ ...columnStyle, maxWidth: 460 }}>
                 <Pressable
-                  disabled={!formOk || submitting}
-                  onPress={onPay}
+                  nativeID={pagoTarjeta.disponible ? "pago-tarjeta" : "pago-confirmar-boton"}
+                  disabled={!formOk || submitting || redirigiendo}
+                  onPress={() => onPay(pagoTarjeta.disponible)}
                   accessibilityRole="button"
                   style={({ pressed }) => ({
-                    opacity: !formOk || submitting ? 0.45 : pressed ? 0.9 : 1,
+                    opacity: !formOk || submitting || redirigiendo ? 0.45 : pressed ? 0.9 : 1,
                     borderRadius: 999,
                     minHeight: 54,
                     paddingVertical: 10,
@@ -935,22 +1226,49 @@ export default function CheckoutScreen() {
                     backgroundColor: COLORS.accentDark,
                   })}
                 >
-                  {submitting ? (
+                  {submitting || redirigiendo ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
-                      <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+                      <Ionicons name={pagoTarjeta.disponible ? "card-outline" : "lock-closed-outline"} size={18} color="#FFFFFF" />
                       <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                        Confirmar pedido · {fmtEUR(total)}
+                        {pagoTarjeta.disponible ? "Pagar con tarjeta" : "Confirmar pedido"} · {fmtEUR(total)}
                       </Text>
                     </>
                   )}
                 </Pressable>
               </View>
 
+              {/* Con pago con tarjeta, confirmar sin pagar sigue como siempre (el pago se habla por el chat). Solo texto. */}
+              {pagoTarjeta.disponible ? (
+                <Pressable
+                  nativeID="pago-sin-tarjeta"
+                  disabled={!formOk || submitting || redirigiendo}
+                  onPress={() => onPay(false)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    alignSelf: "center",
+                    minHeight: 44,
+                    paddingHorizontal: 8,
+                    justifyContent: "center",
+                    opacity: !formOk || submitting || redirigiendo ? 0.45 : pressed ? 0.6 : 1,
+                  })}
+                >
+                  <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14, textAlign: "center" }}>Confirmar sin pagar ahora</Text>
+                </Pressable>
+              ) : null}
+              {pagoTarjeta.modo === "prueba" ? (
+                <Text nativeID="pago-modo-prueba" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  Modo de prueba de Stripe (solo lo ve el administrador): no se cobra nada. Tarjeta de prueba 4242 4242 4242 4242,
+                  cualquier fecha futura y cualquier CVC.
+                </Text>
+              ) : null}
+
               <Text style={{ color: "rgba(11,33,56,0.55)", textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
                 {formOk
-                  ? "Te confirmamos pago y entrega por el chat de la tienda. Sin pagos por adelantado en la web."
+                  ? pagoTarjeta.disponible
+                    ? "Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta. Si lo prefieres, confirma sin pagar y lo hablamos por el chat."
+                    : "Te confirmamos pago y entrega por el chat de la tienda. Sin pagos por adelantado en la web."
                   : !envio.disponible
                     ? "Escríbenos por el chat para envíos a esta zona."
                     : faltaCodigo

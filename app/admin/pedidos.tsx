@@ -24,6 +24,11 @@
  *   zona) y total. El envío lo calcula la base de datos con las tarifas (Administración → Tarifas de
  *   envío); aquí se puede poner A MANO para ese pedido (queda «a mano» y ya no se recalcula) o
  *   devolverlo al automático. Sin la migración, no se enseña.
+ * - Pago con tarjeta (Stripe, migración 20261105120000, dueño 2026-11-05; api/pago.ts): cada pedido enseña si se pagó
+ *   con tarjeta (cuánto y cuándo, con su enlace a Stripe y si fue de prueba) o si el pago se empezó sin terminar;
+ *   recuento arriba y filtros «Pagados con tarjeta» y «Pago sin terminar». Lo apunta solo el servidor tras
+ *   preguntárselo a Stripe. Si un pedido pagado se cancela o cambia de total, lo avisa (devolver desde Stripe). Sin la
+ *   migración, no se enseña.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -67,7 +72,19 @@ type Pedido = {
   envio_eur?: number | null;
   zona_envio?: string | null;
   envio_manual?: boolean | null;
+  // Pago con tarjeta (migración 20261105120000; puede no existir aún).
+  pago_estado?: "iniciado" | "pagado" | null;
+  pago_modo?: "prueba" | "real" | null;
+  pago_referencia?: string | null;
+  pagado_eur?: number | string | null;
+  pagado_en?: string | null;
 };
+
+// Enlace al pago en el panel de Stripe (los de prueba van a su apartado de prueba).
+function enlaceStripe(p: Pedido): string | null {
+  if (!p.pago_referencia || !/^pi_[A-Za-z0-9]+$/.test(p.pago_referencia)) return null;
+  return `https://dashboard.stripe.com/${p.pago_modo === "prueba" ? "test/" : ""}payments/${p.pago_referencia}`;
+}
 
 // «5,90» → 5.9; vacío o mal escrito → null.
 function leerImporte(texto: string): number | null {
@@ -165,7 +182,9 @@ export default function PedidosAdmin() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura">("activos");
+  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar">("activos");
+  // false = aún no hay columnas de pago con tarjeta (migración 20261105120000 sin aplicar): no se enseñan.
+  const [pagoOk, setPagoOk] = useState(false);
   const [guardando, setGuardando] = useState<string | null>(null);
   // false = aún no hay números de seguimiento (migración sin aplicar): no se enseñan.
   const [numerosOk, setNumerosOk] = useState(false);
@@ -183,15 +202,26 @@ export default function PedidosAdmin() {
       "id,numero,created_at,estado,entrega,nombre,email,telefono,direccion,codigo_postal,ciudad,notas,total_eur,pedido_items(id,product_id,titulo,precio_eur)";
     const NUMEROS = ",user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin";
     const ENVIO = ",productos_eur,envio_eur,zona_envio,envio_manual";
+    const PAGO = ",pago_estado,pago_modo,pago_referencia,pagado_eur,pagado_en";
     const consulta = (columnas: string) => supabase.from("pedidos").select(columnas).order("created_at", { ascending: false }).limit(200);
-    let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(`${base}${NUMEROS}${ENVIO}`);
-    const sinEnvio = !!res.error && /productos_eur|envio_eur|zona_envio|envio_manual/.test(String(res.error.message ?? ""));
-    if (sinEnvio) res = await consulta(`${base}${NUMEROS}`);
-    setEnvioOk(!res.error && !sinEnvio);
-    if (!sinEnvio) cargarTarifas().then(setZonas);
-    const sinNumeros = !!res.error && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(String(res.error.message ?? "")));
-    if (sinNumeros) res = await consulta(base);
-    setNumerosOk(!res.error && !sinNumeros);
+    // Cada grupo de columnas nuevas puede no existir aún (su migración sin aplicar): se quita el que falte y se repite.
+    let conPago = true;
+    let conEnvio = true;
+    let conNumeros = true;
+    const columnas = () => `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}`;
+    let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
+    for (let vuelta = 0; vuelta < 3 && res.error; vuelta++) {
+      const msg = String(res.error.message ?? "");
+      if (conPago && /pago_estado|pago_modo|pago_referencia|pagado_eur|pagado_en/.test(msg)) conPago = false;
+      else if (conEnvio && /productos_eur|envio_eur|zona_envio|envio_manual/.test(msg)) conEnvio = false;
+      else if (conNumeros && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(msg))) conNumeros = false;
+      else break;
+      res = await consulta(columnas());
+    }
+    setPagoOk(!res.error && conPago);
+    setEnvioOk(!res.error && conEnvio);
+    if (conEnvio) cargarTarifas().then(setZonas);
+    setNumerosOk(!res.error && conNumeros);
     const { data, error } = res;
     if (error) {
       const msg = String(error.message ?? "").toLowerCase();
@@ -216,8 +246,24 @@ export default function PedidosAdmin() {
     if (filtro === "activos") return pedidos.filter((p) => p.estado !== "entregado" && p.estado !== "cancelado");
     if (filtro === "sin_vincular") return pedidos.filter((p) => !p.user_id);
     if (filtro === "veoaura") return pedidos.filter((p) => !!p.id_veoaura);
+    if (filtro === "pagados_tarjeta") return pedidos.filter((p) => p.pago_estado === "pagado");
+    if (filtro === "pago_sin_terminar") return pedidos.filter((p) => p.pago_estado === "iniciado");
     return pedidos.filter((p) => p.estado === filtro);
   }, [pedidos, filtro]);
+
+  // Pago con tarjeta: cuántos pedidos se han pagado (y cuánto), cuántos se empezaron sin terminar, cuántos fueron de
+  // prueba y cuántos pagados están cancelados o con otro total (hay que devolver la diferencia desde Stripe).
+  const resumenPago = useMemo(() => {
+    const pagados = pedidos.filter((p) => p.pago_estado === "pagado");
+    const reales = pagados.filter((p) => p.pago_modo === "real");
+    return {
+      pagados: pagados.length,
+      cobradoReal: reales.reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0),
+      dePrueba: pagados.length - reales.length,
+      sinTerminar: pedidos.filter((p) => p.pago_estado === "iniciado").length,
+      porDevolver: pagados.filter((p) => p.estado === "cancelado" || Math.round(Number(p.pagado_eur ?? 0) * 100) > Math.round(Number(p.total_eur) * 100)).length,
+    };
+  }, [pedidos]);
 
   // Números de seguimiento: cuántos pedidos vienen de VeoAura y cuántos ya están en la cuenta de su cliente.
   const resumenNumeros = useMemo(() => {
@@ -292,6 +338,12 @@ export default function PedidosAdmin() {
           { value: "veoaura" as const, label: `De VeoAura (${resumenNumeros.veoaura})` },
         ]
       : []),
+    ...(pagoOk
+      ? [
+          { value: "pagados_tarjeta" as const, label: `Pagados con tarjeta (${resumenPago.pagados})` },
+          { value: "pago_sin_terminar" as const, label: `Pago sin terminar (${resumenPago.sinTerminar})` },
+        ]
+      : []),
   ];
 
   return (
@@ -358,6 +410,13 @@ export default function PedidosAdmin() {
               el chat: {resumenNumeros.desdeChat}
             </Text>
           ) : null}
+          {pagoOk && !loading ? (
+            <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              Pago con tarjeta (Stripe) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
+              {resumenPago.dePrueba}) · empezados sin terminar: {resumenPago.sinTerminar}
+              {resumenPago.porDevolver ? ` · por devolver desde Stripe: ${resumenPago.porDevolver}` : ""}
+            </Text>
+          ) : null}
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
             {chips.map((c) => {
@@ -422,6 +481,40 @@ export default function PedidosAdmin() {
                     {it.titulo} · <Text style={{ color: COLORS.accent, fontWeight: "800" }}>{fmtEUR(it.precio_eur)}</Text>
                   </Text>
                 ))}
+
+                {/* Pago con tarjeta: lo apunta el servidor tras preguntárselo a Stripe. Solo texto con su icono, sin burbuja. */}
+                {pagoOk && p.pago_estado ? (
+                  <View nativeID={`pedido-pago-${p.numero}`} style={{ alignItems: "center", gap: 4 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Ionicons name={p.pago_estado === "pagado" ? "card" : "card-outline"} size={16} color={p.pago_estado === "pagado" ? "#15803D" : COLORS.muted} />
+                      <Text style={{ color: p.pago_estado === "pagado" ? "#15803D" : COLORS.muted, fontWeight: "800", textAlign: "center" }}>
+                        {p.pago_estado === "pagado"
+                          ? `Pagado con tarjeta · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
+                          : "Pago con tarjeta empezado, sin terminar"}
+                      </Text>
+                    </View>
+                    {p.pago_estado === "pagado" && p.estado === "cancelado" ? (
+                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                        Cancelado y pagado: devuelve el dinero desde Stripe.
+                      </Text>
+                    ) : p.pago_estado === "pagado" && Math.round(Number(p.pagado_eur ?? 0) * 100) !== Math.round(Number(p.total_eur) * 100) ? (
+                      <Text style={{ color: COLORS.gold, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                        El total ahora es {fmtEUR(p.total_eur)}: la diferencia se arregla desde Stripe o por el chat.
+                      </Text>
+                    ) : null}
+                    {enlaceStripe(p) ? (
+                      <Pressable
+                        nativeID={`pedido-pago-stripe-${p.numero}`}
+                        onPress={() => openExternalLink(enlaceStripe(p) as string)}
+                        accessibilityRole="link"
+                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
+                      >
+                        <Ionicons name="open-outline" size={16} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Ver el pago en Stripe</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
 
                 {/* Envío del pedido: automático (con la tarifa) o a mano para este pedido. */}
                 {envioOk ? (

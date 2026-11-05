@@ -448,6 +448,28 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const resp = estado.asignar(cuerpo);
       return r.fulfill({ status: resp.status ?? 200, contentType: "application/json", body: JSON.stringify(resp.cuerpo) });
     }
+    // Pago con tarjeta (sección PT): /api/pago como el servidor (api/pago.ts), sin Stripe de verdad. Sin `estado.pago` no
+    // existe (como en local): el pago sale como siempre, sin tarjeta. Se apunta lo que se le pide.
+    if (url.pathname === "/api/pago" && estado.pago) {
+      const auth = peticion.headers()["authorization"] ?? "";
+      if (metodo === "GET") {
+        estado.pago.consultas = [...(estado.pago.consultas ?? []), auth];
+        return json({ ok: true, disponible: estado.pago.disponible, modo: estado.pago.disponible ? estado.pago.modo : null });
+      }
+      const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+      estado.pago.peticiones = [...(estado.pago.peticiones ?? []), { cuerpo, auth }];
+      if (cuerpo.accion === "crear") {
+        if (estado.pago.falla) return json({ ok: false, error: "no se pudo abrir el pago" }, 502);
+        return json({ ok: true, url: `https://checkout.stripe.com/c/pay/cs_test_prueba${cuerpo.numero}${(estado.pago.peticiones ?? []).length}` });
+      }
+      if (cuerpo.accion === "confirmar") return json({ ok: true, pagado: estado.pago.pagado !== false, numero: estado.pagoNumero ?? 101 });
+    }
+    // La página de pago y el panel de Stripe (sección PT): nunca se abre el de verdad; se apunta adónde se ha ido.
+    if (/(^|\.)stripe\.com$/.test(url.hostname)) {
+      if (url.hostname === "checkout.stripe.com") estado.stripeAbierto = [...(estado.stripeAbierto ?? []), url.href];
+      else estado.stripePanel = [...(estado.stripePanel ?? []), url.href];
+      return r.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><meta charset=utf-8><title>Stripe (simulada)</title><h1>Stripe (simulada)</h1>" });
+    }
     // Números de seguimiento (sección P): pedidos y reparaciones con su número y «vincular_seguimiento» como la base de
     // datos (sin la migración: columna y función inexistentes).
     if (estado.numeros && /\/rest\/v1\/(pedidos|service_requests)$/.test(url.pathname) && metodo === "GET") {
@@ -529,6 +551,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         if (estado.pedidosSinEnvio && /productos_eur|envio_eur|zona_envio|envio_manual/.test(url.searchParams.get("select") ?? "")) {
           estado.pedidos400 = (estado.pedidos400 ?? 0) + 1;
           return json({ code: "42703", message: "column pedidos.productos_eur does not exist" }, 400);
+        }
+        // Sin las columnas del pago con tarjeta (sección PT: migración 20261105120000 sin aplicar).
+        if (estado.pedidosSinPago && /pago_estado|pagado_eur/.test(url.searchParams.get("select") ?? "")) {
+          estado.pedidos400 = (estado.pedidos400 ?? 0) + 1;
+          return json({ code: "42703", message: "column pedidos.pago_estado does not exist" }, 400);
         }
         return json(estado.pedidosAdmin);
       }
@@ -6962,6 +6989,250 @@ async function seccionAT() {
   }
 }
 
+// ===== PT) Pago con tarjeta con Stripe (dueño, 2026-11-05: «clave puesta y empieza Stripe»; api/pago.ts): el botón
+// «Pagar con tarjeta» solo si el servidor lo ofrece, el pedido se guarda y se va a la página de Stripe sin mandar el
+// importe, la vuelta (pagado, cancelado, reintentar) y su parte en Administración → Pedidos y Analítica ==================
+async function seccionPT() {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  const A1 = "00000000-0000-4000-8000-0000000000e1";
+  const CESTA = [{ id: A1, title: "PlayStation 5 Slim", subtitle: "Consolas", priceEUR: 100, qty: 1, imageUrl: null }];
+  const conCesta = (ctx) =>
+    ctx.addInitScript((articulos) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-cesta")) {
+          sessionStorage.setItem("vz-prueba-cesta", "1");
+          localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, CESTA);
+  const perfilDe = (u) => [{ user_id: u.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  // Sin los caracteres de los iconos (fuente de iconos: zona de uso privado de Unicode).
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const pendiente = (p) => p.evaluate(() => localStorage.getItem("videojuegoszaragoza:pago_pendiente"));
+  const rellenar = async (p) => {
+    await p.getByPlaceholder("627 748 741").fill("600111222");
+    await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
+    await p.getByPlaceholder("Zaragoza").fill("Zaragoza");
+    await p.getByPlaceholder("50001").fill("50003");
+    await p.waitForTimeout(300);
+  };
+  const bloque = async (nombre, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      ok(false, `PT: «${nombre}» se cortó (${String(e?.message ?? e).split("\n")[0].slice(0, 160)})`);
+    }
+  };
+
+  // PT1) Modo prueba (clave sk_test_): el administrador ve «Pagar con tarjeta», el aviso de prueba con la tarjeta 4242 y
+  // «Confirmar sin pagar ahora». Al pagar se guarda el pedido y se va a Stripe con el número y la clave de la compra (sin
+  // importe). Al volver con ?pago=ok, el servidor lo confirma y sale «pagado (de prueba)».
+  await bloque("PT1 administrador en modo prueba", async () => {
+    const estado = { filas: perfilDe(ADMIN), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "prueba" } };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    ok((estado.pago.consultas ?? []).some((a) => /^Bearer \S+/.test(a)), "PT: el pago pregunta al servidor con la sesión (para saber si es el administrador)");
+    ok(/^Pagar con tarjeta · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-sin-tarjeta").count()) === 1, `PT: con el pago disponible, «Pagar con tarjeta» con el total y «Confirmar sin pagar ahora» (${await texto(p, "#pago-tarjeta")})`);
+    ok(/Modo de prueba de Stripe \(solo lo ve el administrador\): no se cobra nada\. Tarjeta de prueba 4242 4242 4242 4242/.test(await texto(p, "#pago-modo-prueba")), "PT: en modo prueba lo dice, con la tarjeta de prueba");
+    await rellenar(p);
+    ok(/Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta/.test((await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ")), "PT: con el formulario completo, «Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta»");
+    await p.evaluate(() => {
+      const s = document.getElementById("pago-desplazamiento");
+      if (s) s.scrollTop = s.scrollHeight;
+    });
+    await p.waitForTimeout(400);
+    const botones = await p.evaluate(() => ["pago-tarjeta", "pago-sin-tarjeta"].map((i) => Math.round(document.getElementById(i)?.getBoundingClientRect().height ?? 0)));
+    ok(botones[0] >= 50 && botones[1] >= 44, `PT: los dos botones se tocan bien (${botones.join(" y ")} px)`);
+    await capturar(p, "PT1-pago-tarjeta");
+    await p.locator("#pago-tarjeta").click();
+    await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
+    const crear = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "crear");
+    ok(/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_/.test(p.url()) && (estado.stripeAbierto ?? []).length === 1, `PT: guarda el pedido y lleva a la página de pago de Stripe (${p.url().slice(0, 60)})`);
+    ok(
+      !!crear && crear.cuerpo.numero === 101 && UUID.test(crear.cuerpo.clave ?? "") && crear.cuerpo.clave === estado.pedidosCreados?.[0]?.p_clave && Object.keys(crear.cuerpo).sort().join(",") === "accion,clave,numero",
+      `PT: al servidor solo le pide el pago del pedido 101 con la clave de la compra, sin importe (${JSON.stringify(crear?.cuerpo)})`
+    );
+    // Vuelta de Stripe.
+    await p.goto(`${BASE}/checkout?pago=ok&sesion=cs_test_prueba1011`, { waitUntil: "load" });
+    await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const confirmar = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "confirmar");
+    ok(confirmar?.cuerpo.sesion === "cs_test_prueba1011", `PT: al volver se lo pregunta al servidor con la sesión de Stripe (${confirmar?.cuerpo.sesion})`);
+    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago con tarjeta recibido \(pago de prueba: no se ha cobrado nada\)\. Te escribimos por el chat de la tienda para la entrega\.$/.test(await texto(p, "#pago-confirmacion-texto")), `PT: sale «Pedido nº 101 pagado» y que fue de prueba (${await texto(p, "#pago-confirmacion-texto")})`);
+    ok((await pendiente(p)) === null, "PT: y ya no queda un pago pendiente guardado");
+    await capturar(p, "PT1-pagado");
+    ok(p.errores.length === 0, `PT: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  });
+
+  // PT2) Modo real con un cliente: cancela en Stripe, vuelve, reintenta con la misma clave y paga; la analítica cuenta
+  // «Pago con tarjeta» y «Pagado con tarjeta» una sola vez (también al recargar).
+  await bloque("PT2 cliente en modo real", async () => {
+    const estado = { filas: perfilDe(CLIENTE), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real" } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    ok((await p.locator("#pago-modo-prueba").count()) === 0, "PT: con la clave real no sale el aviso de prueba");
+    await rellenar(p);
+    await p.locator("#pago-tarjeta").click();
+    await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
+    const clave = estado.pago.peticiones?.[0]?.cuerpo.clave;
+    await p.goto(`${BASE}/checkout?pago=cancelado&pedido=101`, { waitUntil: "load" });
+    await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^No se ha hecho el pago\. Tu pedido sigue guardado/.test(await texto(p, "#pago-confirmacion-texto")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si cancela en Stripe, el pedido sigue guardado y puede volver a pagar (${await texto(p, "#pago-confirmacion-texto")})`);
+    await capturar(p, "PT2-cancelado");
+    await p.locator("#pago-reintentar-tarjeta").click();
+    await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
+    const reintento = estado.pago.peticiones?.[1]?.cuerpo ?? {};
+    ok(/checkout\.stripe\.com/.test(p.url()) && reintento.accion === "crear" && reintento.numero === 101 && reintento.clave === clave && UUID.test(clave ?? ""), `PT: el reintento vuelve a Stripe con el mismo pedido y la misma clave (${JSON.stringify(reintento)})`);
+    await p.goto(`${BASE}/checkout?pago=ok&sesion=cs_live_prueba1012`, { waitUntil: "load" });
+    await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago con tarjeta recibido\. Te escribimos/.test(await texto(p, "#pago-confirmacion-texto")), `PT: pagado de verdad, sin «de prueba» (${await texto(p, "#pago-confirmacion-texto")})`);
+    await p.reload({ waitUntil: "load" });
+    await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const iniciados = evento(estado, "pago_tarjeta");
+    const pagados = evento(estado, "pago_tarjeta_ok");
+    ok(iniciados.length === 2 && iniciados.every((e) => e.metadata?.numero === 101) && iniciados[1].metadata?.reintento === true, `PT: la analítica cuenta cada vez que se abre el pago (${iniciados.length})`);
+    ok(pagados.length === 1 && pagados[0].metadata?.numero === 101 && pagados[0].metadata?.modo === "real", `PT: y el pago confirmado una sola vez, aunque se recargue (${pagados.length})`);
+    ok(evento(estado, "order_whatsapp")[0]?.metadata?.tarjeta === true, "PT: el pedido apunta que se pagó con tarjeta");
+    ok(!JSON.stringify(estado.eventosEnviados ?? []).includes("Calle Mayor"), "PT: y nunca la dirección");
+    ok(p.errores.length === 0, `PT: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  });
+
+  // PT3) Si no se puede abrir el pago: el pedido ya está guardado, lo dice y ofrece volver a intentarlo.
+  await bloque("PT3 sin poder abrir el pago", async () => {
+    const estado = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", falla: true } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await rellenar(p);
+    await p.locator("#pago-tarjeta").click();
+    await p.locator("#pago-aviso").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /No hemos podido abrir el pago con tarjeta\. Tu pedido está guardado/.test(await texto(p, "#pago-aviso")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si no se abre el pago, el pedido está guardado y se puede reintentar (${await texto(p, "#pago-aviso")})`);
+    ok(!/checkout\.stripe\.com/.test(p.url()) && p.errores.length === 0, "PT: sin salir de la tienda ni errores de JavaScript");
+    await ctx.close();
+  });
+
+  // PT4) Con el pago disponible, «Confirmar sin pagar ahora» sigue como siempre; y sin el pago (o sin el servidor),
+  // el botón de siempre.
+  await bloque("PT4 sin pagar y sin el pago", async () => {
+    const estado = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real" } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-sin-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await rellenar(p);
+    await p.locator("#pago-sin-tarjeta").click();
+    await p.getByText("Pedido nº 101 recibido").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await p.getByText("Pedido nº 101 recibido").count()) === 1 && !(estado.pago.peticiones ?? []).length && !(estado.stripeAbierto ?? []).length, "PT: «Confirmar sin pagar ahora» guarda el pedido sin abrir el pago");
+    ok((await p.locator("#pago-reintentar-tarjeta").count()) === 0, "PT: y no ofrece pagar (el pago se habla por el chat)");
+    await ctx.close();
+
+    for (const [nombre, pago] of [["no disponible", { disponible: false, modo: null }], ["sin el servidor", undefined]]) {
+      const e2 = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, ...(pago ? { pago } : {}) };
+      const c2 = await contexto(navegador, CLIENTE, "user", e2);
+      await conCesta(c2);
+      const p2 = await pagina(c2, "/checkout");
+      await p2.locator("#pago-confirmar-boton").waitFor({ timeout: 30000 }).catch(() => {});
+      await p2.waitForTimeout(800);
+      ok(/^Confirmar pedido · 100,00€$/.test(await texto(p2, "#pago-confirmar-boton")) && (await p2.locator("#pago-sin-tarjeta").count()) === 0 && (await p2.locator("#pago-tarjeta").count()) === 0, `PT: ${nombre}, el botón de siempre (${await texto(p2, "#pago-confirmar-boton")})`);
+      ok(p2.errores.length === 0, `PT: ${nombre}, sin errores de JavaScript (${p2.errores[0] ?? "ninguno"})`);
+      await c2.close();
+    }
+  });
+
+  // PT5) Administración → Pedidos: el pago de cada pedido, el recuento, los filtros, el aviso de devolver y el enlace a
+  // Stripe; sin la migración, la lista igual.
+  await bloque("PT5 Pedidos", async () => {
+    const ahora = new Date().toISOString();
+    const base = (numero, extra) => ({
+      id: `0d000000-0000-4000-8000-000000000${numero}`, numero, created_at: ahora, estado: "pendiente", entrega: "recogida", nombre: "Ana", email: "ana@example.com",
+      telefono: "600111222", direccion: null, codigo_postal: null, ciudad: null, notas: null, total_eur: 106.9, productos_eur: 106.9, envio_eur: 0, zona_envio: "mano",
+      envio_manual: false, user_id: null, codigo_seguimiento: null, id_veoaura: null, vinculado_en: null, nota_admin: null, pedido_items: [],
+      pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, ...extra,
+    });
+    const pedidos = [
+      base(201, { pago_estado: "pagado", pago_modo: "prueba", pago_referencia: "pi_3Prueba201", pagado_eur: 106.9, pagado_en: ahora }),
+      base(202, { pago_estado: "iniciado", pago_modo: "real" }),
+      base(203, { estado: "cancelado", total_eur: 50, pago_estado: "pagado", pago_modo: "real", pago_referencia: "pi_3Real203", pagado_eur: 50, pagado_en: ahora }),
+      base(204, {}),
+      base(205, { total_eur: 120, pago_estado: "pagado", pago_modo: "real", pago_referencia: "pi_3Real205", pagado_eur: 106.9, pagado_en: ahora }),
+    ];
+    const estado = { guardados: [], tarifas: [], pedidosAdmin: pedidos };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedidos-pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(
+      /^Pago con tarjeta \(Stripe\) · pagados: 3 \(cobrado de verdad: 156,90€; de prueba: 1\) · empezados sin terminar: 1 · por devolver desde Stripe: 1$/.test(await texto(p, "#pedidos-pago-tarjeta")),
+      `PT: Pedidos cuenta los pagados (y lo cobrado de verdad), los de prueba, los sin terminar y los que hay que devolver (${await texto(p, "#pedidos-pago-tarjeta")})`
+    );
+    ok(/^Pagado con tarjeta · 106,90€ · .+ · de prueba \(sin cobro real\) Ver el pago en Stripe$/.test(await texto(p, "#pedido-pago-201")), `PT: un pedido pagado enseña cuánto, cuándo, que fue de prueba y su enlace (${await texto(p, "#pedido-pago-201")})`);
+    ok(/^Pago con tarjeta empezado, sin terminar$/.test(await texto(p, "#pedido-pago-202")) && (await p.locator("#pedido-pago-204").count()) === 0, "PT: uno empezado sin terminar lo dice; uno sin pago con tarjeta no enseña nada");
+    ok(/El total ahora es 120,00€: la diferencia se arregla desde Stripe o por el chat\./.test(await texto(p, "#pedido-pago-205")), `PT: si el total cambió después de pagar, lo avisa (${await texto(p, "#pedido-pago-205")})`);
+    const [popup] = await Promise.all([ctx.waitForEvent("page", { timeout: 8000 }).catch(() => null), p.locator("#pedido-pago-stripe-201").click()]);
+    for (let i = 0; i < 20 && !(estado.stripePanel ?? []).length; i++) await p.waitForTimeout(200);
+    const enlace = estado.stripePanel?.[0] ?? "";
+    ok(enlace === "https://dashboard.stripe.com/test/payments/pi_3Prueba201", `PT: «Ver el pago en Stripe» abre ese pago (en el apartado de prueba) (${enlace.slice(0, 70)})`);
+    if (popup) await popup.close();
+    await p.getByText("Pagados con tarjeta (3)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-pago-"]')].map((e) => e.id).filter((i) => /^pedido-pago-\d+$/.test(i)));
+    ok(visibles.join(",") === "pedido-pago-201,pedido-pago-203,pedido-pago-205", `PT: el filtro «Pagados con tarjeta» enseña los pagados, también el cancelado (${visibles.join(", ")})`);
+    ok(/Cancelado y pagado: devuelve el dinero desde Stripe\./.test(await texto(p, "#pedido-pago-203")), "PT: un pedido cancelado y pagado avisa de devolver el dinero");
+    await p.getByText("Pago sin terminar (1)", { exact: true }).click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#pedido-pago-202").count()) === 1 && (await p.locator("#pedido-pago-201").count()) === 0, "PT: y «Pago sin terminar» los empezados sin terminar");
+    await capturar(p, "PT5-pedidos-pago");
+    ok(p.errores.length === 0, `PT: Pedidos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+
+    const estado2 = { guardados: [], tarifas: [], pedidosAdmin: pedidos.map((x) => ({ ...x })), pedidosSinPago: true };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
+    const p2 = await pagina(ctx2, "/admin/pedidos");
+    await p2.getByText(/Pedido nº 201/).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p2.waitForTimeout(500);
+    ok((await p2.getByText(/Pedido nº 201/).count()) >= 1 && (await p2.locator("#pedidos-pago-tarjeta").count()) === 0 && (await p2.locator("#pedido-pago-201").count()) === 0 && (await p2.locator("#pedido-envio-201").count()) === 1 && (estado2.pedidos400 ?? 0) === 1 && p2.errores.length === 0, `PT: sin la migración del pago, Pedidos sale igual (con su envío) y sin el pago (${estado2.pedidos400 ?? 0} intento fallido)`);
+    await ctx2.close();
+  });
+
+  // PT6) Administración → Analítica: «Pago con tarjeta» y «Pagado con tarjeta» en las conversiones por día.
+  await bloque("PT6 Analítica", async () => {
+    const ahora = new Date().toISOString();
+    const estado = {
+      guardados: [],
+      embudo: [{ step_label: "Inicio", sessions: 10 }],
+      eventos: [
+        { event_name: "begin_checkout", created_at: ahora },
+        { event_name: "pago_tarjeta", created_at: ahora },
+        { event_name: "pago_tarjeta", created_at: ahora },
+        { event_name: "pago_tarjeta_ok", created_at: ahora },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.getByText(/Conversiones por día/).first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1000);
+    const todo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+    ok(/Pago con tarjeta: 2/.test(todo) && /Pagado con tarjeta: 1/.test(todo) && /Inicio de pago: 1/.test(todo), `PT: Analítica cuenta los pagos con tarjeta abiertos y los pagados (${(todo.match(/Pago con tarjeta: \d+|Pagado con tarjeta: \d+/g) ?? []).join(", ")})`);
+    ok(p.errores.length === 0, `PT: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -7142,6 +7413,7 @@ try {
   if (SOLO === "TE") await seccionTE();
   if (SOLO === "C8") await seccionC8();
   if (SOLO === "AT") await seccionAT();
+  if (SOLO === "PT") await seccionPT();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -8101,6 +8373,7 @@ try {
   await seccionTE();
   await seccionC8();
   await seccionAT();
+  await seccionPT();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
