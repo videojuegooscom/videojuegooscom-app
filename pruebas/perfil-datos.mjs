@@ -177,7 +177,11 @@
  *    el Panel, 30 días, editar, calculadora, guardar solo lo cambiado, importes mal escritos, sin la migración) y
  *    Pedidos (envío a mano y vuelta al automático; sin la migración, la lista igual).
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE]
+ *  - C8) Contraseñas nuevas de al menos 8 caracteres: crear cuenta, recuperarla y cambiarla en Mi perfil (aviso de cuántos
+ *    faltan, no se guarda con 7, se cuenta una vez sin la contraseña), entrar con una antigua de 6 sigue funcionando y
+ *    la línea de Administración → Usuarios.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
  * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
@@ -4086,7 +4090,7 @@ async function seccionCO() {
 
     await p.goto(`${BASE}/reset-password?code=codigo-bueno`, { waitUntil: "load" });
     await p.getByText("Contraseña nueva", { exact: true }).waitFor({ timeout: 15000 }).catch(() => {});
-    const campos = p.locator('input[placeholder="Mínimo 6 caracteres"], input[placeholder="Repite la contraseña"]');
+    const campos = p.locator('input[placeholder="Mínimo 8 caracteres"], input[placeholder="Repite la contraseña"]');
     ok((estado.canjes ?? [])[0]?.auth_code === "codigo-bueno" && (await campos.count()) === 2, "CO: en el mismo navegador el enlace sirve y pide la contraseña nueva dos veces");
     await campos.nth(0).fill("nueva123");
     await campos.nth(1).fill("nueva124");
@@ -4146,7 +4150,7 @@ async function seccionCO() {
     ok((estado.verificaciones ?? [])[0]?.token_hash === "hash-bueno" && (await p.locator('input[placeholder="Repite la contraseña"]').count()) === 1, "CO: con el enlace de la plantilla sirve en cualquier navegador (sin código de seguridad)");
     ok(!/token_hash/.test(p.url()), `CO: y el enlace se quita de la dirección (${new URL(p.url()).pathname}${new URL(p.url()).search})`);
     estado.contrasenaError = { status: 422, cuerpo: { code: 422, error_code: "same_password", msg: "New password should be different from the old password." } };
-    await p.locator('input[placeholder="Mínimo 6 caracteres"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
+    await p.locator('input[placeholder="Mínimo 8 caracteres"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
     await p.locator('input[placeholder="Repite la contraseña"]').fill("vieja123", { timeout: 5000 }).catch(() => {});
     await p.getByText("Guardar contraseña", { exact: true }).click({ timeout: 5000 }).catch(() => {});
     await p.locator("#contrasena-error").waitFor({ timeout: 10000 }).catch(() => {});
@@ -6252,8 +6256,8 @@ async function seccionRD() {
     await p.getByPlaceholder("Nombre de usuario").fill("lucia_p");
     await p.getByPlaceholder("País de residencia").fill("España");
     await p.getByPlaceholder("tu@email.com").last().fill(correo);
-    await p.getByPlaceholder("Mínimo 6 caracteres").fill("clave123");
-    await p.getByPlaceholder("Mínimo 6 caracteres").press("Enter");
+    await p.getByPlaceholder("Mínimo 8 caracteres").fill("clave123");
+    await p.getByPlaceholder("Mínimo 8 caracteres").press("Enter");
   };
 
   // RD1) Llega desde Instagram (enlace de la biografía con ?utm_source=instagram), va a Perfil y crea la cuenta.
@@ -6745,6 +6749,155 @@ async function seccionTE() {
   });
 }
 
+// ===== C8) Contraseñas nuevas de al menos 8 caracteres (dueño, 2026-11-05: «sube la contraseña a 8»): al crear la cuenta,
+// al recuperarla y al cambiarla en Mi perfil, con el aviso de cuántos faltan y su medida (una vez, nunca la contraseña);
+// entrar con una antigua de 6 o 7 sigue funcionando; y su línea en Administración → Usuarios ===========================
+async function seccionC8() {
+  const perfilCompleto = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  const sinSesion = (ctx) =>
+    ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+  const sinClave = (estado, ...claves) => !claves.some((c) => JSON.stringify(estado.eventosEnviados ?? []).includes(c));
+
+  // C8a) Crear cuenta: con 7 caracteres aún no se puede y dice cuántos faltan; se cuenta una vez al salir del campo; con
+  // 8, la cuenta se crea.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-acceso").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#perfil-acceso").getByText("Crear cuenta").click();
+    await p.waitForTimeout(700);
+    await p.getByPlaceholder("Nombre y apellidos").fill("Lucía Pérez");
+    await p.getByPlaceholder("Nombre de usuario").fill("lucia_p");
+    await p.getByPlaceholder("País de residencia").fill("España");
+    await p.getByPlaceholder("tu@email.com").last().fill("lucia@example.com");
+    // (por su comienzo, para que el control con la versión anterior, «Mínimo 6 caracteres», también lo encuentre)
+    const clave = p.locator('input[placeholder^="Mínimo"]').last();
+    ok((await p.getByPlaceholder("Mínimo 8 caracteres").count()) === 1, "C8: al crear la cuenta, el campo dice «Mínimo 8 caracteres»");
+    await clave.fill("clave12");
+    ok((await texto(p, "#registro-contrasena-aviso")) === "Mínimo 8 caracteres: te falta 1.", `C8: con 7, dice cuántos faltan (${await texto(p, "#registro-contrasena-aviso")})`);
+    await clave.press("Enter");
+    await p.waitForTimeout(800);
+    ok(!(estado.altas ?? []).length, "C8: y no deja crear la cuenta");
+    await p.getByPlaceholder("Nombre y apellidos").click();
+    await clave.click();
+    await p.getByPlaceholder("Nombre y apellidos").click();
+    await esperar(p, () => evento(estado, "contrasena_corta").length > 0);
+    await p.waitForTimeout(500);
+    const ev = evento(estado, "contrasena_corta");
+    ok(ev.length === 1 && ev[0]?.metadata?.motivo === "registro" && sinClave(estado, "clave12", "lucia@example.com"), `C8: se cuenta una sola vez, «al crear la cuenta», sin la contraseña ni el correo (${ev.length}, ${ev[0]?.metadata?.motivo})`);
+    await capturar(p, "C8a-crear-cuenta-7");
+    await clave.fill("clave123");
+    ok((await p.locator("#registro-contrasena-aviso").count()) === 0, "C8: con 8, el aviso se va");
+    await clave.press("Enter");
+    await esperar(p, () => (estado.altas ?? []).length > 0);
+    ok((estado.altas ?? []).length === 1, "C8: y la cuenta se crea");
+    ok(p.errores.length === 0, `C8: crear cuenta sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // C8b) Recuperar la contraseña: «Mínimo 8», el aviso, no se guarda con 7 (y se cuenta) y sí con 8.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    // (el enlace de la plantilla, token_hash, sirve en cualquier navegador)
+    const p = await pagina(ctx, "/reset-password?token_hash=hash-bueno&type=recovery");
+    const nueva = p.locator('input[placeholder^="Mínimo"]').first();
+    await nueva.waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/Escribe tu contraseña nueva\. Mínimo 8 caracteres\./.test((await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ")), "C8: al recuperarla dice «Mínimo 8 caracteres»");
+    await nueva.fill("nueva12");
+    ok((await texto(p, "#contrasena-nueva-aviso")) === "Mínimo 8 caracteres: te falta 1.", "C8: con 7, dice cuántos faltan");
+    await p.locator('input[placeholder="Repite la contraseña"]').fill("nueva12");
+    await p.getByText("Guardar contraseña", { exact: true }).click({ force: true });
+    await p.waitForTimeout(600);
+    ok(!estado.cuenta, "C8: y no la guarda");
+    await esperar(p, () => evento(estado, "contrasena_corta").length > 0);
+    ok(evento(estado, "contrasena_corta")[0]?.metadata?.motivo === "recuperar" && sinClave(estado, "nueva12"), "C8: se cuenta «al recuperarla», sin la contraseña");
+    await nueva.fill("nueva123");
+    await p.locator('input[placeholder="Repite la contraseña"]').fill("nueva123");
+    await p.getByText("Guardar contraseña", { exact: true }).click();
+    await esperar(p, () => !!estado.cuenta);
+    ok(estado.cuenta?.password === "nueva123", "C8: con 8 la guarda");
+    ok(p.errores.length === 0, `C8: recuperar sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // C8c) Mi perfil: la contraseña actual de 7 (cuenta antigua) vale; la nueva de 7 no (y se cuenta); con 8 se cambia.
+  {
+    const estado = { filas: perfilCompleto, guardados: [], aceptaAnalitica: true, seguridad: true, claveActual: "vieja12" };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.locator("#perfil-seguridad-contrasena").click({ timeout: 15000 });
+    await p.locator("#perfil-clave-nueva").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.locator("#perfil-clave-nueva").getAttribute("placeholder")) === "Contraseña nueva (mínimo 8)", "C8: en Mi perfil, «Contraseña nueva (mínimo 8)»");
+    await p.locator("#perfil-clave-actual").fill("vieja12");
+    await p.locator("#perfil-clave-nueva").fill("nueva12");
+    await p.locator("#perfil-clave-repite").fill("nueva12");
+    ok((await texto(p, "#perfil-clave-nueva-aviso")) === "Mínimo 8 caracteres: te falta 1.", "C8: con 7, dice cuántos faltan");
+    await p.locator("#perfil-clave-guardar").click();
+    await p.waitForTimeout(500);
+    ok(/al menos 8 caracteres/.test(await texto(p, "#perfil-seguridad-aviso")) && !(estado.entradas ?? []).length, `C8: no la cambia y lo dice (${await texto(p, "#perfil-seguridad-aviso")})`);
+    await esperar(p, () => evento(estado, "contrasena_corta").length > 0);
+    ok(evento(estado, "contrasena_corta")[0]?.metadata?.motivo === "perfil" && sinClave(estado, "nueva12", "vieja12"), "C8: se cuenta «en Mi perfil», sin las contraseñas");
+    await p.locator("#perfil-clave-nueva").fill("nueva123");
+    await p.locator("#perfil-clave-repite").fill("nueva123");
+    await p.locator("#perfil-clave-guardar").click();
+    await esperar(p, () => (estado.clavesNuevas ?? []).length > 0);
+    ok((estado.entradas ?? []).some((e) => e.ok) && (estado.clavesNuevas ?? [])[0] === "nueva123", "C8: con la actual antigua de 7 y una nueva de 8, se cambia");
+    await capturar(p, "C8c-mi-perfil");
+    ok(p.errores.length === 0, `C8: Mi perfil sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // C8d) Entrar con una contraseña antigua de 6 sigue funcionando (las cuentas que ya existen no se quedan fuera).
+  {
+    const estado = { filas: perfilCompleto, guardados: [], seguridad: true, claveActual: "abc123" };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await sinSesion(ctx);
+    const p = await pagina(ctx, "/perfil?acceso=entrar");
+    await p.getByPlaceholder("Tu contraseña").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("tu@email.com").first().fill(CLIENTE.email);
+    await p.getByPlaceholder("Tu contraseña").fill("abc123");
+    await p.getByPlaceholder("Tu contraseña").press("Enter");
+    await esperar(p, () => (estado.entradas ?? []).length > 0);
+    ok((estado.entradas ?? [])[0]?.ok === true, `C8: entrar con una contraseña antigua de 6 sigue funcionando (${JSON.stringify(estado.entradas ?? [])})`);
+    await ctx.close();
+  }
+
+  // C8e) Administración → Usuarios: cuántas veces se pidió una más larga y dónde.
+  {
+    const ev = (motivo, i) => ({ event_name: "contrasena_corta", user_id: null, session_id: `s${i}`, metadata: { motivo } });
+    const estado = {
+      guardados: [],
+      filas: [],
+      usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
+      eventos: [ev("registro", 1), ev("registro", 2), ev("recuperar", 3), ev("perfil", 4)],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#admin-contrasenas-cortas").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = await texto(p, "#admin-contrasenas-cortas");
+    ok(/^Contraseñas de al menos 8 caracteres \(30 días\): se pidió una más larga 4 veces \(al crear la cuenta 2 · al recuperarla 1 · en Mi perfil 1\)$/.test(t), `C8: Usuarios lo cuenta y dice dónde (${t})`);
+    ok(p.errores.length === 0, `C8: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -6923,6 +7076,7 @@ try {
   if (SOLO === "VP") await seccionVP();
   if (SOLO === "RD") await seccionRD();
   if (SOLO === "TE") await seccionTE();
+  if (SOLO === "C8") await seccionC8();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -7880,6 +8034,7 @@ try {
   await seccionVP();
   await seccionRD();
   await seccionTE();
+  await seccionC8();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
