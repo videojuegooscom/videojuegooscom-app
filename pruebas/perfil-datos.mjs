@@ -181,7 +181,10 @@
  *    faltan, no se guarda con 7, se cuenta una vez sin la contraseña), entrar con una antigua de 6 sigue funcionando y
  *    la línea de Administración → Usuarios.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8]
+ *  - AT) Topes automáticos de la analítica en Administración → Analítica: lo guardado hoy, los topes de hoy (la misma
+ *    regla que la base de datos), lo cortado, los de partida sin historia y, sin la migración, que falta pegarla.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
  * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
@@ -491,6 +494,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         }
         return json([]);
       }
+    }
+    // Ritmo de la analítica (sección AT): sin `ritmo`, la tabla aún no existe (migración de los topes sin pegar).
+    if (url.pathname.endsWith("/rest/v1/analitica_ritmo") && metodo === "GET") {
+      if (!estado.ritmo) return json({ code: "PGRST205", message: "Could not find the table 'public.analitica_ritmo' in the schema cache" }, 404);
+      return json(estado.ritmo);
     }
     // Tarifas de envío (sección TE), como la base de datos: las zonas en su orden y lo que guarda Administración → Tarifas
     // de envío. Con `tarifas: null`, la tabla no existe (migración sin aplicar); sin `tarifas`, vacía (envío gratis).
@@ -6898,6 +6906,62 @@ async function seccionC8() {
   }
 }
 
+// ===== AT) Topes automáticos de la analítica (dueño, 2026-11-05: «quiero que automáticamente se haga si hay que subir el
+// tope»): Administración → Analítica enseña lo guardado hoy, los topes de hoy (la misma regla que la base de datos) y lo
+// cortado; sin la migración, lo dice ====================================================================================
+async function seccionAT() {
+  const dia = (hace) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date(Date.now() - hace * 86400000));
+  const texto = async (p) => (await p.locator("#analitica-topes").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+  const embudo = [{ step_label: "Inicio", sessions: 10 }];
+
+  // AT1) Con un día de 50.000 hace 3 días: 150.000 al día y 2.084 por minuto; lo de hoy y lo cortado.
+  {
+    const estado = {
+      guardados: [],
+      embudo,
+      ritmo: [
+        { dia: dia(0), eventos: 1234, cortados: 2 },
+        { dia: dia(3), eventos: 50000, cortados: 0 },
+        { dia: dia(10), eventos: 100, cortados: 5 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-topes").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const t = await texto(p);
+    ok(
+      /Topes automáticos de la analítica: hoy 1234 eventos guardados de un máximo de 150\.000 · 2084 por minuto · 120 por persona y minuto · cortados hoy 2 \(30 días: 7\)\. Se ajustan solos/.test(t),
+      `AT: Analítica enseña lo de hoy y los topes que se ajustan solos (${t})`
+    );
+    ok(p.errores.length === 0, `AT: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await capturar(p, "AT1-analitica-topes");
+    await ctx.close();
+  }
+
+  // AT2) Sin historia: los topes de partida (20.000 y 300).
+  {
+    const estado = { guardados: [], embudo, ritmo: [{ dia: dia(0), eventos: 12, cortados: 0 }] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-topes").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok(/hoy 12 eventos guardados de un máximo de 20\.000 · 300 por minuto/.test(await texto(p)), `AT: sin días de mucho movimiento, los topes de partida (${await texto(p)})`);
+    await ctx.close();
+  }
+
+  // AT3) Sin la migración: lo dice y no rompe nada.
+  {
+    const estado = { guardados: [], embudo };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-topes").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok(/aún sin activar \(falta pegar en Supabase la migración 20261018150000_analitica_topes\.sql\)/.test(await texto(p)) && p.errores.length === 0, `AT: sin la migración lo dice, sin errores de JavaScript (${await texto(p)})`);
+    await ctx.close();
+  }
+}
+
 // ===== Q) Administración → Chat: asignar el seguimiento al cliente de la conversación e invitar a registrarse ========
 async function seccionQ() {
   const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000bb";
@@ -7077,6 +7141,7 @@ try {
   if (SOLO === "RD") await seccionRD();
   if (SOLO === "TE") await seccionTE();
   if (SOLO === "C8") await seccionC8();
+  if (SOLO === "AT") await seccionAT();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -8035,6 +8100,7 @@ try {
   await seccionRD();
   await seccionTE();
   await seccionC8();
+  await seccionAT();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

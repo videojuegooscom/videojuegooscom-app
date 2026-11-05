@@ -169,6 +169,18 @@ function madridMidnightIso(dateStr: string) {
   return new Date(utc).toISOString();
 }
 
+// Topes automáticos de la analítica (dueño, 2026-11-05: «quiero que automáticamente se haga si hay que subir el tope»):
+// la MISMA regla que analitica_topes() en supabase/migrations/20261018150000_analitica_topes.sql. Por día, el mayor de
+// 20.000 y 3 × el día con más eventos de los últimos 30 (sin hoy), como mucho 200.000; por minuto, el mayor de 300 y el
+// diario × 20 / 1.440; por sesión, 120 por minuto.
+type DiaRitmo = { dia: string; eventos: number; cortados: number };
+function topesAnalitica(ritmo: DiaRitmo[], hoy: string) {
+  const hace30 = madridDateStr(new Date(Date.parse(`${hoy}T12:00:00Z`) - 30 * 86400000));
+  const maximo = ritmo.filter((r) => r.dia < hoy && r.dia >= hace30).reduce((m, r) => Math.max(m, r.eventos), 0);
+  const porDia = Math.min(200000, Math.max(20000, 3 * maximo));
+  return { porDia, porMinuto: Math.max(300, Math.ceil((porDia * 20) / 1440)), porSesion: 120 };
+}
+
 function toDateOnly(d: Date) {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
 }
@@ -369,6 +381,8 @@ export default function AdminAnalytics() {
   const [daily, setDaily] = useState<DailyRow[]>([]);
   const [funnel, setFunnel] = useState<FunnelRow[]>([]);
   const [conversions, setConversions] = useState<ConversionDay[]>([]);
+  // Ritmo de la analítica (tabla analitica_ritmo, últimos 31 días). null = la migración de los topes aún no está.
+  const [ritmo, setRitmo] = useState<DiaRitmo[] | null>(null);
 
   function applyPreset(p: DatePreset) {
     setDateErr(null);
@@ -496,6 +510,40 @@ export default function AdminAnalytics() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Topes automáticos: el ritmo de los últimos 31 días (no depende de las fechas elegidas arriba).
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const desde = madridDateStr(new Date(Date.now() - 31 * 86400000));
+      const { data, error } = await supabase.from("analitica_ritmo").select("dia,eventos,cortados").gte("dia", desde).order("dia", { ascending: false });
+      if (!vivo) return;
+      setRitmo(
+        error
+          ? null
+          : ((data ?? []) as { dia: string; eventos: number | string; cortados: number | string }[]).map((r) => ({
+              dia: String(r.dia),
+              eventos: Number(r.eventos) || 0,
+              cortados: Number(r.cortados) || 0,
+            }))
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const topes = useMemo(() => {
+    if (!ritmo) return null;
+    const hoy = madridDateStr(new Date());
+    const deHoy = ritmo.find((r) => r.dia === hoy);
+    return {
+      ...topesAnalitica(ritmo, hoy),
+      hoy: deHoy?.eventos ?? 0,
+      cortadosHoy: deHoy?.cortados ?? 0,
+      cortados30: ritmo.filter((r) => r.dia > madridDateStr(new Date(Date.now() - 30 * 86400000))).reduce((s, r) => s + r.cortados, 0),
+    };
+  }, [ritmo]);
 
   // Recorrido principal: agrupa por prefijo de step_label para armar un
   // embudo de 4 pasos fijos, sin que cada categoría/producto distinto rompa
@@ -909,6 +957,26 @@ export default function AdminAnalytics() {
                       tienda estaba lista en menos de 1 s: {coreFunnel.bienvenidaRapida} · entre 1 y 3 s: {coreFunnel.bienvenidaMedia} · en más
                       de 3 s: {coreFunnel.bienvenidaLenta} · la quitan antes con un toque: {coreFunnel.bienvenidaSaltada} · empiezan en Inicio
                       aunque la abrieran por otra sección: {coreFunnel.bienvenidaInicio}
+                    </Text>
+                  </View>
+                  {/* Topes automáticos de la analítica: cuánto se ha guardado hoy, los topes de hoy (se ajustan solos con las
+                      visitas) y lo que se ha cortado. Sin la migración, lo dice. */}
+                  <View
+                    nativeID="analitica-topes"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="speedometer-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      {topes
+                        ? `Topes automáticos de la analítica: hoy ${topes.hoy.toLocaleString("es-ES")} eventos guardados de un máximo de ${topes.porDia.toLocaleString("es-ES")} · ${topes.porMinuto.toLocaleString("es-ES")} por minuto · ${topes.porSesion} por persona y minuto · cortados hoy ${topes.cortadosHoy} (30 días: ${topes.cortados30}). Se ajustan solos: 3 veces el día con más visitas del último mes.`
+                        : "Topes automáticos de la analítica: aún sin activar (falta pegar en Supabase la migración 20261018150000_analitica_topes.sql)."}
                     </Text>
                   </View>
                   <View
