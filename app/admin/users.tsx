@@ -41,6 +41,9 @@
  *   que no se pudieron pedir; si Supabase frena correos por su límite, un
  *   aviso en rojo de que hace falta el correo propio (SMTP). Analítica propia
  *   contrasena_* de app/(tabs)/perfil.tsx y app/reset-password.tsx.
+ * - «Contraseñas de al menos 8 (30 días)» (dueño, 2026-11-05: «sube la contraseña a 8»): cuántas veces alguien
+ *   escribió una contraseña nueva más corta y dónde (al crear la cuenta, al recuperarla o en Mi perfil). Analítica
+ *   propia contrasena_corta (una vez por visita, nunca la contraseña).
  * - «Inicio de sesión y seguridad (30 días)»: cambios de correo pedidos y
  *   terminados, contraseñas cambiadas desde Mi perfil e intentos fallidos
  *   (cuántos con la contraseña actual equivocada). Analítica propia
@@ -106,7 +109,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { supabase } from "../../lib/supabase";
+import { CONTRASENA_MINIMA, supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/SmartImage";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
@@ -200,6 +203,8 @@ const EVENTOS_CONTRASENA = [
   "contrasena_enlace_abierto",
   "contrasena_enlace_invalido",
   "contrasena_cambiada",
+  // Contraseña nueva más corta del mínimo (lib/supabase.ts → CONTRASENA_MINIMA), con dónde: registro, recuperar o perfil.
+  "contrasena_corta",
 ] as const;
 // Mi perfil → «Inicio de sesión y seguridad» (components/PerfilPublico.tsx): cambios de correo y de contraseña.
 const EVENTOS_SEGURIDAD = [
@@ -219,6 +224,10 @@ type UsoContrasena = {
   otroNavegador: number;
   caducados: number;
   cambiadas: number;
+  cortas: number;
+  cortasRegistro: number;
+  cortasRecuperar: number;
+  cortasPerfil: number;
 };
 
 // Una idea de «Mejoras en la tienda» (tabla mejoras_tienda, migración 20261101200000_mejoras_tienda.sql).
@@ -561,6 +570,10 @@ export default function AdminUsers() {
           otroNavegador: cuenta("contrasena_enlace_invalido", "otro_navegador"),
           caducados: cuenta("contrasena_enlace_invalido", "caducado"),
           cambiadas: cuenta("contrasena_cambiada"),
+          cortas: cuenta("contrasena_corta"),
+          cortasRegistro: cuenta("contrasena_corta", "registro"),
+          cortasRecuperar: cuenta("contrasena_corta", "recuperar"),
+          cortasPerfil: cuenta("contrasena_corta", "perfil"),
         });
         // «Mejoras en la tienda»: veces que se abrió la cajita, personas distintas y desde dónde.
         const abiertas = ((eventosRes.data ?? []) as { event_name: string; user_id: string | null; session_id: string | null; metadata: { origen?: unknown } | null }[]).filter(
@@ -1074,6 +1087,14 @@ export default function AdminUsers() {
                     el correo propio (SMTP) en Supabase → Authentication → Emails.
                   </Text>
                 ) : null}
+                {/* Mínimo de 8 caracteres para las contraseñas nuevas: cuántas veces se pidió una más larga y dónde. */}
+                <Text nativeID="admin-contrasenas-cortas" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  Contraseñas de al menos {CONTRASENA_MINIMA} caracteres (30 días): se pidió una más larga {usoContrasena.cortas}{" "}
+                  {usoContrasena.cortas === 1 ? "vez" : "veces"}
+                  {usoContrasena.cortas
+                    ? ` (al crear la cuenta ${usoContrasena.cortasRegistro} · al recuperarla ${usoContrasena.cortasRecuperar} · en Mi perfil ${usoContrasena.cortasPerfil})`
+                    : ""}
+                </Text>
               </View>
             ) : null}
 

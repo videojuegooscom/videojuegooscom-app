@@ -53,7 +53,7 @@ import {
 } from "react-native";
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../lib/supabase";
+import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 
 const COLORS = {
@@ -252,15 +252,24 @@ export default function ResetPasswordScreen() {
     };
   }, [enlace]);
 
-  const canSubmit = pass.trim().length >= 6 && pass.trim() === pass2.trim() && phase === "ready";
+  const canSubmit = pass.trim().length >= CONTRASENA_MINIMA && pass.trim() === pass2.trim() && phase === "ready";
+
+  // Contraseña nueva de menos de 8: se cuenta una vez por visita al salir del campo (Administración → Usuarios), nunca la
+  // contraseña.
+  const cortaMedida = useRef(false);
+  const medirContrasenaCorta = useCallback(() => {
+    if (cortaMedida.current || !avisoContrasenaCorta(pass)) return;
+    cortaMedida.current = true;
+    void trackEvent("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "recuperar" } });
+  }, [pass]);
 
   const submit = useCallback(async () => {
     setMsg(null);
 
     const p = pass.trim();
 
-    if (p.length < 6) {
-      setMsg("La contraseña debe tener al menos 6 caracteres.");
+    if (p.length < CONTRASENA_MINIMA) {
+      setMsg(`La contraseña debe tener al menos ${CONTRASENA_MINIMA} caracteres.`);
       return;
     }
 
@@ -381,7 +390,7 @@ export default function ResetPasswordScreen() {
               {(phase === "ready" || phase === "submitting") && (
                 <>
                   <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                    Escribe tu contraseña nueva. Mínimo 6 caracteres.
+                    Escribe tu contraseña nueva. Mínimo {CONTRASENA_MINIMA} caracteres.
                   </Text>
 
                   {msg ? <InfoMessage nativeID="contrasena-error" tone="error" text={msg} /> : null}
@@ -394,14 +403,21 @@ export default function ResetPasswordScreen() {
                         setPass(t);
                         setMsg(null);
                       }}
-                      placeholder="Mínimo 6 caracteres"
+                      placeholder={`Mínimo ${CONTRASENA_MINIMA} caracteres`}
                       placeholderTextColor="rgba(11,33,56,0.40)"
                       secureTextEntry={!verContrasena}
                       editable={phase === "ready"}
                       textContentType="newPassword"
                       autoComplete="password-new"
+                      nativeID="contrasena-nueva"
+                      onBlur={medirContrasenaCorta}
                       style={campoStyle}
                     />
+                    {avisoContrasenaCorta(pass) ? (
+                      <Text nativeID="contrasena-nueva-aviso" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+                        {avisoContrasenaCorta(pass)}
+                      </Text>
+                    ) : null}
                   </View>
 
                   <View style={{ gap: 8 }}>

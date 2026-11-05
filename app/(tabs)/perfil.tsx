@@ -89,7 +89,7 @@ import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
 import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
-import { mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
+import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
 const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
@@ -263,6 +263,8 @@ function Input({
   textContentType,
   autoComplete,
   onSubmitEditing,
+  onBlur,
+  nativeID,
 }: {
   value: string;
   onChangeText: (text: string) => void;
@@ -276,6 +278,8 @@ function Input({
   textContentType?: any;
   autoComplete?: any;
   onSubmitEditing?: () => void;
+  onBlur?: () => void;
+  nativeID?: string;
 }) {
   const isPasswordField = !!secureTextEntry;
   const [revealed, setRevealed] = useState(false);
@@ -296,6 +300,8 @@ function Input({
         textContentType={textContentType}
         autoComplete={autoComplete}
         onSubmitEditing={onSubmitEditing}
+        onBlur={onBlur}
+        nativeID={nativeID}
         style={{
           borderWidth: 1,
           borderColor: COLORS.border,
@@ -774,10 +780,19 @@ export default function PerfilScreen() {
       registerUsername.trim().length >= 3 &&
       registerCountry.trim().length >= 2 &&
       isValidEmail(email) &&
-      pass.trim().length >= 6 &&
+      pass.trim().length >= CONTRASENA_MINIMA &&
       state === "idle"
     );
   }, [registerCountry, registerName, registerUsername, email, pass, state]);
+
+  // Contraseña nueva de menos de 8 al crear la cuenta: se cuenta una vez por visita al salir del campo (Administración →
+  // Usuarios, «Contraseñas de al menos 8»), nunca la contraseña.
+  const cortaMedida = useRef(false);
+  const medirContrasenaCorta = useCallback(() => {
+    if (cortaMedida.current || !avisoContrasenaCorta(pass)) return;
+    cortaMedida.current = true;
+    void trackEvent("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "registro" } });
+  }, [pass]);
 
   const signIn = useCallback(async () => {
     const e = normalizeEmail(email);
@@ -795,6 +810,7 @@ export default function PerfilScreen() {
       return;
     }
 
+    // Para entrar vale la de 6 de siempre: las cuentas antiguas pueden tener una de 6 o 7 (el mínimo de 8 es para las nuevas).
     if (p.length < 6) {
       setMsg("La contraseña debe tener al menos 6 caracteres.");
       return;
@@ -866,8 +882,8 @@ export default function PerfilScreen() {
       return;
     }
 
-    if (p.length < 6) {
-      setMsg("La contraseña debe tener al menos 6 caracteres.");
+    if (p.length < CONTRASENA_MINIMA) {
+      setMsg(`La contraseña debe tener al menos ${CONTRASENA_MINIMA} caracteres.`);
       return;
     }
 
@@ -1300,16 +1316,25 @@ export default function PerfilScreen() {
                                 setPass(text);
                                 clearMessages();
                               }}
-                              placeholder="Mínimo 6 caracteres"
+                              placeholder={`Mínimo ${CONTRASENA_MINIMA} caracteres`}
                               secureTextEntry
                               returnKeyType="go"
                               editable={!isChecking && !isSigningOut && !isResettingPassword}
                               textContentType="newPassword"
                               autoComplete="password-new"
+                              nativeID="registro-contrasena"
+                              onBlur={medirContrasenaCorta}
                               onSubmitEditing={() => {
                                 if (canSubmitRegister) signUp();
+                                else medirContrasenaCorta();
                               }}
                             />
+                            {/* Mientras escribe una contraseña corta: cuántos caracteres le faltan (el botón se activa al llegar). */}
+                            {avisoContrasenaCorta(pass) ? (
+                              <Text nativeID="registro-contrasena-aviso" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+                                {avisoContrasenaCorta(pass)}
+                              </Text>
+                            ) : null}
                           </View>
                         </View>
                       </RevealPanel>

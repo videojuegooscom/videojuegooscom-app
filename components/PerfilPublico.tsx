@@ -38,7 +38,7 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextIn
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { mensajeAuthEnEspanol, motivoErrorAuth, pedirEnlaceContrasena, supabase } from "../lib/supabase";
+import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, motivoErrorAuth, pedirEnlaceContrasena, supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
 import CargaMarca from "./marca/CargaMarca";
@@ -1205,6 +1205,8 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
   const [actual, setActual] = useState("");
   const [nueva, setNueva] = useState("");
   const [repite, setRepite] = useState("");
+  // ¿Ya se contó en esta visita un intento con una contraseña nueva demasiado corta?
+  const cortaMedida = useRef(false);
   const [ver, setVer] = useState(false);
   const marcador = "rgba(11,33,56,0.40)";
   const sinOutline = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
@@ -1289,7 +1291,14 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
     const a = actual.trim();
     const n = nueva.trim();
     if (!a) return setAviso({ tipo: "error", texto: "Escribe tu contraseña actual." });
-    if (n.length < 6) return setAviso({ tipo: "error", texto: "La contraseña nueva debe tener al menos 6 caracteres." });
+    if (n.length < CONTRASENA_MINIMA) {
+      // Se cuenta una vez por visita (Administración → Usuarios), nunca la contraseña.
+      if (!cortaMedida.current) {
+        cortaMedida.current = true;
+        void trackEvent("contrasena_corta", "Contraseña: más corta del mínimo", { metadata: { motivo: "perfil" } });
+      }
+      return setAviso({ tipo: "error", texto: `La contraseña nueva debe tener al menos ${CONTRASENA_MINIMA} caracteres.` });
+    }
     if (n !== repite.trim()) return setAviso({ tipo: "error", texto: "Las dos contraseñas nuevas no coinciden." });
     if (n === a) return setAviso({ tipo: "error", texto: "La contraseña nueva tiene que ser distinta de la actual." });
     setEnviando(true);
@@ -1346,7 +1355,8 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
     tipo: "correo" | "clave-actual" | "clave-nueva"
   ) => (
     <View style={{ flexDirection: "row" }}>
-      <CajaPerfil valido={tipo === "correo" ? esCorreoValido(valor) : valor.trim().length >= 6}>
+      {/* La actual puede ser de 6 o 7 (cuentas antiguas); la nueva, de CONTRASENA_MINIMA o más. */}
+      <CajaPerfil valido={tipo === "correo" ? esCorreoValido(valor) : valor.trim().length >= (tipo === "clave-nueva" ? CONTRASENA_MINIMA : 6)}>
         <TextInput
           nativeID={id}
           value={valor}
@@ -1424,7 +1434,12 @@ function SeguridadCuenta({ correo, retorno }: { correo: string; retorno: Retorno
       {abierta === "contrasena" ? (
         <View style={{ gap: 10 }}>
           {campo("perfil-clave-actual", actual, setActual, "Contraseña actual", "Contraseña actual", "clave-actual")}
-          {campo("perfil-clave-nueva", nueva, setNueva, "Contraseña nueva (mínimo 6)", "Contraseña nueva", "clave-nueva")}
+          {campo("perfil-clave-nueva", nueva, setNueva, `Contraseña nueva (mínimo ${CONTRASENA_MINIMA})`, "Contraseña nueva", "clave-nueva")}
+          {avisoContrasenaCorta(nueva) ? (
+            <Text nativeID="perfil-clave-nueva-aviso" style={{ color: P.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+              {avisoContrasenaCorta(nueva)}
+            </Text>
+          ) : null}
           {campo("perfil-clave-repite", repite, setRepite, "Repite la contraseña nueva", "Repite la contraseña nueva", "clave-nueva")}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
             <Pressable
