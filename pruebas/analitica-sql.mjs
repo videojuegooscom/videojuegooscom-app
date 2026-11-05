@@ -228,6 +228,41 @@ try {
     ok((await total(b)) === 503 && (await cortadosHoy(b)) === 1, "y el tope vuelve a actuar (hay más de 300 filas en el último minuto)");
   }
 
+  // 7b) Encima de la versión de topes FIJOS, la que se pegó en producción el 2026-11-05 (antes de reescribirla): la
+  //     nueva la sustituye sin duplicar nada, cuenta lo que ya había y deja de dar errores.
+  {
+    const ANTIGUA = `
+      do $$ begin
+        alter table public.analytics_events add constraint analytics_events_session_id_largo check (length(session_id) <= 100) not valid;
+        alter table public.analytics_events add constraint analytics_events_event_name_largo check (length(event_name) <= 60) not valid;
+        alter table public.analytics_events add constraint analytics_events_step_label_largo check (length(step_label) <= 300) not valid;
+        alter table public.analytics_events add constraint analytics_events_path_largo check (path is null or length(path) <= 300) not valid;
+        alter table public.analytics_events add constraint analytics_events_metadata_largo check (length(metadata::text) <= 4000) not valid;
+      end $$;
+      create or replace function public.analytics_events_tope() returns trigger language plpgsql security definer set search_path = public, pg_temp as $f$
+      begin
+        if (select count(*) from public.analytics_events where created_at > now() - interval '1 minute') >= 120 then
+          raise exception 'analitica: demasiados eventos por minuto' using errcode = 'P0001';
+        end if;
+        if (select count(*) from public.analytics_events where created_at > now() - interval '24 hours') >= 20000 then
+          raise exception 'analitica: demasiados eventos por día' using errcode = 'P0001';
+        end if;
+        return new;
+      end $f$;
+      revoke all on function public.analytics_events_tope() from public, anon, authenticated;
+      create trigger analytics_events_tope before insert on public.analytics_events for each row execute function public.analytics_events_tope();`;
+    const b = await nueva({ migracion: null, antes: ANTIGUA });
+    await como(b, "anon", filas(120));
+    ok(/demasiados eventos por minuto/.test(await error(como(b, "anon", filas(1)))), "(antes) con la versión fija, el evento 121 del minuto da error");
+    await db.aplicar(b, [MIG]);
+    ok((await n(b, "select count(*) from pg_constraint where conrelid = 'public.analytics_events'::regclass and conname like 'analytics_events_%_largo'")) === 5 && (await n(b, "select count(*) from pg_trigger where tgrelid = 'public.analytics_events'::regclass and tgname = 'analytics_events_tope'")) === 1, "encima de la versión fija: sin duplicar restricciones ni el disparador (5 y 1)");
+    ok((await eventosHoy(b)) === 120, `cuenta lo que ya había (${await eventosHoy(b)})`);
+    ok((await error(como(b, "anon", filas(150)))) === "" && (await total(b)) === 270, `y ya no da errores: entran 150 más (mínimo 300 por minuto) (${await total(b)})`);
+    await como(b, "anon", filas(40));
+    ok((await total(b)) === 300 && (await cortadosHoy(b)) === 10, `y lo que pasa de 300 se corta sin error y se cuenta (${await total(b)}, cortadas ${await cortadosHoy(b)})`);
+    ok((await como(b, "postgres", "select tgenabled from pg_trigger where tgname = 'analytics_events_tope'")) === "O", "el disparador sigue encendido");
+  }
+
   // 8) PRUEBA DE LAS PRUEBAS: sin el tope por sesión, la comprobación lo detecta.
   {
     const original = readFileSync(MIG, "utf8");
