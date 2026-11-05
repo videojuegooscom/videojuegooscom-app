@@ -153,6 +153,22 @@ export function motivoErrorAuth(error: unknown): MotivoErrorAuth {
   return "otro";
 }
 
+/**
+ * Mínimo de caracteres de una contraseña NUEVA: al crear la cuenta, al recuperarla y al cambiarla en Mi perfil (dueño,
+ * 2026-11-05: «sube la contraseña a 8»). Tiene que coincidir con Supabase → Authentication → Sign In / Providers → Email
+ * → «Minimum password length» (lo cambia el dueño). Para ENTRAR no se exige: las cuentas que ya tienen una de 6 o 7
+ * siguen entrando con ella.
+ */
+export const CONTRASENA_MINIMA = 8;
+
+/** Aviso mientras se escribe una contraseña nueva demasiado corta («Mínimo 8 caracteres: te faltan 3»); null si vale o está vacía. */
+export function avisoContrasenaCorta(clave: string): string | null {
+  const n = clave.trim().length;
+  if (n === 0 || n >= CONTRASENA_MINIMA) return null;
+  const faltan = CONTRASENA_MINIMA - n;
+  return `Mínimo ${CONTRASENA_MINIMA} caracteres: ${faltan === 1 ? "te falta 1" : `te faltan ${faltan}`}.`;
+}
+
 export function mensajeAuthEnEspanol(error: unknown, generico = "No se ha podido completar. Inténtalo de nuevo en unos minutos."): string {
   const { codigo, texto, status, nombre } = piezasError(error);
   const segundos = /after (\d+) seconds?/i.exec(texto)?.[1];
