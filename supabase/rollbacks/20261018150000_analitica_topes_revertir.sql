@@ -8,7 +8,8 @@
 --      No se borra (así se puede volver a activar con «alter table … enable trigger analytics_events_tope»).
 -- Lo que NO toca: las restricciones de longitud (analytics_events_*_largo) se quedan, porque con datos
 -- normales no molestan y quitarlas es un «drop constraint» que debe autorizar el dueño aparte. Tampoco se
--- borra la función ni ninguna fila.
+-- borran las funciones (analytics_events_tope, analitica_topes), la tabla analitica_ritmo ni ninguna fila:
+-- con el disparador desactivado, analitica_ritmo deja de sumar y nadie más la usa.
 -- ============================================================================
 
 alter table public.analytics_events disable trigger analytics_events_tope;
