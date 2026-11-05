@@ -90,6 +90,8 @@ const CATALOGO = [
   { nombre: "escaparate-fotos", grupo: "api", archivo: P("escaparate-fotos") },
   // Puente de vuelta a VeoAura: los datos del cliente solo en pedidos entregados (y su «prueba de las pruebas»).
   { nombre: "escaparate-retorno", grupo: "api", archivo: P("escaparate-retorno") },
+  // Pago con tarjeta (Stripe y Supabase simulados): importe de la base de datos, dueño del pedido, firma del aviso.
+  { nombre: "pago-api", grupo: "api", archivo: P("pago-api") },
   // Ninguna prueba de navegador descarga fotos reales de Supabase (cuota de salida del plan): se comprueba aquí.
   { nombre: "sin-fotos-reales", grupo: "api", archivo: P("sin-fotos-reales") },
   { nombre: "lecciones-sql", grupo: "sql", archivo: P("lecciones-sql"), args: (c) => [c.servidor] },

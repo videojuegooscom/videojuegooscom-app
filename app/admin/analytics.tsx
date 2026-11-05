@@ -21,8 +21,10 @@
  *   verano). Ojo: la agrupación por día de "Crecimiento de visitantes" la
  *   hace la función SQL analytics_daily_visitors en la zona del servidor.
  * - "Conversiones por día": lee directamente analytics_events (RLS exige
- *   is_admin()) los eventos add_to_cart, buy_now, begin_checkout y
- *   order_whatsapp del rango y los cuenta por día de Madrid en el cliente.
+ *   is_admin()) los eventos add_to_cart, buy_now, begin_checkout,
+ *   order_whatsapp, pago_tarjeta (se abre la página de pago de Stripe) y
+ *   pago_tarjeta_ok (pago confirmado) del rango y los cuenta por día de
+ *   Madrid en el cliente.
  * - "Recorrido principal": agrupa analytics_funnel por prefijo de
  *   step_label ("Categoría ..." → Categoría, "Producto ..." → Producto) para
  *   armar un embudo de 4 pasos (Inicio, Categoría, Producto, Reseñas), con el
@@ -213,13 +215,16 @@ const CONVERSION_EVENTS = [
   { key: "buy_now", label: "Comprar ya" },
   { key: "begin_checkout", label: "Inicio de pago" },
   { key: "order_whatsapp", label: "Pedido por WhatsApp" },
+  // Pago con tarjeta (Stripe, app/checkout.tsx): se abre la página de pago y el pago confirmado por Stripe.
+  { key: "pago_tarjeta", label: "Pago con tarjeta" },
+  { key: "pago_tarjeta_ok", label: "Pagado con tarjeta" },
 ] as const;
 
 type ConversionKey = (typeof CONVERSION_EVENTS)[number]["key"];
 type ConversionDay = { day: string } & Record<ConversionKey, number>;
 
 function emptyConversionCounts(): Record<ConversionKey, number> {
-  return { add_to_cart: 0, buy_now: 0, begin_checkout: 0, order_whatsapp: 0 };
+  return { add_to_cart: 0, buy_now: 0, begin_checkout: 0, order_whatsapp: 0, pago_tarjeta: 0, pago_tarjeta_ok: 0 };
 }
 
 function fmtDayLabel(dayStr: string) {

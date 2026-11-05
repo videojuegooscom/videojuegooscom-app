@@ -66,6 +66,10 @@
  *    explica una vez sin tocar lo demás; los avisos que había siguen igual, entra «pedido_pagado» y nada fuera de la
  *    lista, sin tocar permisos (con sus «pruebas de las pruebas»: sin la migración no entra; sin la condición, la frase
  *    se repite).
+ *  - Pago con tarjeta (20261105120000_pagos_tarjeta.sql y 20261105121000_politicas_pago_tarjeta.sql): 7 columnas sin
+ *    tocar permisos ni los pedidos que había; no entran valores raros; el servidor apunta el pago sin cambiar el total;
+ *    el cliente ve el de su pedido y no puede apuntárselo; Stripe en la privacidad y los términos una sola vez (con sus
+ *    «pruebas de las pruebas»: sin la condición la frase se repite; sin las comprobaciones entra un estado inventado).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -1612,6 +1616,129 @@ try {
     const sinEnvio = (await c38.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Ana', 'ana@example.com', '600999888', 'envio', '28001', 100) returning envio_eur::text as en, total_eur::text as t")).rows[0];
     ok(sinEnvio.en !== "6.90" && Number(sinEnvio.t) === 100, `(control) sin el disparador el pedido no lleva su envío: la prueba SÍ lo detecta (${JSON.stringify(sinEnvio)})`);
     await c38.end();
+  }
+
+  // Pago con tarjeta (20261105120000_pagos_tarjeta.sql), sobre los pedidos como en producción (con sus tarifas de envío), y
+  // Stripe en la privacidad y en los términos (20261105121000_politicas_pago_tarjeta.sql). Las columnas las escribe solo
+  // el servidor (api/pago.ts, con la clave del servidor, que salta las reglas: aquí, el usuario postgres).
+  {
+    const TARIFAS_P = readFileSync("supabase/migrations/20261104210000_tarifas_envio.sql", "utf8");
+    const PAGOS = readFileSync("supabase/migrations/20261105120000_pagos_tarjeta.sql", "utf8");
+    const POL_PAGO = readFileSync("supabase/migrations/20261105121000_politicas_pago_tarjeta.sql", "utf8");
+    const TITULOS_P = ["Responsable del tratamiento", "Qué datos tratamos", "Con quién compartimos tus datos", "Tus derechos"];
+    const TERMINOS_P = ["Quiénes somos", "Precios y pago", "Disponibilidad"];
+    const seccionesDe = (titulos) => JSON.stringify(titulos.map((heading) => ({ heading, body: `Texto de hoy de «${heading}».` }))).replace(/'/g, "''");
+    const ESQUEMA_P = `
+      create table public.pedidos (
+        id uuid primary key default gen_random_uuid(), numero bigint generated always as identity unique, created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(), user_id uuid references auth.users (id) on delete set null,
+        estado text not null default 'pendiente', entrega text not null default 'envio', nombre text not null, email text not null,
+        telefono text not null, direccion text, codigo_postal text, ciudad text, notas text, total_eur numeric not null default 0, nota_admin text);
+      alter table public.pedidos enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      insert into public.pedidos (user_id, nombre, email, telefono, entrega, codigo_postal, total_eur) values
+        ('${U1}', 'Luis', 'luis@example.com', '600111222', 'envio', '28001', 100),
+        (null, 'Marta', 'marta@example.com', '600333444', 'recogida', null, 55.5);
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values
+        ('privacidad', 'Política de privacidad', '${seccionesDe(TITULOS_P)}'::jsonb),
+        ('terminos', 'Términos y condiciones', '${seccionesDe(TERMINOS_P)}'::jsonb),
+        ('envios', 'Política de envíos', '[]'::jsonb);`;
+    const c39 = await nuevaBase("vz_aislada_pagos_tarjeta", ESQUEMA_P + TARIFAS_P + PAGOS + POL_PAGO);
+    let repetidaP = true;
+    try {
+      await c39.query(PAGOS + POL_PAGO);
+    } catch (e) {
+      repetidaP = false;
+      console.log(String(e.message));
+    }
+    const columnasP = (await c39.query("select column_name, data_type from information_schema.columns where table_schema = 'public' and table_name = 'pedidos' and (column_name like 'pago%' or column_name like 'pagado%') order by column_name")).rows;
+    ok(
+      repetidaP && columnasP.map((x) => x.column_name).join(",") === "pagado_en,pagado_eur,pago_estado,pago_iniciado_en,pago_modo,pago_referencia,pago_sesion",
+      `Pago: las 7 columnas y se puede aplicar dos veces (${columnasP.map((x) => `${x.column_name} ${x.data_type}`).join(", ")})`
+    );
+    const comprobacionesP = Number((await c39.query("select count(*) as n from pg_constraint where conrelid = 'public.pedidos'::regclass and contype = 'c' and conname like 'pedidos_pag%'")).rows[0].n);
+    ok(comprobacionesP === 6, `Pago: 6 comprobaciones, sin duplicar (${comprobacionesP})`);
+    const antiguosP = (await c39.query("select pago_estado, pagado_eur, total_eur::text as t from public.pedidos order by numero")).rows;
+    ok(antiguosP.every((x) => x.pago_estado === null && x.pagado_eur === null) && Number(antiguosP[0].t) === 100, `Pago: los pedidos que había quedan igual, sin pago (${JSON.stringify(antiguosP)})`);
+    const politicasPed = (await c39.query("select policyname from pg_policies where tablename = 'pedidos' order by 1")).rows.map((x) => x.policyname);
+    ok(politicasPed.join(",") === "pedidos_admin_select,pedidos_admin_update,pedidos_cliente_select", `Pago: no toca los permisos de pedidos (${politicasPed.join(", ")})`);
+
+    // Valores raros: no entran.
+    const raros = [];
+    for (const cambio of ["pago_estado = 'regalado'", "pago_modo = 'gratis'", "pagado_eur = -1", "pago_estado = 'pagado', pago_modo = 'real'", `pago_sesion = '${"x".repeat(300)}'`]) {
+      try {
+        await c39.query(`update public.pedidos set ${cambio} where numero = 1`);
+        raros.push(`${cambio.slice(0, 30)}: entra`);
+      } catch (e) {
+        raros.push(e.code);
+      }
+    }
+    ok(raros.every((x) => x === "23514"), `Pago: estado, modo, importe negativo, «pagado» sin importe ni fecha o una sesión enorme no entran (${raros.join(", ")})`);
+
+    // El servidor apunta el pago: el total y el envío no cambian (el disparador del envío no recalcula por esto).
+    const antesPago = (await c39.query("select envio_eur::text as en, total_eur::text as t from public.pedidos where numero = 1")).rows[0];
+    const pagado = (await c39.query("update public.pedidos set pago_estado = 'pagado', pago_modo = 'prueba', pago_sesion = 'cs_test_abc', pago_referencia = 'pi_abc', pagado_eur = 106.90, pagado_en = now() where numero = 1 returning pago_estado, pagado_eur::text as eur, envio_eur::text as en, total_eur::text as t")).rows[0];
+    ok(pagado.pago_estado === "pagado" && pagado.eur === "106.90" && Number(pagado.en) === Number(antesPago.en) && Number(pagado.t) === Number(antesPago.t), `Pago: el servidor apunta el pago y el total y el envío no cambian (${JSON.stringify(antesPago)} → ${JSON.stringify(pagado)})`);
+
+    // Quién ve y quién cambia.
+    const clienteVe = await como(c39, "authenticated", U1, "select numero, pago_estado, pagado_eur::text as eur from public.pedidos");
+    ok(clienteVe.ok && clienteVe.filas.length === 1 && clienteVe.filas[0].pago_estado === "pagado", `Pago: el cliente ve el pago de SU pedido y solo el suyo (${JSON.stringify(clienteVe.filas ?? clienteVe.mensaje)})`);
+    const clienteCambiaP = await como(c39, "authenticated", U1, "update public.pedidos set pago_estado = 'pagado', pago_modo = 'real', pagado_eur = 1, pagado_en = now() where numero = 2", { confirmar: true });
+    const clienteSuyo = await como(c39, "authenticated", U1, "update public.pedidos set pagado_eur = 0 where numero = 1", { confirmar: true });
+    const sigue = (await c39.query("select numero, pago_estado, pagado_eur::text as eur from public.pedidos order by numero")).rows;
+    ok(clienteCambiaP.ok && clienteCambiaP.cuantas === 0 && clienteSuyo.ok && clienteSuyo.cuantas === 0 && sigue[0].eur === "106.90" && sigue[1].pago_estado === null, `Pago: un cliente no puede apuntarse un pago, ni en su propio pedido (${clienteCambiaP.cuantas ?? clienteCambiaP.codigo}, ${clienteSuyo.cuantas ?? clienteSuyo.codigo})`);
+    const anonVe = await como(c39, "anon", null, "select numero from public.pedidos");
+    ok(anonVe.ok && anonVe.filas.length === 0, `Pago: un visitante no ve ningún pedido (${anonVe.filas?.length ?? anonVe.codigo})`);
+
+    // Privacidad y términos: Stripe una sola vez (aunque se aplique dos veces) y el resto igual.
+    const privP = (await c39.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const termP = (await c39.query("select sections from public.policy_pages where slug = 'terminos'")).rows[0].sections;
+    const conQuienP = privP.find((s) => s.heading === "Con quién compartimos tus datos")?.body ?? "";
+    const preciosP = termP.find((s) => s.heading === "Precios y pago")?.body ?? "";
+    ok(
+      conQuienP.startsWith("Texto de hoy de «Con quién compartimos tus datos».") &&
+        (conQuienP.match(/Stripe Payments Europe/g) ?? []).length === 1 &&
+        /la tienda nunca ve ni guarda los datos de tu tarjeta/.test(conQuienP) &&
+        /solo le pasamos el número de tu pedido y su importe/.test(conQuienP) &&
+        privP.filter((s) => s.heading !== "Con quién compartimos tus datos").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      "Pago: la privacidad nombra a Stripe una sola vez (qué recibe y que la tienda no ve la tarjeta) y el resto queda igual"
+    );
+    ok(
+      preciosP.startsWith("Texto de hoy de «Precios y pago».") &&
+        (preciosP.match(/Stripe/g) ?? []).length === 1 &&
+        /confirmar el pedido sin pagar/.test(preciosP) &&
+        termP.filter((s) => s.heading !== "Precios y pago").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      "Pago: los términos explican el pago con tarjeta una sola vez y el resto queda igual"
+    );
+    ok(Number((await c39.query("select count(*) as n from public.policy_pages where slug = 'envios' and sections = '[]'::jsonb")).rows[0].n) === 1, "Pago: las otras políticas no se tocan");
+    await c39.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la condición «ya nombra a Stripe», la frase se repetiría; sin las comprobaciones, entraría
+    // un estado inventado.
+    const sinGuardaP = POL_PAGO.replace(/\n\s*and not exists \(select 1 from jsonb_array_elements\(p\.sections\) as s \(sec\) where s\.sec ->> 'body' like '%Stripe%'\);/g, ";");
+    ok(sinGuardaP !== POL_PAGO, "(control) se ha podido quitar la condición de las políticas en la copia de prueba");
+    const sinComprobaciones = PAGOS.replace(/\ndo \$\$[\s\S]*?\$\$;\n?$/, "\n");
+    ok(sinComprobaciones !== PAGOS, "(control) se han podido quitar las comprobaciones de las columnas en la copia de prueba");
+    const c40 = await nuevaBase("vz_aislada_pagos_sin_guardas", ESQUEMA_P + TARIFAS_P + sinComprobaciones);
+    await c40.query(sinGuardaP);
+    await c40.query(sinGuardaP);
+    const repetidaStripe = ((await c40.query("select sections::text as t from public.policy_pages where slug = 'privacidad'")).rows[0].t.match(/Stripe Payments Europe/g) ?? []).length;
+    ok(repetidaStripe === 2, `(control) sin la condición la frase de Stripe se repite (${repetidaStripe} veces): la prueba SÍ lo detecta`);
+    let entraRaro = false;
+    try {
+      await c40.query("update public.pedidos set pago_estado = 'regalado' where numero = 1");
+      entraRaro = true;
+    } catch {
+      entraRaro = false;
+    }
+    ok(entraRaro, "(control) sin las comprobaciones entra un estado inventado: la prueba SÍ lo detecta");
+    await c40.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
