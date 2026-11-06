@@ -1494,7 +1494,32 @@ type PedidoSeg = {
   total_eur: number | null;
   items: string[];
   codigo_seguimiento?: string | null;
+  // Pago con tarjeta (Stripe; migraciones 20261105120000 y 20261106100000): solo los escribe el servidor.
+  pago_estado?: string | null;
+  pago_modo?: string | null;
+  pagado_eur?: number | string | null;
+  pagado_en?: string | null;
+  devuelto_eur?: number | string | null;
+  devuelto_en?: string | null;
 };
+
+// «Pagado con tarjeta · 240,00€ · 6 nov 2026» debajo del total (y, si se devolvió, «Devuelto …»): solo texto con su
+// icono, sin burbuja, como el resto de «Mis seguimientos».
+function PagoDelPedido({ p }: { p: PedidoSeg }) {
+  if (p.pago_estado !== "pagado") return null;
+  const devuelto = !!p.devuelto_en;
+  return (
+    <View nativeID={`seguimiento-pago-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+      <Ionicons name={devuelto ? "return-down-back-outline" : "card"} size={16} color={devuelto ? SEG.muted : SEG.ok} />
+      <Text style={{ color: devuelto ? SEG.muted : SEG.ok, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>
+        {devuelto
+          ? `Pago devuelto · ${segEuros(Number(p.devuelto_eur))} · ${segFecha(p.devuelto_en ?? null)}`
+          : `Pagado con tarjeta · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
+        {p.pago_modo === "prueba" ? " (de prueba)" : ""}
+      </Text>
+    </View>
+  );
+}
 
 type ReparacionSeg = {
   id: string;
@@ -1899,7 +1924,11 @@ function SeguimientosSeccion() {
       // Pedidos (la tabla puede no existir aún; el número de seguimiento, tampoco)
       const pedidosCon = (columnas: string) =>
         supabase.from("pedidos").select(columnas).eq("user_id", uid).order("created_at", { ascending: false }).limit(50);
-      let pedRes: { data: any[] | null; error: any } = await pedidosCon("id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento");
+      // Con el pago con tarjeta (si sus columnas aún no existen, como antes).
+      let pedRes: { data: any[] | null; error: any } = await pedidosCon(
+        "id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento,pago_estado,pago_modo,pagado_eur,pagado_en"
+      );
+      if (pedRes.error && faltaEsquema(pedRes.error)) pedRes = await pedidosCon("id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento");
       let numeros = !pedRes.error;
       if (pedRes.error && faltaEsquema(pedRes.error)) {
         pedRes = await pedidosCon("id,numero,created_at,estado,entrega,total_eur");
@@ -1921,7 +1950,14 @@ function SeguimientosSeccion() {
             (porPedido[it.pedido_id] ??= []).push(it.titulo);
           }
         }
-        setPedidos(filas.map((p) => ({ ...p, items: porPedido[p.id] ?? [] })));
+        // Las devoluciones (migración 20261106100000) solo se piden si hay algún pedido pagado con tarjeta.
+        const pagados = filas.filter((p) => p.pago_estado === "pagado").map((p) => p.id);
+        const devueltos: Record<string, { devuelto_eur: number | null; devuelto_en: string | null }> = {};
+        if (pagados.length) {
+          const dev = await supabase.from("pedidos").select("id,devuelto_eur,devuelto_en").in("id", pagados);
+          for (const d of (dev.error ? [] : dev.data ?? []) as { id: string; devuelto_eur: number | null; devuelto_en: string | null }[]) devueltos[d.id] = d;
+        }
+        setPedidos(filas.map((p) => ({ ...p, ...devueltos[p.id], items: porPedido[p.id] ?? [] })));
         for (const p of filas) vistosPedidos.push({ id: p.id, estado: String(p.estado ?? "pendiente") });
       }
 
@@ -2020,6 +2056,7 @@ function SeguimientosSeccion() {
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
+                <PagoDelPedido p={p} />
                 <NumeroSeguimiento codigo={p.codigo_seguimiento} />
                 {p.items.length ? (
                   <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 19, maxWidth: 460 }}>
