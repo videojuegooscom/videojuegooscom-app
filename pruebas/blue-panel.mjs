@@ -584,6 +584,28 @@ try {
     await c.close();
   }
 
+  // S0b) Pago devuelto (dueño, 2026-11-06): una devolución es una novedad aunque la etapa no cambie; cancelado y devuelto
+  //      lo dice junto; lo ya visto no se repite.
+  {
+    const pedidosDev = [
+      { id: "p5", numero: 21, estado: "cancelado", entrega: "envio", devuelto_en: "2026-11-06T08:00:00Z" }, // visto «cancelado»
+      { id: "p6", numero: 22, estado: "confirmado", entrega: "envio", devuelto_en: "2026-11-06T08:00:00Z" }, // visto «confirmado»
+      { id: "p7", numero: 23, estado: "cancelado", entrega: "envio", devuelto_en: "2026-11-05T08:00:00Z" }, // ya visto devuelto
+      { id: "p8", numero: 24, estado: "enviado", entrega: "envio", devuelto_en: null }, // sin cambios
+    ];
+    const c = await contextoSeg({ pedidos: pedidosDev, reparaciones: [], vistos: { p: { p5: "cancelado", p6: "confirmado", p7: "cancelado|devuelto", p8: "enviado" }, r: {} } });
+    const q = await abrirSeg(c);
+    await q.waitForTimeout(3000);
+    await abrirPanelAvisos(q);
+    const t = await q.evaluate(() => document.body.innerText);
+    ok(/Tu pedido nº 21 se ha cancelado y te hemos devuelto el pago/.test(t), "Seguimientos S0b: «Tu pedido nº 21 se ha cancelado y te hemos devuelto el pago»");
+    ok(/Te hemos devuelto el pago de tu pedido nº 22/.test(t), "Seguimientos S0b: «Te hemos devuelto el pago de tu pedido nº 22» aunque la etapa no cambie");
+    ok(!/nº 23|nº 24/.test(t), "Seguimientos S0b: lo ya visto o sin cambios no se repite");
+    ok(q.errores.length === 0, `Seguimientos S0b: sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
+    await capturar(q, "09b-aviso-devuelto");
+    await c.close();
+  }
+
   // S1) La primera vez en un dispositivo NO se avisa de lo antiguo: se apunta lo que hay.
   {
     const c = await contextoSeg({ pedidos: PEDIDOS_SEG, reparaciones: REPARACIONES_SEG, vistos: null });

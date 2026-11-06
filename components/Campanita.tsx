@@ -241,9 +241,21 @@ function textoOlvidados(o: { pedidos: number; reparaciones: number }): string {
 // Quien escucha cuando el cliente ya ha visto sus seguimientos (Perfil), para quitar el aviso sin volver a pedir nada.
 const oyentesSeguimientos = new Set<() => void>();
 
+// La «etapa» de un pedido lleva «|devuelto» si se le devolvió el pago con tarjeta (dueño, 2026-11-06): así una devolución
+// también es una novedad, aunque la etapa no cambie.
+export function firmaPedidoSeg(estado: string | null | undefined, devueltoEn: string | null | undefined): string {
+  return `${estado ?? "pendiente"}${devueltoEn ? "|devuelto" : ""}`;
+}
+
 function avisoPedido(p: PedidoSegDato): string | null {
   const n = p.numero ?? "";
-  switch (p.estado) {
+  const [estado, devuelto] = p.estado.split("|");
+  if (devuelto) {
+    return estado === "cancelado"
+      ? `Tu pedido nº ${n} se ha cancelado y te hemos devuelto el pago`
+      : `Te hemos devuelto el pago de tu pedido nº ${n}`;
+  }
+  switch (estado) {
     case "confirmado":
       return `Tu pedido nº ${n} está confirmado`;
     case "preparado":
@@ -1321,24 +1333,30 @@ export default function Campanita() {
         setSegAvisos([]);
         return;
       }
-      const [ped, rep] = await Promise.all([
-        supabase.from("pedidos").select("id,numero,estado,entrega").eq("user_id", uid).limit(50),
+      // Con la devolución del pago con tarjeta (migración 20261106100000); sin la columna, como antes.
+      const pedidosCon = (columnas: string) => supabase.from("pedidos").select(columnas).eq("user_id", uid).limit(50);
+      const [pedPrimero, rep] = await Promise.all([
+        pedidosCon("id,numero,estado,entrega,devuelto_en"),
         supabase
           .from("service_requests")
           .select("id,service_title,seguimiento,seguimiento_actualizado")
           .eq("customer_user_id", uid)
           .limit(50),
       ]);
+      const ped =
+        pedPrimero.error && /devuelto_en/.test(String(pedPrimero.error.message ?? "")) ? await pedidosCon("id,numero,estado,entrega") : pedPrimero;
       segActualRef.current = {
         uid,
         pedidos: ped.error
           ? []
-          : ((ped.data ?? []) as { id: string; numero: number | null; estado: string | null; entrega: string | null }[]).map((p) => ({
-              id: String(p.id),
-              numero: p.numero ?? null,
-              estado: String(p.estado ?? "pendiente"),
-              entrega: p.entrega ?? null,
-            })),
+          : ((ped.data ?? []) as unknown as { id: string; numero: number | null; estado: string | null; entrega: string | null; devuelto_en?: string | null }[]).map(
+              (p) => ({
+                id: String(p.id),
+                numero: p.numero ?? null,
+                estado: firmaPedidoSeg(p.estado, p.devuelto_en),
+                entrega: p.entrega ?? null,
+              })
+            ),
         reparaciones: rep.error
           ? []
           : ((rep.data ?? []) as { id: string; service_title: string | null; seguimiento: string | null; seguimiento_actualizado: string | null }[]).map(

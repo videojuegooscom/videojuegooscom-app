@@ -514,7 +514,14 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       }
       if (metodo === "GET") {
         const uid = url.searchParams.get("user_id") ?? "";
-        if (uid.startsWith("eq.")) return json(estado.pedidosFicha.filter((p) => p.user_id === uid.slice(3)));
+        // El pago de esos pedidos (sección PT): por sus ids.
+        const ids = url.searchParams.get("id") ?? "";
+        if (ids.startsWith("in.(")) {
+          estado.pagoFichaPedido = (estado.pagoFichaPedido ?? 0) + 1;
+          const lista = ids.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, ""));
+          return json(estado.pedidosFicha.filter((p) => lista.includes(p.id)).map(({ id, pago_estado, pago_modo, pagado_eur, pagado_en, devuelto_eur, devuelto_en }) => ({ id, pago_estado, pago_modo, pagado_eur, pagado_en, devuelto_eur, devuelto_en })));
+        }
+        if (uid.startsWith("eq.")) return json(estado.pedidosFicha.filter((p) => p.user_id === uid.slice(3)).map(({ pago_estado, pago_modo, pagado_eur, pagado_en, devuelto_eur, devuelto_en, ...resto }) => resto));
         if (uid === "is.null") {
           const correo = (url.searchParams.get("email") ?? "").replace(/^ilike\./, "").replace(/\\(.)/g, "$1").toLowerCase();
           return json(estado.pedidosFicha.filter((p) => !p.user_id && p.email.toLowerCase() === correo));
@@ -560,7 +567,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         // Sin las columnas del pago con tarjeta (sección PT: migración 20261105120000 sin aplicar).
         // Sin las columnas de devolución (sección PT: migración 20261106100000 sin aplicar).
         if (estado.pedidosSinDevolucion && /devuelto_/.test(url.searchParams.get("select") ?? "")) {
-          estado.pedidos400 = (estado.pedidos400 ?? 0) + 1;
+          // Solo cuenta la lista de Pedidos (la campanita también pregunta y repite sin la columna).
+          if (/pedido_items/.test(url.searchParams.get("select") ?? "")) estado.pedidos400 = (estado.pedidos400 ?? 0) + 1;
           return json({ code: "42703", message: "column pedidos.devuelto_eur does not exist" }, 400);
         }
         if (estado.pedidosSinPago && /pago_estado|pagado_eur/.test(url.searchParams.get("select") ?? "")) {
@@ -7334,6 +7342,54 @@ async function seccionPT() {
     ok(debajo.debajo && debajo.sinBurbuja && debajo.verde && debajo.centrado, `PT: va debajo del total, en verde, centrado y sin burbuja (${JSON.stringify(debajo)})`);
     await capturar(p, "PT8-mis-seguimientos");
     ok(p.errores.length === 0, `PT: «Mis seguimientos» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
+  // PT9) Ficha del cliente (dueño, 2026-11-06): el pago de cada pedido (pagado, devuelto, sin terminar) y la tarjeta
+  // «Pagos e intentos de compra» con sus pagos y lo que hizo en la cesta y al pagar (analítica propia, 90 días).
+  await bloque("PT9 ficha del cliente", async () => {
+    const ahora = new Date().toISOString();
+    const P1 = "00000000-0000-4000-8000-0000000000e1";
+    const fila = (n, extra) => ({
+      id: `0f100000-0000-4000-8000-0000000000${n}`, numero: n, created_at: ahora, estado: "pendiente", entrega: "envio", total_eur: 240, user_id: CLIENTE.id,
+      email: CLIENTE.email, pedido_items: [{ id: `it-${n}`, titulo: "Gafas VR ps5 sin caja", precio_eur: 240 }],
+      pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null, devuelto_eur: null, devuelto_en: null, ...extra,
+    });
+    const ev = (event_name, extra = {}) => ({ event_name, user_id: CLIENTE.id, step_label: event_name, created_at: ahora, metadata: {}, ...extra });
+    const estado = {
+      guardados: [],
+      pedidosFicha: [
+        fila(51, { pago_estado: "pagado", pago_modo: "real", pagado_eur: 240, pagado_en: ahora }),
+        fila(52, { pago_estado: "pagado", pago_modo: "prueba", pagado_eur: 99.9, pagado_en: ahora, devuelto_eur: 99.9, devuelto_en: ahora }),
+        fila(53, { pago_estado: "iniciado", pago_modo: "real" }),
+        fila(54, {}),
+      ],
+      eventos: [
+        ev("add_to_cart", { metadata: { productId: P1, price: 240 } }),
+        ev("add_to_cart", { metadata: { productId: P1, price: 240 } }),
+        ev("begin_checkout"),
+        ev("pago_tarjeta", { metadata: { numero: 51 } }),
+        ev("pago_tarjeta_ok", { metadata: { numero: 51 } }),
+      ],
+      tablas: { products: [{ id: P1, title: "Gafas VR ps5 sin caja" }] },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+    await p.locator("#ficha-compras-pagos").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((estado.pagoFichaPedido ?? 0) >= 1, "PT: la ficha pide el pago de sus pedidos aparte (sin la migración saldría igual)");
+    ok(/^Pagado con tarjeta · 240,00€ · /.test(await texto(p, "#ficha-pago-51")), `PT: cada pedido enseña su pago (${await texto(p, "#ficha-pago-51")})`);
+    ok(/^Pagado con tarjeta 99,90€ y devuelto 99,90€ el .+ \(de prueba\)$/.test(await texto(p, "#ficha-pago-52")), `PT: y si se devolvió (${await texto(p, "#ficha-pago-52")})`);
+    ok(/^Pago con tarjeta empezado, sin terminar$/.test(await texto(p, "#ficha-pago-53")) && (await p.locator("#ficha-pago-54").count()) === 0, "PT: el empezado sin terminar lo dice; sin pago con tarjeta, nada");
+    ok(/^Pagos con tarjeta: 2 \(240,00€ de verdad; 1 de prueba\) · devueltos: 1 · empezados sin terminar: 1$/.test(await texto(p, "#ficha-compras-pagos")), `PT: la tarjeta cuenta sus pagos (${await texto(p, "#ficha-compras-pagos")})`);
+    ok(
+      /Añadido a la cesta: 2 · Comprar ya: 0 · Entró a pagar: 1 · Pedido hecho: 0 · Abrió el pago con tarjeta: 1 · Pagó con tarjeta: 1/.test(await texto(p, "#ficha-compras-intentos")),
+      `PT: y sus intentos de compra de 90 días (${await texto(p, "#ficha-compras-intentos")})`
+    );
+    const lista = (await p.locator("#ficha-compras").innerText()).replace(/\s+/g, " ");
+    ok(/Añadido a la cesta · Gafas VR ps5 sin caja/.test(lista) && /Pagó con tarjeta · pedido nº 51/.test(lista), `PT: lo último que hizo, con el artículo y el pedido (${lista.slice(0, 160)})`);
+    await capturar(p, "PT9-ficha-cliente");
+    ok(p.errores.length === 0, `PT: la ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   });
 

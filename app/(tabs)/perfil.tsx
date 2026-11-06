@@ -79,7 +79,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { marcarSeguimientosVistos } from "../../components/Campanita";
+import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/Campanita";
 import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
@@ -1958,7 +1958,7 @@ function SeguimientosSeccion() {
           for (const d of (dev.error ? [] : dev.data ?? []) as { id: string; devuelto_eur: number | null; devuelto_en: string | null }[]) devueltos[d.id] = d;
         }
         setPedidos(filas.map((p) => ({ ...p, ...devueltos[p.id], items: porPedido[p.id] ?? [] })));
-        for (const p of filas) vistosPedidos.push({ id: p.id, estado: String(p.estado ?? "pendiente") });
+        for (const p of filas) vistosPedidos.push({ id: p.id, estado: firmaPedidoSeg(p.estado, devueltos[p.id]?.devuelto_en) });
       }
 
       // Reparaciones (las columnas de seguimiento y el número pueden no existir aún)

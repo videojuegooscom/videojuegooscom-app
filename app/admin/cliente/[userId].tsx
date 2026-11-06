@@ -27,6 +27,11 @@
  *   (Pendiente → Confirmado → Preparado → Enviado / Listo para recoger →
  *   Entregado, o Cancelado), igual que en Administración → Pedidos, y se avisa
  *   a api/escaparate-retorno.ts por si lleva artículos de VeoAura.
+ * - Pagos e intentos de compra (dueño, 2026-11-06): cada pedido enseña su pago con tarjeta (pagado, devuelto o
+ *   empezado sin terminar, y si fue de prueba), y la tarjeta «Pagos e intentos de compra» cuenta sus pagos y, de los
+ *   últimos 90 días, lo que hizo en la cesta y al pagar según la analítica propia (añadido a la cesta, «Comprar ya»,
+ *   entró a pagar, pedido hecho, abrió el pago con tarjeta, pagó): solo existe si aceptó la analítica, como dice la
+ *   política de privacidad. Si algo no se puede leer, la ficha sale igual sin ello.
  * - Servicio de reparación: service_requests donde customer_user_id = este
  *   cliente. Misma limitación que arriba (solo con sesión iniciada al
  *   enviar). Cada solicitud tiene aquí su seguimiento para el cliente (etapa
@@ -142,6 +147,30 @@ type PedidoFicha = {
   total_eur: number | null;
   user_id: string | null;
   pedido_items: { id: string; titulo: string; precio_eur: number | null }[] | null;
+  // Pago con tarjeta (consulta aparte: migraciones 20261105120000 y 20261106100000).
+  pago_estado?: string | null;
+  pago_modo?: string | null;
+  pagado_eur?: number | string | null;
+  pagado_en?: string | null;
+  devuelto_eur?: number | string | null;
+  devuelto_en?: string | null;
+};
+
+// Intentos de compra (analítica propia de ese cliente, solo si aceptó la analítica; el administrador no se cuenta).
+const EVENTOS_COMPRA = [
+  { key: "add_to_cart", label: "Añadido a la cesta" },
+  { key: "buy_now", label: "Comprar ya" },
+  { key: "begin_checkout", label: "Entró a pagar" },
+  { key: "order_whatsapp", label: "Pedido hecho" },
+  { key: "pago_tarjeta", label: "Abrió el pago con tarjeta" },
+  { key: "pago_tarjeta_ok", label: "Pagó con tarjeta" },
+] as const;
+type EventoCompra = {
+  event_name: string;
+  step_label: string | null;
+  created_at: string;
+  metadata?: { productId?: string; numero?: number; total?: number } | null;
+  titulo?: string | null;
 };
 
 // Etiqueta de cada etapa del pedido (con entrega en mano, «Enviado» es «Listo para recoger», como lo ve el cliente).
@@ -255,6 +284,8 @@ export default function ClienteFicha() {
   const [seguimientoDisponible, setSeguimientoDisponible] = useState(false);
   // Pedidos de la tienda; null = la tabla aún no existe o no se ha podido leer.
   const [pedidos, setPedidos] = useState<PedidoFicha[] | null>(null);
+  // Intentos de compra (analítica propia); null = no se han podido leer.
+  const [eventosCompra, setEventosCompra] = useState<EventoCompra[] | null>(null);
   // Perfil que el cliente escribe en Mi cuenta (tabla perfiles_cliente). null = no lo ha rellenado o la tabla aún no existe.
   const [perfil, setPerfil] = useState<{
     nombre: string;
@@ -350,10 +381,42 @@ export default function ClienteFicha() {
       if (conCuenta.error) {
         setPedidos(null);
       } else {
-        const todos = [...((conCuenta.data ?? []) as unknown as PedidoFicha[]), ...((sinSesion.error ? [] : sinSesion.data ?? []) as unknown as PedidoFicha[])];
+        let todos = [...((conCuenta.data ?? []) as unknown as PedidoFicha[]), ...((sinSesion.error ? [] : sinSesion.data ?? []) as unknown as PedidoFicha[])];
         todos.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+        // Su pago con tarjeta (aparte: si las columnas aún no existen, la ficha sale igual sin él).
+        if (todos.length) {
+          const pagoRes = await supabase
+            .from("pedidos")
+            .select("id,pago_estado,pago_modo,pagado_eur,pagado_en,devuelto_eur,devuelto_en")
+            .in("id", todos.map((p) => p.id));
+          if (!pagoRes.error) {
+            const porId = new Map(((pagoRes.data ?? []) as unknown as (Partial<PedidoFicha> & { id: string })[]).map((x) => [x.id, x]));
+            todos = todos.map((p) => ({ ...p, ...porId.get(p.id) }));
+          }
+        }
         setPedidos(todos);
       }
+
+      // Intentos de compra de los últimos 90 días (solo hay si aceptó la analítica).
+      const desde = new Date(Date.now() - 90 * 86400000).toISOString();
+      const evRes = await supabase
+        .from("analytics_events")
+        .select("event_name,step_label,created_at,metadata")
+        .eq("user_id", userId)
+        .in("event_name", EVENTOS_COMPRA.map((e) => e.key))
+        .gte("created_at", desde)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      let eventos = evRes.error ? null : ((evRes.data ?? []) as EventoCompra[]);
+      // El nombre de cada artículo que añadió a la cesta o compró con «Comprar ya».
+      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const ids = [...new Set((eventos ?? []).slice(0, 8).map((e) => String(e.metadata?.productId ?? "")).filter((x) => UUID.test(x)))];
+      if (eventos && ids.length) {
+        const prodRes = await supabase.from("products").select("id,title").in("id", ids);
+        const titulos = new Map(((prodRes.data ?? []) as { id: string; title: string }[]).map((x) => [x.id, x.title]));
+        eventos = eventos.map((e) => ({ ...e, titulo: titulos.get(String(e.metadata?.productId ?? "")) ?? null }));
+      }
+      setEventosCompra(eventos);
       setNotes(notesRes.data?.notes ?? "");
       setNotesUpdatedAt(notesRes.data?.updated_at ?? null);
       setNotesLoaded(true);
@@ -561,6 +624,51 @@ export default function ClienteFicha() {
                   </SectionCard>
                 </View>
               ) : null}
+
+              {/* Pagos con tarjeta e intentos de compra (dueño, 2026-11-06): lo que ha pagado y devuelto, y lo que ha hecho
+                  en la cesta y al pagar según la analítica propia (solo si la aceptó). */}
+              <View nativeID="ficha-compras">
+                <SectionCard icon="card-outline" title="Pagos e intentos de compra">
+                  {(() => {
+                    const pagados = (pedidos ?? []).filter((p) => p.pago_estado === "pagado");
+                    const devueltos = pagados.filter((p) => !!p.devuelto_en);
+                    const sinTerminar = (pedidos ?? []).filter((p) => p.pago_estado === "iniciado").length;
+                    const cuenta = (k: string) => (eventosCompra ?? []).filter((e) => e.event_name === k).length;
+                    const recientes = (eventosCompra ?? []).slice(0, 8);
+                    return (
+                      <View style={{ gap: 8 }}>
+                        <Text nativeID="ficha-compras-pagos" style={{ color: COLORS.text, fontSize: 12.5, fontWeight: "800", lineHeight: 18 }}>
+                          Pagos con tarjeta: {pagados.length} ({eur(pagados.filter((p) => p.pago_modo === "real").reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0))} de
+                          verdad{pagados.some((p) => p.pago_modo === "prueba") ? `; ${pagados.filter((p) => p.pago_modo === "prueba").length} de prueba` : ""}) · devueltos:{" "}
+                          {devueltos.length} · empezados sin terminar: {sinTerminar}
+                        </Text>
+                        {eventosCompra === null ? (
+                          <EmptyRow text="No se ha podido leer su actividad de compra." />
+                        ) : (
+                          <>
+                            <Text nativeID="ficha-compras-intentos" style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", lineHeight: 18 }}>
+                              Últimos 90 días · {EVENTOS_COMPRA.map((e) => `${e.label}: ${cuenta(e.key)}`).join(" · ")}
+                            </Text>
+                            {recientes.length === 0 ? (
+                              <EmptyRow text="Sin actividad de compra registrada (o no aceptó la analítica)." />
+                            ) : (
+                              <View style={{ gap: 4 }}>
+                                {recientes.map((e, i) => (
+                                  <Text key={`${e.created_at}-${i}`} style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
+                                    {fmtDate(e.created_at)} · {EVENTOS_COMPRA.find((x) => x.key === e.event_name)?.label ?? e.event_name}
+                                    {e.titulo ? ` · ${e.titulo}` : ""}
+                                    {e.metadata?.numero ? ` · pedido nº ${e.metadata.numero}` : ""}
+                                  </Text>
+                                ))}
+                              </View>
+                            )}
+                          </>
+                        )}
+                      </View>
+                    );
+                  })()}
+                </SectionCard>
+              </View>
 
               <SectionCard icon="bag-check-outline" title="Compras a la tienda" count={purchases.length}>
                 {purchases.length === 0 ? (
@@ -1020,6 +1128,24 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
         {pedido.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
         {pedido.user_id ? "" : " · Hecho sin sesión (con su correo): no lo ve en «Mis seguimientos»"}
       </Text>
+      {/* Pago con tarjeta (Stripe): pagado, devuelto o empezado sin terminar. Texto con su icono, sin burbuja. */}
+      {pedido.pago_estado ? (
+        <View nativeID={`ficha-pago-${pedido.numero ?? pedido.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <Ionicons
+            name={pedido.devuelto_en ? "return-down-back-outline" : pedido.pago_estado === "pagado" ? "card" : "card-outline"}
+            size={15}
+            color={pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted}
+          />
+          <Text style={{ flexShrink: 1, color: pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted, fontSize: 12, fontWeight: "800" }}>
+            {pedido.pago_estado !== "pagado"
+              ? "Pago con tarjeta empezado, sin terminar"
+              : pedido.devuelto_en
+                ? `Pagado con tarjeta ${eur(Number(pedido.pagado_eur))} y devuelto ${eur(Number(pedido.devuelto_eur))} el ${fmtDate(pedido.devuelto_en)}`
+                : `Pagado con tarjeta · ${eur(Number(pedido.pagado_eur))} · ${pedido.pagado_en ? fmtDate(pedido.pagado_en) : ""}`}
+            {pedido.pago_modo === "prueba" ? " (de prueba)" : ""}
+          </Text>
+        </View>
+      ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {ESTADOS_PEDIDO.map((e) => (
           <EtapaChip

@@ -1737,6 +1737,21 @@ try {
       "Pago: los términos explican el pago con tarjeta una sola vez y el resto queda igual"
     );
     ok(Number((await c39.query("select count(*) as n from public.policy_pages where slug = 'envios' and sections = '[]'::jsonb")).rows[0].n) === 1, "Pago: las otras políticas no se tocan");
+
+    // VeoAura y la tarjeta (20261106110000): «cuando te lo entregamos» pasa a «cuando lo pagas con tarjeta o te lo
+    // entregamos», una sola vez; lo demás igual; sin esa frase (otra redacción del dueño) no toca nada.
+    const VEO_T = readFileSync("supabase/migrations/20261106110000_privacidad_veoaura_tarjeta.sql", "utf8");
+    const FRASE_V = " Si tu pedido incluye artículos que gestionamos con VeoAura, le comunicamos ese pedido y, cuando te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono.";
+    await c39.query(`update public.policy_pages set sections = jsonb_set(sections, '{2,body}', to_jsonb((sections -> 2 ->> 'body') || $1::text)) where slug = 'privacidad'`, [FRASE_V]);
+    await c39.query(VEO_T);
+    await c39.query(VEO_T);
+    const conQuienV = (await c39.query("select sections -> 2 ->> 'body' as b from public.policy_pages where slug = 'privacidad'")).rows[0].b;
+    ok(
+      (conQuienV.match(/cuando lo pagas con tarjeta o te lo entregamos, también tu nombre/g) ?? []).length === 1 && !/y, cuando te lo entregamos/.test(conQuienV) && /Stripe Payments Europe/.test(conQuienV),
+      "VeoAura y la tarjeta: la privacidad dice «cuando lo pagas con tarjeta o te lo entregamos» una sola vez (aplicada dos veces) y lo demás sigue igual"
+    );
+    const terminosIgual = (await c39.query("select sections::text as t from public.policy_pages where slug = 'terminos'")).rows[0].t;
+    ok(!/pagas con tarjeta o te lo entregamos/.test(terminosIgual), "VeoAura y la tarjeta: los términos no se tocan");
     await c39.end();
 
     // PRUEBA DE LAS PRUEBAS: sin la condición «ya nombra a Stripe», la frase se repetiría; sin las comprobaciones, entraría

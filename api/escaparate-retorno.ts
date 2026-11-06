@@ -6,8 +6,9 @@
  *    VeoAura («pedido») para que no lo venda también en la tienda física; si el pedido se
  *    cancela, se le avisa otra vez («pedido_anulado»). Esos dos avisos nunca llevan datos del
  *    cliente: solo el id del artículo, el número de pedido, la forma de entrega y el precio.
- *    Cuando el pedido está PAGADO, que en la tienda es al marcarlo «Entregado» (el pago se acuerda
- *    por el chat; decisión del dueño, 2026-11-03), sale otro aviso con lo mismo y, además, dentro de
+ *    Cuando el pedido está PAGADO, que en la tienda es al marcarlo «Entregado» (decisión del dueño, 2026-11-03) o
+ *    al pagarlo con tarjeta en la web, confirmado por Stripe y sin devolver (dueño, 2026-11-06; solo cuando la
+ *    privacidad ya lo dice, migración 20261106110000), sale otro aviso con lo mismo y, además, dentro de
  *    "pedido", "cliente": {nombre, correo, telefono} de ese pedido (nunca su dirección ni otros
  *    datos), para que la ficha de clientes de VeoAura quede completa. Aquí se apunta como
  *    «pedido_pagado», pero viaja como un segundo «pedido» (mismo número, id_mensaje nuevo), que es
@@ -160,9 +161,24 @@ const LIMITE_GLOBAL_MAX = 60;
 
 type Evento = "pedido" | "pedido_anulado" | "pedido_pagado";
 
-// Pagado = entregado (decisión del dueño, 2026-11-03): no hay pago en la web y el estado «entregado» es el que
-// confirma que el cliente ya pagó y recibió el artículo.
+// Pagado = entregado (decisión del dueño, 2026-11-03) o, desde el 2026-11-06 («que para VeoAura pagar con tarjeta sea
+// como pagado»), pagado con tarjeta en la web (pago_estado = 'pagado', confirmado por Stripe en api/pago.ts), sin
+// devolver y sin cancelar. Lo de la tarjeta solo cuenta cuando la política de privacidad ya lo explica (la migración
+// 20261106110000_privacidad_veoaura_tarjeta: primero la privacidad, luego los datos).
 const ESTADO_PAGADO = "entregado";
+const PRIVACIDAD_TARJETA = "cuando lo pagas con tarjeta o te lo entregamos";
+
+function estaPagado(p: PedidoFila | undefined, tarjetaCuenta: boolean): boolean {
+  if (!p) return false;
+  if (p.estado === ESTADO_PAGADO) return true;
+  return tarjetaCuenta && p.pago_estado === "pagado" && !p.devuelto_en && p.estado !== "cancelado";
+}
+
+// ¿Explica ya la privacidad que los datos van a VeoAura también al pagar con tarjeta?
+async function privacidadCuentaTarjeta(supabase: SupabaseClient): Promise<boolean> {
+  const { data } = await supabase.from("policy_pages").select("sections").eq("slug", "privacidad").maybeSingle<{ sections: unknown }>();
+  return JSON.stringify(data?.sections ?? "").includes(PRIVACIDAD_TARJETA);
+}
 
 type Salida = {
   id: string;
@@ -184,6 +200,9 @@ type PedidoFila = {
   email: string | null;
   telefono: string | null;
   pedido_items: { product_id: string | null; precio_eur: number | string | null }[] | null;
+  // Pago con tarjeta (migraciones 20261105120000 y 20261106100000; pueden no existir aún).
+  pago_estado?: string | null;
+  devuelto_en?: string | null;
 };
 
 // Los datos del cliente del aviso de pedido pagado: solo nombre, correo y teléfono, como texto y con los topes del
@@ -278,18 +297,18 @@ async function articulosVeoaura(supabase: SupabaseClient): Promise<Map<string, s
 
 async function pedidosRecientes(supabase: SupabaseClient): Promise<PedidoFila[]> {
   const desde = new Date(Date.now() - DIAS_PEDIDOS * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabase
-    .from("pedidos")
-    .select("id,numero,estado,entrega,nombre,email,telefono,pedido_items(product_id,precio_eur)")
-    .gte("created_at", desde)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const consulta = (columnas: string) =>
+    supabase.from("pedidos").select(columnas).gte("created_at", desde).order("created_at", { ascending: false }).limit(1000);
+  const BASE = "id,numero,estado,entrega,nombre,email,telefono,pedido_items(product_id,precio_eur)";
+  let { data, error } = await consulta(`${BASE},pago_estado,devuelto_en`);
+  // Sin las columnas del pago con tarjeta (migración sin aplicar): como antes, solo «entregado» cuenta como pagado.
+  if (error && /pago_estado|devuelto_en/.test(String(error.message ?? ""))) ({ data, error } = await consulta(BASE));
   if (error) throw new Error("no se pudieron leer los pedidos");
-  return (data ?? []) as PedidoFila[];
+  return (data ?? []) as unknown as PedidoFila[];
 }
 
 // Apunta en escaparate_salida lo que haya que avisar a VeoAura (sin enviarlo todavía).
-async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, string>, pedidos: PedidoFila[]) {
+async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, string>, pedidos: PedidoFila[], tarjetaCuenta: boolean) {
   const pares: { pedido: PedidoFila; idVeoaura: string }[] = [];
   for (const p of pedidos) {
     for (const it of p.pedido_items ?? []) {
@@ -310,9 +329,9 @@ async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, st
   for (const { pedido, idVeoaura } of pares) {
     const aviso = buscar(pedido.id, idVeoaura, "pedido");
     const cancelado = pedido.estado === "cancelado";
-    // Pagado (entregado): el aviso con los datos del cliente, una vez. Sale cuando VeoAura ya tiene el «pedido»
-    // (enviarAvisos lo espera).
-    if (pedido.estado === ESTADO_PAGADO && !buscar(pedido.id, idVeoaura, "pedido_pagado")) {
+    // Pagado (entregado o pagado con tarjeta): el aviso con los datos del cliente, una vez. Sale cuando VeoAura ya tiene
+    // el «pedido» (enviarAvisos lo espera).
+    if (estaPagado(pedido, tarjetaCuenta) && !buscar(pedido.id, idVeoaura, "pedido_pagado")) {
       nuevos.push({ evento: "pedido_pagado", id_veoaura: idVeoaura, pedido_id: pedido.id });
     }
     if (!aviso) {
@@ -344,7 +363,14 @@ async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, st
   }
 }
 
-async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: string, articulos: Map<string, string>, pedidos: PedidoFila[]) {
+async function enviarAvisos(
+  supabase: SupabaseClient,
+  url: string,
+  secreto: string,
+  articulos: Map<string, string>,
+  pedidos: PedidoFila[],
+  tarjetaCuenta: boolean
+) {
   const inicio = Date.now();
   let enviados = 0;
   let fallidos = 0;
@@ -364,9 +390,9 @@ async function enviarAvisos(supabase: SupabaseClient, url: string, secreto: stri
     if (s.estado === "error" && Date.now() - ultimo < ESPERA_REINTENTO_MS) continue;
     if (s.estado === "enviando" && Date.now() - ultimo < ENVIANDO_CADUCA_MS) continue;
     if (s.evento === "pedido_pagado") {
-      // Los datos del cliente solo salen si el pedido SIGUE pagado (entregado) ahora mismo.
+      // Los datos del cliente solo salen si el pedido SIGUE pagado (entregado, o con tarjeta sin devolver) ahora mismo.
       const ahora = pedidos.find((p) => p.id === s.pedido_id);
-      if (!ahora || ahora.estado !== ESTADO_PAGADO) {
+      if (!estaPagado(ahora, tarjetaCuenta)) {
         if (ahora?.estado === "cancelado") {
           await supabase.from("escaparate_salida").update({ estado: "descartado", detalle: "pedido cancelado: sin datos del cliente" }).eq("id", s.id).in("estado", ["pendiente", "error"]);
         }
@@ -501,10 +527,11 @@ export default async function handler(req: any, res: any) {
   try {
     const articulos = await articulosVeoaura(supabase);
     const pedidos = articulos.size ? await pedidosRecientes(supabase) : [];
-    await apuntarAvisos(supabase, articulos, pedidos);
+    const tarjetaCuenta = pedidos.some((p) => p.pago_estado === "pagado") ? await privacidadCuentaTarjeta(supabase) : false;
+    await apuntarAvisos(supabase, articulos, pedidos, tarjetaCuenta);
     let resultado = { enviados: 0, fallidos: 0 };
     if (configurado) {
-      resultado = await enviarAvisos(supabase, url, secreto, articulos, pedidos);
+      resultado = await enviarAvisos(supabase, url, secreto, articulos, pedidos, tarjetaCuenta);
       if (esCron && articulos.size) await enviarEstadisticas(supabase, url, secreto);
     }
     responder(res, 200, { ok: true, configurado, ...resultado });
