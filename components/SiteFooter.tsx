@@ -209,7 +209,7 @@ export default function SiteFooter({
               <FooterLink label="Categorías" onPress={handlePressCategorias} />
               <FooterLink label="Catálogo" onPress={() => pushRoute("/catalogo" as Href)} />
               <FooterLink label="Cesta" onPress={() => pushRoute("/cesta" as Href)} />
-              <FooterLink label="Checkout" onPress={() => pushRoute("/checkout" as Href)} />
+              <FooterLink label="Finalizar compra" onPress={() => pushRoute("/checkout" as Href)} />
               <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
               <FooterLink label="Foro" onPress={() => pushRoute("/chat-global" as Href)} />
               <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />

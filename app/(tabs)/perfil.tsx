@@ -1503,7 +1503,7 @@ type PedidoSeg = {
   devuelto_en?: string | null;
 };
 
-// «Pagado con tarjeta · 240,00€ · 6 nov 2026» debajo del total (y, si se devolvió, «Devuelto …»): solo texto con su
+// «Pagado online · 240,00€ · 6 nov 2026» (tarjeta o Klarna) debajo del total (y, si se devolvió, «Devuelto …»): solo texto con su
 // icono, sin burbuja, como el resto de «Mis seguimientos».
 function PagoDelPedido({ p }: { p: PedidoSeg }) {
   if (p.pago_estado !== "pagado") return null;
@@ -1514,7 +1514,7 @@ function PagoDelPedido({ p }: { p: PedidoSeg }) {
       <Text style={{ color: devuelto ? SEG.muted : SEG.ok, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>
         {devuelto
           ? `Pago devuelto · ${segEuros(Number(p.devuelto_eur))} · ${segFecha(p.devuelto_en ?? null)}`
-          : `Pagado con tarjeta · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
+          : `Pagado online · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
         {p.pago_modo === "prueba" ? " (de prueba)" : ""}
       </Text>
     </View>

@@ -1752,6 +1752,31 @@ try {
     );
     const terminosIgual = (await c39.query("select sections::text as t from public.policy_pages where slug = 'terminos'")).rows[0].t;
     ok(!/pagas con tarjeta o te lo entregamos/.test(terminosIgual), "VeoAura y la tarjeta: los términos no se tocan");
+
+    // Klarna y envíos (20261106150000): Klarna en la privacidad una vez; en los términos, sin «checkout de la app» y con
+    // Klarna; envíos con las entregas reales, solo donde sigue el texto antiguo (lo editado por el dueño se queda).
+    const KLARNA = readFileSync("supabase/migrations/20261106150000_politicas_klarna_envios.sql", "utf8");
+    const PRECIOS_VIEJO = "Los precios mostrados incluyen los impuestos aplicables. El pago se realiza a través de los métodos disponibles en el checkout de la app. Nos reservamos el derecho a corregir errores evidentes de precio antes de confirmar el pedido. Si pagas con tarjeta, lo haces en la página de pago segura de Stripe (la tienda nunca ve los datos de tu tarjeta); también puedes confirmar el pedido sin pagar.";
+    const ENVIOS_VIEJO = [
+      { heading: "Zonas de envío", body: "Enviamos a toda la península." },
+      { heading: "Plazos de preparación y entrega", body: "Preparamos cada pedido en 24–48h laborables tras confirmarse el pago. El transporte añade normalmente 24–72h laborables adicionales en península. Te avisamos por email o WhatsApp en cuanto el pedido sale de tienda, con su número de seguimiento." },
+      { heading: "Coste de envío", body: "Lo ha cambiado el dueño a mano." },
+      { heading: "Recogida en tienda", body: "Puedes elegir recoger tu pedido en nuestra tienda física sin coste de envío. Te avisamos en cuanto esté listo para recoger." },
+      { heading: "Embalaje", body: "Bien protegido." },
+    ];
+    await c39.query("update public.policy_pages set sections = jsonb_set(sections, '{1,body}', to_jsonb($1::text)) where slug = 'terminos'", [PRECIOS_VIEJO]);
+    await c39.query("update public.policy_pages set intro = 'Enviamos a toda España, bien protegido y con seguimiento. Si lo prefieres, también puedes recoger tu pedido en tienda sin coste.', sections = $1::jsonb where slug = 'envios'", [JSON.stringify(ENVIOS_VIEJO)]);
+    await c39.query(KLARNA);
+    await c39.query(KLARNA);
+    const privK = (await c39.query("select sections -> 2 ->> 'body' as b from public.policy_pages where slug = 'privacidad'")).rows[0].b;
+    ok((privK.match(/Klarna Bank AB/g) ?? []).length === 1 && /Stripe Payments Europe/.test(privK), "Klarna: la privacidad nombra a Klarna una sola vez (aplicada dos veces) y lo de Stripe sigue");
+    const precK = (await c39.query("select sections -> 1 ->> 'body' as b from public.policy_pages where slug = 'terminos'")).rows[0].b;
+    ok(!/checkout de la app/.test(precK) && /en la página de pago de la tienda\./.test(precK) && (precK.match(/Si pagas con tarjeta o con Klarna/g) ?? []).length === 1 && /confirmar el pedido sin pagar/.test(precK), `Klarna: los términos, sin «checkout de la app» y con Klarna una vez (${precK.slice(60, 140)})`);
+    const envK = (await c39.query("select intro, sections from public.policy_pages where slug = 'envios'")).rows[0];
+    const envTexto = JSON.stringify(envK);
+    ok(!/recoger tu pedido en tienda|nuestra tienda física|sale de tienda|Recogida en tienda/.test(envTexto) && /a domicilio o en mano en Cuarte de Huerva/.test(envK.intro), "Envíos: sin «recoger en tienda», «tienda física» ni «sale de tienda»");
+    ok(envK.sections.length === 5 && envK.sections[3].heading === "Entregas en Zaragoza" && /llega a destino en 72 horas como máximo/.test(envK.sections[1].body), "Envíos: plazos reales y «Entregas en Zaragoza» en su sitio");
+    ok(envK.sections[2].body === "Lo ha cambiado el dueño a mano." && envK.sections[0].body === "Enviamos a toda la península." && envK.sections[4].body === "Bien protegido.", "Envíos: lo que el dueño cambió a mano y lo demás se queda igual");
     await c39.end();
 
     // PRUEBA DE LAS PRUEBAS: sin la condición «ya nombra a Stripe», la frase se repetiría; sin las comprobaciones, entraría

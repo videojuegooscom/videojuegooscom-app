@@ -162,8 +162,8 @@ const EVENTOS_COMPRA = [
   { key: "buy_now", label: "Comprar ya" },
   { key: "begin_checkout", label: "Entró a pagar" },
   { key: "order_whatsapp", label: "Pedido hecho" },
-  { key: "pago_tarjeta", label: "Abrió el pago con tarjeta" },
-  { key: "pago_tarjeta_ok", label: "Pagó con tarjeta" },
+  { key: "pago_tarjeta", label: "Abrió el pago online" },
+  { key: "pago_tarjeta_ok", label: "Pagó online" },
 ] as const;
 type EventoCompra = {
   event_name: string;
@@ -638,7 +638,7 @@ export default function ClienteFicha() {
                     return (
                       <View style={{ gap: 8 }}>
                         <Text nativeID="ficha-compras-pagos" style={{ color: COLORS.text, fontSize: 12.5, fontWeight: "800", lineHeight: 18 }}>
-                          Pagos con tarjeta: {pagados.length} ({eur(pagados.filter((p) => p.pago_modo === "real").reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0))} de
+                          Pagos online: {pagados.length} ({eur(pagados.filter((p) => p.pago_modo === "real").reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0))} de
                           verdad{pagados.some((p) => p.pago_modo === "prueba") ? `; ${pagados.filter((p) => p.pago_modo === "prueba").length} de prueba` : ""}) · devueltos:{" "}
                           {devueltos.length} · empezados sin terminar: {sinTerminar}
                         </Text>
@@ -1138,10 +1138,10 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
           />
           <Text style={{ flexShrink: 1, color: pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted, fontSize: 12, fontWeight: "800" }}>
             {pedido.pago_estado !== "pagado"
-              ? "Pago con tarjeta empezado, sin terminar"
+              ? "Pago online empezado, sin terminar"
               : pedido.devuelto_en
-                ? `Pagado con tarjeta ${eur(Number(pedido.pagado_eur))} y devuelto ${eur(Number(pedido.devuelto_eur))} el ${fmtDate(pedido.devuelto_en)}`
-                : `Pagado con tarjeta · ${eur(Number(pedido.pagado_eur))} · ${pedido.pagado_en ? fmtDate(pedido.pagado_en) : ""}`}
+                ? `Pagado online ${eur(Number(pedido.pagado_eur))} y devuelto ${eur(Number(pedido.devuelto_eur))} el ${fmtDate(pedido.devuelto_en)}`
+                : `Pagado online · ${eur(Number(pedido.pagado_eur))} · ${pedido.pagado_en ? fmtDate(pedido.pagado_en) : ""}`}
             {pedido.pago_modo === "prueba" ? " (de prueba)" : ""}
           </Text>
         </View>

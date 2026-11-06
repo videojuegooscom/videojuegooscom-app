@@ -2,7 +2,8 @@
  * api/pago.ts
  *
  * Qué hace: pago con tarjeta de los pedidos de la tienda con Stripe Checkout (la página de pago segura de Stripe). El
- * cliente escribe su tarjeta en la página de Stripe: la tienda nunca ve ni guarda los datos de la tarjeta.
+ * cliente escribe su tarjeta en la página de Stripe: la tienda nunca ve ni guarda los datos de la tarjeta. Desde el
+ * 2026-11-06 también Klarna (pagar a plazos), en la misma página; en pantalla se llama «pago online».
  *
  * Por qué así (dueño, 2026-11-05: «clave puesta y empieza Stripe»):
  * - El importe sale de la base de datos (pedidos.total_eur: artículos + envío, calculados al guardar el pedido), nunca
@@ -18,7 +19,8 @@
  * - Sin las columnas de pago (migración 20261105120000_pagos_tarjeta sin aplicar) no se ofrece el pago.
  *
  * Peticiones:
- * - GET /api/pago (con «Authorization: Bearer <sesión>» si la hay) → { ok, disponible, modo: "prueba" | "real" | null }.
+ * - GET /api/pago (con «Authorization: Bearer <sesión>» si la hay) → { ok, disponible, modo: "prueba" | "real" | null,
+ *   klarna } (klarna: si la página de pago también ofrece Klarna).
  * - POST { accion: "crear", numero, clave? } → { ok, url } (la página de Stripe) o { ok, pagado: true } si ya está
  *   pagado. El pedido tiene que ser de quien llama: de su cuenta (sesión) o con la clave de la compra, que solo tiene el
  *   navegador que lo hizo (pedidos.clave_unica). Si no, 404 (no se dice si existe).
@@ -295,6 +297,13 @@ async function pagoDisponible(supabase: SupabaseClient, modo: Modo, uid: string 
   return JSON.stringify(data?.sections ?? "").includes("Stripe");
 }
 
+// Klarna (pagar a plazos, dueño 2026-11-06) solo cuando la política de privacidad ya lo nombra: si el cliente lo elige,
+// sus datos los trata Klarna (migración 20261106150000_politicas_klarna_envios). Primero la privacidad.
+async function klarnaDisponible(supabase: SupabaseClient): Promise<boolean> {
+  const { data } = await supabase.from("policy_pages").select("sections").eq("slug", "privacidad").maybeSingle<{ sections: unknown }>();
+  return JSON.stringify(data?.sections ?? "").includes("Klarna");
+}
+
 async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" | "numero" | "pago_estado" | "pago_sesion">, s: SesionStripe, modo: Modo) {
   if (p.pago_estado === "pagado") {
     if (p.pago_sesion !== s.id) console.error(`pago: el pedido ${p.numero} ya estaba pagado y llega otro cobro (${s.id}): devuélvelo desde Stripe`);
@@ -366,11 +375,15 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
   // cambian dentro del minuto. Caduca a los 30-31 minutos (el mínimo de Stripe).
   const minuto = Math.floor(Date.now() / 60_000);
   const origen = origenDe(req);
+  const conKlarna = await klarnaDisponible(supabase);
   const campos: Record<string, string> = {
     mode: "payment",
     locale: "es",
     submit_type: "pay",
+    // Tarjeta (con Apple Pay y Link) y, si la privacidad ya lo nombra, Klarna, que permite pagar a plazos (dueño,
+    // 2026-11-06). Klarna confirma al momento, como la tarjeta: «pagado» sigue siendo complete + paid preguntado a Stripe.
     "payment_method_types[0]": "card",
+    ...(conKlarna ? { "payment_method_types[1]": "klarna" } : {}),
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "eur",
     "line_items[0][price_data][unit_amount]": String(centimos),
@@ -504,7 +517,8 @@ export default async function handler(req: any, res: any) {
       // La sesión solo hace falta con la clave de prueba (para saber si es el administrador).
       const uid = modo === "prueba" ? await usuarioDeLaPeticion(supabase, req) : null;
       const disponible = await pagoDisponible(supabase, modo, uid);
-      responder(res, 200, { ok: true, disponible, modo: disponible ? modo : null });
+      const klarna = disponible && (await klarnaDisponible(supabase));
+      responder(res, 200, { ok: true, disponible, modo: disponible ? modo : null, klarna });
       return;
     }
     if (req.method !== "POST") throw new Rechazo(405, "método no permitido");

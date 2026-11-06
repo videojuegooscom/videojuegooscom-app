@@ -143,12 +143,12 @@ const HOME_FAQ: { pregunta: string; respuesta: string }[] = [
   {
     pregunta: "¿Cómo compro un artículo?",
     respuesta:
-      "Añádelo a la Cesta. Cada artículo es unidad única, así que te lo reservamos 15 minutos. Después eliges envío o recogida, rellenas tus datos y confirmas el pedido.",
+      "Añádelo a la Cesta. Cada artículo es unidad única, así que te lo reservamos 15 minutos. Después eliges envío o entrega en mano, rellenas tus datos y pagas o confirmas el pedido.",
   },
   {
-    pregunta: "¿Cómo son los envíos y la recogida?",
+    pregunta: "¿Cómo son los envíos?",
     respuesta:
-      "Enviamos a toda España y también puedes recoger tu pedido en persona en Zaragoza. Preparamos cada pedido en 24–48 h laborables tras confirmarse el pago. Todos los detalles están en la política de envíos.",
+      "En Zaragoza te lo llevamos a casa el mismo día, o te lo entregamos en mano en Cuarte de Huerva. Al resto de España sale en 1–2 días y llega en 72 horas como máximo. Todos los detalles están en la política de envíos.",
   },
   {
     pregunta: "¿Qué estado y garantía tiene cada producto?",
@@ -168,7 +168,7 @@ const HOME_FAQ: { pregunta: string; respuesta: string }[] = [
   {
     pregunta: "¿Puedo pagar a plazos?",
     respuesta:
-      "Está disponible en el proceso de compra. Para conocer las condiciones, pregúntale a Blue IA o al equipo desde el chat de la tienda.",
+      "Sí, con Klarna. Al pagar el pedido, en la página de pago segura de Stripe, elige Klarna y verás sus opciones de pago a plazos. La aprobación y las condiciones las pone Klarna.",
   },
 ];
 

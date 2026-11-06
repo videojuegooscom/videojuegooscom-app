@@ -216,8 +216,8 @@ const CONVERSION_EVENTS = [
   { key: "begin_checkout", label: "Inicio de pago" },
   { key: "order_whatsapp", label: "Pedido por WhatsApp" },
   // Pago con tarjeta (Stripe, app/checkout.tsx): se abre la página de pago y el pago confirmado por Stripe.
-  { key: "pago_tarjeta", label: "Pago con tarjeta" },
-  { key: "pago_tarjeta_ok", label: "Pagado con tarjeta" },
+  { key: "pago_tarjeta", label: "Pago online" },
+  { key: "pago_tarjeta_ok", label: "Pagado online" },
 ] as const;
 
 type ConversionKey = (typeof CONVERSION_EVENTS)[number]["key"];
