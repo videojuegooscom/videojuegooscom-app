@@ -454,7 +454,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const auth = peticion.headers()["authorization"] ?? "";
       if (metodo === "GET") {
         estado.pago.consultas = [...(estado.pago.consultas ?? []), auth];
-        return json({ ok: true, disponible: estado.pago.disponible, modo: estado.pago.disponible ? estado.pago.modo : null });
+        return json({ ok: true, disponible: estado.pago.disponible, modo: estado.pago.disponible ? estado.pago.modo : null, klarna: estado.pago.klarna === true });
       }
       const cuerpo = JSON.parse(peticion.postData() ?? "{}");
       estado.pago.peticiones = [...(estado.pago.peticiones ?? []), { cuerpo, auth }];
@@ -7056,7 +7056,8 @@ async function seccionPT() {
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((estado.pago.consultas ?? []).some((a) => /^Bearer \S+/.test(a)), "PT: el pago pregunta al servidor con la sesión (para saber si es el administrador)");
-    ok(/^Pagar con tarjeta · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-sin-tarjeta").count()) === 1, `PT: con el pago disponible, «Pagar con tarjeta» con el total y «Confirmar sin pagar ahora» (${await texto(p, "#pago-tarjeta")})`);
+    ok(/^Pagar · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-sin-tarjeta").count()) === 1, `PT: con el pago disponible, «Pagar» con el total y «Confirmar sin pagar ahora» (${await texto(p, "#pago-tarjeta")})`);
+    ok(/^Con tarjeta o Apple Pay, en la página de pago segura de Stripe\.$/.test(await texto(p, "#pago-metodos")), `PT: sin Klarna en el servidor, no se promete Klarna (${await texto(p, "#pago-metodos")})`);
     ok(/Modo de prueba de Stripe \(solo lo ve el administrador\): no se cobra nada\. Tarjeta de prueba 4242 4242 4242 4242/.test(await texto(p, "#pago-modo-prueba")), "PT: en modo prueba lo dice, con la tarjeta de prueba");
     await rellenar(p);
     ok(/Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta/.test((await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ")), "PT: con el formulario completo, «Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta»");
@@ -7082,7 +7083,7 @@ async function seccionPT() {
     await p.waitForTimeout(800);
     const confirmar = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "confirmar");
     ok(confirmar?.cuerpo.sesion === "cs_test_prueba1011", `PT: al volver se lo pregunta al servidor con la sesión de Stripe (${confirmar?.cuerpo.sesion})`);
-    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago con tarjeta recibido \(pago de prueba: no se ha cobrado nada\)\. Te escribimos por el chat de la tienda para la entrega\.$/.test(await texto(p, "#pago-confirmacion-texto")), `PT: sale «Pedido nº 101 pagado» y que fue de prueba (${await texto(p, "#pago-confirmacion-texto")})`);
+    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago recibido \(pago de prueba: no se ha cobrado nada\)\. Te escribimos por el chat de la tienda para la entrega\.$/.test(await texto(p, "#pago-confirmacion-texto")), `PT: sale «Pedido nº 101 pagado» y que fue de prueba (${await texto(p, "#pago-confirmacion-texto")})`);
     ok((await pendiente(p)) === null, "PT: y ya no queda un pago pendiente guardado");
     await capturar(p, "PT1-pagado");
     ok(p.errores.length === 0, `PT: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -7092,13 +7093,14 @@ async function seccionPT() {
   // PT2) Modo real con un cliente: cancela en Stripe, vuelve, reintenta con la misma clave y paga; la analítica cuenta
   // «Pago con tarjeta» y «Pagado con tarjeta» una sola vez (también al recargar).
   await bloque("PT2 cliente en modo real", async () => {
-    const estado = { filas: perfilDe(CLIENTE), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real" } };
+    const estado = { filas: perfilDe(CLIENTE), guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", klarna: true } };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await conCesta(ctx);
     const p = await pagina(ctx, "/checkout");
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((await p.locator("#pago-modo-prueba").count()) === 0, "PT: con la clave real no sale el aviso de prueba");
+    ok(/^Con tarjeta, Apple Pay o Klarna \(también a plazos\), en la página de pago segura de Stripe\.$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor, dice que se puede pagar a plazos con Klarna (${await texto(p, "#pago-metodos")})`);
     await rellenar(p);
     await p.locator("#pago-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
@@ -7115,7 +7117,7 @@ async function seccionPT() {
     await p.goto(`${BASE}/checkout?pago=ok&sesion=cs_live_prueba1012`, { waitUntil: "load" });
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago con tarjeta recibido\. Te escribimos/.test(await texto(p, "#pago-confirmacion-texto")), `PT: pagado de verdad, sin «de prueba» (${await texto(p, "#pago-confirmacion-texto")})`);
+    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago recibido\. Te escribimos/.test(await texto(p, "#pago-confirmacion-texto")), `PT: pagado de verdad, sin «de prueba» (${await texto(p, "#pago-confirmacion-texto")})`);
     await p.reload({ waitUntil: "load" });
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(1500);
@@ -7139,7 +7141,7 @@ async function seccionPT() {
     await rellenar(p);
     await p.locator("#pago-tarjeta").click();
     await p.locator("#pago-aviso").waitFor({ timeout: 15000 }).catch(() => {});
-    ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /No hemos podido abrir el pago con tarjeta\. Tu pedido está guardado/.test(await texto(p, "#pago-aviso")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si no se abre el pago, el pedido está guardado y se puede reintentar (${await texto(p, "#pago-aviso")})`);
+    ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /No hemos podido abrir la página de pago\. Tu pedido está guardado/.test(await texto(p, "#pago-aviso")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si no se abre el pago, el pedido está guardado y se puede reintentar (${await texto(p, "#pago-aviso")})`);
     ok(!/checkout\.stripe\.com/.test(p.url()) && p.errores.length === 0, "PT: sin salir de la tienda ni errores de JavaScript");
     await ctx.close();
   });
@@ -7195,18 +7197,18 @@ async function seccionPT() {
     await p.locator("#pedidos-pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(
-      /^Pago con tarjeta \(Stripe\) · pagados: 3 \(cobrado de verdad: 156,90€; de prueba: 1\) · empezados sin terminar: 1 · por devolver: 1$/.test(await texto(p, "#pedidos-pago-tarjeta")),
+      /^Pago online \(Stripe: tarjeta o Klarna\) · pagados: 3 \(cobrado de verdad: 156,90€; de prueba: 1\) · empezados sin terminar: 1 · por devolver: 1$/.test(await texto(p, "#pedidos-pago-tarjeta")),
       `PT: Pedidos cuenta los pagados (y lo cobrado de verdad), los de prueba, los sin terminar y los que hay que devolver (${await texto(p, "#pedidos-pago-tarjeta")})`
     );
-    ok(/^Pagado con tarjeta · 106,90€ · .+ · de prueba \(sin cobro real\) Ver el pago en Stripe$/.test(await texto(p, "#pedido-pago-201")), `PT: un pedido pagado enseña cuánto, cuándo, que fue de prueba y su enlace (${await texto(p, "#pedido-pago-201")})`);
-    ok(/^Pago con tarjeta empezado, sin terminar$/.test(await texto(p, "#pedido-pago-202")) && (await p.locator("#pedido-pago-204").count()) === 0, "PT: uno empezado sin terminar lo dice; uno sin pago con tarjeta no enseña nada");
+    ok(/^Pagado online · 106,90€ · .+ · de prueba \(sin cobro real\) Ver el pago en Stripe$/.test(await texto(p, "#pedido-pago-201")), `PT: un pedido pagado enseña cuánto, cuándo, que fue de prueba y su enlace (${await texto(p, "#pedido-pago-201")})`);
+    ok(/^Pago online empezado, sin terminar$/.test(await texto(p, "#pedido-pago-202")) && (await p.locator("#pedido-pago-204").count()) === 0, "PT: uno empezado sin terminar lo dice; uno sin pago con tarjeta no enseña nada");
     ok(/El total ahora es 120,00€: la diferencia se arregla desde Stripe o por el chat\./.test(await texto(p, "#pedido-pago-205")), `PT: si el total cambió después de pagar, lo avisa (${await texto(p, "#pedido-pago-205")})`);
     const [popup] = await Promise.all([ctx.waitForEvent("page", { timeout: 8000 }).catch(() => null), p.locator("#pedido-pago-stripe-201").click()]);
     for (let i = 0; i < 20 && !(estado.stripePanel ?? []).length; i++) await p.waitForTimeout(200);
     const enlace = estado.stripePanel?.[0] ?? "";
     ok(enlace === "https://dashboard.stripe.com/test/payments/pi_3Prueba201", `PT: «Ver el pago en Stripe» abre ese pago (en el apartado de prueba) (${enlace.slice(0, 70)})`);
     if (popup) await popup.close();
-    await p.getByText("Pagados con tarjeta (3)", { exact: true }).click();
+    await p.getByText("Pagados online (3)", { exact: true }).click();
     await p.waitForTimeout(300);
     const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-pago-"]')].map((e) => e.id).filter((i) => /^pedido-pago-\d+$/.test(i)));
     ok(visibles.join(",") === "pedido-pago-201,pedido-pago-203,pedido-pago-205", `PT: el filtro «Pagados con tarjeta» enseña los pagados, también el cancelado (${visibles.join(", ")})`);
@@ -7325,7 +7327,7 @@ async function seccionPT() {
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.locator("#seguimiento-pago-41").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
-    ok(/^Pagado con tarjeta · 240,00€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-41")), `PT: «Mis seguimientos» dice «Pagado con tarjeta» con el importe y la fecha (${await texto(p, "#seguimiento-pago-41")})`);
+    ok(/^Pagado online · 240,00€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-41")), `PT: «Mis seguimientos» dice «Pagado online» con el importe y la fecha (${await texto(p, "#seguimiento-pago-41")})`);
     ok(/^Pago devuelto · 99,90€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-42")) && (await p.locator("#seguimiento-pago-43").count()) === 0, `PT: si se devolvió lo dice; sin pago con tarjeta, nada (${await texto(p, "#seguimiento-pago-42")})`);
     const debajo = await p.evaluate(() => {
       const pago = document.getElementById("seguimiento-pago-41");
@@ -7378,16 +7380,16 @@ async function seccionPT() {
     await p.locator("#ficha-compras-pagos").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok((estado.pagoFichaPedido ?? 0) >= 1, "PT: la ficha pide el pago de sus pedidos aparte (sin la migración saldría igual)");
-    ok(/^Pagado con tarjeta · 240,00€ · /.test(await texto(p, "#ficha-pago-51")), `PT: cada pedido enseña su pago (${await texto(p, "#ficha-pago-51")})`);
-    ok(/^Pagado con tarjeta 99,90€ y devuelto 99,90€ el .+ \(de prueba\)$/.test(await texto(p, "#ficha-pago-52")), `PT: y si se devolvió (${await texto(p, "#ficha-pago-52")})`);
-    ok(/^Pago con tarjeta empezado, sin terminar$/.test(await texto(p, "#ficha-pago-53")) && (await p.locator("#ficha-pago-54").count()) === 0, "PT: el empezado sin terminar lo dice; sin pago con tarjeta, nada");
-    ok(/^Pagos con tarjeta: 2 \(240,00€ de verdad; 1 de prueba\) · devueltos: 1 · empezados sin terminar: 1$/.test(await texto(p, "#ficha-compras-pagos")), `PT: la tarjeta cuenta sus pagos (${await texto(p, "#ficha-compras-pagos")})`);
+    ok(/^Pagado online · 240,00€ · /.test(await texto(p, "#ficha-pago-51")), `PT: cada pedido enseña su pago (${await texto(p, "#ficha-pago-51")})`);
+    ok(/^Pagado online 99,90€ y devuelto 99,90€ el .+ \(de prueba\)$/.test(await texto(p, "#ficha-pago-52")), `PT: y si se devolvió (${await texto(p, "#ficha-pago-52")})`);
+    ok(/^Pago online empezado, sin terminar$/.test(await texto(p, "#ficha-pago-53")) && (await p.locator("#ficha-pago-54").count()) === 0, "PT: el empezado sin terminar lo dice; sin pago con tarjeta, nada");
+    ok(/^Pagos online: 2 \(240,00€ de verdad; 1 de prueba\) · devueltos: 1 · empezados sin terminar: 1$/.test(await texto(p, "#ficha-compras-pagos")), `PT: la tarjeta cuenta sus pagos (${await texto(p, "#ficha-compras-pagos")})`);
     ok(
-      /Añadido a la cesta: 2 · Comprar ya: 0 · Entró a pagar: 1 · Pedido hecho: 0 · Abrió el pago con tarjeta: 1 · Pagó con tarjeta: 1/.test(await texto(p, "#ficha-compras-intentos")),
+      /Añadido a la cesta: 2 · Comprar ya: 0 · Entró a pagar: 1 · Pedido hecho: 0 · Abrió el pago online: 1 · Pagó online: 1/.test(await texto(p, "#ficha-compras-intentos")),
       `PT: y sus intentos de compra de 90 días (${await texto(p, "#ficha-compras-intentos")})`
     );
     const lista = (await p.locator("#ficha-compras").innerText()).replace(/\s+/g, " ");
-    ok(/Añadido a la cesta · Gafas VR ps5 sin caja/.test(lista) && /Pagó con tarjeta · pedido nº 51/.test(lista), `PT: lo último que hizo, con el artículo y el pedido (${lista.slice(0, 160)})`);
+    ok(/Añadido a la cesta · Gafas VR ps5 sin caja/.test(lista) && /Pagó online · pedido nº 51/.test(lista), `PT: lo último que hizo, con el artículo y el pedido (${lista.slice(0, 160)})`);
     await capturar(p, "PT9-ficha-cliente");
     ok(p.errores.length === 0, `PT: la ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
@@ -7411,7 +7413,7 @@ async function seccionPT() {
     await p.getByText(/Conversiones por día/).first().waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(1000);
     const todo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
-    ok(/Pago con tarjeta: 2/.test(todo) && /Pagado con tarjeta: 1/.test(todo) && /Inicio de pago: 1/.test(todo), `PT: Analítica cuenta los pagos con tarjeta abiertos y los pagados (${(todo.match(/Pago con tarjeta: \d+|Pagado con tarjeta: \d+/g) ?? []).join(", ")})`);
+    ok(/Pago online: 2/.test(todo) && /Pagado online: 1/.test(todo) && /Inicio de pago: 1/.test(todo), `PT: Analítica cuenta los pagos online abiertos y los pagados (${(todo.match(/Pago online: \d+|Pagado online: \d+/g) ?? []).join(", ")})`);
     ok(p.errores.length === 0, `PT: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   });

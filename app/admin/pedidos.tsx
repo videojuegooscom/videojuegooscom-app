@@ -385,7 +385,7 @@ export default function PedidosAdmin() {
     setAccionMsg({
       id: p.id,
       tipo: "ok",
-      texto: p.pago_estado === "pagado" && !p.devuelto_en ? "Pedido cancelado. Está pagado con tarjeta: devuelve el pago con el botón de abajo." : "Pedido cancelado.",
+      texto: p.pago_estado === "pagado" && !p.devuelto_en ? "Pedido cancelado. Está pagado online: devuelve el pago con el botón de abajo." : "Pedido cancelado.",
     });
   }
 
@@ -410,7 +410,7 @@ export default function PedidosAdmin() {
       : []),
     ...(pagoOk
       ? [
-          { value: "pagados_tarjeta" as const, label: `Pagados con tarjeta (${resumenPago.pagados})` },
+          { value: "pagados_tarjeta" as const, label: `Pagados online (${resumenPago.pagados})` },
           { value: "pago_sin_terminar" as const, label: `Pago sin terminar (${resumenPago.sinTerminar})` },
         ]
       : []),
@@ -482,7 +482,7 @@ export default function PedidosAdmin() {
           ) : null}
           {pagoOk && !loading ? (
             <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-              Pago con tarjeta (Stripe) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
+              Pago online (Stripe: tarjeta o Klarna) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
               {resumenPago.dePrueba}) · empezados sin terminar: {resumenPago.sinTerminar}
               {resumenPago.devueltos ? ` · devueltos: ${resumenPago.devueltos} (de verdad: ${fmtEUR(resumenPago.devueltoReal)})` : ""}
               {resumenPago.porDevolver ? ` · por devolver: ${resumenPago.porDevolver}` : ""}
@@ -560,8 +560,8 @@ export default function PedidosAdmin() {
                       <Ionicons name={p.pago_estado === "pagado" ? "card" : "card-outline"} size={16} color={p.pago_estado === "pagado" ? "#15803D" : COLORS.muted} />
                       <Text style={{ color: p.pago_estado === "pagado" ? "#15803D" : COLORS.muted, fontWeight: "800", textAlign: "center" }}>
                         {p.pago_estado === "pagado"
-                          ? `Pagado con tarjeta · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
-                          : "Pago con tarjeta empezado, sin terminar"}
+                          ? `Pagado online · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
+                          : "Pago online empezado, sin terminar"}
                       </Text>
                     </View>
                     {p.devuelto_en ? (

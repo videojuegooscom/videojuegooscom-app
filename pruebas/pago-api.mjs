@@ -18,7 +18,8 @@
  *  P8) Aviso de Stripe (webhook): sin secreto 503; firma mala o vieja 400 sin apuntar nada; bien firmada, apunta el pago;
  *      un aviso de un pago que no es de la tienda se da por recibido (200).
  *  P9) Límite por IP: 429.
- *  CONTROL) Sin la comprobación de administrador, sin la de «paid», sin la de la firma o sin la del dueño del pedido,
+ *  P11) Klarna (pagar a plazos) solo cuando la privacidad ya lo nombra: antes, solo tarjeta; después, tarjeta y Klarna.
+ *  CONTROL) Sin la comprobación de Klarna en la privacidad, sin la de administrador, sin la de «paid», sin la de la firma o sin la del dueño del pedido,
  *      las pruebas lo detectan.
  *
  * Uso: node pruebas/pago-api.mjs
@@ -356,6 +357,14 @@ async function bateria(manejador) {
   const devueltoAntes = pedido(107).devuelto_en;
   r.avisoDevolucionOtraVez = await pedir(manejador, "POST", { crudo: avisoDev, cabeceras: { "stripe-signature": firmar(avisoDev) } });
   r.devueltoIgual = pedido(107).devuelto_en === devueltoAntes;
+
+  // P11 Klarna (pagar a plazos): solo cuando la privacidad ya lo nombra (primero la privacidad).
+  r.getSinKlarna = await pedir(manejador, "GET", { token: "token-admin" });
+  politica[0].body += " Si eliges pagar con Klarna, Klarna trata los datos que le des.";
+  r.getConKlarna = await pedir(manejador, "GET", { token: "token-admin" });
+  pedido(102).user_id = ADMIN;
+  r.creaConKlarna = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 102 } });
+  r.sesionKlarna = registro.crearSesion[registro.crearSesion.length - 1];
   return r;
 }
 
@@ -409,6 +418,11 @@ try {
   ok(r.devolverOtraVez.cuerpo?.ya === true && r.devolucionesTotal === 1, `P10: pulsarlo otra vez no devuelve dos veces (${r.devolucionesTotal})`);
   ok(r.avisoDevolucion.codigo === 200 && r.fila107Devuelta.devuelto_eur === 20 && r.fila107Devuelta.devolucion_referencia === "re_desdeStripe1" && r.devueltoIgual, "P10: una devolución hecha desde Stripe se apunta por su aviso firmado, una sola vez");
 
+  ok(r.getSinKlarna.cuerpo?.klarna === false && c["payment_method_types[1]"] === undefined, `P11: sin Klarna en la privacidad, la página de pago es solo con tarjeta (${JSON.stringify(r.getSinKlarna.cuerpo)})`);
+  const k = r.sesionKlarna?.campos ?? {};
+  ok(r.getConKlarna.cuerpo?.klarna === true && r.creaConKlarna.codigo === 200 && k["payment_method_types[0]"] === "card" && k["payment_method_types[1]"] === "klarna" && k["payment_method_types[2]"] === undefined, `P11: con Klarna en la privacidad, tarjeta y Klarna, nada más (${r.creaConKlarna.codigo} ${k["payment_method_types[1]"]})`);
+  ok(k["line_items[0][price_data][unit_amount]"] === "5000" && k["metadata[numero]"] === "102", "P11: con Klarna, el importe sigue siendo el total guardado y la sesión lleva el pedido");
+
   // CONTROL: cada defensa quitada en una copia de la función; la batería tiene que notarlo.
   const fuente = readFileSync("api/pago.ts", "utf8");
   const carpeta = mkdtempSync(join(tmpdir(), "vz-pago-"));
@@ -420,6 +434,7 @@ try {
     ["firma", "if (!(await firmaDeStripeValida(secreto, crudo, firma))) throw", "if (false) throw", (m) => m.avisoFirmaMala.codigo === 200, "un aviso mal firmado se acepta (P8)"],
     ["dueño", "if (!p || !suyo) throw", "if (!p) throw", (m) => m.ajeno.codigo === 200, "se abre el pago del pedido de otra persona (P3)"],
     ["devolver", 'if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw', "if (false) throw", (m) => m.devolverCliente.codigo === 200, "un cliente devuelve un pago (P10)"],
+    ["klarna", '.includes("Klarna");', ".includes(\"\");", (m) => m.getSinKlarna.cuerpo?.klarna === true, "Klarna sale sin estar en la privacidad (P11)"],
   ];
   for (const [nombre, buscar, poner, detecta, texto] of mutaciones) {
     const roto = fuente.replace(buscar, poner);

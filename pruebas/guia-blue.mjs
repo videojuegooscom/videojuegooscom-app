@@ -608,8 +608,8 @@ try {
 
     if (titulo === "Cómo se compra") {
       const textoCompra = await tarjeta.innerText();
-      ok(["Añadir", "Reserva", "Entrega", "Confirma", "Hablamos"].every((n) => textoCompra.includes(n)), "Cómo se compra: la tarjeta enseña con iconos los pasos de una compra");
-      ok(/Sin pago online/.test(textoCompra), "Cómo se compra: avisa de que no hay pago online");
+      ok(["Añadir", "Reserva", "Entrega", "Pagas", "Hablamos"].every((n) => textoCompra.includes(n)), "Cómo se compra: la tarjeta enseña con iconos los pasos de una compra");
+      ok(/pagas online o confirmas/.test(textoCompra) && !/Sin pago online/.test(textoCompra), "Cómo se compra: dice que se paga online o se confirma sin pagar");
       ok((await p.locator("#guia-aro").count()) === 0 && /\/cesta/.test(p.url()), "Cómo se compra: se ve la cesta entera (no se oscurece)");
     }
 

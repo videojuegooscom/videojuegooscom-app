@@ -3401,9 +3401,9 @@ const PASOS_GUIA: PasoGuia[] = [
     icono: "receipt-outline",
     titulo: "Cómo se compra",
     seccion: "cesta",
-    // Verificado en app/checkout.tsx: se elige envío o recogida, no hay pago online y al confirmar se habla por chat
-    // o WhatsApp.
-    texto: "Reservas, confirmas y te hablamos. Sin pago online.",
+    // Verificado en app/checkout.tsx: se elige envío o entrega en mano, se paga online (tarjeta o Klarna) o se confirma
+    // sin pagar, y se habla por el chat.
+    texto: "Reservas, pagas online o confirmas y te hablamos.",
     ruta: "/cesta",
     demo: "como-se-compra",
     sinOscurecer: true,
@@ -3974,13 +3974,13 @@ const CAPACIDADES_BLUE: ItemIcono[] = [
   { icono: "people-outline", texto: "Equipo" },
   { icono: "megaphone-outline", texto: "Noticias" },
 ];
-// Los pasos de una compra (app/checkout.tsx): se añade y se reserva, se elige envío o recogida, se confirma el pedido
-// (no hay pago online) y la tienda habla con la persona por chat o WhatsApp.
+// Los pasos de una compra (app/checkout.tsx): se añade y se reserva, se elige envío o entrega en mano, se paga online
+// (tarjeta o Klarna, desde el 2026-11-06) o se confirma sin pagar, y la tienda habla con la persona por el chat.
 const PASOS_DE_COMPRA: ItemIcono[] = [
   { icono: "bag-add-outline", texto: "Añadir" },
   { icono: "time-outline", texto: "Reserva" },
   { icono: "car-outline", texto: "Entrega" },
-  { icono: "checkmark-circle-outline", texto: "Confirma" },
+  { icono: "card-outline", texto: "Pagas" },
   { icono: "chatbubbles-outline", texto: "Hablamos" },
 ];
 // Gestos de los mensajes del Foro (chat-global.tsx).

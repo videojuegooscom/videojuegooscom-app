@@ -84,7 +84,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Coste de envío",
         body:
-          "El coste se calcula automáticamente en el checkout según el destino y el peso/volumen del pedido, antes de confirmar la compra.",
+          "El coste se calcula automáticamente al finalizar la compra, según el destino y el importe del pedido, y lo ves antes de pagar o confirmar.",
       },
       {
         heading: "Entregas en Zaragoza",
@@ -99,7 +99,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Incidencias en el transporte",
         body:
-          "Si tu pedido llega dañado o no llega en el plazo indicado, contacta con nosotros por WhatsApp al [NÚMERO DE WHATSAPP] o desde tu Perfil en la app, y lo resolvemos contigo.",
+          "Si tu pedido llega dañado o no llega en el plazo indicado, contacta con nosotros por WhatsApp al 627 748 741 o escríbenos directamente desde el chat de la tienda, y lo resolvemos contigo.",
       },
     ],
   },
@@ -163,7 +163,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Con quién compartimos tus datos",
         body:
-          "Solo compartimos los datos estrictamente necesarios con empresas de transporte (para entregar tu pedido) y con nuestro proveedor de pagos (Supabase/Stripe u otro que uses), bajo sus propias políticas de privacidad. No vendemos tus datos a terceros. Si tu pedido incluye artículos que gestionamos con VeoAura, el programa de gestión del negocio, le comunicamos ese pedido (número, artículo, forma de entrega y precio) y, cuando te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono, para tener tu ficha de cliente. No le pasamos tu dirección ni otros datos.",
+          "Solo compartimos los datos estrictamente necesarios con empresas de transporte (para entregar tu pedido) y con los proveedores técnicos que hacen funcionar la tienda: Supabase (base de datos, cuentas y fotos), Vercel (alojamiento de la web) y OpenAI (procesa los mensajes que escribes a Blue IA para poder responderte). Cada uno trata los datos según sus propias condiciones de privacidad. No vendemos tus datos a terceros. Los correos de tu cuenta (por ejemplo, el de recuperar la contraseña) los envía Resend en nombre de la tienda, desde no-responder@videojuegoszaragoza.com; para ello recibe tu correo electrónico y el contenido de ese mensaje. Si tu pedido incluye artículos que gestionamos con VeoAura, el programa de gestión del negocio, le comunicamos ese pedido (número, artículo, forma de entrega y precio) y, cuando lo pagas con tarjeta o te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono, para tener tu ficha de cliente. No le pasamos tu dirección ni otros datos. Si pagas con tarjeta, el pago lo gestiona Stripe (Stripe Payments Europe, Ltd.), nuestro proveedor de pagos: escribes tu tarjeta y tu correo electrónico directamente en su página de pago segura y la tienda nunca ve ni guarda los datos de tu tarjeta. A Stripe solo le pasamos el número de tu pedido y su importe, y Stripe nos dice si el pago se ha hecho y su referencia, para poder devolvértelo si hace falta. Si eliges pagar con Klarna (por ejemplo, a plazos), Klarna Bank AB (publ) trata los datos que le des en su página para aprobar y gestionar ese pago, como responsable de ese tratamiento y según su propia política de privacidad; nosotros solo sabemos, por Stripe, si el pago se ha hecho, y para todo lo demás de esta política cuenta igual que pagar con tarjeta.",
       },
       {
         heading: "Cuánto tiempo conservamos tus datos",
@@ -224,7 +224,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Precios y pago",
         body:
-          "Los precios mostrados incluyen los impuestos aplicables. El pago se realiza a través de los métodos disponibles en el checkout de la app. Nos reservamos el derecho a corregir errores evidentes de precio antes de confirmar el pedido.",
+          "Los precios mostrados incluyen los impuestos aplicables. El pago se realiza a través de los métodos disponibles en la página de pago de la tienda. Nos reservamos el derecho a corregir errores evidentes de precio antes de confirmar el pedido. Si pagas con tarjeta o con Klarna (que permite pagar a plazos; la aprobación y sus condiciones las pone Klarna), lo haces en la página de pago segura de Stripe (la tienda nunca ve los datos de tu tarjeta); también puedes confirmar el pedido sin pagar y acordar el pago con nosotros por el chat de la tienda. Si ya lo has pagado y no podemos servirlo, te devolvemos el importe completo por el mismo medio de pago.",
       },
       {
         heading: "Edad mínima",
