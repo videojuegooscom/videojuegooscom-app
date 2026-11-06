@@ -507,6 +507,11 @@ export default function CheckoutScreen() {
 
   // Abre el chat de la tienda con el pedido; sin sesión, Blue IA con el pedido como contexto.
   const [abriendoChat, setAbriendoChat] = useState(false);
+  // En la confirmación, «Pagar ahora» se ofrece tras cancelar en Stripe, si no se pudo abrir o si aún no consta el pago.
+  const ofreceReintento =
+    pagoTarjeta.disponible &&
+    !!pedidoHecho?.numero &&
+    (pedidoHecho.pago === "cancelado" || pedidoHecho.pago === "sin_abrir" || pedidoHecho.pago === "sin_confirmar");
   const hablarConNosotros = useCallback(async () => {
     if (!pedidoHecho || abriendoChat) return;
     setAbriendoChat(true);
@@ -900,7 +905,7 @@ export default function CheckoutScreen() {
               </Text>
             ) : null}
             {/* Volver a intentar el pago con tarjeta: tras cancelarlo en Stripe, si no se pudo abrir o si aún no consta. */}
-            {pagoTarjeta.disponible && pedidoHecho.numero && (pedidoHecho.pago === "cancelado" || pedidoHecho.pago === "sin_abrir" || pedidoHecho.pago === "sin_confirmar") ? (
+            {ofreceReintento ? (
               <Pressable
                 nativeID="pago-reintentar-tarjeta"
                 onPress={pagarPedidoGuardado}
@@ -937,29 +942,31 @@ export default function CheckoutScreen() {
                 <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Comprobar otra vez</Text>
               </Pressable>
             ) : null}
+            {/* UNA sola píldora por pantalla: si se ofrece «Pagar ahora», hablar con nosotros es icono + texto, sin fondo. */}
             <Pressable
+              nativeID="pago-hablar"
               onPress={hablarConNosotros}
               disabled={abriendoChat}
               accessibilityRole="button"
               style={({ pressed }) => ({
-                opacity: abriendoChat ? 0.6 : pressed ? 0.88 : 1,
-                marginTop: 6,
-                minHeight: 50,
-                paddingHorizontal: 22,
+                opacity: abriendoChat ? 0.6 : pressed ? (ofreceReintento ? 0.6 : 0.88) : 1,
+                marginTop: ofreceReintento ? 0 : 6,
+                minHeight: ofreceReintento ? 44 : 50,
+                paddingHorizontal: ofreceReintento ? 8 : 22,
                 borderRadius: 999,
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 8,
-                backgroundColor: COLORS.accentDark,
+                backgroundColor: ofreceReintento ? "transparent" : COLORS.accentDark,
               })}
             >
               {abriendoChat ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={ofreceReintento ? COLORS.accent : "#FFFFFF"} />
               ) : (
-                <Ionicons name="chatbubbles-outline" size={18} color="#FFFFFF" />
+                <Ionicons name="chatbubbles-outline" size={18} color={ofreceReintento ? COLORS.accent : "#FFFFFF"} />
               )}
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Hablar con nosotros</Text>
+              <Text style={{ color: ofreceReintento ? COLORS.accent : "#FFFFFF", fontWeight: ofreceReintento ? "800" : "900", fontSize: 15 }}>Hablar con nosotros</Text>
             </Pressable>
             {/* WhatsApp solo como alternativa discreta. */}
             <Pressable onPress={() => openWhatsApp(pedidoHecho.texto)} hitSlop={6} style={{ paddingVertical: 2 }}>
@@ -1242,10 +1249,10 @@ export default function CheckoutScreen() {
 
               {/* Cómo se paga en la página de Stripe: tarjeta (con Apple Pay) y, si se ofrece, Klarna a plazos (dueño, 2026-11-06). */}
               {pagoTarjeta.disponible ? (
-                <Text nativeID="pago-metodos" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                <Text nativeID="pago-metodos" style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                   {pagoTarjeta.klarna
-                    ? "Con tarjeta, Apple Pay o Klarna (también a plazos), en la página de pago segura de Stripe."
-                    : "Con tarjeta o Apple Pay, en la página de pago segura de Stripe."}
+                    ? "Pago seguro en la página de Stripe con tarjeta, Apple Pay o Klarna (también a plazos). La tienda nunca ve los datos de tu tarjeta."
+                    : "Pago seguro en la página de Stripe con tarjeta o Apple Pay. La tienda nunca ve los datos de tu tarjeta."}
                 </Text>
               ) : null}
               {/* Con pago con tarjeta, confirmar sin pagar sigue como siempre (el pago se habla por el chat). Solo texto. */}
@@ -1273,11 +1280,11 @@ export default function CheckoutScreen() {
                 </Text>
               ) : null}
 
+              {/* Con el pago disponible y todo rellenado, ya lo explican «pago-metodos» y «Confirmar sin pagar ahora»: no se repite. */}
+              {formOk && pagoTarjeta.disponible ? null : (
               <Text style={{ color: "rgba(11,33,56,0.55)", textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
                 {formOk
-                  ? pagoTarjeta.disponible
-                    ? "Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta. Si lo prefieres, confirma sin pagar y lo hablamos por el chat."
-                    : "Te confirmamos pago y entrega por el chat de la tienda. Sin pagos por adelantado en la web."
+                  ? "Te confirmamos pago y entrega por el chat de la tienda."
                   : !envio.disponible
                     ? "Escríbenos por el chat para envíos a esta zona."
                     : faltaCodigo
@@ -1286,6 +1293,7 @@ export default function CheckoutScreen() {
                         ? "Completa nombre, email y teléfono para confirmar el pedido."
                         : "Completa los datos de envío para confirmar el pedido."}
               </Text>
+              )}
 
               {/* Volver: solo el texto con su icono, sin burbuja. */}
               <Pressable

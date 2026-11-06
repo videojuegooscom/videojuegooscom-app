@@ -7057,10 +7057,13 @@ async function seccionPT() {
     await p.waitForTimeout(600);
     ok((estado.pago.consultas ?? []).some((a) => /^Bearer \S+/.test(a)), "PT: el pago pregunta al servidor con la sesión (para saber si es el administrador)");
     ok(/^Pagar · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-sin-tarjeta").count()) === 1, `PT: con el pago disponible, «Pagar» con el total y «Confirmar sin pagar ahora» (${await texto(p, "#pago-tarjeta")})`);
-    ok(/^Con tarjeta o Apple Pay, en la página de pago segura de Stripe\.$/.test(await texto(p, "#pago-metodos")), `PT: sin Klarna en el servidor, no se promete Klarna (${await texto(p, "#pago-metodos")})`);
+    ok(/^Pago seguro en la página de Stripe con tarjeta o Apple Pay\. La tienda nunca ve los datos de tu tarjeta\.$/.test(await texto(p, "#pago-metodos")), `PT: sin Klarna en el servidor, no se promete Klarna (${await texto(p, "#pago-metodos")})`);
     ok(/Modo de prueba de Stripe \(solo lo ve el administrador\): no se cobra nada\. Tarjeta de prueba 4242 4242 4242 4242/.test(await texto(p, "#pago-modo-prueba")), "PT: en modo prueba lo dice, con la tarjeta de prueba");
     await rellenar(p);
-    ok(/Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta/.test((await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ")), "PT: con el formulario completo, «Pago seguro con Stripe: la tienda nunca ve los datos de tu tarjeta»");
+    {
+      const cuerpo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+      ok((cuerpo.match(/La tienda nunca ve los datos de tu tarjeta/g) ?? []).length === 1 && !/Si lo prefieres, confirma sin pagar/.test(cuerpo), "PT: con el formulario completo, «la tienda nunca ve los datos de tu tarjeta» una sola vez, sin repetir lo de confirmar sin pagar");
+    }
     await p.evaluate(() => {
       const s = document.getElementById("pago-desplazamiento");
       if (s) s.scrollTop = s.scrollHeight;
@@ -7100,7 +7103,7 @@ async function seccionPT() {
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((await p.locator("#pago-modo-prueba").count()) === 0, "PT: con la clave real no sale el aviso de prueba");
-    ok(/^Con tarjeta, Apple Pay o Klarna \(también a plazos\), en la página de pago segura de Stripe\.$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor, dice que se puede pagar a plazos con Klarna (${await texto(p, "#pago-metodos")})`);
+    ok(/^Pago seguro en la página de Stripe con tarjeta, Apple Pay o Klarna \(también a plazos\)\. La tienda nunca ve los datos de tu tarjeta\.$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor, dice que se puede pagar a plazos con Klarna (${await texto(p, "#pago-metodos")})`);
     await rellenar(p);
     await p.locator("#pago-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
@@ -7110,6 +7113,12 @@ async function seccionPT() {
     await p.waitForTimeout(800);
     ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^No se ha hecho el pago\. Tu pedido sigue guardado/.test(await texto(p, "#pago-confirmacion-texto")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si cancela en Stripe, el pedido sigue guardado y puede volver a pagar (${await texto(p, "#pago-confirmacion-texto")})`);
     await capturar(p, "PT2-cancelado");
+    const pildoras = async () =>
+      p.evaluate(() =>
+        [...document.querySelectorAll("#pago-confirmacion [role=button]")].filter((b) => getComputedStyle(b).backgroundColor === "rgb(30, 167, 232)").map((b) => b.id || b.innerText.trim())
+      );
+    const pildorasCancelado = await pildoras();
+    ok(pildorasCancelado.length === 1 && pildorasCancelado[0] === "pago-reintentar-tarjeta" && (await p.locator("#pago-hablar").count()) === 1, `PT: tras cancelar, UNA sola píldora azul («Pagar ahora»); «Hablar con nosotros» es icono + texto (${pildorasCancelado.join(", ")})`);
     await p.locator("#pago-reintentar-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
     const reintento = estado.pago.peticiones?.[1]?.cuerpo ?? {};
@@ -7118,6 +7127,8 @@ async function seccionPT() {
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(800);
     ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago recibido\. Te escribimos/.test(await texto(p, "#pago-confirmacion-texto")), `PT: pagado de verdad, sin «de prueba» (${await texto(p, "#pago-confirmacion-texto")})`);
+    const pildorasPagado = await pildoras();
+    ok(pildorasPagado.length === 1 && pildorasPagado[0] === "pago-hablar", `PT: ya pagado, la única píldora es «Hablar con nosotros» (${pildorasPagado.join(", ")})`);
     await p.reload({ waitUntil: "load" });
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(1500);
