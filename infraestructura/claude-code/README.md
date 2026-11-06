@@ -33,10 +33,14 @@ aditivo y no cambia permisos delicados. `execute_sql` sigue siendo solo lectura.
 ## Stripe (desde 2026-11-06)
 
 Para comprobar pagos, devoluciones y avisos (webhooks) sin depender de capturas. **Solo lectura**:
-`revisar_stripe_mcp` del guardián deja pasar únicamente las consultas (`list_`, `retrieve_`, `get_`, `search_`,
-`fetch_`, `read_`) que no llevan ningún verbo de escritura ni tocan claves o secretos; todo lo demás (crear, cambiar,
-cancelar, devolver, cobrar, pagar, claves…) y cualquier herramienta nueva sin clasificar se **deniega**, también en
-modo autónomo. Los cobros y las devoluciones siguen solo en la tienda (`api/pago.ts`, botón de Pedidos con la sesión del
+`revisar_stripe_mcp` del guardián clasifica una a una las herramientas reales del servidor de Stripe. Pasan:
+- ver las cuentas conectadas y buscar en la documentación;
+- buscar y describir operaciones de la API;
+- `stripe_api_read`, solo con operaciones GET (`Get…`);
+- en informes y analítica, solo consultar lo que ya existe.
+
+Se **deniega** siempre, también en modo autónomo: `stripe_api_write`, gestionar cuentas, enviar comentarios a Stripe,
+crear informes o lanzar consultas, y cualquier herramienta nueva sin clasificar. Los cobros y las devoluciones siguen solo en la tienda (`api/pago.ts`, botón de Pedidos con la sesión del
 administrador). No hay ninguna clave en el repositorio: el acceso se da iniciando sesión con `/mcp` (como Vercel),
 primero en el **entorno de prueba** de Stripe.
 

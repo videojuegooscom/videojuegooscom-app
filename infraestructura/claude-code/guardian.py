@@ -2041,23 +2041,35 @@ def revisar_vercel_mcp(herramienta, entrada):
 
 
 # Stripe (dueño, 2026-11-06: «sin comprometer datos ni nuestra estructura, que nos sirva ahora y a futuro»): SOLO
-# LECTURA. Pasa lo que solo consulta (list_, retrieve_, get_, search_, fetch_, read_) y no lleva ninguna palabra de
-# escritura; todo lo que crea, cambia, borra, cobra, devuelve, cancela, mueve dinero o toca claves se DENIEGA (también
-# en modo autónomo), y lo no clasificado también: una herramienta nueva de Stripe no pasa hasta clasificarla aquí. Las
-# devoluciones y los cobros siguen solo en la tienda (botón de Pedidos con la sesión del administrador, api/pago.ts).
-STRIPE_LECTURA = re.compile(r"^(list|retrieve|get|search|fetch|read)_", re.I)
-# Verbos que cambian algo y lo que nunca se lee (claves, secretos, consolas), en CUALQUIER parte del nombre. Los
-# sustantivos (refund, payout, transfer, payment) no cuentan: «list_refunds» consulta, «create_refund» no empieza por
-# un verbo de lectura y se deniega igual.
-STRIPE_ESCRITURA = re.compile(
-    r"create|update|delete|remove|cancel|void|finalize|capture|confirm|send|attach|detach|close|mark_|reverse|"
-    r"approve|reject|accept|run_|execute|post_|put_|patch|set_|add_|upload|resume|pause|expire|verify|apply|redeem|"
-    r"api_key|key$|keys$|secret|token|login|shell|command", re.I)
+# LECTURA. Todo lo que crea, cambia, borra, cobra, devuelve, cancela, mueve dinero o toca cuentas se DENIEGA (también
+# en modo autónomo), y lo no clasificado también. Las devoluciones y los cobros siguen solo en la tienda (botón de
+# Pedidos con la sesión del administrador, api/pago.ts).
+# Herramientas REALES del servidor de Stripe (vistas el 2026-11-06 al conectarlo), clasificadas una a una:
+# - Lectura sin más: ver las cuentas conectadas, buscar en la documentación y buscar o describir operaciones de la API.
+# - stripe_api_read: solo operaciones GET de la API (su id empieza por «Get»: GetEvents, GetCharges…), nunca otra cosa.
+# - stripe_reports y stripe_analytics: solo consultar lo que ya existe (buscar y leer tipos, tablas y resultados);
+#   crear informes o lanzar consultas, no.
+# - Todo lo demás (stripe_api_write, manage_stripe_accounts, atlas_company_formation, send_stripe_feedback,
+#   stripe_implementation_planner…) y cualquier herramienta nueva se DENIEGA hasta clasificarla aquí.
+STRIPE_LECTURA = {"list_available_accounts_or_orgs", "search_stripe_documentation", "stripe_api_search", "stripe_api_details"}
+STRIPE_INTENCIONES_LECTURA = {
+    "stripe_reports": {"search_report_type", "retrieve_report_type", "retrieve_report_run"},
+    "stripe_analytics": {"search_query_tables", "retrieve_query_table", "retrieve_query_run", "retrieve_query_template"},
+}
+STRIPE_OPERACION_GET = re.compile(r"^Get[A-Z][A-Za-z0-9]*$")
 
 
 def revisar_stripe_mcp(herramienta, entrada):
-    if STRIPE_LECTURA.match(herramienta) and not STRIPE_ESCRITURA.search(herramienta):
+    if herramienta in STRIPE_LECTURA:
         return
+    if herramienta == "stripe_api_read":
+        if STRIPE_OPERACION_GET.fullmatch(str(entrada.get("stripe_api_operation_id", ""))):
+            return
+        deny("stripe", "Stripe stripe_api_read: solo operaciones de consulta (GET, «Get…»).")
+    if herramienta in STRIPE_INTENCIONES_LECTURA:
+        if str(entrada.get("intent", "")) in STRIPE_INTENCIONES_LECTURA[herramienta]:
+            return
+        deny("stripe", f"Stripe {herramienta}: solo consultar lo que ya existe; crear informes o lanzar consultas, no.")
     deny("stripe", f"Prohibido {herramienta} en Stripe: el acceso de Claude a Stripe es solo de lectura "
                    "(lo que no es una consulta clasificada se deniega).")
 
