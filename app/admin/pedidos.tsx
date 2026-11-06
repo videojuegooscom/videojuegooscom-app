@@ -29,6 +29,9 @@
  *   recuento arriba y filtros «Pagados con tarjeta» y «Pago sin terminar». Lo apunta solo el servidor tras
  *   preguntárselo a Stripe. Si un pedido pagado se cancela o cambia de total, lo avisa (devolver desde Stripe). Sin la
  *   migración, no se enseña.
+ * - Botones «Devolver el pago» y «Cancelar pedido» (dueño, 2026-11-06), con un segundo toque para confirmar. Devolver
+ *   llama a api/pago.ts (solo el administrador; Stripe devuelve el pago entero una sola vez) y se ve «Devuelto · importe
+ *   · fecha» (migración 20261106100000; sin ella no se ofrece). Un cancelado pagado sin devolver sigue en «En curso».
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -78,6 +81,9 @@ type Pedido = {
   pago_referencia?: string | null;
   pagado_eur?: number | string | null;
   pagado_en?: string | null;
+  // Devolución (migración 20261106100000; puede no existir aún).
+  devuelto_eur?: number | string | null;
+  devuelto_en?: string | null;
 };
 
 // Enlace al pago en el panel de Stripe (los de prueba van a su apartado de prueba).
@@ -185,6 +191,11 @@ export default function PedidosAdmin() {
   const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar">("activos");
   // false = aún no hay columnas de pago con tarjeta (migración 20261105120000 sin aplicar): no se enseñan.
   const [pagoOk, setPagoOk] = useState(false);
+  // false = aún no hay columnas de devolución (migración 20261106100000 sin aplicar): no se ofrece «Devolver el pago».
+  const [devolucionOk, setDevolucionOk] = useState(false);
+  // Botón que espera el segundo toque para confirmar («devolver:<id>» o «cancelar:<id>») y su mensaje.
+  const [confirmando, setConfirmando] = useState<string | null>(null);
+  const [accionMsg, setAccionMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
   const [guardando, setGuardando] = useState<string | null>(null);
   // false = aún no hay números de seguimiento (migración sin aplicar): no se enseñan.
   const [numerosOk, setNumerosOk] = useState(false);
@@ -205,20 +216,25 @@ export default function PedidosAdmin() {
     const PAGO = ",pago_estado,pago_modo,pago_referencia,pagado_eur,pagado_en";
     const consulta = (columnas: string) => supabase.from("pedidos").select(columnas).order("created_at", { ascending: false }).limit(200);
     // Cada grupo de columnas nuevas puede no existir aún (su migración sin aplicar): se quita el que falte y se repite.
+    const DEVOLUCION = ",devuelto_eur,devuelto_en";
+    let conDevolucion = true;
     let conPago = true;
     let conEnvio = true;
     let conNumeros = true;
-    const columnas = () => `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}`;
+    const columnas = () =>
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 3 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 4 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conPago && /pago_estado|pago_modo|pago_referencia|pagado_eur|pagado_en/.test(msg)) conPago = false;
+      if (conDevolucion && /devuelto_eur|devuelto_en/.test(msg)) conDevolucion = false;
+      else if (conPago && /pago_estado|pago_modo|pago_referencia|pagado_eur|pagado_en/.test(msg)) conPago = false;
       else if (conEnvio && /productos_eur|envio_eur|zona_envio|envio_manual/.test(msg)) conEnvio = false;
       else if (conNumeros && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(msg))) conNumeros = false;
       else break;
       res = await consulta(columnas());
     }
     setPagoOk(!res.error && conPago);
+    setDevolucionOk(!res.error && conPago && conDevolucion);
     setEnvioOk(!res.error && conEnvio);
     if (conEnvio) cargarTarifas().then(setZonas);
     setNumerosOk(!res.error && conNumeros);
@@ -243,7 +259,10 @@ export default function PedidosAdmin() {
 
   const visibles = useMemo(() => {
     if (filtro === "todos") return pedidos;
-    if (filtro === "activos") return pedidos.filter((p) => p.estado !== "entregado" && p.estado !== "cancelado");
+    // En curso: también los cancelados que siguen pagados con tarjeta sin devolver (falta devolver el pago).
+    if (filtro === "activos") {
+      return pedidos.filter((p) => p.estado !== "entregado" && (p.estado !== "cancelado" || (p.pago_estado === "pagado" && !p.devuelto_en)));
+    }
     if (filtro === "sin_vincular") return pedidos.filter((p) => !p.user_id);
     if (filtro === "veoaura") return pedidos.filter((p) => !!p.id_veoaura);
     if (filtro === "pagados_tarjeta") return pedidos.filter((p) => p.pago_estado === "pagado");
@@ -256,12 +275,17 @@ export default function PedidosAdmin() {
   const resumenPago = useMemo(() => {
     const pagados = pedidos.filter((p) => p.pago_estado === "pagado");
     const reales = pagados.filter((p) => p.pago_modo === "real");
+    const devueltos = pagados.filter((p) => !!p.devuelto_en);
     return {
       pagados: pagados.length,
       cobradoReal: reales.reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0),
       dePrueba: pagados.length - reales.length,
       sinTerminar: pedidos.filter((p) => p.pago_estado === "iniciado").length,
-      porDevolver: pagados.filter((p) => p.estado === "cancelado" || Math.round(Number(p.pagado_eur ?? 0) * 100) > Math.round(Number(p.total_eur) * 100)).length,
+      devueltos: devueltos.length,
+      devueltoReal: devueltos.filter((p) => p.pago_modo === "real").reduce((a, p) => a + Number(p.devuelto_eur ?? 0), 0),
+      porDevolver: pagados.filter(
+        (p) => !p.devuelto_en && (p.estado === "cancelado" || Math.round(Number(p.pagado_eur ?? 0) * 100) > Math.round(Number(p.total_eur) * 100))
+      ).length,
     };
   }, [pedidos]);
 
@@ -317,6 +341,52 @@ export default function PedidosAdmin() {
       setEnvioMsg({ id: p.id, tipo: "ok", texto: automatico ? "Envío otra vez automático (con la tarifa)." : "Envío de este pedido puesto a mano." });
     }
     setGuardando(null);
+  }
+
+  // «Devolver el pago» (api/pago.ts, solo el administrador): Stripe devuelve el pago entero y el servidor lo apunta. Y
+  // «Cancelar pedido». Los dos piden un segundo toque para confirmar (sin ventanas).
+  async function devolverPago(p: Pedido) {
+    if (confirmando !== `devolver:${p.id}`) {
+      setConfirmando(`devolver:${p.id}`);
+      setAccionMsg(null);
+      return;
+    }
+    setConfirmando(null);
+    setGuardando(p.id);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const r = await fetch("/api/pago", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+        body: JSON.stringify({ accion: "devolver", numero: p.numero }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; devuelto_eur?: number; error?: string } | null;
+      if (r.ok && d?.ok) {
+        const ahora = new Date().toISOString();
+        setPedidos((prev) => prev.map((x) => (x.id === p.id ? { ...x, devuelto_eur: d.devuelto_eur ?? x.pagado_eur, devuelto_en: x.devuelto_en ?? ahora } : x)));
+        setAccionMsg({ id: p.id, tipo: "ok", texto: `Pago devuelto: ${fmtEUR(Number(d.devuelto_eur ?? 0))}. Al cliente le llega en 5-10 días hábiles (si era de prueba, no se mueve dinero).` });
+      } else {
+        setAccionMsg({ id: p.id, tipo: "error", texto: `No se pudo devolver: ${d?.error ?? "sin respuesta del servidor"}.` });
+      }
+    } catch {
+      setAccionMsg({ id: p.id, tipo: "error", texto: "No se pudo devolver: sin conexión. Vuelve a intentarlo." });
+    }
+    setGuardando(null);
+  }
+
+  async function cancelarPedido(p: Pedido) {
+    if (confirmando !== `cancelar:${p.id}`) {
+      setConfirmando(`cancelar:${p.id}`);
+      setAccionMsg(null);
+      return;
+    }
+    setConfirmando(null);
+    await cambiarEstado(p, "cancelado");
+    setAccionMsg({
+      id: p.id,
+      tipo: "ok",
+      texto: p.pago_estado === "pagado" && !p.devuelto_en ? "Pedido cancelado. Está pagado con tarjeta: devuelve el pago con el botón de abajo." : "Pedido cancelado.",
+    });
   }
 
   const nombreZona = (z: string | null | undefined) => (z ? zonas?.find((x) => x.zona === z)?.nombre.split(" (")[0] ?? z : null);
@@ -414,7 +484,8 @@ export default function PedidosAdmin() {
             <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
               Pago con tarjeta (Stripe) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
               {resumenPago.dePrueba}) · empezados sin terminar: {resumenPago.sinTerminar}
-              {resumenPago.porDevolver ? ` · por devolver desde Stripe: ${resumenPago.porDevolver}` : ""}
+              {resumenPago.devueltos ? ` · devueltos: ${resumenPago.devueltos} (de verdad: ${fmtEUR(resumenPago.devueltoReal)})` : ""}
+              {resumenPago.porDevolver ? ` · por devolver: ${resumenPago.porDevolver}` : ""}
             </Text>
           ) : null}
 
@@ -493,9 +564,16 @@ export default function PedidosAdmin() {
                           : "Pago con tarjeta empezado, sin terminar"}
                       </Text>
                     </View>
-                    {p.pago_estado === "pagado" && p.estado === "cancelado" ? (
+                    {p.devuelto_en ? (
+                      <View nativeID={`pedido-devuelto-${p.numero}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                        <Ionicons name="return-down-back-outline" size={16} color={COLORS.muted} />
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>
+                          Devuelto · {fmtEUR(Number(p.devuelto_eur ?? 0))} · {fmtFecha(p.devuelto_en)}
+                        </Text>
+                      </View>
+                    ) : p.pago_estado === "pagado" && p.estado === "cancelado" ? (
                       <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
-                        Cancelado y pagado: devuelve el dinero desde Stripe.
+                        Cancelado y pagado: devuelve el pago{devolucionOk ? " con el botón de abajo" : " desde Stripe"}.
                       </Text>
                     ) : p.pago_estado === "pagado" && Math.round(Number(p.pagado_eur ?? 0) * 100) !== Math.round(Number(p.total_eur) * 100) ? (
                       <Text style={{ color: COLORS.gold, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
@@ -588,6 +666,46 @@ export default function PedidosAdmin() {
                 ) : null}
                 {p.notas ? (
                   <Text style={{ color: COLORS.muted, fontStyle: "italic", textAlign: "center" }}>“{p.notas}”</Text>
+                ) : null}
+
+                {/* Devolver el pago y cancelar el pedido (dueño, 2026-11-06): texto con su icono, sin burbuja; el primer
+                    toque pide confirmar y el segundo lo hace. */}
+                {(devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en) || (p.estado !== "cancelado" && p.estado !== "entregado") ? (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18 }}>
+                    {devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en ? (
+                      <Pressable
+                        nativeID={`pedido-devolver-${p.numero}`}
+                        disabled={guardando === p.id}
+                        onPress={() => devolverPago(p)}
+                        accessibilityRole="button"
+                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                      >
+                        <Ionicons name="return-down-back-outline" size={18} color={COLORS.danger} />
+                        <Text style={{ color: COLORS.danger, fontWeight: "800" }}>
+                          {confirmando === `devolver:${p.id}` ? `Toca otra vez para devolver ${fmtEUR(Number(p.pagado_eur ?? 0))}` : "Devolver el pago"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {p.estado !== "cancelado" && p.estado !== "entregado" ? (
+                      <Pressable
+                        nativeID={`pedido-cancelar-${p.numero}`}
+                        disabled={guardando === p.id}
+                        onPress={() => cancelarPedido(p)}
+                        accessibilityRole="button"
+                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || guardando === p.id ? 0.6 : 1 })}
+                      >
+                        <Ionicons name="close-circle-outline" size={18} color={COLORS.danger} />
+                        <Text style={{ color: COLORS.danger, fontWeight: "800" }}>
+                          {confirmando === `cancelar:${p.id}` ? "Toca otra vez para cancelar el pedido" : "Cancelar pedido"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+                {accionMsg?.id === p.id ? (
+                  <Text nativeID={`pedido-accion-mensaje-${p.numero}`} style={{ color: accionMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                    {accionMsg.texto}
+                  </Text>
                 ) : null}
 
                 <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginTop: 4 }}>

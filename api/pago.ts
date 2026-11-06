@@ -23,8 +23,11 @@
  *   pagado. El pedido tiene que ser de quien llama: de su cuenta (sesión) o con la clave de la compra, que solo tiene el
  *   navegador que lo hizo (pedidos.clave_unica). Si no, 404 (no se dice si existe).
  * - POST { accion: "confirmar", sesion: "cs_…" } → { ok, pagado, numero }.
- * - POST de Stripe con la cabecera Stripe-Signature (checkout.session.completed): firma comprobada en tiempo
- *   constante y con 5 minutos de margen → 200.
+ * - POST { accion: "devolver", numero } (SOLO el administrador, dueño 2026-11-06) → { ok, devuelto_eur }: devuelve en
+ *   Stripe el pago entero de ese pedido (una sola vez: clave de idempotencia por pedido) y lo apunta (migración
+ *   20261106100000_pagos_devolucion). No cancela el pedido: eso es otro botón de Pedidos.
+ * - POST de Stripe con la cabecera Stripe-Signature (checkout.session.completed; charge.refunded, si se devuelve desde
+ *   el propio Stripe): firma comprobada en tiempo constante y con 5 minutos de margen → 200.
  * Límites por IP (consumir_limite, compartido; en memoria con cupos reducidos si no responde): 10 pagos nuevos y 30
  * confirmaciones cada 10 minutos.
  *
@@ -409,6 +412,70 @@ async function confirmarPago(supabase: SupabaseClient, clave: string, modo: Modo
   return { pagado, numero: p.numero };
 }
 
+async function esAdministrador(supabase: SupabaseClient, uid: string | null): Promise<boolean> {
+  if (!uid) return false;
+  const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle<{ role: string }>();
+  return data?.role === "admin";
+}
+
+// Devolver el pago entero de un pedido (botón de Administración → Pedidos). Solo el administrador; una sola vez.
+async function devolverPago(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
+  if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw new Rechazo(403, "solo para administradores");
+  const numero = Number(b.numero);
+  if (!Number.isInteger(numero) || numero <= 0 || numero > 1e12) throw new Rechazo(400, "pedido no válido");
+  const { data: p, error } = await supabase
+    .from("pedidos")
+    .select("id,numero,pago_estado,pago_modo,pago_referencia,pagado_eur,devuelto_en,devuelto_eur")
+    .eq("numero", numero)
+    .maybeSingle<{ id: string; numero: number; pago_estado: string | null; pago_modo: string | null; pago_referencia: string | null; pagado_eur: number | string | null; devuelto_en: string | null; devuelto_eur: number | string | null }>();
+  if (error) throw faltanColumnas(error) || /devuelto|devolucion/.test(String(error.message ?? "")) ? new Rechazo(503, "falta activar las devoluciones") : new Rechazo(500, "no se pudo leer el pedido");
+  if (!p) throw new Rechazo(404, "pedido no encontrado");
+  if (p.devuelto_en) return { ok: true, devuelto_eur: Number(p.devuelto_eur), ya: true };
+  if (p.pago_estado !== "pagado" || !p.pago_referencia || !/^pi_[A-Za-z0-9]+$/.test(p.pago_referencia)) throw new Rechazo(409, "este pedido no tiene un pago con tarjeta que devolver");
+  if (p.pago_modo !== modo) throw new Rechazo(409, `este pago es ${p.pago_modo === "prueba" ? "de prueba" : "real"} y la clave de Stripe puesta no lo es`);
+  const r = await llamarStripe(
+    clave,
+    "POST",
+    "/refunds",
+    { payment_intent: p.pago_referencia, "metadata[pedido_id]": p.id, "metadata[numero]": String(p.numero) },
+    `vz-devolver-${p.id}`
+  );
+  const estado = String(r.datos?.status ?? "");
+  if (r.http !== 200 || !/^re_/.test(String(r.datos?.id ?? "")) || !["succeeded", "pending"].includes(estado)) {
+    console.error("pago: Stripe no hizo la devolución", r.http, r.datos?.error?.code ?? "", estado);
+    throw new Rechazo(502, r.datos?.error?.code === "charge_already_refunded" ? "Stripe dice que ese pago ya estaba devuelto" : "Stripe no ha podido hacer la devolución");
+  }
+  const devuelto = Number(r.datos.amount ?? 0) / 100;
+  const { error: errApunte } = await supabase
+    .from("pedidos")
+    .update({ devuelto_eur: devuelto, devuelto_en: new Date().toISOString(), devolucion_referencia: String(r.datos.id) })
+    .eq("id", p.id)
+    .is("devuelto_en", null);
+  if (errApunte) {
+    console.error("pago: devolución hecha en Stripe pero sin apuntar, pedido", p.numero, errApunte.code ?? "");
+    throw new Rechazo(500, "devuelto en Stripe, pero no se pudo apuntar: míralo en Stripe");
+  }
+  return { ok: true, devuelto_eur: devuelto };
+}
+
+// Aviso de Stripe de una devolución (también las hechas desde el propio Stripe): se apunta en su pedido, una vez.
+async function apuntarDevolucionDeAviso(supabase: SupabaseClient, cargo: any) {
+  const intento = typeof cargo?.payment_intent === "string" ? cargo.payment_intent : cargo?.payment_intent?.id;
+  const devuelto = Number(cargo?.amount_refunded ?? 0);
+  if (typeof intento !== "string" || !/^pi_[A-Za-z0-9]+$/.test(intento) || !Number.isInteger(devuelto) || devuelto <= 0) return;
+  const referencia = cargo?.refunds?.data?.[0]?.id;
+  const { error } = await supabase
+    .from("pedidos")
+    .update({
+      devuelto_eur: devuelto / 100,
+      devuelto_en: new Date().toISOString(),
+      devolucion_referencia: typeof referencia === "string" && /^re_/.test(referencia) ? referencia : null,
+    })
+    .eq("pago_referencia", intento)
+    .is("devuelto_en", null);
+  if (error) throw new Rechazo(500, "no se pudo apuntar la devolución");
+}
+
 export default async function handler(req: any, res: any) {
   try {
     const clave = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
@@ -449,6 +516,9 @@ export default async function handler(req: any, res: any) {
       }
       const sesion = evento?.data?.object?.id;
       const deCobro = evento?.type === "checkout.session.completed" || evento?.type === "checkout.session.async_payment_succeeded";
+      if (evento?.type === "charge.refunded" && evento?.livemode === (modo === "real")) {
+        await apuntarDevolucionDeAviso(supabase, evento?.data?.object);
+      }
       if (deCobro && typeof sesion === "string" && SESION_RE.test(sesion) && evento?.livemode === (modo === "real")) {
         try {
           await confirmarPago(supabase, clave, modo, sesion);
@@ -480,6 +550,11 @@ export default async function handler(req: any, res: any) {
       if (!sesion) throw new Rechazo(400, "pago no válido");
       if (!(await consumirLimite(supabase, `pago:confirmar:${cubo}`, LIMITE_CONFIRMAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
       responder(res, 200, { ok: true, ...(await confirmarPago(supabase, clave, modo, sesion)) });
+      return;
+    }
+    if (b.accion === "devolver") {
+      if (!(await consumirLimite(supabase, `pago:devolver:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await devolverPago(supabase, clave, modo, req, b));
       return;
     }
     throw new Rechazo(400, "acción no válida");
