@@ -7,7 +7,7 @@ monta como `/etc/claude-code`. El `/etc/claude-code` real del sistema (de VeoAur
 | Archivo | Se instala como | Qué hace |
 |---|---|---|
 | `politica.json` | `managed-settings.json` | Reglas allow (trabajo normal) y deny (irreversible). Sin «ask». |
-| `mcp.json` | `managed-mcp.json` | Supabase (solo lectura) y Vercel, limitados a este proyecto. |
+| `mcp.json` | `managed-mcp.json` | Supabase (solo lectura) y Vercel, limitados a este proyecto, y Stripe (solo lectura, ver abajo). |
 | `guardian.py` | `hooks/guardian.py` | Hook PreToolUse: deniega lo peligroso aunque llegue disfrazado, aprueba la lectura demostrable y, en modo autónomo, deja pasar las dudas no críticas anotándolas como «auto». |
 | `bloquear-config.py` | `hooks/bloquear-config.py` | Hook ConfigChange: impide cambiar la configuración durante una sesión. |
 | `test_guardian.py`, `test_politica.py` | — | Baterías que ejecuta el instalador antes de instalar. |
@@ -29,6 +29,16 @@ escribir fuera del proyecto, descartar trabajo) se deniegan.
 La conexión MCP ya no es de solo lectura, pero el guardián solo deja escribir con `apply_migration`
 cuando el SQL es idéntico a un archivo de `supabase/migrations/` que ya está en `origin/main`, es
 aditivo y no cambia permisos delicados. `execute_sql` sigue siendo solo lectura.
+
+## Stripe (desde 2026-11-06)
+
+Para comprobar pagos, devoluciones y avisos (webhooks) sin depender de capturas. **Solo lectura**:
+`revisar_stripe_mcp` del guardián deja pasar únicamente las consultas (`list_`, `retrieve_`, `get_`, `search_`,
+`fetch_`, `read_`) que no llevan ningún verbo de escritura ni tocan claves o secretos; todo lo demás (crear, cambiar,
+cancelar, devolver, cobrar, pagar, claves…) y cualquier herramienta nueva sin clasificar se **deniega**, también en
+modo autónomo. Los cobros y las devoluciones siguen solo en la tienda (`api/pago.ts`, botón de Pedidos con la sesión del
+administrador). No hay ninguna clave en el repositorio: el acceso se da iniciando sesión con `/mcp` (como Vercel),
+primero en el **entorno de prueba** de Stripe.
 
 ## Instalación (como veoaura)
 

@@ -209,6 +209,15 @@ DENY_OTRAS = [
     mcp("mcp__vercel__create_project_env", key="x"), mcp("mcp__vercel__buy_domain", name="x.com"),
     mcp("mcp__vercel__update_project", id="x"), mcp("mcp__vercel__assign_alias", alias="x"),
     mcp("mcp__vercel__filter_project_envs", decrypt="true"),
+    # Stripe: solo lectura. Nada que cobre, devuelva, cree, cambie, cancele, borre o toque claves; ni lo no clasificado.
+    mcp("mcp__stripe__create_refund", payment_intent="pi_x"), mcp("mcp__stripe__create_payment_link", price="x"),
+    mcp("mcp__stripe__create_customer", name="x"), mcp("mcp__stripe__update_subscription", subscription="x"),
+    mcp("mcp__stripe__cancel_subscription", subscription="x"), mcp("mcp__stripe__finalize_invoice", invoice="x"),
+    mcp("mcp__stripe__delete_product", id="x"), mcp("mcp__stripe__create_payout", amount=1),
+    mcp("mcp__stripe__list_api_keys"), mcp("mcp__stripe__retrieve_secret", name="x"),
+    mcp("mcp__stripe__get_token", id="x"), mcp("mcp__stripe__expire_checkout_session", id="x"),
+    mcp("mcp__stripe__execute_stripe_api", method="POST"), mcp("mcp__stripe__hacer_algo_nuevo"),
+    mcp("mcp__stripe__stripe_shell", command="x"), mcp("mcp__stripe__fetch_and_update", id="x"),
     mcp("mcp__vercel__create_deployment", requestBody={"target": "production"}),
     ("Bash", {"command": 123}), ("Bash", "no-es-un-dict"), (None, {}),
 ]
@@ -277,6 +286,12 @@ PASA_OTRAS = [
         "count(*) filter (where event_name = 'page_view') as n from public.analytics_events group by 1"),
     mcp("mcp__vercel__list_deployments", limit=5), mcp("mcp__vercel__get_deployment", idOrUrl="x"),
     mcp("mcp__vercel__get_runtime_logs", id="x"),
+    # Stripe: las consultas pasan (pagos, sesiones de pago, eventos, devoluciones, saldo, avisos y documentación).
+    mcp("mcp__stripe__list_payment_intents", limit=5), mcp("mcp__stripe__retrieve_balance"),
+    mcp("mcp__stripe__list_checkout_sessions", limit=5), mcp("mcp__stripe__list_events", limit=5),
+    mcp("mcp__stripe__list_refunds", limit=5), mcp("mcp__stripe__list_webhook_endpoints"),
+    mcp("mcp__stripe__get_stripe_account_info"), mcp("mcp__stripe__search_stripe_documentation", question="x"),
+    mcp("mcp__stripe__fetch_stripe_resources", id="pi_x"), mcp("mcp__stripe__search_stripe_resources", query="x"),
 ]
 
 # ----------------------------------------------------------------- DUDA ----------

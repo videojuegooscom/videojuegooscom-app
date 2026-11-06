@@ -2040,6 +2040,28 @@ def revisar_vercel_mcp(herramienta, entrada):
     ask("mcp-desconocida", f"Vercel {herramienta}: herramienta no clasificada como lectura; requiere aprobación.")
 
 
+# Stripe (dueño, 2026-11-06: «sin comprometer datos ni nuestra estructura, que nos sirva ahora y a futuro»): SOLO
+# LECTURA. Pasa lo que solo consulta (list_, retrieve_, get_, search_, fetch_, read_) y no lleva ninguna palabra de
+# escritura; todo lo que crea, cambia, borra, cobra, devuelve, cancela, mueve dinero o toca claves se DENIEGA (también
+# en modo autónomo), y lo no clasificado también: una herramienta nueva de Stripe no pasa hasta clasificarla aquí. Las
+# devoluciones y los cobros siguen solo en la tienda (botón de Pedidos con la sesión del administrador, api/pago.ts).
+STRIPE_LECTURA = re.compile(r"^(list|retrieve|get|search|fetch|read)_", re.I)
+# Verbos que cambian algo y lo que nunca se lee (claves, secretos, consolas), en CUALQUIER parte del nombre. Los
+# sustantivos (refund, payout, transfer, payment) no cuentan: «list_refunds» consulta, «create_refund» no empieza por
+# un verbo de lectura y se deniega igual.
+STRIPE_ESCRITURA = re.compile(
+    r"create|update|delete|remove|cancel|void|finalize|capture|confirm|send|attach|detach|close|mark_|reverse|"
+    r"approve|reject|accept|run_|execute|post_|put_|patch|set_|add_|upload|resume|pause|expire|verify|apply|redeem|"
+    r"api_key|key$|keys$|secret|token|login|shell|command", re.I)
+
+
+def revisar_stripe_mcp(herramienta, entrada):
+    if STRIPE_LECTURA.match(herramienta) and not STRIPE_ESCRITURA.search(herramienta):
+        return
+    deny("stripe", f"Prohibido {herramienta} en Stripe: el acceso de Claude a Stripe es solo de lectura "
+                   "(lo que no es una consulta clasificada se deniega).")
+
+
 def revisar_mcp(nombre, entrada):
     m = re.match(r"^mcp__(.+?)__(.+)$", nombre)
     if not m:
@@ -2050,9 +2072,7 @@ def revisar_mcp(nombre, entrada):
     elif "vercel" in servidor:
         revisar_vercel_mcp(herramienta, entrada)
     elif "stripe" in servidor:
-        if re.search(r"delete|refund|cancel|void|payout|transfer", herramienta, re.I):
-            deny("stripe", f"Prohibido {herramienta} en Stripe.")
-        ask("stripe", f"Stripe {herramienta}: requiere aprobación explícita.")
+        revisar_stripe_mcp(herramienta, entrada)
 
 
 # ============================================================== salida ======

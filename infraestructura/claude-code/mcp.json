@@ -7,6 +7,10 @@
     "vercel": {
       "type": "http",
       "url": "https://mcp.vercel.com/daniels-projects-771407af/videojuegooscom-app"
+    },
+    "stripe": {
+      "type": "http",
+      "url": "https://mcp.stripe.com"
     }
   }
 }

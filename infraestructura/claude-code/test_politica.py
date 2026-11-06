@@ -26,8 +26,9 @@ def comprobar(nombre, valor):
 comprobar("allowManagedPermissionRulesOnly", POL.get("allowManagedPermissionRulesOnly") is True)
 comprobar("allowManagedHooksOnly", POL.get("allowManagedHooksOnly") is True)
 comprobar("allowManagedMcpServersOnly", POL.get("allowManagedMcpServersOnly") is True)
-comprobar("solo MCP supabase y vercel",
-          sorted(s.get("serverName") for s in POL.get("allowedMcpServers", [])) == ["supabase", "vercel"])
+# Stripe (2026-11-06): solo lectura, lo garantiza el guardián (revisar_stripe_mcp; casos en test_guardian.py).
+comprobar("solo MCP supabase, vercel y stripe",
+          sorted(s.get("serverName") for s in POL.get("allowedMcpServers", [])) == ["stripe", "supabase", "vercel"])
 comprobar("conectores de claude.ai desactivados", POL.get("disableClaudeAiConnectors") is True)
 comprobar("scripts de npm desactivados", POL.get("env", {}).get("npm_config_ignore_scripts") == "true")
 comprobar("defaultMode acceptEdits", P.get("defaultMode") == "acceptEdits")

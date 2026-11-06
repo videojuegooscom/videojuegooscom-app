@@ -4,7 +4,8 @@
   "allowManagedMcpServersOnly": true,
   "allowedMcpServers": [
     {"serverName": "supabase"},
-    {"serverName": "vercel"}
+    {"serverName": "vercel"},
+    {"serverName": "stripe"}
   ],
   "disableClaudeAiConnectors": true,
   "requiredMinimumVersion": "2.1.294",
@@ -320,7 +321,8 @@
       "Bash(systemctl is-active *)",
       "Bash(systemctl show *)",
       "mcp__supabase",
-      "mcp__vercel"
+      "mcp__vercel",
+      "mcp__stripe"
     ]
   },
   "hooks": {
