@@ -20,6 +20,8 @@
  *     fuera (uno de 160 va entero).
  *  I) Entregado y cancelado después con la ficha aún por enviar: no salen los datos del cliente, la ficha queda
  *     «descartado» y VeoAura solo recibe la anulación.
+ *  J) Pagado con tarjeta (dueño, 2026-11-06): cuenta como pagado (sale la ficha sin esperar a «Entregado») solo cuando
+ *     la privacidad ya lo dice; con el pago devuelto o el pedido cancelado, no. Su control: sin mirar la privacidad.
  *  CONTROLES) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
  *     tiempo: la comprobación A lo detecta. Otra que manda el de pagado con otro nombre de evento: C lo detecta. Otra
  *     que no vuelve a mirar el estado al enviar los manda de un pedido cancelado: la comprobación I lo detecta.
@@ -49,7 +51,11 @@ process.env.VEOAURA_RETORNO_URL = VEOAURA;
 process.env.VEOAURA_RETORNO_SECRETO = SECRETO;
 
 // --- Supabase simulado en memoria -------------------------------------------------------------------------------
-const tablas = { products: [], pedidos: [], escaparate_salida: [], escaparate_registro: [] };
+const tablas = { products: [], pedidos: [], escaparate_salida: [], escaparate_registro: [], policy_pages: [] };
+// La privacidad: sin la frase de la tarjeta (antes de la migración 20261106110000) o con ella.
+const PRIV_ANTES = "le comunicamos ese pedido y, cuando te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono";
+const PRIV_TARJETA = "le comunicamos ese pedido y, cuando lo pagas con tarjeta o te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono";
+const privacidad = (texto) => ({ slug: "privacidad", sections: [{ heading: "Con quién compartimos tus datos", body: texto }] });
 let sinMigracionPagado = false; // la base de datos aún no admite «pedido_pagado»
 const recibidos = []; // lo que llega a VeoAura: { cuerpo, firmaOk, mensaje }
 
@@ -166,6 +172,7 @@ function reiniciar() {
     { id: "p-veo-2", id_veoaura: "VEO-2", view_count: 0, like_count: 0, is_active: true },
     { id: "p-tienda", id_veoaura: null, view_count: 0, like_count: 0, is_active: true }
   );
+  tablas.policy_pages.push(privacidad(PRIV_ANTES));
 }
 const pedido = (id, numero, estado, items, extra = {}) => ({
   id, numero, estado, entrega: "envio", created_at: new Date(reloj).toISOString(),
@@ -283,6 +290,35 @@ try {
     ok(i.map((n) => n.mensaje.evento).join(",") === "pedido_anulado", `I: VeoAura solo recibe la anulación (${i.map((n) => n.mensaje.evento).join(",")})`);
   }
 
+  // J) Pagado con tarjeta (dueño, 2026-11-06): cuenta como pagado para VeoAura, pero solo cuando la privacidad ya lo
+  //    dice; un pago devuelto o un pedido cancelado, no.
+  const casoJ = async (manejador, textoPrivacidad, extra = {}) => {
+    reiniciar();
+    tablas.policy_pages[0] = privacidad(textoPrivacidad);
+    tablas.pedidos.push(pedido("ped-11", 111, "pendiente", [{ product_id: "p-veo-1", precio_eur: 240 }], { pago_estado: "pagado", devuelto_en: null, ...extra }));
+    const todos = [];
+    for (let i = 0; i < 3; i++) todos.push(...(await vuelta(manejador)).nuevos);
+    return todos;
+  };
+  {
+    const sinPrivacidad = await casoJ(retorno, PRIV_ANTES);
+    ok(sinPrivacidad.map(tipo).join(",") === "pedido" && !sinPrivacidad.some((n) => PII.test(n.cuerpo)), `J: pagado con tarjeta pero sin la privacidad al día: solo el «pedido», sin datos del cliente (${sinPrivacidad.map(tipo).join(",")})`);
+    const conPrivacidad = await casoJ(retorno, PRIV_TARJETA);
+    const ficha = conPrivacidad.find(esPagado);
+    ok(conPrivacidad.map(tipo).join(",") === "pedido,pagado" && ficha?.mensaje.pedido.cliente?.correo === "ana@example.com", `J: con la privacidad al día, pagado con tarjeta = pagado: sale la ficha del cliente sin esperar a «Entregado» (${conPrivacidad.map(tipo).join(",")})`);
+    const devuelto = await casoJ(retorno, PRIV_TARJETA, { devuelto_en: "2026-11-06T08:00:00Z" });
+    const cancelado = await casoJ(retorno, PRIV_TARJETA, { estado: "cancelado" });
+    ok(!devuelto.some(esPagado) && !cancelado.some(esPagado), `J: con el pago devuelto o el pedido cancelado, no (${devuelto.map(tipo).join(",") || "nada"} · ${cancelado.map(tipo).join(",") || "nada"})`);
+  }
+
+  // CONTROL) Una copia que no mira la privacidad manda los datos de un pago con tarjeta antes de tiempo: J lo detecta.
+  {
+    const { manejador, carpeta } = await cargar("mutado-privacidad", ['return tarjetaCuenta && p.pago_estado === "pagado"', 'return p.pago_estado === "pagado"']);
+    const fuga = await casoJ(manejador, PRIV_ANTES);
+    ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) sin mirar la privacidad salen los datos de un pago con tarjeta: la comprobación J SÍ lo detecta");
+    rmSync(carpeta, { recursive: true, force: true });
+  }
+
   // CONTROL) Una copia que da por pagado un pedido pendiente manda los datos antes de tiempo: A lo detecta.
   {
     reiniciar();
@@ -305,7 +341,7 @@ try {
   }
   // CONTROL) Una copia que no vuelve a mirar el estado antes de enviar la ficha la manda de un pedido cancelado: I lo detecta.
   {
-    const { manejador, carpeta } = await cargar("mutado-cancelado", ["if (!ahora || ahora.estado !== ESTADO_PAGADO) {", "if (!ahora) {"]);
+    const { manejador, carpeta } = await cargar("mutado-cancelado", ["if (!estaPagado(ahora, tarjetaCuenta)) {", "if (!ahora) {"]);
     const fuga = await casoI(manejador);
     ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) sin mirar el estado al enviar salen los datos de un pedido cancelado: la comprobación I SÍ lo detecta");
     rmSync(carpeta, { recursive: true, force: true });

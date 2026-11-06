@@ -318,6 +318,17 @@ async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" |
     console.error("pago: no se pudo apuntar el pago del pedido", p.numero, error.code ?? "");
     throw new Rechazo(500, "no se pudo apuntar el pago");
   }
+  await despertarVeoaura();
+}
+
+// Pagado con tarjeta cuenta como pagado para VeoAura (dueño, 2026-11-06): se despierta el puente de vuelta para que, si
+// el pedido lleva artículos suyos, salga ya su aviso (si no, lo hace la vuelta diaria). Nunca rompe el pago.
+async function despertarVeoaura() {
+  try {
+    await fetch(`${WEB}/api/escaparate-retorno`, { method: "POST", signal: AbortSignal.timeout(3000) });
+  } catch {
+    // lo hará la vuelta diaria del cron
+  }
 }
 
 async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
