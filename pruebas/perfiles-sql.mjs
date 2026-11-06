@@ -1649,10 +1649,11 @@ try {
         ('privacidad', 'Política de privacidad', '${seccionesDe(TITULOS_P)}'::jsonb),
         ('terminos', 'Términos y condiciones', '${seccionesDe(TERMINOS_P)}'::jsonb),
         ('envios', 'Política de envíos', '[]'::jsonb);`;
-    const c39 = await nuevaBase("vz_aislada_pagos_tarjeta", ESQUEMA_P + TARIFAS_P + PAGOS + POL_PAGO);
+    const DEVOL = readFileSync("supabase/migrations/20261106100000_pagos_devolucion.sql", "utf8");
+    const c39 = await nuevaBase("vz_aislada_pagos_tarjeta", ESQUEMA_P + TARIFAS_P + PAGOS + POL_PAGO + DEVOL);
     let repetidaP = true;
     try {
-      await c39.query(PAGOS + POL_PAGO);
+      await c39.query(PAGOS + POL_PAGO + DEVOL);
     } catch (e) {
       repetidaP = false;
       console.log(String(e.message));
@@ -1693,6 +1694,25 @@ try {
     const clienteSuyo = await como(c39, "authenticated", U1, "update public.pedidos set pagado_eur = 0 where numero = 1", { confirmar: true });
     const sigue = (await c39.query("select numero, pago_estado, pagado_eur::text as eur from public.pedidos order by numero")).rows;
     ok(clienteCambiaP.ok && clienteCambiaP.cuantas === 0 && clienteSuyo.ok && clienteSuyo.cuantas === 0 && sigue[0].eur === "106.90" && sigue[1].pago_estado === null, `Pago: un cliente no puede apuntarse un pago, ni en su propio pedido (${clienteCambiaP.cuantas ?? clienteCambiaP.codigo}, ${clienteSuyo.cuantas ?? clienteSuyo.codigo})`);
+    // Devoluciones (20261106100000): 3 columnas; no entran importes de 0 ni sin fecha; el servidor las apunta sin
+    // cambiar el total; un cliente no puede apuntarse una devolución.
+    const columnasD = (await c39.query("select string_agg(column_name, ',' order by column_name) as c from information_schema.columns where table_schema = 'public' and table_name = 'pedidos' and column_name in ('devuelto_eur','devuelto_en','devolucion_referencia')")).rows[0].c;
+    const rarosD = [];
+    for (const cambio of ["devuelto_eur = 0, devuelto_en = now()", "devuelto_eur = 10", `devolucion_referencia = '${"x".repeat(300)}'`]) {
+      try {
+        await c39.query(`update public.pedidos set ${cambio} where numero = 1`);
+        rarosD.push("entra");
+      } catch (e) {
+        rarosD.push(e.code);
+      }
+    }
+    const devuelto = (await c39.query("update public.pedidos set devuelto_eur = 106.90, devuelto_en = now(), devolucion_referencia = 're_abc' where numero = 1 returning devuelto_eur::text as d, total_eur::text as t")).rows[0];
+    const clienteDevuelve = await como(c39, "authenticated", U1, "update public.pedidos set devuelto_eur = 1, devuelto_en = now() where numero = 2", { confirmar: true });
+    const comprobacionesD = Number((await c39.query("select count(*) as n from pg_constraint where conrelid = 'public.pedidos'::regclass and contype = 'c' and conname like 'pedidos_dev%'")).rows[0].n);
+    ok(
+      columnasD === "devolucion_referencia,devuelto_en,devuelto_eur" && rarosD.every((x) => x === "23514") && devuelto.d === "106.90" && Number(devuelto.t) === 100 && clienteDevuelve.ok && clienteDevuelve.cuantas === 0 && comprobacionesD === 2,
+      `Devoluciones: 3 columnas y 2 comprobaciones sin duplicar; 0 € o sin fecha no entran; el servidor la apunta sin tocar el total; un cliente no (${columnasD}; ${rarosD.join(", ")}; ${JSON.stringify(devuelto)}; ${clienteDevuelve.cuantas ?? clienteDevuelve.codigo})`
+    );
     const anonVe = await como(c39, "anon", null, "select numero from public.pedidos");
     ok(anonVe.ok && anonVe.filas.length === 0, `Pago: un visitante no ve ningún pedido (${anonVe.filas?.length ?? anonVe.codigo})`);
 

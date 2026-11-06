@@ -66,6 +66,9 @@ const fila = (numero, extra) => ({
   pagado_eur: null,
   pagado_en: null,
   pago_iniciado_en: null,
+  devuelto_eur: null,
+  devuelto_en: null,
+  devolucion_referencia: null,
   ...extra,
 });
 let pedidos;
@@ -74,7 +77,8 @@ let sinColumnas;
 let limitePermitido;
 const stripeSesiones = new Map();
 const idempotencia = new Map();
-const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0 };
+const devoluciones = new Map();
+const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0, devoluciones: [] };
 
 function reiniciar() {
   pedidos = [
@@ -91,6 +95,8 @@ function reiniciar() {
   limitePermitido = true;
   stripeSesiones.clear();
   idempotencia.clear();
+  devoluciones.clear();
+  registro.devoluciones = [];
   registro.stripePost = 0;
   registro.crearSesion = [];
   registro.expiradas = [];
@@ -123,7 +129,11 @@ function supabaseFalso(url, metodo, cabeceras, cuerpo) {
     if (sinColumnas && /pago_/.test(url.searchParams.get("select") ?? "")) return json({ code: "42703", message: "column pedidos.pago_estado does not exist" }, 400);
     const numero = eq(url, "numero");
     const id = eq(url, "id");
-    const filas = pedidos.filter((p) => (numero === null || String(p.numero) === numero) && (id === null || p.id === id));
+    const referencia = eq(url, "pago_referencia");
+    const sinDevolver = url.searchParams.get("devuelto_en") === "is.null";
+    const filas = pedidos.filter(
+      (p) => (numero === null || String(p.numero) === numero) && (id === null || p.id === id) && (referencia === null || p.pago_referencia === referencia) && (!sinDevolver || p.devuelto_en === null)
+    );
     if (metodo === "GET") return objeto ? json(filas[0] ?? null) : json(filas.slice(0, Number(url.searchParams.get("limit") ?? 1000)));
     if (metodo === "PATCH") {
       registro.patch++;
@@ -145,6 +155,18 @@ function stripeFalso(url, metodo, cabeceras, cuerpoTexto) {
   if (!/^sk_(test|live)_/.test(clave)) return json({ error: { type: "invalid_request_error", code: "api_key_invalid" } }, 401);
   const partes = url.pathname.split("/").filter(Boolean); // v1, checkout, sessions, [id], [expire]
   if (metodo === "POST") registro.stripePost++;
+  // Devoluciones: una por clave de idempotencia (como Stripe); del pago entero.
+  if (url.pathname === "/v1/refunds" && metodo === "POST") {
+    const k = cabeceras.get("idempotency-key");
+    if (k && devoluciones.has(k)) return json(devoluciones.get(k));
+    const c = Object.fromEntries(new URLSearchParams(cuerpoTexto));
+    const s = [...stripeSesiones.values()].find((x) => x.payment_intent === c.payment_intent && x.livemode === real);
+    if (!s) return json({ error: { type: "invalid_request_error", code: "resource_missing" } }, 404);
+    const d = { id: `re_${randomBytes(8).toString("hex")}`, status: "succeeded", amount: s.amount_total, payment_intent: c.payment_intent };
+    if (k) devoluciones.set(k, d);
+    registro.devoluciones.push({ campos: c, clave: k });
+    return json(d);
+  }
   if (metodo === "POST" && partes.length === 3) {
     const k = cabeceras.get("idempotency-key");
     if (k && idempotencia.has(k)) return json(stripeSesiones.get(idempotencia.get(k)));
@@ -188,7 +210,7 @@ globalThis.fetch = async (entrada, opciones = {}) => {
   const cabeceras = new Headers(opciones.headers ?? {});
   if (url.origin === FALSO) return supabaseFalso(url, metodo, cabeceras, opciones.body ? JSON.parse(opciones.body) : null);
   // Stripe se reconoce por la ruta (/v1/checkout/…) y lo contesta el Stripe simulado: la prueba nunca sale a Internet.
-  if (url.protocol === "https:" && url.pathname.startsWith("/v1/checkout/")) return stripeFalso(url, metodo, cabeceras, typeof opciones.body === "string" ? opciones.body : "");
+  if (url.protocol === "https:" && (url.pathname.startsWith("/v1/checkout/") || url.pathname === "/v1/refunds")) return stripeFalso(url, metodo, cabeceras, typeof opciones.body === "string" ? opciones.body : "");
   throw new Error(`prueba: salida de red inesperada a ${url.origin}`);
 };
 
@@ -317,6 +339,23 @@ async function bateria(manejador) {
   limitePermitido = false;
   r.limite = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 107 } });
   limitePermitido = true;
+
+  // P10 Devolver (solo el administrador; una vez) y el aviso de Stripe de una devolución hecha desde Stripe.
+  r.devolverCliente = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "devolver", numero: 101 } });
+  r.devolverSinSesion = await pedir(manejador, "POST", { cuerpo: { accion: "devolver", numero: 101 } });
+  r.devolucionesTrasCliente = registro.devoluciones.length;
+  r.devolverSinPagar = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "devolver", numero: 102 } });
+  r.devolver = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "devolver", numero: 101 } });
+  r.fila101Devuelta = { ...pedido(101) };
+  r.devolucion = registro.devoluciones[0];
+  r.devolverOtraVez = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "devolver", numero: 101 } });
+  r.devolucionesTotal = registro.devoluciones.length;
+  const avisoDev = JSON.stringify({ id: "evt_4", type: "charge.refunded", livemode: false, data: { object: { id: "ch_1", payment_intent: "pi_3Aviso456", amount_refunded: 2000, refunds: { data: [{ id: "re_desdeStripe1" }] } } } });
+  r.avisoDevolucion = await pedir(manejador, "POST", { crudo: avisoDev, cabeceras: { "stripe-signature": firmar(avisoDev) } });
+  r.fila107Devuelta = { ...pedido(107) };
+  const devueltoAntes = pedido(107).devuelto_en;
+  r.avisoDevolucionOtraVez = await pedir(manejador, "POST", { crudo: avisoDev, cabeceras: { "stripe-signature": firmar(avisoDev) } });
+  r.devueltoIgual = pedido(107).devuelto_en === devueltoAntes;
   return r;
 }
 
@@ -363,6 +402,13 @@ try {
 
   ok(r.limite.codigo === 429, `P9: pasado el límite por IP, 429 (${r.limite.codigo})`);
 
+  ok(r.devolverCliente.codigo === 403 && r.devolverSinSesion.codigo === 403 && r.devolucionesTrasCliente === 0, `P10: un cliente o un visitante no pueden devolver nada (${r.devolverCliente.codigo}, ${r.devolverSinSesion.codigo})`);
+  ok(r.devolverSinPagar.codigo === 409, `P10: un pedido sin pago con tarjeta no se devuelve (${r.devolverSinPagar.codigo})`);
+  ok(r.devolver.codigo === 200 && r.devolver.cuerpo?.devuelto_eur === 112.4 && r.devolucion?.campos.payment_intent === "pi_3Prueba123" && /^vz-devolver-/.test(r.devolucion?.clave ?? ""), `P10: el administrador devuelve el pago entero en Stripe (${JSON.stringify(r.devolver.cuerpo)})`);
+  ok(r.fila101Devuelta.devuelto_eur === 112.4 && !!r.fila101Devuelta.devuelto_en && /^re_/.test(r.fila101Devuelta.devolucion_referencia ?? "") && r.fila101Devuelta.estado === "pendiente", "P10: queda apuntado (cuánto, cuándo y su referencia) y el pedido no se cancela solo");
+  ok(r.devolverOtraVez.cuerpo?.ya === true && r.devolucionesTotal === 1, `P10: pulsarlo otra vez no devuelve dos veces (${r.devolucionesTotal})`);
+  ok(r.avisoDevolucion.codigo === 200 && r.fila107Devuelta.devuelto_eur === 20 && r.fila107Devuelta.devolucion_referencia === "re_desdeStripe1" && r.devueltoIgual, "P10: una devolución hecha desde Stripe se apunta por su aviso firmado, una sola vez");
+
   // CONTROL: cada defensa quitada en una copia de la función; la batería tiene que notarlo.
   const fuente = readFileSync("api/pago.ts", "utf8");
   const carpeta = mkdtempSync(join(tmpdir(), "vz-pago-"));
@@ -373,6 +419,7 @@ try {
     ["pagado", 's.payment_status === "paid" &&', "", (m) => m.confirmarSinCobrar.cuerpo?.pagado === true, "una sesión terminada sin cobrar se apunta como pagada (P6)"],
     ["firma", "if (!(await firmaDeStripeValida(secreto, crudo, firma))) throw", "if (false) throw", (m) => m.avisoFirmaMala.codigo === 200, "un aviso mal firmado se acepta (P8)"],
     ["dueño", "if (!p || !suyo) throw", "if (!p) throw", (m) => m.ajeno.codigo === 200, "se abre el pago del pedido de otra persona (P3)"],
+    ["devolver", 'if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw', "if (false) throw", (m) => m.devolverCliente.codigo === 200, "un cliente devuelve un pago (P10)"],
   ];
   for (const [nombre, buscar, poner, detecta, texto] of mutaciones) {
     const roto = fuente.replace(buscar, poner);
