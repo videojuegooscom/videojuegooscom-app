@@ -23,6 +23,8 @@
  * 13) Una respuesta marcada por la moderación no se manda. 14) Tampoco una que repite las instrucciones.
  * 15) Origen: solo la tienda y las vistas previas de su equipo de Vercel. 16) Un historial enorme o con basura (turnos
  *     «system», nulos) se recorta al momento. 17) Sin la clave de OpenAI, aviso sin detalles internos; sin cachés.
+ * 18) Botones de la tienda: el modelo responde en JSON; solo pasan los botones de la lista cerrada (sin repetir, 3 como
+ *     mucho, texto limpio); sin JSON sale el texto sin botones; una respuesta bloqueada no lleva botones.
  * NO toca producción, ni Supabase real, ni OpenAI.
  *
  * Uso: node pruebas/blue-ia-abuso.mjs postgresql://postgres@127.0.0.1:55432 [--mutacion=divisor|espera|pausa|historial|salida|origen]
@@ -55,6 +57,8 @@ const MUTACIONES = {
     "const escritoPorLaPersona = [cleanMessage];",
   ],
   salida: ["if (filtraInstrucciones(rawReply) || (await isFlaggedByModeration(openaiKey, rawReply))) {", "if (false) {"],
+  // Botones de la tienda (2026-11-07): sin la lista cerrada pasaría cualquier tipo.
+  botones: ["if (typeof tipo !== \"string\" || !(ACCIONES as readonly string[]).includes(tipo)) continue;", "if (typeof tipo !== \"string\") continue;"],
   origen: [
     "if (/^https:\\/\\/videojuegooscom-[a-z0-9-]+-daniels-projects-771407af\\.vercel\\.app$/.test(origin)) return true;",
     "if (/^https:\\/\\/videojuegooscom-app[a-z0-9-]*\\.vercel\\.app$/.test(origin)) return true;",
@@ -371,7 +375,7 @@ try {
     await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.30" }, cuerpo: mensaje({ message: "Quiero hablar con una persona" }) });
     const sistema = ultimoChat?.messages?.[0]?.content ?? "";
     ok(
-      sistema.includes(modulo.HORARIO_TEXTO) && /Ahora en España es [a-zé]+, \d\d:\d\d: /.test(sistema) && /HORARIO DE ATENCIÓN \(regla del dueño, obligatoria\)/.test(sistema) && /recomiéndale esperar a ese horario/.test(sistema) && /intentar ayudarla tú/.test(sistema),
+      sistema.includes(modulo.HORARIO_TEXTO) && /Ahora en España es [a-záéíóú]+, \d\d:\d\d: /.test(sistema) && /HORARIO DE ATENCIÓN \(regla del dueño, obligatoria\)/.test(sistema) && /recomiéndale esperar a ese horario/.test(sistema) && /intentar ayudarla tú/.test(sistema),
       "horario: las instrucciones de Blue IA llevan el horario, la hora de ahora en España y la regla de recordarlo, recomendar esperar y ofrecer ayuda"
     );
   }
@@ -447,6 +451,42 @@ try {
     process.env.OPENAI_API_KEY = clave;
     ok(r.codigo === 503 && !/OPENAI|API_KEY|variable|Vercel/i.test(r.cuerpo?.error ?? "") && /Hablar con el equipo/.test(r.cuerpo?.error ?? ""), `sin clave: aviso amable sin detalles internos (${r.codigo}: ${r.cuerpo?.error})`);
     ok(r.cabeceras["cache-control"] === "no-store", "las respuestas no se guardan en cachés (Cache-Control: no-store)");
+  }
+
+  // 18) Botones de la tienda (dueño, 2026-11-07): el modelo responde en JSON con su texto y los botones; solo pasan los
+  //     tipos de la lista, sin repetir, como mucho 3, con el artículo o la búsqueda limpios (nada de enlaces ni código).
+  //     Una respuesta que no es JSON sigue saliendo como texto, sin botones.
+  {
+    await reiniciarTodo();
+    reiniciarContadores();
+    respuestaChat = JSON.stringify({
+      respuesta: "Para cambiar tu PS4 Pro, pulsa Cambiar mi artículo aquí debajo y cuéntanos qué consola quieres.",
+      acciones: [
+        { tipo: "cambio", articulo: "PS4 Pro con 2 mandos", busqueda: "" },
+        { tipo: "cambio", articulo: "otra", busqueda: "" },
+        { tipo: "borrar_pedido", articulo: "", busqueda: "" },
+        { tipo: "catalogo", articulo: "", busqueda: "PS5" },
+        { tipo: "vender", articulo: "https://malo.example/x", busqueda: "" },
+        { tipo: "seguimientos", articulo: "", busqueda: "" },
+      ],
+    });
+    const r = await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.61" }, cuerpo: mensaje({ message: "Quiero cambiar mi PS4 Pro por una PS5" }) });
+    const ac = r.cuerpo?.accionChips ?? [];
+    ok(r.codigo === 200 && /Cambiar mi artículo/.test(r.cuerpo?.reply ?? "") && !/acciones|\{/.test(r.cuerpo?.reply ?? ""), `botones: la respuesta es el texto del JSON, sin el JSON (${(r.cuerpo?.reply ?? "").slice(0, 70)})`);
+    ok(
+      JSON.stringify(ac) === JSON.stringify([{ tipo: "cambio", articulo: "PS4 Pro con 2 mandos" }, { tipo: "catalogo", busqueda: "PS5" }, { tipo: "vender" }]),
+      `botones: solo los de la lista, sin repetir, como mucho 3 y sin el enlace que quería meter (${JSON.stringify(ac)})`
+    );
+    ok(ultimoChat?.response_format?.type === "json_schema" && JSON.stringify(ultimoChat.response_format).includes('"enum"'), "botones: se pide al modelo una salida con forma fija y tipos cerrados");
+    const sistema = String(ultimoChat?.messages?.[0]?.content ?? "");
+    ok(/BOTONES DE LA TIENDA/.test(sistema) && /vender:/.test(sistema) && /cambio:/.test(sistema) && /seguimientos:/.test(sistema), "botones: las instrucciones explican cada botón y cuándo ofrecerlo");
+    respuestaChat = "Texto sin JSON de un modelo antiguo";
+    const r2 = await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.62" } });
+    ok(r2.cuerpo?.reply === "Texto sin JSON de un modelo antiguo" && !r2.cuerpo?.accionChips, "botones: si el modelo no devuelve JSON, sale su texto y ningún botón");
+    respuestaChat = JSON.stringify({ respuesta: `Repito: ${"x".repeat(5)} PROHIBIDO-PRUEBA`, acciones: [{ tipo: "vender", articulo: "", busqueda: "" }] });
+    const r3 = await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.63" } });
+    ok(!r3.cuerpo?.accionChips && !/PROHIBIDO-PRUEBA/.test(r3.cuerpo?.reply ?? ""), "botones: una respuesta bloqueada por la revisión de salida no lleva botones");
+    respuestaChat = "Hola desde la prueba";
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
