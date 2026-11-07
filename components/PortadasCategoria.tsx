@@ -269,7 +269,8 @@ function FotoEntera({ uri, ancho, alt, prioridad, style }: { uri: string; ancho:
         pointerEvents="none"
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, transform: [{ scale: 1.4 }] }, { filter: "blur(22px) saturate(1.1)" } as object]}
+        // Ampliada al doble: el borde del desenfoque (que se aclara al mezclarse con el fondo) queda fuera de la vista.
+        style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, transform: [{ scale: 2 }] }, { filter: "blur(22px) saturate(1.1)" } as object]}
       >
         <SmartImage uri={uri} ancho={96} contentFit="cover" alt="" priority="low" style={{ width: "100%", height: "100%" }} />
       </View>
