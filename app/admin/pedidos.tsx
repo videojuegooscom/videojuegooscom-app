@@ -40,7 +40,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
-import { cargarTarifas, type ZonaEnvio } from "../../lib/envio";
+import { cargarTarifas, fmtKg, type ZonaEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
@@ -74,6 +74,8 @@ type Pedido = {
   productos_eur?: number | null;
   envio_eur?: number | null;
   zona_envio?: string | null;
+  // Peso del pedido con embalaje (envío por kilos, migración 20261107120000).
+  peso_kg?: number | null;
   envio_manual?: boolean | null;
   // Pago con tarjeta (migración 20261105120000; puede no existir aún).
   pago_estado?: "iniciado" | "pagado" | null;
@@ -248,7 +250,20 @@ export default function PedidosAdmin() {
       );
       setPedidos([]);
     } else {
-      setPedidos((data ?? []) as unknown as Pedido[]);
+      const lista = (data ?? []) as unknown as Pedido[];
+      setPedidos(lista);
+      // Peso de cada pedido (envío por kilos, migración 20261107120000): consulta aparte; sin la columna, no se enseña.
+      if (conEnvio && lista.length) {
+        supabase
+          .from("pedidos")
+          .select("id,peso_kg")
+          .in("id", lista.map((p) => p.id))
+          .then(({ data: pesos, error: errPeso }) => {
+            if (errPeso || !Array.isArray(pesos)) return;
+            const mapa = new Map((pesos as { id: string; peso_kg: unknown }[]).map((r) => [r.id, r.peso_kg === null || r.peso_kg === undefined ? null : Number(r.peso_kg)]));
+            setPedidos((prev) => prev.map((p) => (mapa.has(p.id) ? { ...p, peso_kg: mapa.get(p.id) ?? null } : p)));
+          });
+      }
     }
     setLoading(false);
   }, []);
@@ -599,7 +614,8 @@ export default function PedidosAdmin() {
                   <View nativeID={`pedido-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
                       Artículos {fmtEUR(Number(p.productos_eur ?? p.total_eur))} · Envío {Number(p.envio_eur ?? 0) === 0 ? "gratis" : fmtEUR(Number(p.envio_eur))}
-                      {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""} · {p.envio_manual ? "a mano" : "automático"}
+                      {nombreZona(p.zona_envio) ? ` (${nombreZona(p.zona_envio)})` : ""}
+                      {p.peso_kg ? ` · ${fmtKg(p.peso_kg)}` : ""} · {p.envio_manual ? "a mano" : "automático"}
                     </Text>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
                       <TextInput

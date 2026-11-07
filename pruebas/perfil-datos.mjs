@@ -645,6 +645,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       }
     }
     if (estado.productosAdmin && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.productosMedia ?? []);
+    // Peso de los artículos para el envío por kilos (sección TE): { id: kg } en `estado.pesos`.
+    if (estado.pesos && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /peso_kg/.test(url.searchParams.get("select") ?? "")) {
+      estado.consultasPeso = (estado.consultasPeso ?? 0) + 1;
+      return json(Object.entries(estado.pesos).map(([id, peso_kg]) => ({ id, peso_kg })));
+    }
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
@@ -6668,6 +6673,83 @@ async function seccionTE() {
     ok(ev.envio === 6.9 && ev.zona === "peninsula" && Math.abs(ev.total - 106.9) < 0.001, `TE: la analítica propia apunta el envío y la zona del pedido (${JSON.stringify({ envio: ev.envio, zona: ev.zona, total: ev.total })})`);
     ok(!JSON.stringify(estado.eventosEnviados ?? []).includes("Calle Mayor"), "TE: y nunca la dirección");
     ok(p.errores.length === 0, `TE: el pago sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  });
+
+  // TE3b) Envío por kilos con Correos (migración 20261107120000): la península con tramos; el envío es el del peso de
+  // la compra (5 kg + 0,4 kg = 5,4 kg → tramo de 10 kg, 22,95 €) y se dice el peso; sin pesos, cada artículo cuenta 2 kg.
+  await bloque("TE3b envío por kilos", async () => {
+    const TRAMOS = [
+      { hasta_kg: 1, precio_eur: 13.65 },
+      { hasta_kg: 5, precio_eur: 17.1 },
+      { hasta_kg: 10, precio_eur: 22.95 },
+      { hasta_kg: 30, precio_eur: 44.25 },
+    ];
+    const conTramos = DE_PAGO.map((z) => ({ ...z, gratis_desde_eur: null, tramos: z.zona === "peninsula" ? TRAMOS : null }));
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: conTramos, pesos: { [A1]: 5, [A2]: 0.4 } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("50001").fill("28001");
+    await p.waitForTimeout(500);
+    ok(/^Envío \(Resto de la España peninsular\): 22,95€$/.test(await texto(p, "#pago-envio")) && /^Total: 122,95€$/.test(await texto(p, "#pago-total")), `TE: con 5,4 kg a Madrid, el tramo de 10 kg (22,95 €) y el total con él (${await texto(p, "#pago-envio")} · ${await texto(p, "#pago-total")})`);
+    ok(/^Con Correos, según el peso del pedido: 5,4 kg con embalaje$/.test(await texto(p, "#pago-envio-peso")) && (estado.consultasPeso ?? 0) >= 1, `TE: dice el peso con el que se calcula (${await texto(p, "#pago-envio-peso")})`);
+    await p.getByPlaceholder("50001").fill("50003");
+    await p.waitForTimeout(300);
+    ok(/: 4,90€$/.test(await texto(p, "#pago-envio")) && (await p.locator("#pago-envio-peso").count()) === 0, `TE: en Zaragoza (sin tramos) su precio fijo y sin línea de peso (${await texto(p, "#pago-envio")})`);
+    ok(p.errores.length === 0, `TE: envío por kilos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+
+    // Sin pesos guardados: cada artículo cuenta 2 kg (2 artículos = 4 kg → tramo de 5 kg, 17,10 €).
+    const estado2 = { filas: perfil(), guardados: [], productosVacios: true, tarifas: conTramos };
+    const ctx2 = await contexto(navegador, CLIENTE, "user", estado2);
+    await conCesta(ctx2);
+    const p2 = await pagina(ctx2, "/checkout");
+    await p2.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+    await p2.getByPlaceholder("50001").fill("28001");
+    await p2.waitForTimeout(500);
+    ok(/: 17,10€$/.test(await texto(p2, "#pago-envio")) && /4 kg con embalaje/.test(await texto(p2, "#pago-envio-peso")), `TE: sin peso, cada artículo cuenta 2 kg (${await texto(p2, "#pago-envio")} · ${await texto(p2, "#pago-envio-peso")})`);
+    await ctx2.close();
+  });
+
+  // TE5b) Tarifas de envío con tramos: se ven, la calculadora usa el peso, se añade y se quita un tramo y se guardan.
+  await bloque("TE5b Tarifas por kilos", async () => {
+    const TRAMOS = [
+      { hasta_kg: 1, precio_eur: 13.65 },
+      { hasta_kg: 5, precio_eur: 17.1 },
+    ];
+    const estado = { guardados: [], tarifas: GRATIS.map((z) => ({ ...z, tramos: z.zona === "peninsula" ? TRAMOS : null })) };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/envios");
+    await p.locator("#envio-tramos-peninsula").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator('[id^="envio-tramo-kg-peninsula-"]').count()) === 2 && (await p.locator("#envio-tramo-precio-peninsula-1").inputValue()) === "17,10", "TE: la península enseña sus 2 tramos (hasta kg y precio, con dos decimales)");
+    ok((await p.locator("#envio-tramos-mano").count()) === 0 && (await p.locator("#envio-tramos-local").count()) === 1, "TE: la entrega en mano no tiene tramos; las demás zonas sí pueden");
+    await p.locator("#envios-calc-cp").fill("28001");
+    await p.locator("#envios-calc-peso").fill("3,5");
+    await p.waitForTimeout(200);
+    ok(/: 17,10€ \(con 3,5 kg\)$/.test(await texto(p, "#envios-calc-resultado")), `TE: la calculadora usa el peso (${await texto(p, "#envios-calc-resultado")})`);
+    await p.locator("#envio-tramo-anadir-peninsula").click();
+    await p.locator("#envio-tramo-kg-peninsula-2").fill("10");
+    await p.locator("#envio-tramo-precio-peninsula-2").fill("22,95");
+    await p.locator("#envios-calc-peso").fill("7");
+    await p.waitForTimeout(200);
+    ok(/: 22,95€ \(con 7 kg\)$/.test(await texto(p, "#envios-calc-resultado")), `TE: un tramo nuevo cuenta antes de guardar (${await texto(p, "#envios-calc-resultado")})`);
+    await p.getByRole("button", { name: "Quitar el tramo 1 de peninsula" }).click();
+    await p.locator("#envios-guardar").click();
+    for (let i = 0; i < 20 && !(estado.tarifasGuardadas ?? []).length; i++) await p.waitForTimeout(200);
+    const g = estado.tarifasGuardadas ?? [];
+    ok(
+      g.length === 1 && g[0].zona === "peninsula" && JSON.stringify(g[0].cuerpo.tramos) === JSON.stringify([{ hasta_kg: 5, precio_eur: 17.1 }, { hasta_kg: 10, precio_eur: 22.95 }]),
+      `TE: guarda los tramos de la zona cambiada, ordenados y sin el quitado (${JSON.stringify(g.map((x) => ({ zona: x.zona, tramos: x.cuerpo.tramos })))})`
+    );
+    await p.locator("#envio-tramo-kg-peninsula-0").fill("cinco");
+    await p.waitForTimeout(200);
+    ok(/Revisa los importes de arriba/.test(await texto(p, "#envios-calc-resultado")), "TE: un tramo mal escrito se avisa");
+    ok(/0 artículos sin peso/.test(await texto(p, "#envios-resumen")) || (await p.locator("#envios-resumen").count()) === 0, "TE: cuenta los artículos sin peso (o no sale sin pedidos)");
+    ok(await sinDesbordar(p), "TE: Tarifas por kilos no se ensancha");
+    await capturar(p, "TE5b-tarifas-kilos");
+    ok(p.errores.length === 0, `TE: Tarifas por kilos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   });
 

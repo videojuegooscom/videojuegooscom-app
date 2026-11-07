@@ -85,6 +85,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { fmtKg, PESO_SIN_DATO_KG } from "../../lib/envio";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
   AdminHeader,
@@ -481,6 +482,12 @@ const ProductListItem = React.memo(function ProductListItem({
           {/* Título y datos enteros, en las líneas que hagan falta (dueño, 2026-11-04). */}
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>{p.title}</Text>
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text>
+          {/* Peso para el envío con Correos (por kilos). Sin peso, cuenta PESO_SIN_DATO_KG. */}
+          {p.peso_kg !== undefined ? (
+            <Text nativeID={`producto-peso-${p.id}`} style={{ color: p.peso_kg ? COLORS.muted : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+              {p.peso_kg ? `Peso con embalaje: ${fmtKg(p.peso_kg)}` : `Sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
+            </Text>
+          ) : null}
 
           {/* Estado (con su color) + el resto de datos en una línea de texto. */}
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
@@ -594,6 +601,8 @@ export default function AdminProducts() {
 
   const [supportsFeaturedHome, setSupportsFeaturedHome] = useState(true);
   const [supportsReference, setSupportsReference] = useState(true);
+  // ¿Existe products.peso_kg? (migración 20261107120000; sin ella no se enseña ni se guarda el peso).
+  const [supportsPeso, setSupportsPeso] = useState(false);
   const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
   const itemsRef = useRef<ProductRow[]>([]);
@@ -617,6 +626,8 @@ export default function AdminProducts() {
   const [status, setStatus] = useState<ProductStatus>("DRAFT");
   const [condition, setCondition] = useState<ProductCondition>("GOOD");
   const [reference, setReference] = useState("");
+  // Peso con embalaje en kg (texto, con coma). Solo se guarda si la columna existe (migración 20261107120000).
+  const [peso, setPeso] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [isFeaturedHome, setIsFeaturedHome] = useState(false);
@@ -832,13 +843,25 @@ export default function AdminProducts() {
         mediaByProduct.set(media.product_id, list);
       }
 
+      // Peso para el envío por kilos (migración 20261107120000): consulta aparte; sin la columna, la lista sale igual.
+      const pesosRes = await supabase.from("products").select("id,peso_kg");
+      const pesos = new Map<string, number | null>();
+      if (!pesosRes.error && Array.isArray(pesosRes.data)) {
+        for (const r of pesosRes.data as { id: string; peso_kg: unknown }[]) {
+          pesos.set(String(r.id), r.peso_kg === null || r.peso_kg === undefined ? null : Number(r.peso_kg));
+        }
+      }
+      const conPeso = !pesosRes.error;
+
       const merged = productsData.map((item) => ({
         ...item,
+        ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
         media: (mediaByProduct.get(item.id) ?? []).sort(sortMediaRows),
       }));
 
       setSupportsFeaturedHome(supportsFeatured);
       setSupportsReference(prodResult.supportsReference);
+      setSupportsPeso(conPeso);
       setSupportsProductMedia(supportsMedia);
       // Sin «Reparación / Limpieza»: solo guarda la portada del recuadro de Inicio que lleva a Servicios (no lleva productos).
       setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]).filter((c) => !esCategoriaServicios(c.slug)));
@@ -868,6 +891,7 @@ export default function AdminProducts() {
     setStatus("DRAFT");
     setCondition("GOOD");
     setReference("");
+    setPeso("");
     setCategoryId(null);
     setIsActive(true);
     setIsFeaturedHome(false);
@@ -897,6 +921,7 @@ export default function AdminProducts() {
       setStatus(p.status ?? "DRAFT");
       setCondition(p.condition ?? "GOOD");
       setReference(p.reference ?? "");
+      setPeso(p.peso_kg ? String(p.peso_kg).replace(".", ",") : "");
       setCategoryId(p.category_id ?? null);
       setIsActive(!!p.is_active);
       setIsFeaturedHome(!!p.is_featured_home);
@@ -1274,6 +1299,15 @@ export default function AdminProducts() {
       return;
     }
 
+    // Peso con embalaje (kg, con coma o punto). Vacío = sin peso (el envío cuenta PESO_SIN_DATO_KG).
+    const pesoTexto = peso.trim().replace(",", ".");
+    const pesoKg = pesoTexto ? Number(pesoTexto) : null;
+    if (supportsPeso && pesoKg !== null && (!Number.isFinite(pesoKg) || pesoKg <= 0 || pesoKg > 100)) {
+      setModalErr("Peso inválido: escribe los kilos con embalaje, por ejemplo 2,5 (hasta 100 kg).");
+      setSaving(false);
+      return;
+    }
+
     const totalImages =
       existingMedia.filter((m) => getRowKind(m) === "image").length +
       newMedia.filter((m) => m.kind === "image").length;
@@ -1321,6 +1355,10 @@ export default function AdminProducts() {
 
     if (supportsReference) {
       payload.reference = cleanReference || null;
+    }
+
+    if (supportsPeso) {
+      payload.peso_kg = pesoKg === null ? null : Math.round(pesoKg * 1000) / 1000;
     }
 
     // Instantánea de la media pendiente ANTES de tocar el formulario: en
@@ -1793,6 +1831,38 @@ export default function AdminProducts() {
                   fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                 }}
               />
+
+              {/* Peso con embalaje: el envío con Correos va por kilos (dueño, 2026-11-07). */}
+              {supportsPeso ? (
+                <View style={{ gap: 4 }}>
+                  <TextInput
+                    nativeID="producto-peso"
+                    value={peso}
+                    onChangeText={(v) => {
+                      setPeso(v);
+                      setModalErr(null);
+                    }}
+                    placeholder="Peso con embalaje en kg (para el envío: 2,5)"
+                    placeholderTextColor="rgba(11,33,56,0.40)"
+                    keyboardType="decimal-pad"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      borderRadius: 14,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                      color: COLORS.text,
+                      backgroundColor: "#F8FBFE",
+                      fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
+                    }}
+                  />
+                  <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    {peso.trim()
+                      ? "Correos cobra por kilos: con este peso se calcula el envío."
+                      : `Sin peso, el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}.`}
+                  </Text>
+                </View>
+              ) : null}
 
               {supportsReference ? (
                 <TextInput

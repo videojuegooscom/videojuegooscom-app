@@ -62,6 +62,8 @@ export type ProductRow = {
   updated_at: string;
   is_featured_home?: boolean | null;
   reference?: string | null;
+  // Peso con embalaje, para el envío por kilos (migración 20261107120000). undefined = la columna aún no existe.
+  peso_kg?: number | null;
   media: ProductMediaRow[];
 };
 

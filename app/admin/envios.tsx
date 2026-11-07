@@ -38,7 +38,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { calcularEnvio, type Entrega, type ZonaEnvio } from "../../lib/envio";
+import { calcularEnvio, fmtKg, PESO_SIN_DATO_KG, type Entrega, type TramoEnvio, type ZonaEnvio } from "../../lib/envio";
 
 // "on-drag" en web cierra el teclado con cualquier desplazamiento (también el del navegador al enfocar un campo).
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
@@ -58,8 +58,10 @@ const COLORS = {
 
 const MIGRACION = "supabase/migrations/20261104210000_tarifas_envio.sql";
 
-// Lo que se edita de cada zona (los importes como texto, con coma, tal y como se escriben).
-type Borrador = { nombre: string; codigos: string; precio: string; gratisDesde: string; activa: boolean };
+// Lo que se edita de cada zona (los importes como texto, con coma, tal y como se escriben). Tramos por kilos
+// (migración 20261107120000_envio_por_kilos): «hasta X kg, Y €», como la tabla de Correos.
+type TramoBorrador = { kg: string; precio: string };
+type Borrador = { nombre: string; codigos: string; precio: string; gratisDesde: string; activa: boolean; tramos: TramoBorrador[] };
 
 function smartBackAdminHome() {
   try {
@@ -88,8 +90,37 @@ function leerImporte(texto: string): number | null {
 const aTexto = (n: number | null) => (n === null ? "" : String(n).replace(".", ","));
 
 function deZona(z: ZonaEnvio): Borrador {
-  return { nombre: z.nombre, codigos: z.codigos ?? "", precio: aTexto(z.precio_eur), gratisDesde: aTexto(z.gratis_desde_eur), activa: z.activa };
+  return {
+    nombre: z.nombre,
+    codigos: z.codigos ?? "",
+    precio: aTexto(z.precio_eur),
+    gratisDesde: aTexto(z.gratis_desde_eur),
+    activa: z.activa,
+    tramos: (z.tramos ?? []).map((t) => ({ kg: aTexto(t.hasta_kg), precio: t.precio_eur.toFixed(2).replace(".", ",") })),
+  };
 }
+
+// «2,5» kg → 2.5; vacío → null; otra cosa → NaN.
+function leerKg(texto: string): number | null {
+  const t = texto.trim().replace(/\s|kg/gi, "").replace(",", ".");
+  if (!t) return null;
+  return /^\d{1,3}(\.\d{1,3})?$/.test(t) && Number(t) > 0 ? Number(t) : NaN;
+}
+
+// Los tramos escritos, ordenados por peso. null si alguno está mal escrito (las filas vacías no cuentan).
+function leerTramos(filas: TramoBorrador[]): TramoEnvio[] | null {
+  const salida: TramoEnvio[] = [];
+  for (const f of filas) {
+    if (!f.kg.trim() && !f.precio.trim()) continue;
+    const kg = leerKg(f.kg);
+    const precio = leerImporte(f.precio);
+    if (kg === null || Number.isNaN(kg) || precio === null || Number.isNaN(precio) || precio > 999) return null;
+    salida.push({ hasta_kg: kg, precio_eur: precio });
+  }
+  return salida.sort((a, b) => a.hasta_kg - b.hasta_kg);
+}
+
+const mismosTramos = (a: TramoEnvio[] | null, b: TramoEnvio[] | null) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
 
 export default function AdminEnvios() {
   const { width } = useWindowDimensions();
@@ -110,6 +141,11 @@ export default function AdminEnvios() {
   const [cEntrega, setCEntrega] = useState<Entrega>("envio");
   const [cCodigo, setCCodigo] = useState("");
   const [cImporte, setCImporte] = useState("");
+  const [cPeso, setCPeso] = useState("");
+  // ¿Existe la columna de tramos? (migración 20261107120000; sin ella no se enseñan ni se guardan).
+  const [conTramos, setConTramos] = useState(false);
+  // Artículos a la venta sin peso (cuentan PESO_SIN_DATO_KG en el envío). null = sin la columna de peso.
+  const [sinPeso, setSinPeso] = useState<number | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -125,7 +161,8 @@ export default function AdminEnvios() {
         setZonas([]);
         return;
       }
-      const filas: ZonaEnvio[] = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+      const brutas = (data ?? []) as Record<string, unknown>[];
+      const filas: ZonaEnvio[] = brutas.map((r) => ({
         zona: String(r.zona ?? ""),
         nombre: String(r.nombre ?? ""),
         codigos: typeof r.codigos === "string" ? r.codigos : null,
@@ -133,8 +170,19 @@ export default function AdminEnvios() {
         gratis_desde_eur: r.gratis_desde_eur === null || r.gratis_desde_eur === undefined ? null : Number(r.gratis_desde_eur),
         activa: r.activa !== false,
         orden: Number(r.orden ?? 0) || 0,
+        tramos: Array.isArray(r.tramos)
+          ? (r.tramos as Record<string, unknown>[])
+              .map((t) => ({ hasta_kg: Number(t.hasta_kg) || 0, precio_eur: Number(t.precio_eur) || 0 }))
+              .filter((t) => t.hasta_kg > 0)
+              .sort((a, b) => a.hasta_kg - b.hasta_kg)
+          : null,
       }));
+      setConTramos(brutas.some((r) => "tramos" in r));
       setSinTabla(false);
+
+      // Artículos a la venta sin peso (sin la columna de peso, no se enseña).
+      const sp = await supabase.from("products").select("id", { count: "exact", head: true }).eq("is_active", true).is("peso_kg", null);
+      setSinPeso(sp.error ? null : sp.count ?? 0);
       setZonas(filas);
       setBorradores(Object.fromEntries(filas.map((z) => [z.zona, deZona(z)])));
 
@@ -170,9 +218,22 @@ export default function AdminEnvios() {
     cargar();
   }, [cargar]);
 
-  const cambiar = (zona: string, campo: keyof Borrador, valor: string | boolean) => {
+  const cambiar = (zona: string, campo: Exclude<keyof Borrador, "tramos">, valor: string | boolean) => {
     setMsg(null);
     setBorradores((b) => ({ ...b, [zona]: { ...b[zona], [campo]: valor } }));
+  };
+  // Tramos: cambiar una fila, añadir una vacía o quitarla.
+  const cambiarTramo = (zona: string, i: number, campo: keyof TramoBorrador, valor: string) => {
+    setMsg(null);
+    setBorradores((b) => ({ ...b, [zona]: { ...b[zona], tramos: b[zona].tramos.map((t, j) => (j === i ? { ...t, [campo]: valor } : t)) } }));
+  };
+  const anadirTramo = (zona: string) => {
+    setMsg(null);
+    setBorradores((b) => ({ ...b, [zona]: { ...b[zona], tramos: [...b[zona].tramos, { kg: "", precio: "" }] } }));
+  };
+  const quitarTramo = (zona: string, i: number) => {
+    setMsg(null);
+    setBorradores((b) => ({ ...b, [zona]: { ...b[zona], tramos: b[zona].tramos.filter((_, j) => j !== i) } }));
   };
 
   // Lo escrito como zonas (para la calculadora y para saber qué ha cambiado). null en un importe mal escrito.
@@ -183,8 +244,17 @@ export default function AdminEnvios() {
       if (!b) continue;
       const precio = leerImporte(b.precio);
       const gratis = leerImporte(b.gratisDesde);
-      if (precio === null || Number.isNaN(precio) || Number.isNaN(gratis as number)) return null;
-      salida.push({ ...z, nombre: b.nombre.trim(), codigos: z.zona === "mano" ? null : b.codigos.trim() || null, precio_eur: precio, gratis_desde_eur: gratis, activa: b.activa });
+      const tramos = leerTramos(b.tramos);
+      if (precio === null || Number.isNaN(precio) || Number.isNaN(gratis as number) || tramos === null) return null;
+      salida.push({
+        ...z,
+        nombre: b.nombre.trim(),
+        codigos: z.zona === "mano" ? null : b.codigos.trim() || null,
+        precio_eur: precio,
+        gratis_desde_eur: gratis,
+        activa: b.activa,
+        tramos: tramos.length ? tramos : null,
+      });
     }
     return salida;
   }, [zonas, borradores]);
@@ -193,13 +263,21 @@ export default function AdminEnvios() {
     if (!zonasEditadas) return [];
     return zonasEditadas.filter((e) => {
       const o = zonas.find((z) => z.zona === e.zona);
-      return !!o && (o.nombre !== e.nombre || (o.codigos ?? null) !== (e.codigos ?? null) || o.precio_eur !== e.precio_eur || o.gratis_desde_eur !== e.gratis_desde_eur || o.activa !== e.activa);
+      return (
+        !!o &&
+        (o.nombre !== e.nombre ||
+          (o.codigos ?? null) !== (e.codigos ?? null) ||
+          o.precio_eur !== e.precio_eur ||
+          o.gratis_desde_eur !== e.gratis_desde_eur ||
+          o.activa !== e.activa ||
+          !mismosTramos(o.tramos, e.tramos))
+      );
     });
   }, [zonas, zonasEditadas]);
 
   const guardar = useCallback(async () => {
     if (!zonasEditadas) {
-      setMsg({ tipo: "error", texto: "Revisa los importes: escribe solo números, con coma para los céntimos (5,90)." });
+      setMsg({ tipo: "error", texto: "Revisa los importes y los tramos: solo números, con coma para los céntimos (5,90) y los kilos (2,5)." });
       return;
     }
     const mal = zonasEditadas.find((z) => z.nombre.length < 2 || z.precio_eur > 999);
@@ -224,6 +302,7 @@ export default function AdminEnvios() {
             precio_eur: z.precio_eur,
             gratis_desde_eur: z.gratis_desde_eur,
             activa: z.activa,
+            ...(conTramos ? { tramos: z.tramos } : {}),
             updated_at: new Date().toISOString(),
             updated_by: s.session?.user?.id ?? null,
           })
@@ -238,12 +317,19 @@ export default function AdminEnvios() {
     } finally {
       setGuardando(false);
     }
-  }, [zonasEditadas, cambiadas]);
+  }, [zonasEditadas, cambiadas, conTramos]);
 
+  const pruebaPeso = leerKg(cPeso);
   const prueba = useMemo(() => {
     const importe = leerImporte(cImporte);
-    return calcularEnvio(zonasEditadas, { entrega: cEntrega, codigoPostal: cCodigo, productos: importe && !Number.isNaN(importe) ? importe : 0 });
-  }, [zonasEditadas, cEntrega, cCodigo, cImporte]);
+    const peso = leerKg(cPeso);
+    return calcularEnvio(zonasEditadas, {
+      entrega: cEntrega,
+      codigoPostal: cCodigo,
+      productos: importe && !Number.isNaN(importe) ? importe : 0,
+      pesoKg: peso && !Number.isNaN(peso) ? peso : null,
+    });
+  }, [zonasEditadas, cEntrega, cCodigo, cImporte, cPeso]);
 
   const campo = (props: React.ComponentProps<typeof TextInput>) => (
     <TextInput
@@ -328,8 +414,10 @@ export default function AdminEnvios() {
                       { icon: "cash-outline", texto: `${fmtEUR(resumen.cobrado)} de envío` },
                       { icon: "create-outline", texto: `${resumen.aMano} con el envío a mano` },
                       { icon: "help-circle-outline", texto: `${resumen.sinZona} sin zona` },
-                    ] as const
-                  ).map((d) => (
+                    ] as { icon: React.ComponentProps<typeof Ionicons>["name"]; texto: string }[]
+                  )
+                    .concat(sinPeso !== null ? [{ icon: "barbell-outline", texto: `${sinPeso} ${sinPeso === 1 ? "artículo" : "artículos"} sin peso (cuentan ${fmtKg(PESO_SIN_DATO_KG)})` }] : [])
+                    .map((d) => (
                     <View key={d.icon} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Ionicons name={d.icon} size={16} color={COLORS.accent} />
                       <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5 }}>{d.texto}</Text>
@@ -375,9 +463,64 @@ export default function AdminEnvios() {
                       </>
                     ) : null}
 
+                    {/* Tramos por kilos (Correos): si hay, el envío es el del peso del pedido; si no, el precio fijo. */}
+                    {conTramos && z.zona !== "mano" ? (
+                      <View nativeID={`envio-tramos-${z.zona}`} style={{ gap: 6 }}>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+                          {b.tramos.length
+                            ? "Precio por kilos (peso del pedido con embalaje): hasta X kg, Y €"
+                            : "Precio por kilos: sin tramos, se cobra el precio fijo de abajo"}
+                        </Text>
+                        {b.tramos.map((t, i) => (
+                          <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                              {campo({
+                                nativeID: `envio-tramo-kg-${z.zona}-${i}`,
+                                value: t.kg,
+                                onChangeText: (v) => cambiarTramo(z.zona, i, "kg", v),
+                                keyboardType: "decimal-pad",
+                                placeholder: "Hasta kg",
+                                accessibilityLabel: `Tramo ${i + 1} de ${z.zona}: hasta kilos`,
+                              })}
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              {campo({
+                                nativeID: `envio-tramo-precio-${z.zona}-${i}`,
+                                value: t.precio,
+                                onChangeText: (v) => cambiarTramo(z.zona, i, "precio", v),
+                                keyboardType: "decimal-pad",
+                                placeholder: "Precio (€)",
+                                accessibilityLabel: `Tramo ${i + 1} de ${z.zona}: precio`,
+                              })}
+                            </View>
+                            <Pressable
+                              onPress={() => quitarTramo(z.zona, i)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Quitar el tramo ${i + 1} de ${z.zona}`}
+                              hitSlop={6}
+                              style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+                            >
+                              <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
+                            </Pressable>
+                          </View>
+                        ))}
+                        <Pressable
+                          nativeID={`envio-tramo-anadir-${z.zona}`}
+                          onPress={() => anadirTramo(z.zona)}
+                          accessibilityRole="button"
+                          style={({ pressed }) => ({ alignSelf: "center", minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+                        >
+                          <Ionicons name="add-circle-outline" size={18} color={COLORS.accent} />
+                          <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Añadir tramo</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+
                     <View style={{ flexDirection: "row", gap: 10 }}>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>Precio (€)</Text>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+                          {conTramos && z.zona !== "mano" ? "Precio fijo (€), si no hay tramos" : "Precio (€)"}
+                        </Text>
                         {campo({
                           nativeID: `envio-precio-${z.zona}`,
                           value: b.precio,
@@ -483,13 +626,22 @@ export default function AdminEnvios() {
                     <View style={{ flex: 1 }}>
                       {campo({ nativeID: "envios-calc-importe", value: cImporte, onChangeText: setCImporte, keyboardType: "decimal-pad", placeholder: "Importe (€)", accessibilityLabel: "Importe de prueba" })}
                     </View>
+                    {conTramos ? (
+                      <View style={{ flex: 1 }}>
+                        {campo({ nativeID: "envios-calc-peso", value: cPeso, onChangeText: setCPeso, keyboardType: "decimal-pad", placeholder: "Peso (kg)", accessibilityLabel: "Peso de prueba" })}
+                      </View>
+                    ) : null}
                   </View>
                   <Text nativeID="envios-calc-resultado" style={{ color: COLORS.text, fontWeight: "900", textAlign: "center", lineHeight: 21 }}>
                     {!zonasEditadas
                       ? "Revisa los importes de arriba."
                       : !prueba.zona
                         ? "Escribe un código postal de 5 cifras."
-                        : `${prueba.zona.nombre}: ${prueba.precio === 0 ? "gratis" : fmtEUR(prueba.precio)}${prueba.gratisPorImporte ? " (por el importe)" : ""}${prueba.disponible ? "" : " · no se envía desde la web"}`}
+                        : `${prueba.zona.nombre}: ${prueba.precio === 0 ? "gratis" : fmtEUR(prueba.precio)}${prueba.gratisPorImporte ? " (por el importe)" : ""}${
+                            prueba.zona.tramos && !prueba.gratisPorImporte
+                              ? ` (con ${fmtKg(pruebaPeso && !Number.isNaN(pruebaPeso) ? pruebaPeso : PESO_SIN_DATO_KG)})`
+                              : ""
+                          }${prueba.disponible ? "" : " · no se envía desde la web"}`}
                   </Text>
                 </View>
               ) : null}
