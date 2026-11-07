@@ -132,7 +132,7 @@ const CATALOGO = [
     grupo: "sql", control: true, archivo: P("reservas-sql"), args: (c) => [c.servidor, "--mutacion-sin-bloqueo"], esperaTexto: "MUTACIÓN DETECTADA",
     requiereTexto: [[P("reservas-sql"), "--mutacion-sin-bloqueo"]],
   },
-  ...["divisor", "espera", "pausa", "historial", "salida", "origen"].map((m) => ({
+  ...["divisor", "espera", "pausa", "historial", "salida", "origen", "botones"].map((m) => ({
     nombre: `control: blue-ia-abuso sin la defensa «${m}»`,
     grupo: "sql", control: true, archivo: P("blue-ia-abuso"), args: (c) => [c.servidor, `--mutacion=${m}`], esperaTexto: "MUTACIÓN DETECTADA",
     requiereTexto: [[P("blue-ia-abuso"), "--mutacion="]],

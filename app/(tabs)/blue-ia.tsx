@@ -169,6 +169,53 @@ type SocialChip = { platform: string; label: string; href: string };
 // se pinta como botón que abre su ficha.
 type ProductChip = { id: string; title: string; price: number };
 
+// Un botón de la tienda que Blue IA ofrece en su respuesta (api/blue-ia.ts → accionChips; dueño, 2026-11-07): el
+// servidor solo manda el tipo (de una lista cerrada) y, si encaja, el artículo o la búsqueda que contó la persona;
+// aquí se pone el nombre, el icono y la pantalla (ACCIONES_BLUE). Nunca se abre una ruta que mande el servidor.
+type AccionChip = { tipo: string; articulo?: string; busqueda?: string };
+
+const ACCIONES_BLUE: Record<
+  string,
+  { label: (c: AccionChip) => string; icono: React.ComponentProps<typeof Ionicons>["name"]; ruta: (c: AccionChip) => string }
+> = {
+  vender: {
+    label: (c) => (c.articulo ? `Vender ${c.articulo}` : "Vender ahora"),
+    icono: "cash-outline",
+    ruta: (c) => `/vender${c.articulo ? `?articulo=${encodeURIComponent(c.articulo)}` : ""}`,
+  },
+  cambio: {
+    label: (c) => (c.articulo ? `Cambiar ${c.articulo}` : "Cambiar mi artículo"),
+    icono: "swap-horizontal-outline",
+    ruta: (c) => `/vender?cambio=1${c.articulo ? `&articulo=${encodeURIComponent(c.articulo)}` : ""}`,
+  },
+  reparar: { label: () => "Reparación y limpieza", icono: "construct-outline", ruta: () => "/servicios" },
+  catalogo: {
+    label: (c) => (c.busqueda ? `Buscar «${c.busqueda}»` : "Ver el catálogo"),
+    icono: "search-outline",
+    ruta: (c) => `/catalogo${c.busqueda ? `?query=${encodeURIComponent(c.busqueda)}` : ""}`,
+  },
+  seguimientos: { label: () => "Mis seguimientos", icono: "receipt-outline", ruta: () => "/perfil?tab=seguimientos" },
+  megusta: { label: () => "Mis me gusta", icono: "heart-outline", ruta: () => "/perfil?tab=megusta" },
+  perfil: { label: () => "Mi perfil", icono: "person-circle-outline", ruta: () => "/perfil" },
+  cesta: { label: () => "Ver mi cesta", icono: "bag-outline", ruta: () => "/cesta" },
+  foro: { label: () => "Ir al Foro", icono: "chatbubbles-outline", ruta: () => "/chat-global" },
+  envios: { label: () => "Política de envíos", icono: "cube-outline", ruta: () => "/politicas/envios" },
+  devoluciones: { label: () => "Devoluciones y garantía", icono: "shield-checkmark-outline", ruta: () => "/politicas/devoluciones" },
+  quienes: { label: () => "Quiénes somos", icono: "people-outline", ruta: () => "/quienes-somos" },
+};
+
+// Solo los botones conocidos, con su texto corto y sin nada raro (como mucho 3).
+function leerAccionChips(v: unknown): AccionChip[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const limpio = (t: unknown, max: number) =>
+    typeof t === "string" && !/[<>{}[\]`\\]|https?:/i.test(t) ? t.replace(/\s+/g, " ").trim().slice(0, max) || undefined : undefined;
+  const salida = v
+    .filter((c: any) => c && typeof c.tipo === "string" && ACCIONES_BLUE[c.tipo])
+    .map((c: any) => ({ tipo: c.tipo as string, articulo: limpio(c.articulo, 60), busqueda: limpio(c.busqueda, 40) }))
+    .slice(0, 3);
+  return salida.length ? salida : undefined;
+}
+
 type BlueIAMessage = {
   id: string;
   role: "user" | "assistant";
@@ -178,6 +225,7 @@ type BlueIAMessage = {
   isError?: boolean;
   socialChips?: SocialChip[];
   productChips?: ProductChip[];
+  accionChips?: AccionChip[];
 };
 
 
@@ -973,9 +1021,17 @@ export default function BlueIAScreen() {
               .map((c: any) => ({ id: c.id, title: c.title, price: Number(c.price ?? 0) }))
           : undefined;
 
+        // Botones de la tienda que encajan con la respuesta (vender, cambiar, reparar, buscar…).
+        const accionChips = leerAccionChips(data.accionChips);
+        if (accionChips) {
+          for (const c of accionChips) {
+            void trackEvent("blue_ia_boton", `Blue IA: botón mostrado · ${ACCIONES_BLUE[c.tipo].label({ tipo: c.tipo })}`, { metadata: { tipo: c.tipo } });
+          }
+        }
+
         setMessages((prev) => [
           ...prev,
-          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips, productChips },
+          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips, productChips, accionChips },
         ]);
 
         // Con sesión, la vuelta se guarda en su cuenta (los errores no).
@@ -1680,6 +1736,7 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
         </Text>
 
         {!!message.productChips?.length && <BlueIAProductChips chips={message.productChips} />}
+        {!!message.accionChips?.length && <BlueIAAccionChips chips={message.accionChips} />}
         {!!message.socialChips?.length && <BlueIASocialChips chips={message.socialChips} />}
       </View>
     </View>
@@ -1716,6 +1773,50 @@ function BlueIAProductChips({ chips }: { chips: ProductChip[] }) {
           <Ionicons name="chevron-forward" size={14} color={COLORS.accent} />
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+// Botones de la tienda que ofrece Blue IA (vender, cambiar, reparar, buscar, mis seguimientos…): icono, nombre (con lo
+// que contó la persona, «Vender PS4 Pro») y flecha, como los de artículos. Al tocarlos se abre esa pantalla, con lo
+// contado ya escrito en el formulario de Vender o en el buscador del catálogo.
+function BlueIAAccionChips({ chips }: { chips: AccionChip[] }) {
+  return (
+    <View nativeID="blue-ia-acciones" style={{ gap: 8 }}>
+      {chips.map((chip) => {
+        const def = ACCIONES_BLUE[chip.tipo];
+        if (!def) return null;
+        const label = def.label(chip);
+        return (
+          <Pressable
+            key={chip.tipo}
+            nativeID={`blue-ia-accion-${chip.tipo}`}
+            onPress={() => {
+              void trackEvent("blue_ia_boton", `Blue IA: botón tocado · ${def.label({ tipo: chip.tipo })}`, { metadata: { tipo: chip.tipo, con_datos: !!(chip.articulo || chip.busqueda) } });
+              router.push(def.ruta(chip) as never);
+            }}
+            accessibilityRole="link"
+            accessibilityLabel={label}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              minHeight: 44,
+              paddingVertical: 9,
+              paddingHorizontal: 12,
+              borderRadius: 14,
+              backgroundColor: "#FFFFFF",
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              opacity: pressed ? 0.82 : 1,
+            })}
+          >
+            <Ionicons name={def.icono} size={16} color={COLORS.accent} />
+            <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>{label}</Text>
+            <Ionicons name="chevron-forward" size={14} color={COLORS.accent} />
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

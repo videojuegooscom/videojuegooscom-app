@@ -440,7 +440,9 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       } catch {
         // sin cuerpo
       }
-      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: estado.blueIa(estado.preguntasBlueIa) }) });
+      // La respuesta puede ser un texto o el cuerpo entero ({reply, accionChips…}).
+      const resp = estado.blueIa(estado.preguntasBlueIa);
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(typeof resp === "string" ? { reply: resp } : resp) });
     }
     if (url.pathname === "/api/asignar-seguimiento" && estado.asignar) {
       const cuerpo = JSON.parse(peticion.postData() ?? "{}");
@@ -4935,6 +4937,78 @@ async function seccionBI() {
     await p.locator("#analitica-blue-conversaciones").waitFor({ timeout: 40000 }).catch(() => {});
     const t = (await p.locator("#analitica-blue-conversaciones").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/siguen su última conversación: 4 sesiones · empiezan una nueva: 2/.test(t), `BI: Administración → Analítica lo cuenta (${t})`);
+    ok(p.errores.length === 0, `BI: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BI6) Botones de la tienda en Blue IA (dueño, 2026-11-07): bajo la respuesta salen los botones que manda el servidor
+  // (solo los conocidos), con lo que contó la persona («Cambiar PS4 Pro», «Buscar «PS5»»); al tocar «Cambiar» se abre
+  // Vender como cambio y con el artículo ya escrito; la analítica cuenta los mostrados y los tocados.
+  {
+    const estado = {
+      filas: perfil,
+      guardados: [],
+      aceptaAnalitica: true,
+      blueIa: () => ({
+        reply: "Puedes entregar tu PS4 Pro como parte de pago: pulsa Cambiar aquí debajo y dinos qué PS5 quieres.",
+        accionChips: [
+          { tipo: "cambio", articulo: "PS4 Pro" },
+          { tipo: "catalogo", busqueda: "PS5" },
+          { tipo: "borrar_todo" },
+        ],
+      }),
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/blue-ia");
+    const campo = p.getByPlaceholder("Pregúntale a Blue IA…");
+    await campo.waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    await campo.fill("Quiero cambiar mi PS4 Pro por una PS5");
+    await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+    await p.locator("#blue-ia-acciones").waitFor({ timeout: 15000 }).catch(() => {});
+    const botones = await p.locator("#blue-ia-acciones [role=link]").allInnerTexts();
+    const limpios = botones.map((b) => b.replace(/[-]/g, "").replace(/\s+/g, " ").trim());
+    ok(limpios.length === 2 && limpios[0] === "Cambiar PS4 Pro" && limpios[1] === "Buscar «PS5»", `BI: bajo la respuesta salen sus botones, con lo que contó la persona, y solo los conocidos (${limpios.join(" | ")})`);
+    const alto = await p.locator("#blue-ia-accion-cambio").evaluate((e) => e.getBoundingClientRect().height);
+    ok(alto >= 44, `BI: los botones se tocan bien (${Math.round(alto)} px)`);
+    await capturar(p, "BI6-botones");
+    for (let i = 0; i < 20 && evento(estado, "blue_ia_boton").length < 2; i++) await p.waitForTimeout(250);
+    await p.locator("#blue-ia-accion-cambio").click();
+    await p.waitForURL(/\/vender/, { timeout: 15000 }).catch(() => {});
+    await p.getByText("Vender mi artículo").first().waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const url = new URL(p.url());
+    const articulo = await p.getByPlaceholder(/./).evaluateAll((els) => els.map((e) => e.value).filter((v) => v === "PS4 Pro").length);
+    const tv = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    ok(url.pathname === "/vender" && url.searchParams.get("cambio") === "1" && url.searchParams.get("articulo") === "PS4 Pro", `BI: «Cambiar» abre Vender como cambio, con el artículo (${url.pathname}${url.search})`);
+    ok(articulo === 1 && /Cambio: cuéntanos qué entregas/.test(tv), `BI: el formulario llega con el artículo ya escrito y explica el cambio (${articulo} campo con «PS4 Pro»)`);
+    for (let i = 0; i < 20 && !evento(estado, "blue_ia_boton").some((e) => /tocado/.test(e.step_label ?? "")); i++) await p.waitForTimeout(250);
+    const ev = evento(estado, "blue_ia_boton");
+    ok(
+      ev.filter((e) => /mostrado/.test(e.step_label ?? "")).length === 2 && ev.some((e) => /tocado · Cambiar mi artículo/.test(e.step_label ?? "") && e.metadata?.con_datos === true),
+      `BI: la analítica cuenta los botones mostrados y el tocado (${ev.map((e) => e.step_label).join(" | ")})`
+    );
+    ok(p.errores.length === 0, `BI: botones sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // BI7) Administración → Analítica: botones de Blue IA mostrados, tocados y los más tocados.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Blue IA: botón mostrado · Vender ahora", sessions: 5 },
+        { step_label: "Blue IA: botón mostrado · Cambiar mi artículo", sessions: 3 },
+        { step_label: "Blue IA: botón tocado · Vender ahora", sessions: 2 },
+        { step_label: "Blue IA: botón tocado · Cambiar mi artículo", sessions: 1 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-botones").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-blue-botones").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/mostrados 8 · tocados 3 · más tocados: Vender ahora 2, Cambiar mi artículo 1/.test(t), `BI: Administración → Analítica cuenta los botones de Blue IA (${t})`);
     ok(p.errores.length === 0, `BI: Analítica sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }

@@ -699,12 +699,18 @@ export default function VenderAhoraModal({
   visible,
   onClose,
   comoPagina = false,
+  articuloInicial = "",
+  cambio = false,
 }: {
   visible: boolean;
   onClose: () => void;
   // true = se pinta como una página completa (app/vender.tsx): sin ventana emergente ni
   // fondo oscuro, con más aire entre apartados y la flecha de volver arriba a la izquierda.
   comoPagina?: boolean;
+  // Desde un botón de Blue IA (dueño, 2026-11-07): el artículo que contó la persona, ya escrito.
+  articuloInicial?: string;
+  // Desde «Cambiar mi artículo» de Blue IA: es un cambio (parte de pago); el motivo ya lo dice.
+  cambio?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -718,9 +724,9 @@ export default function VenderAhoraModal({
   const [nombre, setNombre] = useState("");
   const [apellido, setApellido] = useState("");
 
-  const [articulo, setArticulo] = useState("");
+  const [articulo, setArticulo] = useState(articuloInicial);
   const [funcionaBien, setFuncionaBien] = useState<boolean | null>(null);
-  const [motivoVenta, setMotivoVenta] = useState("");
+  const [motivoVenta, setMotivoVenta] = useState(cambio ? "Quiero cambiarlo por otro artículo de la tienda: " : "");
   const [descripcionProblema, setDescripcionProblema] = useState("");
   const [ciudad, setCiudad] = useState("");
   const [precioEstimado, setPrecioEstimado] = useState("");
@@ -1533,7 +1539,9 @@ export default function VenderAhoraModal({
                           textAlign: "center",
                         }}
                       >
-                        Cuéntanos lo básico y te contactamos con una propuesta.
+                        {cambio
+                          ? "Cambio: cuéntanos qué entregas y, en el motivo, qué artículo de la tienda quieres. Te contactamos con una propuesta."
+                          : "Cuéntanos lo básico y te contactamos con una propuesta."}
                       </Text>
                     </View>
 

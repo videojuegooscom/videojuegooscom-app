@@ -10,7 +10,7 @@
  * - app/_layout.tsx → registra la ruta.
  */
 import React from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import VenderAhoraModal from "../components/VenderAhoraModal";
 
 function volver() {
@@ -26,5 +26,9 @@ function volver() {
 }
 
 export default function VenderScreen() {
-  return <VenderAhoraModal visible onClose={volver} comoPagina />;
+  // Desde los botones de Blue IA (dueño, 2026-11-07): ?articulo= (lo que contó la persona) y ?cambio=1 (intercambio).
+  const params = useLocalSearchParams<{ articulo?: string; cambio?: string }>();
+  const articulo = typeof params.articulo === "string" ? params.articulo.replace(/\s+/g, " ").trim().slice(0, 60) : "";
+  const cambio = params.cambio === "1";
+  return <VenderAhoraModal visible onClose={volver} comoPagina articuloInicial={articulo} cambio={cambio} />;
 }

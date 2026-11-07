@@ -592,6 +592,14 @@ export default function AdminAnalytics() {
       // Ficha de servicio (app/servicio/[id].tsx, con el formato de la de producto): fotos ampliadas y sus dos botones.
       servicioFoto: findExact("Servicio: foto ampliada"),
       // Filtros del catálogo (components/CatalogFilters.tsx, icono junto al buscador): abiertos y aplicados.
+      // Botones de la tienda que ofrece Blue IA (app/(tabs)/blue-ia.tsx): mostrados, tocados y cuáles se tocan más.
+      blueBotonesMostrados: sumStartingWith("Blue IA: botón mostrado"),
+      blueBotonesTocados: sumStartingWith("Blue IA: botón tocado"),
+      blueBotonesTop: funnel
+        .filter((f) => f.step_label.startsWith("Blue IA: botón tocado · "))
+        .sort((a, b) => b.sessions - a.sessions)
+        .slice(0, 4)
+        .map((f) => `${f.step_label.replace("Blue IA: botón tocado · ", "")} ${f.sessions}`),
       filtrosAbiertos: findExact("Filtros: abiertos"),
       filtrosCategoria: findExact("Filtros: aplicados en una categoría"),
       filtrosCatalogo: findExact("Filtros: aplicados en el catálogo"),
@@ -1018,6 +1026,23 @@ export default function AdminAnalytics() {
                     <Ionicons name="construct-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} · «Valorar el servicio» {coreFunnel.resenaServicioPedida} · reseñas publicadas {coreFunnel.resenaServicioPublicada} (sesiones)
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-blue-botones"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="sparkles-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Botones de Blue IA: mostrados {coreFunnel.blueBotonesMostrados} · tocados {coreFunnel.blueBotonesTocados}
+                      {coreFunnel.blueBotonesTop.length ? ` · más tocados: ${coreFunnel.blueBotonesTop.join(", ")}` : ""} (sesiones)
                     </Text>
                   </View>
                   <View
