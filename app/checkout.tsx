@@ -73,7 +73,7 @@ import CabeceraMarca from "../components/CabeceraMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import SmartImage from "../components/SmartImage";
 import { abrirChatEquipo } from "../components/ProductChatThread";
-import { calcularEnvio, cargarTarifas, hayEnviosDePago, limpiarCodigoPostal, type ZonaEnvio } from "../lib/envio";
+import { calcularEnvio, cargarPesos, cargarTarifas, fmtKg, hayEnviosDePago, limpiarCodigoPostal, pesoDeCompra, type ZonaEnvio } from "../lib/envio";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
@@ -437,9 +437,23 @@ export default function CheckoutScreen() {
       vivo = false;
     };
   }, []);
+  // Envío por kilos (Correos): el peso de la compra con el de cada artículo (products.peso_kg; sin peso, 2 kg).
+  const idsCesta = items.map((it) => it.id).join(",");
+  const [pesos, setPesos] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    let vivo = true;
+    cargarPesos(idsCesta ? idsCesta.split(",") : []).then((p) => {
+      if (vivo) setPesos(p);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [idsCesta]);
+  // Uno por artículo, como pedido_items en la base de datos (cada artículo es unidad única).
+  const pesoKg = useMemo(() => pesoDeCompra(items.map((it) => pesos[it.id] ?? null)), [items, pesos]);
   const envio = useMemo(
-    () => calcularEnvio(tarifas, { entrega, codigoPostal: postalCode, productos: subtotal }),
-    [tarifas, entrega, postalCode, subtotal]
+    () => calcularEnvio(tarifas, { entrega, codigoPostal: postalCode, productos: subtotal, pesoKg }),
+    [tarifas, entrega, postalCode, subtotal, pesoKg]
   );
   // A domicilio y con envíos de pago: hasta tener un código postal de 5 cifras, el envío aún no se sabe.
   const faltaCodigo = entrega === "envio" && hayEnviosDePago(tarifas) && limpiarCodigoPostal(postalCode).length !== 5;
@@ -1066,6 +1080,11 @@ export default function CheckoutScreen() {
               {envio.gratisPorImporte ? (
                 <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
                   Envío gratis por el importe de tu pedido
+                </Text>
+              ) : !faltaCodigo && entrega === "envio" && envio.zona?.tramos && shipping > 0 ? (
+                // Correos cobra por kilos: se dice el peso con el que se ha calculado.
+                <Text nativeID="pago-envio-peso" style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
+                  Con Correos, según el peso del pedido: {fmtKg(pesoKg)} con embalaje
                 </Text>
               ) : null}
               <Row nativeID="pago-total" label="Total" value={fmtEUR(total)} strong />

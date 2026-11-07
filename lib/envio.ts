@@ -9,6 +9,8 @@
  * rango («50001-50022»), después el prefijo más largo («07» = toda la provincia) y, si no hay ninguno, la zona «*». A
  * igualdad, la zona de menor orden. Sin código postal de 5 cifras aún no hay zona (la base de datos no cobra envío
  * automático; las ventas de VeoAura tampoco lo llevan). Si el importe de los artículos llega a «gratis desde», el envío es 0.
+ * Envío por kilos (dueño, 2026-11-07: «Correos va por kg»): si la zona tiene tramos, el precio es el del primer tramo que
+ * llega al peso de la compra (suma de products.peso_kg, con embalaje; un artículo sin peso cuenta PESO_SIN_DATO_KG).
  *
  * Sin la migración aplicada (la tabla no existe) o si falla la lectura, cargarTarifas devuelve null y el envío es gratis,
  * como antes.
@@ -16,6 +18,9 @@
  * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx y app/admin/pedidos.tsx.
  */
 import { supabase } from "./supabase";
+
+/** Un tramo por kilos: hasta este peso (con embalaje), este precio. */
+export type TramoEnvio = { hasta_kg: number; precio_eur: number };
 
 export type ZonaEnvio = {
   zona: string;
@@ -25,7 +30,53 @@ export type ZonaEnvio = {
   gratis_desde_eur: number | null;
   activa: boolean;
   orden: number;
+  /** Tramos por kilos (Correos, migración 20261107120000), de menor a mayor. null = precio fijo (precio_eur). */
+  tramos: TramoEnvio[] | null;
 };
+
+/** Lo que cuenta un artículo sin peso (el mismo valor que pedido_items_peso y calcular_envio en la base de datos). */
+export const PESO_SIN_DATO_KG = 2;
+
+function deTramos(v: unknown): TramoEnvio[] | null {
+  if (!Array.isArray(v)) return null;
+  const t = v
+    .map((x) => ({ hasta_kg: numero((x as Record<string, unknown>)?.hasta_kg), precio_eur: numero((x as Record<string, unknown>)?.precio_eur) }))
+    .filter((x) => x.hasta_kg > 0)
+    .sort((a, b) => a.hasta_kg - b.hasta_kg);
+  return t.length ? t : null;
+}
+
+/** El precio de un peso en una zona con tramos: el primer tramo que llega; por encima del último, el del último. */
+export function precioPorPeso(tramos: TramoEnvio[], pesoKg: number | null | undefined): number {
+  const peso = pesoKg ?? PESO_SIN_DATO_KG;
+  const tramo = tramos.find((t) => t.hasta_kg >= peso) ?? tramos[tramos.length - 1];
+  return tramo.precio_eur;
+}
+
+/** «6,5 kg», «0,2 kg», «12 kg». */
+export function fmtKg(kg: number): string {
+  return `${(Math.round(kg * 100) / 100).toLocaleString("es-ES", { maximumFractionDigits: 2 })} kg`;
+}
+
+/** El peso de una compra: la suma de sus artículos (sin peso, PESO_SIN_DATO_KG cada uno). */
+export function pesoDeCompra(pesos: (number | null | undefined)[]): number {
+  return Math.round(pesos.reduce<number>((a, p) => a + (p && p > 0 ? p : PESO_SIN_DATO_KG), 0) * 1000) / 1000;
+}
+
+/** Los pesos de unos artículos (products.peso_kg). Sin la columna o si falla, todos sin peso. */
+export async function cargarPesos(ids: string[]): Promise<Record<string, number | null>> {
+  const salida: Record<string, number | null> = {};
+  for (const id of ids) salida[id] = null;
+  if (!ids.length) return salida;
+  try {
+    const { data, error } = await supabase.from("products").select("id,peso_kg").in("id", ids);
+    if (error || !Array.isArray(data)) return salida;
+    for (const r of data as { id: string; peso_kg: unknown }[]) salida[r.id] = r.peso_kg === null || r.peso_kg === undefined ? null : numero(r.peso_kg);
+  } catch {
+    // sin red: sin peso
+  }
+  return salida;
+}
 
 export type Entrega = "envio" | "recogida";
 
@@ -54,6 +105,7 @@ function deFila(r: Record<string, unknown>): ZonaEnvio {
     gratis_desde_eur: r.gratis_desde_eur === null || r.gratis_desde_eur === undefined ? null : numero(r.gratis_desde_eur),
     activa: r.activa !== false,
     orden: numero(r.orden),
+    tramos: deTramos(r.tramos),
   };
 }
 
@@ -108,28 +160,32 @@ export function zonaDeEntrega(zonas: ZonaEnvio[], entrega: Entrega, codigoPostal
   return defecto;
 }
 
-/** El envío de una compra con las tarifas de la tienda. Sin tarifas (null), gratis como antes. */
+/**
+ * El envío de una compra con las tarifas de la tienda. Sin tarifas (null), gratis como antes. Con tramos por kilos, el
+ * del peso de la compra (pesoKg; sin peso, PESO_SIN_DATO_KG), como calcular_envio en la base de datos.
+ */
 export function calcularEnvio(
   zonas: ZonaEnvio[] | null,
-  { entrega, codigoPostal, productos }: { entrega: Entrega; codigoPostal?: string | null; productos: number }
+  { entrega, codigoPostal, productos, pesoKg }: { entrega: Entrega; codigoPostal?: string | null; productos: number; pesoKg?: number | null }
 ): EnvioCalculado {
   if (!zonas) return { precio: 0, zona: null, gratisPorImporte: false, disponible: true };
   const zona = zonaDeEntrega(zonas, entrega, codigoPostal);
   if (!zona) return { precio: 0, zona: null, gratisPorImporte: false, disponible: true };
   const gratisPorImporte = zona.gratis_desde_eur !== null && productos >= zona.gratis_desde_eur;
-  return { precio: gratisPorImporte ? 0 : zona.precio_eur, zona, gratisPorImporte, disponible: zona.activa };
+  const tarifa = zona.tramos ? precioPorPeso(zona.tramos, pesoKg) : zona.precio_eur;
+  return { precio: gratisPorImporte ? 0 : tarifa, zona, gratisPorImporte, disponible: zona.activa };
 }
 
 /** ¿Hay algún envío que cueste algo? (si todas las zonas están a 0, la cesta dice «Gratis» sin pedir el código postal) */
 export function hayEnviosDePago(zonas: ZonaEnvio[] | null): boolean {
-  return !!zonas && zonas.some((z) => z.activa && z.precio_eur > 0);
+  return !!zonas && zonas.some((z) => z.activa && (z.precio_eur > 0 || !!z.tramos?.some((t) => t.precio_eur > 0)));
 }
 
 /** El menor importe a partir del cual alguna zona de envío a domicilio sale gratis (para el aviso de la cesta). */
 export function gratisDesdeMinimo(zonas: ZonaEnvio[] | null): number | null {
   if (!zonas) return null;
   const importes = zonas
-    .filter((z) => z.zona !== "mano" && z.activa && z.precio_eur > 0 && z.gratis_desde_eur !== null)
+    .filter((z) => z.zona !== "mano" && z.activa && (z.precio_eur > 0 || !!z.tramos) && z.gratis_desde_eur !== null)
     .map((z) => z.gratis_desde_eur as number);
   return importes.length ? Math.min(...importes) : null;
 }

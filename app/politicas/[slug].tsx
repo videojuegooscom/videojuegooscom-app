@@ -84,7 +84,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Coste de envío",
         body:
-          "El coste se calcula automáticamente al finalizar la compra, según el destino y el importe del pedido, y lo ves antes de pagar o confirmar.",
+          "Enviamos con Correos. El coste se calcula automáticamente al finalizar la compra, según el destino y el peso del pedido con su embalaje, y lo ves antes de pagar o confirmar.",
       },
       {
         heading: "Entregas en Zaragoza",

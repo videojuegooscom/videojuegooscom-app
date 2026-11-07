@@ -932,7 +932,7 @@ export default function CestaScreen() {
             <Row
               nativeID="cesta-envio"
               label="Envío"
-              value={envioDePago ? "Se calcula con tu código postal" : "Gratis"}
+              value={envioDePago ? (tarifas?.some((z) => z.activa && z.tramos) ? "Según tu código postal y el peso" : "Se calcula con tu código postal") : "Gratis"}
               tono={envioDePago ? "suave" : "gratis"}
             />
             {envioDePago && gratisDesde !== null ? (

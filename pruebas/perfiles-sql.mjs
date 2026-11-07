@@ -1616,6 +1616,101 @@ try {
     const sinEnvio = (await c38.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Ana', 'ana@example.com', '600999888', 'envio', '28001', 100) returning envio_eur::text as en, total_eur::text as t")).rows[0];
     ok(sinEnvio.en !== "6.90" && Number(sinEnvio.t) === 100, `(control) sin el disparador el pedido no lleva su envío: la prueba SÍ lo detecta (${JSON.stringify(sinEnvio)})`);
     await c38.end();
+
+    // Envío por kilos con Correos (20261107120000_envio_por_kilos.sql, encima de 20261107100000): peso de los artículos
+    // (estimado por tipo, sin pisar el que ya hay), tramos de Paq Estándar en la península, peso del pedido al guardar
+    // sus artículos y su envío por tramo; el envío a mano no se toca; la política de envíos lo explica.
+    const CORREOS_K = readFileSync("supabase/migrations/20261107100000_tarifas_envio_correos.sql", "utf8");
+    const KILOS = readFileSync("supabase/migrations/20261107120000_envio_por_kilos.sql", "utf8");
+    const ESQUEMA_K = `
+      create table public.products (
+        id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      create table public.pedido_items (
+        id uuid primary key default gen_random_uuid(), pedido_id uuid not null references public.pedidos (id) on delete cascade,
+        product_id uuid references public.products (id) on delete set null, titulo text not null, precio_eur numeric not null default 0);
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('envios', 'Política de envíos', '[
+        {"heading": "Zonas de envío", "body": "Enviamos a toda la península."},
+        {"heading": "Coste de envío", "body": "El coste se calcula automáticamente al finalizar la compra, según el destino y el importe del pedido, y lo ves antes de pagar o confirmar."}]'::jsonb);
+      insert into public.products (title, price_eur) values
+        ('Consola Nintendo Switch', 130), ('Playstation 5 Slim Con Lector', 570), ('Minecraft Videojuego Sin Caset', 15),
+        ('Nintendo Switch + Accesorios + Funda', 145), ('Smart TV Philips 55” 4K', 200), ('Cosa rara sin tipo', 10),
+        ('Mando Pro Original Nintendo Switch', 33);`;
+    const c41 = await nuevaBase("vz_aislada_envio_kilos", ESQUEMA_T + ESQUEMA_K + TARIFAS + CORREOS_K);
+    await c41.query("alter table public.products add column peso_kg numeric(6,3)");
+    await c41.query("update public.products set peso_kg = 0.7 where title like 'Mando Pro%'");
+    let repetidaK = true;
+    try {
+      await c41.query(KILOS);
+      await c41.query(KILOS);
+    } catch (e) {
+      repetidaK = false;
+      console.log(String(e.message));
+    }
+    const pesosK = Object.fromEntries((await c41.query("select title, peso_kg::float8 as p from public.products")).rows.map((r) => [r.title, r.p]));
+    ok(
+      repetidaK && pesosK["Consola Nintendo Switch"] === 2 && pesosK["Playstation 5 Slim Con Lector"] === 5 && pesosK["Minecraft Videojuego Sin Caset"] === 0.2 &&
+        pesosK["Nintendo Switch + Accesorios + Funda"] === 2 && pesosK["Smart TV Philips 55” 4K"] === 20 && pesosK["Cosa rara sin tipo"] === null,
+      `Kilos: se puede aplicar dos veces y cada artículo recibe su peso estimado por tipo (una consola con funda no cuenta como funda; lo desconocido, sin peso) (${JSON.stringify(pesosK)})`
+    );
+    ok(pesosK["Mando Pro Original Nintendo Switch"] === 0.7, "Kilos: el peso que ya tenía un artículo no se toca");
+    const penK = (await c41.query("select precio_eur::text as p, jsonb_array_length(tramos) as n, tramos -> 0 ->> 'precio_eur' as primero, tramos -> -1 ->> 'precio_eur' as ultimo from public.tarifas_envio where zona = 'peninsula'")).rows[0];
+    ok(penK.p === "13.65" && penK.n === 10 && Number(penK.primero) === 13.65 && Number(penK.ultimo) === 44.25, `Kilos: la península con los 10 tramos de Paq Estándar (${JSON.stringify(penK)})`);
+
+    const id = async (t) => (await c41.query("select id from public.products where title = $1", [t])).rows[0].id;
+    const SW = await id("Consola Nintendo Switch");
+    const PS5 = await id("Playstation 5 Slim Con Lector");
+    const MC = await id("Minecraft Videojuego Sin Caset");
+    const TV = await id("Smart TV Philips 55” 4K");
+    const RARA = await id("Cosa rara sin tipo");
+    const SWF = await id("Nintendo Switch + Accesorios + Funda");
+    // Como crear_pedido_idempotente: primero el pedido (artículos en total_eur) y después sus artículos.
+    const pedidoK = async (cp, productos, total, entrega = "envio") => {
+      const p = (await c41.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Ana', 'ana@example.com', '600999888', $1, $2, $3) returning id", [entrega, cp, total])).rows[0];
+      for (const pr of productos) await c41.query("insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) select $1, id, title, price_eur from public.products where id = $2", [p.id, pr]);
+      return (await c41.query("select id, peso_kg::float8 as kg, envio_eur::text as en, total_eur::text as t, zona_envio from public.pedidos where id = $1", [p.id])).rows[0];
+    };
+    const k1 = await pedidoK("28001", [MC], 15);
+    ok(k1.kg === 0.2 && k1.en === "13.65" && Number(k1.t) === 28.65, `Kilos: un juego (0,2 kg) a Madrid paga el tramo de 1 kg, 13,65 € (${JSON.stringify(k1)})`);
+    const k2 = await pedidoK("28001", [SW, MC], 145);
+    ok(k2.kg === 2.2 && k2.en === "17.10" && Number(k2.t) === 162.1, `Kilos: consola + juego (2,2 kg) paga el tramo de 3 kg, 17,10 € (${JSON.stringify(k2)})`);
+    const k3 = await pedidoK("28001", [PS5, SW], 700);
+    ok(k3.kg === 7 && k3.en === "22.95", `Kilos: 7 kg paga el tramo de 10 kg, 22,95 € (${JSON.stringify(k3)})`);
+    const k4 = await pedidoK("28001", [RARA], 10);
+    ok(k4.kg === 2 && k4.en === "17.10", `Kilos: un artículo sin peso cuenta 2 kg (${JSON.stringify(k4)})`);
+    const k5 = await pedidoK("28001", [TV, PS5, SW, SWF, RARA], 1000);
+    ok(k5.kg === 31 && k5.en === "44.25", `Kilos: por encima de 30 kg, el último tramo (lo ajusta el dueño en Pedidos) (${JSON.stringify(k5)})`);
+    const k6 = await pedidoK("50003", [PS5], 570);
+    ok(k6.en === "0.00" && k6.zona_envio === "local", `Kilos: en Zaragoza sigue gratis (${JSON.stringify(k6)})`);
+    const k7 = await pedidoK(null, [PS5], 570, "recogida");
+    ok(k7.en === "0.00" && k7.zona_envio === "mano", "Kilos: en mano sigue gratis");
+    // A mano: el envío que pone el administrador no se recalcula al añadir artículos.
+    const manual = (await c41.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Eva', 'eva@example.com', '600777666', 'envio', '28001', 15) returning id")).rows[0];
+    await c41.query("update public.pedidos set envio_eur = 3 where id = $1", [manual.id]);
+    await c41.query("insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) values ($1, $2, 'PS5', 570)", [manual.id, PS5]);
+    const manualK = (await c41.query("select envio_eur::text as en, envio_manual, peso_kg::float8 as kg from public.pedidos where id = $1", [manual.id])).rows[0];
+    ok(manualK.en === "3.00" && manualK.envio_manual === true && manualK.kg === 5, `Kilos: el envío puesto a mano no se toca aunque cambie el peso (${JSON.stringify(manualK)})`);
+    const anonK = await como(c41, "anon", null, "select public.calcular_envio('envio', '28001', 100, 4.5) as e");
+    ok(anonK.ok && anonK.filas[0].e === "17.10", `Kilos: la página puede pedir el envío de un peso (como antes la de importe) (${JSON.stringify(anonK.filas?.[0] ?? anonK.mensaje)})`);
+    const polK = (await c41.query("select sections -> 1 ->> 'body' as b from public.policy_pages where slug = 'envios'")).rows[0].b;
+    ok(/^Enviamos con Correos\. .*el peso del pedido con su embalaje/.test(polK), `Kilos: la política de envíos dice que va con Correos y por el peso (${polK.slice(0, 80)})`);
+    await c41.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin el disparador de los artículos, el pedido no tendría peso y pagaría como 2 kg.
+    const sinPesoPedido = KILOS.replace(/do \$\$\nbegin\n  if not exists \(select 1 from pg_trigger where tgname = 'trg_pedido_items_peso'[\s\S]*?end \$\$;\n/, "");
+    ok(sinPesoPedido !== KILOS, "(control) se ha podido quitar el disparador del peso en la copia de prueba");
+    const c42 = await nuevaBase("vz_aislada_envio_kilos_sin_peso", ESQUEMA_T + ESQUEMA_K + TARIFAS + CORREOS_K + sinPesoPedido);
+    const ps5c = (await c42.query("select id from public.products where title like 'Playstation 5%'")).rows[0].id;
+    const swc = (await c42.query("select id from public.products where title = 'Consola Nintendo Switch'")).rows[0].id;
+    const pc = (await c42.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur) values ('Ana', 'ana@example.com', '600999888', 'envio', '28001', 700) returning id")).rows[0];
+    for (const pr of [ps5c, swc]) await c42.query("insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) values ($1, $2, 'x', 1)", [pc.id, pr]);
+    const pcK = (await c42.query("select envio_eur::text as en from public.pedidos where id = $1", [pc.id])).rows[0];
+    ok(pcK.en !== "22.95", `(control) sin el disparador del peso, 7 kg no pagan su tramo (${pcK.en}): la prueba SÍ lo detecta`);
+    await c42.end();
   }
 
   // Pago con tarjeta (20261105120000_pagos_tarjeta.sql), sobre los pedidos como en producción (con sus tarifas de envío), y
