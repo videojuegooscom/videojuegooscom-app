@@ -1777,6 +1777,17 @@ try {
     ok(!/recoger tu pedido en tienda|nuestra tienda física|sale de tienda|Recogida en tienda/.test(envTexto) && /a domicilio o en mano en Cuarte de Huerva/.test(envK.intro), "Envíos: sin «recoger en tienda», «tienda física» ni «sale de tienda»");
     ok(envK.sections.length === 5 && envK.sections[3].heading === "Entregas en Zaragoza" && /llega a destino en 72 horas como máximo/.test(envK.sections[1].body), "Envíos: plazos reales y «Entregas en Zaragoza» en su sitio");
     ok(envK.sections[2].body === "Lo ha cambiado el dueño a mano." && envK.sections[0].body === "Enviamos a toda la península." && envK.sections[4].body === "Bien protegido.", "Envíos: lo que el dueño cambió a mano y lo demás se queda igual");
+
+    // Primeros precios (20261107100000): península 6,90 €; islas, Ceuta y Melilla «escríbenos»; en mano y Zaragoza, 0 €.
+    // No pisa lo que el dueño haya puesto (updated_by) y repetirla no cambia nada.
+    const CORREOS = readFileSync("supabase/migrations/20261107100000_tarifas_envio_correos.sql", "utf8");
+    await c39.query(`update public.tarifas_envio set precio_eur = 9.50, updated_by = '${U1}' where zona = 'canarias'`);
+    await c39.query(CORREOS);
+    await c39.query(CORREOS);
+    const tar = Object.fromEntries((await c39.query("select zona, precio_eur::text as p, activa from public.tarifas_envio")).rows.map((r) => [r.zona, `${r.p}/${r.activa}`]));
+    ok(tar.peninsula === "6.90/true" && tar.mano === "0.00/true" && tar.local === "0.00/true", `Tarifas Correos: península 6,90 €; en mano y Zaragoza siguen a 0 € (${JSON.stringify(tar)})`);
+    ok(tar.baleares === "0.00/false" && tar.ceuta_melilla === "0.00/false", "Tarifas Correos: Baleares, Ceuta y Melilla pasan a «escríbenos» (sin envío desde la web)");
+    ok(tar.canarias === "9.50/true", "Tarifas Correos: lo que el dueño ya había puesto no se toca");
     await c39.end();
 
     // PRUEBA DE LAS PRUEBAS: sin la condición «ya nombra a Stripe», la frase se repetiría; sin las comprobaciones, entraría
