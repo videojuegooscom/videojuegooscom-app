@@ -88,10 +88,12 @@ import {
   NombreCategoria,
   OPACIDAD_PORTADA_DEFECTO,
   OPACIDAD_PORTADA_MIN,
+  PORTADA_ENTERA,
   PROPORCION_RECUADRO_INICIO,
   PortadaRecuadro,
   SALIDA_ENCUADRE,
   encuadresDe,
+  enterasInicioDe,
   esCategoriaServicios,
   faltaColumnaPortadas,
   olvidarPortadasCategorias,
@@ -334,7 +336,8 @@ export default function AdminCategories() {
   const [isActive, setIsActive] = useState(true);
   const [portadas, setPortadas] = useState<string[]>([]);
   // El encuadre para el recuadro de Inicio de cada portada (mismo orden; "" = sin encuadrar, Inicio la recorta por el
-  // centro). Columna portadas_inicio (migración 20261101170000): sin ella no se ofrece encuadrar.
+  // centro; PORTADA_ENTERA = se ve completa en Inicio y dentro de la categoría, con la misma foto desenfocada detrás).
+  // Columna portadas_inicio (migración 20261101170000): sin ella no se ofrece encuadrar.
   const [encuadres, setEncuadres] = useState<string[]>([]);
   const [supportsEncuadre, setSupportsEncuadre] = useState(true);
   // Ventana de encuadre abierta: una foto nueva (antes de subirla) o una portada ya subida (indice).
@@ -846,6 +849,7 @@ export default function AdminCategories() {
                 {fotos.length ? (
                   <PortadaRecuadro
                     imagenes={fotos}
+                    enteras={enterasInicioDe(c)}
                     opacidad={opacidadDe(c)}
                     titulo={c.name}
                     proporcion={PROPORCION_RECUADRO_INICIO}
@@ -1028,7 +1032,7 @@ export default function AdminCategories() {
                     {maxPortadas <= 1
                       ? "De momento cabe una portada (falta activar las 3 en la base de datos)."
                       : supportsEncuadre
-                        ? "Al subir una foto la encuadras con la forma del recuadro de Inicio («Encuadrar» la cambia). Se pasan solas; la primera es la principal."
+                        ? "Al subir una foto la encuadras con la forma del recuadro de Inicio («Encuadrar» la cambia; «Entera» la enseña completa, sin recortar, en Inicio y dentro de la categoría). Se pasan solas; la primera es la principal."
                         : "Se pasan solas en la tienda; la primera es la principal. Mejor fotos horizontales."}
                   </Text>
 
@@ -1047,13 +1051,41 @@ export default function AdminCategories() {
                           backgroundColor: "#F8FBFE",
                         }}
                       >
+                        {/* Como en la tienda: el encuadre, la foto entera («Entera») o la foto recortada por el centro. */}
                         <SmartImage
-                          uri={encuadres[i] || url}
-                          contentFit="cover"
+                          uri={encuadres[i] && encuadres[i] !== PORTADA_ENTERA ? encuadres[i] : url}
+                          contentFit={encuadres[i] === PORTADA_ENTERA ? "contain" : "cover"}
                           ancho={150}
-                          alt={`Portada ${i + 1}${encuadres[i] ? " (encuadrada para Inicio)" : ""}`}
+                          alt={`Portada ${i + 1}${encuadres[i] === PORTADA_ENTERA ? " (entera)" : encuadres[i] ? " (encuadrada para Inicio)" : ""}`}
                           style={{ width: "100%", height: "100%" }}
                         />
+                        {/* «Entera»: en Inicio y dentro de la categoría se ve la foto completa, sin recortar (dueño,
+                            2026-11-07). «Encuadrar» la vuelve a recortar. */}
+                        {supportsEncuadre && encuadres[i] !== PORTADA_ENTERA ? (
+                          <Pressable
+                            nativeID={`categoria-entera-${i}`}
+                            onPress={() => setEncuadres((prev) => prev.map((e, k) => (k === i ? PORTADA_ENTERA : e)))}
+                            disabled={subiendo}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Ver la portada ${i + 1} entera, sin recortar`}
+                            style={({ pressed }) => ({
+                              position: "absolute",
+                              right: 4,
+                              top: 4,
+                              height: 32,
+                              paddingHorizontal: 9,
+                              borderRadius: 16,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 4,
+                              backgroundColor: "rgba(11,33,56,0.72)",
+                              opacity: pressed ? 0.8 : 1,
+                            })}
+                          >
+                            <Ionicons name="expand-outline" size={15} color="#FFFFFF" />
+                            <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11.5 }}>Entera</Text>
+                          </Pressable>
+                        ) : null}
                         {supportsEncuadre ? (
                           <Pressable
                             onPress={() => setRecorte({ uri: url, remota: true, indice: i })}
@@ -1192,7 +1224,8 @@ export default function AdminCategories() {
                         <NombreCategoria titulo={name.trim() || "Nombre de la categoría"} />
                         <View style={{ borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" }}>
                           <PortadaRecuadro
-                            imagenes={portadas.map((u, i) => encuadres[i] || u)}
+                            imagenes={portadas.map((u, i) => (encuadres[i] && encuadres[i] !== PORTADA_ENTERA ? encuadres[i] : u))}
+                            enteras={portadas.map((_, i) => encuadres[i] === PORTADA_ENTERA)}
                             opacidad={opacidad}
                             titulo={name.trim() || "Nombre de la categoría"}
                             proporcion={PROPORCION_RECUADRO_INICIO}

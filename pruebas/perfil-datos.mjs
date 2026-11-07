@@ -2560,6 +2560,64 @@ async function seccionEN() {
     await p.locator("#catalogo-portada img").first().waitFor({ timeout: 20000 }).catch(() => {});
     const cabecera = await p.evaluate(() => Array.from(document.querySelectorAll("#catalogo-portada img")).map((i) => i.getAttribute("src") ?? ""));
     ok(cabecera.length > 0 && cabecera.every((s) => /ps5\.jpg/.test(s)), `EN: dentro de la categoría, la cabecera sigue con la foto entera (${cabecera[0]?.slice(-40)})`);
+    ok((await p.locator('#catalogo-portada [data-portada-entera="1"]').count()) === 0, "EN: sin la marca «entera», la cabecera llena la caja como siempre");
+    ok(p.errores.length === 0, `EN: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // EN2b) Una portada marcada «entera» (dueño, 2026-11-07) se ve completa, sin recortar, en el recuadro de Inicio y
+  // dentro de la categoría: la foto nítida con su forma (contain) y la misma, desenfocada, detrás.
+  {
+    const estado = { filas: perfil(CLIENTE.id), guardados: [], categorias: [ps5({ portadas_inicio: ["entera"] })], productosVacios: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator('[data-testid="seccion-categorias"]').scrollIntoViewIfNeeded().catch(() => {});
+    await p.locator('[data-testid="categoria-playstation-5"] img').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const medir = (sel) =>
+      p.evaluate((s) => {
+        const caja = document.querySelector(s);
+        const imgs = caja ? Array.from(caja.querySelectorAll("img")) : [];
+        return {
+          entera: !!caja,
+          ajuste: imgs.length ? getComputedStyle(imgs[imgs.length - 1]).objectFit : "",
+          desenfoque: !!caja && Array.from(caja.querySelectorAll("*")).some((e) => /blur/.test(getComputedStyle(e).filter)),
+          fotos: imgs.map((i) => i.getAttribute("src") ?? "").filter((u) => /ps5\.jpg/.test(u)).length,
+          ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        };
+      }, sel);
+    const m = await medir('[data-testid="categoria-playstation-5"] [data-portada-entera="1"]');
+    ok(m.entera && m.ajuste === "contain" && m.desenfoque && m.fotos === 2, `EN: marcada «entera», el recuadro de Inicio enseña la foto completa con la misma desenfocada detrás (${JSON.stringify(m)})`);
+    ok(m.ancho <= 391, `EN: Inicio no se ensancha (${m.ancho})`);
+    await capturar(p, "EN2b-inicio-entera");
+    await p.goto(BASE + "/catalogo?cat=playstation-5", { waitUntil: "load" });
+    await p.locator("#catalogo-portada img").first().waitFor({ timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const c = await medir('#catalogo-portada [data-portada-entera="1"]');
+    ok(c.entera && c.ajuste === "contain" && c.desenfoque, `EN: y dentro de la categoría también, sin recortar (${JSON.stringify(c)})`);
+    await capturar(p, "EN2b-categoria-entera");
+    ok(p.errores.length === 0, `EN: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // EN2c) En el editor, «Entera» cambia el encuadre de una portada por la marca «entera» y así se guarda.
+  {
+    const encuadreUrl = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/categorias/inicio-1-abc.jpg";
+    const estado = { filas: perfil(ADMIN.id), guardados: [], categorias: [ps5({ portadas_inicio: [encuadreUrl] })] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/categories");
+    await p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 30000 });
+    await p.locator("#categoria-entera-0").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await p.locator("#categoria-entera-0").count()) === 1, "EN: con encuadre, la portada ofrece «Entera»");
+    await p.locator("#categoria-entera-0").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#categoria-entera-0").count()) === 0, "EN: al tocarlo queda entera (ya no lo ofrece; «Encuadrar» la vuelve a recortar)");
+    const previa = await p.locator('#categoria-vista-previa [data-portada-entera="1"]').count();
+    ok(previa === 1, `EN: «Cómo se ve en Inicio» la enseña entera (${previa})`);
+    await p.getByText("Guardar cambios", { exact: true }).last().click();
+    for (let i = 0; i < 20 && !(estado.categoriasGuardadas ?? []).length; i++) await p.waitForTimeout(250);
+    const g = (estado.categoriasGuardadas ?? []).at(-1)?.cuerpo;
+    ok(!!g && Array.isArray(g.portadas_inicio) && g.portadas_inicio[0] === "entera", `EN: al guardar, esa portada va marcada «entera» (${JSON.stringify(g?.portadas_inicio)})`);
     ok(p.errores.length === 0, `EN: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }

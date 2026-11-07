@@ -98,6 +98,7 @@ import {
   NombreCategoria,
   PortadaRecuadro,
   useOpacidadesPortadas,
+  useEnterasPortadas,
   usePortadasCategorias,
 } from "../../components/PortadasCategoria";
 import { useRecarga } from "../../components/TirarParaActualizar";
@@ -1102,9 +1103,12 @@ function CategoryCard({
   isMobile,
   portadas,
   opacidad,
+  enteras,
   testID,
 }: {
   testID?: string;
+  /** Qué portadas se ven enteras, sin recortar (el dueño las marca «Entera» en el editor). */
+  enteras?: boolean[];
   title: string;
   icon: IoniconName;
   onPress: () => void;
@@ -1148,6 +1152,7 @@ function CategoryCard({
           // editor: se ve justo lo que eligió el dueño.
           <PortadaRecuadro
             imagenes={portadas!}
+            enteras={enteras}
             opacidad={opacidad ?? OPACIDAD_PORTADA_DEFECTO}
             titulo={title}
             {...(isMobile ? { proporcion: PROPORCION_RECUADRO_INICIO } : { alto: 168 })}
@@ -1561,6 +1566,7 @@ export default function HomeScreen() {
   // Portadas de las categorías (panel → Categorías), por slug: salen en sus tarjetas.
   const portadasCategorias = usePortadasCategorias();
   const opacidadesPortadas = useOpacidadesPortadas();
+  const enterasPortadas = useEnterasPortadas();
 
   // Ocultar/mostrar la barra de búsqueda flotante
   // según la dirección del scroll: al bajar se ocultan (más sitio para ver
@@ -2049,6 +2055,7 @@ export default function HomeScreen() {
                     widthPercent={categoryCardWidth(category.span)}
                     isMobile={isMobile}
                     portadas={portadasCategorias[category.cat]}
+                    enteras={enterasPortadas[category.cat]}
                     opacidad={opacidadesPortadas[category.cat]}
                     testID={`categoria-${category.cat}`}
                   />
