@@ -591,6 +591,10 @@ export default function AdminAnalytics() {
       fotoZoom: findExact("Ficha: zoom en la foto"),
       // Ficha de servicio (app/servicio/[id].tsx, con el formato de la de producto): fotos ampliadas y sus dos botones.
       servicioFoto: findExact("Servicio: foto ampliada"),
+      // Filtros del catálogo (components/CatalogFilters.tsx, icono junto al buscador): abiertos y aplicados.
+      filtrosAbiertos: findExact("Filtros: abiertos"),
+      filtrosCategoria: findExact("Filtros: aplicados en una categoría"),
+      filtrosCatalogo: findExact("Filtros: aplicados en el catálogo"),
       servicioContratar: findExact("Servicio: Contratar servicio ahora"),
       servicioPreguntar: findExact("Servicio: Preguntar por este servicio"),
       // «Me gusta»: la pestaña de Perfil (app/(tabs)/perfil.tsx) y los dados a servicios (app/servicio/[id].tsx).
@@ -1014,6 +1018,22 @@ export default function AdminAnalytics() {
                     <Ionicons name="construct-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} · «Valorar el servicio» {coreFunnel.resenaServicioPedida} · reseñas publicadas {coreFunnel.resenaServicioPublicada} (sesiones)
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-filtros"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="options-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Filtros del catálogo: abiertos {coreFunnel.filtrosAbiertos} · aplicados dentro de una categoría {coreFunnel.filtrosCategoria} · en el catálogo {coreFunnel.filtrosCatalogo} (sesiones)
                     </Text>
                   </View>
                   <View

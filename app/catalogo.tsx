@@ -69,8 +69,10 @@ import { crearAvisoBusqueda } from "../components/Campanita";
 import { RejillaTarjetas, TarjetaProducto } from "../components/CategoryProductsShelf";
 import CatalogFilters, {
   Chip,
+  tramoDePrecio,
   USED_CONDITIONS,
   type CatalogCategoryOption,
+  type FiltrosDisponibles,
   type ConditionFilter,
   type PriceFilter,
   type SortKey,
@@ -479,8 +481,39 @@ export default function CatalogoScreen() {
     return "Catálogo";
   }, [selectedCategory, ready, rawCat]);
 
+  // Dentro de una categoría (se entró con ?cat=, p. ej. desde Inicio): los filtros son los de esa categoría
+  // (sin «Plataforma») y «Quitar filtros» no la quita (dueño, 2026-11-07).
+  const categoriaDeUrl = useMemo(() => (rawCat ? resolveCategory(rawCat, categories)?.id ?? null : null), [rawCat, categories]);
+  const enCategoria = !!categoriaDeUrl && categoryId === categoriaDeUrl;
+
+  // Lo que hay en la categoría (estados y tramos de precio) para no ofrecer filtros sin productos.
+  const [disponibles, setDisponibles] = useState<FiltrosDisponibles | null>(null);
+  useEffect(() => {
+    setDisponibles(null);
+    if (!enCategoria || !categoryId || isAdmin) return;
+    let vivo = true;
+    supabase
+      .from("products")
+      .select("price_eur,condition")
+      .eq("category_id", categoryId)
+      .eq("is_active", true)
+      .eq("status", "PUBLISHED")
+      .limit(1000)
+      .then(({ data, error }) => {
+        if (!vivo || error || !Array.isArray(data)) return;
+        const filas = data as { price_eur: number | string | null; condition: string | null }[];
+        setDisponibles({
+          condiciones: [...new Set(filas.map((f) => String(f.condition ?? "")).filter(Boolean))],
+          precios: [...new Set(filas.map((f) => tramoDePrecio(Number(f.price_eur ?? 0))))],
+        });
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [enCategoria, categoryId, isAdmin]);
+
   const hasActiveFilters =
-    !!categoryId ||
+    (!!categoryId && !enCategoria) ||
     condition !== "ALL" ||
     price !== "ALL" ||
     !!appliedQuery ||
@@ -647,12 +680,17 @@ export default function CatalogoScreen() {
   }, [ready, categoryId, selectedCategory, rawCat]);
 
   function clearFilters() {
-    setCategoryId(null);
     setCondition("ALL");
     setPrice("ALL");
     setFilter("ALL");
     setQ("");
     setAppliedQuery("");
+    // Dentro de una categoría se queda en ella (solo se quitan sus filtros).
+    if (enCategoria) {
+      if (queryFromUrl) replaceRoute(`/catalogo?cat=${encodeURIComponent(rawCat ?? "")}` as Href);
+      return;
+    }
+    setCategoryId(null);
     if (rawCat || queryFromUrl) replaceRoute("/catalogo" as Href);
   }
 
@@ -749,24 +787,29 @@ export default function CatalogoScreen() {
               </View>
             ) : null}
 
-            {/* Buscador compartido (components/Barramagic.tsx), modo "input":
-                busca al pulsar intro y limpia con la "x". */}
-            <Barramagic
-              isMobile={isMobile}
-              mode="input"
-              value={q}
-              onChangeText={setQ}
-              onSubmit={() => setAppliedQuery(q.trim())}
-              onClear={() => {
-                setQ("");
-                setAppliedQuery("");
-              }}
-              placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
-            />
+            {/* Buscador compartido (components/Barramagic.tsx), modo "input": busca al pulsar intro y limpia con la
+                "x". A su derecha, a la misma altura, el icono de filtros (dueño, 2026-11-07); sin contador de productos. */}
+            <View nativeID="catalogo-buscador-filtros" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Barramagic
+                  isMobile={isMobile}
+                  mode="input"
+                  value={q}
+                  onChangeText={setQ}
+                  onSubmit={() => setAppliedQuery(q.trim())}
+                  onClear={() => {
+                    setQ("");
+                    setAppliedQuery("");
+                  }}
+                  placeholder={isMobile ? "Buscar productos..." : "Buscar consola, videojuego, accesorio..."}
+                />
+              </View>
 
-            {/* Botón "Filtros" con panel: dentro van todos los filtros (y, para
-                admin, el estado interno de publicación). */}
+            {/* Icono de filtros con su panel: dentro van todos los filtros (y, para admin, el estado interno de
+                publicación); dentro de una categoría, los de esa categoría. */}
             <CatalogFilters
+              enCategoria={enCategoria}
+              disponibles={disponibles}
               extraTitle="Estado interno"
               extraActiveCount={isAdmin && filter !== "ALL" ? 1 : 0}
               extraContent={
@@ -804,6 +847,7 @@ export default function CatalogoScreen() {
               hasActiveFilters={hasActiveFilters}
               onClear={clearFilters}
             />
+            </View>
 
             {err ? (
               <View style={{ alignItems: "center" }}>
