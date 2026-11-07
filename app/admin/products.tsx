@@ -488,6 +488,11 @@ const ProductListItem = React.memo(function ProductListItem({
               {p.peso_kg ? `Peso con embalaje: ${fmtKg(p.peso_kg)}` : `Sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
             </Text>
           ) : null}
+          {p.solo_entrega_mano ? (
+            <Text nativeID={`producto-solo-mano-${p.id}`} style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+              Solo entrega en mano (no se envía)
+            </Text>
+          ) : null}
 
           {/* Estado (con su color) + el resto de datos en una línea de texto. */}
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
@@ -603,6 +608,8 @@ export default function AdminProducts() {
   const [supportsReference, setSupportsReference] = useState(true);
   // ¿Existe products.peso_kg? (migración 20261107120000; sin ella no se enseña ni se guarda el peso).
   const [supportsPeso, setSupportsPeso] = useState(false);
+  // ¿Existe products.solo_entrega_mano? (migración 20261107140000).
+  const [supportsSoloMano, setSupportsSoloMano] = useState(false);
   const [supportsProductMedia, setSupportsProductMedia] = useState(true);
 
   const itemsRef = useRef<ProductRow[]>([]);
@@ -628,6 +635,8 @@ export default function AdminProducts() {
   const [reference, setReference] = useState("");
   // Peso con embalaje en kg (texto, con coma). Solo se guarda si la columna existe (migración 20261107120000).
   const [peso, setPeso] = useState("");
+  // Solo entrega en mano (no se envía): televisores sin su caja original (dueño, 2026-11-07).
+  const [soloMano, setSoloMano] = useState(false);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [isFeaturedHome, setIsFeaturedHome] = useState(false);
@@ -844,11 +853,16 @@ export default function AdminProducts() {
       }
 
       // Peso para el envío por kilos (migración 20261107120000): consulta aparte; sin la columna, la lista sale igual.
-      const pesosRes = await supabase.from("products").select("id,peso_kg");
+      // Y «solo entrega en mano» (migración 20261107140000; sin ella, solo el peso).
+      let pesosRes: { data: unknown; error: unknown } = await supabase.from("products").select("id,peso_kg,solo_entrega_mano");
+      const conSoloMano = !pesosRes.error;
+      if (pesosRes.error) pesosRes = await supabase.from("products").select("id,peso_kg");
       const pesos = new Map<string, number | null>();
+      const soloMano = new Set<string>();
       if (!pesosRes.error && Array.isArray(pesosRes.data)) {
-        for (const r of pesosRes.data as { id: string; peso_kg: unknown }[]) {
+        for (const r of pesosRes.data as { id: string; peso_kg: unknown; solo_entrega_mano?: unknown }[]) {
           pesos.set(String(r.id), r.peso_kg === null || r.peso_kg === undefined ? null : Number(r.peso_kg));
+          if (r.solo_entrega_mano === true) soloMano.add(String(r.id));
         }
       }
       const conPeso = !pesosRes.error;
@@ -856,12 +870,14 @@ export default function AdminProducts() {
       const merged = productsData.map((item) => ({
         ...item,
         ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
+        ...(conSoloMano ? { solo_entrega_mano: soloMano.has(item.id) } : {}),
         media: (mediaByProduct.get(item.id) ?? []).sort(sortMediaRows),
       }));
 
       setSupportsFeaturedHome(supportsFeatured);
       setSupportsReference(prodResult.supportsReference);
       setSupportsPeso(conPeso);
+      setSupportsSoloMano(conSoloMano);
       setSupportsProductMedia(supportsMedia);
       // Sin «Reparación / Limpieza»: solo guarda la portada del recuadro de Inicio que lleva a Servicios (no lleva productos).
       setCategories(((Array.isArray(catsRes.data) ? catsRes.data : []) as CategoryRow[]).filter((c) => !esCategoriaServicios(c.slug)));
@@ -892,6 +908,7 @@ export default function AdminProducts() {
     setCondition("GOOD");
     setReference("");
     setPeso("");
+    setSoloMano(false);
     setCategoryId(null);
     setIsActive(true);
     setIsFeaturedHome(false);
@@ -922,6 +939,7 @@ export default function AdminProducts() {
       setCondition(p.condition ?? "GOOD");
       setReference(p.reference ?? "");
       setPeso(p.peso_kg ? String(p.peso_kg).replace(".", ",") : "");
+      setSoloMano(p.solo_entrega_mano === true);
       setCategoryId(p.category_id ?? null);
       setIsActive(!!p.is_active);
       setIsFeaturedHome(!!p.is_featured_home);
@@ -1359,6 +1377,10 @@ export default function AdminProducts() {
 
     if (supportsPeso) {
       payload.peso_kg = pesoKg === null ? null : Math.round(pesoKg * 1000) / 1000;
+    }
+
+    if (supportsSoloMano) {
+      payload.solo_entrega_mano = soloMano;
     }
 
     // Instantánea de la media pendiente ANTES de tocar el formulario: en
@@ -1860,6 +1882,21 @@ export default function AdminProducts() {
                     {peso.trim()
                       ? "Correos cobra por kilos: con este peso se calcula el envío."
                       : `Sin peso, el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}.`}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Solo entrega en mano: no se envía (televisores sin su caja original; dueño, 2026-11-07). */}
+              {supportsSoloMano ? (
+                <View style={{ gap: 4 }}>
+                  <View style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 13 : 14, flexShrink: 1 }}>
+                      Solo entrega en mano (no se envía)
+                    </Text>
+                    <Switch nativeID="producto-solo-mano" value={soloMano} onValueChange={setSoloMano} accessibilityLabel="Solo entrega en mano" />
+                  </View>
+                  <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    Para televisores sin su caja original: la tienda no deja pedirlo con envío y la ficha lo avisa.
                   </Text>
                 </View>
               ) : null}

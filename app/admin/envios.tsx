@@ -146,6 +146,8 @@ export default function AdminEnvios() {
   const [conTramos, setConTramos] = useState(false);
   // Artículos a la venta sin peso (cuentan PESO_SIN_DATO_KG en el envío). null = sin la columna de peso.
   const [sinPeso, setSinPeso] = useState<number | null>(null);
+  // Artículos a la venta que solo se entregan en mano. null = sin la columna.
+  const [soloMano, setSoloMano] = useState<number | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -183,6 +185,9 @@ export default function AdminEnvios() {
       // Artículos a la venta sin peso (sin la columna de peso, no se enseña).
       const sp = await supabase.from("products").select("id", { count: "exact", head: true }).eq("is_active", true).is("peso_kg", null);
       setSinPeso(sp.error ? null : sp.count ?? 0);
+      // Artículos que solo se entregan en mano (televisores sin su caja original; migración 20261107140000).
+      const sm = await supabase.from("products").select("id", { count: "exact", head: true }).eq("is_active", true).eq("solo_entrega_mano", true);
+      setSoloMano(sm.error ? null : sm.count ?? 0);
       setZonas(filas);
       setBorradores(Object.fromEntries(filas.map((z) => [z.zona, deZona(z)])));
 
@@ -417,6 +422,7 @@ export default function AdminEnvios() {
                     ] as { icon: React.ComponentProps<typeof Ionicons>["name"]; texto: string }[]
                   )
                     .concat(sinPeso !== null ? [{ icon: "barbell-outline", texto: `${sinPeso} ${sinPeso === 1 ? "artículo" : "artículos"} sin peso (cuentan ${fmtKg(PESO_SIN_DATO_KG)})` }] : [])
+                    .concat(soloMano ? [{ icon: "hand-left-outline", texto: `${soloMano} solo en mano (no se envían)` }] : [])
                     .map((d) => (
                     <View key={d.icon} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Ionicons name={d.icon} size={16} color={COLORS.accent} />

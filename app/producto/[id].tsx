@@ -190,6 +190,8 @@ type ProductDbRow = {
   condition: string | null;
   like_count: number | null;
   reference: string | null;
+  // Solo entrega en mano: no se envía (televisores sin su caja original; migración 20261107140000).
+  solo_entrega_mano: boolean;
 };
 
 type Product = {
@@ -197,6 +199,7 @@ type Product = {
   title: string;
   caracteristicas: Caracteristica[];
   mantenimiento: Mantenimiento | null;
+  soloEntregaMano: boolean;
   description: string | null;
   priceEUR: number;
   status: UiStatus;
@@ -406,6 +409,7 @@ function asProductDbRow(value: unknown): ProductDbRow | null {
     title,
     caracteristicas: asCaracteristicas(row.caracteristicas),
     mantenimiento: asMantenimiento(row.mantenimiento),
+    solo_entrega_mano: row.solo_entrega_mano === true,
     description: typeof row.description === "string" ? row.description : null,
     price_eur: typeof row.price_eur === "number" ? row.price_eur : Number(row.price_eur ?? 0),
     status: statusRaw as DbStatus,
@@ -558,7 +562,7 @@ const PRODUCT_SELECT_BASE =
 // Columnas que llegan con su propia migración: la ficha técnica (20261029110000_productos_caracteristicas.sql) y el
 // mantenimiento (20261030100000_productos_mantenimiento.sql). Si alguna aún no existe, se pide sin ella (y ya sin
 // ella en adelante): la ficha del producto nunca se rompe por eso.
-const COLUMNAS_OPCIONALES = ["caracteristicas", "mantenimiento"];
+const COLUMNAS_OPCIONALES = ["caracteristicas", "mantenimiento", "solo_entrega_mano"];
 const columnasQueFaltan = new Set<string>();
 
 function columnaQueFalta(error: unknown): string | null {
@@ -712,6 +716,7 @@ export default function ProductoScreen() {
         title: productRow.title,
         caracteristicas: productRow.caracteristicas,
         mantenimiento: productRow.mantenimiento,
+        soloEntregaMano: productRow.solo_entrega_mano,
         description: productRow.description ?? null,
         priceEUR: Number(productRow.price_eur ?? 0),
         status: mapDbStatusToUi(productRow.status),
@@ -1543,6 +1548,16 @@ export default function ProductoScreen() {
                 >
                   {fmtEUR(p.priceEUR)}
                 </Text>
+
+                {/* Solo entrega en mano (dueño, 2026-11-07: los televisores sin su caja original no se envían). */}
+                {p.soloEntregaMano ? (
+                  <View nativeID="ficha-solo-mano" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Ionicons name="hand-left-outline" size={16} color={COLORS.muted} />
+                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13.5, lineHeight: 19, textAlign: "center", flexShrink: 1 }}>
+                      Solo entrega en mano en Zaragoza o Cuarte de Huerva: sin su caja original no se puede enviar.
+                    </Text>
+                  </View>
+                ) : null}
 
                 {reservadoPorOtro ? (
                   <Text

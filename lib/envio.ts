@@ -65,17 +65,31 @@ export function pesoDeCompra(pesos: (number | null | undefined)[]): number {
 
 /** Los pesos de unos artículos (products.peso_kg). Sin la columna o si falla, todos sin peso. */
 export async function cargarPesos(ids: string[]): Promise<Record<string, number | null>> {
-  const salida: Record<string, number | null> = {};
-  for (const id of ids) salida[id] = null;
-  if (!ids.length) return salida;
+  return (await cargarDatosEnvio(ids)).pesos;
+}
+
+/**
+ * Lo que el envío necesita de cada artículo: su peso y si es «solo entrega en mano» (products.solo_entrega_mano: los
+ * televisores sin su caja original no se envían; dueño, 2026-11-07). Sin esas columnas o si falla, sin peso y enviable.
+ */
+export async function cargarDatosEnvio(ids: string[]): Promise<{ pesos: Record<string, number | null>; soloMano: string[] }> {
+  const pesos: Record<string, number | null> = {};
+  const soloMano: string[] = [];
+  for (const id of ids) pesos[id] = null;
+  if (!ids.length) return { pesos, soloMano };
   try {
-    const { data, error } = await supabase.from("products").select("id,peso_kg").in("id", ids);
-    if (error || !Array.isArray(data)) return salida;
-    for (const r of data as { id: string; peso_kg: unknown }[]) salida[r.id] = r.peso_kg === null || r.peso_kg === undefined ? null : numero(r.peso_kg);
+    const consultar = (columnas: string) => supabase.from("products").select(columnas).in("id", ids);
+    let res: { data: unknown; error: unknown } = await consultar("id,peso_kg,solo_entrega_mano");
+    if (res.error) res = await consultar("id,peso_kg");
+    if (res.error || !Array.isArray(res.data)) return { pesos, soloMano };
+    for (const r of res.data as { id: string; peso_kg: unknown; solo_entrega_mano?: unknown }[]) {
+      pesos[r.id] = r.peso_kg === null || r.peso_kg === undefined ? null : numero(r.peso_kg);
+      if (r.solo_entrega_mano === true) soloMano.push(r.id);
+    }
   } catch {
     // sin red: sin peso
   }
-  return salida;
+  return { pesos, soloMano };
 }
 
 export type Entrega = "envio" | "recogida";

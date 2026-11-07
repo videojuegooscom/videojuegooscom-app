@@ -73,7 +73,7 @@ import CabeceraMarca from "../components/CabeceraMarca";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import SmartImage from "../components/SmartImage";
 import { abrirChatEquipo } from "../components/ProductChatThread";
-import { calcularEnvio, cargarPesos, cargarTarifas, fmtKg, hayEnviosDePago, limpiarCodigoPostal, pesoDeCompra, type ZonaEnvio } from "../lib/envio";
+import { calcularEnvio, cargarDatosEnvio, cargarTarifas, fmtKg, hayEnviosDePago, limpiarCodigoPostal, pesoDeCompra, type ZonaEnvio } from "../lib/envio";
 import { supabase } from "../lib/supabase";
 import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
@@ -440,10 +440,14 @@ export default function CheckoutScreen() {
   // Envío por kilos (Correos): el peso de la compra con el de cada artículo (products.peso_kg; sin peso, 2 kg).
   const idsCesta = items.map((it) => it.id).join(",");
   const [pesos, setPesos] = useState<Record<string, number | null>>({});
+  // Artículos que solo se entregan en mano (televisores sin su caja original): con ellos no hay envío a domicilio.
+  const [soloMano, setSoloMano] = useState<string[]>([]);
   useEffect(() => {
     let vivo = true;
-    cargarPesos(idsCesta ? idsCesta.split(",") : []).then((p) => {
-      if (vivo) setPesos(p);
+    cargarDatosEnvio(idsCesta ? idsCesta.split(",") : []).then((d) => {
+      if (!vivo) return;
+      setPesos(d.pesos);
+      setSoloMano(d.soloMano);
     });
     return () => {
       vivo = false;
@@ -459,12 +463,15 @@ export default function CheckoutScreen() {
   const faltaCodigo = entrega === "envio" && hayEnviosDePago(tarifas) && limpiarCodigoPostal(postalCode).length !== 5;
   const shipping = faltaCodigo ? 0 : envio.precio;
   const total = subtotal + shipping;
+  // A domicilio con un artículo que solo se entrega en mano: no se puede (se elige «Entrega en mano» o se escribe).
+  const articulosSoloMano = items.filter((it) => soloMano.includes(it.id));
+  const bloqueoSoloMano = entrega === "envio" && articulosSoloMano.length > 0;
 
   const formOk = useMemo(() => {
     if (items.length === 0) return false;
     // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega). Con envíos de
     // pago, sin un código postal completo no se sabe el envío (ni el total).
-    if (!envio.disponible || faltaCodigo) return false;
+    if (!envio.disponible || faltaCodigo || bloqueoSoloMano) return false;
 
     const nameOk = safeStr(fullName).length >= 2;
     const emailOk = isValidEmail(email);
@@ -477,7 +484,7 @@ export default function CheckoutScreen() {
     const cityOk = safeStr(city).length >= 2;
 
     return nameOk && emailOk && phoneOk && addrOk && cpOk && cityOk;
-  }, [items.length, fullName, email, phone, address1, postalCode, city, entrega, envio.disponible, faltaCodigo]);
+  }, [items.length, fullName, email, phone, address1, postalCode, city, entrega, envio.disponible, faltaCodigo, bloqueoSoloMano]);
 
   const buildWhatsText = useCallback((numero: number | null) => {
     const lines: string[] = [];
@@ -1144,6 +1151,16 @@ export default function CheckoutScreen() {
                   </Text>
                 </View>
               ) : null}
+              {/* Televisores sin su caja original: no se envían (dueño, 2026-11-07). */}
+              {bloqueoSoloMano ? (
+                <View nativeID="pago-solo-mano" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} />
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+                    {articulosSoloMano.length === 1 ? `«${articulosSoloMano[0].title}» no se puede enviar` : "Algunos artículos no se pueden enviar"} sin su caja
+                    original: elige «Entrega en mano» o escríbenos por el chat de la tienda.
+                  </Text>
+                </View>
+              ) : null}
 
               <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />
               <Field
@@ -1304,7 +1321,9 @@ export default function CheckoutScreen() {
               <Text style={{ color: "rgba(11,33,56,0.55)", textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
                 {formOk
                   ? "Te confirmamos pago y entrega por el chat de la tienda."
-                  : !envio.disponible
+                  : bloqueoSoloMano
+                    ? "Elige «Entrega en mano» para este pedido."
+                    : !envio.disponible
                     ? "Escríbenos por el chat para envíos a esta zona."
                     : faltaCodigo
                       ? "Escribe tu código postal para calcular el envío."
