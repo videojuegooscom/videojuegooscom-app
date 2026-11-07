@@ -61,16 +61,27 @@ export const SALIDA_ENCUADRE = { ancho: 960, alto: 800 };
 
 const esUrl = (u: unknown): u is string => typeof u === "string" && /^https?:\/\/\S+$/i.test(u.trim());
 
-/** El encuadre para Inicio de cada portada (mismo orden que portadasDe; "" = sin encuadrar). */
+/**
+ * Marca de una portada que en Inicio se ve ENTERA, sin recortar (dueño, 2026-11-07): en portadas_inicio, en lugar de
+ * un encuadre. "" sigue siendo «sin encuadre: recortada por el centro», como siempre.
+ */
+export const PORTADA_ENTERA = "entera";
+
+/** El encuadre para Inicio de cada portada (mismo orden que portadasDe; "" = sin encuadrar; PORTADA_ENTERA = entera). */
 export function encuadresDe(fila: { imagenes?: unknown; image_url?: unknown; portadas_inicio?: unknown } | null | undefined): string[] {
   const bruto = Array.isArray(fila?.portadas_inicio) ? (fila.portadas_inicio as unknown[]) : [];
-  return portadasDe(fila).map((_, i) => (esUrl(bruto[i]) ? (bruto[i] as string).trim() : ""));
+  return portadasDe(fila).map((_, i) => (bruto[i] === PORTADA_ENTERA ? PORTADA_ENTERA : esUrl(bruto[i]) ? (bruto[i] as string).trim() : ""));
 }
 
-/** Lo que enseña el recuadro de Inicio: el encuadre de cada portada o, si no tiene, la foto entera. */
+/** Lo que enseña el recuadro de Inicio: el encuadre de cada portada o, si no tiene (o va entera), la foto. */
 export function portadasInicioDe(fila: { imagenes?: unknown; image_url?: unknown; portadas_inicio?: unknown } | null | undefined): string[] {
   const encuadres = encuadresDe(fila);
-  return portadasDe(fila).map((u, i) => encuadres[i] || u);
+  return portadasDe(fila).map((u, i) => (esUrl(encuadres[i]) ? encuadres[i] : u));
+}
+
+/** Qué portadas van enteras en Inicio (mismo orden que portadasInicioDe). */
+export function enterasInicioDe(fila: { imagenes?: unknown; image_url?: unknown; portadas_inicio?: unknown } | null | undefined): boolean[] {
+  return encuadresDe(fila).map((e) => e === PORTADA_ENTERA);
 }
 
 // «Reparación / Limpieza» en Inicio lleva a Servicios: su portada vive en categories con este slug (el del recuadro de
@@ -96,8 +107,8 @@ export function opacidadDe(fila: { portada_opacidad?: unknown } | null | undefin
 }
 
 type FilaPortadas = { slug: string; image_url?: string | null; imagenes?: unknown; portadas_inicio?: unknown; portada_opacidad?: unknown };
-type DatosPortadas = { fotos: Record<string, string[]>; opacidad: Record<string, number> };
-const SIN_DATOS: DatosPortadas = { fotos: {}, opacidad: {} };
+type DatosPortadas = { fotos: Record<string, string[]>; opacidad: Record<string, number>; enteras: Record<string, boolean[]> };
+const SIN_DATOS: DatosPortadas = { fotos: {}, opacidad: {}, enteras: {} };
 let cache: Promise<DatosPortadas> | null = null;
 // Pantallas que enseñan portadas (Inicio se queda montado al cambiar de pestaña): al guardar una categoría en el panel
 // se avisa a todas para que vuelvan a pedirlas. Antes Inicio seguía con las de cuando se abrió.
@@ -121,13 +132,14 @@ async function cargarPortadas(): Promise<DatosPortadas> {
   // «*»: así una columna que aún no existe (migración pendiente) no da un error 400; si no viene, se usa lo de siempre.
   const res = await supabase.from("categories").select("*").eq("is_active", true);
   if (res.error) throw res.error;
-  const datos: DatosPortadas = { fotos: {}, opacidad: {} };
+  const datos: DatosPortadas = { fotos: {}, opacidad: {}, enteras: {} };
   for (const fila of (res.data ?? []) as FilaPortadas[]) {
-    // En Inicio, el encuadre que eligió el dueño (o la foto entera si no lo tiene).
+    // En Inicio, el encuadre que eligió el dueño (o la foto: recortada por el centro o, si la marcó, entera).
     const fotos = portadasInicioDe(fila);
     if (!fila.slug || !fotos.length) continue;
     datos.fotos[fila.slug] = fotos;
     datos.opacidad[fila.slug] = opacidadDe(fila);
+    datos.enteras[fila.slug] = enterasInicioDe(fila);
   }
   return datos;
 }
@@ -171,6 +183,11 @@ export function usePortadasCategorias(): Record<string, string[]> {
   return useDatosPortadas().fotos;
 }
 
+/** Qué portadas de cada categoría activa van enteras en Inicio, por slug. */
+export function useEnterasPortadas(): Record<string, boolean[]> {
+  return useDatosPortadas().enteras;
+}
+
 /** Cuánto se ve la portada de cada categoría activa en Inicio (10-100), por slug. */
 export function useOpacidadesPortadas(): Record<string, number> {
   return useDatosPortadas().opacidad;
@@ -208,8 +225,11 @@ export function PortadaRecuadro({
   alto,
   proporcion,
   radio = 17,
+  enteras,
 }: {
   imagenes: string[];
+  /** Qué fotos se ven enteras (sin recortar), mismo orden que `imagenes` (enterasInicioDe). */
+  enteras?: boolean[];
   opacidad: number;
   titulo: string;
   alto?: number;
@@ -230,8 +250,30 @@ export function PortadaRecuadro({
         nativeID="portada-foto"
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, opacity: Math.min(100, Math.max(OPACIDAD_PORTADA_MIN, opacidad)) / 100 }}
       >
-        <PortadasCategoria imagenes={imagenes} alt={titulo} style={{ width: "100%", height: "100%" }} />
+        {/* Las marcadas «entera», completas (dueño, 2026-11-07); las demás llenan el recuadro (encuadre o centro). */}
+        <PortadasCategoria imagenes={imagenes} alt={titulo} entera={enteras} style={{ width: "100%", height: "100%" }} />
       </View>
+    </View>
+  );
+}
+
+/**
+ * Una foto entera en su caja sin recortar nada (dueño, 2026-11-07: «que se vean perfectamente»): delante, la foto nítida
+ * con su forma (contain); detrás, la misma foto pequeña, desenfocada y llenando la caja, para que no queden franjas. La de
+ * detrás se pide pequeña (ancho 96): casi no pesa.
+ */
+function FotoEntera({ uri, ancho, alt, prioridad, style }: { uri: string; ancho: number; alt: string; prioridad?: "high" | "normal" | "low"; style: StyleProp<ViewStyle> }) {
+  return (
+    <View style={[{ overflow: "hidden" }, style]} {...({ dataSet: { portadaEntera: "1" } } as object)}>
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, transform: [{ scale: 1.4 }] }, { filter: "blur(22px) saturate(1.1)" } as object]}
+      >
+        <SmartImage uri={uri} ancho={96} contentFit="cover" alt="" priority="low" style={{ width: "100%", height: "100%" }} />
+      </View>
+      <SmartImage uri={uri} ancho={ancho} contentFit="contain" alt={alt} priority={prioridad} style={{ width: "100%", height: "100%" }} />
     </View>
   );
 }
@@ -241,6 +283,7 @@ export default function PortadasCategoria({
   alt,
   style,
   prioridad,
+  entera = false,
 }: {
   imagenes: string[];
   /** Texto alternativo (nombre de la categoría). */
@@ -249,6 +292,8 @@ export default function PortadasCategoria({
   style?: StyleProp<ViewStyle>;
   /** "high" si es lo primero que se ve al entrar (cabecera del catálogo). */
   prioridad?: "high" | "normal" | "low";
+  /** Foto entera sin recortar (FotoEntera): true para todas o, por foto, una lista. Si no, llena la caja (cover). */
+  entera?: boolean | boolean[];
 }) {
   const fotos = imagenes.slice(0, MAX_PORTADAS);
   const total = fotos.length;
@@ -337,17 +382,24 @@ export default function PortadasCategoria({
     >
       {ancho > 0 && (
         <Animated.View style={{ flexDirection: "row", height: "100%", width: tira.length * paso, transform: [{ translateX: x }] }}>
-          {tira.map((uri, k) => (
-            <SmartImage
-              key={`${k}-${uri}`}
-              uri={uri}
-              ancho={ancho}
-              contentFit="cover"
-              alt={k >= total ? "" : total > 1 ? `${alt} · foto ${k + 1} de ${total}` : alt}
-              priority={k === 0 ? prioridad : "low"}
-              style={{ width: ancho, height: "100%", marginRight: SEPARACION }}
-            />
-          ))}
+          {tira.map((uri, k) => {
+            const textoAlt = k >= total ? "" : total > 1 ? `${alt} · foto ${k + 1} de ${total}` : alt;
+            const caja = { width: ancho, height: "100%" as const, marginRight: SEPARACION };
+            // La última de la tira es la copia de la primera.
+            return (Array.isArray(entera) ? !!entera[k % total] : entera) ? (
+              <FotoEntera key={`${k}-${uri}`} uri={uri} ancho={ancho} alt={textoAlt} prioridad={k === 0 ? prioridad : "low"} style={caja} />
+            ) : (
+              <SmartImage
+                key={`${k}-${uri}`}
+                uri={uri}
+                ancho={ancho}
+                contentFit="cover"
+                alt={textoAlt}
+                priority={k === 0 ? prioridad : "low"}
+                style={caja}
+              />
+            );
+          })}
         </Animated.View>
       )}
 

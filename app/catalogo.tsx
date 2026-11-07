@@ -63,7 +63,7 @@ import Barramagic from "../components/Barramagic";
 import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
-import PortadasCategoria, { esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
+import PortadasCategoria, { enterasInicioDe, esCategoriaServicios, faltaColumnaPortadas, portadasDe } from "../components/PortadasCategoria";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { crearAvisoBusqueda } from "../components/Campanita";
 import { RejillaTarjetas, TarjetaProducto } from "../components/CategoryProductsShelf";
@@ -112,6 +112,8 @@ type CategoryRow = {
   // Portadas (panel → Categorías); la cabecera de la categoría las pasa en carrusel.
   image_url?: string | null;
   imagenes?: unknown;
+  // Encuadres de Inicio; «entera» = la portada se ve completa también aquí.
+  portadas_inicio?: unknown;
 };
 
 type ProductDbRow = {
@@ -287,8 +289,9 @@ async function fetchCategoriesSafe(adminFlag: boolean): Promise<CategoryRow[]> {
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
 
-  // Con las portadas; si aún falta la columna (migración pendiente), sin ellas.
-  const conPortadas = await consultar("id,name,slug,is_active,sort_order,image_url,imagenes");
+  // Con las portadas y cuáles van enteras (portadas_inicio); si aún falta alguna columna (migración pendiente), sin ella.
+  let conPortadas = await consultar("id,name,slug,is_active,sort_order,image_url,imagenes,portadas_inicio");
+  if (conPortadas.error) conPortadas = await consultar("id,name,slug,is_active,sort_order,image_url,imagenes");
   const { data, error } =
     conPortadas.error && faltaColumnaPortadas(conPortadas.error) ? await consultar("id,name,slug,is_active,sort_order") : conPortadas;
 
@@ -779,6 +782,8 @@ export default function CatalogoScreen() {
               <View nativeID="catalogo-portada" style={{ width: "100%", maxWidth: 960, alignSelf: "center" }}>
                 <PortadasCategoria
                   key={selectedCategory?.id}
+                  // Las marcadas «Entera» en el editor se ven completas, sin cortar el logo ni la consola (dueño, 2026-11-07).
+                  entera={enterasInicioDe(selectedCategory)}
                   imagenes={portadasCategoria}
                   alt={`Portada de ${selectedCategory?.name ?? "la categoría"}`}
                   prioridad="high"
