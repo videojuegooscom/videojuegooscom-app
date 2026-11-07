@@ -94,7 +94,7 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       {
         heading: "Embalaje",
         body:
-          "Todos los productos se envían protegidos con material adecuado para electrónica y videoconsolas, minimizando el riesgo de daños durante el transporte.",
+          "Todos los productos se envían protegidos con material adecuado para electrónica y videoconsolas, minimizando el riesgo de daños durante el transporte. Los televisores que no conservan su caja original no se envían: se entregan solo en mano, en Zaragoza o en Cuarte de Huerva.",
       },
       {
         heading: "Incidencias en el transporte",

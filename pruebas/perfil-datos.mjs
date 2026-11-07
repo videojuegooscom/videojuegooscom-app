@@ -648,7 +648,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     // Peso de los artículos para el envío por kilos (sección TE): { id: kg } en `estado.pesos`.
     if (estado.pesos && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && /peso_kg/.test(url.searchParams.get("select") ?? "")) {
       estado.consultasPeso = (estado.consultasPeso ?? 0) + 1;
-      return json(Object.entries(estado.pesos).map(([id, peso_kg]) => ({ id, peso_kg })));
+      return json(Object.entries(estado.pesos).map(([id, peso_kg]) => ({ id, peso_kg, solo_entrega_mano: (estado.soloMano ?? []).includes(id) })));
     }
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
@@ -6711,6 +6711,29 @@ async function seccionTE() {
     await p2.waitForTimeout(500);
     ok(/: 17,10€$/.test(await texto(p2, "#pago-envio")) && /4 kg con embalaje/.test(await texto(p2, "#pago-envio-peso")), `TE: sin peso, cada artículo cuenta 2 kg (${await texto(p2, "#pago-envio")} · ${await texto(p2, "#pago-envio-peso")})`);
     await ctx2.close();
+  });
+
+  // TE3c) Solo entrega en mano (televisores sin su caja original, migración 20261107140000): a domicilio lo explica y no
+  // deja confirmar; con «Entrega en mano» sí.
+  await bloque("TE3c solo en mano", async () => {
+    const estado = { filas: perfil(), guardados: [], productosVacios: true, tarifas: DE_PAGO, pesos: { [A1]: 20, [A2]: 0.4 }, soloMano: [A1], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("627 748 741").fill("600111222");
+    await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
+    await p.getByPlaceholder("Zaragoza").fill("Madrid");
+    await p.getByPlaceholder("50001").fill("28001");
+    await p.waitForTimeout(500);
+    const confirmar = p.locator("#pago-confirmar").getByRole("button", { name: /Confirmar pedido/ });
+    const aviso = await texto(p, "#pago-solo-mano");
+    ok(/no se puede enviar sin su caja original: elige «Entrega en mano» o escríbenos/.test(aviso) && (await confirmar.getAttribute("aria-disabled")) === "true", `TE: a domicilio con un artículo solo en mano lo explica y no deja confirmar (${aviso.slice(0, 90)})`);
+    await p.locator("#pago-entrega-recogida").click();
+    await p.waitForTimeout(400);
+    ok((await p.locator("#pago-solo-mano").count()) === 0 && (await confirmar.getAttribute("aria-disabled")) !== "true", "TE: con «Entrega en mano» desaparece el aviso y ya deja confirmar");
+    ok(p.errores.length === 0, `TE: solo en mano sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
   });
 
   // TE5b) Tarifas de envío con tramos: se ven, la calculadora usa el peso, se añade y se quita un tramo y se guardan.

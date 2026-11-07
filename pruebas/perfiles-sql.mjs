@@ -75,6 +75,7 @@
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
  */
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -1711,6 +1712,79 @@ try {
     const pcK = (await c42.query("select envio_eur::text as en from public.pedidos where id = $1", [pc.id])).rows[0];
     ok(pcK.en !== "22.95", `(control) sin el disparador del peso, 7 kg no pagan su tramo (${pcK.en}): la prueba SÍ lo detecta`);
     await c42.end();
+
+    // Solo entrega en mano (20261107140000): los televisores sin «caja original» se marcan; un pedido de la web a domicilio
+    // con uno no se guarda (ni se puede cambiar a domicilio); en mano sí; los del chat (sin clave) no se tocan.
+    const SOLO_MANO = readFileSync("supabase/migrations/20261107140000_productos_solo_entrega_mano.sql", "utf8");
+    const ESQUEMA_M = `
+      alter table public.pedidos add column clave_unica uuid unique;
+      alter table public.products add column description text;
+      insert into public.products (title, price_eur) values ('Televisor Samsung 43 con caja original', 150), ('LG TV 32 pulgadas', 90);
+      update public.policy_pages set sections = sections || '[{"heading": "Embalaje", "body": "Bien protegido."}]'::jsonb where slug = 'envios';`;
+    const c43 = await nuevaBase("vz_aislada_solo_mano", ESQUEMA_T + ESQUEMA_K + TARIFAS + ESQUEMA_M);
+    let repetidaM = true;
+    try {
+      await c43.query(SOLO_MANO);
+      await c43.query(SOLO_MANO);
+    } catch (e) {
+      repetidaM = false;
+      console.log(String(e.message));
+    }
+    const marcas = Object.fromEntries((await c43.query("select title, solo_entrega_mano as m from public.products")).rows.map((r) => [r.title, r.m]));
+    ok(
+      repetidaM && marcas["Smart TV Philips 55” 4K"] === true && marcas["LG TV 32 pulgadas"] === true && marcas["Televisor Samsung 43 con caja original"] === false && marcas["Consola Nintendo Switch"] === false,
+      `Solo en mano: se puede aplicar dos veces y se marcan los televisores sin «caja original» (y nada más) (${JSON.stringify(marcas)})`
+    );
+    const tvM = (await c43.query("select id from public.products where title like 'Smart TV%'")).rows[0].id;
+    const swM = (await c43.query("select id from public.products where title = 'Consola Nintendo Switch'")).rows[0].id;
+    const pedidoM = async (entrega, conClave) =>
+      (await c43.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur, clave_unica) values ('Ana', 'ana@example.com', '600999888', $1, $2, 200, $3) returning id", [entrega, entrega === "envio" ? "28001" : null, conClave ? randomUUID() : null])).rows[0].id;
+    const item = (pedido, producto) => c43.query("insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) values ($1, $2, 'x', 1)", [pedido, producto]);
+    let rechazoEnvio = "";
+    const pEnvio = await pedidoM("envio", true);
+    try {
+      await item(pEnvio, tvM);
+    } catch (e) {
+      rechazoEnvio = String(e.message);
+    }
+    ok(/solo se entrega en mano/.test(rechazoEnvio), `Solo en mano: un pedido de la web a domicilio con la TV no se guarda (${rechazoEnvio.slice(0, 80)})`);
+    let okOtros = true;
+    try {
+      await item(pEnvio, swM);
+      await item(await pedidoM("recogida", true), tvM);
+      await item(await pedidoM("envio", false), tvM);
+    } catch (e) {
+      okOtros = false;
+      console.log(String(e.message));
+    }
+    ok(okOtros, "Solo en mano: una consola a domicilio sí, la TV en mano sí, y un pedido del chat (sin clave) no se toca");
+    const pMano = await pedidoM("recogida", true);
+    await item(pMano, tvM);
+    let rechazoCambio = "";
+    try {
+      await c43.query("update public.pedidos set entrega = 'envio', codigo_postal = '28001' where id = $1", [pMano]);
+    } catch (e) {
+      rechazoCambio = String(e.message);
+    }
+    ok(/solo se entrega en mano/.test(rechazoCambio), "Solo en mano: un pedido en mano con la TV no se puede cambiar a domicilio");
+    const polM = (await c43.query("select sections::text as t from public.policy_pages where slug = 'envios'")).rows[0].t;
+    ok((polM.match(/no conservan su caja original no se envían/g) ?? []).length === 1, "Solo en mano: la política de envíos lo dice una sola vez");
+    await c43.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin el disparador de los artículos, la TV a domicilio entraría.
+    const sinBloqueo = SOLO_MANO.replace(/  if not exists \(select 1 from pg_trigger where tgname = 'trg_pedido_items_solo_mano'[\s\S]*?  end if;\n/, "");
+    ok(sinBloqueo !== SOLO_MANO, "(control) se ha podido quitar el bloqueo de solo en mano en la copia de prueba");
+    const c44 = await nuevaBase("vz_aislada_solo_mano_sin_bloqueo", ESQUEMA_T + ESQUEMA_K + TARIFAS + ESQUEMA_M + sinBloqueo);
+    const tvC = (await c44.query("select id from public.products where title like 'Smart TV%'")).rows[0].id;
+    const pC = (await c44.query("insert into public.pedidos (nombre, email, telefono, entrega, codigo_postal, total_eur, clave_unica) values ('Ana', 'ana@example.com', '600999888', 'envio', '28001', 200, $1) returning id", [randomUUID()])).rows[0].id;
+    let entraTv = true;
+    try {
+      await c44.query("insert into public.pedido_items (pedido_id, product_id, titulo, precio_eur) values ($1, $2, 'x', 1)", [pC, tvC]);
+    } catch {
+      entraTv = false;
+    }
+    ok(entraTv, "(control) sin el bloqueo, la TV a domicilio entra: la prueba SÍ lo detecta");
+    await c44.end();
   }
 
   // Pago con tarjeta (20261105120000_pagos_tarjeta.sql), sobre los pedidos como en producción (con sus tarifas de envío), y

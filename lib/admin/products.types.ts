@@ -64,6 +64,8 @@ export type ProductRow = {
   reference?: string | null;
   // Peso con embalaje, para el envío por kilos (migración 20261107120000). undefined = la columna aún no existe.
   peso_kg?: number | null;
+  // Solo entrega en mano: no se envía (televisores sin su caja original; migración 20261107140000). undefined = sin la columna.
+  solo_entrega_mano?: boolean;
   media: ProductMediaRow[];
 };
 
