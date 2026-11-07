@@ -2,8 +2,10 @@
  * components/CatalogFilters.tsx
  *
  * Qué hace: filtros y orden del catálogo (app/catalogo.tsx). A la vista solo
- * queda un botón "Filtros" (icono options-outline + número de filtros
- * activos) junto al contador "N productos". Al pulsarlo se abre un panel
+ * queda el icono de filtros (options-outline, sin burbuja ni contador; en azul
+ * si hay filtros activos), a la derecha del buscador (dueño, 2026-11-07).
+ * Dentro de una categoría no se ofrece «Plataforma» ni los estados o precios
+ * sin ningún producto en ella. Al pulsarlo se abre un panel
  * blanco (deslizable desde abajo en móvil, centrado en escritorio) con TODOS
  * los filtros en chips: plataforma, estado (Nuevo / Segunda mano y su
  * condición detallada), precio y orden, más "Quitar filtros" y "Ver N
@@ -16,6 +18,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { trackEvent } from "../lib/analytics";
 
 const COLORS = {
   text: "#0B2138",
@@ -147,6 +150,17 @@ function productsLabel(total: number) {
   return total === 1 ? "1 producto" : `${total} productos`;
 }
 
+/** El tramo de precio de un artículo (los mismos límites que la consulta del catálogo, app/catalogo.tsx). */
+export function tramoDePrecio(precio: number): Exclude<PriceFilter, "ALL"> {
+  if (precio <= 25) return "UP_25";
+  if (precio <= 100) return "25_100";
+  if (precio <= 300) return "100_300";
+  return "OVER_300";
+}
+
+/** Lo que hay de verdad en una categoría: sus estados y sus tramos de precio (para no ofrecer filtros vacíos). */
+export type FiltrosDisponibles = { condiciones: string[]; precios: PriceFilter[] };
+
 export default function CatalogFilters({
   isMobile,
   categories,
@@ -165,6 +179,8 @@ export default function CatalogFilters({
   extraTitle,
   extraActiveCount = 0,
   extraContent,
+  enCategoria = false,
+  disponibles = null,
 }: {
   isMobile: boolean;
   categories: CatalogCategoryOption[];
@@ -184,74 +200,59 @@ export default function CatalogFilters({
   extraTitle?: string;
   extraActiveCount?: number;
   extraContent?: React.ReactNode;
+  /** Dentro de una categoría (?cat=): sin «Plataforma» (ya se está en una) y la categoría no cuenta como filtro. */
+  enCategoria?: boolean;
+  /** Lo que hay en la categoría: solo se ofrecen los estados y precios con algún producto. null = todo. */
+  disponibles?: FiltrosDisponibles | null;
 }) {
   const [open, setOpen] = useState(false);
   const usedSelected = condition === "USED" || USED_DETAIL.some((d) => d.key === condition);
 
-  // Filtros activos (el orden no cuenta como filtro).
+  // Filtros activos (el orden no cuenta como filtro; dentro de una categoría, la categoría tampoco).
   const activeCount =
-    (categoryId ? 1 : 0) + (condition !== "ALL" ? 1 : 0) + (price !== "ALL" ? 1 : 0) + extraActiveCount;
+    (categoryId && !enCategoria ? 1 : 0) + (condition !== "ALL" ? 1 : 0) + (price !== "ALL" ? 1 : 0) + extraActiveCount;
 
   const seeLabel = busy || total === null ? "Ver productos" : `Ver ${productsLabel(total)}`;
 
+  // Coherencia con la categoría (dueño, 2026-11-07): solo lo que tiene algún producto (y lo ya elegido, siempre).
+  const hay = (c: string) => !disponibles || disponibles.condiciones.includes(c);
+  const hayNuevo = hay("NEW");
+  const usadosConProductos = USED_DETAIL.filter((d) => hay(d.key) || condition === d.key);
+  const haySegundaMano = !disponibles || usadosConProductos.length > 0;
+  // Estado: «Nuevo / Segunda mano» si hay de los dos; si todo es de segunda mano, directamente su condición
+  // (Como nuevo, Bueno…) cuando hay más de una; con una sola opción no se ofrece.
+  const estadoCompleto = hayNuevo && haySegundaMano;
+  const soloDetalleUsado = !!disponibles && !hayNuevo && usadosConProductos.length >= 2;
+  const preciosConProductos = PRICE_OPTIONS.filter((o) => o.key === "ALL" || o.key === price || !disponibles || disponibles.precios.includes(o.key));
+  const mostrarPrecio = preciosConProductos.length > 2;
+
   return (
     <View style={{ alignItems: "center" }}>
-      {/* Barra visible: botón de filtros + contador. */}
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
+      {/* Botón de filtros: solo el icono, sin burbuja (como los demás iconos de la app). Con filtros activos, en
+          azul de marca. */}
+      <Pressable
+        nativeID="catalogo-filtros"
+        onPress={() => {
+          setOpen(true);
+          trackEvent("catalogo_filtros", "Filtros: abiertos", { path: "/catalogo", metadata: { en_categoria: enCategoria } });
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={activeCount > 0 ? `Filtros, ${activeCount} activos` : "Filtros"}
+        hitSlop={4}
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.6 : 1,
+          width: 48,
+          height: 48,
           alignItems: "center",
           justifyContent: "center",
-          gap: 12,
-          minHeight: 40,
-        }}
+        })}
       >
-        <Pressable
-          onPress={() => setOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={
-            activeCount > 0 ? `Filtros, ${activeCount} activos` : "Filtros"
-          }
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.85 : 1,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            borderRadius: 999,
-            paddingVertical: 10,
-            paddingHorizontal: 16,
-            borderWidth: 1,
-            borderColor: activeCount > 0 ? COLORS.accentBorder : COLORS.border,
-            backgroundColor: activeCount > 0 ? COLORS.accent2 : COLORS.white,
-          })}
-        >
-          <Ionicons name="options-outline" size={18} color={COLORS.text} />
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>Filtros</Text>
-          {activeCount > 0 ? (
-            <View
-              style={{
-                minWidth: 20,
-                height: 20,
-                borderRadius: 10,
-                paddingHorizontal: 6,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: COLORS.accent,
-              }}
-            >
-              <Text style={{ color: COLORS.white, fontWeight: "900", fontSize: 12 }}>{activeCount}</Text>
-            </View>
-          ) : null}
-        </Pressable>
-
-        {busy ? <ActivityIndicator size="small" color={COLORS.accent} /> : null}
-        {total !== null ? (
-          <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>
-            {productsLabel(total)}
-          </Text>
-        ) : null}
-      </View>
+        {busy ? (
+          <ActivityIndicator size="small" color={COLORS.accent} />
+        ) : (
+          <Ionicons name="options-outline" size={28} color={activeCount > 0 ? COLORS.accent : COLORS.text} />
+        )}
+      </Pressable>
 
       {/* Panel de filtros: hoja inferior en móvil, ventana centrada en escritorio. */}
       <Modal
@@ -349,7 +350,7 @@ export default function CatalogFilters({
                 </ChipRow>
               ) : null}
 
-              {categories.length > 0 ? (
+              {categories.length > 0 && !enCategoria ? (
                 <ChipRow title="Plataforma" isMobile={isMobile}>
                   <Chip
                     label="Todas"
@@ -369,29 +370,50 @@ export default function CatalogFilters({
                 </ChipRow>
               ) : null}
 
-              <ChipRow title="Estado" isMobile={isMobile}>
-                <Chip
-                  label="Todos"
-                  active={condition === "ALL"}
-                  onPress={() => onConditionChange("ALL")}
-                  isMobile={isMobile}
-                />
-                <Chip
-                  label="Nuevo"
-                  active={condition === "NEW"}
-                  onPress={() => onConditionChange("NEW")}
-                  isMobile={isMobile}
-                />
-                <Chip
-                  label="Segunda mano"
-                  active={usedSelected}
-                  onPress={() => onConditionChange("USED")}
-                  isMobile={isMobile}
-                />
-              </ChipRow>
+              {estadoCompleto ? (
+                <ChipRow title="Estado" isMobile={isMobile}>
+                  <Chip
+                    label="Todos"
+                    active={condition === "ALL"}
+                    onPress={() => onConditionChange("ALL")}
+                    isMobile={isMobile}
+                  />
+                  <Chip
+                    label="Nuevo"
+                    active={condition === "NEW"}
+                    onPress={() => onConditionChange("NEW")}
+                    isMobile={isMobile}
+                  />
+                  <Chip
+                    label="Segunda mano"
+                    active={usedSelected}
+                    onPress={() => onConditionChange("USED")}
+                    isMobile={isMobile}
+                  />
+                </ChipRow>
+              ) : soloDetalleUsado ? (
+                // Todo es de segunda mano: se elige directamente cómo está.
+                <ChipRow title="Estado" isMobile={isMobile}>
+                  <Chip
+                    label="Todos"
+                    active={condition === "ALL" || condition === "USED"}
+                    onPress={() => onConditionChange("ALL")}
+                    isMobile={isMobile}
+                  />
+                  {usadosConProductos.map((d) => (
+                    <Chip
+                      key={d.key}
+                      label={d.label}
+                      active={condition === d.key}
+                      onPress={() => onConditionChange(condition === d.key ? "ALL" : d.key)}
+                      isMobile={isMobile}
+                    />
+                  ))}
+                </ChipRow>
+              ) : null}
 
-              {/* Condición detallada: solo aparece al elegir "Segunda mano". */}
-              {usedSelected ? (
+              {/* Condición detallada: solo aparece al elegir "Segunda mano" (y solo las que tienen productos). */}
+              {estadoCompleto && usedSelected && usadosConProductos.length > 1 ? (
                 <View
                   style={{
                     flexDirection: "row",
@@ -401,7 +423,7 @@ export default function CatalogFilters({
                     marginTop: -8,
                   }}
                 >
-                  {USED_DETAIL.map((d) => (
+                  {usadosConProductos.map((d) => (
                     <Chip
                       key={d.key}
                       label={d.label}
@@ -413,17 +435,19 @@ export default function CatalogFilters({
                 </View>
               ) : null}
 
-              <ChipRow title="Precio" isMobile={isMobile}>
-                {PRICE_OPTIONS.map((o) => (
-                  <Chip
-                    key={o.key}
-                    label={o.label}
-                    active={price === o.key}
-                    onPress={() => onPriceChange(o.key)}
-                    isMobile={isMobile}
-                  />
-                ))}
-              </ChipRow>
+              {mostrarPrecio ? (
+                <ChipRow title="Precio" isMobile={isMobile}>
+                  {preciosConProductos.map((o) => (
+                    <Chip
+                      key={o.key}
+                      label={o.label}
+                      active={price === o.key}
+                      onPress={() => onPriceChange(o.key)}
+                      isMobile={isMobile}
+                    />
+                  ))}
+                </ChipRow>
+              ) : null}
 
               <ChipRow title="Ordenar por" isMobile={isMobile}>
                 {SORT_OPTIONS.map((o) => (
@@ -470,7 +494,16 @@ export default function CatalogFilters({
               ) : null}
 
               <Pressable
-                onPress={() => setOpen(false)}
+                onPress={() => {
+                  setOpen(false);
+                  // Analítica propia (Administración → Analítica): filtros aplicados, dentro de una categoría o no, y cuáles.
+                  if (activeCount > 0 || sort !== "NEWEST") {
+                    trackEvent("catalogo_filtros", enCategoria ? "Filtros: aplicados en una categoría" : "Filtros: aplicados en el catálogo", {
+                      path: "/catalogo",
+                      metadata: { en_categoria: enCategoria, estado: condition, precio: price, orden: sort, plataforma: enCategoria ? null : categoryId },
+                    });
+                  }
+                }}
                 accessibilityRole="button"
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.9 : 1,

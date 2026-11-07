@@ -650,6 +650,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.consultasPeso = (estado.consultasPeso ?? 0) + 1;
       return json(Object.entries(estado.pesos).map(([id, peso_kg]) => ({ id, peso_kg, solo_entrega_mano: (estado.soloMano ?? []).includes(id) })));
     }
+    // Lo que hay en una categoría (filtros coherentes, sección Y): precio y estado de sus productos.
+    if (estado.disponiblesCategoria && url.pathname.endsWith("/rest/v1/products") && metodo === "GET" && url.searchParams.get("select") === "price_eur,condition") {
+      estado.consultasDisponibles = [...(estado.consultasDisponibles ?? []), decodeURIComponent(url.search)];
+      return json(estado.disponiblesCategoria);
+    }
     // Catálogo sin productos (sección Y): sin pedirlos a la base de datos real (que rechaza la sesión de prueba).
     if (estado.productosVacios && url.pathname.endsWith("/rest/v1/products") && metodo === "GET") {
       return json([], 200, { "content-range": "*/0", "access-control-expose-headers": "*" });
@@ -2347,6 +2352,79 @@ async function seccionY() {
     const plataformas = (t.match(/Plataforma \| (.*?) \| Estado/i) ?? [null, "(no se ven)"])[1];
     ok(/PlayStation 4/.test(plataformas) && !/Reparación \/ Limpieza/.test(t), `Y: en el catálogo, «Reparación / Limpieza» no sale entre las plataformas, no tiene productos (${plataformas})`);
     ok(p.errores.length === 0, `Y: catálogo sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // Y4) Dentro de una categoría (dueño, 2026-11-07): el icono de filtros a la derecha del buscador y a su altura, sin
+  // burbuja ni contador; sin «N productos»; y filtros de esa categoría (sin «Plataforma» y solo estados y precios con
+  // algún producto: aquí todo es de segunda mano, «Bueno» 240 € y «Como nuevo» 580 €).
+  {
+    const cliente = {
+      filas: perfil(CLIENTE.id),
+      guardados: [],
+      categorias: estado.categorias,
+      productosVacios: true,
+      aceptaAnalitica: true,
+      disponiblesCategoria: [
+        { price_eur: 240, condition: "GOOD" },
+        { price_eur: 580, condition: "LIKE_NEW" },
+      ],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", cliente);
+    const p = await pagina(ctx, "/catalogo?cat=playstation-5");
+    await p.locator("#catalogo-filtros").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const m = await p.evaluate(() => {
+      const f = document.getElementById("catalogo-filtros");
+      const fila = document.getElementById("catalogo-buscador-filtros");
+      const buscador = fila?.querySelector("input");
+      const rf = f?.getBoundingClientRect();
+      const rb = (buscador?.closest('[style*="border-radius"]') ?? buscador)?.getBoundingClientRect();
+      const st = f ? getComputedStyle(f) : null;
+      return {
+        derecha: !!rf && !!rb && rf.left >= rb.right - 2,
+        mismaAltura: !!rf && !!rb && Math.abs(rf.top + rf.height / 2 - (rb.top + rb.height / 2)) <= 6,
+        sinFondo: !!st && (st.backgroundColor === "rgba(0, 0, 0, 0)" || st.backgroundColor === "transparent") && st.borderTopWidth === "0px",
+        tamano: rf ? Math.round(rf.width) : 0,
+        // Sin los caracteres de la fuente de iconos (zona de uso privado de Unicode).
+        texto: (f?.innerText ?? "").replace(/[-]/g, "").trim(),
+        contador: /\d+ productos?/.test(document.body.innerText),
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      };
+    });
+    ok(m.derecha && m.mismaAltura, `Y: dentro de la categoría, el icono de filtros va a la derecha del buscador y a su altura (${JSON.stringify({ derecha: m.derecha, altura: m.mismaAltura })})`);
+    ok(m.sinFondo && m.texto === "" && m.tamano >= 44, `Y: es solo el icono, sin burbuja, sin texto ni número, de 44 px o más (${JSON.stringify({ sinFondo: m.sinFondo, texto: m.texto, tamano: m.tamano })})`);
+    ok(!m.contador, "Y: no se enseña el total de productos de la categoría");
+    ok(m.ancho <= 391, `Y: la página no se ensancha (${m.ancho})`);
+    await capturar(p, "Y4-categoria-buscador-filtros");
+    await p.locator("#catalogo-filtros").click();
+    await p.getByText("Ordenar por", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    const panel = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " | ");
+    ok(!/Plataforma/i.test(panel), "Y: dentro de la categoría no se ofrece «Plataforma»");
+    ok(/Estado \| Todos \| Como nuevo \| Bueno/i.test(panel) && !/\| Nuevo \|/.test(panel) && !/Segunda mano/.test(panel) && !/Regular|Para piezas/.test(panel), `Y: el estado solo ofrece lo que hay (todo es de segunda mano: «Como nuevo» y «Bueno») (${(panel.match(/Estado \|.*?\| Precio/i) ?? [""])[0]})`);
+    ok(/Precio \| Cualquier precio \| 100–300 € \| Más de 300 €/i.test(panel) && !/Hasta 25 €|25–100 €/.test(panel), `Y: y solo los precios con productos (${(panel.match(/Precio \|.*?\| Ordenar/i) ?? [""])[0]})`);
+    ok((cliente.consultasDisponibles ?? []).some((c) => /category_id=eq\.c0000000-0000-4000-8000-0000000000a1/.test(c) && /is_active=eq\.true/.test(c) && /status=eq\.PUBLISHED/.test(c)), "Y: lo que hay se mira en esa categoría y solo con lo publicado");
+    await capturar(p, "Y4-categoria-filtros");
+    await p.getByText("Bueno", { exact: true }).first().click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#catalogo-filtros").getAttribute("aria-label")) === "Filtros, 1 activos", "Y: con un filtro elegido el icono lo dice (la categoría no cuenta)");
+    // «Ver productos» aplica y se apunta en la analítica propia (abierto y aplicado dentro de una categoría).
+    await p.getByText(/^Ver \d+ productos?$|^Ver productos$/).last().click();
+    for (let i = 0; i < 20 && !(cliente.eventosEnviados ?? []).some((e) => e.event_name === "catalogo_filtros" && /aplicados/.test(e.step_label ?? e.label ?? "")); i++) await p.waitForTimeout(250);
+    const evF = (cliente.eventosEnviados ?? []).filter((e) => e.event_name === "catalogo_filtros");
+    ok(
+      evF.some((e) => e.metadata?.en_categoria === true && e.metadata?.estado === "GOOD") && evF.length >= 2,
+      `Y: abrir y aplicar los filtros se apunta en la analítica, dentro de una categoría y con lo elegido (${JSON.stringify(evF.map((e) => e.metadata))})`
+    );
+    ok((await p.locator("#catalogo-filtros").evaluate((e) => getComputedStyle(e.querySelector("div") ?? e).color)) !== "", "Y: el icono sigue a la vista tras aplicar");
+    await p.locator("#catalogo-filtros").click();
+    await p.getByText("Ordenar por", { exact: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+    // El del panel (la página vacía de detrás también ofrece «Quitar filtros»).
+    await p.getByText("Quitar filtros", { exact: true }).last().click();
+    await p.waitForTimeout(500);
+    ok(/[?&]cat=playstation-5/.test(p.url()) && (await p.locator("h1, [role=heading]").first().innerText()).includes("PlayStation 5"), `Y: «Quitar filtros» deja la categoría (${new URL(p.url()).search})`);
+    ok(p.errores.length === 0, `Y: categoría sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
 }
