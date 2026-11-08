@@ -113,6 +113,7 @@ import {
 } from "../../lib/admin/products.constants";
 import type {
   CategoryRow,
+  FotosFilter,
   LocalPickedMedia,
   ProductCondition,
   ProductMediaRow,
@@ -190,6 +191,13 @@ function normalizeMediaKind(value: unknown): "image" | "video" | null {
 
 function getRowKind(row: Partial<ProductMediaRow>) {
   return normalizeMediaKind(row.kind);
+}
+
+// «Pocas imágenes» = de 1 a 3 fotos (filtro «Fotos», dueño 2026-11-08).
+const POCAS_FOTOS_MAX = 3;
+
+function contarFotos(p: ProductRow) {
+  return p.media.filter((m) => getRowKind(m) === "image").length;
 }
 
 function getRowDuration(row: Partial<ProductMediaRow>) {
@@ -603,6 +611,7 @@ export default function AdminProducts() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("ALL");
+  const [fotosFilter, setFotosFilter] = useState<FotosFilter>("ALL");
 
   const [supportsFeaturedHome, setSupportsFeaturedHome] = useState(true);
   const [supportsReference, setSupportsReference] = useState(true);
@@ -686,7 +695,7 @@ export default function AdminProducts() {
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    return items.filter((p) => {
+    const lista = items.filter((p) => {
       const matchesSearch =
         !q ||
         String(p.title ?? "").toLowerCase().includes(q) ||
@@ -699,9 +708,32 @@ export default function AdminProducts() {
         (visibilityFilter === "VISIBLE" && !!p.is_active) ||
         (visibilityFilter === "HIDDEN" && !p.is_active);
 
-      return matchesSearch && matchesStatus && matchesVisibility;
+      const fotos = contarFotos(p);
+      const matchesFotos =
+        fotosFilter === "ALL" ||
+        (fotosFilter === "SIN_FOTOS" && fotos === 0) ||
+        (fotosFilter === "POCAS_FOTOS" && fotos >= 1 && fotos <= POCAS_FOTOS_MAX);
+
+      return matchesSearch && matchesStatus && matchesVisibility && matchesFotos;
     });
-  }, [items, search, statusFilter, visibilityFilter]);
+    // «Más antiguo sin/con pocas imágenes»: del más antiguo al más nuevo, para ir completándolos por orden.
+    if (fotosFilter !== "ALL") {
+      lista.sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+    }
+    return lista;
+  }, [items, search, statusFilter, visibilityFilter, fotosFilter]);
+
+  // Cuántos hay de cada uno, para el número de los filtros de fotos.
+  const fotosCuenta = useMemo(() => {
+    let sin = 0;
+    let pocas = 0;
+    for (const p of items) {
+      const n = contarFotos(p);
+      if (n === 0) sin++;
+      else if (n <= POCAS_FOTOS_MAX) pocas++;
+    }
+    return { sin, pocas };
+  }, [items]);
 
   // Se calcula aquí (con el nombre de categoría ya resuelto) para que
   // ProductListItem no necesite la lista completa de "categories" como
@@ -1658,6 +1690,26 @@ export default function AdminProducts() {
                 <FilterPill label="Todos" active={visibilityFilter === "ALL"} onPress={() => setVisibilityFilter("ALL")} isMobile={isMobile} />
                 <FilterPill label="Visibles" active={visibilityFilter === "VISIBLE"} onPress={() => setVisibilityFilter("VISIBLE")} isMobile={isMobile} />
                 <FilterPill label="Ocultos" active={visibilityFilter === "HIDDEN"} onPress={() => setVisibilityFilter("HIDDEN")} isMobile={isMobile} />
+              </View>
+            </View>
+
+            {/* Fotos: los que no tienen ninguna o tienen pocas (1 a 3), del más antiguo al más nuevo. */}
+            <View nativeID="productos-filtro-fotos" style={{ gap: 8, alignItems: "center" }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", textAlign: "center" }}>Fotos</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 }}>
+                <FilterPill label="Todos" active={fotosFilter === "ALL"} onPress={() => setFotosFilter("ALL")} isMobile={isMobile} />
+                <FilterPill
+                  label={`Más antiguo sin imágenes (${fotosCuenta.sin})`}
+                  active={fotosFilter === "SIN_FOTOS"}
+                  onPress={() => setFotosFilter("SIN_FOTOS")}
+                  isMobile={isMobile}
+                />
+                <FilterPill
+                  label={`Más antiguo con pocas imágenes (${fotosCuenta.pocas})`}
+                  active={fotosFilter === "POCAS_FOTOS"}
+                  onPress={() => setFotosFilter("POCAS_FOTOS")}
+                  isMobile={isMobile}
+                />
               </View>
             </View>
 

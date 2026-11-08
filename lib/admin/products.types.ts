@@ -71,6 +71,8 @@ export type ProductRow = {
 
 export type StatusFilter = "ALL" | ProductStatus;
 export type VisibilityFilter = "ALL" | "VISIBLE" | "HIDDEN";
+// Fotos (dueño, 2026-11-08): los que no tienen ninguna foto o tienen pocas, del más antiguo al más nuevo.
+export type FotosFilter = "ALL" | "SIN_FOTOS" | "POCAS_FOTOS";
 
 export type LocalPickedMedia = {
   id: string;
