@@ -58,7 +58,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analytics";
-import ContratarServicioModal from "../../components/ContratarServicioModal";
+import ContratarServicioModal, { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
+import { SelectorIOS } from "../../lib/admin/products.components";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
@@ -119,6 +120,8 @@ type Service = {
   media: ServiceMedia[];
   // null: la base de datos aún no tiene los «me gusta» de servicios (migración 20261103200000 sin aplicar).
   likeCount: number | null;
+  // Opciones del servicio (Básica, Completa…), de Administración → Servicios (migración 20261108230000). [] = sin opciones.
+  modalidades: ModalidadServicio[];
 };
 
 type ResenaServicio = { id: string; created_at: string; display_name: string; rating: number; comment: string };
@@ -150,12 +153,20 @@ function faltaColumna(error: unknown) {
 async function fetchService(serviceId: string): Promise<Service | null> {
   const consulta = (columnas: string) =>
     supabase.from("services").select(columnas).eq("id", serviceId).eq("status", "PUBLISHED").eq("is_active", true).maybeSingle();
-  let { data: row, error } = await consulta("id,title,description,price_eur,like_count");
+  let { data: row, error } = await consulta("id,title,description,price_eur,like_count,modalidades");
+  if (error && faltaColumna(error)) ({ data: row, error } = await consulta("id,title,description,price_eur,like_count"));
   if (error && faltaColumna(error)) ({ data: row, error } = await consulta("id,title,description,price_eur"));
 
   if (error) throw error;
   if (!row) return null;
-  const fila = row as unknown as { id: string; title: string; description: string | null; price_eur: number | null; like_count?: number | null };
+  const fila = row as unknown as {
+    id: string;
+    title: string;
+    description: string | null;
+    price_eur: number | null;
+    like_count?: number | null;
+    modalidades?: unknown;
+  };
 
   const { data: media } = await supabase
     .from("service_media")
@@ -175,6 +186,7 @@ async function fetchService(serviceId: string): Promise<Service | null> {
     priceEUR: Number(fila.price_eur ?? 0),
     media: normalizedMedia,
     likeCount: "like_count" in fila ? Math.max(0, Number(fila.like_count ?? 0)) : null,
+    modalidades: leerModalidades(fila.modalidades),
   };
 }
 
@@ -203,6 +215,8 @@ export default function ServicioScreen() {
   const [likeCount, setLikeCount] = useState<number | null>(null);
   const [likeBusy, setLikeBusy] = useState(false);
   const [resenas, setResenas] = useState<ResenaServicio[] | null>(null);
+  // La opción elegida (si el servicio tiene opciones): la primera de la lista al entrar.
+  const [modalidad, setModalidad] = useState("");
 
   // silencioso («Desliza para actualizar»): sin volver a la pantalla de carga y sin contar otra visita.
   async function load(silencioso = false) {
@@ -224,6 +238,7 @@ export default function ServicioScreen() {
       }
 
       setS(row);
+      setModalidad((v) => (row.modalidades.some((m) => m.nombre === v) ? v : row.modalidades[0]?.nombre ?? ""));
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
       setSelectedImageUrl(cover?.publicUrl ?? null);
       setLikeCount(row.likeCount);
@@ -255,13 +270,25 @@ export default function ServicioScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarga]);
 
+  // El precio que se ve: el de la opción elegida o, sin opciones, el del servicio.
+  const opcion = s?.modalidades.find((m) => m.nombre === modalidad) ?? null;
+  const precioVisible = opcion ? opcion.precio_eur : s?.priceEUR ?? 0;
+
+  function elegirModalidad(nombre: string) {
+    setModalidad(nombre);
+    // Administración → Analítica (#analitica-contratar-servicio): qué opción se mira más.
+    trackEvent("servicio_opcion", `Servicio: opción elegida · ${nombre}`, { path: `/servicio/${s?.id ?? ""}` });
+  }
+
   // La ficha con pestañas (la misma de producto): lo que ya contaba «Información del servicio».
   const caracteristicas: Caracteristica[] = useMemo(
     () =>
       s
         ? [
             { etiqueta: "Tipo", valor: "Reparación / Limpieza" },
-            { etiqueta: "Precio", valor: fmtEUR(s.priceEUR) },
+            ...(s.modalidades.length
+              ? s.modalidades.map((m) => ({ etiqueta: m.nombre, valor: fmtEUR(m.precio_eur) }))
+              : [{ etiqueta: "Precio", valor: fmtEUR(s.priceEUR) }]),
             { etiqueta: "Contratación", valor: "Disponible ahora" },
           ]
         : [],
@@ -705,8 +732,23 @@ export default function ServicioScreen() {
                       textAlign: "center",
                     }}
                   >
-                    {fmtEUR(s.priceEUR)}
+                    {fmtEUR(precioVisible)}
                   </Text>
+
+                  {/* Opciones del servicio (Básica, Completa…): el desplegable del propio móvil (en el iPhone, la rueda
+                      de iOS); el precio de arriba es el de la opción elegida. */}
+                  {s.modalidades.length ? (
+                    <View style={{ width: "100%", maxWidth: 460 }}>
+                      <SelectorIOS
+                        nativeID="servicio-opcion"
+                        label="Elige tu opción"
+                        centrado
+                        value={modalidad}
+                        onChange={elegirModalidad}
+                        options={s.modalidades.map((m) => ({ value: m.nombre, label: `${m.nombre} · ${fmtEUR(m.precio_eur)}` }))}
+                      />
+                    </View>
+                  ) : null}
 
                   {/* La valoración de quienes ya lo contrataron (solo si hay reseñas). */}
                   {media !== null && resenas ? (
@@ -840,7 +882,8 @@ export default function ServicioScreen() {
 
       <ContratarServicioModal
         visible={contratarOpen}
-        service={s ? { id: s.id, title: s.title } : null}
+        service={s ? { id: s.id, title: s.title, modalidades: s.modalidades } : null}
+        modalidadInicial={modalidad}
         onClose={() => setContratarOpen(false)}
       />
     </View>

@@ -550,6 +550,25 @@ export default function AdminAnalytics() {
     };
   }, [ritmo]);
 
+  // «Contratar servicio» (components/ContratarServicioModal.tsx): por servicio, cuántas sesiones abren la ventana, cuántas
+  // envían y cuántas la cierran sin enviar; qué faltaba al intentar enviar y qué opción (Básica, Completa…) se elige más.
+  const contratarServicio = useMemo(() => {
+    const porPrefijo = (prefijo: string) =>
+      funnel.filter((f) => f.step_label.startsWith(prefijo)).map((f) => ({ clave: f.step_label.slice(prefijo.length), n: f.sessions }));
+    const abiertas = porPrefijo("Contratar: ventana abierta · ");
+    const enviadas = new Map(porPrefijo("Contratar: solicitud enviada · ").map((x) => [x.clave, x.n]));
+    const cerradas = new Map(porPrefijo("Contratar: cerrada sin enviar · ").map((x) => [x.clave, x.n]));
+    const servicios = abiertas
+      .map((a) => {
+        const env = enviadas.get(a.clave) ?? 0;
+        return { titulo: a.clave, abiertas: a.n, enviadas: env, cerradas: cerradas.get(a.clave) ?? 0, pct: a.n ? Math.round((env / a.n) * 100) : 0 };
+      })
+      .sort((x, y) => y.abiertas - x.abiertas);
+    const faltaba = porPrefijo("Contratar: le faltaba · ").sort((x, y) => y.n - x.n);
+    const opciones = porPrefijo("Servicio: opción elegida · ").sort((x, y) => y.n - x.n);
+    return { servicios, faltaba, opciones };
+  }, [funnel]);
+
   // Recorrido principal: agrupa por prefijo de step_label para armar un
   // embudo de 4 pasos fijos, sin que cada categoría/producto distinto rompa
   // el embudo en decenas de filas.
@@ -1027,6 +1046,43 @@ export default function AdminAnalytics() {
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} · «Valorar el servicio» {coreFunnel.resenaServicioPedida} · reseñas publicadas {coreFunnel.resenaServicioPublicada} (sesiones)
                     </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-contratar-servicio"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "flex-start",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="funnel-outline" size={15} color={COLORS.accentDark} />
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                        Contratar servicio: abrió la ventana → envió (sesiones)
+                      </Text>
+                      {contratarServicio.servicios.length ? (
+                        contratarServicio.servicios.slice(0, 8).map((s) => (
+                          <Text key={s.titulo} style={{ color: COLORS.text, fontSize: 12.5 }}>
+                            {s.titulo}: {s.abiertas} → {s.enviadas} ({s.pct} %) · cerradas sin enviar {s.cerradas}
+                          </Text>
+                        ))
+                      ) : (
+                        <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Aún nadie ha abierto la ventana en este periodo.</Text>
+                      )}
+                      {contratarServicio.faltaba.length ? (
+                        <Text style={{ color: COLORS.text, fontSize: 12.5 }}>
+                          Lo que faltaba al intentar enviar: {contratarServicio.faltaba.map((f) => `${f.clave} ${f.n}`).join(" · ")}
+                        </Text>
+                      ) : null}
+                      {contratarServicio.opciones.length ? (
+                        <Text style={{ color: COLORS.text, fontSize: 12.5 }}>
+                          Opciones elegidas en la ficha: {contratarServicio.opciones.map((o) => `${o.clave} ${o.n}`).join(" · ")}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
                   <View
                     nativeID="analitica-blue-botones"

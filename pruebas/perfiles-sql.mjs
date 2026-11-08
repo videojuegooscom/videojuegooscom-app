@@ -1787,6 +1787,75 @@ try {
     await c44.end();
   }
 
+  // Opciones de los servicios (20261108230000_servicios_opciones.sql): el administrador escribe las opciones (Básica,
+  // Completa…) y el precio de la opción que elige el cliente lo pone la base de datos, nunca el navegador.
+  {
+    const OPCIONES = readFileSync("supabase/migrations/20261108230000_servicios_opciones.sql", "utf8");
+    const S1 = "51515151-5151-4515-8515-515151515151";
+    const S2 = "52525252-5252-4525-8525-525252525252";
+    const ESQUEMA_S = `
+      create table public.services (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'DRAFT', is_active boolean not null default true);
+      alter table public.services enable row level security;
+      create policy services_select_public_or_admin on public.services for select using (((status = 'PUBLISHED') and (is_active = true)) or public.is_admin());
+      create policy services_admin_update on public.services for update using (public.is_admin()) with check (public.is_admin());
+      create table public.service_requests (id uuid primary key default gen_random_uuid(), service_id uuid references public.services (id),
+        service_title text not null, nombre text not null, status text not null default 'nuevo');
+      alter table public.service_requests enable row level security;
+      create policy service_requests_insert_public on public.service_requests for insert to anon, authenticated with check (true);
+      insert into public.services (id, title, price_eur, status) values ('${S1}', 'Mantenimiento PS5', 45, 'PUBLISHED'), ('${S2}', 'Borrador', 10, 'DRAFT');`;
+    const OPC = `[{"nombre": "Básica", "precio_eur": 45}, {"nombre": "Completa + mando", "precio_eur": 77.97}]`;
+    const c45 = await nuevaBase("vz_aislada_servicios_opciones", ESQUEMA_S);
+    let repetidaS = true;
+    try {
+      await c45.query(OPCIONES);
+      await c45.query(OPCIONES);
+    } catch (e) {
+      repetidaS = false;
+      console.log(String(e.message));
+    }
+    ok(repetidaS, "Opciones de servicio: la migración se puede aplicar dos veces");
+    const guardaAdmin = await como(c45, "authenticated", ADMIN, `update public.services set modalidades = '${OPC}' where id = '${S1}'`, { confirmar: true });
+    const guardaCliente = await como(c45, "authenticated", U1, `update public.services set modalidades = '[]' where id = '${S1}'`, { confirmar: true });
+    const tras = (await c45.query(`select modalidades::text as m from public.services where id = '${S1}'`)).rows[0].m;
+    ok(guardaAdmin.ok && guardaCliente.ok && /Completa \+ mando/.test(tras), `Opciones de servicio: el administrador las guarda y un cliente no las puede cambiar (${tras})`);
+    await c45.query(`update public.services set modalidades = '${OPC}' where id = '${S2}'`);
+    const trece = JSON.stringify(Array.from({ length: 13 }, (_, i) => ({ nombre: `Opción ${i}`, precio_eur: i })));
+    const demasiadas = await como(c45, "authenticated", ADMIN, `update public.services set modalidades = '${trece}' where id = '${S1}'`);
+    ok(!demasiadas.ok, "Opciones de servicio: no se guardan más de 12 opciones");
+    const pide = (servicio, nombre, modalidad, precio) =>
+      como(
+        c45,
+        "anon",
+        null,
+        `insert into public.service_requests (service_id, service_title, nombre, modalidad, modalidad_precio_eur) values ('${servicio}', 'x', '${nombre}', ${modalidad === null ? "null" : `'${modalidad}'`}, ${precio})`,
+        { confirmar: true }
+      );
+    const r1 = await pide(S1, "Ana", "Completa + mando", 1);
+    const r2 = await pide(S1, "Beto", "Inventada", 5);
+    const r3 = await pide(S2, "Carla", "Básica", 2);
+    const r4 = await pide(S1, "Dani", null, 9);
+    const filasS = Object.fromEntries(
+      (await c45.query("select nombre, modalidad, modalidad_precio_eur::text as p from public.service_requests")).rows.map((r) => [r.nombre, `${r.modalidad}|${r.p}`])
+    );
+    ok(
+      r1.ok && r2.ok && r3.ok && r4.ok &&
+        filasS.Ana === "Completa + mando|77.97" && filasS.Beto === "null|null" && filasS.Carla === "null|null" && filasS.Dani === "null|null",
+      `Opciones de servicio: el precio lo pone la base de datos (77,97 aunque el navegador mande 1), una opción inventada o de un servicio en borrador se guarda sin opción (${JSON.stringify(filasS)})`
+    );
+    await c45.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin el disparador, el precio que manda el navegador se guardaría tal cual.
+    const sinDisparador = OPCIONES.replace(/do \$\$\nbegin\n  if not exists \(select 1 from pg_trigger where tgname = 'trg_service_requests_modalidad'[\s\S]*?end \$\$;\n/, "");
+    ok(sinDisparador !== OPCIONES, "(control) se ha podido quitar el disparador de las opciones en la copia de prueba");
+    const c46 = await nuevaBase("vz_aislada_servicios_opciones_sin_disparador", ESQUEMA_S + sinDisparador);
+    await c46.query(`update public.services set modalidades = '${OPC}' where id = '${S1}'`);
+    await como(c46, "anon", null, `insert into public.service_requests (service_id, service_title, nombre, modalidad, modalidad_precio_eur) values ('${S1}', 'x', 'Ana', 'Completa + mando', 1)`, { confirmar: true });
+    const pS = (await c46.query("select modalidad_precio_eur::text as p from public.service_requests")).rows[0].p;
+    ok(pS === "1.00", `(control) sin el disparador, el precio del navegador (1) entra: la prueba SÍ lo detecta (${pS})`);
+    await c46.end();
+  }
+
   // Pago con tarjeta (20261105120000_pagos_tarjeta.sql), sobre los pedidos como en producción (con sus tarifas de envío), y
   // Stripe en la privacidad y en los términos (20261105121000_politicas_pago_tarjeta.sql). Las columnas las escribe solo
   // el servidor (api/pago.ts, con la clave del servidor, que salta las reglas: aquí, el usuario postgres).
