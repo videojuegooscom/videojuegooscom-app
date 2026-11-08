@@ -717,6 +717,19 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       return json(filas);
     }
     if (estado.megusta && /\/rest\/v1\/(product_media|service_media)$/.test(url.pathname) && metodo === "GET") return json([]);
+    // Contratar un servicio (sección CS): se apunta la solicitud que se manda, sin tocar nada real. Con `opcionesSinColumna`
+    // la migración 20261108230000 aún no está aplicada (no existen services.modalidades ni service_requests.modalidad).
+    if (estado.solicitudesServicio && url.pathname.endsWith("/rest/v1/service_requests") && metodo === "POST") {
+      const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+      if (estado.opcionesSinColumna && "modalidad" in cuerpo) {
+        return json({ code: "PGRST204", message: "Could not find the 'modalidad' column of 'service_requests' in the schema cache" }, 400);
+      }
+      estado.solicitudesServicio.push(cuerpo);
+      return r.fulfill({ status: 201, headers: CORS, body: "" });
+    }
+    if (estado.opcionesSinColumna && url.pathname.endsWith("/rest/v1/services") && metodo === "GET" && /modalidades/.test(url.searchParams.get("select") ?? "")) {
+      return json({ code: "42703", message: "column services.modalidades does not exist" }, 400);
+    }
     // Ficha de un servicio sin la columna de «me gusta» (migración sin aplicar): PostgREST la rechaza.
     if (estado.servicioSinMeGusta && url.pathname.endsWith("/rest/v1/services") && metodo === "GET" && /like_count/.test(url.searchParams.get("select") ?? "")) {
       return json({ code: "42703", message: "column services.like_count does not exist" }, 400);
@@ -5754,6 +5767,236 @@ async function seccionFS() {
   }
 }
 
+// ===== CS) Opciones del servicio y «Contratar» (dueño, 2026-11-08): desplegable de opciones (Básica, Completa…) en la
+// ficha y en la ventana, con su precio; datos precargados con sesión; «Te falta: …» que lleva al campo; «Dónde podemos
+// recogerlo»; una sola píldora azul tras enviar; sin la migración sigue funcionando; Administración (opciones del servicio,
+// solicitudes con su opción y filtros) y Analítica (abrió la ventana → envió) =========================================
+async function seccionCS() {
+  const ID = "5e000000-0000-4000-8000-0000000000c5";
+  const TITULO = "Mantenimiento Playstation 5";
+  const OPCIONES = [
+    { nombre: "Básica", precio_eur: 45 },
+    { nombre: "Completa + mando", precio_eur: 77.97 },
+  ];
+  const estadoBase = (extra = {}) => ({
+    filas: [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", localidad: "Cuarte de Huerva", fecha_nacimiento: "1990-05-02" }],
+    guardados: [],
+    aceptaAnalitica: true,
+    servicio: { id: ID, title: TITULO, description: "Limpieza y cambio de pasta térmica.", price_eur: 45, like_count: 0, modalidades: OPCIONES },
+    fotosServicio: [],
+    solicitudesServicio: [],
+    ...extra,
+  });
+  const azulesEn = (p, sel) =>
+    p.evaluate((s) => {
+      const caja = document.querySelector(s);
+      if (!caja) return -1;
+      return [...caja.querySelectorAll("div")].filter((d) => getComputedStyle(d).backgroundColor === "rgb(30, 167, 232)" && d.innerText.trim()).length;
+    }, sel);
+
+  // CS1) Ficha: el desplegable de opciones con su precio; al elegir «Completa + mando» el precio cambia y se cuenta.
+  {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/servicio/${ID}`);
+    await p.locator("#servicio-opcion").waitFor({ timeout: 40000 }).catch(() => {});
+    const sel = await p.evaluate(() => {
+      const s = document.querySelector("#servicio-opcion select");
+      return s ? { valor: s.value, opciones: [...s.options].map((o) => o.textContent) } : null;
+    });
+    ok(
+      !!sel && sel.valor === "Básica" && sel.opciones.join("|") === "Básica · 45,00€|Completa + mando · 77,97€",
+      `CS: la ficha tiene el desplegable del sistema con las opciones y su precio, y sale elegida la primera (${JSON.stringify(sel)})`
+    );
+    await p.locator("#servicio-opcion select").selectOption("Completa + mando").catch(() => {});
+    await p.waitForTimeout(400);
+    const t = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
+    const ficha = (await p.locator("#servicio-caracteristicas").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/77,97€/.test(t) && /Básica\s*45,00€/.test(ficha) && /Completa \+ mando\s*77,97€/.test(ficha), `CS: al elegir «Completa + mando» el precio pasa a 77,97 € y «Características» lista las dos (${ficha})`);
+    await capturar(p, "CS1-ficha-opciones");
+
+    // CS2) La ventana: sale con la opción de la ficha y los datos de la cuenta (nombre, apellido, ciudad y su email).
+    await p.locator("#servicio-contratar").click();
+    await p.locator("#contratar-opcion").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    const datos = await p.evaluate(() => ({
+      opcion: document.querySelector("#contratar-opcion select")?.value ?? "",
+      nombre: document.querySelector("#contratar-nombre")?.value ?? "",
+      apellido: document.querySelector("#contratar-apellido")?.value ?? "",
+      contacto: document.querySelector("#contratar-contacto")?.value ?? "",
+      ciudad: document.querySelector("#contratar-ciudad")?.value ?? "",
+      recogida: document.querySelector("#contratar-direccion")?.getAttribute("placeholder") ?? "",
+    }));
+    ok(
+      datos.opcion === "Completa + mando" && datos.nombre === "Ana" && datos.apellido === "Gómez" && datos.contacto === CLIENTE.email && datos.ciudad === "Cuarte de Huerva",
+      `CS: la ventana sale con la opción de la ficha y los datos de su cuenta ya escritos (${JSON.stringify(datos)})`
+    );
+    ok(datos.recogida === "Dónde podemos recogerlo", `CS: la dirección pide «Dónde podemos recogerlo» (${datos.recogida})`);
+
+    // CS3) Si falta algo, el botón lo dice y lleva al campo.
+    await p.locator("#contratar-apellido").fill("");
+    await p.waitForTimeout(200);
+    const textoFalta = (await p.locator("#contratar-enviar").innerText().catch(() => "")).trim();
+    ok(textoFalta === "Te falta: apellido", `CS: el botón dice lo que falta («${textoFalta}»)`);
+    await p.locator("#contratar-enviar").click();
+    await p.waitForTimeout(600);
+    const foco = await p.evaluate(() => document.activeElement?.id ?? "");
+    ok(foco === "contratar-apellido" && estado.solicitudesServicio.length === 0, `CS: al tocarlo lleva al campo que falta y no envía nada (foco en «${foco}»)`);
+    await capturar(p, "CS2-ventana-te-falta");
+
+    // CS4) Enviar: con la opción (su precio lo pone la base de datos) y la dirección de recogida; una sola píldora azul.
+    await p.locator("#contratar-apellido").fill("Gómez");
+    await p.locator("#contratar-direccion").fill("Calle Mayor 1, Cuarte");
+    await p.waitForTimeout(200);
+    const textoEnviar = (await p.locator("#contratar-enviar").innerText().catch(() => "")).trim();
+    ok(textoEnviar === "Enviar solicitud · 77,97€", `CS: con todo, el botón dice «Enviar solicitud · 77,97€» («${textoEnviar}»)`);
+    await p.locator("#contratar-enviar").click();
+    await p.locator("#contratar-enviada").waitFor({ timeout: 10000 }).catch(() => {});
+    const enviada = estado.solicitudesServicio[0] ?? {};
+    ok(
+      enviada.modalidad === "Completa + mando" && !("modalidad_precio_eur" in enviada) && enviada.direccion === "Calle Mayor 1, Cuarte" && enviada.apellido === "Gómez",
+      `CS: la solicitud lleva la opción y la dirección, y NO manda el precio (lo pone la base de datos) (${JSON.stringify(enviada)})`
+    );
+    const azules = await azulesEn(p, "#contratar-enviada");
+    ok(azules === 1 && (await p.locator("#contratar-ver-seguimientos").count()) === 1, `CS: tras enviar, una sola píldora azul («Ver en Mis seguimientos») y «Cerrar» como texto (${azules} azules)`);
+    await capturar(p, "CS3-ventana-enviada");
+    const etiquetas = (estado.eventosEnviados ?? []).map((e) => e.step_label);
+    ok(
+      etiquetas.includes(`Contratar: ventana abierta · ${TITULO}`) &&
+        etiquetas.includes("Contratar: le faltaba · apellido") &&
+        etiquetas.includes(`Contratar: solicitud enviada · ${TITULO}`) &&
+        etiquetas.includes("Servicio: opción elegida · Completa + mando"),
+      `CS: la analítica cuenta la ventana abierta, lo que faltaba, el envío y la opción elegida (${etiquetas.filter((e) => /^(Contratar|Servicio: opción)/.test(e)).join(", ")})`
+    );
+    ok(p.errores.length === 0, `CS: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
+    await ctx.close();
+  }
+
+  // CS5) Sin la migración: la ficha y la ventana funcionan como antes (sin desplegable) y la solicitud se envía.
+  {
+    const estado = estadoBase({ opcionesSinColumna: true, servicio: { id: ID, title: TITULO, description: "x", price_eur: 45, like_count: 0 } });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/servicio/${ID}`);
+    await p.locator("#servicio-contratar").waitFor({ timeout: 40000 }).catch(() => {});
+    ok((await p.locator("#servicio-opcion").count()) === 0, "CS: sin la migración, la ficha no enseña el desplegable");
+    await p.locator("#servicio-contratar").click();
+    await p.locator("#contratar-enviar").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    await p.locator("#contratar-enviar").click();
+    await p.locator("#contratar-enviada").waitFor({ timeout: 10000 }).catch(() => {});
+    ok(estado.solicitudesServicio.length === 1 && !("modalidad" in estado.solicitudesServicio[0]), `CS: sin la migración la solicitud se envía igual, sin opción (${estado.solicitudesServicio.length})`);
+    ok(p.errores.length === 0, `CS: sin la migración, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CS6) Sin sesión: nada precargado y, tras enviar, la única píldora azul es «Cerrar».
+  {
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, { id: null, email: null }, "anon", estado);
+    await ctx.addInitScript(() => localStorage.removeItem("videojuegoos.supabase.auth"));
+    const p = await pagina(ctx, `/servicio/${ID}`);
+    await p.locator("#servicio-contratar").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#servicio-contratar").click();
+    await p.locator("#contratar-enviar").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const falta = (await p.locator("#contratar-enviar").innerText().catch(() => "")).trim();
+    ok(falta === "Te falta: nombre, apellido, método de contacto y ciudad", `CS: sin sesión no hay nada escrito y el botón lo dice («${falta}»)`);
+    await p.locator("#contratar-nombre").fill("Luis");
+    await p.locator("#contratar-apellido").fill("Pérez");
+    await p.locator("#contratar-metodo").getByText("WhatsApp", { exact: true }).click();
+    await p.locator("#contratar-contacto").fill("600111222");
+    await p.locator("#contratar-ciudad").fill("Zaragoza");
+    await p.locator("#contratar-enviar").click();
+    await p.locator("#contratar-enviada").waitFor({ timeout: 10000 }).catch(() => {});
+    const azules = await azulesEn(p, "#contratar-enviada");
+    ok(azules === 1 && (await p.locator("#contratar-ver-seguimientos").count()) === 0, `CS: sin sesión, tras enviar la única píldora azul es «Cerrar» (${azules})`);
+    await ctx.close();
+  }
+
+  // CS7) Administración → Servicios: el editor de opciones guarda nombre y precio, y el precio del servicio es el de la
+  // más barata; las solicitudes enseñan su opción y se filtran por opción, recogida y contacto.
+  {
+    const estado = {
+      guardados: [],
+      filas: [],
+      serviciosAdmin: [
+        { id: ID, title: TITULO, description: "x", price_eur: 45, status: "PUBLISHED", is_active: true, view_count: 3, like_count: 0, modalidades: OPCIONES, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" },
+      ],
+      serviciosMedia: [],
+      serviciosFicha: [
+        { id: "a1", created_at: "2026-11-08T10:00:00Z", service_id: ID, service_title: TITULO, nombre: "Ana", apellido: "Gómez", metodo_contacto: "gmail", contacto: "ana@example.com", ciudad: "Zaragoza", direccion: "Calle Mayor 1", disponibilidad: null, comentario: null, status: "nuevo", modalidad: "Completa + mando", modalidad_precio_eur: 77.97 },
+        { id: "a2", created_at: "2026-11-08T09:00:00Z", service_id: ID, service_title: TITULO, nombre: "Luis", apellido: "Pérez", metodo_contacto: "whatsapp", contacto: "600111222", ciudad: "Zaragoza", direccion: null, disponibilidad: null, comentario: null, status: "nuevo", modalidad: "Básica", modalidad_precio_eur: 45 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await p.locator(`[aria-label="Editar ${TITULO}"]`).click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#servicio-opciones").waitFor({ timeout: 10000 }).catch(() => {});
+    const filas = await p.evaluate(() => [0, 1].map((i) => `${document.querySelector(`#servicio-opcion-nombre-${i}`)?.value}=${document.querySelector(`#servicio-opcion-precio-${i}`)?.value}`));
+    ok(filas.join("|") === "Básica=45|Completa + mando=77,97", `CS: Administración enseña las opciones del servicio con su precio (${filas.join(", ")})`);
+    await p.locator("#servicio-opcion-precio-0").fill("49,90");
+    await p.locator("#servicio-opciones").getByText("Añadir opción").click();
+    await p.locator("#servicio-opcion-nombre-2").fill("Solo limpieza");
+    await p.locator("#servicio-opcion-precio-2").fill("29");
+    await capturar(p, "CS4-admin-opciones");
+    await p.getByText("Guardar cambios", { exact: true }).click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const guardado = (estado.serviciosGuardados ?? []).at(-1) ?? {};
+    ok(
+      JSON.stringify(guardado.modalidades) === JSON.stringify([{ nombre: "Básica", precio_eur: 49.9 }, { nombre: "Completa + mando", precio_eur: 77.97 }, { nombre: "Solo limpieza", precio_eur: 29 }]) && guardado.price_eur === 29,
+      `CS: guarda las opciones (subir un precio y añadir una) y el precio del servicio es el de la más barata (${JSON.stringify(guardado)})`
+    );
+
+    await p.getByText("Solicitudes", { exact: true }).first().click().catch(() => {});
+    await p.locator("#solicitudes-filtros").waitFor({ timeout: 15000 }).catch(() => {});
+    const lista = (await p.locator("#solicitudes-lista").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Opción: Completa \+ mando · 77,97€/.test(lista) && /Recogida en: Calle Mayor 1/.test(lista), `CS: cada solicitud enseña su opción, su precio y dónde recogerlo (${lista.slice(0, 160)})`);
+    await p.locator("#solicitudes-filtro-opcion select").selectOption("Básica").catch(() => {});
+    await p.waitForTimeout(300);
+    const soloBasica = (await p.locator("#solicitudes-lista").innerText().catch(() => "")).replace(/\n/g, " ");
+    await p.locator("#solicitudes-filtro-opcion select").selectOption("ALL").catch(() => {});
+    await p.locator("#solicitudes-filtro-recogida select").selectOption("si").catch(() => {});
+    await p.waitForTimeout(300);
+    const conRecogida = (await p.locator("#solicitudes-lista").innerText().catch(() => "")).replace(/\n/g, " ");
+    await p.locator("#solicitudes-filtro-recogida select").selectOption("ALL").catch(() => {});
+    await p.locator("#solicitudes-filtro-metodo select").selectOption("whatsapp").catch(() => {});
+    await p.waitForTimeout(300);
+    const porWhatsapp = (await p.locator("#solicitudes-lista").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(
+      /Luis Pérez/.test(soloBasica) && !/Ana Gómez/.test(soloBasica) && /Ana Gómez/.test(conRecogida) && !/Luis Pérez/.test(conRecogida) && /Luis Pérez/.test(porWhatsapp) && !/Ana Gómez/.test(porWhatsapp),
+      "CS: se filtran por opción, por recogida a domicilio y por método de contacto"
+    );
+    await capturar(p, "CS5-admin-solicitudes");
+    ok(p.errores.length === 0, `CS: Administración sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // CS8) Administración → Analítica: abrió la ventana → envió, por servicio, lo que faltaba y las opciones elegidas.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: `Contratar: ventana abierta · ${TITULO}`, sessions: 8 },
+        { step_label: `Contratar: solicitud enviada · ${TITULO}`, sessions: 2 },
+        { step_label: `Contratar: cerrada sin enviar · ${TITULO}`, sessions: 6 },
+        { step_label: "Contratar: le faltaba · apellido", sessions: 3 },
+        { step_label: "Servicio: opción elegida · Completa + mando", sessions: 5 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-contratar-servicio").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-contratar-servicio").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(
+      new RegExp(`${TITULO}: 8 → 2 \\(25 %\\) · cerradas sin enviar 6`).test(t) && /faltaba al intentar enviar: apellido 3/.test(t) && /Completa \+ mando 5/.test(t),
+      `CS: Analítica enseña el embudo por servicio, lo que faltaba y las opciones (${t})`
+    );
+    ok(p.errores.length === 0, `CS: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== MG) «Me gusta» (dueño, 2026-11-03): corazón en la ficha de servicio (y sin él si falta la migración), pestaña
 // «Me gusta» en Perfil con los de la cuenta y los del dispositivo, la lista de Servicios con la tarjeta del Catálogo,
 // «me gusta» por servicio en Administración → Servicios y su uso en Analítica ======================================
@@ -7918,6 +8161,7 @@ try {
   if (SOLO === "SV") await seccionSV();
   if (SOLO === "VA") await seccionVA();
   if (SOLO === "FS") await seccionFS();
+  if (SOLO === "CS") await seccionCS();
   if (SOLO === "MG") await seccionMG();
   if (SOLO === "RS") await seccionRS();
   if (SOLO === "VP") await seccionVP();
@@ -8878,6 +9122,7 @@ try {
   await seccionSV();
   await seccionVA();
   await seccionFS();
+  await seccionCS();
   await seccionMG();
   await seccionRS();
   await seccionVP();

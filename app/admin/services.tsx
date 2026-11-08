@@ -76,6 +76,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
+import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import CargaMarca from "../../components/marca/CargaMarca";
 import {
   AdminHeader,
@@ -156,6 +157,8 @@ type ServiceRow = {
   view_count: number;
   // «Me gusta» de la ficha (null: la migración 20261103200000_servicios_me_gusta.sql aún no está aplicada).
   like_count?: number | null;
+  // Opciones que elige el cliente (Básica, Completa…; migración 20261108230000). undefined = la columna aún no existe.
+  modalidades?: ModalidadServicio[];
   created_at: string;
   updated_at: string;
   media: ServiceMediaRow[];
@@ -191,6 +194,9 @@ type ServiceRequestRow = {
   vinculado_en?: string | null;
   // Nota interna: «Asignado desde el chat» si la creó el administrador desde Administración → Chat.
   nota_admin?: string | null;
+  // La opción que eligió el cliente y su precio (lo pone la base de datos; migración 20261108230000).
+  modalidad?: string | null;
+  modalidad_precio_eur?: number | null;
 };
 
 // La pone api/asignar-seguimiento.ts al asignar un seguimiento desde el chat.
@@ -513,6 +519,8 @@ export default function AdminServices() {
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [search, setSearch] = useState("");
+  // false = falta la columna services.modalidades (migración 20261108230000 sin aplicar): no se enseña el editor.
+  const [opcionesOk, setOpcionesOk] = useState(false);
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -520,10 +528,12 @@ export default function AdminServices() {
       // Con los «me gusta» si la base de datos ya los tiene; si no (columna que falta), sin ellos.
       const columnas = "id,title,description,price_eur,status,is_active,view_count,created_at,updated_at";
       const leer = (cols: string) => supabase.from("services").select(cols).order("created_at", { ascending: false });
-      let { data: rows, error } = await leer(`${columnas},like_count`);
-      if (error && (error.code === "42703" || error.code === "PGRST204" || /like_count/.test(error.message ?? ""))) {
-        ({ data: rows, error } = await leer(columnas));
-      }
+      const faltaCol = (e: any) => !!e && (e.code === "42703" || e.code === "PGRST204" || /like_count|modalidades/.test(e.message ?? ""));
+      // Con las opciones y los «me gusta» si la base de datos ya los tiene; si no, sin ellos.
+      let { data: rows, error } = await leer(`${columnas},like_count,modalidades`);
+      setOpcionesOk(!error);
+      if (faltaCol(error)) ({ data: rows, error } = await leer(`${columnas},like_count`));
+      if (faltaCol(error)) ({ data: rows, error } = await leer(columnas));
       if (error) throw error;
 
       const ids = (rows ?? []).map((r: any) => r.id);
@@ -541,7 +551,11 @@ export default function AdminServices() {
       }
 
       setServices(
-        (rows ?? []).map((r: any) => ({ ...r, media: mediaByService[r.id] ?? [] }))
+        (rows ?? []).map((r: any) => ({
+          ...r,
+          modalidades: "modalidades" in r ? leerModalidades(r.modalidades) : undefined,
+          media: mediaByService[r.id] ?? [],
+        }))
       );
     } catch (e) {
       console.error("Error cargando servicios:", e);
@@ -583,6 +597,8 @@ export default function AdminServices() {
   const [removedMedia, setRemovedMedia] = useState<ServiceMediaRow[]>([]);
   const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
   const [coverId, setCoverId] = useState<string | null>(null);
+  // Opciones del servicio en el formulario (precio como texto, con coma: «77,97»).
+  const [opciones, setOpciones] = useState<{ nombre: string; precio: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
   // Precio guardado sin céntimos porque la base de datos aún no los admite (ver save()).
@@ -603,6 +619,7 @@ export default function AdminServices() {
     setRemovedMedia([]);
     setNewMedia([]);
     setCoverId(null);
+    setOpciones([]);
     setModalErr(null);
     setModalOpen(true);
   }
@@ -620,6 +637,7 @@ export default function AdminServices() {
     setRemovedMedia([]);
     setNewMedia([]);
     setCoverId(s.media.find((m) => m.is_cover)?.id ?? s.media[0]?.id ?? null);
+    setOpciones((s.modalidades ?? []).map((m) => ({ nombre: m.nombre, precio: String(m.precio_eur).replace(".", ",") })));
     setModalErr(null);
     setModalOpen(true);
   }
@@ -817,19 +835,47 @@ export default function AdminServices() {
       return;
     }
 
+    // Opciones (Básica, Completa…): las filas vacías no cuentan; una con nombre necesita precio y al revés.
+    const filasOpciones = opciones.filter((o) => o.nombre.trim() || o.precio.trim());
+    const incompleta = filasOpciones.find((o) => !o.nombre.trim() || !o.precio.trim() || !(toPriceSafe(o.precio, -1) >= 0));
+    if (incompleta) {
+      setModalErr("Cada opción necesita su nombre y su precio (o déjala vacía para quitarla).");
+      return;
+    }
+    const nombresOpciones = filasOpciones.map((o) => o.nombre.trim().toLowerCase());
+    if (new Set(nombresOpciones).size !== nombresOpciones.length) {
+      setModalErr("Hay dos opciones con el mismo nombre: cámbiale el nombre a una.");
+      return;
+    }
+    const modalidades: ModalidadServicio[] = filasOpciones.map((o) => ({
+      nombre: o.nombre.trim(),
+      precio_eur: Math.round(toPriceSafe(o.precio, 0) * 100) / 100,
+    }));
+
     setSaving(true);
     setModalErr(null);
 
     try {
       // Con céntimos (45,50 → 45.5; dueño, 2026-11-04). Hasta que se aplique la migración 20261104150000 la columna
       // es de enteros: entonces se guarda redondeado y se avisa (el servicio no se queda sin guardar).
-      const precio = Math.round(toPriceSafe(price, 0) * 100) / 100;
-      const payload = {
+      // Con opciones, el precio del servicio es el de la más barata (el «desde» de los listados de la tienda).
+      const precio = modalidades.length
+        ? Math.min(...modalidades.map((m) => m.precio_eur))
+        : Math.round(toPriceSafe(price, 0) * 100) / 100;
+      const payload: {
+        title: string;
+        description: string;
+        price_eur: number;
+        status: ServiceStatus;
+        is_active: boolean;
+        modalidades?: ModalidadServicio[];
+      } = {
         title: cleanTitle,
         description: desc.trim(),
         price_eur: precio,
         status,
         is_active: isActive,
+        ...(opcionesOk ? { modalidades } : null),
       };
       const guardar = async (datos: typeof payload, id: string | null) => {
         if (id) {
@@ -935,9 +981,10 @@ export default function AdminServices() {
       const consulta = (columnas: string) =>
         supabase.from("service_requests").select(columnas).order("created_at", { ascending: false }).limit(200);
       const seguimiento = "seguimiento,seguimiento_nota,seguimiento_actualizado";
-      let res: { data: any[] | null; error: any } = await consulta(
-        `${base},${seguimiento},customer_user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin`
-      );
+      const completa = `${base},${seguimiento},customer_user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin`;
+      // Con la opción elegida si la base de datos ya la tiene (migración 20261108230000); si no, sin ella.
+      let res: { data: any[] | null; error: any } = await consulta(`${completa},modalidad,modalidad_precio_eur`);
+      if (res.error && faltaEsquema(res.error)) res = await consulta(completa);
       setNumerosOk(!res.error);
       if (res.error && faltaEsquema(res.error)) res = await consulta(`${base},${seguimiento}`);
       if (res.error && faltaEsquema(res.error)) {
@@ -961,12 +1008,35 @@ export default function AdminServices() {
     if (tab === "solicitudes") loadRequests();
   }, [tab, loadRequests]);
 
+  // Filtros de la opción elegida, la recogida a domicilio (escribió «Dónde podemos recogerlo») y el método de contacto.
+  const [filtroOpcion, setFiltroOpcion] = useState("ALL");
+  const [filtroRecogida, setFiltroRecogida] = useState<"ALL" | "si" | "no">("ALL");
+  const [filtroMetodo, setFiltroMetodo] = useState<"ALL" | MetodoContacto>("ALL");
+  const opcionesSolicitadas = useMemo(() => {
+    const cuenta = new Map<string, number>();
+    for (const r of requests) if (r.modalidad) cuenta.set(r.modalidad, (cuenta.get(r.modalidad) ?? 0) + 1);
+    return [...cuenta.entries()].sort((a, b) => b[1] - a[1]);
+  }, [requests]);
+
   const filteredRequests = useMemo(() => {
-    if (requestFilter === "ALL") return requests;
-    if (requestFilter === "sin_cuenta") return requests.filter((r) => !r.customer_user_id);
-    if (requestFilter === "veoaura") return requests.filter((r) => !!r.id_veoaura);
-    return requests.filter((r) => r.status === requestFilter);
-  }, [requests, requestFilter]);
+    let lista = requests;
+    if (requestFilter === "sin_cuenta") lista = lista.filter((r) => !r.customer_user_id);
+    else if (requestFilter === "veoaura") lista = lista.filter((r) => !!r.id_veoaura);
+    else if (requestFilter !== "ALL") lista = lista.filter((r) => r.status === requestFilter);
+    if (filtroOpcion === "SIN") lista = lista.filter((r) => !r.modalidad);
+    else if (filtroOpcion !== "ALL") lista = lista.filter((r) => r.modalidad === filtroOpcion);
+    if (filtroRecogida !== "ALL") lista = lista.filter((r) => (filtroRecogida === "si") === !!r.direccion?.trim());
+    if (filtroMetodo !== "ALL") lista = lista.filter((r) => r.metodo_contacto === filtroMetodo);
+    return lista;
+  }, [requests, requestFilter, filtroOpcion, filtroRecogida, filtroMetodo]);
+
+  // Cuántas de cada (para los desplegables de filtro).
+  const cuentaRecogida = useMemo(() => requests.filter((r) => !!r.direccion?.trim()).length, [requests]);
+  const cuentaMetodo = useMemo(() => {
+    const c: Partial<Record<MetodoContacto, number>> = {};
+    for (const r of requests) if (r.metodo_contacto) c[r.metodo_contacto] = (c[r.metodo_contacto] ?? 0) + 1;
+    return c;
+  }, [requests]);
 
   // Números de seguimiento: cuántas fichas vienen de VeoAura y cuántas ya están en la cuenta de su cliente.
   const resumenNumeros = useMemo(() => {
@@ -1126,7 +1196,8 @@ export default function AdminServices() {
                           {s.title || "Sin título"}
                         </Text>
                         <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
-                          {fmtEUR(s.price_eur)} · {STATUS_LABEL[s.status]}
+                          {s.modalidades?.length ? `Desde ${fmtEUR(s.price_eur)} · ${s.modalidades.length} opciones` : fmtEUR(s.price_eur)} ·{" "}
+                          {STATUS_LABEL[s.status]}
                           {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
                           {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
                           {mediaServicio[s.id] ? ` · ★ ${mediaServicio[s.id].media.toFixed(1).replace(".", ",")} (${mediaServicio[s.id].n})` : ""}
@@ -1170,6 +1241,53 @@ export default function AdminServices() {
                   ))
                 : null}
             </View>
+            {/* Filtros de la opción, la recogida y el método de contacto: desplegables del propio móvil, de dos en dos. */}
+            {!requestsLoading && requests.length ? (
+              <View nativeID="solicitudes-filtros" style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "30%" }}>
+                  <SelectorIOS
+                    nativeID="solicitudes-filtro-opcion"
+                    label="Opción"
+                    value={filtroOpcion}
+                    onChange={setFiltroOpcion}
+                    options={[
+                      { value: "ALL", label: "Todas" },
+                      ...opcionesSolicitadas.map(([nombre, n]) => ({ value: nombre, label: `${nombre} (${n})` })),
+                      { value: "SIN", label: `Sin opción (${requests.filter((r) => !r.modalidad).length})` },
+                    ]}
+                  />
+                </View>
+                <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "30%" }}>
+                  <SelectorIOS
+                    nativeID="solicitudes-filtro-recogida"
+                    label="Recogida"
+                    value={filtroRecogida}
+                    onChange={(v) => setFiltroRecogida(v as "ALL" | "si" | "no")}
+                    options={[
+                      { value: "ALL", label: "Todas" },
+                      { value: "si", label: `Con dirección de recogida (${cuentaRecogida})` },
+                      { value: "no", label: `Sin dirección (${requests.length - cuentaRecogida})` },
+                    ]}
+                  />
+                </View>
+                <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "30%" }}>
+                  <SelectorIOS
+                    nativeID="solicitudes-filtro-metodo"
+                    label="Contacto"
+                    value={filtroMetodo}
+                    onChange={(v) => setFiltroMetodo(v as "ALL" | MetodoContacto)}
+                    options={[
+                      { value: "ALL", label: "Todos" },
+                      ...(Object.keys(METODO_LABEL) as MetodoContacto[]).map((m) => ({
+                        value: m,
+                        label: `${METODO_LABEL[m]} (${cuentaMetodo[m] ?? 0})`,
+                      })),
+                    ]}
+                  />
+                </View>
+              </View>
+            ) : null}
+
             {numerosOk && !requestsLoading ? (
               <Text nativeID="servicios-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                 Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculadas}) ·
@@ -1248,6 +1366,13 @@ export default function AdminServices() {
                       </View>
 
                       <View style={{ gap: 4, alignItems: "center" }}>
+                        {r.modalidad ? (
+                          <Text nativeID={`solicitud-opcion-${r.id}`} style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
+                            <Text style={{ fontWeight: "800" }}>Opción: </Text>
+                            {r.modalidad}
+                            {r.modalidad_precio_eur != null ? ` · ${fmtEUR(Number(r.modalidad_precio_eur))}` : ""}
+                          </Text>
+                        ) : null}
                         {r.ciudad ? (
                           <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
                             <Text style={{ fontWeight: "800" }}>Ciudad: </Text>
@@ -1268,7 +1393,7 @@ export default function AdminServices() {
                         ) : null}
                         {r.direccion ? (
                           <Text style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
-                            <Text style={{ fontWeight: "800" }}>Dirección: </Text>
+                            <Text style={{ fontWeight: "800" }}>Recogida en: </Text>
                             {r.direccion}
                           </Text>
                         ) : null}
@@ -1396,7 +1521,88 @@ export default function AdminServices() {
                   En la tienda la descripción se verá sin {contarEmojis(desc) === 1 ? "su emoji" : `sus ${contarEmojis(desc)} emojis`}.
                 </Text>
               ) : null}
-              <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0,00" keyboardType="decimal-pad" />
+              {opciones.some((o) => o.nombre.trim() || o.precio.trim()) ? null : (
+                <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0,00" keyboardType="decimal-pad" />
+              )}
+
+              {/* Opciones que elige el cliente en la ficha y al contratar (dueño, 2026-11-08): nombre y precio de cada
+                  una; la primera sale elegida. Con opciones, el precio del servicio es el de la más barata. */}
+              {opcionesOk ? (
+                <View nativeID="servicio-opciones" style={{ gap: 8, width: "100%", alignSelf: "stretch" }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>Opciones del servicio</Text>
+                  <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                    Por ejemplo «Básica» y «Completa + mando». El cliente elige una en la ficha; la primera sale elegida. Sin
+                    opciones, el servicio tiene un solo precio.
+                  </Text>
+                  {opciones.map((o, i) => (
+                    <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}>
+                      <TextInput
+                        nativeID={`servicio-opcion-nombre-${i}`}
+                        value={o.nombre}
+                        onChangeText={(v) => setOpciones((prev) => prev.map((x, j) => (j === i ? { ...x, nombre: v } : x)))}
+                        placeholder="Nombre (Básica)"
+                        placeholderTextColor={COLORS.muted2}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          width: 0,
+                          minHeight: 48,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          borderRadius: 14,
+                          paddingHorizontal: 12,
+                          fontSize: 16,
+                          color: COLORS.text,
+                          backgroundColor: COLORS.cardSoft,
+                        }}
+                      />
+                      <TextInput
+                        nativeID={`servicio-opcion-precio-${i}`}
+                        value={o.precio}
+                        onChangeText={(v) => setOpciones((prev) => prev.map((x, j) => (j === i ? { ...x, precio: v } : x)))}
+                        placeholder="0,00 €"
+                        placeholderTextColor={COLORS.muted2}
+                        keyboardType="decimal-pad"
+                        style={{
+                          width: 96,
+                          flexShrink: 0,
+                          minHeight: 48,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          borderRadius: 14,
+                          paddingHorizontal: 12,
+                          fontSize: 16,
+                          color: COLORS.text,
+                          backgroundColor: COLORS.cardSoft,
+                          textAlign: "center",
+                        }}
+                      />
+                      <IconButton
+                        icon="trash-outline"
+                        label={`Quitar la opción ${o.nombre || i + 1}`}
+                        variant="danger"
+                        onPress={() => setOpciones((prev) => prev.filter((_, j) => j !== i))}
+                      />
+                    </View>
+                  ))}
+                  {opciones.length < 12 ? (
+                    <View style={{ alignItems: "center" }}>
+                      <ChipButton
+                        icon="add"
+                        label="Añadir opción"
+                        onPress={() =>
+                          setOpciones((prev) => [
+                            ...prev,
+                            // La primera opción nueva arranca con el precio que ya tenía el servicio.
+                            { nombre: "", precio: prev.length ? "" : price },
+                          ])
+                        }
+                        isMobile={isMobile}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* Desplegable con el selector del propio móvil (en el iPhone, la rueda de iOS; dueño, 2026-11-04). */}
               <SelectorIOS
