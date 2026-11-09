@@ -80,7 +80,7 @@ const ACTUALIZAR_FUERA_MS = 30_000;
 const ACTUALIZAR_REVISAR_MS = 20 * 60_000;
 const ACTUALIZAR_ENFRIAR_MS = 10 * 60_000;
 const ACTUALIZAR_MIN_ENTRE_REVISIONES_MS = 60_000;
-const ACTUALIZAR_RUTAS_OCUPADAS = /^\/(vender|checkout|chat|blue-ia|admin|reset-password)/;
+const ACTUALIZAR_RUTAS_OCUPADAS = /^\/(vender|contratar|checkout|chat|blue-ia|admin|reset-password)/;
 const ACTUALIZAR_CLAVE = "videojuegoszaragoza:actualizada_en";
 
 // Bienvenida (dueño, 2026-11-04): la primera vez en cada visita (cada pestaña del navegador, o cada vez que se abre la
@@ -355,8 +355,9 @@ export default function RootLayout() {
         {/* Producto dinámico */}
         <Stack.Screen name="producto/[id]" />
 
-        {/* Servicio dinámico */}
+        {/* Servicio dinámico y su página «Contratar servicio» */}
         <Stack.Screen name="servicio/[id]" />
+        <Stack.Screen name="contratar/[id]" />
 
         {/* Chat privado por producto (cliente) */}
         <Stack.Screen name="chat/[chatId]" />

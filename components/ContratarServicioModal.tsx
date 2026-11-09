@@ -38,9 +38,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { SelectorIOS } from "../lib/admin/products.components";
+import CabeceraMarca from "./CabeceraMarca";
+import SmartImage from "./SmartImage";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -278,16 +281,21 @@ export default function ContratarServicioModal({
   service,
   modalidadInicial,
   onClose,
+  comoPagina = false,
 }: {
   visible: boolean;
-  service: { id: string; title: string; modalidades?: ModalidadServicio[] } | null;
+  // precio y foto: para el resumen de arriba en la página (app/contratar/[id].tsx).
+  service: { id: string; title: string; modalidades?: ModalidadServicio[]; precio?: number; foto?: string | null } | null;
   // La opción que el cliente tenía elegida en la ficha (si el servicio tiene opciones).
   modalidadInicial?: string | null;
   onClose: () => void;
+  // Página completa con el diseño de la tienda (dueño, 2026-11-09) en vez de ventana emergente.
+  comoPagina?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
+  const insets = useSafeAreaInsets();
 
   const modalidades = useMemo(() => service?.modalidades ?? [], [service]);
   const [modalidad, setModalidad] = useState<string>("");
@@ -476,39 +484,124 @@ export default function ContratarServicioModal({
   }
 
   const marca = (campo: CampoObligatorio) => intentado && faltan.includes(campo);
+  // En la página, «Cerrar» vuelve a la ficha del servicio.
+  const textoCerrar = comoPagina ? "Volver al servicio" : "Cerrar";
+  const precioResumen = opcionElegida ? opcionElegida.precio_eur : service?.precio ?? null;
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", padding: 16, justifyContent: "center" }}>
+  // Página: la cabecera de la tienda (volver + VideojuegosZaragoza), el título y el resumen del servicio con su foto, su
+  // opción y su precio. En la ventana emergente no sale (allí el título va en su barra).
+  const cabeceraPagina = comoPagina ? (
+    <View style={{ gap: 16 }}>
+      <CabeceraMarca onBack={handleClose} />
+      <View style={{ alignItems: "center", gap: 6 }}>
+        <Text
+          accessibilityRole="header"
+          {...({ "aria-level": 1 } as object)}
+          style={{ color: COLORS.text, fontSize: isMobile ? 24 : 28, fontWeight: "900", lineHeight: isMobile ? 30 : 34, textAlign: "center" }}
+        >
+          {sent ? "Solicitud enviada" : "Contratar servicio"}
+        </Text>
+        {!sent ? (
+          <Text style={{ color: COLORS.muted, fontSize: 14.5, lineHeight: 20, textAlign: "center" }}>
+            Déjanos tus datos y te contactamos para confirmar los detalles.
+          </Text>
+        ) : null}
+      </View>
+      {!sent && service ? (
         <View
-          style={{
-            ...modalColumnStyle,
-            maxHeight: "90%",
-            borderRadius: 22,
-            backgroundColor: COLORS.bg,
-            overflow: "hidden",
-          }}
+          nativeID="contratar-resumen"
+          style={{ flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: COLORS.card, padding: 12 }}
         >
           <View
             style={{
-              flexDirection: "row",
+              width: 64,
+              height: 64,
+              borderRadius: 14,
+              overflow: "hidden",
+              backgroundColor: COLORS.accent2,
               alignItems: "center",
-              justifyContent: "space-between",
-              padding: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: COLORS.border,
+              justifyContent: "center",
             }}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, flex: 1 }} numberOfLines={1}>
-              {sent ? "Solicitud enviada" : `Contratar: ${etiqueta}`}
-            </Text>
-            <Pressable onPress={handleClose} accessibilityLabel="Cerrar" style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 4 })}>
-              <Ionicons name="close" size={22} color={COLORS.text} />
-            </Pressable>
+            {service.foto ? (
+              <SmartImage uri={service.foto} alt={service.title} ancho={128} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+            ) : (
+              <Ionicons name="construct-outline" size={26} color={COLORS.accent} />
+            )}
           </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15.5, lineHeight: 20 }}>
+              {service.title}
+            </Text>
+            {opcionElegida ? <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>{opcionElegida.nombre}</Text> : null}
+          </View>
+          {precioResumen != null ? (
+            <Text nativeID="contratar-precio" style={{ color: COLORS.accent, fontWeight: "900", fontSize: 18 }}>
+              {fmtEURServicio(precioResumen)}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  ) : null;
 
-          {sent ? (
-            <View nativeID="contratar-enviada" style={{ padding: 24, alignItems: "center", gap: 12 }}>
+  // Página completa o ventana emergente. Es una función (no un componente) para que React no vuelva a montar el
+  // formulario en cada pulsación y los campos no pierdan el foco.
+  const envolver = (hijos: React.ReactNode) =>
+    comoPagina ? (
+      <View nativeID="contratar-pagina" style={{ flex: 1, backgroundColor: COLORS.bg, paddingTop: insets.top }}>
+        {hijos}
+      </View>
+    ) : (
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+        <View style={{ flex: 1, backgroundColor: "rgba(11,33,56,0.55)", padding: 16, justifyContent: "center" }}>
+          <View
+            style={{
+              ...modalColumnStyle,
+              maxHeight: "90%",
+              borderRadius: 22,
+              backgroundColor: COLORS.bg,
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: COLORS.border,
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, flex: 1 }} numberOfLines={1}>
+                {sent ? "Solicitud enviada" : `Contratar: ${etiqueta}`}
+              </Text>
+              <Pressable onPress={handleClose} accessibilityLabel="Cerrar" style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 4 })}>
+                <Ionicons name="close" size={22} color={COLORS.text} />
+              </Pressable>
+            </View>
+            {hijos}
+          </View>
+        </View>
+      </Modal>
+    );
+
+  // Contenido: en la página, en una columna centrada de 560 px con más aire; en la ventana, como hasta ahora.
+  const columna = {
+    width: "100%" as const,
+    maxWidth: comoPagina ? 560 : undefined,
+    padding: comoPagina ? (isMobile ? 18 : 26) : 16,
+    paddingTop: comoPagina ? 12 : 16,
+    gap: comoPagina ? 18 : 14,
+  };
+
+  return envolver(
+          sent ? (
+            <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}>
+            <View style={columna}>
+            {cabeceraPagina}
+            <View nativeID="contratar-enviada" style={{ padding: comoPagina ? 8 : 24, paddingTop: comoPagina ? 24 : 24, alignItems: "center", gap: 12 }}>
               <View
                 style={{
                   width: 56,
@@ -523,9 +616,12 @@ export default function ContratarServicioModal({
               >
                 <Ionicons name="checkmark" size={28} color={COLORS.success} />
               </View>
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                ¡Solicitud recibida!
-              </Text>
+              {/* En la página el título ya dice «Solicitud enviada»: no se repite. */}
+              {comoPagina ? null : (
+                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                  ¡Solicitud recibida!
+                </Text>
+              )}
               <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
                 Nos pondremos en contacto contigo lo antes posible para confirmar los detalles de «{service?.title}
                 {opcionElegida ? ` · ${opcionElegida.nombre}` : ""}».
@@ -534,6 +630,10 @@ export default function ContratarServicioModal({
                 <AnimatedPressable
                   nativeID="contratar-ver-seguimientos"
                   onPress={() => {
+                    if (comoPagina) {
+                      router.replace("/perfil?tab=seguimientos");
+                      return;
+                    }
                     handleClose();
                     router.push("/perfil?tab=seguimientos");
                   }}
@@ -563,7 +663,7 @@ export default function ContratarServicioModal({
                   accessibilityRole="button"
                   style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingHorizontal: 16, opacity: pressed ? 0.7 : 1 })}
                 >
-                  <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15 }}>Cerrar</Text>
+                  <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15 }}>{textoCerrar}</Text>
                 </Pressable>
               ) : (
                 <AnimatedPressable nativeID="contratar-cerrar" onPress={handleClose}>
@@ -576,13 +676,21 @@ export default function ContratarServicioModal({
                       backgroundColor: COLORS.accent,
                     }}
                   >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Cerrar</Text>
+                    <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{textoCerrar}</Text>
                   </View>
                 </AnimatedPressable>
               )}
             </View>
+            </View>
+            </ScrollView>
           ) : (
-            <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              ref={scrollRef}
+              contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={columna}>
+              {cabeceraPagina}
               {/* La opción del servicio (Básica, Completa…), con el desplegable del propio móvil. */}
               {modalidades.length ? (
                 <SelectorIOS
@@ -708,6 +816,9 @@ export default function ContratarServicioModal({
                 <View
                   style={{
                     borderRadius: 999,
+                    // En la página, del mismo alto que «Contratar servicio ahora» de la ficha.
+                    minHeight: comoPagina ? 52 : undefined,
+                    justifyContent: "center",
                     paddingVertical: 14,
                     paddingHorizontal: 16,
                     alignItems: "center",
@@ -715,7 +826,7 @@ export default function ContratarServicioModal({
                     opacity: sending ? 0.7 : 1,
                   }}
                 >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: comoPagina ? 16 : 15, textAlign: "center" }}>
                     {sending
                       ? "Enviando…"
                       : isValid
@@ -726,10 +837,8 @@ export default function ContratarServicioModal({
                   </Text>
                 </View>
               </AnimatedPressable>
+              </View>
             </ScrollView>
-          )}
-        </View>
-      </View>
-    </Modal>
+          )
   );
 }

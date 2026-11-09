@@ -58,7 +58,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analytics";
-import ContratarServicioModal, { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
+import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
 import { SelectorIOS } from "../../lib/admin/products.components";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import SmartImage from "../../components/SmartImage";
@@ -150,7 +150,8 @@ function faltaColumna(error: unknown) {
   return !!e && (e.code === "42703" || e.code === "PGRST204" || /column .* does not exist|Could not find the .* column/i.test(e.message ?? ""));
 }
 
-async function fetchService(serviceId: string): Promise<Service | null> {
+// También la usa la página «Contratar servicio» (app/contratar/[id].tsx).
+export async function fetchService(serviceId: string): Promise<Service | null> {
   const consulta = (columnas: string) =>
     supabase.from("services").select(columnas).eq("id", serviceId).eq("status", "PUBLISHED").eq("is_active", true).maybeSingle();
   let { data: row, error } = await consulta("id,title,description,price_eur,like_count,modalidades");
@@ -207,7 +208,6 @@ export default function ServicioScreen() {
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [viewCount, setViewCount] = useState<number | null>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
-  const [contratarOpen, setContratarOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   // «Me gusta», como en producto: uno por persona; este dispositivo recuerda los suyos (LIKED_SERVICES_KEY).
@@ -380,9 +380,11 @@ export default function ServicioScreen() {
     }
   }
 
+  // «Contratar servicio ahora» abre su página (dueño, 2026-11-09), con la opción que tenga elegida.
   function contratar() {
-    setContratarOpen(true);
-    trackEvent("servicio_contratar", "Servicio: Contratar servicio ahora", { path: `/servicio/${s?.id ?? ""}` });
+    if (!s) return;
+    trackEvent("servicio_contratar", "Servicio: Contratar servicio ahora", { path: `/servicio/${s.id}` });
+    router.push(`/contratar/${s.id}${modalidad ? `?opcion=${encodeURIComponent(modalidad)}` : ""}` as any);
   }
 
   // Dudas, como en producto: primero Blue IA con el servicio como contexto; desde ahí, «Hablar con el equipo» abre el
@@ -878,13 +880,6 @@ export default function ServicioScreen() {
         images={lightboxImages}
         initialIndex={lightboxIndex}
         onClose={() => setLightboxOpen(false)}
-      />
-
-      <ContratarServicioModal
-        visible={contratarOpen}
-        service={s ? { id: s.id, title: s.title, modalidades: s.modalidades } : null}
-        modalidadInicial={modalidad}
-        onClose={() => setContratarOpen(false)}
       />
     </View>
   );
