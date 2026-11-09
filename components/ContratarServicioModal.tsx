@@ -461,7 +461,8 @@ export default function ContratarServicioModal({
   // opción y su precio. En la ventana emergente no sale (allí el título va en su barra).
   const cabeceraPagina = comoPagina ? (
     <View style={{ gap: 16 }}>
-      <CabeceraMarca onBack={handleClose} />
+      {/* Sin flecha arriba: se vuelve con el botón azul de abajo a la derecha (dueño, 2026-11-09). */}
+      <CabeceraMarca sinVolver />
       {/* Título y subtítulo con las mismas medidas que «Vender mi artículo» (app/vender.tsx). */}
       <View style={{ alignItems: "center", paddingHorizontal: 34, marginTop: 8 }}>
         <Text
@@ -847,6 +848,18 @@ export default function ContratarServicioModal({
                   </Text>
                 </View>
               </AnimatedPressable>
+              {/* Nota legal (dueño, 2026-11-09): para qué usamos los datos y enlace a la política de privacidad. */}
+              <Text nativeID="contratar-privacidad" style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12, lineHeight: 17 }}>
+                Al enviar aceptas que usemos estos datos solo para gestionar tu solicitud, según nuestra{" "}
+                <Text
+                  accessibilityRole="link"
+                  onPress={() => router.push("/politicas/privacidad")}
+                  style={{ color: COLORS.accent, fontWeight: "800", textDecorationLine: "underline" }}
+                >
+                  política de privacidad
+                </Text>
+                .
+              </Text>
               </View>
             </ScrollView>
           )
