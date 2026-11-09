@@ -6,6 +6,8 @@
 --           administración, le propone temas a lo largo del día.
 -- Acceso:   misma pauta que flash_news: lectura de las activas para cualquiera (Blue IA las lee
 --           desde el servidor con la clave pública) y escritura solo del administrador.
+-- Qué hace: crea la tabla blue_conocimiento (tema + respuesta del dueño, activa o no).
+-- Conectado con: app/admin/conocimiento.tsx («Lo que Blue sabe»), lib/conocimiento.ts y api/blue-ia.ts.
 -- ============================================================================
 
 create table if not exists public.blue_conocimiento (

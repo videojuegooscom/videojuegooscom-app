@@ -11,6 +11,8 @@
 -- Tipo:     aditiva (solo CREATE). Respecto a sql/product_sales.sql: sin enlaces a la tabla
 --           interna de usuarios y sin la búsqueda de usuarios admin_search_users (lee
 --           auth.users: si se quiere, la aplica el dueño desde sql/product_sales.sql).
+-- Conectado con: tabla product_sales; components/Resenas.tsx, app/admin/products.tsx, app/producto/[id].tsx,
+--           app/checkout.tsx, app/admin/chats.tsx y app/admin/cliente/[userId].tsx.
 -- ============================================================================
 
 create table if not exists public.product_sales (

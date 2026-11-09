@@ -5,6 +5,8 @@
 --   1) «Todo en español, también los avisos mientras se trabaja»: se añade que vale también cuando el recordatorio del
 --      sistema que pide contar qué se está haciendo llega en inglés (fue la causa).
 --   2) Nueva: cada publicación de una página de Claude (Artifact) es una ventana de permiso en el móvil del dueño.
+-- Qué hace: amplía la lección de los avisos en español y apunta la de las páginas de Claude (Artifact).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     actualiza una lección e inserta otra si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

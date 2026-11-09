@@ -1,6 +1,9 @@
 <!--
   Plantilla del correo «Cambiar el correo de la cuenta» (Supabase → Authentication → Emails → Templates → «Change email
   address»). Asunto: Confirma el cambio de correo · VideojuegosZaragoza
+  Qué hace: es el correo que recibe el cliente cuando cambia el correo de su cuenta, para confirmar el cambio.
+  Conectado con: correos de Supabase Auth; NO se aplica sola: se copia a mano en el panel de Supabase. Lo dispara
+  supabase.auth.updateUser({ email }) en components/PerfilPublico.tsx, y el enlace lleva a /perfil?cuenta=correo.
   Mismo diseño que recovery.html y confirmation.html. Con «Secure email change» activado, Supabase la envía a los DOS
   correos (el de antes y el nuevo), cada uno con su enlace: el texto vale para los dos. Variables: {{ .Email }} (el de
   antes), {{ .NewEmail }} (el nuevo) y {{ .ConfirmationURL }}. Se pega TODO lo que hay debajo de este comentario.

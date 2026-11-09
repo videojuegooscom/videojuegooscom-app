@@ -4,6 +4,8 @@
 --            «registros que vienen de Instagram/TikTok» en Administración → Analítica).
 -- Qué hace: añade UNA frase al final del apartado «Cookies y analítica propia» de la política de privacidad. Solo se
 --           cuenta a quien acepta la analítica (lib/analytics.ts), como ya dice ese apartado.
+-- Conectado con: public.policy_pages (slug «privacidad»); se ve en app/politicas/[slug].tsx y se edita en
+--           app/admin/policies.tsx.
 -- Tipo:     cambia el texto de una política (no borra nada). Repetirla no cambia nada: no se añade si ya está.
 -- ============================================================================
 

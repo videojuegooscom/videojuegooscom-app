@@ -3,6 +3,8 @@
 --   El dueño pidió que la ficha de un servicio (/servicio/…) tenga el mismo formato que la de producto. Las dos
 --   fichas son una misma cosa para el cliente: lo que cambie en una se refleja en la otra. (Al día con la #157: las
 --   dudas del servicio van por Blue IA y el chat de la tienda, ya no por WhatsApp.)
+-- Qué hace: apunta la lección «Ficha de servicio con el mismo formato que la de producto».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-10-31.
 --   Al buscar en el código, Claude escribió sin comillas la ruta app/(tabs)/_layout.tsx en un comando: el intérprete
 --   no lo entendió (los paréntesis tienen otro significado) y al dueño le salió una ventana de permiso en el móvil.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta la fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

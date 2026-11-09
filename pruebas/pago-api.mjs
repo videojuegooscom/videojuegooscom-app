@@ -24,6 +24,8 @@
  *
  * Uso: node pruebas/pago-api.mjs
  * Sale con código 1 si algo falla.
+ * Conectado con: api/pago.ts (Stripe); simula en memoria perfiles, pedidos, políticas y el límite compartido. La lanza
+ *   pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";

@@ -14,6 +14,9 @@
 -- Tipo:     solo cambia permisos (no toca datos ni el cuerpo de las funciones). Cambia permisos de funciones
 --           SECURITY DEFINER: la revisa y aplica el dueño.
 -- Vuelta atrás: supabase/rollbacks/20261018160000_funciones_chat_sin_public_revertir.sql
+-- Conectado con: las seis funciones de los chats, que llaman lib/supabase.ts, components/ProductChatThread.tsx,
+--           components/Campanita.tsx, components/VenderAhoraModal.tsx, app/producto/[id].tsx, app/catalogo.tsx,
+--           app/(tabs)/chat-global.tsx, app/(tabs)/index.tsx, app/admin/chats.tsx y app/admin/index.tsx.
 -- ============================================================================
 
 revoke all on function public.delete_chat_for_me(uuid) from public;

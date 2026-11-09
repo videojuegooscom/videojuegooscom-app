@@ -3,6 +3,8 @@
 --            poner «electrónica»: «que tenemos consolas, accesorios, móviles y portátiles, y que compramos y realizamos
 --            reparaciones y mantenimientos en dispositivos electrónicos», y que esté «adaptado y bien encuadrado» para
 --            Instagram y TikTok.
+-- Qué hace: apunta la lección «Somos una tienda de electrónica, y cada red con su formato».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

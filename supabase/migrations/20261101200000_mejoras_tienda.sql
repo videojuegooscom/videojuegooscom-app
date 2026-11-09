@@ -13,6 +13,9 @@
 -- Tipo:     SOLO AÑADE (una tabla, una función, un disparador, tres políticas y una frase en la privacidad). No borra
 --           filas ni columnas. Se puede aplicar varias veces.
 -- La aplica el dueño en Supabase → SQL Editor (políticas con auth.uid() y permisos).
+-- Qué hace: crea la caja de ideas de mejora de los clientes, con su límite diario y una frase en la privacidad.
+-- Conectado con: public.mejoras_tienda y policy_pages; components/ReviewModal.tsx (envío), app/admin/users.tsx,
+--           app/admin/cliente/[userId].tsx y app/admin/index.tsx (lectura).
 -- ============================================================================
 
 -- 1) La tabla.

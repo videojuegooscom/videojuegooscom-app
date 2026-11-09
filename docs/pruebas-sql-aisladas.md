@@ -1,5 +1,7 @@
 # Pruebas SQL reales en una base aislada
 
+**Qué hace:** explica cómo probar las migraciones de verdad en un PostgreSQL local de usar y tirar, sin tocar producción. **Conectado con:** lo citan pruebas/sql-aislado.mjs, pruebas/todas.mjs y docs/pruebas.md; describe supabase/tests/aislado/*.sql, pruebas/sql-aislado.mjs y las pruebas pruebas/*-sql.mjs.
+
 Sirven para ejecutar de verdad las migraciones y sus vueltas atrás **sin tocar producción**: una base
 PostgreSQL de usar y tirar, solo en el propio servidor (`127.0.0.1`), con el esqueleto mínimo de Supabase
 (roles `anon`, `authenticated`, `service_role`, `auth.uid()` y los permisos por defecto de Supabase).

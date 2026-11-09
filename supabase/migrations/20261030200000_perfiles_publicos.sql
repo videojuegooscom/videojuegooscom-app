@@ -1,5 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: el Foro enseña el USUARIO y la FOTO de «Mi perfil» de quien escribe (función perfiles_publicos).
+-- Qué hace: crea una función que, dada una lista de personas del Foro, devuelve solo su usuario y su foto.
+-- Conectado con: public.perfiles_publicos (lee perfiles_cliente y chat_messages); la llama components/PerfilPublico.tsx.
 -- Tipo:     SOLO AÑADE una función de lectura. No toca ninguna tabla, fila, política ni función existente.
 --           - Devuelve SOLO tres datos: el id, el usuario y la foto. Nunca el nombre, el país, la provincia ni la fecha de
 --             nacimiento (esos siguen viéndolos solo el propio cliente y el administrador).

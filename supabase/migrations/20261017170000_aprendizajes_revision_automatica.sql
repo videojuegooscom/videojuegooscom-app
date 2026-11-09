@@ -2,6 +2,8 @@
 -- Migración: la revisión de calidad web pasa a lanzarse sola y a quedar registrada; se anotan las
 --            decisiones del dueño del 2026-10-17.
 -- Tipo:     añade un párrafo a una lección existente (una sola fila, una sola vez). No borra nada.
+-- Qué hace: añade a la lección de la revisión web cómo se lanza sola y las decisiones del dueño.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.aprendizajes

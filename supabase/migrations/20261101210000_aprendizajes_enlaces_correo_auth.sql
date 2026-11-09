@@ -3,6 +3,8 @@
 --   El dueño preguntó si «¿Olvidaste tu contraseña?» funciona perfectamente. El código de la tienda se puede probar
 --   con Supabase simulado, pero que el correo llegue y que su enlace vuelva a la tienda depende de la configuración de
 --   Authentication en Supabase, que no está en el repositorio ni se lee desde aquí.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

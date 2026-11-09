@@ -10,6 +10,9 @@
 --             del navegador: así nadie pone una reseña en la ficha de un servicio que no ha contratado.
 --           - Una reseña sin solicitud (las de Inicio) no puede llevar servicio.
 --           La ficha del servicio (app/servicio/[id].tsx) enseña las suyas; «Mis seguimientos» pide la valoración.
+-- Conectado con: public.store_reviews (service_request_id, service_id, service_title) y store_reviews_before_insert();
+--           las usan app/servicio/[id].tsx, components/Resenas.tsx, components/ReviewModal.tsx, app/(tabs)/perfil.tsx
+--           («Mis seguimientos») y app/admin/services.tsx.
 -- Tipo:     3 columnas y 2 índices nuevos, y la función del disparador de las reseñas se sustituye por la misma con
 --           esta comprobación añadida. No cambia ni borra ningún dato. Lleva security definer: la revisa y aplica el
 --           dueño.

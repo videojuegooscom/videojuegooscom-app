@@ -6,6 +6,7 @@
 --           solo deja de guardarse ese día.
 -- Cómo:     un disparador antes de cada inserción cuenta lo del último día de ESA persona (lo ve por su propia
 --           política, así que no necesita más permisos) y dos índices para contarlo rápido.
+-- Conectado con: public.blue_ia_mensajes y public.blue_ia_conversaciones; las escribe app/(tabs)/blue-ia.tsx.
 -- Tipo:     aditiva (función, disparadores e índices). No toca permisos, políticas ni datos. Repetible.
 -- ============================================================================
 

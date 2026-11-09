@@ -9,6 +9,8 @@
 --   3) Envíos: sin «recoger en tienda» ni «tienda física» (la tienda es solo online), plazos reales (sale en 1-2 días y
 --      llega en 72 horas como máximo) y coste según destino e importe. Cada texto solo se cambia si sigue siendo el
 --      antiguo, palabra por palabra.
+-- Conectado con: public.policy_pages (privacidad, términos y envíos); se ven en app/politicas/[slug].tsx, se editan en
+--           app/admin/policies.tsx y api/pago.ts las lee antes de ofrecer Klarna.
 -- Tipo:     solo cambia texto de policy_pages. No borra nada. Se puede aplicar varias veces (la segunda no cambia nada).
 -- ============================================================================
 

@@ -1,5 +1,9 @@
 -- ============================================================================
 -- 01-catalogo-productos.sql — Catálogo de productos
+-- Qué hace: apunte (ya aplicado) de cómo se crearon los productos, categorías, fotos, «me gusta» y visitas.
+-- Conectado con: tablas products, categories, profiles y product_media (app/admin/products.tsx,
+--   app/admin/categories.tsx, app/catalogo.tsx, app/producto/[id].tsx); copias sueltas en sql/products.sql,
+--   sql/product_likes.sql y sql/product_views.sql.
 -- ============================================================================
 -- Qué contiene este archivo (tablas y funciones, una línea cada una):
 -- - profiles                          → rol de cada usuario ('user'/'admin').

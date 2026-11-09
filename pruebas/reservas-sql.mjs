@@ -17,6 +17,8 @@
  * Uso: node pruebas/reservas-sql.mjs postgresql://postgres@127.0.0.1:55432 [--mutacion-sin-bloqueo]
  * Con --mutacion-sin-bloqueo se aplica una copia de la migración sin el bloqueo por persona: las pruebas de
  * simultaneidad DEBEN fallar («prueba de las pruebas»); en ese modo sale con 0 solo si lo detectaron.
+ * Conectado con: supabase/migrations/20261013090000_reservas_cesta.sql, 20261018140000_reservas_protegidas.sql y su
+ *   vuelta atrás; pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql, y su control --mutacion-sin-bloqueo).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

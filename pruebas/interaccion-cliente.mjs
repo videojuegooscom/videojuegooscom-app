@@ -21,6 +21,8 @@
  *
  * Uso: node pruebas/interaccion-cliente.mjs [carpeta_dist]     (por defecto dist)
  * Requisitos: playwright-core (PR #52, ver pruebas/blue-regresion.mjs) y npm run build hecho.
+ * Conectado con: la ficha de producto y la Cesta de la tienda compilada (dist), /api/interaccion (simulado) y las rpc
+ *   antiguas de Supabase; pruebas/sin-fotos-reales.mjs. La lanza pruebas/todas.mjs (grupo navegador).
  */
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";

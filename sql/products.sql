@@ -1,4 +1,6 @@
 -- sql/products.sql
+-- Conectado con: tablas products, categories y profiles que usa toda la tienda (p. ej. app/catalogo.tsx,
+--   app/admin/products.tsx, app/admin/categories.tsx); el mismo bloque está en sql/01-catalogo-productos.sql.
 -- ---------------------------------------------------------------------------
 -- Qué hace: crea/repara el esqueleto principal de la tienda: "profiles"
 -- (roles de usuario), "categories" y "products". Incluye los ayudantes

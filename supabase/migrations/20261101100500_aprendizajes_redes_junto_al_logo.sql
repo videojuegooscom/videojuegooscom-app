@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: la lección «Redes sociales una sola vez» cambia (petición del dueño, 2026-11-01): las redes siguen en el
 --            pie de página y, además, TikTok e Instagram salen junto al logo de Inicio con sus seguidores.
+-- Qué hace: cambia el título y el texto de esa lección del Centro de Aprendizajes.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     actualiza el texto de una sola fila (por título), una única vez. No borra nada.
 -- ============================================================================
 

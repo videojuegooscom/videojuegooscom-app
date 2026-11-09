@@ -1,4 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
+-- supabase/tests/aislado/00_supabase_stub.sql
+-- Qué hace: monta una copia mínima y vacía de Supabase en una base de pruebas para ensayar migraciones sin riesgo.
+-- Conectado con: lo carga pruebas/sql-aislado.mjs antes de las migraciones; explicado en docs/pruebas-sql-aisladas.md.
 -- ESQUELETO MÍNIMO DE SUPABASE para probar migraciones SQL en una base AISLADA (nunca en producción).
 -- Reproduce lo que las migraciones de la tienda necesitan de Supabase y de nada más:
 --   · los roles anon, authenticated y service_role (este último salta RLS, como en Supabase);

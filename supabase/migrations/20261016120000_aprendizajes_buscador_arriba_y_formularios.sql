@@ -3,6 +3,7 @@
 -- Qué hace: corrige la lección «Todo al alcance del pulgar derecho» (el buscador de Inicio va
 --           SIEMPRE arriba por defecto, lo pidió el dueño) y añade dos lecciones nuevas.
 -- Tipo:     actualiza el texto de una lección y añade otras si no existen. No borra nada.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.aprendizajes

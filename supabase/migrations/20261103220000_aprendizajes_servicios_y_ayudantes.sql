@@ -5,6 +5,8 @@
 --   2) Las reseñas de servicios se unen a una solicitud entregada del cliente: así no hay reseñas falsas.
 --   3) Dos ayudantes (subagentes) lanzaron comandos encadenados con tuberías y al dueño le saltaron dos peticiones de
 --      permiso en el móvil: los ayudantes siguen las mismas normas que Claude.
+-- Qué hace: apunta tres lecciones (productos y servicios iguales, reseñas de servicios y normas de los ayudantes).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta las lecciones si no existen. No borra nada.
 -- ============================================================================
 

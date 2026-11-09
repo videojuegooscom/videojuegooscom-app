@@ -4,6 +4,8 @@
 --            avanzaba a saltos de 0,1 s con un reloj de JavaScript (12 pasos por segundo, y se paraba mientras arrancaba
 --            la tienda) y, al poder tocarse, react-native-web cambiaba el <div> por un <button> y volvía a crear todo lo
 --            de dentro (la barra empezaba de cero).
+-- Qué hace: apunta la lección de la barra de carga fluida de la bienvenida.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

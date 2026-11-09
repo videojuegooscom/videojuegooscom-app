@@ -4,6 +4,9 @@
 --   (Administración → Categorías) el dueño mueve una barra para que la foto se vea más fuerte o más suave y así el
 --   nombre se lea más o menos (components/PortadasCategoria.tsx, PortadaConNombre). Sin esta migración (o sin valor),
 --   la foto sale al 55 %.
+-- Qué hace: guarda en cada categoría lo fuerte que se ve su portada (del 10 al 100 %).
+-- Conectado con: public.categories.portada_opacidad; app/admin/categories.tsx, components/PortadasCategoria.tsx y
+--           app/catalogo.tsx.
 -- Tipo:     añade una columna (si no existe) y su comprobación. No borra nada ni cambia permisos: la tabla ya se lee en
 --           público (categories_select_public_or_admin) y solo un administrador la cambia (categories_admin_update).
 -- ============================================================================

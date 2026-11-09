@@ -4,6 +4,8 @@
 --           Pone el número que indica el dueño (627 748 741) y la opción de escribir
 --           directamente desde el chat de la tienda.
 -- Tipo:     actualiza el texto de una política. No borra nada. Si ya está cambiado, no hace nada.
+-- Conectado con: policy_pages (slug «envios»); se ve en app/politicas/[slug].tsx y se edita en
+--           app/admin/policies.tsx.
 -- ============================================================================
 
 update public.policy_pages

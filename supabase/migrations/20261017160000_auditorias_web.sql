@@ -6,6 +6,8 @@
 --           (nada: solo lee). El panel de administración lo enseña en «Revisiones».
 -- Acceso:   solo el administrador puede leer; escribe únicamente el servidor (clave de servidor,
 --           que se salta la RLS). No hay política de escritura para nadie más.
+-- Qué hace: crea la tabla auditorias_web (una fila por revisión con su resultado).
+-- Conectado con: api/auditoria-web.ts (escribe), app/admin/auditorias.tsx («Revisiones») y app/admin/index.tsx.
 -- ============================================================================
 
 create table if not exists public.auditorias_web (

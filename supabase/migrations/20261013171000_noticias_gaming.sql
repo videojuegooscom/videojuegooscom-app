@@ -6,6 +6,8 @@
 -- Acceso:   cualquiera puede LEER las publicadas (son noticias públicas). Escribir solo lo
 --           hace el servidor con su clave de servicio (sin políticas de escritura).
 -- Tipo:     aditiva (solo CREATE).
+-- Conectado con: tabla noticias_gaming; la escribe api/noticias-gaming.ts y la leen
+--           app/(tabs)/chat-global.tsx (Foro → Noticias Gaming) y components/Campanita.tsx.
 -- ============================================================================
 
 create table if not exists public.noticias_gaming (

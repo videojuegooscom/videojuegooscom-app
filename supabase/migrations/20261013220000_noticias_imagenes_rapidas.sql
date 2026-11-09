@@ -8,6 +8,8 @@
 --      exacto sin tener que descargarla antes (evita saltos y esperas).
 -- Escribir en el bucket solo lo hace el servidor con su clave; leer, cualquiera (público).
 -- Tipo:     aditiva. No borra ni modifica datos existentes.
+-- Conectado con: bucket «noticias» y noticias_gaming.imagenes_meta; api/noticias-gaming.ts (sube y mide) y
+--           app/(tabs)/chat-global.tsx (reserva el hueco de cada foto).
 -- ============================================================================
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

@@ -31,6 +31,8 @@
  *                          «Mis seguimientos», no sale «Tu cuenta» y el último botón es «Terminar»
  *   --sin-extra            solo el recorrido principal (sin atrás, deslizar, saltar ni primera visita)
  * Requisitos: playwright-core y, sin --real, npm run build hecho.
+ * Conectado con: la guía de bienvenida de Blue, el buscador, Vender y Perfil en la tienda compilada (dist), la sesión
+ *   de lib/supabase.ts (simulada) y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";

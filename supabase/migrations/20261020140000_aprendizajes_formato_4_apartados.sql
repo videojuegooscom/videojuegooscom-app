@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: la lección «Formato de respuesta en 7 apartados» pasa a 4 apartados
 --            (petición del dueño, 2026-10-20).
+-- Qué hace: cambia el título y el texto de esa lección para que pida las respuestas en 4 apartados.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     actualiza el texto de una sola fila (por título), una única vez. No borra nada.
 -- ============================================================================
 

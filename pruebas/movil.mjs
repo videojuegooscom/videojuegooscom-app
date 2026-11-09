@@ -11,7 +11,7 @@
  *   toques (toca la sección Perfil y mira que cambia de pantalla);
  * - abre la guía de Blue y captura cada paso.
  *
- * Uso (Claude lo lanza antes de publicar cambios visuales):
+ * Uso: (Claude lo lanza antes de publicar cambios visuales)
  *   node pruebas/movil.mjs [direccion] [carpeta_salida]
  *   p. ej. node pruebas/movil.mjs https://videojuegoszaragoza.com /tmp/capturas
  * Sale con código 1 si hay algún fallo.
@@ -21,6 +21,8 @@
  * El navegador necesita librerías del sistema (libnss3, libnspr4, fuentes…): las instala el
  * dueño con sudo (apt-get install …, lista en `npx playwright-core install-deps --dry-run
  * chromium-headless-shell`).
+ * Conectado con: todas las páginas de la tienda (web real o dist servida) y pruebas/sin-fotos-reales.mjs. La lanza
+ *   pruebas/todas.mjs (grupo navegador, sirviendo dist si no se da --url).
  */
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";

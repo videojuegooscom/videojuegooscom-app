@@ -5,6 +5,9 @@
 --   que usa la cabecera de dentro de la categoría) y su encuadre (esta columna, en el mismo orden; '' = sin encuadrar).
 --   Inicio enseña el encuadre (components/PortadasCategoria.tsx, portadasInicioDe). Sin esta migración, Inicio recorta
 --   las fotos por el centro, como hasta ahora.
+-- Qué hace: guarda en cada categoría el encuadre de cada portada para Inicio.
+-- Conectado con: public.categories.portadas_inicio; app/admin/categories.tsx, components/PortadasCategoria.tsx y
+--           app/catalogo.tsx.
 -- Tipo:     añade una columna (si no existe). No borra nada ni cambia permisos: la tabla ya se lee en público
 --           (categories_select_public_or_admin) y solo un administrador la cambia (categories_admin_update).
 -- ============================================================================

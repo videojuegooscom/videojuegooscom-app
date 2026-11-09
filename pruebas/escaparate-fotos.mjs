@@ -23,6 +23,8 @@
  *
  * Uso: node pruebas/escaparate-fotos.mjs
  * Sale con código 1 si algo falla.
+ * Conectado con: api/escaparate-veoaura.ts (y su versión de origin/main con git show para el control); simula en
+ *   memoria products, product_media y el almacenamiento. La lanza pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";

@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-07 (el dueño: «no quiero que me pidas mi aprobación para esto, quiero que lo hagas
 --            automáticamente», sobre las migraciones de portadas; y después «se ve raro, déjalo bien» sobre unas portadas
 --            con la foto arriba y una franja roja vacía debajo).
+-- Qué hace: apunta la lección de editar bien las portadas y aplicar sus migraciones sin preguntar.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

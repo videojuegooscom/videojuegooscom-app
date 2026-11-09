@@ -18,6 +18,8 @@
 --   migraciones 20261018095000 (autorización) y 20261018096000 (Blue pública/Administración), si el
 --   dueño las autoriza: los títulos que no existan simplemente no entran. «Blue fuera del panel», si la
 --   096000 la dejó inactiva, tampoco entra (se conserva como historial).
+-- Qué hace: junta las lecciones sueltas en filas «Grupo · …» por tema y prioridad, sin perder ninguna.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 do $$

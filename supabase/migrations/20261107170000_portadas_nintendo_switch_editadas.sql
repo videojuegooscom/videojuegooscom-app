@@ -9,6 +9,8 @@
 --   Así los recuadros llenan con la foto sin recortar nada y sin la marca «entera» (que deja de usarse aquí).
 --   Las fotos que subió el dueño siguen en el almacén (no se borran).
 --   Solo si las portadas siguen siendo las de hoy (si el dueño las cambia antes, no hace nada).
+-- Conectado con: public.categories (imagenes, image_url, portadas_inicio) y public/categorias/ (las fotos); se ven en
+--           Inicio y Catálogo (components/PortadasCategoria.tsx) y se editan en app/admin/categories.tsx.
 -- Tipo:     solo cambia datos de una categoría. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

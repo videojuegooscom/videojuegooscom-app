@@ -5,6 +5,7 @@
 --           memoria de Claude y en las respuestas). Claude las consulta antes de cada respuesta.
 -- Tipo:     solo inserta filas nuevas; si una lección con el mismo título ya existe, no la
 --           duplica. No borra ni modifica nada.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien)

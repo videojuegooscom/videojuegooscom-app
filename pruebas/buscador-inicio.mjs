@@ -20,6 +20,8 @@
  *
  * Uso: node pruebas/buscador-inicio.mjs [carpeta_dist]     (por defecto dist)
  * Requisitos: playwright-core (PR #52) y npm run build hecho.
+ * Conectado con: el buscador flotante de Inicio en la tienda compilada (dist), la sesión de lib/supabase.ts (simulada)
+ *   y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";

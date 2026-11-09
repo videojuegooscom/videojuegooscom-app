@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones del dueño (2026-10-30) sobre «Mi perfil» («lo veo muy grande el tamaño de los recuadros», la cuenta
 --            dentro, recortar la foto, cerrarse al guardar) y sobre cómo sale cada persona en el Foro.
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 

@@ -5,6 +5,8 @@
 --      una vez». La lección «Nada de Bash fuera del proyecto» ya lo prohibía; el mismo código está en el repositorio
 --      (infraestructura/publicacion/controlador.py). Se añade este caso a sus ejemplos.
 --   2) En la misma captura, los avisos de avance que Claude escribe mientras trabaja salían en inglés.
+-- Qué hace: amplía una lección del Centro de Aprendizajes y añade otra.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     pone al día, por su título, los ejemplos de una lección e inserta otra si no existe. No borra nada.
 -- ============================================================================
 

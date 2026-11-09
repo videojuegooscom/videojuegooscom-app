@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: añade a una lección existente que el brillo estilo Siri debe ser sutil.
 -- Tipo:     actualiza el texto de una sola fila (por título), una única vez. No borra nada.
+-- Qué hace: añade una frase al final de la lección de Vender (contacto, brillo Siri y scroll).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.aprendizajes

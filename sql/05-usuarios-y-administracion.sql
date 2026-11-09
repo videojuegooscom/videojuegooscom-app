@@ -1,5 +1,8 @@
 -- ============================================================================
 -- 05-usuarios-y-administracion.sql — Usuarios, administración y caja personal
+-- Qué hace: apunte (ya aplicado) de cómo se nombró al administrador, la búsqueda de clientes y la caja personal.
+-- Conectado con: tabla profiles, función admin_users_by_ids (app/admin/chats.tsx) y tabla personal_cash_state
+--   (sin pantalla); copias sueltas en sql/admin_users_by_ids.sql y sql/personal_cash_state.sql.
 -- ============================================================================
 -- Qué contiene este archivo (tablas y funciones, una línea cada una):
 -- - Bloque "do $$...$$" (promote_admin)  → convierte en admin al usuario del

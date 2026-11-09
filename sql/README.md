@@ -1,3 +1,9 @@
+<!--
+  sql/README.md
+  Qué hace: explica en sencillo qué hay en la carpeta sql/ (apuntes de cambios ya hechos en la base de datos).
+  Conectado con: los archivos sql/01-… a sql/06-… y las copias sueltas que siguen en sql/; los cambios nuevos van
+  en supabase/migrations/.
+-->
 # Carpeta `sql/` — qué es esto y cómo funciona Supabase aquí
 
 ## Qué cambió hoy

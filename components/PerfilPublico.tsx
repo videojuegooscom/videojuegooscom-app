@@ -32,6 +32,11 @@
  * _completo.sql). Al guardar se actualizan también los datos de la cuenta (nombre, usuario, país y foto), que es de donde el
  * Foro saca el nombre. Si la tabla aún no existe (migración sin aplicar), no se enseña nada ni se exige nada; si existe sin la
  * columna de la foto, todo funciona sin foto.
+ *
+ * Conectado con: app/(tabs)/perfil.tsx, app/_layout.tsx, app/(tabs)/chat-global.tsx, components/Resenas.tsx,
+ * components/Campanita.tsx, app/checkout.tsx, app/admin/cliente/[userId].tsx y app/admin/categories.tsx (RecortarFoto).
+ * Usa lib/supabase.ts (tabla perfiles_cliente, función perfiles_publicos, almacén «avatares»), lib/analytics.ts,
+ * lib/admin/products.utils.ts, components/SmartImage.tsx y components/marca/CargaMarca.tsx.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";

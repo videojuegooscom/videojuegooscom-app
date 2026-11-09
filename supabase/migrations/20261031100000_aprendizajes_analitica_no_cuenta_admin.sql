@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección aprendida el 2026-10-31 — la analítica propia no registra nada del administrador, así que lo que
 --            hace él (moderar el Foro, cambiar etapas…) no se puede contar con trackEvent.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta una fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

@@ -1,3 +1,4 @@
+// lib/reservas.ts
 /**
  * Qué hace: reserva 15 minutos cada artículo que el cliente añade a la cesta
  * (son unidades únicas de segunda mano), para que nadie más lo compre mientras.
@@ -9,8 +10,9 @@
  * Si el servidor o esas funciones no responden, no se bloquea la compra: la
  * reserva cuenta solo en este dispositivo (mismos 15 minutos).
  *
- * Usado por: app/producto/[id].tsx (al añadir/comprar), app/(tabs)/cesta.tsx
- * (cuenta atrás y caducidad) y app/checkout.tsx (renovación al confirmar).
+ * Conectado con: app/producto/[id].tsx (al añadir/comprar), app/(tabs)/cesta.tsx
+ * (cuenta atrás y caducidad) y app/checkout.tsx (renovación al confirmar). Usa
+ * lib/interaccion.ts (dirección de api/interaccion.ts) y lib/supabase.ts.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { URL_INTERACCION } from "./interaccion";

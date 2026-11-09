@@ -1,5 +1,7 @@
 # Plan de dependencias: vulnerabilidades de `npm audit`
 
+**Qué hace:** informe (solo lectura) de las vulnerabilidades que señala `npm audit` y de cuáles afectan de verdad a la tienda, con un plan para arreglarlas. **Conectado con:** trata de package.json y package-lock.json; ningún archivo del repo enlaza a este documento.
+
 Informe del 2026-10-18, **solo lectura**: no se ha cambiado ninguna dependencia ni se ha ejecutado
 `npm audit fix`. Lo preparó un ayudante de solo lectura y yo reviso aquí lo que afecta a la tienda real.
 

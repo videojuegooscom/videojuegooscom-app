@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: actualiza la lección «Notificaciones dentro de Blue» (el panel ahora tiene
 --            2 pestañas) y apunta el botón único «Hablar con Blue IA o el equipo».
+-- Qué hace: reescribe una lección del Centro de Aprendizajes y añade otra nueva.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     actualiza el texto de una sola fila (por título), una única vez, e inserta una
 --           lección nueva solo si no existe. No borra nada.
 -- ============================================================================

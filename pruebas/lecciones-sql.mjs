@@ -17,6 +17,8 @@
  *
  * Uso: node pruebas/lecciones-sql.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
+ * Conectado con: tabla aprendizajes; migraciones 20261018090000/095000/096000/100000_aprendizajes_* y sus vueltas atrás
+ *   en supabase/rollbacks/; pruebas/sql-aislado.mjs (historial de lecciones). La lanza pruebas/todas.mjs (grupo sql).
  */
 import { existsSync } from "node:fs";
 import { conectar } from "./sql-aislado.mjs";

@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones de la ficha técnica de VeoAura (código que no depende del orden de la migración) y de
 --            los «controles» de las pruebas que caducan.
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 

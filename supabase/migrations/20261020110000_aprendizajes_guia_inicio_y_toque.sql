@@ -1,5 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones «La guía de Blue se ofrece sola solo en Inicio» y «hitSlop no basta para los 44 px en la web»
+-- Qué hace: añade dos lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 

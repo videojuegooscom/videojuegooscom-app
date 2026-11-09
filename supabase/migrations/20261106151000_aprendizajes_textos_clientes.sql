@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-06 («quiero que compruebes que en cada página no aparece nada de textos extraños para
 --            los clientes, todo es profesional»). Claude la apunta tras repasar las páginas públicas.
+-- Qué hace: apunta la lección de los textos para clientes (sin jerga y todos al día cuando cambia el pago o la entrega).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

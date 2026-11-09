@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-04. El dueño mandó una captura de una ficha de servicio: al pasar de «Características»
 --            a «Descripción» la pantalla se quedaba a medias y había que acomodarla con el dedo («tiene que ser
 --            intuitivo y profesional»); y pidió que los emojis que escriba en la descripción no salgan en la tienda.
+-- Qué hace: apunta la lección «Fichas: cada pestaña entera en su sitio y descripciones sin emojis».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

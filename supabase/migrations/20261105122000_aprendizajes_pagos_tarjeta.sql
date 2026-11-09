@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-05 (pago con tarjeta con Stripe, «clave puesta y empieza Stripe»). Claude la apunta
 --            al montar el pago: cómo se cobra sin fiarse del navegador y cómo se prueba sin tocar Stripe.
+-- Qué hace: apunta la lección del cobro con tarjeta (importe de la base de datos y «pagado» confirmado con Stripe).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

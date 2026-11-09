@@ -1,5 +1,7 @@
 # Plan de integración de Stripe (solo modo prueba)
 
+**Qué hace:** plan inicial (2026-10-18) para añadir el pago con tarjeta de Stripe en modo prueba, partiendo de cómo era entonces el pago. **Conectado con:** describe app/checkout.tsx y la función crear_pedido de Supabase; lo que se construyó después vive en api/pago.ts y supabase/migrations/20261105120000_pagos_tarjeta.sql. Ningún archivo enlaza a este documento.
+
 Estado: **plan, nada construido ni conectado**. Redactado el 2026-10-18. No se conecta ningún pago real y
 ninguna clave pasa por el chat: las pone el dueño directamente en Vercel.
 

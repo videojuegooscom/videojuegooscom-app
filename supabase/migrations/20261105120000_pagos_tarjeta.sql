@@ -9,6 +9,8 @@
 --   pago_iniciado_en y pagado_en.
 -- Quién las escribe: solo el servidor (api/pago.ts, con la clave del servidor) y solo después de preguntárselo a
 --           Stripe. El administrador las ve en Administración → Pedidos; un cliente solo ve sus pedidos, como hasta ahora.
+-- Conectado con: columnas pago_* de public.pedidos; api/pago.ts, app/checkout.tsx, app/admin/pedidos.tsx,
+--           app/admin/cliente/[userId].tsx y app/(tabs)/perfil.tsx.
 -- Permisos: no cambia ninguno (las reglas de pedidos siguen igual). Sin security definer ni grants.
 -- Tipo:     aditiva: 7 columnas nulas y sus comprobaciones. No borra ni cambia filas. Repetirla no cambia nada.
 -- La política de privacidad y los términos (Stripe) van aparte, en 20261105121000_politicas_pago_tarjeta.sql, para

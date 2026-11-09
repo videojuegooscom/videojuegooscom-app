@@ -19,6 +19,8 @@
 -- Orden:    primero fusionar y desplegar el código (api/interaccion.ts y lib/reservas.ts, que mientras
 --           tanto usan la función antigua si el endpoint falla) y después aplicar esta migración.
 -- Vuelta atrás: supabase/rollbacks/20261018140000_reservas_protegidas_revertir.sql
+-- Conectado con: reservas_cesta y función reservar_producto_limitado (api/interaccion.ts); lib/reservas.ts
+--           cae a reservar_producto si el servidor falla (cesta, ficha de producto y checkout).
 -- ============================================================================
 
 alter table public.reservas_cesta add column if not exists persona text;

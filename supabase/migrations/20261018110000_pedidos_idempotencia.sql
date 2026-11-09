@@ -35,6 +35,8 @@
 --           original de crear_pedido y apaga la función nueva).
 -- Pruebas:  pruebas/pedidos-sql.mjs (SQL real con peticiones concurrentes en una base aislada, nunca en
 --           producción; incluye una «prueba de las pruebas» que quita los bloqueos y comprueba que fallan).
+-- Qué hace: repetir la misma compra devuelve el mismo pedido en vez de crear otro.
+-- Conectado con: tabla pedidos y funciones crear_pedido_idempotente y crear_pedido; las llama app/checkout.tsx.
 -- ============================================================================
 
 alter table public.pedidos add column if not exists clave_unica uuid;

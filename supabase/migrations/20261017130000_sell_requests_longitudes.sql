@@ -5,6 +5,8 @@
 -- Para qué: cualquiera puede enviar el formulario «Vender mi artículo» sin cuenta (política
 --           sell_requests_insert_public). Sin límites, un robot podría guardar textos enormes.
 --           Los límites coinciden con los del formulario (maxLength en VenderAhoraModal.tsx).
+-- Qué hace: pone un tope de caracteres a cada campo de texto de las solicitudes de venta nuevas.
+-- Conectado con: tabla sell_requests; el formulario components/VenderAhoraModal.tsx.
 -- ============================================================================
 
 do $$

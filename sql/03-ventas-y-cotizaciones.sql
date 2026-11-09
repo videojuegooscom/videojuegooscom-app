@@ -1,5 +1,8 @@
 -- ============================================================================
 -- 03-ventas-y-cotizaciones.sql — Ventas y cotizaciones ("Vender ahora")
+-- Qué hace: apunte (ya aplicado) de las solicitudes «Vender ahora», sus fotos y el registro de ventas.
+-- Conectado con: tablas sell_requests, sell_request_media y product_sales (components/VenderAhoraModal.tsx,
+--   app/admin/cotizaciones.tsx, app/checkout.tsx, components/Resenas.tsx); copia suelta en sql/product_sales.sql.
 -- ============================================================================
 -- Qué contiene este archivo (tablas y funciones, una línea cada una):
 -- - sell_requests                     → formularios de "Vender ahora" que

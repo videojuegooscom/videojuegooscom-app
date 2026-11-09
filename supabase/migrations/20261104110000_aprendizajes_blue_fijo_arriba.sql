@@ -4,6 +4,8 @@
 --            esté fijo en la esquina superior, donde no estorbe»; esquina: arriba a la derecha; en el panel, se queda).
 --            Añade la lección nueva y pone al día las que hablaban de dónde va Blue (arrastrarlo, apartarse, «nunca en
 --            la mitad de abajo de la ficha»…), que quedan sustituidas.
+-- Qué hace: apunta la lección de Blue fijo arriba a la derecha y pone al día (o desactiva) las que decían otra cosa.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta una lección si no existe y actualiza el texto de otras (por título); una que ya no aplica se
 --           desactiva (activa = false). No borra nada; repetirla deja lo mismo.
 -- ============================================================================

@@ -3,6 +3,8 @@
 --   El dueño pidió mandar a VeoAura el nombre, el correo y el teléfono del cliente de los pedidos pagados («pagado» =
 --   cuando marca el pedido «Entregado»), con la política de privacidad actualizada antes y sin publicarlo hasta que
 --   VeoAura esté preparado para recibirlo. Es la forma de pasar cualquier dato de clientes a otro programa.
+-- Qué hace: apunta la lección «Datos de clientes a otro programa: primero la privacidad, lo mínimo y esperar al receptor».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

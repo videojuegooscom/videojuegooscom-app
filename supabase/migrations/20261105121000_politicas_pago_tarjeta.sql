@@ -8,6 +8,8 @@
 --      y la tienda nunca la ve; a Stripe solo se le pasa el número del pedido y su importe.
 --   2) Términos, «Precios y pago»: pagar con tarjeta en la página segura de Stripe o confirmar sin pagar y hablarlo por
 --      el chat; si un pedido pagado no se puede servir, se devuelve el importe completo por el mismo medio.
+-- Conectado con: public.policy_pages (privacidad y términos); se ven en app/politicas/[slug].tsx, se editan en
+--           app/admin/policies.tsx y api/pago.ts las lee antes de abrir el cobro real.
 -- Tipo:     solo cambia texto de policy_pages. No borra nada. Se puede aplicar varias veces (si ya nombra a Stripe, no
 --           toca nada).
 -- Pruebas:  pruebas/perfiles-sql.mjs (apartado «Pago con tarjeta»).

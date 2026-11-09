@@ -3,6 +3,8 @@
 --   1) El dueño: «Quiero que Blue IA siempre recomiende esperar al horario de atención para ser atendidos, que siempre
 --      recuerde nuestro horario de atención y que también pueden probar a que Blue les ayude con su problema».
 --   2) Revisión de seguridad de Blue IA que pidió el dueño («revisa exhaustivamente que no lo hackeen»).
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     inserta las lecciones si no existen. No borra nada.
 -- ============================================================================
 

@@ -3,6 +3,8 @@
 -- Tipo:     sustituye dos marcas de relleno por los datos que dio el dueño (NIF y dirección
 --           fiscal) en las filas «privacidad» y «terminos». No borra nada. La marca
 --           [NOMBRE LEGAL / RAZÓN SOCIAL] se deja tal cual hasta que el dueño dé el nombre.
+-- Qué hace: pone el NIF y la dirección fiscal del titular en privacidad y términos.
+-- Conectado con: policy_pages; se ve en app/politicas/[slug].tsx y se edita en app/admin/policies.tsx.
 -- ============================================================================
 
 update public.policy_pages

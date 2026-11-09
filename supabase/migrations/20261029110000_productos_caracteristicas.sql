@@ -8,6 +8,7 @@
 --           cambia ninguna columna, fila, permiso ni función. La columna hereda los permisos que ya
 --           tiene la tabla products (la leen quienes ya leen products; la escribe el servidor).
 -- Vuelta atrás: dejar de usarla basta (el receptor y la ficha funcionan sin ella).
+-- Conectado con: public.products.caracteristicas; api/escaparate-veoaura.ts y app/producto/[id].tsx.
 -- ============================================================================
 
 alter table public.products

@@ -1,7 +1,11 @@
+// app/+not-found.tsx
 /**
  * Qué hace: página para direcciones que no existen (Expo Router la usa sola).
  * Mascota del taller animada, un texto breve y un botón para volver a la portada.
  * Sobria y centrada, con la paleta de la tienda.
+ *
+ * Conectado con: Expo Router (la abre solo, ningún archivo la importa) y
+ * components/marca/MarcaAnimada.tsx (la mascota); el botón lleva a la portada (/).
  */
 import type { Href } from "expo-router";
 import { router, Stack } from "expo-router";

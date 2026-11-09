@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-09 (el dueño: «no me deja añadir el enlace del vídeo de Instagram y TikTok»; el
 --            editor de «Nuestros Servicios» solo aceptaba el enlace largo y las apps copian uno corto).
+-- Qué hace: apunta la lección «Los enlaces de redes se aceptan como los copian sus apps».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

@@ -1,5 +1,6 @@
+// lib/tabBar.ts
 /**
- * Medidas compartidas de la barra de pestañas inferior (Inicio, Perfil, Cesta, Foro, Blue IA).
+ * Qué hace: medidas compartidas de la barra de pestañas inferior (Inicio, Perfil, Cesta, Foro, Blue IA).
  *
  * En la web del iPhone (Safari con la barra del navegador recogida o la web añadida a la
  * pantalla de inicio) la página llega hasta el borde inferior, debajo de la barra de inicio
@@ -9,6 +10,9 @@
  * flotante y botón "volver arriba" de la portada, aviso de cookies).
  *
  * En nativo no se toca: la app se publica solo como web y allí se mantienen los valores fijos.
+ *
+ * Conectado con: app/(tabs)/_layout.tsx (la barra), app/(tabs)/index.tsx (buscador flotante y
+ * «volver arriba») y components/CookieConsentBanner.tsx (aviso de cookies).
  */
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

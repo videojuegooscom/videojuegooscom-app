@@ -23,6 +23,8 @@
  *
  * Uso: node pruebas/pedidos-sql.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
+ * Conectado con: supabase/migrations/20261013120000_pedidos.sql, 20261018110000_pedidos_idempotencia.sql y su vuelta
+ *   atrás; pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql, y su control --mutacion-sin-bloqueos).
  */
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";

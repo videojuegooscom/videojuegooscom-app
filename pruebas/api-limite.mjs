@@ -17,6 +17,8 @@
  *
  * Uso: node pruebas/api-limite.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
+ * Conectado con: api/escaparate-retorno.ts y api/noticias-gaming.ts; supabase/migrations/20261018120000_limite_peticiones.sql
+ *   (función consumir_limite); pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql).
  */
 import { conectar } from "./sql-aislado.mjs";
 

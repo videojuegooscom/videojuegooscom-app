@@ -11,6 +11,8 @@
 --           exactamente el mismo texto. No borra ni modifica nada más.
 -- Límites:  cada regla queda muy por debajo de los 4.000 caracteres que admite aprendizajes_regla_check.
 -- Vuelta atrás: supabase/rollbacks/20261018097000_aprendizajes_pruebas_y_permisos_revertir.sql
+-- Qué hace: apunta las lecciones en el Centro de Aprendizajes (Claude las consulta antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 -- Si una lección ya existe pero está inactiva con exactamente este texto (porque antes se aplicó la vuelta

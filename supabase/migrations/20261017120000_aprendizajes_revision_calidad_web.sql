@@ -2,6 +2,9 @@
 -- Migración: lección «Revisión de calidad web cada dos semanas» (con la fecha de la última) y
 --            corrección de una errata en la descripción SEO («tú electrónica» → «tu electrónica»).
 -- Tipo:     inserta una fila si no existe y corrige un texto de una sola fila. No borra nada.
+-- Qué hace: apunta la lección y corrige la errata del texto SEO.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx) y
+--           site_settings.seo_description (components/SiteHead.tsx; se edita en app/admin/marca-seo.tsx).
 -- ============================================================================
 
 insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien)

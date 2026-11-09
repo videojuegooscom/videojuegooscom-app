@@ -1,4 +1,6 @@
 -- sql/product_chats.sql
+-- Conectado con: components/ProductChatThread.tsx, app/admin/chats.tsx, app/producto/[id].tsx y
+--   app/(tabs)/chat-global.tsx; el mismo bloque está en sql/04-chat-y-resenas.sql.
 -- ---------------------------------------------------------------------------
 -- Qué hace: crea el chat PRIVADO por producto (distinto del "Chat Global" de
 -- sql/chat_messages.sql, que es público). Cuando un cliente pulsa "Chat" en

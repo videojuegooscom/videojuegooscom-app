@@ -31,6 +31,8 @@
  * Sale con código 1 si algo falla. Con --mutacion se prueba una copia a la que se le quita una defensa del modo
  * degradado (cupo reducido, tiempo máximo de espera o pausa tras el fallo): sale con 0 solo si las pruebas
  * lo detectan («prueba de las pruebas»).
+ * Conectado con: api/blue-ia.ts, lib/horarioAtencion.ts, supabase/migrations/20261018120000_limite_peticiones.sql
+ *   (consumir_limite) y pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql, y sus controles --mutacion).
  */
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

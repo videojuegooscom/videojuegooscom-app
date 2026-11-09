@@ -1,6 +1,7 @@
 /**
  * pruebas/blue-panel.mjs — comprueba el PANEL de Blue (el que se abre al tocar a Blue), como un iPhone (390×844).
  *
+ * Qué hace: abre la tienda compilada (dist) en Chromium y recorre el panel de Blue con datos simulados.
  * Comprueba:
  *  - Guías rápidas: el panel ofrece una por pantalla (Inicio, Catálogo, Artículo, Vender, Perfil, Cesta, Foro, Blue IA,
  *    Servicios; la de la pantalla actual va resaltada) que enseña SOLO los pasos de esa pantalla y termina con «Terminar».
@@ -23,6 +24,8 @@
  *
  * Uso: node pruebas/blue-panel.mjs [carpeta_dist] [carpeta_capturas] [--sesion]
  * Requisitos: playwright-core y npm run build hecho.
+ * Conectado con: el panel de Blue en la tienda compilada (dist), la Cesta (clave CART_KEY de app/(tabs)/cesta.tsx),
+ *   las reservas de lib/reservas.ts, la sesión de lib/supabase.ts y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";

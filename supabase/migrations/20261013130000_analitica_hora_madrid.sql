@@ -3,6 +3,7 @@
 -- Qué hace: la gráfica "Crecimiento de visitantes" del panel (app/admin/analytics.tsx)
 --           agrupaba los días en hora UTC; ahora los agrupa en hora de Madrid.
 -- Tipo:     sustituye la función (misma firma, mismos permisos). No toca datos.
+-- Conectado con: función analytics_daily_visitors (lee analytics_events); la llama app/admin/analytics.tsx.
 -- ============================================================================
 
 create or replace function public.analytics_daily_visitors(p_from timestamptz, p_to timestamptz)

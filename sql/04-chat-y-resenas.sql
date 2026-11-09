@@ -1,5 +1,8 @@
 -- ============================================================================
 -- 04-chat-y-resenas.sql — Chat privado por producto y reseñas de la tienda
+-- Qué hace: apunte (ya aplicado) del chat privado entre cliente y tienda por cada producto y de las reseñas.
+-- Conectado con: tablas product_chats, product_chat_messages y store_reviews (components/ProductChatThread.tsx,
+--   app/admin/chats.tsx, components/Resenas.tsx, components/ReviewModal.tsx); copia suelta en sql/product_chats.sql.
 -- ============================================================================
 -- Qué contiene este archivo (tablas y funciones, una línea cada una):
 -- - product_chats                     → una fila por conversación privada

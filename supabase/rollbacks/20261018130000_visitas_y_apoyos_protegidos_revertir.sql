@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018130000_visitas_y_apoyos_protegidos.sql
+-- Qué hace: vuelve a contar «me gusta» y visitas directamente desde el navegador, como antes de protegerlos.
+-- Conectado con: deshace supabase/migrations/20261018130000_visitas_y_apoyos_protegidos.sql; funciones de
+--   api/interaccion.ts y lib/interaccion.ts; lo prueban pruebas/interaccion-sql.mjs y pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

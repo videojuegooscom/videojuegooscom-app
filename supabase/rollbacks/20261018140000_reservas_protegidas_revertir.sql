@@ -1,5 +1,9 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018140000_reservas_protegidas.sql
+-- Qué hace: vuelve a dejar reservar productos directamente desde el navegador, sin el límite nuevo.
+-- Conectado con: deshace supabase/migrations/20261018140000_reservas_protegidas.sql; funciones reservar_producto
+--   (lib/reservas.ts) y reservar_producto_limitado (api/interaccion.ts); lo prueban pruebas/reservas-sql.mjs y
+--   pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

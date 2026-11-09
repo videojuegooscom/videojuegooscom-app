@@ -6,6 +6,7 @@
 --           [{"url": "https://www.instagram.com/reel/…", "titulo": "Limpieza de una PS4"}, …] (de 0 a 12).
 --           La escribe el administrador en Administración → Servicios; la lee cualquiera (la lectura de site_settings
 --           ya es pública y su escritura ya es solo de administradores: no se toca ningún permiso).
+-- Conectado con: public.site_settings.videos_servicios; la enseña app/servicios.tsx y la edita app/admin/services.tsx.
 -- Tipo:     aditiva (una columna con valor por defecto y su comprobación de forma). No borra nada. Repetirla no cambia
 --           nada.
 -- ============================================================================

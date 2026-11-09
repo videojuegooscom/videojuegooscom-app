@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección «Descripción fija en artículos de VeoAura»
 -- Tipo:     solo inserta una fila si no existe. No borra ni modifica nada.
+-- Qué hace: apunta la lección en el Centro de Aprendizajes (Claude la consulta antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien)

@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-05. Claude propuso pegar los topes de la analítica tal cual y «si ves que crecen las
 --            visitas, me dices "sube el tope" y lo amplío». El dueño: «Yo no tengo por qué decirte nada, quiero que
 --            automáticamente se haga, si hay que subir el tope de la analítica».
+-- Qué hace: apunta la lección «Topes y límites que se ajustan solos: el dueño no tiene que vigilarlos».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

@@ -9,6 +9,8 @@
 --      artículos, ni cambiar a domicilio un pedido que ya lo lleva. Los pedidos que crea el dueño desde el chat o que llegan
 --      de VeoAura no se tocan. La página ya lo impide antes (app/checkout.tsx); esto es la defensa del servidor.
 --   3) Política de envíos, «Embalaje»: que los televisores sin su caja original no se envían.
+-- Conectado con: products.solo_entrega_mano, sus funciones y disparadores sobre public.pedidos y public.policy_pages;
+--           app/admin/products.tsx, app/producto/[id].tsx, lib/envio.ts (cesta y compra) y app/admin/envios.tsx.
 -- Tipo:     AÑADE una columna, dos funciones y dos disparadores, y cambia datos. No borra nada. Sin permisos nuevos (la
 --           columna queda bajo los de products). Repetirla no cambia nada.
 -- ============================================================================

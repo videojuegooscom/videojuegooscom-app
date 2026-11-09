@@ -1,6 +1,6 @@
 // lib/horarioAtencion.ts
 /**
- * Horario de atención del equipo (lo dio el dueño: «Lo que Blue sabe», Quiénes somos): de lunes a sábado de 10:00 a
+ * Qué hace: horario de atención del equipo (lo dio el dueño: «Lo que Blue sabe», Quiénes somos): de lunes a sábado de 10:00 a
  * 14:00 y de 17:00 a 19:00, y los domingos de 10:00 a 13:00, siempre en hora de España (Europe/Madrid), esté donde
  * esté quien mira.
  *
@@ -10,6 +10,8 @@
  *
  * La misma tabla está en api/blue-ia.ts (las funciones del servidor no comparten archivos con la app) y, como texto,
  * en app/quienes-somos.tsx y app/+html.tsx: si cambia el horario, se cambia en los cuatro sitios.
+ *
+ * Conectado con: app/(tabs)/blue-ia.tsx (único archivo que lo importa); no usa otros archivos ni Supabase.
  */
 
 export const HORARIO_TEXTO = "de lunes a sábado de 10:00 a 14:00 y de 17:00 a 19:00, y los domingos de 10:00 a 13:00";

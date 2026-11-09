@@ -1,6 +1,9 @@
 <!--
   Plantilla del correo «Confirmar la cuenta» (Supabase → Authentication → Emails → Templates → «Confirm signup»).
   Asunto: Confirma tu cuenta · VideojuegosZaragoza
+  Qué hace: es el correo que recibe el cliente al registrarse, con el botón para activar su cuenta.
+  Conectado con: correos de Supabase Auth; NO se aplica sola: se copia a mano en el panel de Supabase. Lo dispara
+  supabase.auth.signUp en app/(tabs)/perfil.tsx (sin emailRedirectTo), así que el enlace vuelve a la Site URL de la tienda.
   Mismo diseño que recovery.html. El enlace es el de Supabase ({{ .ConfirmationURL }}): confirma el correo en su
   servidor y después vuelve a la tienda (Site URL / Redirect URLs, ya con videojuegoszaragoza.com). Sin publicidad ni
   más enlaces (lo aconseja Supabase para que no acabe en Spam). Se pega TODO lo que hay debajo de este comentario.

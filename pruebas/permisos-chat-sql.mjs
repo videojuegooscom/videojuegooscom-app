@@ -15,6 +15,8 @@
  *
  * Uso: node pruebas/permisos-chat-sql.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
+ * Conectado con: supabase/migrations/20261018160000_funciones_chat_sin_public.sql y su vuelta atrás en
+ *   supabase/rollbacks/; pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql).
  */
 import { conectar } from "./sql-aislado.mjs";
 

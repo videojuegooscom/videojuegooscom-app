@@ -19,7 +19,7 @@
  * las escrituras a la base de datos; las de `api/` ejecutan los manejadores reales contra una base falsa.
  * No usa claves ni lee secretos de ningún tipo, y no se conecta a ningún servicio externo.
  *
- * Uso (desde la raíz del repositorio, con Node 24):
+ * Uso: (desde la raíz del repositorio, con Node 24)
  *   node pruebas/todas.mjs --postgres-propio --compilar     (instalación limpia: arranca y para su propio PostgreSQL y compila dist)
  *   node pruebas/todas.mjs --servidor postgresql://postgres@127.0.0.1:55432 --dist dist
  *   node pruebas/todas.mjs --lista                          (muestra las pruebas y si existen en esta rama)
@@ -40,6 +40,9 @@
  * que se borra al terminar. Detalle en docs/pruebas-sql-aisladas.md y docs/pruebas.md si existen en la rama.
  *
  * Requisitos de las de navegador: playwright-core (devDependency) y un Chromium sin pantalla.
+ * Conectado con: las pruebas de su CATALOGO (abajo) y las migraciones que exigen, tsc, `npm run lint`, `npm run build`
+ *   (con --compilar) y la tienda compilada dist. No lanza actualizacion-automatica, asignar-seguimiento, blue-panel,
+ *   buscador-inicio, guia-blue, perfil-datos ni perfiles-sql.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";

@@ -1,5 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones de la guía de Blue (iconos, título de la página, tarjeta compacta, funciones difíciles)
+-- Qué hace: añade varias lecciones sobre la guía de Blue al Centro de Aprendizajes.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 

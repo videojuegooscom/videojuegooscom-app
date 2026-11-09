@@ -1,9 +1,12 @@
+// components/marca/CargaMarca.tsx
 /**
  * Qué hace: estado de "cargando…" con la mascota de la tienda dando saltitos,
  * en lugar de la ruedita gris. Centrado, ligero (imagen pequeña de assets/brand).
  *
- * Usado por: pantallas de la tienda mientras cargan (catálogo, ficha, cesta,
- * pago, servicios…).
+ * Conectado con: pantallas de la tienda mientras cargan (catálogo, ficha, cesta,
+ * pago, servicios…), casi todas las del panel de Administración (app/admin/…,
+ * lib/admin/products.components.tsx) y components/PerfilPublico.tsx. Usa
+ * components/marca/MarcaAnimada.tsx para la mascota.
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Platform, Text, View } from "react-native";

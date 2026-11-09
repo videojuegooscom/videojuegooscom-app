@@ -2,6 +2,8 @@
 -- Migración: anota en la lección de la revisión de calidad web qué se corrigió en la primera
 --            revisión (2026-10-17) y qué queda pendiente del dueño.
 -- Tipo:     actualiza el texto de una sola fila (por título), una única vez. No borra nada.
+-- Qué hace: añade a esa lección un párrafo con lo corregido y lo pendiente.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.aprendizajes

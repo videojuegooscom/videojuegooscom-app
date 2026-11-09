@@ -6,6 +6,8 @@
 --           contar filas. Antes el «me gusta» solo vivía en el móvil y no contaba para nadie.
 -- Acceso:   ver «me gusta», cualquiera; dar o quitar el suyo, solo con sesión.
 -- Tipo:     aditiva. No borra datos.
+-- Conectado con: tabla noticias_likes y noticias_gaming.me_gusta; app/(tabs)/chat-global.tsx (corazón de
+--           cada noticia).
 -- ============================================================================
 
 alter table public.noticias_gaming

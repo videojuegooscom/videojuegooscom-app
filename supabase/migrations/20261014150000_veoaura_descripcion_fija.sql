@@ -4,6 +4,7 @@
 --           la descripción automática («Estado: …»). Los nuevos ya llegan con él desde
 --           api/escaparate-veoaura.ts.
 -- Tipo:     actualiza la descripción de esos artículos. No borra nada.
+-- Conectado con: products.description (solo los de id_veoaura); los nuevos los crea api/escaparate-veoaura.ts.
 -- ============================================================================
 
 update public.products

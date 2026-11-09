@@ -14,6 +14,8 @@
  * Solo pinta y avisa de los cambios: la pantalla es la que aplica los filtros
  * en la consulta a Supabase (para que la paginación sea correcta). Por eso el
  * número de "Ver N productos" se actualiza solo mientras se eligen filtros.
+ *
+ * Conectado con: app/catalogo.tsx (único que lo usa) y lib/analytics.ts (trackEvent, para medir el uso).
  */
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";

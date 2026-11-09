@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-08 (el dueño corrige: «no llames a la Fat de esa manera, llámala PlayStation 5 Blu Ray»;
 --            antes: «quiero que sean de verdad las PlayStation 5» al ver portadas dibujadas).
+-- Qué hace: apunta la lección «Modelos con su nombre comercial y portadas solo con fotos reales».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

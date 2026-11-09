@@ -14,6 +14,8 @@
 --      datos falla.
 -- Tipo:     solo cambia texto de policy_pages y añade una fila. No borra nada. Se puede aplicar varias veces: si ya
 --           está al día no toca nada, y la página de normas solo se crea si no existe (si el dueño la edita, se respeta).
+-- Qué hace: pone al día el texto de la política de privacidad y crea la página de normas del Foro.
+-- Conectado con: public.policy_pages; app/politicas/[slug].tsx (la página pública) y app/admin/policies.tsx (su edición).
 -- ============================================================================
 
 -- 1) Política de privacidad.

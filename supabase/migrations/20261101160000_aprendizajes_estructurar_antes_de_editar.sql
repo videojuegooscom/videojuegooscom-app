@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-01 (la pide el dueño).
 --   El dueño mandó siete cambios a la vez (portadas, recorte, reseñas, emojis, Cesta…) y pidió que, antes de ponerse a
 --   editar, Claude estructure el trabajo para optimizar tiempos y no perder tiempo.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta la fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

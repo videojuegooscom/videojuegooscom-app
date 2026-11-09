@@ -18,6 +18,8 @@
  *
  * Uso: node pruebas/actualizacion-automatica.mjs [carpeta_dist]     (por defecto dist)
  * Requisitos: playwright-core (PR #52) y npm run build hecho.
+ * Conectado con: app/_layout.tsx (la comprobación de versión al volver) en la tienda compilada (dist), y
+ *   pruebas/sin-fotos-reales.mjs (lanzarNavegador). pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";

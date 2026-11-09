@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018100000_aprendizajes_reorganizar_en_grupos.sql
+-- Qué hace: deshace la agrupación de lecciones: vuelven las lecciones sueltas y se apagan los «Grupo · …».
+-- Conectado con: deshace supabase/migrations/20261018100000_aprendizajes_reorganizar_en_grupos.sql; tabla
+--   aprendizajes; lo prueban pruebas/lecciones-sql.mjs, pruebas/lecciones-orden.mjs y pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

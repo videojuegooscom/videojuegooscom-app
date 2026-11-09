@@ -5,6 +5,9 @@
 --   como pagado), también el nombre, el correo y el teléfono del cliente, para su ficha de clientes en VeoAura
 --   (api/escaparate-retorno.ts, aviso «pedido_pagado»). La política lo dice ANTES de que empiece: se añade una frase al
 --   final de «Con quién compartimos tus datos» (una sola vez).
+-- Qué hace: añade a la política de privacidad la frase sobre lo que se comunica a VeoAura.
+-- Conectado con: public.policy_pages; app/politicas/[slug].tsx, app/admin/policies.tsx y api/escaparate-retorno.ts
+--           (el aviso «pedido_pagado» que la frase explica).
 -- Tipo:     solo cambia el texto de la política de privacidad. No borra nada. Se puede aplicar varias veces.
 -- ============================================================================
 

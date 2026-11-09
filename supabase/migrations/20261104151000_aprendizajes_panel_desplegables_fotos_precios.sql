@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-04. El dueño, editando un servicio en el panel, pidió poder quitar una o varias fotos
 --            a la vez, que «Estado» sea un desplegable que al tocarlo muestre el selector de iOS y que los precios admitan
 --            decimales.
+-- Qué hace: apunta la lección «Formularios del panel: selector del móvil, varias fotos a la vez y precios con céntimos».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

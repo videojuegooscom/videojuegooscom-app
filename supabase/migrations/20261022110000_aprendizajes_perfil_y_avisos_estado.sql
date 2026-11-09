@@ -1,5 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones del perfil del cliente («Mi cuenta» → Tu perfil) y de los avisos de estado de pedidos y reparaciones.
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 
