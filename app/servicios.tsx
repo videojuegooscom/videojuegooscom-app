@@ -68,11 +68,17 @@ export type EnlaceVideo = { plataforma: "Instagram" | "TikTok"; embed: string };
 // El reproductor de cada enlace, o null si no es un vídeo de Instagram (reel/publicación) o de TikTok (/video/<n>).
 export function enlaceVideo(url: string): EnlaceVideo | null {
   const u = String(url ?? "").trim();
-  const ig = u.match(/^https:\/\/(?:www\.)?instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([A-Za-z0-9_-]+)/i);
+  const ig = u.match(/^https:\/\/(?:www\.|m\.)?instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([A-Za-z0-9_-]+)/i);
   if (ig) return { plataforma: "Instagram", embed: `https://www.instagram.com/${ig[1].toLowerCase() === "reels" ? "reel" : ig[1].toLowerCase()}/${ig[2]}/embed/` };
   const tt = u.match(/^https:\/\/(?:www\.|m\.)?tiktok\.com\/(?:@[\w.-]+\/video|embed\/v2|v)\/(\d{6,25})/i);
   if (tt) return { plataforma: "TikTok", embed: `https://www.tiktok.com/embed/v2/${tt[1]}` };
   return null;
+}
+
+// Enlace corto que copian las apps («Compartir → Copiar enlace»): no lleva el número del vídeo. Administración lo
+// cambia por el largo al guardar, con api/video-enlace.ts.
+export function esEnlaceCorto(url: string) {
+  return /^https:\/\/((vm|vt)\.tiktok\.com\/|(www\.|m\.)?tiktok\.com\/t\/|(www\.)?instagram\.com\/share\/)/i.test(String(url ?? "").trim());
 }
 
 export function leerVideosServicios(valor: unknown): VideoServicio[] {
