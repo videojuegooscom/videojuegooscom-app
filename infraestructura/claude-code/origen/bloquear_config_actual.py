@@ -7,6 +7,12 @@
 #           persona con Claude Code cerrado.
 # Conectado con:
 #   Lo carga:   .claude/settings.json y /etc/claude-code/managed-settings.json (hooks.ConfigChange)
+# --- Copia en este repo ---
+# Título:   infraestructura/claude-code/origen/bloquear_config_actual.py
+# Qué hace: copia de solo consulta del bloqueador de configuración de VeoAura que estaba
+#           instalado antes de crear el propio; sirve para comparar. No se ejecuta ni se instala.
+# Conectado con: ninguna pieza lo usa; lo describe README.md (origen/). Su sucesor es
+#           ../bloquear-config.py.
 # ============================================================================
 import json
 import sys

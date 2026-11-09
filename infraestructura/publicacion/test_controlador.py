@@ -3,6 +3,11 @@
 # Archivo:  infraestructura/publicacion/test_controlador.py
 # Función:  Pruebas de las comprobaciones del controlador de publicación (sin red).
 # Uso:      python3 infraestructura/publicacion/test_controlador.py   (desde la raíz del repo)
+# Qué hace: prueba con PR de mentira que el controlador rechaza lo inseguro y acepta lo correcto.
+# Conectado con:
+#   Lo usan:  instalar.sh (no instala si falla), politica.json (allow para ejecutarlo) y
+#             guardian.py (SCRIPTS_VALIDACION).
+#   Usa:      controlador.py (misma carpeta).
 # ============================================================================
 import importlib.util
 import os

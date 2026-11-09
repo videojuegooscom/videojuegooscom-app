@@ -1,9 +1,12 @@
-# Revisión automática de cada cambio (PR hacia main y cada publicación en main).
+# .github/workflows/revision.yml
+# Qué hace: revisión automática de cada cambio (PR hacia main y cada publicación en main).
 # Pasa las mismas comprobaciones que se hacen a mano antes de publicar: tipos, normas
 # de estilo y que la tienda se monte. Si algo falla, la PR sale en rojo y el
 # controlador de publicación (infraestructura/publicacion/controlador.py) no la publica.
 # Las variables de Supabase son de relleno: solo hace falta que la tienda compile;
 # la tienda real se monta en Vercel con las de verdad.
+# Conectado con: lo exige infraestructura/publicacion/controlador.py (CI_OBLIGATORIO = "revision",
+#   el nombre del trabajo de abajo). Usa package.json (npm ci, scripts lint y build) y tsc.
 name: revision
 
 on:

@@ -18,6 +18,14 @@
 #                 categoría y SHA-256 de la entrada; nunca el contenido).
 # Pruebas:        test_guardian.py y test_politica.py (misma carpeta).
 # Dependencias:   python3 (biblioteca estándar), git.
+# Qué hace:       antes de cada acción de Claude Code mira si es peligrosa y la para, la deja
+#                 pasar o pregunta.
+# Conectado con:
+#   Lo carga:     politica.json (hooks.PreToolUse → /etc/claude-code/hooks/guardian.py).
+#   Lo instala:   instalar.sh (lista ARCHIVOS). Lo prueban test_guardian.py y test_politica.py.
+#   Usa:          politica.json instalada (reglas deny/allow), el archivo «modo-autonomo»,
+#                 /usr/local/bin/vz-publicar (infraestructura/publicacion/controlador.py),
+#                 git (rama actual y migraciones de supabase/migrations/ en origin/main).
 # ============================================================================
 
 import datetime
