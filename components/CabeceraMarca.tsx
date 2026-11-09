@@ -74,12 +74,16 @@ export function BotonVolver({ onPress, tamano = 40 }: { onPress?: () => void; ta
   );
 }
 
-export default function CabeceraMarca({ onBack }: { onBack?: () => void }) {
+// `sinVolver`: sin la flecha de arriba, para páginas que ya llevan el botón de volver abajo a la derecha
+// («Contratar servicio», dueño, 2026-11-09).
+export default function CabeceraMarca({ onBack, sinVolver }: { onBack?: () => void; sinVolver?: boolean }) {
   return (
     <View style={{ width: "100%", height: 44, justifyContent: "center", alignItems: "center" }}>
-      <View style={{ position: "absolute", left: 0, top: 2 }}>
-        <BotonVolver onPress={onBack} />
-      </View>
+      {sinVolver ? null : (
+        <View style={{ position: "absolute", left: 0, top: 2 }}>
+          <BotonVolver onPress={onBack} />
+        </View>
+      )}
       <Text
         numberOfLines={1}
         style={{ color: MARINO, fontSize: 17, fontWeight: "900", letterSpacing: -0.2, textAlign: "center", paddingHorizontal: 52 }}

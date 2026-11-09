@@ -5876,6 +5876,21 @@ async function seccionCS() {
       !!atras && atras.derecha <= 20 && atras.abajo <= 40 && atras.lado >= 48 && !atras.tapa,
       `CS: el botón de volver está abajo a la derecha, mide 52 px y no tapa «Enviar solicitud» al final (${JSON.stringify(atras)})`
     );
+    // Dueño, 2026-11-09: sin la flecha de arriba (solo la de abajo) y con la nota legal de privacidad y su enlace.
+    const legal = await p.evaluate(() => ({
+      flechaArriba: document.querySelectorAll('#contratar-pagina [aria-label="Volver atrás"]').length,
+      nota: document.querySelector("#contratar-privacidad")?.innerText.trim() ?? "",
+    }));
+    ok(
+      legal.flechaArriba === 0 && /política de privacidad/.test(legal.nota),
+      `CS: sin flecha de volver arriba (${legal.flechaArriba}) y con la nota de privacidad («${legal.nota}»)`
+    );
+    await p.locator("#contratar-privacidad [role=link]").click();
+    await p.waitForURL(/\/politicas\/privacidad/, { timeout: 10000 }).catch(() => {});
+    ok(p.url().includes("/politicas/privacidad"), `CS: el enlace lleva a la política de privacidad (${p.url().replace(BASE, "")})`);
+    await p.goBack();
+    await p.locator("#contratar-enviar").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
     await p.evaluate(() => document.querySelectorAll("#contratar-pagina *").forEach((el) => (el.scrollTop = 0)));
     await capturar(p, "CS1b-pagina-contratar");
     const datos = await p.evaluate(() => ({
