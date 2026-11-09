@@ -44,6 +44,7 @@ import { trackEvent } from "../lib/analytics";
 import { SelectorIOS } from "../lib/admin/products.components";
 import CabeceraMarca from "./CabeceraMarca";
 import SmartImage from "./SmartImage";
+import { FieldInput, FieldLabel as VLabel, IsMobileContext, SelectField } from "./VenderAhoraModal";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -161,10 +162,6 @@ function AnimatedPressable({
   );
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{children}</Text>;
-}
-
 function TextField({
   label,
   value,
@@ -191,42 +188,24 @@ function TextField({
   // Falta y el cliente ya intentó enviar: borde de aviso.
   marcado?: boolean;
 }) {
+  // Las mismas piezas que «Vender ahora» (dueño, 2026-11-09: «que siga nuestro diseño de página»): etiqueta centrada,
+  // recuadro con el texto centrado y, al completarlo, más suave y con su check verde.
   return (
-    <View style={{ gap: 6, flex }} onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}>
-      <FieldLabel>{label}</FieldLabel>
-      <View
+    <View style={{ gap: 8, flex }} onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}>
+      <VLabel>{label}</VLabel>
+      <FieldInput
+        ref={inputRef}
+        nativeID={nativeID}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={prefix ? `${prefix} ${placeholder ?? ""}` : placeholder}
+        multiline={!!multiline}
+        filled={!multiline && value.trim().length >= 2}
         style={{
-          flexDirection: "row",
-          alignItems: multiline ? "flex-start" : "center",
-          borderWidth: 1,
-          borderColor: marcado ? COLORS.accent : COLORS.border,
-          borderRadius: 14,
-          backgroundColor: COLORS.cardSoft,
-          paddingHorizontal: 14,
-          paddingVertical: multiline ? 12 : 2,
+          ...(marcado ? { borderColor: COLORS.accent } : null),
+          ...(multiline ? { minHeight: 96, textAlignVertical: "top" as const } : null),
         }}
-      >
-        {!!prefix && (
-          <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 16, marginRight: 2 }}>{prefix}</Text>
-        )}
-        <TextInput
-          ref={inputRef}
-          nativeID={nativeID}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={COLORS.muted2}
-          multiline={!!multiline}
-          style={{
-            flex: 1,
-            fontSize: 16,
-            color: COLORS.text,
-            paddingVertical: multiline ? 0 : 10,
-            minHeight: multiline ? 80 : undefined,
-            textAlignVertical: multiline ? "top" : "center",
-          }}
-        />
-      </View>
+      />
     </View>
   );
 }
@@ -239,6 +218,7 @@ function ChipGroup<T extends string>({
   onLayoutY,
   nativeID,
   marcado,
+  flex,
 }: {
   label: string;
   options: { value: T; label: string }[];
@@ -247,31 +227,17 @@ function ChipGroup<T extends string>({
   onLayoutY?: (y: number) => void;
   nativeID?: string;
   marcado?: boolean;
+  flex?: number;
 }) {
+  // El desplegable «Elegir ⌄» de «Vender ahora»: al tocarlo enseña las opciones debajo y al elegir se pliega.
   return (
-    <View nativeID={nativeID} style={{ gap: 8 }} onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}>
-      <FieldLabel>{label}</FieldLabel>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {options.map((opt) => {
-          const active = value === opt.value;
-          return (
-            <AnimatedPressable key={opt.value} onPress={() => onChange(opt.value)}>
-              <View
-                style={{
-                  paddingVertical: 9,
-                  paddingHorizontal: 14,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active || marcado ? COLORS.accentBorder : COLORS.border,
-                  backgroundColor: active ? COLORS.accent2 : COLORS.cardSoft,
-                }}
-              >
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>{opt.label}</Text>
-              </View>
-            </AnimatedPressable>
-          );
-        })}
-      </View>
+    <View
+      nativeID={nativeID}
+      style={{ gap: 8, flex, ...(marcado ? { borderRadius: 16, outlineWidth: 1, outlineStyle: "solid", outlineColor: COLORS.accent } : null) } as any}
+      onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}
+    >
+      <VLabel>{label}</VLabel>
+      <SelectField options={options} value={value} onChange={onChange} />
     </View>
   );
 }
@@ -493,16 +459,17 @@ export default function ContratarServicioModal({
   const cabeceraPagina = comoPagina ? (
     <View style={{ gap: 16 }}>
       <CabeceraMarca onBack={handleClose} />
-      <View style={{ alignItems: "center", gap: 6 }}>
+      {/* Título y subtítulo con las mismas medidas que «Vender mi artículo» (app/vender.tsx). */}
+      <View style={{ alignItems: "center", paddingHorizontal: 34, marginTop: 8 }}>
         <Text
           accessibilityRole="header"
           {...({ "aria-level": 1 } as object)}
-          style={{ color: COLORS.text, fontSize: isMobile ? 24 : 28, fontWeight: "900", lineHeight: isMobile ? 30 : 34, textAlign: "center" }}
+          style={{ color: COLORS.text, fontSize: isMobile ? 18 : 21, fontWeight: "900", lineHeight: isMobile ? 24 : 26, textAlign: "center" }}
         >
           {sent ? "Solicitud enviada" : "Contratar servicio"}
         </Text>
         {!sent ? (
-          <Text style={{ color: COLORS.muted, fontSize: 14.5, lineHeight: 20, textAlign: "center" }}>
+          <Text style={{ color: COLORS.muted, marginTop: 4, lineHeight: 20, textAlign: "center" }}>
             Déjanos tus datos y te contactamos para confirmar los detalles.
           </Text>
         ) : null}
@@ -596,7 +563,10 @@ export default function ContratarServicioModal({
     gap: comoPagina ? 18 : 14,
   };
 
-  return envolver(
+  // (IsMobileContext: las piezas de «Vender ahora» ajustan su tamaño al móvil con él)
+  return (
+    <IsMobileContext.Provider value={isMobile}>
+    {envolver(
           sent ? (
             <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}>
             <View style={columna}>
@@ -696,14 +666,16 @@ export default function ContratarServicioModal({
                 <SelectorIOS
                   nativeID="contratar-opcion"
                   label="Opción del servicio"
+                  centrado
                   value={modalidad}
                   onChange={setModalidad}
                   options={modalidades.map((m) => ({ value: m.nombre, label: `${m.nombre} · ${fmtEURServicio(m.precio_eur)}` }))}
                 />
               ) : null}
 
+              {/* En rejilla, como «Vender ahora»: lo corto de dos en dos y lo largo a lo ancho. */}
               <View
-                style={{ flexDirection: isMobile ? "column" : "row", gap: 12 }}
+                style={{ flexDirection: "row", gap: 12, alignItems: "flex-end" }}
                 onLayout={(e) => {
                   posiciones.current.fila = e.nativeEvent.layout.y;
                 }}
@@ -714,7 +686,7 @@ export default function ContratarServicioModal({
                   value={nombre}
                   onChangeText={setNombre}
                   placeholder="Tu nombre"
-                  flex={isMobile ? undefined : 1}
+                  flex={1}
                   inputRef={refs.nombre}
                   marcado={marca("nombre")}
                   onLayoutY={(y) => {
@@ -727,7 +699,7 @@ export default function ContratarServicioModal({
                   value={apellido}
                   onChangeText={setApellido}
                   placeholder="Tu apellido"
-                  flex={isMobile ? undefined : 1}
+                  flex={1}
                   inputRef={refs.apellido}
                   marcado={marca("apellido")}
                   onLayoutY={(y) => {
@@ -737,7 +709,7 @@ export default function ContratarServicioModal({
               </View>
 
               <ChipGroup
-                label="Método de contacto"
+                label="¿Cómo prefieres que te contactemos?"
                 nativeID="contratar-metodo"
                 options={METODO_OPTIONS}
                 value={metodo}
@@ -764,31 +736,41 @@ export default function ContratarServicioModal({
                 />
               )}
 
-              <TextField
-                label="Ciudad"
-                nativeID="contratar-ciudad"
-                value={ciudad}
-                onChangeText={setCiudad}
-                placeholder="Tu ciudad"
-                inputRef={refs.ciudad}
-                marcado={marca("ciudad")}
-                onLayoutY={(y) => {
-                  posiciones.current.ciudad = y;
+              <View
+                style={{ flexDirection: "row", gap: 12, alignItems: "flex-end" }}
+                onLayout={(e) => {
+                  posiciones.current.fila2 = e.nativeEvent.layout.y;
                 }}
-              />
+              >
+                <TextField
+                  label="¿En qué ciudad te encuentras?"
+                  nativeID="contratar-ciudad"
+                  value={ciudad}
+                  onChangeText={setCiudad}
+                  placeholder="Ej: Zaragoza"
+                  flex={1}
+                  inputRef={refs.ciudad}
+                  marcado={marca("ciudad")}
+                  onLayoutY={(y) => {
+                    posiciones.current.ciudad = (posiciones.current.fila2 ?? 0) + y;
+                  }}
+                />
+                <ChipGroup
+                  label="¿Cuándo te viene mejor? (opcional)"
+                  nativeID="contratar-disponibilidad"
+                  options={DISPONIBILIDAD_OPTIONS}
+                  value={disponibilidad}
+                  onChange={setDisponibilidad}
+                  flex={1}
+                />
+              </View>
+
               <TextField
                 label="Dirección (opcional)"
                 nativeID="contratar-direccion"
                 value={direccion}
                 onChangeText={setDireccion}
                 placeholder="Dónde podemos recogerlo"
-              />
-
-              <ChipGroup
-                label="Disponibilidad (opcional)"
-                options={DISPONIBILIDAD_OPTIONS}
-                value={disponibilidad}
-                onChange={setDisponibilidad}
               />
 
               <TextField
@@ -840,5 +822,7 @@ export default function ContratarServicioModal({
               </View>
             </ScrollView>
           )
+    )}
+    </IsMobileContext.Provider>
   );
 }
