@@ -1194,6 +1194,15 @@ async function seccionN() {
     const falta = 18000 - (Date.now() - inicio);
     if (falta > 0) await p.waitForTimeout(falta);
     ok((await p.locator("#blue-mensaje").count()) === 0, "N: con el visor abierto Blue no dice nada (su mensaje de la ficha espera)");
+    // La X para cerrar va abajo y en el centro, al alcance del pulgar (dueño, 2026-11-09), y recibe el toque.
+    const xCerrar = await p.evaluate(() => {
+      const b = document.querySelector("#visor-fotos-cerrar");
+      const r = b?.getBoundingClientRect();
+      if (!r) return null;
+      const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { abajo: Math.round(window.innerHeight - r.bottom), centro: Math.round(r.left + r.width / 2 - window.innerWidth / 2), lado: Math.round(r.width), toca: !!e && b.contains(e) };
+    });
+    ok(!!xCerrar && xCerrar.abajo < 60 && Math.abs(xCerrar.centro) <= 2 && xCerrar.lado >= 44 && xCerrar.toca, `N: la X de cerrar está abajo, en el centro, es grande y recibe el toque (${JSON.stringify(xCerrar)})`);
     await p.getByRole("button", { name: "Cerrar el visor de fotos" }).click();
     await p.waitForTimeout(1500);
     const despues = await blue();
