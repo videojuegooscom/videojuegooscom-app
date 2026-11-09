@@ -1856,6 +1856,53 @@ try {
     await c46.end();
   }
 
+  // Vídeos de «Nuestros Servicios» (20261109130000_servicios_videos.sql), sobre site_settings como en producción: los
+  // escribe solo el administrador, los lee cualquiera, no más de 12 y sin tocar ningún permiso.
+  {
+    const AJUSTES_V = `
+      create table public.site_settings (id integer primary key, seo_title text, seo_description text, logo_url text,
+        updated_at timestamptz default now(), updated_by uuid, social_links_title text);
+      alter table public.site_settings enable row level security;
+      create policy site_settings_public_read on public.site_settings for select using (true);
+      create policy site_settings_admin_update on public.site_settings for update using (public.is_admin());
+      insert into public.site_settings (id, seo_title) values (1, 'Videojuegos Zaragoza');
+    `;
+    const VIDEOS = readFileSync("supabase/migrations/20261109130000_servicios_videos.sql", "utf8");
+    const cV = await nuevaBase("vz_aislada_servicios_videos", AJUSTES_V + VIDEOS);
+    const vacia = (await cV.query("select videos_servicios::text as v from public.site_settings where id = 1")).rows[0].v;
+    ok(vacia === "[]", `Vídeos: la fila de ajustes que ya existe queda sin vídeos ([]) (${vacia})`);
+    const polV = (await cV.query("select policyname from pg_policies where tablename = 'site_settings' order by 1")).rows.map((x) => x.policyname);
+    ok(polV.join(",") === "site_settings_admin_update,site_settings_public_read", `Vídeos: no toca los permisos (${polV.join(", ")})`);
+    const UNO = `[{"url":"https://www.instagram.com/reel/abc/","titulo":"Limpieza"}]`;
+    const adminV = await como(cV, "authenticated", ADMIN, `update public.site_settings set videos_servicios = '${UNO}' where id = 1`, { confirmar: true });
+    const clienteV = await como(cV, "authenticated", U1, `update public.site_settings set videos_servicios = '[]' where id = 1`, { confirmar: true });
+    const anonV = await como(cV, "anon", null, "select videos_servicios from public.site_settings where id = 1");
+    const quedaV = (await cV.query("select videos_servicios->0->>'titulo' as t from public.site_settings where id = 1")).rows[0].t;
+    ok(adminV.ok && adminV.cuantas === 1 && quedaV === "Limpieza", "Vídeos: el administrador los guarda");
+    ok((!clienteV.ok || clienteV.cuantas === 0) && anonV.ok && anonV.filas.length === 1, "Vídeos: un cliente no los cambia y cualquiera (sin sesión) los lee");
+    const trece = JSON.stringify(Array.from({ length: 13 }, (_, i) => ({ url: `https://www.instagram.com/reel/v${i}/` })));
+    const muchosV = await como(cV, "authenticated", ADMIN, `update public.site_settings set videos_servicios = '${trece}' where id = 1`);
+    const objetoV = await como(cV, "authenticated", ADMIN, `update public.site_settings set videos_servicios = '{"url":"x"}' where id = 1`);
+    ok(!muchosV.ok && !objetoV.ok, "Vídeos: no se guardan más de 12 ni algo que no sea una lista");
+    let repetidaV = true;
+    try {
+      await cV.query(VIDEOS);
+    } catch {
+      repetidaV = false;
+    }
+    const sigueV = (await cV.query("select videos_servicios->0->>'titulo' as t from public.site_settings where id = 1")).rows[0].t;
+    ok(repetidaV && sigueV === "Limpieza", "Vídeos: la migración se puede aplicar dos veces sin borrar lo guardado");
+    await cV.end();
+
+    // PRUEBA DE LAS PRUEBAS: sin la comprobación, entrarían 13 vídeos.
+    const sinComprobacionV = VIDEOS.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinComprobacionV !== VIDEOS, "(control) se ha podido quitar la comprobación de los vídeos en la copia de prueba");
+    const cV2 = await nuevaBase("vz_aislada_servicios_videos_sin_comprobacion", AJUSTES_V + sinComprobacionV);
+    const muchosV2 = await como(cV2, "authenticated", ADMIN, `update public.site_settings set videos_servicios = '${trece}' where id = 1`);
+    ok(muchosV2.ok, "(control) sin la comprobación entran 13 vídeos: la prueba SÍ lo detecta");
+    await cV2.end();
+  }
+
   // Pago con tarjeta (20261105120000_pagos_tarjeta.sql), sobre los pedidos como en producción (con sus tarifas de envío), y
   // Stripe en la privacidad y en los términos (20261105121000_politicas_pago_tarjeta.sql). Las columnas las escribe solo
   // el servidor (api/pago.ts, con la clave del servidor, que salta las reglas: aquí, el usuario postgres).

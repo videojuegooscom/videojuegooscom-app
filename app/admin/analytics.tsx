@@ -566,7 +566,9 @@ export default function AdminAnalytics() {
       .sort((x, y) => y.abiertas - x.abiertas);
     const faltaba = porPrefijo("Contratar: le faltaba · ").sort((x, y) => y.n - x.n);
     const opciones = porPrefijo("Servicio: opción elegida · ").sort((x, y) => y.n - x.n);
-    return { servicios, faltaba, opciones };
+    // «Nuestros Servicios» (app/servicios.tsx): qué vídeos se ven (cada uno por su título o su red).
+    const videos = porPrefijo("Nuestros Servicios: vídeo visto · ").sort((x, y) => y.n - x.n);
+    return { servicios, faltaba, opciones, videos };
   }, [funnel]);
 
   // Recorrido principal: agrupa por prefijo de step_label para armar un
@@ -1083,6 +1085,18 @@ export default function AdminAnalytics() {
                         </Text>
                       ) : null}
                     </View>
+                  </View>
+                  <View
+                    nativeID="analitica-videos-servicios"
+                    style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}
+                  >
+                    <Ionicons name="play-circle-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Nuestros Servicios (vídeos vistos, sesiones):{" "}
+                      {contratarServicio.videos.length
+                        ? contratarServicio.videos.map((v) => `${v.clave} ${v.n}`).join(" · ")
+                        : "aún nadie ha visto un vídeo en este periodo."}
+                    </Text>
                   </View>
                   <View
                     nativeID="analitica-blue-botones"

@@ -77,6 +77,7 @@ import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
+import { enlaceVideo } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
 import {
   AdminHeader,
@@ -386,6 +387,142 @@ function TextField({
   );
 }
 
+// «Nuestros Servicios» (dueño, 2026-11-09): los vídeos de cómo trabajamos que salen en la página Servicios. Se pegan
+// enlaces de Instagram o TikTok (site_settings.videos_servicios, migración 20261109130000); null = falta la migración.
+function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
+  const [filas, setFilas] = useState<{ url: string; titulo: string }[] | null>(null);
+  const [falta, setFalta] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState<{ tono: "success" | "warning"; texto: string } | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("site_settings")
+      .select("videos_servicios")
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) {
+          setFalta(true);
+          setFilas([]);
+          return;
+        }
+        const v = (data as { videos_servicios?: unknown } | null)?.videos_servicios;
+        setFilas(Array.isArray(v) ? v.map((x) => ({ url: String(x?.url ?? ""), titulo: String(x?.titulo ?? "") })) : []);
+      });
+  }, []);
+
+  async function guardar() {
+    if (!filas || guardando) return;
+    const llenas = filas.filter((f) => f.url.trim() || f.titulo.trim());
+    const mala = llenas.findIndex((f) => !enlaceVideo(f.url));
+    if (mala >= 0) {
+      setAviso({
+        tono: "warning",
+        texto: `El vídeo ${mala + 1} no es un enlace de Instagram (reel o publicación) ni de TikTok (…/video/número). Cópialo desde «Compartir → Copiar enlace».`,
+      });
+      return;
+    }
+    setGuardando(true);
+    setAviso(null);
+    const videos = llenas.map((f) => ({ url: f.url.trim(), ...(f.titulo.trim() ? { titulo: f.titulo.trim() } : null) }));
+    const { error } = await supabase.from("site_settings").update({ videos_servicios: videos }).eq("id", 1);
+    setGuardando(false);
+    if (error) {
+      setAviso({ tono: "warning", texto: "No se han podido guardar los vídeos. Inténtalo de nuevo." });
+      return;
+    }
+    setFilas(videos.map((v) => ({ url: v.url, titulo: v.titulo ?? "" })));
+    setAviso({ tono: "success", texto: videos.length ? `Guardado: ${videos.length} ${videos.length === 1 ? "vídeo" : "vídeos"} en la página Servicios.` : "Guardado: sin vídeos, el apartado no sale en la tienda." });
+  }
+
+  const estiloCampo = {
+    width: "100%" as const,
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    color: COLORS.text,
+    backgroundColor: COLORS.cardSoft,
+  };
+
+  return (
+    <View
+      nativeID="servicios-videos"
+      style={{ gap: 10, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#FFFFFF" }}
+    >
+      <View style={{ alignItems: "center", gap: 4 }}>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+          Nuestros Servicios · vídeos{filas?.length ? ` (${filas.filter((f) => f.url.trim()).length})` : ""}
+        </Text>
+        <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+          Salen al final de la página Servicios para que los clientes vean cómo trabajáis. Pega el enlace de un reel de
+          Instagram o un vídeo de TikTok (de un minuto como máximo). Cuántos los ven: Analítica → «Nuestros Servicios».
+        </Text>
+      </View>
+      {filas === null ? (
+        <CargaMarca texto="Cargando vídeos…" />
+      ) : falta ? (
+        <AdminNotice tone="warning" text="Para guardar vídeos falta aplicar en la base de datos la migración 20261109130000_servicios_videos." />
+      ) : (
+        <>
+          {filas.map((f, i) => {
+            const enlace = f.url.trim() ? enlaceVideo(f.url) : null;
+            return (
+              <View key={i} style={{ gap: 6, padding: 10, borderRadius: 14, backgroundColor: COLORS.cardSoft }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Ionicons
+                    name={enlace ? (enlace.plataforma === "Instagram" ? "logo-instagram" : "logo-tiktok") : "videocam-outline"}
+                    size={20}
+                    color={f.url.trim() && !enlace ? COLORS.danger : COLORS.text}
+                  />
+                  <TextInput
+                    nativeID={`servicios-video-url-${i}`}
+                    value={f.url}
+                    onChangeText={(v) => setFilas((prev) => (prev ?? []).map((x, j) => (j === i ? { ...x, url: v } : x)))}
+                    placeholder="https://www.instagram.com/reel/…"
+                    placeholderTextColor={COLORS.muted2}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={{ ...estiloCampo, flex: 1, width: 0, minWidth: 0 }}
+                  />
+                  <IconButton
+                    icon="trash-outline"
+                    label={`Quitar el vídeo ${i + 1}`}
+                    variant="danger"
+                    onPress={() => setFilas((prev) => (prev ?? []).filter((_, j) => j !== i))}
+                  />
+                </View>
+                <TextInput
+                  nativeID={`servicios-video-titulo-${i}`}
+                  value={f.titulo}
+                  onChangeText={(v) => setFilas((prev) => (prev ?? []).map((x, j) => (j === i ? { ...x, titulo: v } : x)))}
+                  placeholder="Título (opcional): Limpieza de una PS4"
+                  placeholderTextColor={COLORS.muted2}
+                  maxLength={80}
+                  style={{ ...estiloCampo, textAlign: "center" }}
+                />
+                {f.url.trim() && !enlace ? (
+                  <Text style={{ color: COLORS.danger, fontSize: 12, textAlign: "center" }}>Este enlace no es de un vídeo de Instagram o TikTok.</Text>
+                ) : null}
+              </View>
+            );
+          })}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+            {filas.length < 12 ? (
+              <ChipButton icon="add" label="Añadir vídeo" onPress={() => setFilas((prev) => [...(prev ?? []), { url: "", titulo: "" }])} isMobile={isMobile} />
+            ) : null}
+            <ChipButton icon="save-outline" label={guardando ? "Guardando…" : "Guardar vídeos"} variant="primary" disabled={guardando} onPress={guardar} isMobile={isMobile} />
+          </View>
+        </>
+      )}
+      {aviso ? <AdminNotice tone={aviso.tono} text={aviso.texto} /> : null}
+    </View>
+  );
+}
+
 // Etapa de seguimiento + nota para el cliente (se ve en Perfil → Seguimientos).
 function RequestSeguimiento({
   request,
@@ -598,7 +735,11 @@ export default function AdminServices() {
   const [newMedia, setNewMedia] = useState<LocalPickedMedia[]>([]);
   const [coverId, setCoverId] = useState<string | null>(null);
   // Opciones del servicio en el formulario (precio como texto, con coma: «77,97»).
-  const [opciones, setOpciones] = useState<{ nombre: string; precio: string }[]>([]);
+  // foto: la dirección de una foto ya guardada del servicio o `nueva:<id>` de una que se sube al guardar (dueño,
+  // 2026-11-09: «al elegir una opción, la foto de la ficha cambia a la de esa opción»).
+  const [opciones, setOpciones] = useState<{ nombre: string; precio: string; foto: string | null }[]>([]);
+  // La opción a la que se le está eligiendo foto (se abre debajo de su fila).
+  const [fotoOpcionAbierta, setFotoOpcionAbierta] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
   // Precio guardado sin céntimos porque la base de datos aún no los admite (ver save()).
@@ -620,6 +761,7 @@ export default function AdminServices() {
     setNewMedia([]);
     setCoverId(null);
     setOpciones([]);
+    setFotoOpcionAbierta(null);
     setModalErr(null);
     setModalOpen(true);
   }
@@ -637,7 +779,10 @@ export default function AdminServices() {
     setRemovedMedia([]);
     setNewMedia([]);
     setCoverId(s.media.find((m) => m.is_cover)?.id ?? s.media[0]?.id ?? null);
-    setOpciones((s.modalidades ?? []).map((m) => ({ nombre: m.nombre, precio: String(m.precio_eur).replace(".", ",") })));
+    setOpciones(
+      (s.modalidades ?? []).map((m) => ({ nombre: m.nombre, precio: String(m.precio_eur).replace(".", ","), foto: m.foto ?? null }))
+    );
+    setFotoOpcionAbierta(null);
     setModalErr(null);
     setModalOpen(true);
   }
@@ -653,7 +798,8 @@ export default function AdminServices() {
     setModalOpen(false);
   }
 
-  async function pickPhotos() {
+  // Devuelve las fotos añadidas (la opción que pidió «Subir foto» se queda con la primera).
+  async function pickPhotos(): Promise<{ id: string }[]> {
     setModalErr(null);
     setPicking(true);
     try {
@@ -685,7 +831,7 @@ export default function AdminServices() {
 
       if (totalAfter > MAX_IMAGES) {
         setModalErr(`${ERRORS.MAX_IMAGES}${skippedNote ? ` ${skippedNote}` : ""}`);
-        return;
+        return [];
       }
 
       if (images.length) {
@@ -694,8 +840,10 @@ export default function AdminServices() {
       }
 
       if (skippedNote) setModalErr(skippedNote);
+      return images;
     } catch (e: any) {
       setModalErr(e?.message ?? ERRORS.GENERIC_UPLOAD);
+      return [];
     } finally {
       setPicking(false);
     }
@@ -753,8 +901,10 @@ export default function AdminServices() {
     setRemovedMedia([]);
   }
 
-  async function uploadNewPhotos(serviceId: string) {
-    if (!newMedia.length) return;
+  // Devuelve la dirección pública de cada foto nueva (por su id local), para las opciones que la usan.
+  async function uploadNewPhotos(serviceId: string): Promise<Record<string, string>> {
+    const subidas: Record<string, string> = {};
+    if (!newMedia.length) return subidas;
     const startIndex = existingMedia.length;
 
     // La subida a Storage tiene que ser un archivo detrás de otro (no se
@@ -779,6 +929,7 @@ export default function AdminServices() {
 
       const { data: publicData } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath);
       const publicUrl = publicData?.publicUrl ?? "";
+      if (publicUrl) subidas[item.id] = publicUrl;
 
       rows.push({
         service_id: serviceId,
@@ -794,6 +945,7 @@ export default function AdminServices() {
       const insertRes = await supabase.from("service_media").insert(rows);
       if (insertRes.error) throw insertRes.error;
     }
+    return subidas;
   }
 
   async function deleteRemovedPhotos() {
@@ -847,10 +999,21 @@ export default function AdminServices() {
       setModalErr("Hay dos opciones con el mismo nombre: cámbiale el nombre a una.");
       return;
     }
-    const modalidades: ModalidadServicio[] = filasOpciones.map((o) => ({
-      nombre: o.nombre.trim(),
-      precio_eur: Math.round(toPriceSafe(o.precio, 0) * 100) / 100,
-    }));
+    // La foto de cada opción: una foto guardada que siga en el servicio (si se quitó, la opción se queda sin foto); las
+    // nuevas (`nueva:<id>`) se resuelven después de subirlas.
+    const guardadas = new Set(existingMedia.map((m) => m.public_url ?? ""));
+    const nuevas = new Set(newMedia.map((m) => m.id));
+    const fotoValida = (f: string | null) =>
+      !f ? null : f.startsWith("nueva:") ? (nuevas.has(f.slice(6)) ? f : null) : guardadas.has(f) ? f : null;
+    const modalidades: ModalidadServicio[] = filasOpciones.map((o) => {
+      const foto = fotoValida(o.foto);
+      return {
+        nombre: o.nombre.trim(),
+        precio_eur: Math.round(toPriceSafe(o.precio, 0) * 100) / 100,
+        ...(foto && !foto.startsWith("nueva:") ? { foto } : null),
+      };
+    });
+    const opcionesConFotoNueva = filasOpciones.map((o) => fotoValida(o.foto)).filter((f) => f?.startsWith("nueva:"));
 
     setSaving(true);
     setModalErr(null);
@@ -900,8 +1063,18 @@ export default function AdminServices() {
 
       if (serviceId) {
         await deleteRemovedPhotos();
-        await uploadNewPhotos(serviceId);
+        const subidas = await uploadNewPhotos(serviceId);
         await syncCover(serviceId);
+        // Las opciones con una foto recién subida: ya con su dirección pública.
+        if (opcionesOk && opcionesConFotoNueva.length) {
+          const conFotos = filasOpciones.map((o, i) => {
+            const f = fotoValida(o.foto);
+            const url = f?.startsWith("nueva:") ? subidas[f.slice(6)] : null;
+            return url ? { ...modalidades[i], foto: url } : modalidades[i];
+          });
+          const { error } = await supabase.from("services").update({ modalidades: conFotos }).eq("id", serviceId);
+          if (error) throw error;
+        }
       }
 
       closeModal();
@@ -1196,7 +1369,12 @@ export default function AdminServices() {
                           {s.title || "Sin título"}
                         </Text>
                         <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
-                          {s.modalidades?.length ? `Desde ${fmtEUR(s.price_eur)} · ${s.modalidades.length} opciones` : fmtEUR(s.price_eur)} ·{" "}
+                          {s.modalidades?.length
+                            ? `Desde ${fmtEUR(s.price_eur)} · ${s.modalidades.length} opciones${
+                                s.modalidades.some((m) => m.foto) ? ` (${s.modalidades.filter((m) => m.foto).length} con foto)` : ""
+                              }`
+                            : fmtEUR(s.price_eur)}{" "}
+                          ·{" "}
                           {STATUS_LABEL[s.status]}
                           {!s.is_active ? " · Oculto" : ""} · {s.view_count ?? 0} visitas
                           {typeof s.like_count === "number" ? ` · ${s.like_count} me gusta` : ""}
@@ -1211,6 +1389,8 @@ export default function AdminServices() {
                 })}
               </View>
             )}
+
+            <EditorVideosServicios isMobile={isMobile} />
           </>
       ) : (
           <>
@@ -1534,8 +1714,50 @@ export default function AdminServices() {
                     Por ejemplo «Básica» y «Completa + mando». El cliente elige una en la ficha; la primera sale elegida. Sin
                     opciones, el servicio tiene un solo precio.
                   </Text>
-                  {opciones.map((o, i) => (
-                    <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}>
+                  {opciones.map((o, i) => {
+                    const fotoUri = o.foto?.startsWith("nueva:")
+                      ? newMedia.find((m) => m.id === o.foto?.slice(6))?.previewUrl ?? null
+                      : o.foto && existingMedia.some((m) => m.public_url === o.foto)
+                        ? o.foto
+                        : null;
+                    const todas = [
+                      ...existingMedia.filter((m) => m.public_url).map((m) => ({ valor: m.public_url as string, uri: m.public_url as string })),
+                      ...newMedia.map((m) => ({ valor: `nueva:${m.id}`, uri: m.previewUrl })),
+                    ];
+                    const ponerFoto = (foto: string | null) => {
+                      setOpciones((prev) => prev.map((x, j) => (j === i ? { ...x, foto } : x)));
+                      setFotoOpcionAbierta(null);
+                    };
+                    return (
+                    <View key={i} style={{ gap: 8, width: "100%" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}>
+                      {/* La foto de la opción (dueño, 2026-11-09): sale en la ficha al elegirla. */}
+                      <Pressable
+                        nativeID={`servicio-opcion-foto-${i}`}
+                        onPress={() => setFotoOpcionAbierta((v) => (v === i ? null : i))}
+                        accessibilityRole="button"
+                        accessibilityLabel={fotoUri ? `Cambiar la foto de la opción ${o.nombre || i + 1}` : `Poner foto a la opción ${o.nombre || i + 1}`}
+                        style={({ pressed }) => ({
+                          width: 48,
+                          height: 48,
+                          flexShrink: 0,
+                          borderRadius: 12,
+                          overflow: "hidden",
+                          borderWidth: 1,
+                          borderStyle: fotoUri ? "solid" : "dashed",
+                          borderColor: fotoOpcionAbierta === i ? COLORS.accent : COLORS.border,
+                          backgroundColor: COLORS.cardSoft,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: pressed ? 0.8 : 1,
+                        })}
+                      >
+                        {fotoUri ? (
+                          <SmartImage uri={fotoUri} style={{ width: 48, height: 48 }} />
+                        ) : (
+                          <Ionicons name="image-outline" size={20} color={COLORS.muted} />
+                        )}
+                      </Pressable>
                       <TextInput
                         nativeID={`servicio-opcion-nombre-${i}`}
                         value={o.nombre}
@@ -1581,10 +1803,57 @@ export default function AdminServices() {
                         icon="trash-outline"
                         label={`Quitar la opción ${o.nombre || i + 1}`}
                         variant="danger"
-                        onPress={() => setOpciones((prev) => prev.filter((_, j) => j !== i))}
+                        onPress={() => {
+                          setOpciones((prev) => prev.filter((_, j) => j !== i));
+                          setFotoOpcionAbierta(null);
+                        }}
                       />
                     </View>
-                  ))}
+                    {fotoOpcionAbierta === i ? (
+                      <View
+                        nativeID={`servicio-opcion-fotos-${i}`}
+                        style={{ gap: 8, padding: 10, borderRadius: 14, backgroundColor: COLORS.cardSoft, borderWidth: 1, borderColor: COLORS.border }}
+                      >
+                        <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
+                          Elige la foto de «{o.nombre.trim() || `opción ${i + 1}`}» o sube una nueva
+                        </Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                          {todas.map((f) => (
+                            <Pressable
+                              key={f.valor}
+                              onPress={() => ponerFoto(f.valor)}
+                              accessibilityRole="button"
+                              accessibilityLabel="Usar esta foto"
+                              style={{
+                                width: 56,
+                                height: 56,
+                                borderRadius: 10,
+                                overflow: "hidden",
+                                borderWidth: o.foto === f.valor ? 3 : 1,
+                                borderColor: o.foto === f.valor ? COLORS.accent : COLORS.border,
+                              }}
+                            >
+                              <SmartImage uri={f.uri} style={{ width: "100%", height: "100%" }} />
+                            </Pressable>
+                          ))}
+                        </View>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                          <ChipButton
+                            icon="cloud-upload-outline"
+                            label="Subir foto"
+                            onPress={async () => {
+                              const añadidas = await pickPhotos();
+                              if (añadidas[0]) ponerFoto(`nueva:${añadidas[0].id}`);
+                            }}
+                            isMobile={isMobile}
+                          />
+                          {o.foto ? <ChipButton icon="close" label="Sin foto" onPress={() => ponerFoto(null)} isMobile={isMobile} /> : null}
+                        </View>
+                      </View>
+                    ) : null}
+                    </View>
+                    );
+                  })}
                   {opciones.length < 12 ? (
                     <View style={{ alignItems: "center" }}>
                       <ChipButton
@@ -1594,7 +1863,7 @@ export default function AdminServices() {
                           setOpciones((prev) => [
                             ...prev,
                             // La primera opción nueva arranca con el precio que ya tenía el servicio.
-                            { nombre: "", precio: prev.length ? "" : price },
+                            { nombre: "", precio: prev.length ? "" : price, foto: null },
                           ])
                         }
                         isMobile={isMobile}

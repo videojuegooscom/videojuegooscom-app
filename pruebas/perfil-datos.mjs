@@ -6080,6 +6080,182 @@ async function seccionCS() {
   }
 }
 
+// ===== OV) Foto de cada opción y vídeos de «Nuestros Servicios» (dueño, 2026-11-09): al elegir una opción con foto, la
+// foto principal de la ficha y la del resumen de «Contratar servicio» pasan a la suya; en Administración se le pone foto
+// a cada opción; la página Servicios enseña los vídeos de Instagram/TikTok (el reproductor solo se carga al tocarlo) y
+// Administración los edita y valida; Analítica cuenta los vídeos vistos =================================================
+async function seccionOV() {
+  const ID = "5e000000-0000-4000-8000-0000000000e7";
+  const TITULO = "Mantenimiento Playstation 4";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/servicios/ov${n}.jpg`;
+  const OPCIONES = [
+    { nombre: "Básica", precio_eur: 30, foto: foto(2) },
+    { nombre: "Completa", precio_eur: 44.97, foto: foto(3) },
+  ];
+  const VIDEOS = [
+    { url: "https://www.instagram.com/reel/DAbc123xyz/", titulo: "Limpieza de una PS4" },
+    { url: "https://www.tiktok.com/@videojuegoszaragoza/video/7412345678901234567" },
+  ];
+  const fotos = [1, 2, 3].map((n) => ({ id: `ov${n}`, public_url: foto(n), is_cover: n === 1, sort_order: n - 1 }));
+  const ajustes = { id: 1, seo_title: null, seo_description: null, logo_url: null, social_links_title: null, videos_servicios: VIDEOS };
+  const fotoPrincipal = (p) =>
+    p.evaluate(() => {
+      // SmartImage pasa la foto por el optimizador: la dirección original va dentro, codificada.
+      return decodeURIComponent(document.querySelector("#servicio-foto img")?.getAttribute("src") ?? "");
+    });
+
+  // OV1) Ficha: sale la foto de la primera opción; al elegir «Completa», la suya. «Contratar» la lleva al resumen.
+  {
+    const estado = {
+      guardados: [],
+      filas: [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+      aceptaAnalitica: true,
+      servicio: { id: ID, title: TITULO, description: "x", price_eur: 30, like_count: 0, modalidades: OPCIONES },
+      fotosServicio: fotos,
+      solicitudesServicio: [],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/servicio/${ID}`);
+    await p.locator("#servicio-opcion").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const inicial = await fotoPrincipal(p);
+    await p.locator("#servicio-opcion select").selectOption("Completa").catch(() => {});
+    await p.waitForTimeout(800);
+    const completa = await fotoPrincipal(p);
+    ok(/ov2\.jpg/.test(inicial) && /ov3\.jpg/.test(completa), `OV: la ficha enseña la foto de la opción elegida (Básica → ${inicial.slice(-8)}, Completa → ${completa.slice(-8)})`);
+    await capturar(p, "OV1-ficha-foto-opcion");
+    await p.locator("#servicio-contratar").click();
+    await p.locator("#contratar-opcion").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const resumen = async () => p.evaluate(() => document.querySelector("#contratar-resumen img")?.getAttribute("src") ?? "");
+    const r1 = await resumen();
+    await p.locator("#contratar-opcion select").selectOption("Básica").catch(() => {});
+    await p.waitForTimeout(600);
+    const r2 = await resumen();
+    ok(/ov3\.jpg/.test(r1) && /ov2\.jpg/.test(r2), `OV: el resumen de «Contratar servicio» cambia de foto con la opción (${r1.slice(-8)} → ${r2.slice(-8)})`);
+    ok(p.errores.length === 0, `OV: ficha y contratar sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // OV2) Servicios: «Nuestros Servicios» con los dos vídeos; nada de Instagram/TikTok se carga hasta tocar uno.
+  {
+    const estado = {
+      guardados: [],
+      filas: [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }],
+      aceptaAnalitica: true,
+      ajustes,
+      megusta: { productos: [], servicios: [{ id: ID, title: TITULO, description: "x", price_eur: 30 }] },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const redes = [];
+    await ctx.route(/instagram\.com|tiktok\.com/, (r) => {
+      redes.push(r.request().url());
+      return r.fulfill({ status: 200, contentType: "text/html", body: "<html><body>vídeo</body></html>" });
+    });
+    const p = await pagina(ctx, "/servicios");
+    await p.locator("#nuestros-servicios").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = (await p.locator("#nuestros-servicios").innerText().catch(() => "")).replace(/\n/g, " ");
+    const botones = await p.locator('#nuestros-servicios [role="button"]').count();
+    ok(/Nuestros Servicios/.test(t) && /Limpieza de una PS4/.test(t) && botones === 2 && redes.length === 0, `OV: Servicios enseña «Nuestros Servicios» con 2 vídeos sin cargar nada de las redes (${botones} vídeos, ${redes.length} cargas)`);
+    await p.locator("#nuestros-servicios").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "OV2-nuestros-servicios");
+    await p.locator('#nuestros-servicios [role="button"]').first().click();
+    await p.waitForTimeout(1200);
+    const iframe = await p.evaluate(() => document.querySelector("#nuestros-servicios iframe")?.getAttribute("src") ?? "");
+    ok(iframe === "https://www.instagram.com/reel/DAbc123xyz/embed/", `OV: al tocarlo se carga el reproductor de Instagram (${iframe})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "servicios_video"); i++) await p.waitForTimeout(300);
+    const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "servicios_video");
+    ok(ev?.step_label === "Nuestros Servicios: vídeo visto · Limpieza de una PS4", `OV: el vídeo visto se cuenta en la analítica (${ev?.step_label ?? "nada"})`);
+    ok(p.errores.length === 0, `OV: Servicios sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // OV3) Sin vídeos (o sin la migración): el apartado no sale.
+  {
+    const estado = { guardados: [], filas: [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }], ajustes: { ...ajustes, videos_servicios: [] }, megusta: { productos: [], servicios: [{ id: ID, title: TITULO, description: "x", price_eur: 30 }] } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/servicios");
+    await p.locator("#servicios-lista").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await p.locator("#nuestros-servicios").count()) === 0, "OV: sin vídeos, «Nuestros Servicios» no sale");
+    await ctx.close();
+  }
+
+  // OV4) Administración → Servicios: foto para una opción (elegida entre las del servicio) y el editor de vídeos.
+  {
+    const estado = {
+      guardados: [],
+      filas: [],
+      redes: true,
+      ajustes,
+      serviciosAdmin: [
+        { id: ID, title: TITULO, description: "x", price_eur: 30, status: "PUBLISHED", is_active: true, view_count: 3, like_count: 0, modalidades: [OPCIONES[0], { nombre: "Completa", precio_eur: 44.97 }], created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" },
+      ],
+      serviciosMedia: fotos.map((f) => ({ ...f, service_id: ID, storage_path: `services/${f.id}.jpg`, file_name: `${f.id}.jpg` })),
+      serviciosFicha: [],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    // El editor de vídeos, con los guardados.
+    await p.locator("#servicios-video-url-1").waitFor({ timeout: 30000 }).catch(() => {});
+    const urls = await p.evaluate(() => [0, 1].map((i) => document.querySelector(`#servicios-video-url-${i}`)?.value ?? ""));
+    ok(urls[0] === VIDEOS[0].url && urls[1] === VIDEOS[1].url, `OV: Administración enseña los vídeos guardados (${urls.join(" | ")})`);
+    await p.locator("#servicios-videos").getByText("Añadir vídeo").click();
+    await p.locator("#servicios-video-url-2").fill("https://www.youtube.com/watch?v=abc");
+    await p.locator("#servicios-videos").getByText("Guardar vídeos").click();
+    await p.waitForTimeout(600);
+    const aviso = (await p.locator("#servicios-videos").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/no es un enlace de Instagram/.test(aviso) && !(estado.ajustesGuardados ?? []).length, "OV: un enlace que no es de Instagram/TikTok no se guarda y lo avisa");
+    await p.locator("#servicios-video-url-2").fill("https://www.tiktok.com/@tienda/video/7400000000000000001");
+    await p.locator("#servicios-video-titulo-2").fill("Cambio de pasta térmica");
+    await p.locator("#servicios-videos").getByText("Guardar vídeos").click();
+    await p.waitForTimeout(1000);
+    const vids = (estado.ajustesGuardados ?? []).at(-1)?.videos_servicios ?? [];
+    ok(vids.length === 3 && vids[2].titulo === "Cambio de pasta térmica" && !("titulo" in vids[1]), `OV: guarda los vídeos con su título (${JSON.stringify(vids).slice(0, 160)})`);
+    await p.locator("#servicios-videos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "OV3-admin-videos");
+
+    // Foto de la opción «Completa»: se abre su selector y se elige la tercera foto del servicio.
+    await p.locator(`[aria-label="Editar ${TITULO}"]`).click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#servicio-opciones").waitFor({ timeout: 10000 }).catch(() => {});
+    const conFoto = await p.evaluate(() => [0, 1].map((i) => !!document.querySelector(`#servicio-opcion-foto-${i} img`)));
+    ok(conFoto[0] && !conFoto[1], `OV: la opción con foto enseña su miniatura y la que no, el hueco (${conFoto.join(", ")})`);
+    await p.locator("#servicio-opcion-foto-1").click();
+    await p.locator("#servicio-opcion-fotos-1").waitFor({ timeout: 5000 }).catch(() => {});
+    await p.locator('#servicio-opcion-fotos-1 [aria-label="Usar esta foto"]').nth(2).click();
+    await capturar(p, "OV4-admin-foto-opcion");
+    await p.getByText("Guardar cambios", { exact: true }).click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const guardado = (estado.serviciosGuardados ?? []).at(-1) ?? {};
+    ok(
+      JSON.stringify(guardado.modalidades) === JSON.stringify([OPCIONES[0], { nombre: "Completa", precio_eur: 44.97, foto: foto(3) }]),
+      `OV: guarda la foto de cada opción (${JSON.stringify(guardado.modalidades)})`
+    );
+    const lista = (await p.locator("body").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/2 opciones \(1 con foto\)/.test(lista) || /2 opciones \(2 con foto\)/.test(lista), "OV: la lista de servicios cuenta las opciones con foto");
+    ok(p.errores.length === 0, `OV: Administración sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // OV5) Analítica: los vídeos vistos de «Nuestros Servicios».
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Nuestros Servicios: vídeo visto · Limpieza de una PS4", sessions: 4 },
+        { step_label: "Nuestros Servicios: vídeo visto · TikTok", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-videos-servicios").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-videos-servicios").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Limpieza de una PS4 4/.test(t) && /TikTok 2/.test(t), `OV: Analítica cuenta los vídeos vistos (${t})`);
+    await ctx.close();
+  }
+}
+
 // ===== MG) «Me gusta» (dueño, 2026-11-03): corazón en la ficha de servicio (y sin él si falta la migración), pestaña
 // «Me gusta» en Perfil con los de la cuenta y los del dispositivo, la lista de Servicios con la tarjeta del Catálogo,
 // «me gusta» por servicio en Administración → Servicios y su uso en Analítica ======================================
@@ -8245,6 +8421,7 @@ try {
   if (SOLO === "VA") await seccionVA();
   if (SOLO === "FS") await seccionFS();
   if (SOLO === "CS") await seccionCS();
+  if (SOLO === "OV") await seccionOV();
   if (SOLO === "MG") await seccionMG();
   if (SOLO === "RS") await seccionRS();
   if (SOLO === "VP") await seccionVP();
@@ -9206,6 +9383,7 @@ try {
   await seccionVA();
   await seccionFS();
   await seccionCS();
+  await seccionOV();
   await seccionMG();
   await seccionRS();
   await seccionVP();

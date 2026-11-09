@@ -150,6 +150,12 @@ function faltaColumna(error: unknown) {
   return !!e && (e.code === "42703" || e.code === "PGRST204" || /column .* does not exist|Could not find the .* column/i.test(e.message ?? ""));
 }
 
+// La foto de una opción, solo si sigue entre las fotos del servicio (si se borró, se queda la que se esté viendo).
+export function fotoDeOpcion(s: { media: ServiceMedia[] }, opcion: ModalidadServicio | null) {
+  const foto = opcion?.foto ?? null;
+  return foto && s.media.some((m) => m.publicUrl === foto) ? foto : null;
+}
+
 // También la usa la página «Contratar servicio» (app/contratar/[id].tsx).
 export async function fetchService(serviceId: string): Promise<Service | null> {
   const consulta = (columnas: string) =>
@@ -238,9 +244,10 @@ export default function ServicioScreen() {
       }
 
       setS(row);
-      setModalidad((v) => (row.modalidades.some((m) => m.nombre === v) ? v : row.modalidades[0]?.nombre ?? ""));
+      const elegida = row.modalidades.find((m) => m.nombre === modalidad) ?? row.modalidades[0] ?? null;
+      setModalidad(elegida?.nombre ?? "");
       const cover = row.media.find((m) => m.isCover) ?? row.media[0] ?? null;
-      setSelectedImageUrl(cover?.publicUrl ?? null);
+      setSelectedImageUrl(fotoDeOpcion(row, elegida) ?? cover?.publicUrl ?? null);
       setLikeCount(row.likeCount);
       meGustaLocales(LIKED_SERVICES_KEY).then((ids) => setLiked(ids.includes(row.id)));
       fetchResenas(row.id).then(setResenas);
@@ -276,6 +283,9 @@ export default function ServicioScreen() {
 
   function elegirModalidad(nombre: string) {
     setModalidad(nombre);
+    // Con foto propia, la foto principal pasa a la de esa opción (dueño, 2026-11-09).
+    const foto = s ? fotoDeOpcion(s, s.modalidades.find((m) => m.nombre === nombre) ?? null) : null;
+    if (foto) setSelectedImageUrl(foto);
     // Administración → Analítica (#analitica-contratar-servicio): qué opción se mira más.
     trackEvent("servicio_opcion", `Servicio: opción elegida · ${nombre}`, { path: `/servicio/${s?.id ?? ""}` });
   }
