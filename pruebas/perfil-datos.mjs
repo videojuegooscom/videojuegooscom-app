@@ -5832,6 +5832,15 @@ async function seccionCS() {
     );
     const ancho = await p.evaluate(() => ({ pagina: document.documentElement.scrollWidth, ventana: window.innerWidth }));
     ok(ancho.pagina <= ancho.ventana && (await p.locator('[role="dialog"]').count()) === 0, `CS: ya no es una ventana emergente y nada se sale por los lados (${ancho.pagina}/${ancho.ventana})`);
+    // El mismo diseño que «Vender ahora»: etiquetas y texto centrados, Nombre y Apellido en la misma fila.
+    const disenio = await p.evaluate(() => {
+      const n = document.querySelector("#contratar-nombre");
+      const a = document.querySelector("#contratar-apellido");
+      const rn = n?.getBoundingClientRect();
+      const ra = a?.getBoundingClientRect();
+      return { centrado: n ? getComputedStyle(n).textAlign : "", mismaFila: !!rn && !!ra && Math.abs(rn.top - ra.top) < 4 && ra.left > rn.right };
+    });
+    ok(disenio.centrado === "center" && disenio.mismaFila, `CS: como «Vender ahora»: texto centrado y Nombre | Apellido en la misma fila (${JSON.stringify(disenio)})`);
     await capturar(p, "CS1b-pagina-contratar");
     const datos = await p.evaluate(() => ({
       opcion: document.querySelector("#contratar-opcion select")?.value ?? "",
@@ -5924,6 +5933,8 @@ async function seccionCS() {
     ok(falta === "Te falta: nombre, apellido, método de contacto y ciudad", `CS: sin sesión no hay nada escrito y el botón lo dice («${falta}»)`);
     await p.locator("#contratar-nombre").fill("Luis");
     await p.locator("#contratar-apellido").fill("Pérez");
+    // El método se elige con el desplegable «Elegir ⌄» de «Vender ahora».
+    await p.locator("#contratar-metodo").getByText("Elegir", { exact: true }).click();
     await p.locator("#contratar-metodo").getByText("WhatsApp", { exact: true }).click();
     await p.locator("#contratar-contacto").fill("600111222");
     await p.locator("#contratar-ciudad").fill("Zaragoza");

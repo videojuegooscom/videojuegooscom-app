@@ -166,7 +166,8 @@ type Genero = "masculino" | "femenino";
 // Contexto ligero solo para saber si estamos en móvil, y así los
 // subcomponentes (definidos fuera del componente principal) puedan ajustar
 // tamaños/paddings sin tener que recibir la prop en cada uso.
-const IsMobileContext = React.createContext(false);
+// (exportado con FieldLabel, FieldInput y SelectField: la página «Contratar servicio» usa las mismas piezas)
+export const IsMobileContext = React.createContext(false);
 function useIsMobile() {
   return React.useContext(IsMobileContext);
 }
@@ -349,7 +350,7 @@ function SiriGlow({
 // dim=true atenúa también la pregunta (no solo el campo/desplegable de
 // debajo) cuando ese campo ya está completo, siguiendo el mismo lenguaje
 // visual de "completado" que FieldInput/SelectField.
-function FieldLabel({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
+export function FieldLabel({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
   const isMobile = useIsMobile();
   return (
     <Text
@@ -373,14 +374,14 @@ function FieldLabel({ children, dim }: { children: React.ReactNode; dim?: boolea
 // de inmediato, y al salir (onBlur) se vuelve a atenuar si sigue siendo
 // válido. containerStyle es para el diseño del contenedor exterior (p.ej.
 // flex:1 dentro de una fila); style sigue afectando solo al TextInput.
-function FieldInput({
+export function FieldInput({
   filled,
   containerStyle,
   style,
   onFocus,
   onBlur,
   ...rest
-}: React.ComponentProps<typeof TextInput> & { filled?: boolean; containerStyle?: any }) {
+}: React.ComponentProps<typeof TextInput> & { filled?: boolean; containerStyle?: any; ref?: React.Ref<TextInput> }) {
   const isMobile = useIsMobile();
   const [focused, setFocused] = useState(false);
   const completed = !!filled && !focused;
@@ -431,7 +432,7 @@ function FieldInput({
 // ancho contenido (para no estirarse una fila entera en pantallas anchas);
 // compact=false lo estira al 100% del contenedor (para cuando ya va dentro
 // de una columna de una fila de dos).
-function SelectField<T extends string>({
+export function SelectField<T extends string>({
   options,
   value,
   onChange,
