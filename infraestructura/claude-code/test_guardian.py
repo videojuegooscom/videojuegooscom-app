@@ -10,6 +10,12 @@
 #             CRITICA  → pregunta en modo normal; se deniega en modo autónomo.
 #             LIBRE    → sin opinión ni regla allow: ventana en modo normal, «auto» en autónomo.
 # Uso:      python3 infraestructura/claude-code/test_guardian.py   (desde la raíz del repo)
+# Qué hace: prueba muchas acciones contra el guardián para asegurar que para lo peligroso
+#           y deja pasar el trabajo normal.
+# Conectado con:
+#   Lo usan:  instalar.sh (no instala si falla), politica.json (allow para ejecutarlo),
+#             guardian.py (SCRIPTS_VALIDACION) y CLAUDE.md («Validaciones»).
+#   Usa:      guardian.py y politica.json (misma carpeta).
 # ============================================================================
 import importlib.util
 import json

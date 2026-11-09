@@ -5,6 +5,11 @@
 # Función:  Hook ConfigChange: bloquea cualquier cambio en la configuración de Claude Code
 #           (usuario, proyecto o local) durante una sesión, para que el agente no pueda relajar
 #           las barreras mientras trabaja. Los cambios legítimos van por el instalador.
+# Qué hace: si alguien intenta cambiar los ajustes de Claude Code en plena sesión, lo bloquea.
+# Conectado con:
+#   Lo carga:     politica.json (hooks.ConfigChange → /etc/claude-code/hooks/bloquear-config.py).
+#   Lo instala:   instalar.sh (lista ARCHIVOS). Lo comprueba test_politica.py.
+#   Usa:          solo python3 (json, sys).
 # ============================================================================
 import json
 import sys

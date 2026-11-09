@@ -20,6 +20,11 @@
 # Uso:      vz-publicar revisar <número>    (solo comprueba)
 #           vz-publicar publicar <número>   (comprueba y, si todo pasa, fusiona)
 # Registro: ~/registros/vz-publicacion.log
+# Qué hace: publica en la tienda real una PR solo si ha pasado todas las comprobaciones de seguridad.
+# Conectado con:
+#   Lo usan:  instalar.sh (lo copia a /usr/local/bin/vz-publicar), guardian.py y politica.json
+#             (solo dejan ejecutar esa copia), test_controlador.py y CLAUDE.md («Publicar»).
+#   Usa:      gh (GitHub CLI) contra REPO y el trabajo «revision» de .github/workflows/revision.yml.
 # ============================================================================
 import datetime
 import json

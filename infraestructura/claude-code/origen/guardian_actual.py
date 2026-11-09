@@ -18,6 +18,13 @@
 #                 Lo prueban test_guardian.py y test_politica.py (misma carpeta).
 # Dependencias:   python3 (biblioteca estándar), git.
 # Estado:         ACTIVO
+# --- Copia en este repo ---
+# Título:         infraestructura/claude-code/origen/guardian_actual.py
+# Qué hace:       copia de solo consulta del guardián de VeoAura que estaba instalado antes de
+#                 crear el propio; sirve para comparar. No se ejecuta ni se instala desde aquí
+#                 (el «Estado: ACTIVO» de arriba es del original).
+# Conectado con:  ninguna pieza lo usa; lo describe README.md (origen/). Su sucesor es
+#                 ../guardian.py.
 # ============================================================================
 
 import datetime

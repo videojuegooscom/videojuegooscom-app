@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// scripts/reset-project.js
+// Qué hace: script de la plantilla de Expo que deja el proyecto en blanco (mueve o borra app/,
+//   components/, hooks/, constants/ y scripts/). No forma parte de la tienda: no ejecutarlo.
+// Conectado con: package.json (script «reset-project») y README.md («npm run reset-project»).
+//   Usa solo módulos de Node (fs, path, readline).
 
 /**
  * This script is used to reset the project to a blank state.

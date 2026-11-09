@@ -1,3 +1,12 @@
+<!--
+infraestructura/claude-code/README.md
+Qué hace: explica qué es cada pieza de las barreras de Claude Code en el servidor (política,
+  guardián, pruebas, instalador, controlador de publicación) y cómo se instalan.
+Conectado con: lo cita CLAUDE.md («Entorno de seguridad»). Describe politica.json, mcp.json,
+  guardian.py, bloquear-config.py, test_guardian.py, test_politica.py, instalar.sh,
+  deny-retiradas.json, origen/ y ../publicacion/controlador.py.
+-->
+
 # Infraestructura de Claude Code (VideojuegosZaragoza)
 
 Fuentes versionadas de la política gestionada, el guardián, las pruebas y el instalador. Se

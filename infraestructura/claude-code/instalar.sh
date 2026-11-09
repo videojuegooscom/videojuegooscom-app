@@ -14,6 +14,14 @@
 # Seguridad: el instalador se ejecuta desde una copia de root (/usr/local/sbin/vz-instalar-claude),
 #   no desde el repo, para que el agente no pueda cambiar lo que root ejecuta. Solo instala
 #   archivos de un repo limpio cuyo HEAD sea exactamente origin/main.
+# Qué hace: copia las barreras de seguridad del repo al servidor después de probarlas, guardando
+#   antes un respaldo para poder volver atrás.
+# Conectado con:
+#   Lo usa:   el dueño con sudo (copia en /usr/local/sbin/vz-instalar-claude; ver README.md y CLAUDE.md).
+#   Usa:      politica.json, mcp.json, guardian.py, bloquear-config.py, deny-retiradas.json,
+#             origen/politica_actual.json, test_guardian.py, test_politica.py,
+#             ../publicacion/controlador.py y ../publicacion/test_controlador.py; al final indica
+#             reiniciar el servicio videojuegoszaragoza-remote (no lo reinicia él).
 # ============================================================================
 set -euo pipefail
 umask 022

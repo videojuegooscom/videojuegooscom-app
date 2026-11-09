@@ -5,6 +5,11 @@
 #           imprescindibles, ausencia de «ask», hooks apuntando al guardián instalado y que la
 #           lista allow no abre nada peligroso.
 # Uso:      python3 infraestructura/claude-code/test_politica.py   (desde la raíz del repo)
+# Qué hace: revisa que el archivo de reglas de Claude Code siga cerrando lo que debe cerrar.
+# Conectado con:
+#   Lo usan:  instalar.sh (no instala si falla), politica.json (allow para ejecutarlo),
+#             guardian.py (SCRIPTS_VALIDACION) y CLAUDE.md («Validaciones»).
+#   Usa:      politica.json (misma carpeta).
 # ============================================================================
 import json
 import os
