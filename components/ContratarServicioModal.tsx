@@ -42,6 +42,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import { SelectorIOS } from "../lib/admin/products.components";
+import { BotonAtrasFlotante } from "./BotonAtrasAlcance";
 import CabeceraMarca from "./CabeceraMarca";
 import SmartImage from "./SmartImage";
 import { FieldInput, FieldLabel as VLabel, IsMobileContext, SelectField } from "./VenderAhoraModal";
@@ -67,6 +68,8 @@ const COLORS = {
 };
 
 const modalColumnStyle = { width: "100%", maxWidth: 560, alignSelf: "center" } as const;
+// Hueco al final de la página para que el botón azul de volver (52 px, a 16 del borde) no tape «Enviar solicitud».
+const HUECO_BOTON_ATRAS = 96;
 
 // --- Opciones de un servicio (services.modalidades) ---------------------------------------------------------------
 export type ModalidadServicio = { nombre: string; precio_eur: number };
@@ -477,12 +480,21 @@ export default function ContratarServicioModal({
       {!sent && service ? (
         <View
           nativeID="contratar-resumen"
-          style={{ flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: COLORS.card, padding: 12 }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 14,
+            borderRadius: 20,
+            backgroundColor: COLORS.card,
+            padding: 14,
+            borderWidth: 1,
+            borderColor: COLORS.accent2,
+          }}
         >
           <View
             style={{
-              width: 64,
-              height: 64,
+              width: 80,
+              height: 80,
               borderRadius: 14,
               overflow: "hidden",
               backgroundColor: COLORS.accent2,
@@ -496,17 +508,32 @@ export default function ContratarServicioModal({
               <Ionicons name="construct-outline" size={26} color={COLORS.accent} />
             )}
           </View>
-          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-            <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15.5, lineHeight: 20 }}>
+          {/* Dueño, 2026-11-09: «que se visualice mejor el título y subtítulo del servicio seleccionado»: el título a
+              todo lo ancho y más grande, la opción como píldora y el precio debajo. */}
+          <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+            <Text
+              nativeID="contratar-resumen-titulo"
+              numberOfLines={3}
+              style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 17 : 18.5, lineHeight: isMobile ? 22 : 24 }}
+            >
               {service.title}
             </Text>
-            {opcionElegida ? <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>{opcionElegida.nombre}</Text> : null}
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              {opcionElegida ? (
+                <View
+                  nativeID="contratar-resumen-opcion"
+                  style={{ borderRadius: 999, backgroundColor: COLORS.accent2, paddingHorizontal: 10, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13.5 }}>{opcionElegida.nombre}</Text>
+                </View>
+              ) : null}
+              {precioResumen != null ? (
+                <Text nativeID="contratar-precio" style={{ color: COLORS.accent, fontWeight: "900", fontSize: 18 }}>
+                  {fmtEURServicio(precioResumen)}
+                </Text>
+              ) : null}
+            </View>
           </View>
-          {precioResumen != null ? (
-            <Text nativeID="contratar-precio" style={{ color: COLORS.accent, fontWeight: "900", fontSize: 18 }}>
-              {fmtEURServicio(precioResumen)}
-            </Text>
-          ) : null}
         </View>
       ) : null}
     </View>
@@ -518,6 +545,7 @@ export default function ContratarServicioModal({
     comoPagina ? (
       <View nativeID="contratar-pagina" style={{ flex: 1, backgroundColor: COLORS.bg, paddingTop: insets.top }}>
         {hijos}
+        <BotonAtrasFlotante onPress={handleClose} />
       </View>
     ) : (
       <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -568,7 +596,7 @@ export default function ContratarServicioModal({
     <IsMobileContext.Provider value={isMobile}>
     {envolver(
           sent ? (
-            <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}>
+            <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? HUECO_BOTON_ATRAS + insets.bottom : 0 }}>
             <View style={columna}>
             {cabeceraPagina}
             <View nativeID="contratar-enviada" style={{ padding: comoPagina ? 8 : 24, paddingTop: comoPagina ? 24 : 24, alignItems: "center", gap: 12 }}>
@@ -656,7 +684,7 @@ export default function ContratarServicioModal({
           ) : (
             <ScrollView
               ref={scrollRef}
-              contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? 48 + insets.bottom : 0 }}
+              contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? HUECO_BOTON_ATRAS + insets.bottom : 0 }}
               keyboardShouldPersistTaps="handled"
             >
               <View style={columna}>
