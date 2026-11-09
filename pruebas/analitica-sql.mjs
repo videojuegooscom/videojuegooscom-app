@@ -21,6 +21,8 @@
  *
  * Uso: node pruebas/analitica-sql.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
+ * Conectado con: supabase/migrations/20261018150000_analitica_topes.sql y su vuelta atrás en supabase/rollbacks/;
+ *   tablas analytics_events y analitica_ritmo; pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

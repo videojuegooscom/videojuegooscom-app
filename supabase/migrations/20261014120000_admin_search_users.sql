@@ -6,6 +6,7 @@
 --           id, email, nombre y usuario (nunca contraseñas ni nada más de la cuenta).
 -- Quién la aplica: el dueño en el SQL Editor (lee auth.users; Claude no puede).
 -- Tipo:     aditiva (crea una función). No borra datos.
+-- Conectado con: función admin_search_users (lee auth.users); la llama app/admin/products.tsx.
 -- ============================================================================
 
 create or replace function public.admin_search_users(q text)

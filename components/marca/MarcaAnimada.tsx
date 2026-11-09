@@ -1,3 +1,4 @@
+// components/marca/MarcaAnimada.tsx
 /**
  * Qué hace: logo y mascotas de VideojuegosZaragoza animados. En reposo "respiran",
  * flotan y cada pocos segundos hacen un gesto al azar (inclinarse, paseíto, saltito,
@@ -9,8 +10,10 @@
  * transformaciones (rápidas también en web). Las imágenes viven en assets/brand/,
  * reducidas y sin fondo (ver comentario de cada una en IMAGENES).
  *
- * Usado por: components/BrandLoadingScreen.tsx, components/marca/CargaMarca.tsx y
+ * Conectado con: components/BrandLoadingScreen.tsx, components/marca/CargaMarca.tsx y
  * las pantallas de la tienda (portada, cesta, pago, servicios, pie de página…).
+ * También Blue (components/Campanita.tsx), «tirar para actualizar»
+ * (components/TirarParaActualizar.tsx) y la página de error (app/+not-found.tsx).
  */
 import React, { useCallback, useEffect, useRef } from "react";
 import { Animated, Easing, Image, Platform, Pressable, type ImageSourcePropType } from "react-native";

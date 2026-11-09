@@ -1,5 +1,7 @@
 # Pruebas de la tienda: cómo ejecutarlas desde una instalación limpia
 
+**Qué hace:** explica qué hace falta instalar y cómo lanzar las pruebas de la carpeta pruebas/ (navegador, tienda compilada y SQL). **Conectado con:** lo cita pruebas/todas.mjs; remite a docs/pruebas-sql-aisladas.md y a package.json (playwright-core y `npm run build`).
+
 Todas las pruebas son archivos de `pruebas/` que se lanzan con `node` (Node 24, el de `engines`). Ninguna toca
 producción para escribir: las de navegador cortan cualquier petición de escritura a la base de datos y las de SQL
 solo hablan con un PostgreSQL local de usar y tirar.

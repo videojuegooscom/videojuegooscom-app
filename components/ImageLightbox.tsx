@@ -27,6 +27,9 @@
  *
  * Blue: mientras el visor está abierto, components/Campanita.tsx lo esconde (suscribirVisorFotos) y guarda sus
  * mensajes para cuando se cierre. No usa ninguna librería nueva: los gestos son PanResponder de React Native.
+ *
+ * Conectado con: app/producto/[id].tsx, app/servicio/[id].tsx, app/admin/services.tsx y components/Campanita.tsx
+ * (lo usan); usa components/SmartImage.tsx (las fotos) y lib/analytics.ts (trackEvent).
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";

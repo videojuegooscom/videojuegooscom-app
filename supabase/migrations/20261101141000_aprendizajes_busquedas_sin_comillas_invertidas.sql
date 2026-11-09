@@ -3,6 +3,8 @@
 --   Al buscar en el código, Claude puso una comilla invertida (`) dentro de un texto a buscar: el intérprete la tomó
 --   como el principio de otro comando, el comando falló y al dueño le salió una ventana de permiso en el ordenador.
 --   Es la segunda vez en dos días (la anterior, por unos paréntesis sin comillas).
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta la fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

@@ -4,6 +4,8 @@
 --   una (unos 4-5 minutos cada vista previa y cada publicación) y, como las tres tocaban el mismo archivo de pruebas,
 --   hubo que juntarlas con main dos veces. El dueño preguntó por qué no se agrupan y eligió una PR por petición, con un
 --   commit por bloque.
+-- Qué hace: añade una lección al Centro de Aprendizajes y pone al día otra.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     inserta la lección nueva si no existe y pone al día, por su título, la de «Antes de editar, estructurar el
 --           trabajo» (20261101160000), que decía «una PR por bloque». No borra nada.
 -- ============================================================================

@@ -1,4 +1,5 @@
 -- sql/personal_cash_state.sql
+-- Conectado con: ninguna pantalla la usa (comprobado con Grep); el mismo bloque está en sql/05-usuarios-y-administracion.sql.
 -- ---------------------------------------------------------------------------
 -- Qué hace: crea la tabla "personal_cash_state", una fila por usuario con un
 -- saldo de caja ("cash_on_hand") que solo esa persona puede ver o cambiar.

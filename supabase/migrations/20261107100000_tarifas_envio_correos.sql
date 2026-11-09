@@ -8,6 +8,7 @@
 --     compra sale «Escríbenos por el chat para envíos a esta zona», que es lo que ya dice la política de envíos («escríbenos
 --     antes de comprar para confirmar plazo y coste»). Canarias, Ceuta y Melilla además llevan trámites de aduana.
 --   - Entrega en mano y Zaragoza a domicilio el mismo día (las hace el dueño, no Correos): siguen a 0 €.
+-- Conectado con: public.tarifas_envio; la usan lib/envio.ts (cesta y app/checkout.tsx) y app/admin/envios.tsx.
 -- Tipo:     solo cambia datos de tarifas_envio. No borra nada. Repetirla no cambia nada (ni pisa lo que el dueño ponga).
 -- ============================================================================
 

@@ -28,6 +28,8 @@
  *
  * Uso: node pruebas/escaparate-retorno.mjs
  * Sale con código 1 si algo falla.
+ * Conectado con: api/escaparate-retorno.ts; simula en memoria products, pedidos, escaparate_salida y escaparate_registro
+ *   y el receptor de VeoAura. La lanza pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";

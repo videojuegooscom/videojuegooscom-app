@@ -5,6 +5,8 @@
 --      altura que en las demás pantallas. Es la forma de todas las pantallas del panel.
 --   2) Claude le dijo que las visitas de los servicios «no se contaban» y sí se contaban por la vía de respaldo: antes de
 --      decir que algo no funciona hay que mirar la vía de respaldo y los datos reales.
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     inserta las lecciones si no existen. No borra nada.
 -- ============================================================================
 

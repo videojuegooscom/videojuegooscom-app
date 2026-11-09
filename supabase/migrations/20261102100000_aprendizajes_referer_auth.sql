@@ -4,6 +4,8 @@
 --   no está entre las direcciones permitidas». No es así: Supabase compara la página desde la que se hizo la petición
 --   (p. ej. la portada) con la lista y, si esa no está, escribe la Site URL. La lista tenía /reset-password (el enlace de
 --   la contraseña sí volvía a la tienda) y Claude dedujo mal que no. Se corrige la frase y se pide mirar la lista.
+-- Qué hace: corrige el texto de esa lección del Centro de Aprendizajes.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     pone al día, por su título, la regla de esa lección. No borra nada.
 -- ============================================================================
 

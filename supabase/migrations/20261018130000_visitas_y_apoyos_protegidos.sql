@@ -22,6 +22,10 @@
 --           visitas y dar «me gusta» hasta recargar, sin errores visibles.
 -- Vuelta atrás: supabase/rollbacks/20261018130000_visitas_y_apoyos_protegidos_revertir.sql
 -- Pruebas:  pruebas/interaccion-sql.mjs y pruebas/interaccion-api.mjs (SQL real en una base aislada).
+-- Qué hace: un «me gusta» por persona y producto, y visitas y «me gusta» solo a través del servidor.
+-- Conectado con: tabla producto_apoyos y funciones sumar_vista_producto, sumar_vista_servicio y fijar_apoyo
+--           (api/interaccion.ts); las antiguas las usa lib/interaccion.ts como vía de reserva
+--           (ficha app/producto/[id].tsx).
 -- ============================================================================
 
 create table if not exists public.producto_apoyos (

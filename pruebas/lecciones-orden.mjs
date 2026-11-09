@@ -20,6 +20,8 @@
  * Uso: node pruebas/lecciones-orden.mjs postgresql://postgres@127.0.0.1:55432
  * Requisitos: pruebas/sql-aislado.mjs y las migraciones de lecciones (llegan con las PR #75, #78, #79 y #84).
  * Sale con código 1 si algo falla, y con 2 si falta algún archivo.
+ * Conectado con: tabla aprendizajes; migraciones 20261018090000/095000/096000/097000/100000_aprendizajes_* y sus vueltas
+ *   atrás en supabase/rollbacks/; pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql).
  */
 import { existsSync } from "node:fs";
 import { conectar } from "./sql-aislado.mjs";

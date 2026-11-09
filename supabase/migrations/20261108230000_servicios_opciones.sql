@@ -8,6 +8,9 @@
 --   - service_requests.modalidad y modalidad_precio_eur: la opción que eligió el cliente y su precio en ese momento.
 --     El precio lo pone la base de datos (disparador trg_service_requests_modalidad) leyendo la opción del servicio:
 --     nunca se fía del navegador; si la opción no existe en ese servicio, la solicitud se guarda sin opción.
+-- Conectado con: services.modalidades, service_requests.modalidad y modalidad_precio_eur (disparador
+--           trg_service_requests_modalidad); app/admin/services.tsx, app/servicio/[id].tsx, app/contratar/[id].tsx y
+--           components/ContratarServicioModal.tsx.
 -- Tipo:     aditiva (columnas nuevas con valor por defecto, una función de disparador sin permisos especiales y su
 --           disparador). No borra nada. Repetirla no cambia nada.
 -- ============================================================================

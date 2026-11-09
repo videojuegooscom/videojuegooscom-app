@@ -1,5 +1,6 @@
+// app/+html.tsx
 /**
- * Plantilla HTML de la exportación web estática (solo web; no se ejecuta en el navegador).
+ * Qué hace: plantilla HTML de la exportación web estática (solo web; no se ejecuta en el navegador).
  *
  * Es la misma que Expo usa por defecto (charset, viewport, X-UA-Compatible y el reset de
  * ScrollView), con dos cambios: el idioma del documento es español (`lang="es"`), para que
@@ -9,6 +10,10 @@
  * no ejecuta JavaScript (sin él solo verían la pantalla de carga). El título y las meta de SEO
  * los añaden scripts/inject-seo-html.js y SiteHead. Para cargar antes: preconnect/dns-prefetch
  * a Supabase (datos y fotos) y fondo blanco inline en body/#root (sin parpadeo inicial).
+ *
+ * Conectado con: Expo Router (la usa sola al exportar; ningún archivo la importa), scripts/inject-seo-html.js y
+ * components/SiteHead.tsx (título y meta), lib/tabBar.ts (usa su viewport-fit=cover) y los mismos datos que
+ * app/quienes-somos.tsx, public/llms.txt y lib/horarioAtencion.ts.
  */
 import { ScrollViewStyleReset } from "expo-router/html";
 import type { PropsWithChildren } from "react";

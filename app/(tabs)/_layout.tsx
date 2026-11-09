@@ -1,3 +1,4 @@
+// app/(tabs)/_layout.tsx
 /**
  * Qué hace: layout de la barra de pestañas inferior (Inicio, Perfil,
  * Cesta, Foro, Blue IA). Define iconos, colores y comportamiento de la

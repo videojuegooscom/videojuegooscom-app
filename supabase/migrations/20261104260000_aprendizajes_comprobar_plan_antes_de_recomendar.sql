@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-04. Claude le recomendó al dueño activar «Leaked password protection» en Supabase sin
 --            comprobar si su plan lo incluye; cuando el dueño pidió los pasos, la documentación decía que solo está en el
 --            plan Pro y superiores (la tienda está en el plan gratuito).
+-- Qué hace: apunta la lección de mirar el plan antes de recomendar un ajuste de Supabase o Vercel.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

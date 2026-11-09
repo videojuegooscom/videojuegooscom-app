@@ -1,5 +1,9 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018160000_funciones_chat_sin_public.sql
+-- Qué hace: devuelve a seis funciones del chat el permiso general que tenían antes.
+-- Conectado con: deshace supabase/migrations/20261018160000_funciones_chat_sin_public.sql; funciones del chat
+--   (components/ProductChatThread.tsx, app/admin/chats.tsx); lo prueban pruebas/permisos-chat-sql.mjs y
+--   pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

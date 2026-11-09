@@ -22,6 +22,8 @@
  * Uso: node pruebas/migraciones-cadena.mjs postgresql://postgres@127.0.0.1:55432
  * Requisitos: todas las migraciones de las PR #52…#89 en la rama (si falta alguna, la batería la omite).
  * Sale con código 1 si algo falla.
+ * Conectado con: 20261013090000_reservas_cesta, 20261013120000_pedidos, 20261017200000_politicas_nombre_titular y las
+ *   de 20261018 (090000 a 160000) con sus vueltas atrás; pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql).
  */
 import { existsSync } from "node:fs";
 import { conectar } from "./sql-aislado.mjs";

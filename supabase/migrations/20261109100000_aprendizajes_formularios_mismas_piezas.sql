@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-09 (el dueño: «comprueba que siga nuestro diseño de página, compárala con otras
 --            páginas»; la página nueva «Contratar servicio» tenía su propio estilo de campos, distinto de «Vender ahora»).
+-- Qué hace: apunta la lección «Formularios de la tienda con las mismas piezas que "Vender ahora"».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

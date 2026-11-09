@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-04. El dueño pidió quitar de «Noticias y avisos» de Blue el apartado de avisos cuando
 --            no hay ninguno («Estás al día: no tienes avisos nuevos»), que «Activa los avisos de noticias» funcione de
 --            verdad y quitar por completo la Noticia Flash «Te compramos tu electrónica hoy mismo».
+-- Qué hace: apunta la lección «Panel de Blue: sin apartados vacíos y lo que se ofrece se hace con un toque».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

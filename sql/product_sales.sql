@@ -1,4 +1,6 @@
 -- sql/product_sales.sql
+-- Conectado con: app/checkout.tsx, app/admin/products.tsx, app/admin/chats.tsx, app/admin/cliente/[userId].tsx y
+--   components/Resenas.tsx; el mismo bloque está en sql/03-ventas-y-cotizaciones.sql.
 -- ---------------------------------------------------------------------------
 -- Qué hace: crea la tabla "product_sales", que guarda a qué cliente
 -- registrado se le ha vendido cada producto ("marcar como vendido"). Se usa

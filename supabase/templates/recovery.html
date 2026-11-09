@@ -1,6 +1,9 @@
 <!--
   Plantilla del correo «Recuperar contraseña» (Supabase → Authentication → Emails → Templates → «Reset password»).
   Asunto: Crea tu contraseña nueva · VideojuegosZaragoza
+  Qué hace: es el correo que recibe el cliente cuando ha olvidado la contraseña, con el botón para crear una nueva.
+  Conectado con: correos de Supabase Auth; NO se aplica sola: se copia a mano en el panel de Supabase. Lo dispara
+  resetPasswordForEmail en lib/supabase.ts (desde app/(tabs)/perfil.tsx) y lleva a app/reset-password.tsx.
   El enlace lleva a https://videojuegoszaragoza.com/reset-password con el token_hash: app/reset-password.tsx lo canjea
   con verifyOtp y sirve en cualquier navegador o app (también si se pidió en el ordenador y se abre en el móvil).
   Se pega TODO lo que hay debajo de este comentario.

@@ -4,6 +4,8 @@
 --               comillas (justo el ejemplo de lo que NO se hace en esta lección) y con «\|» en el patrón.
 --            2) Para mirar si Vercel había publicado, lanzó «gh api repos/…/commits/<sha>/status --jq ".state, …"»: una
 --               expresión con puntos, corchetes y comillas que el guardián no puede dar por lectura.
+-- Qué hace: añade a esa lección cómo buscar varias palabras, las comillas en las rutas y cómo mirar una PR.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     amplía la lección «Comandos sin ventanas de permiso». No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

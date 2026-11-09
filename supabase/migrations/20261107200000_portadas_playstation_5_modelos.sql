@@ -11,6 +11,8 @@
 --   La foto anterior sigue en el almacén (no se borra).
 --   Solo si la portada sigue siendo la de hoy (si el dueño la cambia antes, no hace nada).
 --   (La primera versión de este archivo ponía 5 y la base de datos la rechazó entera: no llegó a cambiar nada.)
+-- Conectado con: public.categories (imagenes, image_url, portadas_inicio) y public/categorias/ (las fotos); se ven en
+--           Inicio y Catálogo (components/PortadasCategoria.tsx) y se editan en app/admin/categories.tsx.
 -- Tipo:     solo cambia datos de una categoría. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

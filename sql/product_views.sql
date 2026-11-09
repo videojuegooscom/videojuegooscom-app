@@ -1,4 +1,6 @@
 -- sql/product_views.sql
+-- Conectado con: increment_product_view la usan app/producto/[id].tsx, lib/interaccion.ts, lib/supabase.ts y
+--   api/interaccion.ts; el mismo bloque está en sql/01-catalogo-productos.sql.
 --
 -- Qué hace: añade un contador de visitas REAL a products (view_count) y una
 -- función para sumarle 1 de forma segura, sin dar acceso a modificar el

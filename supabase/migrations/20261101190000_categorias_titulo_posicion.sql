@@ -3,6 +3,9 @@
 --   En el editor (Administración → Categorías → «Cómo se ve en Inicio»), el dueño mantiene pulsado el nombre y lo
 --   arrastra adonde quiera; «Aplicar a otras» copia esa posición (y la transparencia) a las categorías que elija.
 --   Se guarda el centro del nombre en % del recuadro: {"x": 0-100, "y": 0-100}. Vacío = en el centro, como hasta ahora.
+-- Qué hace: guarda en cada categoría dónde va su nombre encima de la portada.
+-- Conectado con: public.categories.titulo_posicion; app/admin/categories.tsx, components/PortadasCategoria.tsx y
+--           app/catalogo.tsx.
 -- Tipo:     añade una columna (si no existe) y su comprobación. No borra nada ni cambia permisos: la tabla ya se lee en
 --           público (categories_select_public_or_admin) y solo un administrador la cambia (categories_admin_update).
 -- ============================================================================

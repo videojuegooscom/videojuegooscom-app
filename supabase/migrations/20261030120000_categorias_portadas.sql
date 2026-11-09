@@ -7,6 +7,8 @@
 -- Tipo:     SOLO AÑADE (una columna con valor por defecto y una comprobación de forma). No borra ni cambia
 --           ninguna columna, fila, permiso ni función. La columna hereda los permisos de la tabla categories.
 -- Vuelta atrás: dejar de usarla basta (sin ella, la tienda enseña la primera portada desde image_url).
+-- Conectado con: public.categories.imagenes; app/admin/categories.tsx, app/(tabs)/index.tsx, app/catalogo.tsx y
+--           components/PortadasCategoria.tsx.
 -- ============================================================================
 
 alter table public.categories

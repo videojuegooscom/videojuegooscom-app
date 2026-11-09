@@ -3,6 +3,9 @@
 --            falta el correo de contacto de protección de datos en la política de privacidad
 --            ([EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS]); la primera comprobación no lo vio.
 -- Tipo:     corrige texto en dos filas ya existentes, una sola vez. No borra nada.
+-- Qué hace: añade el correo de protección de datos que faltaba al registro de la revisión y a la lección.
+-- Conectado con: auditorias_web (app/admin/auditorias.tsx) y public.aprendizajes (Centro de Aprendizajes;
+--           se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.auditorias_web

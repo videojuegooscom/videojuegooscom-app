@@ -1,6 +1,10 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: datos de perfil del cliente («Mi cuenta» → Perfil): nombre, nombre de usuario, país, provincia
 --            y fecha de nacimiento (la edad se calcula).
+-- Qué hace: crea la tabla perfiles_cliente, donde cada cliente guarda esos datos; el administrador solo los lee.
+-- Conectado con: public.perfiles_cliente; la usan app/(tabs)/perfil.tsx, app/checkout.tsx, app/admin/users.tsx,
+--           app/admin/cliente/[userId].tsx, components/PerfilPublico.tsx, components/ContratarServicioModal.tsx y
+--           api/asignar-seguimiento.ts.
 -- Tipo:     SOLO AÑADE (una tabla nueva con sus reglas de acceso). No toca ninguna tabla ni función existente.
 --           Cada cliente lee y edita SOLO su fila; el administrador puede leer todas (para el seguimiento en
 --           Administración → Usuarios) y no puede editarlas. Nadie sin sesión ve nada.

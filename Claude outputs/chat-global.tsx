@@ -1,3 +1,8 @@
+// Claude outputs/chat-global.tsx
+// Qué hace: copia antigua guardada por Claude; no la usa la tienda (candidata a borrar, lo decide el dueño).
+// Conectado con: nada (el original vivo es app/(tabs)/chat-global.tsx). Ningún archivo la importa;
+//   tsconfig.json y eslint.config.js excluyen la carpeta «Claude outputs/» a propósito.
+
 /**
  * app/(tabs)/chat-global.tsx
  *

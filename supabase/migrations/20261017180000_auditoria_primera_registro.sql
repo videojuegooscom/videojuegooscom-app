@@ -2,6 +2,9 @@
 -- Migración: apunta la PRIMERA revisión de calidad web (hecha por Claude el 2026-10-16) en el
 --            registro auditorias_web y corrige la fecha escrita en la lección (decía 2026-10-17).
 -- Tipo:     inserta una fila (una sola vez) y corrige un texto de una sola fila. No borra nada.
+-- Qué hace: añade la primera revisión al registro y corrige su fecha en la lección.
+-- Conectado con: auditorias_web (app/admin/auditorias.tsx) y public.aprendizajes (Centro de Aprendizajes;
+--           se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.aprendizajes

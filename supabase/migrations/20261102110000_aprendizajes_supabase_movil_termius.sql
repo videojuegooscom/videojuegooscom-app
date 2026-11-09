@@ -4,6 +4,8 @@
 --   su clave no debe verla). Para la plantilla del correo de contraseña se le dio el texto listo en un bloque del chat
 --   (con botón de copiar); al principio el editor del panel no le dejaba pegar, se le dio también un comando de Termius
 --   con python3 (API de gestión, clave pedida sin mostrarla) y al final consiguió pegarlo en el panel y guardarlo.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

@@ -1,4 +1,6 @@
 -- sql/product_likes.sql
+-- Conectado con: adjust_product_like la usan app/producto/[id].tsx, lib/interaccion.ts y api/interaccion.ts;
+--   el mismo bloque está en sql/01-catalogo-productos.sql.
 --
 -- Qué hace: añade el contador de "me gusta" a products y una función para
 -- moverlo de forma segura, sin dar acceso a modificar el resto de la fila.

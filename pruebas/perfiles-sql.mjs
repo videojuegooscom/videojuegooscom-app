@@ -5,6 +5,7 @@
  * anon/authenticated, auth.uid(), is_admin(), touch_updated_at, storage.buckets/objects y storage.foldername), y al terminar lo
  * para y borra su carpeta de datos.
  *
+ * Qué hace: aplica las migraciones de abajo en esa base y comprueba con roles reales quién puede leer y escribir qué.
  * Comprueba (con roles y «token» de verdad, no solo leyendo el SQL):
  *  - La migración se aplica y se puede repetir sin error (idempotente), también encima de la anterior (20261022100000).
  *  - Permisos: visitantes (anon) y PUBLIC no tocan nada; los clientes leen, crean y editan pero NO borran.
@@ -73,6 +74,8 @@
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
+ * Conectado con: las migraciones nombradas arriba (leídas de supabase/migrations/) y otras de envío, servicios y pagos
+ *   (tarifas_envio, envio_por_kilos, servicios_opciones, servicios_videos, pagos_devolucion…). pruebas/todas.mjs NO la lanza.
  */
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";

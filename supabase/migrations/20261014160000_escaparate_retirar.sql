@@ -6,6 +6,7 @@
 --   2. products.veoaura_envio: sello del último envío de VeoAura. Las fotos se copian
 --      después de responder; si llega otro envío mientras tanto, gana el último.
 -- Tipo:     aditiva. No borra datos.
+-- Conectado con: products.retirado_en/veoaura_envio; api/escaparate-veoaura.ts y app/admin/escaparate.tsx.
 -- ============================================================================
 
 alter table public.products

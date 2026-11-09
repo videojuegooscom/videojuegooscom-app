@@ -8,6 +8,8 @@
 --           detrás, sin recortar nada. Las fotos (imagenes) no se tocan. Las demás categorías siguen igual. Solo si los
 --           encuadres siguen siendo los de hoy (si el dueño los cambia antes, no hace nada). Es lo mismo que pulsar
 --           «Entera» en las tres portadas en Administración → Categorías.
+-- Conectado con: public.categories (portadas_inicio; las fotos siguen en el almacén de Supabase); se ven en Inicio y
+--           Catálogo (components/PortadasCategoria.tsx) y se editan en app/admin/categories.tsx.
 -- Tipo:     solo cambia un dato de una categoría. No borra archivos ni filas. Repetirla no cambia nada.
 -- ============================================================================
 

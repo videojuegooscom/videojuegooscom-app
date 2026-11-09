@@ -12,6 +12,8 @@
 -- Independiente: no depende de ninguna otra migración. Va separada de la documentación (CLAUDE.md) y de
 --           la lección de Blue para poder aprobarse por separado.
 -- Vuelta atrás: supabase/rollbacks/20261018095000_aprendizajes_autorizacion_expresa_revertir.sql
+-- Qué hace: apunta la regla de autorización expresa y marca como «ACTUALIZADA» las lecciones que la contradecían.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 -- Si la lección ya existe pero está inactiva con exactamente este texto (porque antes se aplicó la vuelta

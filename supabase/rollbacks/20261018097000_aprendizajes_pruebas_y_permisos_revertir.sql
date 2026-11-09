@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018097000_aprendizajes_pruebas_y_permisos.sql
+-- Qué hace: apaga las cuatro lecciones sobre pruebas y permisos que añadió esa migración.
+-- Conectado con: deshace supabase/migrations/20261018097000_aprendizajes_pruebas_y_permisos.sql; tabla
+--   aprendizajes; lo prueban pruebas/lecciones-orden.mjs y pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

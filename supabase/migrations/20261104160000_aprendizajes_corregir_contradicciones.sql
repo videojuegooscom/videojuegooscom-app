@@ -7,6 +7,8 @@
 --   2) «La guía de Blue enseña haciendo, con poco texto» hablaba de «una mano (👆)», y «En la guía de Blue siempre
 --      iconos, nunca emojis» prohíbe ese emoji (el puntero es la huella táctil de components/Campanita.tsx). Se cambia
 --      solo esa parte; el resto de la lección se queda igual.
+-- Qué hace: corrige el texto de esas dos lecciones para que no se contradigan con otras.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     actualiza esas dos filas. No borra nada. Repetirla no cambia nada (cada cambio busca el texto antiguo).
 -- ============================================================================
 

@@ -6,6 +6,8 @@
 --   de «Fat», bordes laterales rectos (sin ondas en los paneles blancos), sin el halo azul alrededor de la silueta, y el
 --   mando blanco sale del mando de la foto de la Blu-Ray (más nítido) pasado de rosa a blanco. La de la Pro no cambia.
 --   Solo si las portadas siguen siendo las de 20261108160000 (si el dueño las cambia antes, no hace nada).
+-- Conectado con: public.categories (imagenes, portadas_inicio) y public/categorias/ (las fotos); se ven en Inicio y
+--           Catálogo (components/PortadasCategoria.tsx) y se editan en app/admin/categories.tsx.
 -- Tipo:     solo cambia datos de una categoría. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

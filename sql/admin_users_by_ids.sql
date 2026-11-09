@@ -1,4 +1,5 @@
 -- sql/admin_users_by_ids.sql
+-- Conectado con: la llama app/admin/chats.tsx (supabase.rpc); el mismo bloque está en sql/05-usuarios-y-administracion.sql.
 --
 -- Qué hace: función para que app/admin/chats.tsx pueda mostrar el NOMBRE
 -- REAL de cada cliente que ha abierto una conversación por un producto,

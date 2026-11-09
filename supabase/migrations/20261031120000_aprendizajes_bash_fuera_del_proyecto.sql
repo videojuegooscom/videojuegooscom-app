@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-10-31 — un «ls /usr/local/bin» le sacó al dueño una ventana «Permitir / Denegar» en el
 --            móvil mientras Claude estudiaba el servidor para el sistema de auditoría.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta una fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

@@ -1,6 +1,11 @@
 /**
  * pruebas/sin-fotos-reales.mjs — las pruebas de navegador NUNCA descargan fotos reales de Supabase.
  *
+ * Qué hace: da lanzarNavegador(), que cambia cada foto por una falsa, y ejecutado solo se comprueba a sí mismo.
+ * Uso: node pruebas/sin-fotos-reales.mjs   (o como librería, ver «Cómo se usa»)
+ * Conectado con: todas las pruebas de navegador de pruebas/ (lo importan), playwright-core y la bienvenida de
+ *   app/_layout.tsx. La lanza pruebas/todas.mjs (grupo api).
+ *
  * Por qué: el 2026-10-23 Supabase cortó la tienda (plan gratuito: «Salida en caché» 25,4 de 5 GB al mes). En las
  * pruebas locales (http://127.0.0.1) SmartImage no puede usar el optimizador de Vercel y pide la foto ORIGINAL al
  * almacenamiento de Supabase, y cada recorrido de pruebas bajaba decenas de MB. Ahora cada foto se sustituye por

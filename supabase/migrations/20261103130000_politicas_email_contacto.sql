@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: correo de contacto de protección de datos en las políticas (dueño, 2026-11-03: «email de contacto el de la
 --           tienda VideojuegosZaragoza.com@gmail.com»).
+-- Qué hace: pone el correo de contacto de la tienda donde las políticas tenían un hueco por rellenar.
+-- Conectado con: public.policy_pages; app/politicas/[slug].tsx (página pública) y app/admin/policies.tsx (edición).
 -- Tipo:     sustituye la marca [EMAIL DE CONTACTO PARA PROTECCIÓN DE DATOS] por ese correo allí donde esté (hoy, dos
 --           veces en «privacidad»: «Responsable del tratamiento» y «Tus derechos»). No borra nada. Repetible: si ya no
 --           queda la marca, no toca ninguna fila. El nombre del titular lo puso 20261017200000_politicas_nombre_titular.

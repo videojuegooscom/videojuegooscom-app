@@ -7,6 +7,8 @@
 --   devolucion_referencia  la devolución en Stripe (re_…), si Stripe la da.
 -- Quién las escribe: solo el servidor (api/pago.ts): el botón «Devolver el pago» de Administración → Pedidos (solo el
 --           administrador) y el aviso firmado de Stripe cuando se devuelve desde el propio Stripe (charge.refunded).
+-- Conectado con: columnas devuelto_* de public.pedidos; api/pago.ts, app/admin/pedidos.tsx,
+--           app/admin/cliente/[userId].tsx y app/(tabs)/perfil.tsx.
 -- Permisos: no cambia ninguno. Sin security definer ni grants.
 -- Tipo:     aditiva: 3 columnas nulas y 2 comprobaciones. No borra ni cambia filas. Repetirla no cambia nada.
 -- Pruebas:  pruebas/perfiles-sql.mjs (apartado «Devoluciones») y pruebas/pago-api.mjs.

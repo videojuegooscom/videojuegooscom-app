@@ -2,6 +2,8 @@
 -- Migración: la lección «La guía enseña también las funciones que cuestan» decía que la guía enseña «que no hay pago
 --            online». Desde el 2026-11-05 sí lo hay (tarjeta y, desde el 2026-11-06, Klarna), y la guía ya dice «Reservas,
 --            pagas online o confirmas y te hablamos». Se corrige esa frase para que la lección no mande decir algo falso.
+-- Qué hace: corrige una frase de la lección «La guía enseña también las funciones que cuestan».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     cambia solo esa frase de esa lección, si sigue igual. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

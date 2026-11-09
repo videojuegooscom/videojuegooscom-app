@@ -13,6 +13,9 @@
 --      en la tienda (y su anulación) se apunta aquí y api/escaparate-retorno.ts lo envía
 --      firmado a VeoAura. Sin datos del cliente. Solo lo lee el admin.
 -- Tipo:     aditiva. No borra datos.
+-- Conectado con: products.novedad_en (components/CategoryProductsShelf.tsx, components/Campanita.tsx,
+--           api/blue-ia.ts), preferencias_usuario y avisos_busqueda (components/Campanita.tsx) y
+--           escaparate_salida (api/escaparate-retorno.ts, app/admin/escaparate.tsx).
 -- ============================================================================
 
 -- 1. Novedad

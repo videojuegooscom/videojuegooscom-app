@@ -14,6 +14,9 @@
 --      22,95 €; 15 kg 27,81 €; 20 kg 33,65 €; 25 kg 39,01 €; 30 kg 44,25 €). Baleares, Canarias, Ceuta y Melilla siguen
 --      con «escríbenos» y la entrega en mano y Zaragoza siguen gratis (las hace el dueño, no Correos).
 --   5) Política de envíos, «Coste de envío»: que se envía con Correos y el coste va por el peso del pedido.
+-- Conectado con: products.peso_kg, tarifas_envio.tramos, pedidos.peso_kg (con su disparador) y public.policy_pages;
+--           lib/envio.ts, app/checkout.tsx, app/admin/products.tsx, app/admin/envios.tsx, app/admin/pedidos.tsx y
+--           app/politicas/[slug].tsx.
 -- Tipo:     AÑADE tres columnas, una función, un disparador y datos; cambia el disparador de envío de pedidos (mismo que
 --           20261104210000, ahora también con el peso). No borra nada. Lleva permisos (grant de la columna «tramos» y de
 --           la función nueva): la pega el dueño en Supabase → SQL Editor. Repetirla no cambia nada.

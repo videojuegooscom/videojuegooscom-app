@@ -2,6 +2,9 @@
 -- Migración: seguidores de TikTok e Instagram junto al logo de Inicio (petición del dueño, 2026-11-01).
 --   El dueño escribe el número en Administración → Redes sociales y Inicio lo enseña junto al logo
 --   (components/SocialLinks.tsx, RedJuntoAlLogo). Sin esta migración, Inicio dice «Síguenos».
+-- Qué hace: guarda en cada red social su número de seguidores y la fecha en que se puso.
+-- Conectado con: public.social_links (seguidores, seguidores_actualizado); app/admin/redes-sociales.tsx,
+--           components/SocialLinks.tsx y app/(tabs)/index.tsx.
 -- Tipo:     añade dos columnas (si no existen) y su comprobación. No borra nada ni cambia permisos: la tabla ya se lee
 --           en público (social_links_public_read) y solo un administrador la puede cambiar (social_links_admin_update).
 -- ============================================================================

@@ -8,6 +8,8 @@
 --           Cambiar estado: solo el admin. Sin DELETE.
 -- Tipo:     aditiva (solo CREATE). No borra ni modifica datos existentes.
 -- Pantallas: app/checkout.tsx, app/admin/pedidos.tsx
+-- Conectado con: tabla pedidos y función crear_pedido; app/checkout.tsx, app/admin/pedidos.tsx,
+--           app/admin/cliente/[userId].tsx, app/(tabs)/perfil.tsx y api/pago.ts.
 -- ============================================================================
 
 create table if not exists public.pedidos (

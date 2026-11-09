@@ -1,4 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
+-- supabase/simulaciones/reorganizar_lecciones_simulacion.sql
+-- Qué hace: consultas que solo miran (no cambian nada) para comprobar las lecciones antes y después de agruparlas.
+-- Conectado con: tabla aprendizajes; migraciones 20261018090000, 20261018095000, 20261018096000 y
+--   20261018100000 de supabase/migrations/; la prueba real es pruebas/lecciones-sql.mjs.
 -- COMPROBACIONES DE SOLO LECTURA de la reorganización de lecciones (20261018100000) y de las migraciones
 -- 090000, 095000 y 096000 que la acompañan. No escribe nada: son SELECT para lanzar con execute_sql.
 -- La prueba REAL (ejecutando las migraciones en una base aislada) es pruebas/lecciones-sql.mjs; estas

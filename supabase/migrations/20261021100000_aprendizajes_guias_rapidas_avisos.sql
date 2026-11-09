@@ -1,5 +1,7 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones de las guías rápidas por pantalla y de los avisos de Blue (reservas y «Avísame cuando llegue»).
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 

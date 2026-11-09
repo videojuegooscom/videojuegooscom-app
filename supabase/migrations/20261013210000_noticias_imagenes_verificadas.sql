@@ -4,6 +4,7 @@
 --           muestren lo que cuenta la noticia). Las noticias que ya existen quedan sin
 --           comprobar y api/noticias-gaming.ts las revisa poco a poco.
 -- Tipo:     aditiva (solo ADD COLUMN). No borra ni modifica datos existentes.
+-- Conectado con: noticias_gaming.imagenes_verificadas; api/noticias-gaming.ts y app/(tabs)/chat-global.tsx.
 -- ============================================================================
 
 alter table public.noticias_gaming

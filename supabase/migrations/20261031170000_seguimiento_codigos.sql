@@ -23,6 +23,10 @@
 -- Tipo:     SOLO AÑADE (columnas, una tabla, tres funciones, dos disparadores y una frase en la privacidad). No borra
 --           filas ni columnas. Se puede aplicar varias veces.
 -- La aplica el dueño en Supabase → SQL Editor (funciones security definer y permisos).
+-- Qué hace: da a cada pedido y reparación un número de seguimiento que el cliente puede añadir a su cuenta.
+-- Conectado con: pedidos, service_requests, seguimiento_intentos y vincular_seguimiento(); api/escaparate-veoaura.ts,
+--           api/escaparate-retorno.ts, api/asignar-seguimiento.ts, app/(tabs)/perfil.tsx, app/admin/pedidos.tsx,
+--           app/admin/services.tsx, app/admin/chats.tsx, app/admin/escaparate.tsx, app/admin/users.tsx y app/admin/index.tsx.
 -- ============================================================================
 
 -- 1) Columnas.

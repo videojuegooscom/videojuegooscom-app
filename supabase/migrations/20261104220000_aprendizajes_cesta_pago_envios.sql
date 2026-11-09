@@ -3,6 +3,8 @@
 --            «cambiar lo que se pueda a iconos y quitar burbujas envolventes innecesarias», que en «Finalizar compra» «el
 --            scroll funcione perfectamente como cualquier otra página» con «una miniatura del artículo adquirido» y un
 --            apartado de tarifas de envío para editarlas a mano «pero que siga haciéndose automáticamente».
+-- Qué hace: apunta dos lecciones (cesta y pago sin burbujas con un solo desplazamiento, y tarifas de envío).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta las dos lecciones si no existen. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

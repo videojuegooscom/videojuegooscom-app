@@ -11,6 +11,8 @@
 -- Independiente: no depende de ninguna otra migración. Va separada de la documentación (CLAUDE.md) y de la
 --           regla de autorización para poder aprobarse por separado.
 -- Vuelta atrás: supabase/rollbacks/20261018096000_aprendizajes_blue_publico_y_admin_revertir.sql
+-- Qué hace: añade la lección nueva de Blue y deja la antigua inactiva como historial.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 -- Si la lección ya existe pero está inactiva con exactamente este texto (porque antes se aplicó la vuelta

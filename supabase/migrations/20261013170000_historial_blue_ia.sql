@@ -5,6 +5,7 @@
 -- Acceso:   cada usuario solo ve, crea y actualiza las suyas (auth.uid()). Sin DELETE: se
 --           archivan (archivada = true).
 -- Tipo:     aditiva (solo CREATE).
+-- Conectado con: tablas blue_ia_conversaciones y blue_ia_mensajes; las usa app/(tabs)/blue-ia.tsx.
 -- ============================================================================
 
 create table if not exists public.blue_ia_conversaciones (

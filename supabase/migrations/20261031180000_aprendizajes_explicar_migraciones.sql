@@ -3,6 +3,8 @@
 --   1) El dueño pegó la migración de los números de seguimiento y dijo «no sé qué significa la migración que dices».
 --   2) Al probar «Asignar seguimiento» en Administración → Chat salió que en 14 pantallas del panel el título de la
 --      cabecera tapaba el botón de volver (en el móvil solo respondían sus bordes).
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
 -- ============================================================================
 

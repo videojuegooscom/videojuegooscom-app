@@ -16,6 +16,8 @@
  *
  * Uso: node pruebas/desliza-para-actualizar.mjs [carpeta_dist]     (por defecto dist)
  * Requisitos: playwright-core y npm run build hecho.
+ * Conectado con: components/TirarParaActualizar.tsx en Inicio, Vender, la ficha de producto y Mi cuenta (dist), y
+ *   pruebas/sin-fotos-reales.mjs. La lanza pruebas/todas.mjs (grupo navegador).
  */
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";

@@ -7,6 +7,8 @@
 --           3) fijar_apoyo_servicio(servicio, persona, activo): la única forma de cambiarlo, SOLO para service_role.
 --              El navegador pasa por api/interaccion.ts, que pone los límites (como con los productos) y es quien
 --              lee los «me gusta» de cada cliente para su pestaña «Me gusta» de Perfil.
+-- Conectado con: public.services.like_count, public.servicio_apoyos y fijar_apoyo_servicio(); los usan api/interaccion.ts
+--           (también para «Me gusta» de Perfil), app/servicio/[id].tsx y app/admin/services.tsx.
 -- Tipo:     1 columna, 1 tabla y 1 función nuevas. No cambia ni borra ningún dato. Lleva security definer y
 --           permisos (revoke/grant): la revisa y aplica el dueño.
 -- Orden:    después de 20261018130000_visitas_y_apoyos_protegidos.sql (mismo patrón; no depende de ella).

@@ -6,6 +6,9 @@
 --           interna de la solicitud: nuevo/revisado/contactado/descartado).
 -- Acceso:   el de siempre de service_requests (el cliente ve las suyas, el admin todo).
 -- Tipo:     aditiva (solo ADD COLUMN). No borra ni modifica datos existentes.
+-- Conectado con: service_requests.seguimiento/seguimiento_nota/seguimiento_actualizado; app/(tabs)/perfil.tsx,
+--           app/admin/services.tsx, app/admin/cliente/[userId].tsx, api/asignar-seguimiento.ts y
+--           api/escaparate-veoaura.ts.
 -- ============================================================================
 
 alter table public.service_requests

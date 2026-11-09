@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-08 (el dueño corrige: «¿no era que no podías ver imágenes para optimizar las llamadas
 --            a Supabase?»). Claude había capturado la web real (portadas, ficha de servicio, fichas de producto) con
 --            scripts propios que dejaban pasar las fotos de los productos y servicios.
+-- Qué hace: apunta la lección «Capturas de la web real también sin fotos de Supabase».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

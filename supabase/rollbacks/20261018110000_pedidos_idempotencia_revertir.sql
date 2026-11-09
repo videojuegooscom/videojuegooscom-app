@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018110000_pedidos_idempotencia.sql
+-- Qué hace: vuelve a la forma antigua de crear pedidos (sin la protección contra pedidos duplicados).
+-- Conectado con: deshace supabase/migrations/20261018110000_pedidos_idempotencia.sql; funciones crear_pedido y
+--   crear_pedido_idempotente (app/checkout.tsx); lo prueban pruebas/pedidos-sql.mjs y pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

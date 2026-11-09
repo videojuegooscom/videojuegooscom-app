@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018120000_limite_peticiones.sql
+-- Qué hace: apaga el límite de peticiones compartido; cada función de api/ vuelve a usar su propio límite.
+-- Conectado con: deshace supabase/migrations/20261018120000_limite_peticiones.sql; función consumir_limite (api/
+--   interaccion.ts, api/blue-ia.ts, api/pago.ts y otras); lo prueban pruebas/limite-sql.mjs y pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

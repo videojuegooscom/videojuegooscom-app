@@ -21,6 +21,9 @@
  *
  * Uso: node pruebas/interaccion-api.mjs postgresql://postgres@127.0.0.1:55432
  * Sale con código 1 si algo falla.
+ * Conectado con: api/interaccion.ts; migraciones 20261013090000_reservas_cesta, 20261018120000_limite_peticiones,
+ *   20261018130000_visitas_y_apoyos_protegidos, 20261018140000_reservas_protegidas y 20261103200000_servicios_me_gusta;
+ *   pruebas/sql-aislado.mjs. La lanza pruebas/todas.mjs (grupo sql).
  */
 import { conectar } from "./sql-aislado.mjs";
 

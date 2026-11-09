@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-07 (el dueño corrige: «recuerda que Correos va por kg, mírate las tarifas de envío por
 --            kg de Correos y ponlo bien»). Claude había puesto un precio fijo estimado (6,90 €) sin la tabla de Correos.
+-- Qué hace: apunta la lección de los precios de terceros (los del dueño y con su forma de cobrar).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

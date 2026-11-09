@@ -36,6 +36,8 @@
  *
  * Uso: node pruebas/escaparate-caracteristicas.mjs
  * Sale con código 1 si algo falla.
+ * Conectado con: api/escaparate-veoaura.ts (y su versión de origin/main con git show para los controles); simula en
+ *   memoria products, reparaciones y pedidos. La lanza pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";

@@ -1,7 +1,11 @@
+-- Migración: reservas de la cesta
+-- Qué hace:
 -- Reserva de 15 minutos al añadir un artículo a la cesta (unidad única de segunda mano).
 -- Mientras dura, otro cliente no puede añadirlo ni comprarlo. La tabla no se lee
 -- directamente: solo a través de las tres funciones de abajo (RLS sin políticas).
 -- El "token" es un identificador aleatorio por dispositivo que guarda la app.
+-- Conectado con: tabla reservas_cesta y funciones reservar_producto, liberar_reserva y
+--           productos_reservados; las llama lib/reservas.ts (cesta, ficha de producto y checkout).
 
 create table if not exists public.reservas_cesta (
   product_id uuid primary key references public.products(id) on delete cascade,

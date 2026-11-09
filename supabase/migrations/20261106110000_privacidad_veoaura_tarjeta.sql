@@ -6,6 +6,8 @@
 --           entregamos». Solo cambia esas palabras; lo demás queda como esté (también si el dueño lo editó).
 -- Por qué antes que el código: api/escaparate-retorno.ts solo cuenta el pago con tarjeta como «pagado» para VeoAura
 --           cuando la privacidad ya lo dice (primero la privacidad, luego los datos).
+-- Conectado con: public.policy_pages (privacidad); se ve en app/politicas/[slug].tsx, se edita en app/admin/policies.tsx
+--           y la lee api/escaparate-retorno.ts.
 -- Tipo:     solo cambia texto de policy_pages. No borra nada. Repetirla no cambia nada.
 -- Pruebas:  pruebas/perfiles-sql.mjs (apartado «VeoAura y la tarjeta») y pruebas/escaparate-retorno.mjs.
 -- ============================================================================

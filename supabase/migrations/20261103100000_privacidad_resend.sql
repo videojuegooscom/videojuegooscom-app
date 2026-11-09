@@ -3,6 +3,8 @@
 --   Desde hoy los correos de la cuenta (recuperar la contraseña y los demás de Supabase Auth) los envía Resend, con el
 --   dominio de la tienda (no-responder@videojuegoszaragoza.com). La política tiene que nombrarlo entre los proveedores
 --   técnicos: se añade una frase al final de «Con quién compartimos tus datos» (una sola vez).
+-- Qué hace: añade a la política de privacidad la frase sobre Resend.
+-- Conectado con: public.policy_pages; app/politicas/[slug].tsx (página pública) y app/admin/policies.tsx (edición).
 -- Tipo:     solo cambia el texto de la política de privacidad. No borra nada. Se puede aplicar varias veces.
 -- ============================================================================
 

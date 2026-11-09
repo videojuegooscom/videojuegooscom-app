@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-04. El dueño mandó otra captura del móvil con una ventana de permiso: para comprobar la
 --            tienda real con un navegador, Claude lanzó «ls /opt/pw-browsers» (una carpeta del sistema, fuera del
 --            proyecto) en vez de usar directamente lo que ya tienen las pruebas.
+-- Qué hace: añade a esa lección que el navegador se abre siempre con lanzarNavegador, sin mirar el sistema.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     amplía la lección «Nada de Bash fuera del proyecto: cada comando así es una ventana en el móvil del dueño».
 --           No borra nada. Repetirla no cambia nada.
 -- ============================================================================

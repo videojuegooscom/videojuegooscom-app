@@ -3,6 +3,8 @@
 --            textos tienen que ser profesionales», cambiar «Crea tu cuenta gratis en un minuto» por algo profesional
 --            «que podamos ofrecerle si se registran», añadir en la pantalla del móvil un ejemplo de navegación por la app
 --            y decir en la descripción que es la primera versión de la app.
+-- Qué hace: añade a esa lección el tono profesional de los carruseles y las ventajas reales de la cuenta.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     amplía la lección «Somos una tienda de electrónica, y cada red con su formato». No borra nada. Repetirla no
 --           cambia nada.
 -- ============================================================================

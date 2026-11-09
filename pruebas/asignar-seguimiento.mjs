@@ -17,6 +17,8 @@
  *
  * Uso: node pruebas/asignar-seguimiento.mjs
  * Sale con código 1 si algo falla.
+ * Conectado con: api/asignar-seguimiento.ts (Administración → Chat); simula en memoria perfiles, conversaciones,
+ *   reparaciones y pedidos (números de la migración 20261031170000). pruebas/todas.mjs NO la lanza.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";

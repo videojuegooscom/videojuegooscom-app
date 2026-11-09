@@ -8,6 +8,8 @@
 --      notificaciones de Blue, y si acepta comunicaciones comerciales (marketing), con la
 --      fecha en que lo aceptó o lo retiró (prueba del consentimiento).
 -- Tipo:     aditiva (solo CREATE).
+-- Conectado con: tablas noticias_comentarios y preferencias_usuario; app/(tabs)/chat-global.tsx,
+--           components/Campanita.tsx y app/admin/users.tsx (cuenta los comentarios ocultos).
 -- ============================================================================
 
 create table if not exists public.noticias_comentarios (

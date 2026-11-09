@@ -5,6 +5,8 @@
 -- Corrección 2026-10-18: se quitó la segunda sentencia (anotar en la lección «Revisión de calidad
 --           web cada dos semanas»). Esa lección ya tiene 3.923 de los 4.000 caracteres que admite
 --           aprendizajes_regla_check, así que el párrafo habría hecho fallar toda la migración.
+-- Qué hace: pone el nombre del titular en privacidad y términos.
+-- Conectado con: policy_pages; se ve en app/politicas/[slug].tsx y se edita en app/admin/policies.tsx.
 -- ============================================================================
 
 update public.policy_pages

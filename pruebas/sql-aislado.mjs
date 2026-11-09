@@ -18,6 +18,10 @@
  *   <servidor> = postgresql://postgres@127.0.0.1:55432
  * Como librería: import { conectar } from "./sql-aislado.mjs".
  * Requisitos: el cliente psql y un PostgreSQL local de pruebas (ver docs/pruebas-sql-aisladas.md).
+ * Uso: ver «Uso en línea de comandos» arriba.
+ * Conectado con: supabase/tests/aislado/00_supabase_stub.sql y las migraciones de lecciones de HISTORIAL_LECCIONES
+ *   (20261012150000 a 20261017190000). No es una prueba: la usan las pruebas *-sql de pruebas/; pruebas/todas.mjs
+ *   no la lanza sola, pero la exige para lecciones-orden y migraciones-cadena.
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";

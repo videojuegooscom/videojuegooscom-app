@@ -8,6 +8,9 @@
 --   3) Permisos: no cambian. Son columnas de perfiles_cliente, así que cada cliente solo ve y edita las suyas y el
 --      administrador las lee (las políticas de siempre). La función del Foro (perfiles_publicos) no las devuelve.
 --   4) Política de privacidad: una frase al final de «Qué datos tratamos» (se añade una vez).
+-- Qué hace: añade la dirección de envío (opcional) al perfil del cliente y una frase a la privacidad.
+-- Conectado con: public.perfiles_cliente y policy_pages; components/PerfilPublico.tsx, app/checkout.tsx,
+--           app/admin/users.tsx y app/admin/cliente/[userId].tsx.
 -- Tipo:     SOLO AÑADE (columnas, comprobaciones y una frase). No borra filas ni columnas. Se puede aplicar varias veces.
 -- ============================================================================
 

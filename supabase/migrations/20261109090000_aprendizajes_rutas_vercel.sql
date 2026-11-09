@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-11-09 (lo detecta Claude: la página nueva /contratar/<id> funcionaba desde la ficha pero
 --            daba 404 al abrirla directamente, porque faltaba su reescritura en vercel.json).
+-- Qué hace: apunta la lección «Toda ruta nueva con [id] lleva su reescritura en vercel.json».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

@@ -17,6 +17,9 @@
 -- Vuelta atrás: supabase/rollbacks/20261018120000_limite_peticiones_revertir.sql (quita el permiso a
 --           service_role: las funciones de api/ siguen con su límite en memoria, que es el de antes).
 -- Pruebas:  pruebas/limite-sql.mjs (SQL real con peticiones simultáneas en una base aislada).
+-- Qué hace: un contador compartido en la base de datos que frena a quien hace demasiadas peticiones.
+-- Conectado con: tabla limites_peticiones y función consumir_limite; la llaman api/blue-ia.ts,
+--           api/interaccion.ts, api/escaparate-retorno.ts, api/noticias-gaming.ts y api/pago.ts.
 -- ============================================================================
 
 create table if not exists public.limites_peticiones (

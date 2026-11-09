@@ -1,5 +1,8 @@
 -- ============================================================================
 -- 02-servicios.sql — Catálogo de servicios
+-- Qué hace: apunte (ya aplicado) de cómo se crearon los servicios, sus fotos y las solicitudes de contratación.
+-- Conectado con: tablas services, service_media y service_requests (app/servicios.tsx, app/servicio/[id].tsx,
+--   components/ContratarServicioModal.tsx, app/admin/services.tsx).
 -- ============================================================================
 -- Qué contiene este archivo (tablas y funciones, una línea cada una):
 -- - services                          → catálogo de servicios (reparación,

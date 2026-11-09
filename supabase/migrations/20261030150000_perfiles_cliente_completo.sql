@@ -3,6 +3,10 @@
 --            nacimiento (la edad se calcula) y foto (opcional), y el almacén de las fotos de perfil.
 -- Sustituye a 20261022100000_perfiles_cliente.sql (que nunca se llegó a aplicar): esta incluye lo mismo y además la foto.
 -- Si aquella ya estuviera aplicada, esta solo añade lo que falta. Se puede aplicar varias veces sin error.
+-- Qué hace: crea la tabla perfiles_cliente (con foto_url) y el almacén «avatares» para las fotos de perfil.
+-- Conectado con: public.perfiles_cliente y storage «avatares»; app/(tabs)/perfil.tsx, app/checkout.tsx,
+--           app/admin/users.tsx, app/admin/cliente/[userId].tsx, components/PerfilPublico.tsx,
+--           components/ContratarServicioModal.tsx y api/asignar-seguimiento.ts.
 -- Tipo:     SOLO AÑADE (una tabla nueva con sus reglas de acceso, una columna, un almacén de fotos y sus reglas). No toca
 --           ninguna tabla, fila ni función existente.
 --           - Cada cliente lee y edita SOLO su fila; el administrador puede leer todas (Administración → Usuarios) y no puede

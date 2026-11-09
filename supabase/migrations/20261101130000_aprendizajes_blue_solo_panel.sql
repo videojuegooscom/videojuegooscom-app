@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: la lección «Blue: interfaz pública y Administración» se completa (petición del dueño, 2026-11-01): dentro
 --            del Panel de control, Blue solo habla de lo del panel, también en su ventana y en su número rojo.
+-- Qué hace: reescribe el texto de esa lección del Centro de Aprendizajes.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     actualiza el texto de una sola fila (por título). No borra nada; repetirla deja el mismo texto.
 -- ============================================================================
 

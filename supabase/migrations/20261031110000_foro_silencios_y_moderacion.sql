@@ -15,6 +15,9 @@
 -- La aplica el dueño en Supabase → SQL Editor (toca permisos y funciones security definer). Se puede aplicar varias veces
 -- sin error. Antes de aplicarla la tienda funciona igual: sin la tabla no sale «Silenciar» y el usuario y la foto salen
 -- solo en el Foro.
+-- Qué hace: amplía quién sale con usuario y foto, permite silenciar a alguien en el Foro y apunta solo cada moderación.
+-- Conectado con: perfiles_publicos (components/PerfilPublico.tsx), foro_silencios y foro_moderacion (app/(tabs)/chat-global.tsx,
+--           app/admin/users.tsx y app/admin/cliente/[userId].tsx), chat_messages y noticias_comentarios.
 -- ============================================================================
 
 -- 1) Usuario y foto de «Mi perfil» para el Foro, los comentarios de noticias y las reseñas de la tienda.

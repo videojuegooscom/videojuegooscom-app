@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261018096000_aprendizajes_blue_publico_y_admin.sql
+-- Qué hace: apaga la lección «Blue: interfaz pública y Administración» y vuelve a encender «Blue fuera del panel».
+-- Conectado con: deshace supabase/migrations/20261018096000_aprendizajes_blue_publico_y_admin.sql; tabla
+--   aprendizajes; lo prueban pruebas/lecciones-sql.mjs, pruebas/lecciones-orden.mjs y pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

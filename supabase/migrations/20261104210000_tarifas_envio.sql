@@ -16,6 +16,8 @@
 --      artículos + envío. El administrador puede poner a mano el envío de un pedido (Administración → Pedidos): entonces
 --      queda «manual» y ya no se recalcula; «Volver al automático» lo devuelve a la tarifa. Las ventas que llegan de
 --      VeoAura (id_veoaura) traen su total y nunca llevan envío automático.
+-- Conectado con: public.tarifas_envio, zona_envio(), calcular_envio() y columnas de envío de public.pedidos; lib/envio.ts
+--           (cesta y app/checkout.tsx), app/admin/envios.tsx y app/admin/pedidos.tsx.
 -- Tipo:     SOLO AÑADE (una tabla, tres funciones, un disparador, cuatro columnas y dos políticas). No borra filas ni
 --           columnas. Lleva permisos (revoke/grant y una lectura pública): la pega el dueño en Supabase → SQL Editor.
 --           Repetirla no cambia nada.

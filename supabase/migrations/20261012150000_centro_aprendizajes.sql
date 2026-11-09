@@ -7,6 +7,8 @@
 --           no ven nada. Claude lee con su conexión de solo lectura de Supabase.
 -- Tipo:     aditiva (solo CREATE). No borra ni modifica datos existentes.
 -- Pantalla: app/admin/aprendizajes.tsx
+-- Conectado con: crea public.aprendizajes; la usan app/admin/aprendizajes.tsx, app/admin/index.tsx,
+--           app/admin/_layout.tsx y api/auditoria-web.ts.
 -- ============================================================================
 
 create table if not exists public.aprendizajes (

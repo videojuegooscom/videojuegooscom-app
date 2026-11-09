@@ -16,7 +16,7 @@
  * Se repiten los puntos 3 y 5 en una primera visita de verdad (sin nada guardado: sale el aviso
  * de cookies y Blue aparece a los 10 s).
  *
- * Uso (Claude lo lanza antes de publicar cambios que afecten a Blue o a las cabeceras):
+ * Uso: (Claude lo lanza antes de publicar cambios que afecten a Blue o a las cabeceras)
  *   node pruebas/blue-regresion.mjs [direccion_o_carpeta] [carpeta_salida]
  *   p. ej. node pruebas/blue-regresion.mjs dist               (sirve la carpeta dist en local)
  *         node pruebas/blue-regresion.mjs https://videojuegoszaragoza.com
@@ -24,6 +24,8 @@
  *
  * Requisitos: el paquete playwright-core y su navegador, que llegan con la PR #52
  * («Navegador de pruebas», pruebas/movil.mjs). Sin esa PR este script no se puede lanzar.
+ * Conectado con: Blue y la cabecera en Inicio, fichas y demás páginas de la tienda (dist o la web real) y
+ *   pruebas/sin-fotos-reales.mjs. La lanza pruebas/todas.mjs (grupo navegador, con dist).
  */
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";

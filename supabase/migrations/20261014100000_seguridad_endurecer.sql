@@ -15,6 +15,11 @@
 --      seguridad de Supabase).
 -- Tipo:     aditiva (crea funciones, disparadores y una política restrictiva; quita permisos
 --           de ejecución sobrantes). No borra datos.
+-- Qué hace: cierra los cuatro huecos de seguridad de «Qué arregla» en la base de datos.
+-- Conectado con: disparadores en sell_requests, service_requests y noticias_comentarios, y política del
+--           bucket sell-request-media; afecta a components/VenderAhoraModal.tsx y
+--           components/SellRequestMedia.tsx (Vender), components/ContratarServicioModal.tsx (reparaciones)
+--           y app/(tabs)/chat-global.tsx (comentarios).
 -- ============================================================================
 
 -- 1. Campos internos de las solicitudes -------------------------------------------------

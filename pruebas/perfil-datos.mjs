@@ -2,6 +2,7 @@
  * pruebas/perfil-datos.mjs — comprueba «Mi cuenta → Tu perfil» (nombre, usuario, país, provincia y edad) y su seguimiento en
  * Administración → Usuarios y en la ficha del cliente, como un iPhone (390×844).
  *
+ * Qué hace: abre la tienda compilada (dist) en Chromium y recorre Mi cuenta, Perfil, Foro y Administración por secciones.
  * Todo con sesión SIMULADA y datos FICTICIOS: las lecturas de la base de datos se responden aquí y las escrituras se interceptan
  * (se comprueba lo que la tienda MANDARÍA guardar); nada llega a ninguna base de datos ni a la cuenta real de nadie.
  *
@@ -192,6 +193,8 @@
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
  * horario del equipo en Blue IA).
  * Requisitos: playwright-core y npm run build hecho.
+ * Conectado con: Mi cuenta, Perfil, Foro, la ficha y Administración en la tienda compilada (dist); simula /api/pago,
+ *   /api/asignar-seguimiento, /api/interaccion y /api/escaparate-retorno; pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";

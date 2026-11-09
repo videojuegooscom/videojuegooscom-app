@@ -3,6 +3,8 @@
 --   TikTok e Instagram junto al logo (PR #129) pedían la columna nueva «seguidores» por su nombre y, sin la migración
 --   aplicada, cada visita a Inicio dejaba un error 400 en la consola del navegador antes de repetir la consulta sin ella.
 --   La tienda se veía bien, pero pruebas/movil.mjs lo marcó como fallo en la web real.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta la fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

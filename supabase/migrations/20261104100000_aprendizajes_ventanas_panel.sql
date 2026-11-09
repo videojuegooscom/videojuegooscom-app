@@ -3,6 +3,8 @@
 --   El dueño pidió en Administración → Servicios que la X para cerrar la ventana de «Nuevo servicio» vaya a la derecha
 --   del botón «Crear servicio» (más práctico), lo mismo en todas las ventanas del panel, quitar del todo las burbujas
 --   alrededor de los iconos y que los títulos y subtítulos de las listas se lean enteros.
+-- Qué hace: apunta la lección «Ventanas del panel: la X abajo a la derecha del botón principal».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

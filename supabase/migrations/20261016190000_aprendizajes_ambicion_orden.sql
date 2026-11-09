@@ -2,6 +2,8 @@
 -- Migración: ajusta la lección «Ambición: pensar como un cerebro más de la tienda»
 -- Tipo:     actualiza el texto de una sola fila (por título). No borra nada.
 -- Cambio:   las recomendaciones empiezan por exprimir lo que ya funciona.
+-- Qué hace: reescribe la regla y el ejemplo bueno de esa lección con el nuevo orden.
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 update public.aprendizajes

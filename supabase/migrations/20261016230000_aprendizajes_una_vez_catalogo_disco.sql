@@ -2,6 +2,8 @@
 -- Migración: tres lecciones (avisos de una sola vez, listas de productos con el diseño de Inicio
 --            y vigilar el espacio en disco).
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
+-- Qué hace: apunta las lecciones en el Centro de Aprendizajes (Claude las consulta antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien)

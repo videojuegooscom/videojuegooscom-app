@@ -20,6 +20,8 @@
  * Uso:   node pruebas/pedido-idempotente.mjs [direccion_o_carpeta]
  *   p. ej. node pruebas/pedido-idempotente.mjs dist
  * Sale con código 1 si algo falla. Requisitos: playwright-core (PR #52, ver pruebas/blue-regresion.mjs).
+ * Conectado con: /checkout de la tienda compilada (dist), las rpc crear_pedido_idempotente y crear_pedido (simuladas),
+ *   /api/escaparate-retorno (simulado) y pruebas/sin-fotos-reales.mjs. La lanza pruebas/todas.mjs (grupo navegador).
  */
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";

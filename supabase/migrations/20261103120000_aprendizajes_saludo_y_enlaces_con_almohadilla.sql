@@ -6,6 +6,8 @@
 --      saludo se queda quieto y sale «Nueva conversación».
 --   2) Al volver de un enlace de cambio de correo con error (#error=…), la tarjeta de Mi perfil no decía nada: el
 --      enrutador quita la parte «#…» de la dirección en cuanto arranca, antes de que se abra la tarjeta.
+-- Qué hace: añade esas lecciones al Centro de Aprendizajes (las consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     inserta las lecciones si no existen. No borra nada.
 -- ============================================================================
 

@@ -1,3 +1,4 @@
+// app/(tabs)/perfil.tsx
 /**
  * Qué hace: pantalla "Mi cuenta" (pestaña Perfil). Antes de iniciar sesión
  * muestra un formulario de acceso/registro; una vez hay sesión, muestra

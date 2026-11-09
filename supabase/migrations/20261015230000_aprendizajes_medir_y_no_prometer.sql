@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lecciones «Medir antes de culpar al móvil» y «Solo se menciona lo que existe»
 -- Tipo:     solo inserta filas si no existen. No borra ni modifica nada.
+-- Qué hace: apunta las lecciones en el Centro de Aprendizajes (Claude las consulta antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 insert into public.aprendizajes (titulo, categoria, prioridad, regla, ejemplo_mal, ejemplo_bien)

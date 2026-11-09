@@ -6,6 +6,8 @@
 --      de políticas habría fallado entera por pasar de 4.000 caracteres en una lección).
 -- Tipo:     inserta dos filas, una única vez cada una (por título), o las reactiva si ya existen inactivas
 --           con exactamente el mismo texto. No borra ni cambia nada más.
+-- Qué hace: apunta las dos lecciones en el Centro de Aprendizajes (Claude las consulta antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- ============================================================================
 
 -- Si una lección ya existe pero está inactiva con exactamente este texto (porque antes se aplicó la vuelta

@@ -2,6 +2,8 @@
 -- Migración: lección del 2026-11-04. El dueño pidió que el saludo y los mensajes de Blue se cierren solos (en Inicio el
 --            saludo pisaba un momento «838 reseñas») y que el aviso de una noticia nueva abra directamente esa noticia y
 --            no la lista.
+-- Qué hace: apunta la lección «Los mensajes de Blue se cierran solos y cada aviso lleva a lo suyo».
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx).
 -- Tipo:     inserta la lección si no existe. No borra nada.
 -- ============================================================================
 

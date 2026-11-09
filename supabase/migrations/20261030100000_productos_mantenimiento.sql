@@ -7,6 +7,7 @@
 -- Tipo:     SOLO AÑADE (una columna, null por defecto, y una comprobación de forma). No borra ni cambia
 --           ninguna columna, fila, permiso ni función. La columna hereda los permisos de la tabla products.
 -- Vuelta atrás: dejar de usarla basta (el receptor y la ficha funcionan sin ella).
+-- Conectado con: public.products.mantenimiento; api/escaparate-veoaura.ts y app/producto/[id].tsx.
 -- ============================================================================
 
 alter table public.products

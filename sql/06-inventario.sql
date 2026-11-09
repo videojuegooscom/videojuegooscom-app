@@ -1,5 +1,7 @@
 -- ============================================================================
 -- 06-inventario.sql — Inventario interno del panel admin
+-- Qué hace: apunte (ya aplicado) de cómo se creó la lista interna de existencias del panel.
+-- Conectado con: tabla inventory_items (app/admin/inventario.tsx).
 -- ============================================================================
 -- Qué contiene este archivo (tabla, una línea):
 -- - inventory_items                   → inventario interno real del panel

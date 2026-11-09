@@ -3,6 +3,9 @@
 --   El dueño escribe cuántas reseñas lleva en sus canales de venta (Wallapop, Vinted, Facebook Marketplace…) en
 --   Administración → Redes sociales, y Inicio lo enseña debajo del logo con una estrella (components/SocialLinks.tsx,
 --   ResenasCanales). Sin esta migración o sin número, no sale nada.
+-- Qué hace: guarda en los ajustes de la tienda cuántas reseñas hay en los canales de venta y cuándo se puso.
+-- Conectado con: public.site_settings (resenas_canales, resenas_canales_actualizado); app/admin/redes-sociales.tsx y
+--           components/SocialLinks.tsx.
 -- Tipo:     añade dos columnas (si no existen) a la fila única de ajustes y su comprobación. No borra nada ni cambia
 --           permisos: site_settings ya se lee en público (site_settings_public_read) y solo un administrador la cambia
 --           (site_settings_admin_update).

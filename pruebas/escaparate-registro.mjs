@@ -15,6 +15,8 @@
  *
  * Uso: node pruebas/escaparate-registro.mjs
  * Sale con código 1 si algo falla.
+ * Conectado con: api/escaparate-veoaura.ts (y su versión de origin/main con git show para el control) y la tabla
+ *   escaparate_registro (simulada). La lanza pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";

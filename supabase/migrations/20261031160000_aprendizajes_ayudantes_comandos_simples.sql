@@ -1,6 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- Migración: lección del 2026-10-31 — un ayudante (subagente) lanzado por Claude usó un comando compuesto (for, sed,
 --            grep y tuberías) y al dueño le saltó «¿Permitir que Claude ejecute este comando?» en la pantalla.
+-- Qué hace: añade esa lección al Centro de Aprendizajes (la consulta Claude antes de cada respuesta).
+-- Conectado con: public.aprendizajes (Centro de Aprendizajes; se ve en app/admin/aprendizajes.tsx)
 -- Tipo:     solo inserta una fila si no existe. No borra ni modifica nada.
 -- ============================================================================
 

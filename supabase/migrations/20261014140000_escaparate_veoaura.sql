@@ -11,6 +11,8 @@
 --      nunca la firma ni el secreto. Solo lo lee el admin.
 -- Las dos aplicaciones siguen separadas: aquí no hay nada de VeoAura salvo su id de artículo.
 -- Tipo:     aditiva. No borra datos.
+-- Conectado con: products.id_veoaura/vendido_en, escaparate_nonces y escaparate_registro;
+--           api/escaparate-veoaura.ts (receptor) y app/admin/escaparate.tsx (registro en Administración).
 -- ============================================================================
 
 alter table public.products

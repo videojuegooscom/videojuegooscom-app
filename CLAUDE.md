@@ -1,5 +1,8 @@
 # VideojuegosZaragoza: instrucciones para Claude Code
 
+**Qué hace:** son las instrucciones del proyecto que Claude Code lee al empezar cada sesión (hábitos, publicación, base de datos y formato de respuesta).
+**Conectado con:** infraestructura/claude-code/README.md (política, guardián y controlador que hacen cumplir estas reglas) y la tabla public.aprendizajes (Centro de Aprendizajes, que se consulta antes de cada respuesta).
+
 Tienda web de videojuegos: Expo Router 6 + React Native Web (export estático), desplegada en
 Vercel por Git (`main` = producción) y con Supabase (project_ref `rgvyvaineyodyxzwootl`).
 Usuario del servidor: `videojuegoszaragoza`. No tocar nada de otros proyectos (VeoAura, Tradeandoia).

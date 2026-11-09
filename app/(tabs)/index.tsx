@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx
 /**
  * Qué hace: pantalla de inicio (pestaña "Inicio"). Es el escaparate
  * principal: cabecera con marca, barra de búsqueda flotante, accesos

@@ -8,6 +8,8 @@
 --   Slim y Fat: las fotos del dueño sin su fondo blanco, sobre el fondo azul oscuro con haz de luz de la Pro; en la Fat el
 --   mando rosa se cambia por el mando blanco real de la foto de la Slim.
 --   Solo si la portada sigue siendo la de 20261108100000 (solo la Pro); si el dueño la cambia antes, no hace nada.
+-- Conectado con: public.categories (imagenes, image_url, portadas_inicio) y public/categorias/ (las fotos); se ven en
+--           Inicio y Catálogo (components/PortadasCategoria.tsx) y se editan en app/admin/categories.tsx.
 -- Tipo:     solo cambia datos de una categoría. No borra nada. Repetirla no cambia nada.
 -- ============================================================================
 

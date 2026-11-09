@@ -1,5 +1,8 @@
 -- == VIDEOJUEGOSZARAGOZA ====================================================
 -- VUELTA ATRÁS de 20261017200000_politicas_nombre_titular.sql
+-- Qué hace: quita el nombre del titular de las páginas de Privacidad y Términos y deja la marca de antes.
+-- Conectado con: deshace supabase/migrations/20261017200000_politicas_nombre_titular.sql; tabla policy_pages
+--   (app/politicas/[slug].tsx, app/admin/policies.tsx); lo prueba pruebas/migraciones-cadena.mjs.
 -- NO es una migración: vive en supabase/rollbacks/ para que no se aplique sola.
 -- Solo se ejecuta si el dueño lo autoriza expresamente, y después de haber aplicado la migración.
 --

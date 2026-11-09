@@ -30,6 +30,8 @@
 --           cambia nada.
 -- Vuelta atrás: supabase/rollbacks/20261018150000_analitica_topes_revertir.sql (desactiva el disparador).
 -- Pruebas:  pruebas/analitica-sql.mjs (SQL real en una base aislada) y pruebas/migraciones-cadena.mjs.
+-- Conectado con: public.analytics_events (la escribe lib/analytics.ts desde toda la tienda) y public.analitica_ritmo
+--           (la lee app/admin/analytics.tsx, Administración → Analítica).
 -- ============================================================================
 
 do $$
