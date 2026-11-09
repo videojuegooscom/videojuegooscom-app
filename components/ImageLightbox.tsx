@@ -487,6 +487,9 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
   const cajaH = Math.round(marco.h * ALTO_FOTO);
   const web = Platform.OS === "web";
   const arriba = 16 + insets.top;
+  // La X para cerrar va abajo (dueño, 2026-11-09): su hueco y, encima, los puntos de las fotos.
+  const abajo = 16 + insets.bottom;
+  const LADO_CERRAR = 52;
 
   const botonRedondo = {
     width: 44,
@@ -552,14 +555,24 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
         </View>
       </View>
 
-      <Pressable
-        onPress={onClose}
-        accessibilityRole="button"
-        accessibilityLabel="Cerrar el visor de fotos"
-        style={{ ...botonRedondo, position: "absolute", top: arriba, right: 16, zIndex: 2 }}
-      >
-        <Ionicons name="close" size={22} color="#FFFFFF" />
-      </Pressable>
+      {/* La X abajo y en el centro, al alcance del pulgar (dueño, 2026-11-09), algo más grande que los demás botones. */}
+      <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: abajo, alignItems: "center", zIndex: 2 }}>
+        <Pressable
+          nativeID="visor-fotos-cerrar"
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar el visor de fotos"
+          style={({ pressed }) => ({
+            ...botonRedondo,
+            width: LADO_CERRAR,
+            height: LADO_CERRAR,
+            borderRadius: LADO_CERRAR / 2,
+            backgroundColor: pressed ? "rgba(255,255,255,0.26)" : "rgba(255,255,255,0.18)",
+          })}
+        >
+          <Ionicons name="close" size={26} color="#FFFFFF" />
+        </Pressable>
+      </View>
 
       {images.length > 1 ? (
         <View
@@ -607,7 +620,8 @@ function Visor({ images, initialIndex, onClose }: { images: LightboxImage[]; ini
               pointerEvents="none"
               style={{
                 position: "absolute",
-                bottom: 20 + insets.bottom,
+                // Encima de la X de cerrar.
+                bottom: abajo + LADO_CERRAR + 14,
                 left: 0,
                 right: 0,
                 flexDirection: "row",
