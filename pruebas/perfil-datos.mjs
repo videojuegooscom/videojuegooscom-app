@@ -5711,12 +5711,14 @@ async function seccionFS() {
     await p.locator('[aria-label="Cerrar el visor de fotos"]').click().catch(() => {});
     await p.waitForTimeout(400);
 
-    // FS8) «Contratar servicio ahora» abre su formulario; los dos botones se cuentan en la analítica.
+    // FS8) «Contratar servicio ahora» abre su página (dueño, 2026-11-09); los dos botones se cuentan en la analítica.
     await p.locator("#servicio-contratar").click();
-    const formulario = await p.getByText("Contratar: Mantenimiento Consola Playstation 5").first().isVisible({ timeout: 5000 }).catch(() => false);
-    ok(formulario, `FS (${nombre}): «Contratar servicio ahora» abre su formulario`);
-    await p.keyboard.press("Escape").catch(() => {});
-    await p.waitForTimeout(300);
+    await p.waitForURL(/\/contratar\//, { timeout: 15000 }).catch(() => {});
+    await p.locator("#contratar-resumen").waitFor({ timeout: 15000 }).catch(() => {});
+    const formulario = (await p.locator("#contratar-resumen").innerText().catch(() => "")).includes("Mantenimiento Consola Playstation 5");
+    ok(p.url().includes(`/contratar/${ID}`) && formulario, `FS (${nombre}): «Contratar servicio ahora» abre su página con el servicio (${p.url().replace(BASE, "")})`);
+    await p.goBack().catch(() => {});
+    await p.waitForTimeout(500);
     const etiquetas = (estado.eventosEnviados ?? []).map((e) => e.step_label);
     ok(etiquetas.includes("Servicio: foto ampliada") && etiquetas.includes("Servicio: Contratar servicio ahora"), `FS (${nombre}): la foto ampliada y «Contratar» se cuentan (${etiquetas.filter((e) => /^Servicio/.test(e)).join(", ")})`);
     ok(p.errores.length === 0, `FS (${nombre}): sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -5815,10 +5817,22 @@ async function seccionCS() {
     ok(/77,97€/.test(t) && /Básica\s*45,00€/.test(ficha) && /Completa \+ mando\s*77,97€/.test(ficha), `CS: al elegir «Completa + mando» el precio pasa a 77,97 € y «Características» lista las dos (${ficha})`);
     await capturar(p, "CS1-ficha-opciones");
 
-    // CS2) La ventana: sale con la opción de la ficha y los datos de la cuenta (nombre, apellido, ciudad y su email).
+    // CS2) «Contratar servicio ahora» abre su PÁGINA (dueño, 2026-11-09) con el diseño de la tienda: cabecera, título y
+    // el resumen del servicio con la opción y su precio; sale con la opción de la ficha y los datos de la cuenta.
     await p.locator("#servicio-contratar").click();
-    await p.locator("#contratar-opcion").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.waitForURL(/\/contratar\//, { timeout: 15000 }).catch(() => {});
+    await p.locator("#contratar-opcion").waitFor({ timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(1200);
+    // (la ficha sigue montada debajo, en la pila de pantallas: el título se busca dentro de la página de contratar)
+    const h1 = await p.evaluate(() => document.querySelector('#contratar-pagina h1, #contratar-pagina [role="heading"][aria-level="1"]')?.innerText.trim() ?? "");
+    const resumen = (await p.locator("#contratar-resumen").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(
+      p.url().includes(`/contratar/${ID}?opcion=Completa`) && h1 === "Contratar servicio" && /Mantenimiento Playstation 5/.test(resumen) && /Completa \+ mando/.test(resumen) && /77,97€/.test(resumen),
+      `CS: es una página (${p.url().replace(BASE, "")}) con su título «${h1}» y el resumen del servicio, la opción y su precio (${resumen})`
+    );
+    const ancho = await p.evaluate(() => ({ pagina: document.documentElement.scrollWidth, ventana: window.innerWidth }));
+    ok(ancho.pagina <= ancho.ventana && (await p.locator('[role="dialog"]').count()) === 0, `CS: ya no es una ventana emergente y nada se sale por los lados (${ancho.pagina}/${ancho.ventana})`);
+    await capturar(p, "CS1b-pagina-contratar");
     const datos = await p.evaluate(() => ({
       opcion: document.querySelector("#contratar-opcion select")?.value ?? "",
       nombre: document.querySelector("#contratar-nombre")?.value ?? "",
@@ -5858,8 +5872,15 @@ async function seccionCS() {
       `CS: la solicitud lleva la opción y la dirección, y NO manda el precio (lo pone la base de datos) (${JSON.stringify(enviada)})`
     );
     const azules = await azulesEn(p, "#contratar-enviada");
-    ok(azules === 1 && (await p.locator("#contratar-ver-seguimientos").count()) === 1, `CS: tras enviar, una sola píldora azul («Ver en Mis seguimientos») y «Cerrar» como texto (${azules} azules)`);
+    const cerrarTexto = (await p.locator("#contratar-cerrar").innerText().catch(() => "")).trim();
+    ok(
+      azules === 1 && (await p.locator("#contratar-ver-seguimientos").count()) === 1 && cerrarTexto === "Volver al servicio",
+      `CS: tras enviar, una sola píldora azul («Ver en Mis seguimientos») y «${cerrarTexto}» como texto (${azules} azules)`
+    );
     await capturar(p, "CS3-ventana-enviada");
+    await p.locator("#contratar-cerrar").click().catch(() => {});
+    await p.waitForURL(/\/servicio\//, { timeout: 15000 }).catch(() => {});
+    ok(p.url().includes(`/servicio/${ID}`), `CS: «Volver al servicio» vuelve a la ficha (${p.url().replace(BASE, "")})`);
     const etiquetas = (estado.eventosEnviados ?? []).map((e) => e.step_label);
     ok(
       etiquetas.includes(`Contratar: ventana abierta · ${TITULO}`) &&
@@ -5880,7 +5901,7 @@ async function seccionCS() {
     await p.locator("#servicio-contratar").waitFor({ timeout: 40000 }).catch(() => {});
     ok((await p.locator("#servicio-opcion").count()) === 0, "CS: sin la migración, la ficha no enseña el desplegable");
     await p.locator("#servicio-contratar").click();
-    await p.locator("#contratar-enviar").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.locator("#contratar-enviar").waitFor({ timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(1200);
     await p.locator("#contratar-enviar").click();
     await p.locator("#contratar-enviada").waitFor({ timeout: 10000 }).catch(() => {});
@@ -5897,7 +5918,7 @@ async function seccionCS() {
     const p = await pagina(ctx, `/servicio/${ID}`);
     await p.locator("#servicio-contratar").waitFor({ timeout: 40000 }).catch(() => {});
     await p.locator("#servicio-contratar").click();
-    await p.locator("#contratar-enviar").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.locator("#contratar-enviar").waitFor({ timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(800);
     const falta = (await p.locator("#contratar-enviar").innerText().catch(() => "")).trim();
     ok(falta === "Te falta: nombre, apellido, método de contacto y ciudad", `CS: sin sesión no hay nada escrito y el botón lo dice («${falta}»)`);
