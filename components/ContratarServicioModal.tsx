@@ -72,7 +72,9 @@ const modalColumnStyle = { width: "100%", maxWidth: 560, alignSelf: "center" } a
 const HUECO_BOTON_ATRAS = 96;
 
 // --- Opciones de un servicio (services.modalidades) ---------------------------------------------------------------
-export type ModalidadServicio = { nombre: string; precio_eur: number };
+// foto (dueño, 2026-11-09): la foto del servicio que sale al elegir esta opción (dirección pública de una de sus fotos
+// de service_media). Opcional: sin ella se queda la foto que se esté viendo.
+export type ModalidadServicio = { nombre: string; precio_eur: number; foto?: string | null };
 
 // Lee las opciones tal como vienen de la base de datos, descartando lo que no tenga nombre o precio válido.
 export function leerModalidades(valor: unknown): ModalidadServicio[] {
@@ -84,7 +86,8 @@ export function leerModalidades(valor: unknown): ModalidadServicio[] {
     const precio = Number(v?.precio_eur);
     if (!nombre || !Number.isFinite(precio) || precio < 0 || vistas.has(nombre)) continue;
     vistas.add(nombre);
-    out.push({ nombre, precio_eur: Math.round(precio * 100) / 100 });
+    const foto = typeof v?.foto === "string" && /^https:\/\//.test(v.foto) ? v.foto : null;
+    out.push({ nombre, precio_eur: Math.round(precio * 100) / 100, ...(foto ? { foto } : null) });
   }
   return out;
 }
@@ -456,6 +459,8 @@ export default function ContratarServicioModal({
   // En la página, «Cerrar» vuelve a la ficha del servicio.
   const textoCerrar = comoPagina ? "Volver al servicio" : "Cerrar";
   const precioResumen = opcionElegida ? opcionElegida.precio_eur : service?.precio ?? null;
+  // La foto de la opción elegida (si tiene) o la portada del servicio.
+  const fotoResumen = opcionElegida?.foto ?? service?.foto ?? null;
 
   // Página: la cabecera de la tienda (volver + VideojuegosZaragoza), el título y el resumen del servicio con su foto, su
   // opción y su precio. En la ventana emergente no sale (allí el título va en su barra).
@@ -503,8 +508,8 @@ export default function ContratarServicioModal({
               justifyContent: "center",
             }}
           >
-            {service.foto ? (
-              <SmartImage uri={service.foto} alt={service.title} ancho={128} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+            {fotoResumen ? (
+              <SmartImage key={fotoResumen} uri={fotoResumen} alt={service.title} ancho={160} contentFit="cover" style={{ width: "100%", height: "100%" }} />
             ) : (
               <Ionicons name="construct-outline" size={26} color={COLORS.accent} />
             )}

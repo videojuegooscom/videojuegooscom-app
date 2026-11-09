@@ -22,6 +22,8 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -38,6 +40,7 @@ import MarcaAnimada from "../components/marca/MarcaAnimada";
 import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import { useRecarga } from "../components/TirarParaActualizar";
+import { trackEvent } from "../lib/analytics";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -55,6 +58,113 @@ const COLORS = {
 };
 
 const columnStyle = { width: "100%", maxWidth: 1240, alignSelf: "center" } as const;
+
+// --- «Nuestros Servicios»: vídeos de cómo trabajamos (dueño, 2026-11-09) ---
+// Se enlazan desde Instagram o TikTok (no se suben a Supabase: no gastan su cuota de descarga). La lista vive en
+// site_settings.videos_servicios (migración 20261109130000) y se edita en Administración → Servicios.
+export type VideoServicio = { url: string; titulo?: string };
+export type EnlaceVideo = { plataforma: "Instagram" | "TikTok"; embed: string };
+
+// El reproductor de cada enlace, o null si no es un vídeo de Instagram (reel/publicación) o de TikTok (/video/<n>).
+export function enlaceVideo(url: string): EnlaceVideo | null {
+  const u = String(url ?? "").trim();
+  const ig = u.match(/^https:\/\/(?:www\.)?instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([A-Za-z0-9_-]+)/i);
+  if (ig) return { plataforma: "Instagram", embed: `https://www.instagram.com/${ig[1].toLowerCase() === "reels" ? "reel" : ig[1].toLowerCase()}/${ig[2]}/embed/` };
+  const tt = u.match(/^https:\/\/(?:www\.|m\.)?tiktok\.com\/(?:@[\w.-]+\/video|embed\/v2|v)\/(\d{6,25})/i);
+  if (tt) return { plataforma: "TikTok", embed: `https://www.tiktok.com/embed/v2/${tt[1]}` };
+  return null;
+}
+
+export function leerVideosServicios(valor: unknown): VideoServicio[] {
+  if (!Array.isArray(valor)) return [];
+  return valor
+    .filter((v) => v && typeof v.url === "string" && enlaceVideo(v.url))
+    .slice(0, 12)
+    .map((v) => ({ url: String(v.url).trim(), ...(typeof v.titulo === "string" && v.titulo.trim() ? { titulo: v.titulo.trim() } : null) }));
+}
+
+// Sin la migración (falta la columna) o sin vídeos: [] y el apartado no sale.
+async function loadVideos(): Promise<VideoServicio[]> {
+  const { data, error } = await supabase.from("site_settings").select("videos_servicios").eq("id", 1).maybeSingle();
+  if (error) return [];
+  return leerVideosServicios((data as { videos_servicios?: unknown } | null)?.videos_servicios);
+}
+
+// Cada vídeo es una tarjeta: el reproductor de Instagram/TikTok solo se carga al tocarla (así la página no carga
+// nada de esas redes, ni sus cookies, hasta que el cliente quiere verlo).
+function TarjetaVideo({ video, ancho }: { video: VideoServicio; ancho: number }) {
+  const [abierto, setAbierto] = useState(false);
+  const enlace = enlaceVideo(video.url);
+  if (!enlace) return null;
+  const alto = Math.round(ancho * 16 / 9) + 60;
+  const ver = () => {
+    setAbierto(true);
+    // Administración → Analítica (#analitica-videos-servicios).
+    trackEvent("servicios_video", `Nuestros Servicios: vídeo visto · ${video.titulo || enlace.plataforma}`, {
+      path: "/servicios",
+      metadata: { plataforma: enlace.plataforma },
+    });
+  };
+  return (
+    <View style={{ width: ancho, gap: 8 }}>
+      <View style={{ width: ancho, height: alto, borderRadius: 18, overflow: "hidden", backgroundColor: COLORS.text }}>
+        {abierto && Platform.OS === "web" ? (
+          React.createElement("iframe", {
+            src: enlace.embed,
+            title: video.titulo || `Vídeo de ${enlace.plataforma}`,
+            width: ancho,
+            height: alto,
+            style: { border: 0, width: "100%", height: "100%", backgroundColor: "#FFFFFF" },
+            allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+            allowFullScreen: true,
+            loading: "lazy",
+          })
+        ) : (
+          <Pressable
+            onPress={Platform.OS === "web" ? ver : () => Linking.openURL(video.url)}
+            accessibilityRole="button"
+            accessibilityLabel={`Ver el vídeo${video.titulo ? ` «${video.titulo}»` : ""} de ${enlace.plataforma}`}
+            style={({ pressed }) => ({ flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 16, opacity: pressed ? 0.9 : 1 })}
+          >
+            <Ionicons name={enlace.plataforma === "Instagram" ? "logo-instagram" : "logo-tiktok"} size={30} color="rgba(255,255,255,0.85)" />
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="play" size={30} color="#FFFFFF" style={{ marginLeft: 4 }} />
+            </View>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>Ver vídeo</Text>
+            <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 11.5, lineHeight: 16, textAlign: "center" }}>
+              Se reproduce desde {enlace.plataforma}, que puede usar sus cookies.
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      {video.titulo ? (
+        <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "800", fontSize: 14, textAlign: "center" }}>
+          {video.titulo}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function NuestrosServicios({ videos, isMobile, pagePadding }: { videos: VideoServicio[]; isMobile: boolean; pagePadding: number }) {
+  if (!videos.length) return null;
+  const ancho = isMobile ? 210 : 270;
+  return (
+    <View nativeID="nuestros-servicios" style={{ ...columnStyle, paddingHorizontal: pagePadding, paddingTop: 18, gap: 12 }}>
+      <View style={{ alignItems: "center", gap: 2 }}>
+        <Text accessibilityRole="header" {...({ "aria-level": 2 } as object)} style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 19 : 21, textAlign: "center" }}>
+          Nuestros Servicios
+        </Text>
+        <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>Así trabajamos con tus dispositivos</Text>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 4, flexGrow: 1, justifyContent: "center" }}>
+        {videos.map((v, i) => (
+          <TarjetaVideo key={`${v.url}-${i}`} video={v} ancho={ancho} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
 
 type ServiceMediaRow = {
   service_id: string;
@@ -117,11 +227,13 @@ export default function ServiciosScreen() {
   const [err, setErr] = useState<string | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [search, setSearch] = useState("");
+  const [videos, setVideos] = useState<VideoServicio[]>([]);
 
   // silencioso («Desliza para actualizar»): sin volver a enseñar la carga.
   async function load(silencioso = false) {
     if (!silencioso) setLoading(true);
     setErr(null);
+    loadVideos().then(setVideos);
     try {
       const rows = await loadServices();
       setServices(rows);
@@ -273,6 +385,9 @@ export default function ServiciosScreen() {
             </RejillaTarjetas>
           )}
         </View>
+
+        {/* «Nuestros Servicios»: vídeos de cómo trabajamos, debajo de la lista (sin vídeos no sale). */}
+        <NuestrosServicios videos={videos} isMobile={isMobile} pagePadding={pagePadding} />
       </ScrollView>
     </View>
   );

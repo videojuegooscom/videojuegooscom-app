@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ContratarServicioModal from "../../components/ContratarServicioModal";
 import CabeceraMarca from "../../components/CabeceraMarca";
 import CargaMarca from "../../components/marca/CargaMarca";
-import { fetchService } from "../servicio/[id]";
+import { fetchService, fotoDeOpcion } from "../servicio/[id]";
 
 type ServicioCargado = NonNullable<Awaited<ReturnType<typeof fetchService>>>;
 
@@ -107,7 +107,8 @@ export default function ContratarServicioScreen() {
       service={{
         id: servicio.id,
         title: servicio.title,
-        modalidades: servicio.modalidades,
+        // Cada opción con su foto solo si sigue entre las del servicio (la del resumen cambia con la opción).
+        modalidades: servicio.modalidades.map((m) => ({ ...m, foto: fotoDeOpcion(servicio, m) })),
         precio: servicio.priceEUR,
         foto: portada?.publicUrl ?? null,
       }}
