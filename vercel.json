@@ -39,6 +39,7 @@
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/producto/:id", "destination": "/producto/[id]" },
     { "source": "/servicio/:id", "destination": "/servicio/[id]" },
+    { "source": "/contratar/:id", "destination": "/contratar/[id]" },
     { "source": "/politicas/:slug", "destination": "/politicas/[slug]" },
     { "source": "/chat/:chatId", "destination": "/chat/[chatId]" },
     { "source": "/admin/cliente/:userId", "destination": "/admin/cliente/[userId]" }
