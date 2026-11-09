@@ -8,7 +8,8 @@
  * lectura (catálogo, servicios, políticas, blog): en las fichas de producto y de servicio (que
  * terminan en «Volver atrás»), el pago y «Vender» ya hay botones abajo y taparían. Vuelve atrás
  * en el historial o, si no lo hay, a Inicio.
- * Blue (que se aparta solo de los botones) se coloca en otro sitio.
+ * Blue (que se aparta solo de los botones) se coloca en otro sitio. «Contratar servicio» usa
+ * BotonAtrasFlotante con su propia acción y deja hueco abajo para no tapar «Enviar solicitud».
  *
  * Conectado con: app/_layout.tsx (lo monta), components/Campanita.tsx (se aparta de él).
  */
@@ -34,12 +35,18 @@ function volver() {
 
 export default function BotonAtrasAlcance() {
   const pathname = usePathname() ?? "";
-  const insets = useSafeAreaInsets();
   if (Platform.OS !== "web" || !RUTAS.test(pathname)) return null;
+  return <BotonAtrasFlotante onPress={volver} />;
+}
 
+// El mismo botón con su propia acción: «Contratar servicio» lo pone con la suya (dueño, 2026-11-09: «el botón para
+// volver, abajo a la derecha, para tocarlo con el dedo gordo»), que cuenta en Analítica si se fue sin enviar.
+export function BotonAtrasFlotante({ onPress }: { onPress: () => void }) {
+  const insets = useSafeAreaInsets();
   return (
     <Pressable
-      onPress={volver}
+      nativeID="boton-atras-flotante"
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel="Volver"
       style={({ pressed }) => ({

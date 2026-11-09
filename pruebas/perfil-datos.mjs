@@ -5841,6 +5841,33 @@ async function seccionCS() {
       return { centrado: n ? getComputedStyle(n).textAlign : "", mismaFila: !!rn && !!ra && Math.abs(rn.top - ra.top) < 4 && ra.left > rn.right };
     });
     ok(disenio.centrado === "center" && disenio.mismaFila, `CS: como «Vender ahora»: texto centrado y Nombre | Apellido en la misma fila (${JSON.stringify(disenio)})`);
+    // Dueño, 2026-11-09: el título del servicio se ve mejor (más grande y entero) y la opción va en su píldora.
+    const titulo = await p.evaluate(() => {
+      const t = document.querySelector("#contratar-resumen-titulo");
+      return { tam: t ? parseFloat(getComputedStyle(t).fontSize) : 0, opcion: document.querySelector("#contratar-resumen-opcion")?.innerText.trim() ?? "" };
+    });
+    ok(titulo.tam >= 17 && titulo.opcion === "Completa + mando", `CS: el título del servicio a ${titulo.tam} px y la opción en su píldora («${titulo.opcion}»)`);
+    // El botón azul de volver, abajo a la derecha (al alcance del pulgar), y al final de la página no tapa «Enviar».
+    const atras = await p.evaluate(async () => {
+      const b = document.querySelector("#contratar-pagina #boton-atras-flotante");
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const enviar = document.querySelector("#contratar-enviar");
+      enviar?.scrollIntoView({ block: "end" });
+      document.querySelectorAll("#contratar-pagina *").forEach((el) => {
+        if (el.scrollHeight > el.clientHeight + 4 && getComputedStyle(el).overflowY !== "visible") el.scrollTop = el.scrollHeight;
+      });
+      await new Promise((h) => setTimeout(h, 300));
+      const e = enviar?.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      const tapa = !!e && rb.top < e.bottom && rb.bottom > e.top && rb.left < e.right && rb.right > e.left;
+      return { derecha: Math.round(window.innerWidth - r.right), abajo: Math.round(window.innerHeight - r.bottom), lado: Math.round(r.width), tapa };
+    });
+    ok(
+      !!atras && atras.derecha <= 20 && atras.abajo <= 40 && atras.lado >= 48 && !atras.tapa,
+      `CS: el botón de volver está abajo a la derecha, mide 52 px y no tapa «Enviar solicitud» al final (${JSON.stringify(atras)})`
+    );
+    await p.evaluate(() => document.querySelectorAll("#contratar-pagina *").forEach((el) => (el.scrollTop = 0)));
     await capturar(p, "CS1b-pagina-contratar");
     const datos = await p.evaluate(() => ({
       opcion: document.querySelector("#contratar-opcion select")?.value ?? "",
