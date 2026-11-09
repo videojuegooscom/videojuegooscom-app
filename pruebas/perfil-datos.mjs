@@ -6206,12 +6206,25 @@ async function seccionOV() {
     await p.waitForTimeout(600);
     const aviso = (await p.locator("#servicios-videos").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/no es un enlace de Instagram/.test(aviso) && !(estado.ajustesGuardados ?? []).length, "OV: un enlace que no es de Instagram/TikTok no se guarda y lo avisa");
-    await p.locator("#servicios-video-url-2").fill("https://www.tiktok.com/@tienda/video/7400000000000000001");
+    // El enlace corto que copia la app de TikTok (dueño, 2026-11-09: «no me deja añadir el enlace») se cambia por el
+    // largo al guardar (api/video-enlace.ts, simulada aquí).
+    const pedidos = [];
+    await ctx.route(/\/api\/video-enlace/, (r) => {
+      pedidos.push(new URL(r.request().url()).searchParams.get("url"));
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: "https://www.tiktok.com/@tienda/video/7400000000000000001" }) });
+    });
+    await p.locator("#servicios-video-url-2").fill("https://vm.tiktok.com/ZMabc123/");
+    const avisoCorto = (await p.locator("#servicios-videos").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(/Enlace corto de la app/.test(avisoCorto), "OV: un enlace corto de la app no sale como error: avisa de que se completa al guardar");
     await p.locator("#servicios-video-titulo-2").fill("Cambio de pasta térmica");
     await p.locator("#servicios-videos").getByText("Guardar vídeos").click();
     await p.waitForTimeout(1000);
     const vids = (estado.ajustesGuardados ?? []).at(-1)?.videos_servicios ?? [];
     ok(vids.length === 3 && vids[2].titulo === "Cambio de pasta térmica" && !("titulo" in vids[1]), `OV: guarda los vídeos con su título (${JSON.stringify(vids).slice(0, 160)})`);
+    ok(
+      pedidos[0] === "https://vm.tiktok.com/ZMabc123/" && vids[2].url === "https://www.tiktok.com/@tienda/video/7400000000000000001",
+      `OV: el enlace corto se guarda ya como el largo del vídeo (${vids[2]?.url})`
+    );
     await p.locator("#servicios-videos").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "OV3-admin-videos");
 

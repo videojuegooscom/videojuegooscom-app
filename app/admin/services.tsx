@@ -77,7 +77,7 @@ import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
-import { enlaceVideo } from "../servicios";
+import { enlaceVideo, esEnlaceCorto } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
 import {
   AdminHeader,
@@ -414,17 +414,36 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
 
   async function guardar() {
     if (!filas || guardando) return;
-    const llenas = filas.filter((f) => f.url.trim() || f.titulo.trim());
+    setGuardando(true);
+    setAviso(null);
+    // Los enlaces cortos de las apps (vm.tiktok.com/…, instagram.com/share/…) se cambian por el largo, que lleva el
+    // número del vídeo (api/video-enlace.ts).
+    const llenas = await Promise.all(
+      filas
+        .filter((f) => f.url.trim() || f.titulo.trim())
+        .map(async (f) => {
+          if (!esEnlaceCorto(f.url)) return { ...f, url: f.url.trim() };
+          try {
+            const r = await fetch(`/api/video-enlace?url=${encodeURIComponent(f.url.trim())}`);
+            const largo = r.ok ? String(((await r.json()) as { url?: string }).url ?? "") : "";
+            return enlaceVideo(largo) ? { ...f, url: largo } : f;
+          } catch {
+            return f;
+          }
+        })
+    );
     const mala = llenas.findIndex((f) => !enlaceVideo(f.url));
     if (mala >= 0) {
+      setFilas(llenas);
+      setGuardando(false);
       setAviso({
         tono: "warning",
-        texto: `El vídeo ${mala + 1} no es un enlace de Instagram (reel o publicación) ni de TikTok (…/video/número). Cópialo desde «Compartir → Copiar enlace».`,
+        texto: esEnlaceCorto(llenas[mala].url)
+          ? `No hemos podido abrir el enlace corto del vídeo ${mala + 1}. Ábrelo en el navegador y copia la dirección completa (con /reel/… o /video/número).`
+          : `El vídeo ${mala + 1} no es un enlace de Instagram (reel o publicación) ni de TikTok (vídeo). Cópialo desde «Compartir → Copiar enlace».`,
       });
       return;
     }
-    setGuardando(true);
-    setAviso(null);
     const videos = llenas.map((f) => ({ url: f.url.trim(), ...(f.titulo.trim() ? { titulo: f.titulo.trim() } : null) }));
     const { error } = await supabase.from("site_settings").update({ videos_servicios: videos }).eq("id", 1);
     setGuardando(false);
@@ -470,13 +489,14 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
         <>
           {filas.map((f, i) => {
             const enlace = f.url.trim() ? enlaceVideo(f.url) : null;
+            const corto = esEnlaceCorto(f.url);
             return (
               <View key={i} style={{ gap: 6, padding: 10, borderRadius: 14, backgroundColor: COLORS.cardSoft }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Ionicons
                     name={enlace ? (enlace.plataforma === "Instagram" ? "logo-instagram" : "logo-tiktok") : "videocam-outline"}
                     size={20}
-                    color={f.url.trim() && !enlace ? COLORS.danger : COLORS.text}
+                    color={f.url.trim() && !enlace && !corto ? COLORS.danger : COLORS.text}
                   />
                   <TextInput
                     nativeID={`servicios-video-url-${i}`}
@@ -504,7 +524,9 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
                   maxLength={80}
                   style={{ ...estiloCampo, textAlign: "center" }}
                 />
-                {f.url.trim() && !enlace ? (
+                {corto ? (
+                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>Enlace corto de la app: al guardar se cambia por el completo.</Text>
+                ) : f.url.trim() && !enlace ? (
                   <Text style={{ color: COLORS.danger, fontSize: 12, textAlign: "center" }}>Este enlace no es de un vídeo de Instagram o TikTok.</Text>
                 ) : null}
               </View>
