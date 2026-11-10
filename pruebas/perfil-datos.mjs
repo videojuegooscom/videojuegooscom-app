@@ -8728,7 +8728,7 @@ async function seccionFA() {
   const PEDIDOS = [
     pedidoCliente(51, pagado), // con factura
     pedidoCliente(52, pagado), // pagado, aún sin factura
-    pedidoCliente(53, { estado: "pendiente" }), // sin pagar: nada
+    pedidoCliente(53, { estado: "pendiente" }), // sin pagar: «Factura» sin botón
     pedidoCliente(54, { estado: "entregado" }), // entregado (cuenta como pagado), aún sin factura
   ];
   const FACTURAS = [{ pedido_id: idDe(51), numero_factura: "F-2026-0012", pdf_path: `${idDe(51)}/f1.pdf`, fecha: "2026-11-09", recibida_en: "2026-11-09T09:00:00Z" }];
@@ -8799,7 +8799,10 @@ async function seccionFA() {
     await p.getByText("Pedido nº 51", { exact: false }).first().waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(800);
     ok((await p.getByText("Pedido nº 51", { exact: false }).count()) >= 1 && (estado.consultasFacturas ?? 0) >= 1, `FA: sin la tabla, «Mis pedidos» sale igual (consultas a facturas: ${estado.consultasFacturas ?? 0})`);
-    ok((await p.locator('[id^="seguimiento-factura"]').count()) === 0, "FA: y no enseña nada de facturas");
+    ok(
+      (await p.locator('[id^="seguimiento-factura-espera-"]').count()) === 4 && (await p.locator('[id^="seguimiento-factura-5"]').count()) === 0,
+      "FA: y cada pedido enseña su apartado «Factura», sin botón de descarga"
+    );
     ok(p.errores.length === 0, `FA: sin la tabla, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
