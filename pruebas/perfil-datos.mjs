@@ -1349,8 +1349,19 @@ async function seccionP() {
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.getByText("Reparaciones y Mantenimientos").first().waitFor({ timeout: 30000 }).catch(() => {});
+    // Móvil (dueño, 2026-11-10): UN solo «¿Te hemos dado un número de seguimiento?», arriba y plegado; se abre al tocarlo.
     const campos = p.getByLabel("Número de seguimiento", { exact: true });
-    ok((await campos.count()) === 2, `P: en «Mis pedidos» y en «Reparaciones y Mantenimientos» sale «¿Te hemos dado un número de seguimiento?» (${await campos.count()} campos)`);
+    const abrir = p.locator("#seguimiento-anadir-abrir");
+    const plegado = { abrir: await abrir.count(), campos: await campos.count(), alto: Math.round((await abrir.boundingBox().catch(() => null))?.height ?? 0) };
+    const arriba = await p.evaluate(() => {
+      const a = document.querySelector("#seguimiento-anadir-abrir")?.getBoundingClientRect().top ?? 9999;
+      const t = [...document.querySelectorAll("div")].find((d) => /^Mis pedidos/.test(d.innerText.trim()) && !d.querySelector("div"))?.getBoundingClientRect().top ?? 0;
+      return a < t;
+    });
+    ok(plegado.abrir === 1 && plegado.campos === 0 && plegado.alto >= 44 && arriba, `P: un solo «¿Te hemos dado un número de seguimiento?», plegado, arriba de «Mis pedidos» y de 44 px (${JSON.stringify(plegado)}, arriba: ${arriba})`);
+    await abrir.click();
+    await campos.first().waitFor({ timeout: 5000 }).catch(() => {});
+    ok((await campos.count()) === 1, `P: al tocarlo sale el campo (${await campos.count()})`);
     const altos = await campos.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
     ok(altos.every((h) => h >= 44), `P: los campos se tocan bien, de 44 px o más (${altos.join(", ")})`);
     const botones = p.getByRole("button", { name: "Añadir el número de seguimiento" });
@@ -1358,7 +1369,7 @@ async function seccionP() {
     ok((await botones.first().getAttribute("aria-disabled")) === "true", "P: con algo que no es un número, «Añadir» no se puede pulsar");
     await capturar(p, "P1-mis-seguimientos");
 
-    // La reparación de VeoAura, escrita en minúsculas y con espacios en el campo de «Mis pedidos».
+    // La reparación de VeoAura, escrita en minúsculas y con espacios.
     await campos.first().fill("vz 7k3m 9qpd");
     await botones.first().click();
     await p.getByText(/Listo: «Reparación de mando PS5» ya está en «Reparaciones y Mantenimientos»\./).waitFor({ timeout: 10000 }).catch(() => {});
@@ -1368,9 +1379,9 @@ async function seccionP() {
     ok(/Reparación de mando PS5/.test(t1) && t1.includes(`Nº de seguimiento ${COD_REP}`) && /Cambiamos el joystick izquierdo/.test(t1), "P: la reparación aparece en la lista con su número y la nota del taller");
     ok(estado.numeros.reparaciones[0].customer_user_id === CLIENTE.id && estado.vinculaciones?.[0] === "VZ 7K3M 9QPD", `P: se manda tal cual lo escribió (la base de datos lo normaliza) (${estado.vinculaciones?.[0]})`);
 
-    // El pedido, en el campo de «Reparaciones y Mantenimientos» (da igual dónde se escriba).
-    await campos.nth(1).fill(COD_PED);
-    await botones.nth(1).click();
+    // El pedido, en el mismo campo (el número dice si es pedido o reparación).
+    await campos.first().fill(COD_PED);
+    await botones.first().click();
     await p.getByText("Listo: el pedido nº 31 ya está en «Mis pedidos».").waitFor({ timeout: 10000 }).catch(() => {});
     // La lista se vuelve a cargar justo después del «Listo»: se espera a que el pedido ya esté en ella.
     await p.getByText(`Nº de seguimiento ${COD_PED}`).waitFor({ timeout: 10000 }).catch(() => {});
@@ -1399,7 +1410,12 @@ async function seccionP() {
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.getByText("Reparaciones y Mantenimientos").first().waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok((await p.getByLabel("Número de seguimiento", { exact: true }).count()) === 0 && (await p.getByText("Mis pedidos").count()) >= 1, "P: sin la migración no sale el campo y «Mis seguimientos» funciona igual");
+    ok(
+      (await p.getByLabel("Número de seguimiento", { exact: true }).count()) === 0 &&
+        (await p.locator("#seguimiento-anadir-abrir").count()) === 0 &&
+        (await p.getByText(/^Mis pedidos/).count()) >= 1,
+      "P: sin la migración no sale el campo y «Mis seguimientos» funciona igual"
+    );
     ok(p.errores.length === 0, `P: sin errores de JavaScript sin la migración (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -1545,7 +1561,7 @@ async function seccionR() {
     await caso("deslizar a la derecha sobre la tarjeta de una reparación", "cuenta", async () => dedo(await sobre(p.getByText("Reparación de mando PS5").first(), 90), 200, -4));
     await caso("deslizar a la izquierda sobre «Cerrar sesión» (sin cerrar la sesión)", "seguimientos", async () => dedo(await sobre(salir, 300), -200, 2));
     ok(estado.salio !== true, "R: deslizar sobre «Cerrar sesión» no la cierra");
-    await caso("deslizar a la derecha sobre el campo del número de seguimiento", "cuenta", async () => dedo(await sobre(p.getByLabel("Número de seguimiento", { exact: true }).first(), 90), 200, 0));
+    await caso("deslizar a la derecha sobre «¿Te hemos dado un número de seguimiento?»", "cuenta", async () => dedo(await sobre(p.locator("#seguimiento-anadir-abrir"), 90), 200, 0));
     // Abierto: el dedo empieza encima de los campos (al volver a «Mi cuenta», el perfil completo sale plegado otra vez).
     await abrirPerfil(p);
     await caso("deslizar a la izquierda sobre el campo del nombre", "seguimientos", async () => dedo(await sobre(p.locator('#perfil-datos [aria-label="Nombre"]').first(), 300), -200, 3));
@@ -8863,11 +8879,20 @@ async function seccionFA() {
 
   // FA5) Analítica: las facturas descargadas.
   {
-    const estado = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Pedidos: factura descargada", sessions: 3 }] };
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Pedidos: factura descargada", sessions: 3 },
+        { step_label: "Perfil: abre «añadir número de seguimiento»", sessions: 5 },
+        { step_label: "Perfil: número de seguimiento añadido", sessions: 2 },
+      ],
+    };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/analytics");
     await p.locator("#analitica-facturas").waitFor({ timeout: 40000 }).catch(() => {});
     ok(/Facturas descargadas desde «Mis pedidos»: 3 sesiones/.test(await texto(p, "#analitica-facturas")), `FA: Analítica cuenta las facturas descargadas (${await texto(p, "#analitica-facturas")})`);
+    ok(/lo abren 5 → lo añaden 2/.test(await texto(p, "#analitica-facturas")), `FA: y cuántos abren «¿Te hemos dado un número de seguimiento?» y cuántos lo añaden (${await texto(p, "#analitica-facturas")})`);
     await p.locator("#analitica-facturas").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "FA5-analitica-facturas");
     await ctx.close();

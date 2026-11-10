@@ -635,6 +635,9 @@ export default function AdminAnalytics() {
       meGustaServicio: findExact("Servicio: me gusta"),
       // Facturas de VeoAura descargadas por los clientes en «Mis pedidos» (app/(tabs)/perfil.tsx).
       facturaDescargada: findExact("Pedidos: factura descargada"),
+      // «Mis seguimientos» en el móvil (2026-11-10): el campo del número va plegado; cuántos lo abren y cuántos lo añaden.
+      numeroAbierto: findExact("Perfil: abre «añadir número de seguimiento»"),
+      numeroAnadido: findExact("Perfil: número de seguimiento añadido"),
       // Reseñas de servicios terminados: «Valorar el servicio» en «Mis seguimientos» y las publicadas.
       resenaServicioPedida: findExact("Seguimientos: valorar el servicio"),
       resenaServicioPublicada: findExact("Reseña de servicio publicada"),
@@ -1189,7 +1192,8 @@ export default function AdminAnalytics() {
                   >
                     <Ionicons name="document-text-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
-                      Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"}
+                      Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"} ·
+                      «¿Te hemos dado un número de seguimiento?»: lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido}
                     </Text>
                   </View>
                   <View

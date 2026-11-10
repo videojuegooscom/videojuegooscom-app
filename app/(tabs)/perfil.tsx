@@ -1618,7 +1618,11 @@ const MOTIVOS_SEGUIMIENTO: Record<string, string> = {
   sin_sesion: "Inicia sesión para añadirlo.",
 };
 
+// Uno solo para pedidos y reparaciones (el número dice qué es) y PLEGADO: en el móvil ya no ocupa la pantalla dos veces
+// (dueño, 2026-11-10: «mejorar esta pestaña para la versión móvil»). Se abre tocando «¿Te hemos dado un número de
+// seguimiento?» (icono y texto, sin burbuja).
 function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
+  const [abierto, setAbierto] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -1655,9 +1659,29 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
     }
   }
 
+  if (!abierto) {
+    return (
+      <Pressable
+        nativeID="seguimiento-anadir-abrir"
+        onPress={() => {
+          setAbierto(true);
+          // Administración → Analítica (embudo): cuántos abren el campo frente a cuántos lo añaden.
+          trackEvent("seguimiento_numero_abierto", "Perfil: abre «añadir número de seguimiento»");
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="¿Te hemos dado un número de seguimiento? Añádelo"
+        hitSlop={6}
+        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Ionicons name="add-circle-outline" size={18} color={SEG.accentDark} />
+        <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>¿Te hemos dado un número de seguimiento?</Text>
+      </Pressable>
+    );
+  }
+
   return (
-    <View style={{ width: "100%", maxWidth: 460, gap: 8, alignItems: "center" }}>
-      <Text style={{ color: SEG.muted, fontSize: 13.5, textAlign: "center" }}>¿Te hemos dado un número de seguimiento? Escríbelo aquí.</Text>
+    <View nativeID="seguimiento-anadir" style={{ width: "100%", maxWidth: 460, gap: 8, alignItems: "center" }}>
+      <Text style={{ color: SEG.muted, fontSize: 13.5, textAlign: "center" }}>Escríbelo aquí: vale para un pedido o una reparación.</Text>
       <View style={{ flexDirection: "row", gap: 8, width: "100%" }}>
         <TextInput
           value={codigo}
@@ -1714,10 +1738,14 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
   );
 }
 
-// El número de seguimiento de cada pedido o reparación (para dárselo a la tienda si pregunta por él).
-function NumeroSeguimiento({ codigo }: { codigo?: string | null }) {
-  if (!codigo) return null;
-  return <Text style={{ color: SEG.mutedSoft, fontSize: 12, fontWeight: "800", letterSpacing: 0.5 }}>Nº de seguimiento {codigo}</Text>;
+// Lo secundario de cada pedido o reparación en UNA línea discreta: la entrega y el número de seguimiento (para dárselo a
+// la tienda si pregunta por él). «Envío a domicilio · Nº de seguimiento VZ-…».
+function DatosDelSeguimiento({ entrega, codigo }: { entrega: string | null; codigo?: string | null }) {
+  const partes = [entrega, codigo ? `Nº de seguimiento ${codigo}` : null].filter(Boolean);
+  if (!partes.length) return null;
+  return (
+    <Text style={{ color: SEG.mutedSoft, fontSize: 12, fontWeight: "800", letterSpacing: 0.3, textAlign: "center" }}>{partes.join(" · ")}</Text>
+  );
 }
 
 function segFecha(iso: string | null) {
@@ -2144,11 +2172,13 @@ function SeguimientosSeccion() {
   if (!conSesion) return null;
 
   return (
-    <View style={{ gap: 40, alignItems: "center" }}>
+    // Móvil (dueño, 2026-11-10): un solo «¿Te hemos dado un número de seguimiento?» arriba y plegado; en cada pedido,
+    // primero lo que compraste y su estado, luego pago y factura, y entrega y número de seguimiento en una línea.
+    <View style={{ gap: 32, alignItems: "center" }}>
+      {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
       {pedidos !== null ? (
         <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
-          <SegTitulo>Mis pedidos</SegTitulo>
-          {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
+          <SegTitulo>Mis pedidos{pedidos.length ? ` (${pedidos.length})` : ""}</SegTitulo>
           {pedidos.length === 0 ? (
             <SegVacio
               cual="tienda"
@@ -2165,23 +2195,21 @@ function SeguimientosSeccion() {
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
-                <PagoDelPedido p={p} />
-                <FacturaDelPedido p={p} facturasOk={facturasOk} />
-                <NumeroSeguimiento codigo={p.codigo_seguimiento} />
                 {p.items.length ? (
-                  <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 19, maxWidth: 460 }}>
+                  <Text style={{ color: SEG.text, fontSize: 14.5, textAlign: "center", lineHeight: 20, maxWidth: 460 }}>
                     {p.items.join(" · ")}
-                  </Text>
-                ) : null}
-                {p.entrega ? (
-                  <Text style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center" }}>
-                    {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                   </Text>
                 ) : null}
                 <LineaProgreso
                   etiquetas={etiquetasPedido(p.entrega)}
                   actual={Math.max(0, ETAPAS_PEDIDO.indexOf(p.estado))}
                   cancelado={p.estado === "cancelado"}
+                />
+                <PagoDelPedido p={p} />
+                <FacturaDelPedido p={p} facturasOk={facturasOk} />
+                <DatosDelSeguimiento
+                  entrega={p.entrega ? (p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio") : null}
+                  codigo={p.codigo_seguimiento}
                 />
                 <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${p.numero ?? ""}`)} />
               </View>
@@ -2191,8 +2219,7 @@ function SeguimientosSeccion() {
       ) : null}
 
       <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
-        <SegTitulo>Reparaciones y Mantenimientos</SegTitulo>
-        {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
+        <SegTitulo>Reparaciones y Mantenimientos{reparaciones.length ? ` (${reparaciones.length})` : ""}</SegTitulo>
         {reparaciones.length === 0 ? (
           <SegVacio
             cual="taller"
@@ -2207,7 +2234,6 @@ function SeguimientosSeccion() {
               <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
                 {r.service_title} · {segFecha(r.created_at)}
               </Text>
-              <NumeroSeguimiento codigo={r.codigo_seguimiento} />
               <LineaProgreso
                 etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_REPARACION[e])}
                 actual={Math.max(0, ETAPAS_REPARACION.indexOf(r.seguimiento))}
@@ -2248,6 +2274,7 @@ function SeguimientosSeccion() {
                   </Pressable>
                 )
               ) : null}
+              <DatosDelSeguimiento entrega={null} codigo={r.codigo_seguimiento} />
               <PreguntarBoton onPress={() => router.push(`/blue-ia?reparacion=${r.id}`)} />
             </View>
           ))
