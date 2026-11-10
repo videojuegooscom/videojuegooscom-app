@@ -2044,6 +2044,23 @@ try {
     const terminosIgual = (await c39.query("select sections::text as t from public.policy_pages where slug = 'terminos'")).rows[0].t;
     ok(!/pagas con tarjeta o te lo entregamos/.test(terminosIgual), "VeoAura y la tarjeta: los términos no se tocan");
 
+    // Factura de VeoAura en «Mis pedidos» (20261110110000): la frase va justo después de «No le pasamos tu dirección ni
+    // otros datos.», una sola vez aunque se aplique dos veces; lo demás igual; sin esa frase no toca nada.
+    const FACT_V = readFileSync("supabase/migrations/20261110110000_privacidad_facturas_veoaura.sql", "utf8");
+    await c39.query(`update public.policy_pages set sections = jsonb_set(sections, '{2,body}', to_jsonb((sections -> 2 ->> 'body') || $1::text)) where slug = 'privacidad'`, [" No le pasamos tu dirección ni otros datos."]);
+    await c39.query(FACT_V);
+    await c39.query(FACT_V);
+    const conQuienF = (await c39.query("select sections -> 2 ->> 'body' as b from public.policy_pages where slug = 'privacidad'")).rows[0].b;
+    ok(
+      (conQuienF.match(/VeoAura emite la factura de tu compra/g) ?? []).length === 1 &&
+        /ni otros datos\. Con esos datos, VeoAura emite la factura/.test(conQuienF) &&
+        /descargarla en «Mis pedidos»/.test(conQuienF) &&
+        /Stripe Payments Europe/.test(conQuienF),
+      "Factura de VeoAura: la privacidad la explica una sola vez (aplicada dos veces), en su sitio, y lo demás sigue igual"
+    );
+    const terminosF = (await c39.query("select sections::text as t from public.policy_pages where slug = 'terminos'")).rows[0].t;
+    ok(!/VeoAura emite la factura/.test(terminosF), "Factura de VeoAura: los términos no se tocan");
+
     // Klarna y envíos (20261106150000): Klarna en la privacidad una vez; en los términos, sin «checkout de la app» y con
     // Klarna; envíos con las entregas reales, solo donde sigue el texto antiguo (lo editado por el dueño se queda).
     const KLARNA = readFileSync("supabase/migrations/20261106150000_politicas_klarna_envios.sql", "utf8");
