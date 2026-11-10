@@ -32,13 +32,17 @@
  * - Botones «Devolver el pago» y «Cancelar pedido» (dueño, 2026-11-06), con un segundo toque para confirmar. Devolver
  *   llama a api/pago.ts (solo el administrador; Stripe devuelve el pago entero una sola vez) y se ve «Devuelto · importe
  *   · fecha» (migración 20261106100000; sin ella no se ofrece). Un cancelado pagado sin devolver sigue en «En curso».
+ * - Facturas (dueño, 2026-11-10; las emite VeoAura y llegan por api/escaparate-veoaura.ts, evento «factura»; migración
+ *   20261110100000, tabla pedido_facturas): cada pedido enseña su número de factura y «Descargar» (api/factura.ts, la
+ *   misma que usa el cliente en «Mis pedidos»), «PDF pendiente» o «Sin factura»; recuento arriba y filtro «Factura:
+ *   todas / con factura / sin factura». Sin la migración, no se enseña.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { openExternalLink } from "../../lib/openExternalLink";
+import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 import { cargarTarifas, fmtKg, type ZonaEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -207,6 +211,11 @@ export default function PedidosAdmin() {
   // Envío escrito a mano en cada pedido (texto, con coma) y el pedido que se está guardando.
   const [envioEscrito, setEnvioEscrito] = useState<Record<string, string>>({});
   const [envioMsg, setEnvioMsg] = useState<{ id: string; tipo: "ok" | "error"; texto: string } | null>(null);
+  // Facturas de VeoAura (migración 20261110100000): false = la tabla aún no existe, no se enseñan. Por pedido, la última.
+  const [facturasOk, setFacturasOk] = useState(false);
+  const [facturas, setFacturas] = useState<Record<string, { numero_factura: string | null; pdf: boolean }>>({});
+  const [filtroFactura, setFiltroFactura] = useState<"todas" | "con" | "sin">("todas");
+  const [facturaMsg, setFacturaMsg] = useState<{ id: string; texto: string } | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -252,6 +261,25 @@ export default function PedidosAdmin() {
     } else {
       const lista = (data ?? []) as unknown as Pedido[];
       setPedidos(lista);
+      // Facturas de VeoAura de estos pedidos (consulta aparte; sin la tabla, no se enseñan y no falla nada).
+      if (lista.length) {
+        const fac = await supabase
+          .from("pedido_facturas")
+          .select("pedido_id,numero_factura,pdf_path,fecha,recibida_en")
+          .in("pedido_id", lista.map((p) => p.id));
+        if (fac.error) {
+          setFacturasOk(false);
+          setFacturas({});
+        } else {
+          const porPedido: Record<string, { numero_factura: string | null; pdf: boolean; orden: string }> = {};
+          for (const f of (fac.data ?? []) as { pedido_id: string; numero_factura: string | null; pdf_path: string | null; fecha: string | null; recibida_en: string | null }[]) {
+            const orden = `${f.fecha ?? ""}|${f.recibida_en ?? ""}`;
+            if (!porPedido[f.pedido_id] || orden > porPedido[f.pedido_id].orden) porPedido[f.pedido_id] = { numero_factura: f.numero_factura, pdf: !!f.pdf_path, orden };
+          }
+          setFacturasOk(true);
+          setFacturas(Object.fromEntries(Object.entries(porPedido).map(([k, v]) => [k, { numero_factura: v.numero_factura, pdf: v.pdf }])));
+        }
+      }
       // Peso de cada pedido (envío por kilos, migración 20261107120000): consulta aparte; sin la columna, no se enseña.
       if (conEnvio && lista.length) {
         supabase
@@ -272,7 +300,27 @@ export default function PedidosAdmin() {
     cargar();
   }, [cargar]);
 
-  const visibles = useMemo(() => {
+  // Facturas: cuántos pedidos la tienen (y de ellas, cuántas con el PDF aún pendiente) y cuántos no.
+  const resumenFacturas = useMemo(() => {
+    const con = pedidos.filter((p) => !!facturas[p.id]);
+    return { con: con.length, pdfPendiente: con.filter((p) => !facturas[p.id].pdf).length, sin: pedidos.length - con.length };
+  }, [pedidos, facturas]);
+
+  // «Descargar» la factura de un pedido: la misma API que usa el cliente (api/factura.ts), con la sesión del administrador.
+  async function descargarFactura(p: Pedido) {
+    setFacturaMsg(null);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const r = await fetch(`/api/factura?pedido=${encodeURIComponent(p.id)}`, { headers: { Authorization: `Bearer ${s.session?.access_token ?? ""}` } });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
+      if (r.ok && d?.ok && d.url) abrirDescarga(d.url);
+      else setFacturaMsg({ id: p.id, texto: r.status === 409 ? "El PDF aún está llegando de VeoAura: prueba en unos minutos." : `No se pudo descargar: ${d?.error ?? "sin respuesta del servidor"}.` });
+    } catch {
+      setFacturaMsg({ id: p.id, texto: "No se pudo descargar: sin conexión." });
+    }
+  }
+
+  const visiblesPorEstado = useMemo(() => {
     if (filtro === "todos") return pedidos;
     // En curso: también los cancelados que siguen pagados con tarjeta sin devolver (falta devolver el pago).
     if (filtro === "activos") {
@@ -284,6 +332,12 @@ export default function PedidosAdmin() {
     if (filtro === "pago_sin_terminar") return pedidos.filter((p) => p.pago_estado === "iniciado");
     return pedidos.filter((p) => p.estado === filtro);
   }, [pedidos, filtro]);
+
+  // Filtro «Factura: todas / con factura / sin factura», que se suma al de arriba.
+  const visibles = useMemo(() => {
+    if (!facturasOk || filtroFactura === "todas") return visiblesPorEstado;
+    return visiblesPorEstado.filter((p) => (filtroFactura === "con" ? !!facturas[p.id] : !facturas[p.id]));
+  }, [visiblesPorEstado, facturas, facturasOk, filtroFactura]);
 
   // Pago con tarjeta: cuántos pedidos se han pagado (y cuánto), cuántos se empezaron sin terminar, cuántos fueron de
   // prueba y cuántos pagados están cancelados o con otro total (hay que devolver la diferencia desde Stripe).
@@ -528,6 +582,45 @@ export default function PedidosAdmin() {
             })}
           </View>
 
+          {/* Facturas (las emite VeoAura): recuento y filtro, que se suma al de arriba. */}
+          {facturasOk && !loading ? (
+            <View nativeID="pedidos-facturas" style={{ alignItems: "center", gap: 8 }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Facturas de VeoAura · con factura: {resumenFacturas.con}
+                {resumenFacturas.pdfPendiente ? ` (PDF pendiente: ${resumenFacturas.pdfPendiente})` : ""} · sin factura: {resumenFacturas.sin}
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 8 }}>
+                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>Factura:</Text>
+                {(
+                  [
+                    { value: "todas", label: "Todas" },
+                    { value: "con", label: `Con factura (${resumenFacturas.con})` },
+                    { value: "sin", label: `Sin factura (${resumenFacturas.sin})` },
+                  ] as const
+                ).map((c) => {
+                  const activo = filtroFactura === c.value;
+                  return (
+                    <Pressable
+                      key={c.value}
+                      nativeID={`pedidos-filtro-factura-${c.value}`}
+                      onPress={() => setFiltroFactura(c.value)}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 12,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: activo ? COLORS.accent : COLORS.border,
+                        backgroundColor: activo ? COLORS.accent2 : "#FFFFFF",
+                      }}
+                    >
+                      <Text style={{ color: activo ? COLORS.accentDark : COLORS.text, fontWeight: "800", fontSize: 13 }}>{c.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
           {err ? (
             <Text style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center" }}>{err}</Text>
           ) : null}
@@ -605,6 +698,33 @@ export default function PedidosAdmin() {
                         <Ionicons name="open-outline" size={16} color={COLORS.accent} />
                         <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Ver el pago en Stripe</Text>
                       </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* Factura de VeoAura: número y «Descargar», «PDF pendiente» o «Sin factura». Texto con su icono, sin burbuja. */}
+                {facturasOk ? (
+                  <View nativeID={`pedido-factura-${p.numero}`} style={{ alignItems: "center", gap: 2 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Ionicons name="document-text-outline" size={16} color={facturas[p.id] ? COLORS.text : COLORS.muted} />
+                      <Text style={{ color: facturas[p.id] ? COLORS.text : COLORS.muted, fontWeight: "800", textAlign: "center" }}>
+                        {facturas[p.id] ? `Factura ${facturas[p.id].numero_factura ?? ""}${facturas[p.id].pdf ? "" : " · PDF pendiente"}` : "Sin factura"}
+                      </Text>
+                      {facturas[p.id]?.pdf ? (
+                        <Pressable
+                          nativeID={`pedido-factura-descargar-${p.numero}`}
+                          onPress={() => descargarFactura(p)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Descargar la factura del pedido ${p.numero}`}
+                          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
+                        >
+                          <Ionicons name="download-outline" size={16} color={COLORS.accent} />
+                          <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Descargar</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    {facturaMsg?.id === p.id ? (
+                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>{facturaMsg.texto}</Text>
                     ) : null}
                   </View>
                 ) : null}

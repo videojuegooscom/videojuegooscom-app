@@ -191,7 +191,13 @@
  *    publicar o con un enlace mal, «Ver noticias»; el índice /noticias (h1, enlaces, chips, abrir una); «Noticias» en el
  *    pie; «Abrir la noticia» en el Foro; y su tarjeta en Administración → Analítica.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW]
+ *  - FA) Facturas de VeoAura (2026-11-10): en «Mis pedidos», «Descargar factura <número>» en el pedido con factura, que
+ *    pide /api/factura (simulada) con la sesión y el pedido correcto y descarga el PDF sin salir de la tienda (y lo cuenta
+ *    la analítica); en un pedido pagado sin factura, «La factura estará disponible aquí en cuanto se emita»; sin la
+ *    tabla (migración sin aplicar) no sale nada y no falla; Administración → Pedidos enseña el número, «PDF pendiente»
+ *    o «Sin factura», el recuento, el filtro y «Descargar»; Analítica las cuenta.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
  * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
@@ -200,7 +206,7 @@
  * horario del equipo en Blue IA).
  * Requisitos: playwright-core y npm run build hecho.
  * Conectado con: Mi cuenta, Perfil, Foro, la ficha, las noticias (app/noticias/) y Administración en la tienda compilada (dist); simula /api/pago,
- *   /api/asignar-seguimiento, /api/interaccion y /api/escaparate-retorno; pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
+ *   /api/factura, /api/asignar-seguimiento, /api/interaccion y /api/escaparate-retorno; pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
@@ -459,6 +465,31 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.asignaciones = [...(estado.asignaciones ?? []), { cuerpo, auth: peticion.headers()["authorization"] ?? "" }];
       const resp = estado.asignar(cuerpo);
       return r.fulfill({ status: resp.status ?? 200, contentType: "application/json", body: JSON.stringify(resp.cuerpo) });
+    }
+    // Facturas de VeoAura (sección FA): pedido_facturas como la base de datos (por pedido_id=in.(…)). Sin `estado.facturas`,
+    // la tabla no existe (migración sin aplicar): PGRST205, como Supabase. Se apunta cada consulta.
+    if (url.pathname.endsWith("/rest/v1/pedido_facturas")) {
+      estado.consultasFacturas = (estado.consultasFacturas ?? 0) + 1;
+      if (!estado.facturas) return json({ code: "PGRST205", message: "Could not find the table 'public.pedido_facturas' in the schema cache" }, 404);
+      const ids = url.searchParams.get("pedido_id") ?? "";
+      const lista = ids.startsWith("in.(") ? ids.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null;
+      return json(estado.facturas.filter((f) => !lista || lista.includes(f.pedido_id)));
+    }
+    // /api/factura (sección FA) como el servidor (api/factura.ts): con la factura y su PDF, un enlace firmado; con la fila
+    // sin PDF, 409; sin factura, 404. Se apunta el pedido pedido y la sesión con que se pide.
+    if (url.pathname === "/api/factura" && estado.facturas) {
+      const pedido = url.searchParams.get("pedido") ?? "";
+      estado.facturasPedidas = [...(estado.facturasPedidas ?? []), { pedido, auth: peticion.headers()["authorization"] ?? "" }];
+      const f = estado.facturas.find((x) => x.pedido_id === pedido);
+      if (!f) return json({ ok: false, error: "no hay factura todavía" }, 404);
+      if (!f.pdf_path) return json({ ok: false, error: "La factura está llegando, prueba en unos minutos" }, 409);
+      // (Sin «/storage/v1/object/» en la dirección: esas las sustituye por una foto falsa pruebas/sin-fotos-reales.mjs.)
+      return json({ ok: true, url: `https://descargas.ejemplo.invalid/firmado/facturas/${f.pdf_path}?token=firmado`, numero_factura: f.numero_factura });
+    }
+    // El enlace firmado de la factura: un PDF «para descargar» (nada sale a Internet). Se apunta que se ha bajado.
+    if (url.hostname === "descargas.ejemplo.invalid") {
+      estado.pdfsBajados = [...(estado.pdfsBajados ?? []), url.pathname];
+      return r.fulfill({ status: 200, contentType: "application/pdf", headers: { "content-disposition": 'attachment; filename="factura.pdf"' }, body: "%PDF-1.7\n%%EOF" });
     }
     // Pago con tarjeta (sección PT): /api/pago como el servidor (api/pago.ts), sin Stripe de verdad. Sin `estado.pago` no
     // existe (como en local): el pago sale como siempre, sin tarjeta. Se apunta lo que se le pide.
@@ -8680,6 +8711,150 @@ async function seccionNW() {
   }
 }
 
+// ===== FA) Facturas de VeoAura (dueño, 2026-11-10): «Descargar factura» en «Mis pedidos», el texto de espera, sin la
+// tabla no falla, Administración → Pedidos (número, «PDF pendiente», «Sin factura», recuento, filtro y «Descargar») y
+// Analítica (facturas descargadas) ==================================================================================
+async function seccionFA() {
+  // Sin los iconos (letras de la fuente de iconos, de uso privado).
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const idDe = (n) => `fa000000-0000-4000-8000-0000000000${n}`;
+  const pedidoCliente = (n, extra) => ({
+    id: idDe(n), numero: n, created_at: "2026-11-08T10:00:00Z", estado: "confirmado", entrega: "envio", total_eur: 106.9, user_id: CLIENTE.id,
+    codigo_seguimiento: `VZ-FACT-UR${n % 10}A`, vinculado_en: null, pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null,
+    devuelto_eur: null, devuelto_en: null, ...extra,
+  });
+  const pagado = { pago_estado: "pagado", pago_modo: "real", pagado_eur: 106.9, pagado_en: "2026-11-08T10:05:00Z" };
+  const PEDIDOS = [
+    pedidoCliente(51, pagado), // con factura
+    pedidoCliente(52, pagado), // pagado, aún sin factura
+    pedidoCliente(53, { estado: "pendiente" }), // sin pagar: nada
+    pedidoCliente(54, { estado: "entregado" }), // entregado (cuenta como pagado), aún sin factura
+  ];
+  const FACTURAS = [{ pedido_id: idDe(51), numero_factura: "F-2026-0012", pdf_path: `${idDe(51)}/f1.pdf`, fecha: "2026-11-09", recibida_en: "2026-11-09T09:00:00Z" }];
+  const estadoCliente = (extra) => ({ filas: PERFIL, guardados: [], aceptaAnalitica: true, numeros: { pedidos: PEDIDOS.map((x) => ({ ...x })), reparaciones: [], items: [] }, ...extra });
+
+  // FA1) «Mis pedidos»: botón en el pedido con factura; la descarga va a /api/factura con la sesión y ese pedido, baja el
+  // PDF sin salir de la tienda y lo cuenta la analítica. Sin factura en uno pagado o entregado, el texto de espera.
+  {
+    const estado = estadoCliente({ facturas: FACTURAS });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#seguimiento-factura-51").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((await texto(p, "#seguimiento-factura-51")) === "Descargar factura F-2026-0012", `FA: el pedido con factura enseña «Descargar factura F-2026-0012» (${await texto(p, "#seguimiento-factura-51")})`);
+    const espera = "La factura estará disponible aquí en cuanto se emita";
+    ok((await texto(p, "#seguimiento-factura-espera-52")) === espera && (await texto(p, "#seguimiento-factura-espera-54")) === espera, "FA: en un pedido pagado (o entregado) sin factura, el texto de espera");
+    ok((await p.locator("#seguimiento-factura-53, #seguimiento-factura-espera-53, #seguimiento-factura-espera-51, #seguimiento-factura-52").count()) === 0, "FA: un pedido sin pagar no enseña nada de facturas (ni el botón donde no hay factura)");
+    const urlAntes = p.url();
+    await p.locator("#seguimiento-factura-51").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "FA1-mis-pedidos-factura");
+    const [descarga] = await Promise.all([p.waitForEvent("download", { timeout: 10000 }).catch(() => null), p.locator("#seguimiento-factura-51").click()]);
+    for (let i = 0; i < 20 && !(estado.pdfsBajados ?? []).length; i++) await p.waitForTimeout(200);
+    const pedida = (estado.facturasPedidas ?? [])[0];
+    ok(pedida?.pedido === idDe(51) && /^Bearer \S+\.\S+\.\S+$/.test(pedida?.auth ?? "") && (estado.facturasPedidas ?? []).length === 1, `FA: la descarga pide /api/factura con la sesión (Authorization) y el pedido correcto (${JSON.stringify(pedida ?? null).slice(0, 120)})`);
+    ok(((estado.pdfsBajados ?? [])[0] ?? "").endsWith(`${idDe(51)}/f1.pdf`) && (!!descarga || (estado.pdfsBajados ?? []).length === 1), `FA: se baja el PDF del enlace firmado (${(estado.pdfsBajados ?? [])[0] ?? "nada"}; descarga: ${descarga ? descarga.suggestedFilename() : "sin evento"})`);
+    ok(p.url() === urlAntes, `FA: y la tienda no cambia de página (${p.url().replace(BASE, "")})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "factura_descargada"); i++) await p.waitForTimeout(300);
+    const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "factura_descargada");
+    ok(ev?.step_label === "Pedidos: factura descargada" && !/F-2026|fa000000|Ana|cliente@/.test(JSON.stringify(ev?.metadata ?? {})), `FA: la descarga se cuenta en la analítica, sin datos personales (${ev?.step_label ?? "nada"} ${JSON.stringify(ev?.metadata ?? {})})`);
+    ok(p.errores.length === 0, `FA: «Mis pedidos» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FA2) Con la fila y sin el PDF aún: avisa de que está llegando (409), sin romper nada.
+  {
+    const estado = estadoCliente({ facturas: [{ ...FACTURAS[0], pdf_path: null }] });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#seguimiento-factura-51").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator("#seguimiento-factura-51").click().catch(() => {});
+    await p.getByText("La factura está llegando, prueba en unos minutos.").waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.getByText("La factura está llegando, prueba en unos minutos.").count()) === 1 && !(estado.pdfsBajados ?? []).length, "FA: con el PDF aún en camino avisa «La factura está llegando, prueba en unos minutos.» y no descarga nada");
+    ok(p.errores.length === 0, `FA: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FA3) Sin la tabla (migración sin aplicar): «Mis pedidos» igual, sin nada de facturas y sin errores.
+  {
+    const estado = estadoCliente({});
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.getByText("Pedido nº 51", { exact: false }).first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await p.getByText("Pedido nº 51", { exact: false }).count()) >= 1 && (estado.consultasFacturas ?? 0) >= 1, `FA: sin la tabla, «Mis pedidos» sale igual (consultas a facturas: ${estado.consultasFacturas ?? 0})`);
+    ok((await p.locator('[id^="seguimiento-factura"]').count()) === 0, "FA: y no enseña nada de facturas");
+    ok(p.errores.length === 0, `FA: sin la tabla, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FA4) Administración → Pedidos: número de factura y «Descargar», «PDF pendiente» o «Sin factura»; recuento; filtro.
+  {
+    const ahora = new Date().toISOString();
+    const base = (numero, extra) => ({
+      id: idDe(numero), numero, created_at: ahora, estado: "pendiente", entrega: "recogida", nombre: "Ana", email: "ana@example.com",
+      telefono: "600111222", direccion: null, codigo_postal: null, ciudad: null, notas: null, total_eur: 106.9, productos_eur: 106.9, envio_eur: 0, zona_envio: "mano",
+      envio_manual: false, user_id: null, codigo_seguimiento: null, id_veoaura: null, vinculado_en: null, nota_admin: null, pedido_items: [],
+      pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, ...extra,
+    });
+    const estado = {
+      guardados: [],
+      tarifas: [],
+      pedidosAdmin: [base(61, {}), base(62, {}), base(63, {})],
+      facturas: [
+        { pedido_id: idDe(61), numero_factura: "F-2026-0020", pdf_path: `${idDe(61)}/f20.pdf`, fecha: "2026-11-09", recibida_en: ahora },
+        { pedido_id: idDe(62), numero_factura: "F-2026-0021", pdf_path: null, fecha: "2026-11-09", recibida_en: ahora },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedidos-facturas").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(/^Facturas de VeoAura · con factura: 2 \(PDF pendiente: 1\) · sin factura: 1/.test(await texto(p, "#pedidos-facturas")), `FA: Pedidos cuenta las facturas (${await texto(p, "#pedidos-facturas")})`);
+    ok((await texto(p, "#pedido-factura-61")) === "Factura F-2026-0020 Descargar", `FA: el pedido con factura enseña su número y «Descargar» (${await texto(p, "#pedido-factura-61")})`);
+    ok((await texto(p, "#pedido-factura-62")) === "Factura F-2026-0021 · PDF pendiente" && (await texto(p, "#pedido-factura-63")) === "Sin factura", `FA: «PDF pendiente» y «Sin factura» (${await texto(p, "#pedido-factura-62")} | ${await texto(p, "#pedido-factura-63")})`);
+    await capturar(p, "FA4-admin-pedidos-facturas");
+    const visibles = () => p.evaluate(() => [...document.querySelectorAll('[id^="pedido-factura-"]')].map((e) => e.id).filter((i) => /^pedido-factura-\d+$/.test(i)).join(","));
+    await p.locator("#pedidos-filtro-factura-con").click();
+    await p.waitForTimeout(300);
+    const con = await visibles();
+    await p.locator("#pedidos-filtro-factura-sin").click();
+    await p.waitForTimeout(300);
+    const sin = await visibles();
+    await p.locator("#pedidos-filtro-factura-todas").click();
+    await p.waitForTimeout(300);
+    const todas = await visibles();
+    ok(con === "pedido-factura-61,pedido-factura-62" && sin === "pedido-factura-63" && todas === "pedido-factura-61,pedido-factura-62,pedido-factura-63", `FA: el filtro «Factura: todas / con factura / sin factura» (${con} | ${sin} | ${todas})`);
+    await Promise.all([p.waitForEvent("download", { timeout: 10000 }).catch(() => null), p.locator("#pedido-factura-descargar-61").click()]);
+    for (let i = 0; i < 20 && !(estado.pdfsBajados ?? []).length; i++) await p.waitForTimeout(200);
+    const pedida = (estado.facturasPedidas ?? [])[0];
+    ok(pedida?.pedido === idDe(61) && /^Bearer \S+/.test(pedida?.auth ?? "") && ((estado.pdfsBajados ?? [])[0] ?? "").endsWith("f20.pdf"), `FA: «Descargar» usa la misma API con la sesión del administrador (${JSON.stringify(pedida ?? null).slice(0, 100)})`);
+    ok(p.errores.length === 0, `FA: Pedidos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+
+    // Sin la tabla: Pedidos sale igual y sin nada de facturas.
+    const estado2 = { guardados: [], tarifas: [], pedidosAdmin: [base(61, {})] };
+    const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
+    const p2 = await pagina(ctx2, "/admin/pedidos");
+    await p2.getByText(/Pedido nº 61/).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p2.waitForTimeout(500);
+    ok((await p2.getByText(/Pedido nº 61/).count()) >= 1 && (await p2.locator('#pedidos-facturas, [id^="pedido-factura-"]').count()) === 0 && p2.errores.length === 0, "FA: sin la tabla, Pedidos sale igual, sin facturas y sin errores");
+    await ctx2.close();
+  }
+
+  // FA5) Analítica: las facturas descargadas.
+  {
+    const estado = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Pedidos: factura descargada", sessions: 3 }] };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-facturas").waitFor({ timeout: 40000 }).catch(() => {});
+    ok(/Facturas descargadas desde «Mis pedidos»: 3 sesiones/.test(await texto(p, "#analitica-facturas")), `FA: Analítica cuenta las facturas descargadas (${await texto(p, "#analitica-facturas")})`);
+    await p.locator("#analitica-facturas").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "FA5-analitica-facturas");
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "N") await seccionN();
@@ -8725,6 +8900,7 @@ try {
   if (SOLO === "AT") await seccionAT();
   if (SOLO === "PT") await seccionPT();
   if (SOLO === "NW") await seccionNW();
+  if (SOLO === "FA") await seccionFA();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -9688,6 +9864,7 @@ try {
   await seccionAT();
   await seccionPT();
   await seccionNW();
+  await seccionFA();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -12,7 +12,7 @@
  *   3. |ahora − fecha| ≤ 300 s; si no → 401.
  *   4. HMAC-SHA256 de «fecha.nonce.cuerpo» con el secreto, comparado en tiempo constante → 401.
  *   5. Nonce no usado en los últimos 10 minutos (tabla public.escaparate_nonces) → 401.
- *   6. version = 1 y evento «publicar», «vendido», «retirar» o «seguimiento» → 400.
+ *   6. version = 1 y evento «publicar», «vendido», «retirar», «seguimiento» o «factura» → 400.
  *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// y como mucho 30 en orden (la
  *      primera es la portada; si llegan más se usan las 30 primeras, sin rechazar el mensaje) (texto
  *      guardado como texto plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
@@ -42,6 +42,23 @@
  *   numero_pedido (solo pedido) }. Cada envío con el mismo id_veoaura pone al día la etapa (y la nota o la entrega) sin
  *   duplicar ni cambiar el número. 409 si ese id_veoaura ya existe con el otro tipo; 503 si la tienda aún no tiene
  *   activado el seguimiento (migración 20261031170000 sin aplicar: reintentar más tarde).
+ *
+ * Evento «factura» (2026-11-10, ampliación del contrato; el mismo sobre firmado, version 1): la factura que VeoAura emite
+ * de un pedido de la tienda (la tienda NO numera ni emite facturas propias). El cliente la descarga en Perfil → «Mis
+ * pedidos» y el administrador en Administración → Pedidos. Cuerpo:
+ *   { version: 1, evento: "factura", id_veoaura: <uuid de la factura en VeoAura>, factura: {
+ *       numero_pedido: entero > 0 (el pedidos.numero que la tienda mandó en «pedido»),
+ *       numero_factura: texto ≤ 40 (como lo numera VeoAura, p. ej. «F-2026-0012»),
+ *       fecha: "AAAA-MM-DD",
+ *       total_eur: número ≥ 0,
+ *       pdf_url: enlace https temporal (≥ 10 min de validez, sin redirecciones) al PDF, ≤ 5 MB } }
+ *   Respuesta 200 { ok: true, id_tienda, numero_pedido } SOLO después de guardar la fila; 404 si no existe un pedido con
+ *   ese número; 400 si falta un campo o no es válido; 503 si la tienda aún no tiene activadas las facturas (migración
+ *   20261110100000 sin aplicar: reintentar más tarde). Un envío con el mismo id_veoaura pone al día la factura
+ *   (rectificada o reenviada) sin duplicarla. El PDF se descarga justo DESPUÉS de responder (waitUntil, con un
+ *   reintento): tiene que empezar por «%PDF» y pesar ≤ 5 MB; se guarda en el almacén PRIVADO «facturas»
+ *   (<pedido_id>/<id_veoaura>.pdf). Si no se puede, la factura queda «PDF pendiente» (pdf_path null) hasta que VeoAura
+ *   la reenvíe. El resultado se apunta en escaparate_registro («factura» y «factura_pdf»), sin datos personales.
  * Responder rápido: VeoAura espera como mucho 8 s. Se guarda el producto, se responde y las
  * fotos (enlaces temporales de 1 h) se descargan justo después, con waitUntil de Vercel (6 a la
  * vez, con un reintento). Cada «publicar» trae la lista COMPLETA de fotos y la galería queda
@@ -59,7 +76,9 @@
  * Conectado con: supabase/migrations/20261014140000_escaparate_veoaura.sql (id_veoaura,
  * vendido_en, nonces y registro), 20261014160000_escaparate_retirar.sql (retirado_en,
  * veoaura_envio), 20261015100000_escaparate_novedades_retorno.sql (novedad_en; el puente de
- * vuelta tienda → VeoAura está en api/escaparate-retorno.ts), products / product_media / categories de la tienda.
+ * vuelta tienda → VeoAura está en api/escaparate-retorno.ts), products / product_media / categories de la tienda;
+ * 20261110100000_facturas_veoaura.sql (pedido_facturas y el almacén privado «facturas», que leen api/factura.ts,
+ * app/(tabs)/perfil.tsx y app/admin/pedidos.tsx); pruebas/escaparate-fotos.mjs (fotos y facturas) y escaparate-registro.mjs.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -75,8 +94,14 @@ const BUCKET = "product-media";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIPOS_FOTO: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-type Evento = "publicar" | "vendido" | "retirar" | "seguimiento";
-const EVENTOS: Evento[] = ["publicar", "vendido", "retirar", "seguimiento"];
+type Evento = "publicar" | "vendido" | "retirar" | "seguimiento" | "factura";
+const EVENTOS: Evento[] = ["publicar", "vendido", "retirar", "seguimiento", "factura"];
+
+// «factura»: la factura que emite VeoAura de un pedido de la tienda. El PDF va al almacén PRIVADO «facturas».
+const BUCKET_FACTURAS = "facturas";
+const MAX_PDF = 5 * 1024 * 1024;
+
+type DatosFactura = { numeroPedido: number; numeroFactura: string; fecha: string; total: number; pdfUrl: string };
 
 // «seguimiento»: la ficha de un cliente creada en VeoAura (una reparación o mantenimiento, o un pedido). Las etapas son las
 // mismas que ve el cliente en Perfil → «Mis seguimientos».
@@ -737,6 +762,130 @@ async function guardarSeguimiento(supabase: SupabaseClient, idVeoaura: string, f
   return { idTienda: data.id, codigo: data.codigo_seguimiento, vinculado: false, numero: data.numero };
 }
 
+// --- factura: la factura de VeoAura de un pedido de la tienda ---------------------------------------------------------
+
+function validarFactura(f: any): DatosFactura {
+  if (!f || typeof f !== "object" || Array.isArray(f)) throw new Rechazo(400, "falta factura");
+  const numeroPedido = f.numero_pedido;
+  if (typeof numeroPedido !== "number" || !Number.isInteger(numeroPedido) || numeroPedido <= 0 || numeroPedido > 1e12) {
+    throw new Rechazo(400, "número de pedido no válido");
+  }
+  const numeroFactura = textoFicha(f.numero_factura, 40);
+  if (!numeroFactura) throw new Rechazo(400, "número de factura no válido");
+  const fecha = typeof f.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.fecha) ? f.fecha : null;
+  // Una fecha que existe de verdad (no «2026-02-31»).
+  if (!fecha || new Date(`${fecha}T00:00:00Z`).toISOString().slice(0, 10) !== fecha) throw new Rechazo(400, "fecha no válida");
+  const total = f.total_eur;
+  if (typeof total !== "number" || !Number.isFinite(total) || total < 0 || total > 1_000_000) throw new Rechazo(400, "total no válido");
+  const pdfUrl = f.pdf_url;
+  if (typeof pdfUrl !== "string" || pdfUrl.length > 2000 || !pdfUrl.startsWith("https://") || !urlFotoSegura(pdfUrl)) {
+    throw new Rechazo(400, "enlace del PDF no válido");
+  }
+  return { numeroPedido, numeroFactura, fecha, total: Math.round(total * 100) / 100, pdfUrl };
+}
+
+// ¿Falta la tabla de facturas? (la migración 20261110100000 aún no está aplicada)
+function faltaFacturas(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === "42P01" || error.code === "PGRST205" || /pedido_facturas/.test(String(error.message ?? "")));
+}
+
+type FacturaGuardada = { id: string; pedidoId: string; sello: string };
+
+// Guarda (o pone al día, por id_veoaura: nunca duplica) la fila de la factura. El PDF se descarga después de responder:
+// mientras tanto pdf_path queda en null («PDF pendiente»), también cuando VeoAura reenvía una factura rectificada.
+async function guardarFactura(supabase: SupabaseClient, idVeoaura: string, f: DatosFactura): Promise<FacturaGuardada> {
+  const { data: pedido, error: errPedido } = await supabase.from("pedidos").select("id").eq("numero", f.numeroPedido).maybeSingle<{ id: string }>();
+  if (errPedido) throw new Rechazo(500, "no se pudo leer el pedido");
+  if (!pedido) throw new Rechazo(404, "pedido no encontrado");
+  // El sello (actualizada_en) dice qué envío es el último: si llega otro mientras se descarga el PDF, el viejo no aplica.
+  const sello = new Date().toISOString();
+  const campos = {
+    pedido_id: pedido.id,
+    numero_factura: f.numeroFactura,
+    fecha: f.fecha,
+    total_eur: f.total,
+    pdf_path: null,
+    actualizada_en: sello,
+  };
+  const actualizar = () => supabase.from("pedido_facturas").update(campos).eq("id_veoaura", idVeoaura).select("id");
+  const { data: existentes, error: errBuscar } = await supabase.from("pedido_facturas").select("id").eq("id_veoaura", idVeoaura).limit(1);
+  if (faltaFacturas(errBuscar)) throw new Rechazo(503, "facturas aún no activadas en la tienda");
+  if (errBuscar) throw new Rechazo(500, "no se pudo leer la factura");
+  if ((existentes ?? []).length) {
+    const { data, error } = await actualizar();
+    if (error || !(data ?? []).length) throw new Rechazo(500, "no se pudo actualizar la factura");
+    return { id: (data as { id: string }[])[0].id, pedidoId: pedido.id, sello };
+  }
+  const { data, error } = await supabase.from("pedido_facturas").insert({ ...campos, id_veoaura: idVeoaura }).select("id").single<{ id: string }>();
+  if (faltaFacturas(error)) throw new Rechazo(503, "facturas aún no activadas en la tienda");
+  if (error || !data) {
+    // Dos envíos a la vez: el índice único lo impide; se pone al día la que ya se creó.
+    const { data: otra, error: errOtra } = await actualizar();
+    if (errOtra || !(otra ?? []).length) throw new Rechazo(500, "no se pudo guardar la factura");
+    return { id: (otra as { id: string }[])[0].id, pedidoId: pedido.id, sello };
+  }
+  return { id: data.id, pedidoId: pedido.id, sello };
+}
+
+// Descarga el PDF (enlace temporal de VeoAura): como mucho 5 MB, y tiene que empezar por «%PDF». Si no, null.
+async function descargarPdf(url: string): Promise<Uint8Array<ArrayBuffer> | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, redirect: "error" });
+    if (!r.ok || !r.body) return null;
+    if (Number(r.headers.get("content-length") ?? 0) > MAX_PDF) return null;
+    // Se lee por trozos y se corta en cuanto pase de 5 MB (aunque no diga su tamaño).
+    const lector = r.body.getReader();
+    const trozos: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_PDF) {
+        await lector.cancel().catch(() => {});
+        return null;
+      }
+      trozos.push(value);
+    }
+    const datos = new Uint8Array(total);
+    let pos = 0;
+    for (const x of trozos) {
+      datos.set(x, pos);
+      pos += x.length;
+    }
+    // «%PDF»: la firma de todo PDF.
+    if (datos.length < 5 || datos[0] !== 0x25 || datos[1] !== 0x50 || datos[2] !== 0x44 || datos[3] !== 0x46) return null;
+    return datos;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Se ejecuta DESPUÉS de responder a VeoAura: descarga el PDF (con un reintento), lo sube al almacén privado y apunta su
+// ruta, solo si este envío sigue siendo el último de esa factura. Devuelve un resumen para el registro.
+async function copiarFactura(supabase: SupabaseClient, g: FacturaGuardada, idVeoaura: string, pdfUrl: string): Promise<string> {
+  const pdf = (await descargarPdf(pdfUrl)) ?? (await descargarPdf(pdfUrl));
+  if (!pdf) throw new Error("PDF sin descargar: el enlace falló, no es un PDF o pasa de 5 MB (queda pendiente)");
+  const { data: vigente } = await supabase.from("pedido_facturas").select("actualizada_en").eq("id", g.id).maybeSingle<{ actualizada_en: string | null }>();
+  if (!vigente || new Date(vigente.actualizada_en ?? 0).getTime() !== new Date(g.sello).getTime()) return "descartado: llegó un envío más nuevo de la misma factura";
+  const ruta = `${g.pedidoId}/${idVeoaura}.pdf`;
+  const { error: errSubir } = await supabase.storage.from(BUCKET_FACTURAS).upload(ruta, pdf, { contentType: "application/pdf", upsert: true });
+  if (errSubir) throw new Error("no se pudo guardar el PDF (queda pendiente)");
+  const { data: aplicado, error } = await supabase
+    .from("pedido_facturas")
+    .update({ pdf_path: ruta })
+    .eq("id", g.id)
+    .eq("actualizada_en", g.sello)
+    .select("id");
+  if (error) throw new Error("no se pudo apuntar el PDF (queda pendiente)");
+  if (!(aplicado ?? []).length) return "descartado: llegó un envío más nuevo de la misma factura";
+  return `PDF guardado (${Math.max(1, Math.round(pdf.length / 1024))} KB)`;
+}
+
 // vendido: sin stock y no comprable. retirar: oculto (no se ve ni se compra), sin borrarlo.
 async function ocultar(supabase: SupabaseClient, idVeoaura: string, motivo: "vendido" | "retirar"): Promise<string | null> {
   const ahora = new Date().toISOString();
@@ -843,6 +992,26 @@ export default async function handler(req: any, res: any) {
         codigo_seguimiento: r.codigo,
         vinculado: r.vinculado,
         ...(r.numero !== undefined ? { numero_pedido: r.numero } : {}),
+      });
+      return;
+    }
+
+    // Facturas de VeoAura: se guarda la fila, se responde y el PDF se descarga justo después (VeoAura espera ≤ 8 s).
+    if ((evento as Evento) === "factura") {
+      const datos = validarFactura(mensaje.factura);
+      const g = await guardarFactura(supabase, idVeoaura, datos);
+      // Sin datos personales: solo el número de pedido y el de la factura.
+      await registrar(supabase, { evento, id_veoaura: idVeoaura, resultado: "ok", http: 200, detalle: `pedido nº ${datos.numeroPedido} · ${datos.numeroFactura}` });
+      responder(res, 200, { ok: true, id_tienda: g.id, numero_pedido: datos.numeroPedido });
+      const idV = idVeoaura;
+      await despuesDeResponder(async () => {
+        try {
+          const resumen = await copiarFactura(supabase, g, idV, datos.pdfUrl);
+          await registrar(supabase, { evento: "factura_pdf", id_veoaura: idV, resultado: "ok", http: 200, detalle: resumen });
+        } catch (e: unknown) {
+          const motivo = e instanceof Error ? e.message : "error al copiar el PDF";
+          await registrar(supabase, { evento: "factura_pdf", id_veoaura: idV, resultado: "error", http: 502, detalle: motivo });
+        }
       });
       return;
     }

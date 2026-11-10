@@ -47,6 +47,9 @@
  *   api.whatsapp.com, por si wa.me fallara, se deja con Linking.openURL
  *   normal: es solo un plan B interno, no hace falta el truco de Chrome
  *   ahí también).
+ * - abrirDescarga(): app/(tabs)/perfil.tsx («Descargar factura» en «Mis
+ *   pedidos») y app/admin/pedidos.tsx («Descargar» la factura), con el enlace
+ *   firmado de api/factura.ts.
  */
 import { Linking, Platform } from "react-native";
 
@@ -104,4 +107,21 @@ export function openExternalLink(url: string): void {
   }
 
   Linking.openURL(url);
+}
+
+// Descarga un archivo desde un enlace firmado que ya viene como «descarga» (Content-Disposition: attachment, p. ej. la
+// factura de api/factura.ts): en la web, con un enlace pulsado por programa, la tienda NO cambia de página (y no lo
+// bloquea el navegador como una ventana emergente aunque llegue después de un fetch). En una app, el sistema lo abre.
+export function abrirDescarga(url: string): void {
+  if (Platform.OS !== "web" || typeof document === "undefined") {
+    Linking.openURL(url);
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }

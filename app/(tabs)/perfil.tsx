@@ -60,6 +60,9 @@
  * - app/(tabs)/chat-global.tsx → su modal de "inicia sesión para comentar"
  *   trae al usuario a esta pantalla para autenticarse.
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
+ * - «Mis pedidos» → «Descargar factura» (facturas de VeoAura: tabla pedido_facturas, migración
+ *   20261110100000; descarga por api/factura.ts y lib/openExternalLink.ts → abrirDescarga). Se mide
+ *   con «Pedidos: factura descargada» (app/admin/analytics.tsx).
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -90,6 +93,7 @@ import SiteFooter from "../../components/SiteFooter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
 import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
+import { abrirDescarga } from "../../lib/openExternalLink";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
@@ -1502,7 +1506,74 @@ type PedidoSeg = {
   pagado_en?: string | null;
   devuelto_eur?: number | string | null;
   devuelto_en?: string | null;
+  // Factura emitida por VeoAura (migración 20261110100000; puede no existir aún): la última de este pedido.
+  factura?: { numero_factura: string | null; pdf: boolean } | null;
 };
+
+// Factura del pedido (la emite VeoAura, la tienda no factura): «Descargar factura F-…» por api/factura.ts; sin factura
+// en un pedido pagado o entregado, un texto discreto. facturasOk = false: la tabla aún no existe, no se enseña nada.
+function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean }) {
+  const [estado, setEstado] = useState<"listo" | "pidiendo">("listo");
+  const [aviso, setAviso] = useState<string | null>(null);
+  if (!facturasOk) return null;
+  const pagado = p.estado === "entregado" || (p.pago_estado === "pagado" && !p.devuelto_en);
+  if (!p.factura) {
+    if (!pagado || p.estado === "cancelado") return null;
+    return (
+      <Text nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center" }}>
+        La factura estará disponible aquí en cuanto se emita
+      </Text>
+    );
+  }
+  const numero = p.factura.numero_factura ?? "";
+
+  async function descargar() {
+    if (estado === "pidiendo") return;
+    setEstado("pidiendo");
+    setAviso(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const r = await fetch(`/api/factura?pedido=${encodeURIComponent(p.id)}`, {
+        headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
+      if (r.ok && d?.ok && d.url) {
+        void trackEvent("factura_descargada", "Pedidos: factura descargada");
+        abrirDescarga(d.url);
+      } else if (r.status === 409) {
+        setAviso("La factura está llegando, prueba en unos minutos.");
+      } else {
+        setAviso("No hemos podido descargar la factura. Inténtalo de nuevo en un rato.");
+      }
+    } catch {
+      setAviso("No hemos podido descargar la factura: revisa tu conexión.");
+    } finally {
+      setEstado("listo");
+    }
+  }
+
+  return (
+    <View style={{ alignItems: "center", gap: 4 }}>
+      <Pressable
+        nativeID={`seguimiento-factura-${p.numero ?? p.id}`}
+        onPress={descargar}
+        disabled={estado === "pidiendo"}
+        accessibilityRole="button"
+        accessibilityLabel={`Descargar factura ${numero}`}
+        hitSlop={6}
+        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || estado === "pidiendo" ? 0.6 : 1 })}
+      >
+        {estado === "pidiendo" ? <ActivityIndicator size="small" color={SEG.accent} /> : <Ionicons name="document-text-outline" size={18} color={SEG.accentDark} />}
+        <Text style={{ color: SEG.accentDark, fontWeight: "900", fontSize: 13.5 }}>Descargar factura {numero}</Text>
+      </Pressable>
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+          {aviso}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 // «Pagado online · 240,00€ · 6 nov 2026» (tarjeta o Klarna) debajo del total (y, si se devolvió, «Devuelto …»): solo texto con su
 // icono, sin burbuja, como el resto de «Mis seguimientos».
@@ -1898,6 +1969,8 @@ function SeguimientosSeccion() {
   const [cargando, setCargando] = useState(true);
   const [conSesion, setConSesion] = useState(false);
   const [pedidos, setPedidos] = useState<PedidoSeg[] | null>(null); // null = tabla aún no disponible
+  // ¿Existen ya las facturas de VeoAura? (migración 20261110100000). Sin ellas no se enseña nada de facturas.
+  const [facturasOk, setFacturasOk] = useState(false);
   const [reparaciones, setReparaciones] = useState<ReparacionSeg[]>([]);
   // ¿Existen ya los números de seguimiento? (migración 20261031170000). Sin ellos no se ofrece añadir uno.
   const [numerosOk, setNumerosOk] = useState(false);
@@ -1958,7 +2031,37 @@ function SeguimientosSeccion() {
           const dev = await supabase.from("pedidos").select("id,devuelto_eur,devuelto_en").in("id", pagados);
           for (const d of (dev.error ? [] : dev.data ?? []) as { id: string; devuelto_eur: number | null; devuelto_en: string | null }[]) devueltos[d.id] = d;
         }
-        setPedidos(filas.map((p) => ({ ...p, ...devueltos[p.id], items: porPedido[p.id] ?? [] })));
+        // Facturas de VeoAura (migración 20261110100000): con la sesión del cliente, solo ve las de sus pedidos. Sin la
+        // tabla (42P01/PGRST205) no se enseña nada y no falla.
+        const facturas: Record<string, { numero_factura: string | null; pdf: boolean; orden: string }> = {};
+        let conFacturas = false;
+        if (filas.length) {
+          const fac = await supabase
+            .from("pedido_facturas")
+            .select("pedido_id,numero_factura,pdf_path,fecha,recibida_en")
+            .in("pedido_id", filas.map((p) => p.id));
+          if (!fac.error) {
+            conFacturas = true;
+            for (const f of (fac.data ?? []) as { pedido_id: string; numero_factura: string | null; pdf_path: string | null; fecha: string | null; recibida_en: string | null }[]) {
+              // La más reciente de cada pedido (la misma que da api/factura.ts).
+              const orden = `${f.fecha ?? ""}|${f.recibida_en ?? ""}`;
+              if (!facturas[f.pedido_id] || orden > facturas[f.pedido_id].orden) {
+                facturas[f.pedido_id] = { numero_factura: f.numero_factura, pdf: !!f.pdf_path, orden };
+              }
+            }
+          } else if (!faltaEsquema(fac.error)) {
+            console.error("Error cargando las facturas:", fac.error);
+          }
+        }
+        setFacturasOk(conFacturas);
+        setPedidos(
+          filas.map((p) => ({
+            ...p,
+            ...devueltos[p.id],
+            items: porPedido[p.id] ?? [],
+            factura: facturas[p.id] ? { numero_factura: facturas[p.id].numero_factura, pdf: facturas[p.id].pdf } : null,
+          }))
+        );
         for (const p of filas) vistosPedidos.push({ id: p.id, estado: firmaPedidoSeg(p.estado, devueltos[p.id]?.devuelto_en) });
       }
 
@@ -2058,6 +2161,7 @@ function SeguimientosSeccion() {
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
                 <PagoDelPedido p={p} />
+                <FacturaDelPedido p={p} facturasOk={facturasOk} />
                 <NumeroSeguimiento codigo={p.codigo_seguimiento} />
                 {p.items.length ? (
                   <Text style={{ color: SEG.muted, textAlign: "center", lineHeight: 19, maxWidth: 460 }}>

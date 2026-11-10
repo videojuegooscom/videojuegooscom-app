@@ -46,6 +46,8 @@
  * - lib/analytics.ts → quien registra los eventos que esta pantalla resume.
  * - app/noticias/[id].tsx, app/noticias/index.tsx → «Noticias: visitas desde Google»
  *   (#analitica-noticias-organicas): páginas vistas por categoría y entradas desde buscadores.
+ * - app/(tabs)/perfil.tsx → «Pedidos: factura descargada» (#analitica-facturas): facturas de VeoAura
+ *   descargadas desde «Mis pedidos» (api/factura.ts).
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -631,6 +633,8 @@ export default function AdminAnalytics() {
       // «Me gusta»: la pestaña de Perfil (app/(tabs)/perfil.tsx) y los dados a servicios (app/servicio/[id].tsx).
       meGustaPestana: findExact("Perfil: Me gusta"),
       meGustaServicio: findExact("Servicio: me gusta"),
+      // Facturas de VeoAura descargadas por los clientes en «Mis pedidos» (app/(tabs)/perfil.tsx).
+      facturaDescargada: findExact("Pedidos: factura descargada"),
       // Reseñas de servicios terminados: «Valorar el servicio» en «Mis seguimientos» y las publicadas.
       resenaServicioPedida: findExact("Seguimientos: valorar el servicio"),
       resenaServicioPublicada: findExact("Reseña de servicio publicada"),
@@ -1169,6 +1173,23 @@ export default function AdminAnalytics() {
                     <Ionicons name="heart-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       «Me gusta»: abren su pestaña de Perfil {coreFunnel.meGustaPestana} sesiones · dan «me gusta» a un servicio {coreFunnel.meGustaServicio}
+                    </Text>
+                  </View>
+                  {/* Facturas (las emite VeoAura y llegan por api/escaparate-veoaura.ts): descargas desde «Mis pedidos». */}
+                  <View
+                    nativeID="analitica-facturas"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="document-text-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"}
                     </Text>
                   </View>
                   <View
