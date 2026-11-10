@@ -1519,19 +1519,14 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
   const [aviso, setAviso] = useState<string | null>(null);
   const pagado = p.estado === "entregado" || (p.pago_estado === "pagado" && !p.devuelto_en);
   if (!p.factura || !facturasOk) {
+    // Igual que la línea del pago (PagoDelPedido): icono de 16 y texto corto de 13,5 en negrita, sin burbuja (lección
+    // «iconos sin burbuja»): las dos líneas se leen como un mismo bloque «pago · factura».
     const texto =
-      p.estado === "cancelado"
-        ? "Pedido cancelado: no lleva factura"
-        : pagado
-          ? "Estará disponible aquí en cuanto se emita"
-          : "Estará disponible aquí cuando el pedido esté pagado";
+      p.estado === "cancelado" ? "Sin factura · pedido cancelado" : pagado ? "Factura en preparación" : "Factura al completar el pago";
     return (
-      <View nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 32 }}>
-        <Ionicons name="document-text-outline" size={16} color={SEG.mutedSoft} />
-        <Text style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center", flexShrink: 1 }}>
-          <Text style={{ fontWeight: "800" }}>Factura: </Text>
-          {texto}
-        </Text>
+      <View nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+        <Ionicons name="document-text-outline" size={16} color={SEG.muted} />
+        <Text style={{ color: SEG.muted, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>{texto}</Text>
       </View>
     );
   }
@@ -1573,8 +1568,8 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
         hitSlop={6}
         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || estado === "pidiendo" ? 0.6 : 1 })}
       >
-        {estado === "pidiendo" ? <ActivityIndicator size="small" color={SEG.accent} /> : <Ionicons name="document-text-outline" size={18} color={SEG.accentDark} />}
-        <Text style={{ color: SEG.accentDark, fontWeight: "900", fontSize: 13.5 }}>Descargar factura {numero}</Text>
+        {estado === "pidiendo" ? <ActivityIndicator size="small" color={SEG.accent} /> : <Ionicons name="download-outline" size={16} color={SEG.accentDark} />}
+        <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>Descargar factura {numero}</Text>
       </Pressable>
       {aviso ? (
         <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>

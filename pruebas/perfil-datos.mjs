@@ -8744,10 +8744,21 @@ async function seccionFA() {
     await p.waitForTimeout(500);
     ok((await texto(p, "#seguimiento-factura-51")) === "Descargar factura F-2026-0012", `FA: el pedido con factura enseña «Descargar factura F-2026-0012» (${await texto(p, "#seguimiento-factura-51")})`);
     // El apartado «Factura» sale SIEMPRE en cada pedido (dueño, 2026-11-10), con su estado.
-    const espera = "Factura: Estará disponible aquí en cuanto se emita";
-    ok((await texto(p, "#seguimiento-factura-espera-52")) === espera && (await texto(p, "#seguimiento-factura-espera-54")) === espera, "FA: en un pedido pagado (o entregado) sin factura, «Factura» con el texto de espera");
+    const espera = "Factura en preparación";
+    ok((await texto(p, "#seguimiento-factura-espera-52")) === espera && (await texto(p, "#seguimiento-factura-espera-54")) === espera, "FA: en un pedido pagado (o entregado) sin factura, «Factura en preparación»");
+    // La línea de la factura se ve igual que la del pago (mismo tamaño y grosor, sin burbuja).
+    const letra = (sel) =>
+      p.evaluate((s) => {
+        // El último elemento con texto (el primero es el icono, que también es una letra de su fuente).
+        const t = [...(document.querySelector(s)?.querySelectorAll("div") ?? [])].filter((d) => d.innerText.trim() && !d.querySelector("div")).at(-1);
+        const cs = t ? getComputedStyle(t) : null;
+        const caja = document.querySelector(s);
+        return cs ? `${cs.fontSize}/${cs.fontWeight}/${getComputedStyle(caja).backgroundColor}` : "";
+      }, sel);
+    const [lPago, lFactura] = [await letra("#seguimiento-pago-52"), await letra("#seguimiento-factura-espera-52")];
+    ok(!!lPago && lPago === lFactura, `FA: «Factura» con la misma letra que el pago y sin fondo (${lPago} | ${lFactura})`);
     ok(
-      (await texto(p, "#seguimiento-factura-espera-53")) === "Factura: Estará disponible aquí cuando el pedido esté pagado" &&
+      (await texto(p, "#seguimiento-factura-espera-53")) === "Factura al completar el pago" &&
         (await p.locator("#seguimiento-factura-53, #seguimiento-factura-espera-51, #seguimiento-factura-52").count()) === 0,
       `FA: un pedido sin pagar también enseña «Factura», sin botón («${await texto(p, "#seguimiento-factura-espera-53")}»)`
     );
