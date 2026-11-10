@@ -18,13 +18,18 @@
  *  F9) Un enlace no válido entre las 30 primeras se sigue rechazando (400); en la posición 31 se ignora.
  *  F10) Si mientras se copian llega un envío más nuevo del mismo artículo, este no aplica nada.
  *  F11) Un «publicar» sin fotos deja la galería como estaba.
+ *  FA1-FA8) Evento «factura» (2026-11-10): con firma buena guarda la fila, responde {ok, id_tienda, numero_pedido} y
+ *      después sube el PDF al almacén privado «facturas»; pedido inexistente 404; el mismo id_veoaura no duplica (lo
+ *      pone al día); un archivo que no empieza por %PDF o de más de 5 MB no se guarda (queda pendiente); campos malos
+ *      400; sin la migración 503; ningún dato personal en el registro.
  *  CONTROL) La versión de origin/main (tope de 10 fotos) rechaza las 30: la prueba F1 fallaría con ella. Solo se
  *      ejecuta si origin/main aún no tiene el tope de 30 (si no, ya no demostraría nada).
  *
  * Uso: node pruebas/escaparate-fotos.mjs
  * Sale con código 1 si algo falla.
  * Conectado con: api/escaparate-veoaura.ts (y su versión de origin/main con git show para el control); simula en
- *   memoria products, product_media y el almacenamiento. La lanza pruebas/todas.mjs (grupo api).
+ *   memoria products, product_media, pedidos, pedido_facturas (migración 20261110100000) y los almacenes. La lanza
+ *   pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -52,7 +57,14 @@ const productos = new Map(); // id → fila
 const medios = new Map(); // id → fila de product_media
 const almacen = new Map(); // ruta → texto de la foto
 const registro = []; // filas de escaparate_registro
-const cuenta = { subidas: 0, descargas: 0, descargasAntesDeResponder: 0 };
+const cuenta = { subidas: 0, descargas: 0, descargasAntesDeResponder: 0, pdfAntesDeResponder: 0 };
+// Facturas: pedidos de la tienda (con datos de cliente, que nunca deben llegar al registro), pedido_facturas y su almacén.
+const PDFS = "https://pdf.veoaura.test";
+const PEDIDO_7 = { id: randomUUID(), numero: 7, nombre: "Clienta Secreta", email: "secreta@example.com", telefono: "600123456" };
+const pedidos = [PEDIDO_7];
+const facturasBd = new Map(); // id → fila de pedido_facturas
+const almacenFacturas = new Map(); // ruta → contenido del PDF
+let sinTablaFacturas = false;
 let respuestaActual = null;
 const alDescargar = new Map(); // token → función (para simular un envío más nuevo a mitad de copia)
 
@@ -82,6 +94,16 @@ globalThis.fetch = async (entrada, opciones = {}) => {
   const url = new URL(typeof entrada === "string" ? entrada : entrada.url);
   const metodo = opciones.method ?? "GET";
 
+  // PDF de las facturas de VeoAura: «bueno» es un PDF, «falso» no empieza por %PDF y «grande» pasa de 5 MB.
+  if (url.origin === PDFS) {
+    if (!respuestaActual?.cuerpo) cuenta.pdfAntesDeResponder++;
+    const n = url.pathname.replace(/^\/|\.pdf$/g, "");
+    if (n === "bueno") return new Response(Buffer.from("%PDF-1.7\nfactura de prueba\n%%EOF"), { status: 200, headers: { "content-type": "application/pdf" } });
+    if (n === "rectificada") return new Response(Buffer.from("%PDF-1.7\nfactura rectificada\n%%EOF"), { status: 200, headers: { "content-type": "application/pdf" } });
+    if (n === "falso") return new Response("<html>no es un pdf</html>", { status: 200, headers: { "content-type": "application/pdf" } });
+    if (n === "grande") return new Response(Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(6 * 1024 * 1024, 32)]), { status: 200, headers: { "content-type": "application/pdf" } });
+    return new Response("no", { status: 404 });
+  }
   // Fotos de VeoAura: enlaces temporales (con token); el contenido depende solo del número de foto.
   if (url.origin === FOTOS) {
     cuenta.descargas++;
@@ -113,7 +135,31 @@ globalThis.fetch = async (entrada, opciones = {}) => {
     return json({ Key: `product-media/${r}` });
   }
 
+  // Almacén privado de las facturas.
+  if (ruta.startsWith("/storage/v1/object/facturas/") && metodo === "POST") {
+    const r = decodeURIComponent(ruta.slice("/storage/v1/object/facturas/".length));
+    almacenFacturas.set(r, Buffer.from(opciones.body));
+    return json({ Key: `facturas/${r}` });
+  }
+
   // Base de datos.
+  if (ruta === "/rest/v1/pedidos" && metodo === "GET") return json(pedidos.filter((f) => cumple(f, url)));
+  if (ruta === "/rest/v1/pedido_facturas") {
+    if (sinTablaFacturas) return json({ code: "PGRST205", message: "Could not find the table 'public.pedido_facturas' in the schema cache" }, 404);
+    const cuerpoF = cuerpoTexto ? JSON.parse(cuerpoTexto) : null;
+    if (metodo === "GET") return json([...facturasBd.values()].filter((f) => cumple(f, url)));
+    if (metodo === "POST") {
+      if ([...facturasBd.values()].some((f) => f.id_veoaura === cuerpoF.id_veoaura)) return json({ code: "23505", message: "duplicate key" }, 409);
+      const fila = { ...cuerpoF, id: randomUUID() };
+      facturasBd.set(fila.id, fila);
+      return json({ id: fila.id }, 201);
+    }
+    if (metodo === "PATCH") {
+      const tocadas = [...facturasBd.values()].filter((f) => cumple(f, url));
+      for (const f of tocadas) facturasBd.set(f.id, { ...f, ...cuerpoF });
+      return json(tocadas.map((f) => ({ id: f.id })));
+    }
+  }
   if (ruta === "/rest/v1/escaparate_registro") {
     registro.push(JSON.parse(cuerpoTexto));
     return new Response(null, { status: 201 });
@@ -339,6 +385,80 @@ try {
   ok(r11.codigo === 200 && igual(galeria(id7).galeria, ["1", "3"]), "F11: un «publicar» sin fotos deja la galería como estaba");
 
   ok([...productos.values()].filter((f) => f.id_veoaura === id).length === 1, "sin duplicar el producto en ningún envío");
+
+  // --- Facturas (evento «factura», 2026-11-10) --------------------------------------------------------------------
+  const factura = (idF, campos = {}) => ({
+    version: 1,
+    evento: "factura",
+    id_veoaura: idF,
+    factura: { numero_pedido: 7, numero_factura: "F-2026-0012", fecha: "2026-11-10", total_eur: 106.9, pdf_url: `${PDFS}/bueno.pdf?token=t1`, ...campos },
+  });
+  const filasFactura = (idF) => [...facturasBd.values()].filter((f) => f.id_veoaura === idF);
+  const ultimoRegistro = (evento) => [...registro].reverse().find((r) => r.evento === evento);
+
+  // FA1) Firma buena: guarda la fila, responde {ok, id_tienda, numero_pedido} y DESPUÉS baja el PDF al almacén privado.
+  const idFa = randomUUID();
+  cuenta.pdfAntesDeResponder = 0;
+  const fa1 = await enviar(manejador, factura(idFa));
+  const filaFa = filasFactura(idFa)[0];
+  ok(fa1.codigo === 200 && fa1.cuerpo?.ok === true && fa1.cuerpo?.id_tienda === filaFa?.id && fa1.cuerpo?.numero_pedido === 7, `FA1: factura con firma buena → 200 {ok, id_tienda, numero_pedido} (${fa1.codigo} ${JSON.stringify(fa1.cuerpo)})`);
+  ok(filaFa?.pedido_id === PEDIDO_7.id && filaFa?.numero_factura === "F-2026-0012" && filaFa?.fecha === "2026-11-10" && filaFa?.total_eur === 106.9, `FA1: la fila guarda pedido, número, fecha y total (${JSON.stringify(filaFa)})`);
+  const rutaFa = `${PEDIDO_7.id}/${idFa}.pdf`;
+  ok(filaFa?.pdf_path === rutaFa && almacenFacturas.get(rutaFa)?.toString().startsWith("%PDF"), `FA1: el PDF va al almacén «facturas» en <pedido_id>/<id_veoaura>.pdf (${filaFa?.pdf_path})`);
+  ok(cuenta.pdfAntesDeResponder === 0, "FA1: la respuesta sale antes de descargar el PDF");
+  ok(ultimoRegistro("factura")?.resultado === "ok" && ultimoRegistro("factura_pdf")?.resultado === "ok", `FA1: el registro apunta «factura» y «factura_pdf» (${ultimoRegistro("factura")?.detalle} · ${ultimoRegistro("factura_pdf")?.detalle})`);
+
+  // FA2) Pedido inexistente: 404 y no se guarda nada.
+  const idFa2 = randomUUID();
+  const fa2 = await enviar(manejador, factura(idFa2, { numero_pedido: 999 }));
+  ok(fa2.codigo === 404 && fa2.cuerpo?.ok === false && filasFactura(idFa2).length === 0, `FA2: pedido inexistente → 404 sin guardar nada (${fa2.codigo} ${JSON.stringify(fa2.cuerpo)})`);
+
+  // FA3) Mismo id_veoaura (factura rectificada): pone al día la misma fila, sin duplicar, y cambia el PDF.
+  const fa3 = await enviar(manejador, factura(idFa, { numero_factura: "F-2026-0012-R", total_eur: 100, pdf_url: `${PDFS}/rectificada.pdf?token=t2` }));
+  const filasFa3 = filasFactura(idFa);
+  ok(fa3.codigo === 200 && filasFa3.length === 1 && filasFa3[0].id === filaFa.id && filasFa3[0].numero_factura === "F-2026-0012-R" && filasFa3[0].total_eur === 100, `FA3: mismo id_veoaura → la misma fila puesta al día, sin duplicar (${filasFa3.length} filas, ${filasFa3[0]?.numero_factura})`);
+  ok(filasFa3[0].pdf_path === rutaFa && /rectificada/.test(almacenFacturas.get(rutaFa)?.toString() ?? ""), "FA3: el PDF nuevo sustituye al anterior en la misma ruta");
+
+  // FA4) Un «PDF» que no empieza por %PDF no se guarda: la fila queda con pdf_path null (PDF pendiente) y el registro lo dice.
+  const idFa4 = randomUUID();
+  const fa4 = await enviar(manejador, factura(idFa4, { pdf_url: `${PDFS}/falso.pdf?token=t1` }));
+  const filaFa4 = filasFactura(idFa4)[0];
+  ok(fa4.codigo === 200 && filaFa4 && filaFa4.pdf_path === null && !almacenFacturas.has(`${PEDIDO_7.id}/${idFa4}.pdf`), `FA4: un archivo que no empieza por %PDF no se guarda; la factura queda «PDF pendiente» (${JSON.stringify(filaFa4?.pdf_path)})`);
+  ok(ultimoRegistro("factura_pdf")?.resultado === "error", `FA4: el registro apunta el error del PDF (${ultimoRegistro("factura_pdf")?.detalle})`);
+
+  // FA5) Un PDF de más de 5 MB tampoco.
+  const idFa5 = randomUUID();
+  await enviar(manejador, factura(idFa5, { pdf_url: `${PDFS}/grande.pdf?token=t1` }));
+  ok(filasFactura(idFa5)[0]?.pdf_path === null && !almacenFacturas.has(`${PEDIDO_7.id}/${idFa5}.pdf`), "FA5: un PDF de más de 5 MB no se guarda (queda pendiente)");
+
+  // FA6) Campos que faltan o no valen: 400 y nada guardado.
+  const malos = [
+    ["sin factura", { version: 1, evento: "factura", id_veoaura: randomUUID() }],
+    ["número de pedido en texto", factura(randomUUID(), { numero_pedido: "7" })],
+    ["sin número de factura", factura(randomUUID(), { numero_factura: "" })],
+    ["número de factura de 41", factura(randomUUID(), { numero_factura: "F".repeat(41) })],
+    ["fecha imposible", factura(randomUUID(), { fecha: "2026-02-31" })],
+    ["total negativo", factura(randomUUID(), { total_eur: -1 })],
+    ["PDF por http", factura(randomUUID(), { pdf_url: "http://pdf.veoaura.test/bueno.pdf" })],
+    ["PDF en dirección interna", factura(randomUUID(), { pdf_url: "https://127.0.0.1/bueno.pdf" })],
+  ];
+  const resultadosMalos = [];
+  for (const [nombre, m] of malos) {
+    const r = await enviar(manejador, m);
+    resultadosMalos.push(`${nombre}: ${r.codigo}`);
+    if (r.codigo !== 400 || filasFactura(m.id_veoaura).length) resultadosMalos.push("FALLA");
+  }
+  ok(!resultadosMalos.includes("FALLA"), `FA6: campos que faltan o no valen → 400 sin guardar nada (${resultadosMalos.join(" · ")})`);
+
+  // FA7) Sin la tabla (migración sin aplicar): 503 para que VeoAura lo reintente.
+  sinTablaFacturas = true;
+  const fa7 = await enviar(manejador, factura(randomUUID()));
+  sinTablaFacturas = false;
+  ok(fa7.codigo === 503, `FA7: sin la migración de facturas → 503 (reintentar) (${fa7.codigo} ${JSON.stringify(fa7.cuerpo)})`);
+
+  // FA8) Ningún dato personal en el registro (el pedido tiene nombre, correo y teléfono).
+  const textoRegistro = JSON.stringify(registro);
+  ok(!/Clienta Secreta|secreta@example\.com|600123456|token=/.test(textoRegistro), "FA8: el registro no lleva datos del cliente ni el enlace del PDF");
 } catch (e) {
   hablar();
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

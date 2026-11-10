@@ -103,7 +103,7 @@ function modoDeLaClave(clave: string): Modo | null {
 }
 
 // --- Límite de peticiones COMPARTIDO entre instancias --------------------------------------------
-// (El mismo bloque está en api/interaccion.ts, api/blue-ia.ts y api/escaparate-retorno.ts: cada función es autónoma y
+// (El mismo bloque está en api/interaccion.ts, api/blue-ia.ts, api/escaparate-retorno.ts y api/factura.ts: cada función es autónoma y
 // no comparte archivos.)
 type LimiteCuenta = { max: number; ventanaSegundos: number };
 

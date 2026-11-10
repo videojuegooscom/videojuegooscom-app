@@ -71,6 +71,9 @@
  *    tocar permisos ni los pedidos que había; no entran valores raros; el servidor apunta el pago sin cambiar el total;
  *    el cliente ve el de su pedido y no puede apuntárselo; Stripe en la privacidad y los términos una sola vez (con sus
  *    «pruebas de las pruebas»: sin la condición la frase se repite; sin las comprobaciones entra un estado inventado).
+ *  - Facturas de VeoAura (20261110100000_facturas_veoaura.sql): el cliente lee solo las de sus pedidos, otro cliente no,
+ *    un visitante no, el administrador todas; nadie crea, cambia ni borra desde el navegador; el almacén «facturas» es
+ *    privado (5 MB, PDF) y sin reglas; repetible (con su «prueba de las pruebas»: sin «es su pedido», se ven las de otros).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2098,6 +2101,108 @@ try {
     }
     ok(entraRaro, "(control) sin las comprobaciones entra un estado inventado: la prueba SÍ lo detecta");
     await c40.end();
+  }
+
+  // Facturas de VeoAura (20261110100000_facturas_veoaura.sql), sobre los pedidos como en producción: el cliente lee SOLO
+  // las facturas de sus pedidos, el administrador todas, un visitante ninguna; nadie escribe desde el navegador (solo el
+  // servidor, con su clave: aquí, el usuario postgres); el almacén «facturas» es privado y sin reglas; repetible.
+  {
+    const FACTURAS = readFileSync("supabase/migrations/20261110100000_facturas_veoaura.sql", "utf8");
+    const ESQUEMA_F = `
+      create table public.pedidos (
+        id uuid primary key default gen_random_uuid(), numero bigint generated always as identity unique, created_at timestamptz not null default now(),
+        user_id uuid references auth.users (id) on delete set null, estado text not null default 'pendiente', nombre text not null, email text not null,
+        telefono text not null, total_eur numeric not null default 0);
+      alter table public.pedidos enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      insert into public.pedidos (user_id, nombre, email, telefono, total_eur) values
+        ('${U1}', 'Luis', 'luis@example.com', '600111222', 100),
+        ('${U2}', 'Marta', 'marta@example.com', '600333444', 55.5),
+        (null, 'Pepe', 'pepe@example.com', '600555666', 20);`;
+    // El servidor guarda una factura por pedido (como api/escaparate-veoaura.ts).
+    const facturasServidor = `
+      insert into public.pedido_facturas (pedido_id, id_veoaura, numero_factura, fecha, total_eur, pdf_path)
+      select id, gen_random_uuid(), 'F-2026-000' || numero, current_date, total_eur, id || '/x.pdf' from public.pedidos;`;
+    const cF = await nuevaBase("vz_aislada_facturas", ESQUEMA_F + FACTURAS);
+    let repetidaF = true;
+    try {
+      await cF.query(FACTURAS);
+    } catch (e) {
+      repetidaF = false;
+      console.log(String(e.message));
+    }
+    const politicasF = (await cF.query("select policyname, cmd, roles::text as roles from pg_policies where schemaname = 'public' and tablename = 'pedido_facturas' order by 1")).rows;
+    ok(
+      repetidaF && politicasF.length === 2 && politicasF.every((x) => x.cmd === "SELECT" && x.roles === "{authenticated}"),
+      `Facturas: se puede aplicar dos veces y solo hay 2 reglas, de lectura y para clientes con sesión (${politicasF.map((x) => `${x.policyname} ${x.cmd} ${x.roles}`).join(", ")})`
+    );
+    ok((await cF.query("select relrowsecurity from pg_class where oid = 'public.pedido_facturas'::regclass")).rows[0].relrowsecurity === true, "Facturas: la seguridad por filas (RLS) está activada");
+    await cF.query(facturasServidor);
+    const pedidoDe = async (nombre) => (await cF.query("select id from public.pedidos where nombre = $1", [nombre])).rows[0].id;
+    const [pLuis, pMarta] = [await pedidoDe("Luis"), await pedidoDe("Marta")];
+
+    const veU1 = await como(cF, "authenticated", U1, "select pedido_id, numero_factura from public.pedido_facturas");
+    ok(veU1.ok && veU1.filas.length === 1 && veU1.filas[0].pedido_id === pLuis, `Facturas: un cliente lee SOLO la factura de su pedido (${JSON.stringify(veU1.filas ?? veU1.mensaje)})`);
+    const veU2 = await como(cF, "authenticated", U2, "select pedido_id from public.pedido_facturas");
+    ok(veU2.ok && veU2.filas.length === 1 && veU2.filas[0].pedido_id === pMarta, "Facturas: otro cliente no ve la del primero, solo la suya");
+    const veAnon = await como(cF, "anon", null, "select pedido_id from public.pedido_facturas");
+    ok((veAnon.ok && veAnon.filas.length === 0) || (!veAnon.ok && veAnon.codigo === "42501"), `Facturas: un visitante no ve ninguna (${veAnon.filas?.length ?? veAnon.codigo})`);
+    const veAdmin = await como(cF, "authenticated", ADMIN, "select count(*)::int as n from public.pedido_facturas");
+    ok(veAdmin.ok && veAdmin.filas[0].n === 3, `Facturas: el administrador las ve todas (${veAdmin.filas?.[0]?.n ?? veAdmin.codigo})`);
+
+    // Nadie escribe desde el navegador.
+    const insCliente = await como(cF, "authenticated", U1, `insert into public.pedido_facturas (pedido_id, id_veoaura, numero_factura) values ('${pLuis}', gen_random_uuid(), 'F-FALSA')`);
+    const insAdmin = await como(cF, "authenticated", ADMIN, `insert into public.pedido_facturas (pedido_id, id_veoaura, numero_factura) values ('${pLuis}', gen_random_uuid(), 'F-FALSA')`);
+    const insAnon = await como(cF, "anon", null, `insert into public.pedido_facturas (pedido_id, id_veoaura, numero_factura) values ('${pLuis}', gen_random_uuid(), 'F-FALSA')`);
+    const updCliente = await como(cF, "authenticated", U1, "update public.pedido_facturas set pdf_path = 'otro.pdf', numero_factura = 'F-CAMBIADA'", { confirmar: true });
+    const delCliente = await como(cF, "authenticated", U1, "delete from public.pedido_facturas", { confirmar: true });
+    const delAdmin = await como(cF, "authenticated", ADMIN, "delete from public.pedido_facturas", { confirmar: true });
+    const quedan = (await cF.query("select count(*)::int as n, count(*) filter (where numero_factura like 'F-2026-%')::int as buenas from public.pedido_facturas")).rows[0];
+    ok(
+      !insCliente.ok && !insAdmin.ok && !insAnon.ok && updCliente.ok && updCliente.cuantas === 0 && delCliente.ok && delCliente.cuantas === 0 && delAdmin.ok && delAdmin.cuantas === 0 && quedan.n === 3 && quedan.buenas === 3,
+      `Facturas: nadie crea, cambia ni borra desde el navegador, ni el administrador (${insCliente.codigo}, ${insAdmin.codigo}, ${insAnon.codigo}, ${updCliente.cuantas ?? updCliente.codigo}, ${delCliente.cuantas ?? delCliente.codigo}, ${delAdmin.cuantas ?? delAdmin.codigo}; quedan ${quedan.n})`
+    );
+
+    // Datos que no valen y duplicados.
+    const rarosF = [];
+    for (const consulta of [
+      `insert into public.pedido_facturas (pedido_id, id_veoaura, numero_factura) values ('${pLuis}', gen_random_uuid(), '${"F".repeat(41)}')`,
+      `insert into public.pedido_facturas (pedido_id, id_veoaura, total_eur) values ('${pLuis}', gen_random_uuid(), -1)`,
+      `insert into public.pedido_facturas (pedido_id, id_veoaura) values (gen_random_uuid(), gen_random_uuid())`,
+      `insert into public.pedido_facturas (pedido_id, id_veoaura) select pedido_id, id_veoaura from public.pedido_facturas limit 1`,
+    ]) {
+      try {
+        await cF.query(consulta);
+        rarosF.push("entra");
+      } catch (e) {
+        rarosF.push(e.code);
+      }
+    }
+    ok(rarosF.join(",") === "23514,23514,23503,23505", `Facturas: un número de más de 40, un total negativo, un pedido que no existe o el mismo id_veoaura dos veces no entran (${rarosF.join(", ")})`);
+
+    // Almacén privado y sin reglas: el navegador no lee ni sube nada.
+    const almacenF = (await cF.query("select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'facturas'")).rows[0];
+    ok(!!almacenF && almacenF.public === false && Number(almacenF.file_size_limit) === 5242880 && almacenF.allowed_mime_types.join(",") === "application/pdf", `Facturas: almacén «facturas» privado, 5 MB y solo PDF (${JSON.stringify(almacenF ?? null)})`);
+    const reglasAlmacen = Number((await cF.query("select count(*) as n from pg_policies where schemaname = 'storage' and tablename = 'objects'")).rows[0].n);
+    await cF.query(`insert into storage.objects (bucket_id, name) values ('facturas', '${pLuis}/x.pdf')`);
+    const leeArchivo = await como(cF, "authenticated", U1, "select name from storage.objects where bucket_id = 'facturas'");
+    const subeArchivo = await como(cF, "authenticated", U1, `insert into storage.objects (bucket_id, name) values ('facturas', '${pLuis}/falsa.pdf')`);
+    const leeAnon = await como(cF, "anon", null, "select name from storage.objects where bucket_id = 'facturas'");
+    ok(
+      reglasAlmacen === 0 && leeArchivo.ok && leeArchivo.filas.length === 0 && !subeArchivo.ok && leeAnon.ok && leeAnon.filas.length === 0,
+      `Facturas: sin reglas en el almacén, ni el dueño del pedido ni un visitante leen o suben PDF desde el navegador (${reglasAlmacen} reglas; ${leeArchivo.filas?.length}; ${subeArchivo.codigo}; ${leeAnon.filas?.length})`
+    );
+    await cF.end();
+
+    // PRUEBA DE LAS PRUEBAS: con la regla del cliente sin «es su pedido» (cualquier factura con pedido), un cliente vería
+    // las facturas de otros. (Quitar solo el «user_id =» no basta para romperla: la lectura de pedidos ya filtra por dueño.)
+    const sinDueno = FACTURAS.replace("exists (select 1 from public.pedidos p where p.id = pedido_id and p.user_id = (select auth.uid()))", "pedido_id is not null");
+    ok(sinDueno !== FACTURAS, "(control) se ha podido quitar «es su pedido» de la regla en la copia de prueba");    const cF2 = await nuevaBase("vz_aislada_facturas_sin_dueno", ESQUEMA_F + sinDueno);
+    await cF2.query(facturasServidor);
+    const veTodas = await como(cF2, "authenticated", U1, "select pedido_id from public.pedido_facturas");
+    ok(veTodas.ok && veTodas.filas.length === 3, `(control) sin «es su pedido», un cliente ve ${veTodas.filas?.length} facturas: la prueba SÍ lo detecta`);
+    await cF2.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

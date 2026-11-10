@@ -7,7 +7,8 @@
  *   pendiente o con error hay que tenerlo en cuenta para no venderlo dos veces.
  * - En el escaparate: los artículos que llegaron de VeoAura, si están a la venta, vendidos o
  *   retirados, con sus visitas y «me gusta».
- * - Últimos mensajes: el registro del puente (escaparate_registro), con los fallos a la vista.
+ * - Últimos mensajes: el registro del puente (escaparate_registro), con los fallos a la vista. También las
+ *   facturas que manda VeoAura (evento «factura» y «PDF de la factura», 2026-11-10), con su recuento arriba.
  *
  * Cómo funciona: al abrirla (y con «Enviar ahora») despierta api/escaparate-retorno.ts, que
  * apunta y envía los avisos pendientes; después lee las tablas. Solo el administrador puede
@@ -18,6 +19,7 @@
  * - app/admin/_layout.tsx → registra esta ruta ("escaparate") en el Stack.
  * - components/Campanita.tsx → al admin le avisa Blue si hay ventas sin confirmar.
  * - supabase/migrations/20261015100000_escaparate_novedades_retorno.sql (escaparate_salida).
+ * - api/escaparate-veoaura.ts (evento «factura») y app/admin/pedidos.tsx (donde se descargan las facturas).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
@@ -72,6 +74,17 @@ type Registro = {
   resultado: string;
   http: number | null;
   detalle: string | null;
+};
+
+// Nombre de cada mensaje que llega de VeoAura en «Últimos mensajes» (los que no están aquí salen tal cual).
+const NOMBRE_EVENTO: Record<string, string> = {
+  publicar: "publicar",
+  vendido: "vendido",
+  retirar: "retirar",
+  fotos: "fotos",
+  seguimiento: "seguimiento",
+  factura: "factura",
+  factura_pdf: "PDF de la factura",
 };
 
 const ESTADO_SALIDA: Record<Salida["estado"], { texto: string; color: string }> = {
@@ -227,6 +240,9 @@ export default function AdminEscaparate() {
   const fichasEnviadas = salidas.filter((s) => s.evento === "pedido_pagado" && s.estado === "enviado").length;
   const fichasPorEnviar = salidas.filter((s) => s.evento === "pedido_pagado" && ["pendiente", "error", "enviando"].includes(s.estado)).length;
   const aLaVenta = articulos.filter((a) => a.is_active).length;
+  // Facturas de VeoAura (evento «factura») en los últimos mensajes, y sus PDF que no se pudieron guardar.
+  const facturasRecibidas = registro.filter((r) => r.evento === "factura" && r.resultado === "ok").length;
+  const facturasConError = registro.filter((r) => (r.evento === "factura" || r.evento === "factura_pdf") && r.resultado !== "ok").length;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -284,6 +300,11 @@ export default function AdminEscaparate() {
           <Text nativeID="escaparate-fichas-clientes" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
             Fichas de cliente enviadas a VeoAura: {fichasEnviadas}
             {fichasPorEnviar ? ` · por enviar: ${fichasPorEnviar}` : ""} · solo de pedidos entregados (nombre, correo y teléfono)
+          </Text>
+          {/* Facturas que emite VeoAura y manda a la tienda (api/escaparate-veoaura.ts, evento «factura»). */}
+          <Text nativeID="escaparate-facturas" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            Facturas recibidas de VeoAura en los últimos mensajes: {facturasRecibidas}
+            {facturasConError ? ` · con error: ${facturasConError}` : ""} · se descargan en Pedidos y en «Mis pedidos» del cliente
           </Text>
 
           <Pressable
@@ -385,7 +406,7 @@ export default function AdminEscaparate() {
                   return (
                     <Fila key={r.id}>
                       <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
-                        {fmtFechaHora(r.recibido_en)} · {r.evento ?? "—"}
+                        {fmtFechaHora(r.recibido_en)} · {r.evento ? (NOMBRE_EVENTO[r.evento] ?? r.evento) : "—"}
                       </Text>
                       <Text style={{ color: ok ? COLORS.success : COLORS.danger, fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>
                         {ok ? "Correcto" : `Error${r.http ? ` ${r.http}` : ""}`}
