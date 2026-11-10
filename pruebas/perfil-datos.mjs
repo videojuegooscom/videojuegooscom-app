@@ -8743,11 +8743,6 @@ async function seccionFA() {
     await p.locator("#seguimiento-factura-51").waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok((await texto(p, "#seguimiento-factura-51")) === "Descargar factura F-2026-0012", `FA: el pedido con factura enseña «Descargar factura F-2026-0012» (${await texto(p, "#seguimiento-factura-51")})`);
-<<<<<<< Updated upstream
-    const espera = "La factura estará disponible aquí en cuanto se emita";
-    ok((await texto(p, "#seguimiento-factura-espera-52")) === espera && (await texto(p, "#seguimiento-factura-espera-54")) === espera, "FA: en un pedido pagado (o entregado) sin factura, el texto de espera");
-    ok((await p.locator("#seguimiento-factura-53, #seguimiento-factura-espera-53, #seguimiento-factura-espera-51, #seguimiento-factura-52").count()) === 0, "FA: un pedido sin pagar no enseña nada de facturas (ni el botón donde no hay factura)");
-=======
     // El apartado «Factura» sale SIEMPRE en cada pedido (dueño, 2026-11-10), con su estado.
     const espera = "Factura en preparación";
     ok((await texto(p, "#seguimiento-factura-espera-52")) === espera && (await texto(p, "#seguimiento-factura-espera-54")) === espera, "FA: en un pedido pagado (o entregado) sin factura, «Factura en preparación»");
@@ -8767,7 +8762,6 @@ async function seccionFA() {
         (await p.locator("#seguimiento-factura-53, #seguimiento-factura-espera-51, #seguimiento-factura-52").count()) === 0,
       `FA: un pedido sin pagar también enseña «Factura», sin botón («${await texto(p, "#seguimiento-factura-espera-53")}»)`
     );
->>>>>>> Stashed changes
     const urlAntes = p.url();
     await p.locator("#seguimiento-factura-51").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "FA1-mis-pedidos-factura");

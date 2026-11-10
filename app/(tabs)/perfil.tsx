@@ -1510,21 +1510,14 @@ type PedidoSeg = {
   factura?: { numero_factura: string | null; pdf: boolean } | null;
 };
 
-// Factura del pedido (la emite VeoAura, la tienda no factura): «Descargar factura F-…» por api/factura.ts; sin factura
-// en un pedido pagado o entregado, un texto discreto. facturasOk = false: la tabla aún no existe, no se enseña nada.
+// Factura del pedido (la emite VeoAura, la tienda no factura): el apartado «Factura» sale SIEMPRE en cada pedido (dueño,
+// 2026-11-10: «que el apartado de factura aparezca aunque no haya ninguna factura»): con factura, «Descargar factura F-…»
+// por api/factura.ts; sin ella, en qué punto está (pagado, pendiente de pago o cancelado). facturasOk = false (la tabla
+// aún no existe): el mismo apartado, sin botón.
 function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean }) {
   const [estado, setEstado] = useState<"listo" | "pidiendo">("listo");
   const [aviso, setAviso] = useState<string | null>(null);
-  if (!facturasOk) return null;
   const pagado = p.estado === "entregado" || (p.pago_estado === "pagado" && !p.devuelto_en);
-<<<<<<< Updated upstream
-  if (!p.factura) {
-    if (!pagado || p.estado === "cancelado") return null;
-    return (
-      <Text nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center" }}>
-        La factura estará disponible aquí en cuanto se emita
-      </Text>
-=======
   if (!p.factura || !facturasOk) {
     // Igual que la línea del pago (PagoDelPedido): icono de 16 y texto corto de 13,5 en negrita, sin burbuja (lección
     // «iconos sin burbuja»): las dos líneas se leen como un mismo bloque «pago · factura».
@@ -1535,7 +1528,6 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
         <Ionicons name="document-text-outline" size={16} color={SEG.muted} />
         <Text style={{ color: SEG.muted, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>{texto}</Text>
       </View>
->>>>>>> Stashed changes
     );
   }
   const numero = p.factura.numero_factura ?? "";
