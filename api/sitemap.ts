@@ -2,16 +2,18 @@
  * api/sitemap.ts
  *
  * Qué hace: genera /sitemap.xml (vercel.json lo redirige aquí) con las páginas públicas de la
- * tienda: portada, catálogo, servicios, blog, vender, las políticas y cada ficha de producto y de
- * servicio publicada. Los buscadores lo usan para descubrir las fichas, que en la web no son
- * enlaces normales. robots.txt (public/) apunta a este archivo.
+ * tienda: portada, catálogo, servicios, blog, noticias, vender, las políticas, cada ficha de
+ * producto y de servicio publicada y cada noticia publicada de los últimos 90 días (máx. 1000,
+ * /noticias/<id> con su fecha). Los buscadores lo usan para descubrir las fichas, que en la web no
+ * son enlaces normales. robots.txt (public/) apunta a este archivo.
  *
  * Datos: solo lo público (clave anónima y RLS): lo oculto, sin publicar o vendido no aparece.
  * Se guarda una hora en la caché de Vercel (s-maxage) para no consultar la base de datos en cada
  * visita del rastreador.
  *
  * Variables: EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY (las de la web).
- * Conectado con: vercel.json (rewrite /sitemap.xml), public/robots.txt.
+ * Conectado con: vercel.json (rewrite /sitemap.xml), public/robots.txt, app/noticias/[id].tsx (tabla
+ * noticias_gaming, lectura pública).
  */
 import { createClient } from "@supabase/supabase-js";
 
@@ -23,6 +25,7 @@ const PAGINAS_FIJAS: { ruta: string; prioridad: string; cambio: string }[] = [
   { ruta: "/servicios", prioridad: "0.8", cambio: "weekly" },
   { ruta: "/vender", prioridad: "0.8", cambio: "monthly" },
   { ruta: "/blog", prioridad: "0.6", cambio: "weekly" },
+  { ruta: "/noticias", prioridad: "0.7", cambio: "daily" },
   { ruta: "/quienes-somos", prioridad: "0.7", cambio: "monthly" },
   { ruta: "/politicas/envios", prioridad: "0.4", cambio: "monthly" },
   { ruta: "/politicas/devoluciones", prioridad: "0.4", cambio: "monthly" },
@@ -52,15 +55,21 @@ export default async function handler(_req: any, res: any) {
   if (url && clave) {
     try {
       const supabase = createClient(url, clave);
-      const [productos, servicios] = await Promise.all([
+      const hace90Dias = new Date(Date.now() - 90 * 86400000).toISOString();
+      const [productos, servicios, noticias] = await Promise.all([
         supabase.from("products").select("id,updated_at").eq("status", "PUBLISHED").eq("is_active", true).order("updated_at", { ascending: false }).limit(2000),
         supabase.from("services").select("id,updated_at").eq("is_active", true).limit(500),
+        // Noticias publicadas de los últimos 90 días (app/noticias/[id].tsx), las más recientes primero.
+        supabase.from("noticias_gaming").select("id,publicada_en").eq("publicada", true).gte("publicada_en", hace90Dias).order("publicada_en", { ascending: false }).limit(1000),
       ]);
       for (const p of Array.isArray(productos.data) ? productos.data : []) {
         entradas.push(entrada(`/producto/${p.id}`, "0.7", "weekly", fecha(p.updated_at)));
       }
       for (const s of Array.isArray(servicios.data) ? servicios.data : []) {
         entradas.push(entrada(`/servicio/${s.id}`, "0.6", "monthly", fecha(s.updated_at)));
+      }
+      for (const n of Array.isArray(noticias.data) ? noticias.data : []) {
+        entradas.push(entrada(`/noticias/${n.id}`, "0.6", "monthly", fecha(n.publicada_en)));
       }
     } catch (e) {
       // Sin base de datos se devuelven al menos las páginas fijas.

@@ -185,7 +185,13 @@
  *  - AT) Topes automáticos de la analítica en Administración → Analítica: lo guardado hoy, los topes de hoy (la misma
  *    regla que la base de datos), lo cortado, los de partida sin historia y, sin la migración, que falta pegarla.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT]
+ *  - NW) Noticias con página propia: /noticias/<id> con su h1, categoría y fecha, resumen, «Contexto», las secciones,
+ *    «Fuente» enlazada al original (nofollow, fuera), su <title>, canonical, descripción, og:image y NewsArticle;
+ *    «Comentar en el Foro»; la llegada desde Google contada sin más datos; sin la columna contexto sale igual; sin
+ *    publicar o con un enlace mal, «Ver noticias»; el índice /noticias (h1, enlaces, chips, abrir una); «Noticias» en el
+ *    pie; «Abrir la noticia» en el Foro; y su tarjeta en Administración → Analítica.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW]
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
  * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
@@ -193,7 +199,7 @@
  * la contraseña, la dirección del perfil, la seguridad de la cuenta, las conversaciones de Blue IA, «Quiénes somos» o el
  * horario del equipo en Blue IA).
  * Requisitos: playwright-core y npm run build hecho.
- * Conectado con: Mi cuenta, Perfil, Foro, la ficha y Administración en la tienda compilada (dist); simula /api/pago,
+ * Conectado con: Mi cuenta, Perfil, Foro, la ficha, las noticias (app/noticias/) y Administración en la tienda compilada (dist); simula /api/pago,
  *   /api/asignar-seguimiento, /api/interaccion y /api/escaparate-retorno; pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
  */
 import { createServer } from "node:http";
@@ -218,6 +224,7 @@ const TIPOS = {
 const DINAMICAS = [
   [/^\/producto\/[^/]+$/, "producto/[id].html"],
   [/^\/servicio\/[^/]+$/, "servicio/[id].html"],
+  [/^\/noticias\/[^/]+$/, "noticias/[id].html"],
   [/^\/admin\/cliente\/[^/]+$/, "admin/cliente/[userId].html"],
 ];
 const buscar = (ruta) => {
@@ -699,6 +706,27 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       return estado.bloqueoForo
         ? json({ code: "42501", message: "new row violates row-level security policy for table \"chat_messages\"" }, 403)
         : r.fulfill({ status: 201, headers: CORS, body: "" });
+    }
+    // Páginas propias de las noticias (sección NW), como PostgREST: filtros id/publicada/categoria, orden y límite, una
+    // fila con «vnd.pgrst.object» y solo las columnas pedidas. Con `noticiasSinContexto`, la columna contexto aún no
+    // existe (migración pendiente). Se apunta cada consulta.
+    if (estado.noticiasNW && url.pathname.endsWith("/rest/v1/noticias_gaming") && metodo === "GET") {
+      const select = url.searchParams.get("select") ?? "*";
+      estado.consultasNW = [...(estado.consultasNW ?? []), decodeURIComponent(url.search)];
+      if (estado.noticiasSinContexto && /contexto/.test(select)) {
+        estado.contexto400 = (estado.contexto400 ?? 0) + 1;
+        return json({ code: "42703", message: "column noticias_gaming.contexto does not exist" }, 400);
+      }
+      let filas = estado.noticiasNW;
+      for (const [campo, filtro] of url.searchParams) {
+        if (["select", "order", "limit"].includes(campo)) continue;
+        if (filtro.startsWith("eq.")) filas = filas.filter((f) => String(f[campo]) === filtro.slice(3));
+      }
+      filas = [...filas].sort((a, b) => String(b.publicada_en).localeCompare(String(a.publicada_en))).slice(0, Number(url.searchParams.get("limit") ?? 1000));
+      const cols = select.split(",");
+      const proyecta = (f) => (cols.includes("*") ? f : Object.fromEntries(cols.map((c) => [c, f[c] ?? null])));
+      if (/vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "")) return filas[0] ? json(proyecta(filas[0])) : json({ code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned", details: "The result contains 0 rows" }, 406);
+      return json(filas.map(proyecta));
     }
     // Noticias y sus comentarios ficticios (solo si la prueba los da).
     // Noticias nuevas que cuenta Blue (sección MC): la más reciente y el total, como PostgREST (Content-Range).
@@ -8402,6 +8430,256 @@ async function seccionQ() {
   await ctxN.close();
 }
 
+// ===== NW) Noticias con página propia (dueño, 2026-11-09: visitas desde Google): /noticias/<id> con su h1, resumen,
+// contexto, fuente enlazada, título, canonical y NewsArticle; sin la columna contexto sigue funcionando; la noticia sin
+// publicar dice que no existe; el índice /noticias lista, filtra y enlaza; el pie y el Foro enlazan; Analítica lo cuenta.
+async function seccionNW() {
+  const N1 = "0e000000-0000-4000-8000-0000000000a1";
+  const N2 = "0e000000-0000-4000-8000-0000000000a2";
+  const N3 = "0e000000-0000-4000-8000-0000000000a3";
+  const foto = (n) => `https://fotos.ejemplo.invalid/storage/v1/object/public/noticias/nw${n}.jpg`;
+  const ORIGINAL = "https://vandal.elespanol.com/noticia/1350000000/ejemplo-de-noticia";
+  const fila = (extra) => ({
+    url: ORIGINAL, fuente: "Vandal", imagen_url: foto(1), imagenes: [foto(1), foto(2)], imagenes_verificadas: true, imagenes_meta: [],
+    puntos_clave: ["Sale en marzo", "Cuesta 499 €"], datos: ["Pantalla de 8 pulgadas"], por_que_importa: "Cambia la gama de consolas portátiles.",
+    afecta_a: "A quien tenga la consola anterior.", contexto: null, publicada: true, me_gusta: 0, created_at: "2026-11-08T08:00:00Z", ...extra,
+  });
+  const NOTICIAS = [
+    fila({ id: N1, titulo: "Nueva consola portátil anunciada para marzo", categoria: "Consolas", resumen: "La marca ha presentado una consola portátil nueva con pantalla más grande, más batería y un precio de salida de 499 euros. Llegará a las tiendas en marzo y será compatible con los juegos de la generación anterior sin coste extra.", contexto: "Es la primera portátil de la marca desde 2019.", publicada_en: "2026-11-09T07:30:00Z" }),
+    fila({ id: N2, titulo: "El juego de rol más esperado se retrasa", categoria: "Videojuegos", resumen: "El estudio retrasa su lanzamiento a verano.", imagenes_verificadas: false, publicada_en: "2026-11-08T10:00:00Z" }),
+    fila({ id: N3, titulo: "Noticia retirada", categoria: "Consolas", resumen: "No debe verse.", publicada: false, publicada_en: "2026-11-09T09:00:00Z" }),
+  ];
+  const TITULO = `${NOTICIAS[0].titulo} | Noticias | VideojuegosZaragoza`;
+  // Cliente con el perfil completo («Completa tu perfil» no tapa la tienda).
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const cabecera = (p) =>
+    p.evaluate(() => {
+      const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].map((s) => {
+        try {
+          return JSON.parse(s.textContent ?? "");
+        } catch {
+          return null;
+        }
+      }).find((d) => d && d["@type"] === "NewsArticle");
+      return {
+        titulo: document.title,
+        canonical: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "",
+        descripcion: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "",
+        ogImagen: document.querySelector('meta[property="og:image"]')?.getAttribute("content") ?? "",
+        ogTitulo: document.querySelector('meta[property="og:title"]')?.getAttribute("content") ?? "",
+        ld: ld ?? null,
+      };
+    });
+
+  // NW1) La página de la noticia, su cabecera para Google, la analítica y «Comentar en el Foro».
+  {
+    const estado = { guardados: [], filas: PERFIL, aceptaAnalitica: true, noticiasNW: NOTICIAS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/noticias/${N1}`);
+    await p.locator("#noticia-titulo").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(2500); // que llegue también «Marca y SEO» (SiteHead) y no pise el título
+    const datos = await p.evaluate(() => {
+      const raiz = document.querySelector("#noticia-pagina");
+      const fuente = raiz?.querySelector("#noticia-fuente a");
+      return {
+        h1: raiz?.querySelector('h1, [role="heading"][aria-level="1"]')?.innerText.trim() ?? "",
+        categoria: raiz?.querySelector("#noticia-categoria")?.innerText.trim() ?? "",
+        resumen: raiz?.querySelector("#noticia-resumen")?.innerText.trim() ?? "",
+        contexto: raiz?.querySelector("#noticia-contexto")?.innerText.replace(/\n/g, " ").trim() ?? "",
+        secciones: [...(raiz?.querySelectorAll('[role="heading"][aria-level="2"], h2') ?? [])].map((h) => h.innerText.trim()),
+        fuente: raiz?.querySelector("#noticia-fuente")?.innerText.replace(/\n/g, " ").trim() ?? "",
+        fuenteHref: fuente?.getAttribute("href") ?? "",
+        fuenteTarget: fuente?.getAttribute("target") ?? "",
+        fuenteRel: fuente?.getAttribute("rel") ?? "",
+        foto: decodeURIComponent(raiz?.querySelector("img")?.getAttribute("src") ?? ""),
+        enlaces: [...(raiz?.querySelectorAll("#noticia-enlaces a") ?? [])].map((a) => a.getAttribute("href")),
+      };
+    });
+    ok(datos.h1 === NOTICIAS[0].titulo, `NW: la noticia tiene su título como h1 («${datos.h1}»)`);
+    ok(/^CONSOLAS · 9 de noviembre de 2026$/i.test(datos.categoria), `NW: categoría y fecha encima del título («${datos.categoria}»)`);
+    ok(datos.resumen === NOTICIAS[0].resumen, "NW: enseña el resumen entero");
+    ok(/^Contexto\s*Es la primera portátil de la marca desde 2019\.$/.test(datos.contexto), `NW: «Contexto» con su texto («${datos.contexto}»)`);
+    ok(
+      ["Contexto", "Puntos clave", "Datos", "Por qué importa", "A quién afecta"].every((s) => datos.secciones.includes(s)),
+      `NW: con «Puntos clave», «Datos», «Por qué importa» y «A quién afecta» (${datos.secciones.join(", ")})`
+    );
+    ok(
+      /Fuente: Vandal/.test(datos.fuente) && datos.fuenteHref === ORIGINAL && datos.fuenteTarget === "_blank" && /nofollow/.test(datos.fuenteRel) && /noopener/.test(datos.fuenteRel),
+      `NW: «Fuente: Vandal» enlaza al original fuera de la tienda (${datos.fuenteHref} · ${datos.fuenteTarget} · ${datos.fuenteRel})`
+    );
+    ok(/nw1\.jpg/.test(datos.foto), `NW: la foto principal es la comprobada (${datos.foto.slice(-12)})`);
+    ok(
+      datos.enlaces.includes("/noticias") && datos.enlaces.includes("/catalogo") && datos.enlaces.includes("/servicios"),
+      `NW: enlaces de verdad a Más noticias, Catálogo y Servicios (${datos.enlaces.join(", ")})`
+    );
+    // Los enlaces con forma de píldora (44 px, fondo azul claro, icono y texto en fila): <Link asChild> no pierde el estilo.
+    const pildora = await p.evaluate(() => {
+      const e = document.querySelector("#noticia-mas");
+      const r = e?.getBoundingClientRect();
+      return e ? { fondo: getComputedStyle(e).backgroundColor, fila: getComputedStyle(e).flexDirection, alto: Math.round(r.height) } : null;
+    });
+    ok(!!pildora && pildora.fondo === "rgb(234, 246, 253)" && pildora.fila === "row" && pildora.alto >= 44, `NW: los enlaces del final son píldoras de la tienda (${JSON.stringify(pildora)})`);
+    const c = await cabecera(p);
+    ok(c.titulo === TITULO && c.ogTitulo === TITULO, `NW: su <title> y og:title («${c.titulo}»)`);
+    ok(c.canonical === `https://videojuegoszaragoza.com/noticias/${N1}`, `NW: su dirección oficial (canonical ${c.canonical})`);
+    ok(c.descripcion.length <= 156 && c.descripcion.endsWith("…") && NOTICIAS[0].resumen.startsWith(c.descripcion.slice(0, -1)), `NW: la descripción es el resumen recortado (${c.descripcion.length} letras)`);
+    ok(c.ogImagen === foto(1), `NW: og:image es la foto de la noticia (${c.ogImagen})`);
+    ok(
+      !!c.ld && c.ld.headline === NOTICIAS[0].titulo && c.ld.datePublished === NOTICIAS[0].publicada_en && c.ld.publisher?.name === "VideojuegosZaragoza" && c.ld.isBasedOn === ORIGINAL && Array.isArray(c.ld.image),
+      `NW: datos estructurados NewsArticle (${JSON.stringify(c.ld).slice(0, 160)})`
+    );
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_pagina"); i++) await p.waitForTimeout(300);
+    const ev = (estado.eventosEnviados ?? []).find((e) => e.event_name === "noticia_pagina");
+    ok(ev?.step_label === "Noticias: página vista · Consolas", `NW: la visita se cuenta por categoría (${ev?.step_label ?? "nada"})`);
+    ok(!(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_buscador"), "NW: sin venir de un buscador no se cuenta como llegada desde Google");
+    await capturar(p, "NW1-pagina-noticia");
+    await p.locator("#noticia-enlaces").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "NW1b-pagina-noticia-final");
+    ok(p.errores.length === 0, `NW: la página de la noticia sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    const tapado = await p.evaluate(() => {
+      const b = document.querySelector("#noticia-comentar");
+      if (!b) return "no está";
+      const r = b.getBoundingClientRect();
+      const fuera = [[r.left + 12, r.top + r.height / 2], [r.left + r.width / 2, r.top + r.height / 2], [r.right - 12, r.top + r.height / 2]].filter(([x, y]) => {
+        const e = document.elementFromPoint(x, y);
+        return !(e && b.contains(e));
+      });
+      return fuera.length ? `tapado en ${fuera.length} de 3 puntos` : "libre";
+    });
+    ok(tapado === "libre", `NW: nada tapa «Comentar en el Foro» (${tapado})`);
+    await p.locator("#noticia-comentar").click();
+    await p.waitForURL(/\/chat-global/, { timeout: 15000 }).catch(() => {});
+    ok(p.url().includes(`/chat-global?tab=news&noticia=${N1}`), `NW: «Comentar en el Foro» abre la noticia en el Foro (${p.url().replace(BASE, "")})`);
+    await ctx.close();
+  }
+
+  // NW2) Llega desde Google: se cuenta (solo el nombre del buscador).
+  {
+    const estado = { guardados: [], filas: PERFIL, aceptaAnalitica: true, noticiasNW: NOTICIAS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await ctx.newPage();
+    p.errores = [];
+    await p.goto(`${BASE}/noticias/${N1}`, { waitUntil: "load", timeout: 60000, referer: "https://www.google.es/" });
+    await p.locator("#noticia-titulo").waitFor({ timeout: 40000 }).catch(() => {});
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "noticia_buscador"); i++) await p.waitForTimeout(300);
+    const ev = (estado.eventosEnviados ?? []).filter((e) => e.event_name === "noticia_buscador");
+    ok(ev.length === 1 && ev[0].step_label === "Noticias: llegada desde buscador · Google" && JSON.stringify(ev[0].metadata) === '{"buscador":"Google"}', `NW: la llegada desde Google se cuenta una vez y sin más datos (${JSON.stringify(ev)})`);
+    await ctx.close();
+  }
+
+  // NW3) Sin la columna contexto (migración pendiente) la noticia sale igual; sin publicar o con un enlace mal, «Ver noticias».
+  {
+    const estado = { guardados: [], filas: PERFIL, noticiasNW: NOTICIAS, noticiasSinContexto: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/noticias/${N1}`);
+    await p.locator("#noticia-titulo").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await p.evaluate(() => ({
+      h1: document.querySelector('#noticia-pagina [role="heading"][aria-level="1"], #noticia-pagina h1')?.innerText.trim() ?? "",
+      contexto: !!document.querySelector("#noticia-contexto"),
+      puntos: !!document.querySelector("#noticia-puntos"),
+    }));
+    ok(t.h1 === NOTICIAS[0].titulo && !t.contexto && t.puntos && (estado.contexto400 ?? 0) >= 1, `NW: sin la columna contexto la noticia sale igual, sin «Contexto» (${JSON.stringify(t)}, ${estado.contexto400 ?? 0} reintento)`);
+    ok(p.errores.length === 0, `NW: sin la columna, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await p.close();
+    for (const [ruta, que] of [[`/noticias/${N3}`, "sin publicar"], ["/noticias/no-es-un-id", "con un enlace mal"]]) {
+      const q = await pagina(ctx, ruta);
+      await q.locator("#noticia-no-encontrada").waitFor({ timeout: 40000 }).catch(() => {});
+      const r = await q.evaluate(() => ({
+        texto: document.querySelector("#noticia-no-encontrada")?.innerText.replace(/\n/g, " ") ?? "",
+        ver: document.querySelector("#noticia-no-encontrada a")?.getAttribute("href") ?? "",
+      }));
+      ok(/no existe o ya no está publicada/.test(r.texto) && /Ver noticias/.test(r.texto) && r.ver === "/noticias", `NW: una noticia ${que} dice que no existe y ofrece «Ver noticias» (${r.ver})`);
+      if (que === "sin publicar") await capturar(q, "NW3-noticia-no-existe");
+      await q.close();
+    }
+    ok(!(estado.consultasNW ?? []).some((c) => /no-es-un-id/.test(c)), "NW: un enlace que no es de una noticia ni se pregunta a la base de datos");
+    await ctx.close();
+  }
+
+  // NW4) El índice /noticias: título, las publicadas (no la retirada) enlazadas, filtro por categoría y abrir una.
+  {
+    const estado = { guardados: [], filas: PERFIL, aceptaAnalitica: true, noticiasNW: NOTICIAS };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/noticias");
+    await p.locator("#noticias-lista").waitFor({ timeout: 40000 }).catch(() => {});
+    const lista = await p.evaluate(() => ({
+      h1: document.querySelector('#noticias-indice [role="heading"][aria-level="1"], #noticias-indice h1')?.innerText.trim() ?? "",
+      enlaces: [...document.querySelectorAll("#noticias-lista a")].map((a) => a.getAttribute("href")),
+      fotos: document.querySelectorAll("#noticias-lista img").length,
+      titulo: document.title,
+      ancho: document.documentElement.scrollWidth <= window.innerWidth,
+    }));
+    ok(lista.h1 === "Noticias de consolas, videojuegos y tecnología", `NW: el índice lleva su h1 («${lista.h1}»)`);
+    ok(lista.enlaces.join(",") === `/noticias/${N1},/noticias/${N2}`, `NW: lista las publicadas, la más reciente primero, con enlace a cada una (${lista.enlaces.join(", ")})`);
+    ok(lista.fotos === 1, `NW: solo lleva foto la noticia con fotos comprobadas (${lista.fotos})`);
+    ok(/^Noticias de consolas, videojuegos y tecnología \| /.test(lista.titulo) && lista.ancho, `NW: título del índice («${lista.titulo}») y nada se sale por los lados`);
+    await capturar(p, "NW4-indice-noticias");
+    await p.locator("#noticias-chips").getByText("Videojuegos", { exact: true }).click();
+    await p.waitForTimeout(1200);
+    const filtrada = await p.evaluate(() => [...document.querySelectorAll("#noticias-lista a")].map((a) => a.getAttribute("href")));
+    ok(filtrada.join(",") === `/noticias/${N2}` && (estado.consultasNW ?? []).some((c) => /categoria=eq\.Videojuegos/.test(c)), `NW: el chip «Videojuegos» filtra (${filtrada.join(", ")})`);
+    await capturar(p, "NW4b-indice-filtrado");
+    await p.locator(`#noticia-tarjeta-${N2}`).click();
+    await p.waitForURL(new RegExp(`/noticias/${N2}`), { timeout: 15000 }).catch(() => {});
+    await p.locator("#noticia-titulo").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(p.url().endsWith(`/noticias/${N2}`), `NW: tocar la tarjeta abre su página (${p.url().replace(BASE, "")})`);
+    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Noticias: índice visto"), "NW: el índice se cuenta en la analítica");
+    ok(p.errores.length === 0, `NW: el índice sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // NW5) Enlaces para que Google llegue: «Noticias» en el pie de Inicio y «Abrir la noticia» en la tarjeta del Foro.
+  {
+    const estado = { guardados: [], filas: PERFIL, productosVacios: true, noticias: [NOTICIAS[0]] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#pie-noticias").waitFor({ state: "attached", timeout: 40000 }).catch(() => {});
+    const pie = await p.evaluate(() => {
+      const e = document.querySelector("#pie-noticias");
+      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: e?.textContent?.trim() ?? "" };
+    });
+    ok(pie.href === "/noticias" && pie.texto === "Noticias", `NW: el pie de página tiene «Noticias» como enlace (${JSON.stringify(pie)})`);
+    await p.close();
+    const f = await pagina(ctx, "/chat-global?tab=news");
+    await f.locator(`#abrir-noticia-${N1}`).waitFor({ timeout: 40000 }).catch(() => {});
+    const abrir = await f.evaluate((id) => {
+      const e = document.querySelector(`#abrir-noticia-${id}`);
+      return { href: e?.getAttribute("href") ?? e?.closest("a")?.getAttribute("href") ?? "", texto: e?.textContent?.trim() ?? "" };
+    }, N1);
+    ok(abrir.href === `/noticias/${N1}` && abrir.texto === "Abrir la noticia", `NW: la tarjeta del Foro enlaza a su página («${abrir.texto}» → ${abrir.href})`);
+    await f.locator(`#abrir-noticia-${N1}`).scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(f, "NW5-foro-abrir-noticia");
+    ok(f.errores.length === 0, `NW: el Foro sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // NW6) Administración → Analítica: páginas vistas por categoría y entradas desde Google.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Noticias: página vista · Consolas", sessions: 5 },
+        { step_label: "Noticias: página vista · Videojuegos", sessions: 2 },
+        { step_label: "Noticias: llegada desde buscador · Google", sessions: 3 },
+        { step_label: "Noticias: llegada desde buscador · Bing", sessions: 1 },
+        { step_label: "Noticias: índice visto", sessions: 4 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-noticias-organicas").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = (await p.locator("#analitica-noticias-organicas").innerText().catch(() => "")).replace(/\n/g, " ");
+    ok(
+      /desde Google: 3 sesiones/.test(t) && /cualquier buscador: 4/.test(t) && /Páginas de noticias vistas: 7/.test(t) && /índice de noticias: 4/.test(t) && /Consolas 5 · Videojuegos 2/.test(t),
+      `NW: Analítica enseña las noticias vistas por categoría y las llegadas desde Google (${t})`
+    );
+    await p.locator("#analitica-noticias-organicas").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "NW6-analitica-noticias");
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "N") await seccionN();
@@ -8446,6 +8724,7 @@ try {
   if (SOLO === "C8") await seccionC8();
   if (SOLO === "AT") await seccionAT();
   if (SOLO === "PT") await seccionPT();
+  if (SOLO === "NW") await seccionNW();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -9408,6 +9687,7 @@ try {
   await seccionC8();
   await seccionAT();
   await seccionPT();
+  await seccionNW();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -90,6 +90,8 @@
  * - sql/product_chats.sql, components/ProductChatThread.tsx → la pestaña
  *   "Chat" (bandeja privada por producto).
  * - app/chat/[chatId].tsx → a donde lleva cada conversación de la bandeja.
+ * - app/noticias/[id].tsx → página propia de cada noticia: «Abrir la noticia» en cada tarjeta y el
+ *   enlace que se comparte (URL_NOTICIA_TIENDA); su «Comentar en el Foro» vuelve aquí con ?noticia=.
  * - app/(tabs)/perfil.tsx (el modal de "inicia sesión" navega ahí; también
  *   es donde se registran full_name/username que el trigger usa para
  *   mostrar el nombre de cada mensaje).
@@ -98,7 +100,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
+import { Link, router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -3696,8 +3698,9 @@ function fechaLarga(iso: string | null): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
 }
 
-// Enlace a la noticia dentro de la tienda (no a la fuente original).
-const URL_NOTICIA_TIENDA = "https://videojuegoszaragoza.com/chat-global?tab=news&noticia=";
+// Enlace a la noticia dentro de la tienda (no a la fuente original): su página propia (app/noticias/[id].tsx), que
+// Google puede indexar. Los enlaces antiguos /chat-global?tab=news&noticia=<id> siguen abriendo la noticia aquí.
+const URL_NOTICIA_TIENDA = "https://videojuegoszaragoza.com/noticias/";
 
 // «Compartir fuera»: hoja nativa, navigator.share o, si no hay, copiar el enlace.
 async function compartirFuera(n: Noticia): Promise<"compartido" | "copiado" | "nada"> {
@@ -4249,6 +4252,13 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
       {n.resumen ? (
         <Text style={[estiloTextoNoticia, { maxWidth: 560, marginTop: 2 }]}>{n.resumen}</Text>
       ) : null}
+
+      {/* Su página propia (enlace de verdad, también para Google). */}
+      <Link href={`/noticias/${n.id}` as Href} asChild>
+        <Pressable nativeID={`abrir-noticia-${n.id}`} accessibilityRole="link" hitSlop={6} style={{ paddingVertical: 2 }}>
+          <Text style={{ color: AZUL_NOTICIAS, fontSize: 12.5, fontWeight: "800", textAlign: "center" }}>Abrir la noticia</Text>
+        </Pressable>
+      </Link>
 
       {/* Resto del desglose: solo al pulsar «Ver más» */}
       {abierta ? (

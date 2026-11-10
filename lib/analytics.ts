@@ -45,6 +45,8 @@
  * - app/(tabs)/index.tsx, app/catalogo.tsx, app/producto/[id].tsx → llaman a
  *   trackEvent()/trackEventThrottled() en los pasos del recorrido (Inicio,
  *   Scroll, Categoría, Categoría X, Producto, Reseñas...).
+ * - app/noticias/[id].tsx → página de cada noticia (vista por categoría y
+ *   llegada desde un buscador, medirNoticiaDesdeBuscador).
  * - app/admin/analytics.tsx → lee analytics_events indirectamente, a través
  *   de las funciones SQL analytics_totals / analytics_daily_visitors /
  *   analytics_funnel / analytics_top_metadata, para el panel de métricas.
@@ -318,6 +320,40 @@ export function medirCuentaCreada(): void {
   if (redOrigen) {
     trackEvent("registro_redes", `Redes: registro desde ${NOMBRE_RED[redOrigen]}`, { metadata: { red: redOrigen } });
   }
+}
+
+// Noticias desde Google (dueño, 2026-11-09: atraer visitas orgánicas con las noticias). Solo el NOMBRE del buscador
+// (Google, Bing…), nunca la búsqueda ni la dirección completa de la que viene, y solo si la visita ENTRÓ en la tienda por
+// una noticia (la página con la que se abrió). Una vez por visita y con trackEvent (solo con la analítica aceptada).
+// Administración → Analítica lo enseña en «Noticias: visitas desde Google» (#analitica-noticias-organicas).
+const paginaDeEntrada = typeof window !== "undefined" && window.location ? window.location.pathname : "";
+let buscadorNoticiaMedido = false;
+
+/** Qué buscador manda la visita (por la página de la que viene), o null. */
+export function detectarBuscadorOrigen(referente: string): string | null {
+  let host = "";
+  try {
+    host = referente ? new URL(referente).hostname.toLowerCase() : "";
+  } catch {
+    return null;
+  }
+  if (!host) return null;
+  if (/(^|\.)google\.[a-z.]+$/.test(host) || /googlequicksearchbox/.test(host)) return "Google";
+  if (/(^|\.)bing\.com$/.test(host)) return "Bing";
+  if (/(^|\.)duckduckgo\.com$/.test(host)) return "DuckDuckGo";
+  if (/(^|\.)yahoo\.[a-z.]+$/.test(host)) return "Yahoo";
+  if (/(^|\.)ecosia\.org$/.test(host)) return "Ecosia";
+  return null;
+}
+
+/** En la página de una noticia (app/noticias/[id].tsx): si la visita entró por ella desde un buscador, se cuenta una vez. */
+export function medirNoticiaDesdeBuscador(path: string): void {
+  if (buscadorNoticiaMedido || typeof document === "undefined") return;
+  buscadorNoticiaMedido = true;
+  if (!/^\/noticias(\/|$)/.test(paginaDeEntrada)) return;
+  const buscador = detectarBuscadorOrigen(document.referrer ?? "");
+  if (!buscador) return;
+  trackEvent("noticia_buscador", `Noticias: llegada desde buscador · ${buscador}`, { path, metadata: { buscador } });
 }
 
 const lastTrackedAt = new Map<string, number>();

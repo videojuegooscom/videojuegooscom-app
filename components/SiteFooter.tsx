@@ -28,10 +28,12 @@
  * - components/marca/MarcaAnimada.tsx → logo animado del pie.
  * - app/(tabs)/index.tsx, app/(tabs)/perfil.tsx, app/(tabs)/cesta.tsx →
  *   pantallas que lo montan al final de su scroll.
+ * - app/noticias/index.tsx → «Noticias» (en Navegación), enlace de verdad para
+ *   que Google llegue a las noticias.
  */
 import { Ionicons } from "@expo/vector-icons";
 import type { Href } from "expo-router";
-import { router } from "expo-router";
+import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
 import SocialLinks from "./SocialLinks";
@@ -49,14 +51,15 @@ function pushRoute(route: Href) {
   router.push(route);
 }
 
-function FooterLink({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
+// Con `href`, es un enlace de verdad (<a href> en la web, para que Google lo siga), como «Noticias».
+function FooterLink({ label, onPress, href, nativeID }: { label: string; onPress?: () => void; href?: Href; nativeID?: string }) {
+  const boton = (
     <Pressable
+      nativeID={nativeID}
       onPress={onPress}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.7 : 1,
-        paddingVertical: 6,
-      })}
+      accessibilityRole={href ? "link" : undefined}
+      // Dentro de <Link asChild> el estilo tiene que ser un objeto (con una función, Link lo pierde).
+      style={href ? { paddingVertical: 6 } : ({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
     >
       <Text
         style={{
@@ -69,6 +72,13 @@ function FooterLink({ label, onPress }: { label: string; onPress: () => void }) 
         {label}
       </Text>
     </Pressable>
+  );
+  return href ? (
+    <Link href={href} asChild>
+      {boton}
+    </Link>
+  ) : (
+    boton
   );
 }
 
@@ -212,6 +222,7 @@ export default function SiteFooter({
               <FooterLink label="Finalizar compra" onPress={() => pushRoute("/checkout" as Href)} />
               <FooterLink label="Perfil" onPress={() => pushRoute("/perfil" as Href)} />
               <FooterLink label="Foro" onPress={() => pushRoute("/chat-global" as Href)} />
+              <FooterLink label="Noticias" nativeID="pie-noticias" href={"/noticias" as Href} />
               <FooterLink label="Blue IA" onPress={() => pushRoute("/blue-ia" as Href)} />
               <FooterLink label="Quiénes somos" onPress={() => pushRoute("/quienes-somos" as Href)} />
             </FooterAccordionSection>
