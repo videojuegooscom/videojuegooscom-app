@@ -1510,19 +1510,29 @@ type PedidoSeg = {
   factura?: { numero_factura: string | null; pdf: boolean } | null;
 };
 
-// Factura del pedido (la emite VeoAura, la tienda no factura): «Descargar factura F-…» por api/factura.ts; sin factura
-// en un pedido pagado o entregado, un texto discreto. facturasOk = false: la tabla aún no existe, no se enseña nada.
+// Factura del pedido (la emite VeoAura, la tienda no factura): el apartado «Factura» sale SIEMPRE en cada pedido (dueño,
+// 2026-11-10: «que el apartado de factura aparezca aunque no haya ninguna factura»): con factura, «Descargar factura F-…»
+// por api/factura.ts; sin ella, en qué punto está (pagado, pendiente de pago o cancelado). facturasOk = false (la tabla
+// aún no existe): el mismo apartado, sin botón.
 function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean }) {
   const [estado, setEstado] = useState<"listo" | "pidiendo">("listo");
   const [aviso, setAviso] = useState<string | null>(null);
-  if (!facturasOk) return null;
   const pagado = p.estado === "entregado" || (p.pago_estado === "pagado" && !p.devuelto_en);
-  if (!p.factura) {
-    if (!pagado || p.estado === "cancelado") return null;
+  if (!p.factura || !facturasOk) {
+    const texto =
+      p.estado === "cancelado"
+        ? "Pedido cancelado: no lleva factura"
+        : pagado
+          ? "Estará disponible aquí en cuanto se emita"
+          : "Estará disponible aquí cuando el pedido esté pagado";
     return (
-      <Text nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center" }}>
-        La factura estará disponible aquí en cuanto se emita
-      </Text>
+      <View nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 32 }}>
+        <Ionicons name="document-text-outline" size={16} color={SEG.mutedSoft} />
+        <Text style={{ color: SEG.mutedSoft, fontSize: 12.5, textAlign: "center", flexShrink: 1 }}>
+          <Text style={{ fontWeight: "800" }}>Factura: </Text>
+          {texto}
+        </Text>
+      </View>
     );
   }
   const numero = p.factura.numero_factura ?? "";
