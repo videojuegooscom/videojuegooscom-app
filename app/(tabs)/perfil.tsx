@@ -1760,10 +1760,13 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
 
 // Filtro de «Mis pedidos» (dueño, 2026-11-10: «filtrar con un emoticono a mis pedidos en curso, cancelados y mis
 // facturas»): una fila de iconos con su texto y su recuento, sin burbuja (lección «iconos sin burbuja»); el elegido en
-// el azul de la tienda y subrayado, el resto en gris; 44 px para el dedo. «Mis facturas» solo si ya hay facturas.
-type FiltroPedidos = "todos" | "curso" | "cancelados" | "facturas";
+// el azul de la tienda y subrayado, el resto en gris; 44 px para el dedo. «Facturas» solo si ya hay facturas.
+// Filtros: Todos, En curso, Completados (entregados; añadido el mismo día), Cancelados y Facturas.
+// «Completados» (dueño, 2026-11-10): los entregados.
+type FiltroPedidos = "todos" | "curso" | "completados" | "cancelados" | "facturas";
 function pasaFiltroPedido(p: PedidoSeg, f: FiltroPedidos) {
   if (f === "curso") return p.estado !== "cancelado" && p.estado !== "entregado";
+  if (f === "completados") return p.estado === "entregado";
   if (f === "cancelados") return p.estado === "cancelado";
   if (f === "facturas") return !!p.factura;
   return true;
@@ -1771,6 +1774,7 @@ function pasaFiltroPedido(p: PedidoSeg, f: FiltroPedidos) {
 const TEXTO_FILTRO_VACIO: Record<FiltroPedidos, string> = {
   todos: "",
   curso: "No tienes pedidos en curso ahora mismo.",
+  completados: "Todavía no tienes pedidos completados.",
   cancelados: "No tienes pedidos cancelados.",
   facturas: "Todavía no tienes facturas. Saldrán aquí en cuanto se emitan.",
 };
@@ -1788,6 +1792,7 @@ function FiltrosPedidos({
   const opciones: { f: FiltroPedidos; icono: React.ComponentProps<typeof Ionicons>["name"]; texto: string }[] = [
     { f: "todos", icono: "albums-outline", texto: "Todos" },
     { f: "curso", icono: "time-outline", texto: "En curso" },
+    { f: "completados", icono: "checkmark-circle-outline", texto: "Completados" },
     { f: "cancelados", icono: "close-circle-outline", texto: "Cancelados" },
     ...(facturasOk ? [{ f: "facturas" as const, icono: "document-text-outline" as const, texto: "Facturas" }] : []),
   ];
@@ -1812,9 +1817,12 @@ function FiltrosPedidos({
             // En la web, el lector de pantalla también sabe cuál está elegido.
             {...({ "aria-selected": elegido } as object)}
             accessibilityLabel={`${o.texto}: ${n}`}
+            // Cada uno mide lo que su nombre y reparten lo que sobra (con anchos iguales «Completados» no cabía).
             style={({ pressed }) => ({
-              flex: 1,
-              minWidth: 0,
+              flexGrow: 1,
+              flexShrink: 0,
+              flexBasis: "auto",
+              paddingHorizontal: 3,
               minHeight: 52,
               alignItems: "center",
               justifyContent: "center",
@@ -1830,7 +1838,8 @@ function FiltrosPedidos({
               <Ionicons name={o.icono} size={19} color={color} />
               <Text style={{ color, fontWeight: "900", fontSize: 13 }}>{n}</Text>
             </View>
-            <Text numberOfLines={1} style={{ color, fontWeight: elegido ? "900" : "800", fontSize: 12.5, textAlign: "center" }}>
+            {/* Con cinco filtros, la letra algo más pequeña para que «Completados» y «Cancelados» quepan a 360 px. */}
+            <Text numberOfLines={1} style={{ color, fontWeight: elegido ? "900" : "800", fontSize: opciones.length > 4 ? 11.5 : 12.5, textAlign: "center" }}>
               {o.texto}
             </Text>
           </Pressable>

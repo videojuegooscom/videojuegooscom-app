@@ -8934,7 +8934,7 @@ async function seccionFA() {
     const filtros = await p.evaluate(() =>
       [...document.querySelectorAll('#seguimiento-filtros [role="tab"]')].map((b) => b.innerText.replace(/[^\p{L}\p{N}() ]/gu, " ").replace(/\s+/g, " ").trim())
     );
-    ok(filtros.join("|") === "5 Todos|3 En curso|1 Cancelados|1 Facturas", `FA: filtros con su icono, su número y su nombre (${filtros.join(" | ")})`);
+    ok(filtros.join("|") === "5 Todos|3 En curso|1 Completados|1 Cancelados|1 Facturas", `FA: filtros con su icono, su número y su nombre (${filtros.join(" | ")})`);
     const cajas = await p.evaluate(() =>
       [...document.querySelectorAll('#seguimiento-filtros [role="tab"]')].map((b) => {
         const r = b.getBoundingClientRect();
@@ -8946,14 +8946,31 @@ async function seccionFA() {
       cajas.every((c) => c.alto >= 44 && !c.cortado) && new Set(cajas.map((c) => c.arriba)).size === 1,
       `FA: los filtros caben en una fila a 390 px, de 44 px o más y sin cortar el texto (${JSON.stringify(cajas)})`
     );
+    // Y en un móvil estrecho (360 px), los cinco siguen cabiendo sin cortarse.
+    await p.setViewportSize({ width: 360, height: 780 });
+    await p.waitForTimeout(400);
+    const estrecho = await p.evaluate(() =>
+      [...document.querySelectorAll('#seguimiento-filtros [role="tab"]')].map((b) => {
+        const t = [...b.querySelectorAll("div")].filter((d) => d.innerText.trim() && !d.querySelector("div")).at(-1);
+        return { arriba: Math.round(b.getBoundingClientRect().top), cortado: !!t && t.scrollWidth > t.clientWidth + 1 };
+      })
+    );
+    ok(estrecho.every((c) => !c.cortado) && new Set(estrecho.map((c) => c.arriba)).size === 1, `FA: a 360 px también caben los cinco en una fila sin cortar (${JSON.stringify(estrecho)})`);
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(300);
     const visibles = async () => p.evaluate(() => [...document.querySelectorAll('[id^="seguimiento-pedido-"]')].map((e) => e.id.replace("seguimiento-pedido-", "")).join(","));
     await p.locator("#seguimiento-filtro-curso").click();
     const enCurso = await visibles();
+    await p.locator("#seguimiento-filtro-completados").click();
+    const completados = await visibles();
     await p.locator("#seguimiento-filtro-cancelados").click();
     const cancelados = await visibles();
     await p.locator("#seguimiento-filtro-facturas").click();
     const conFactura = await visibles();
-    ok(enCurso === "51,52,53" && cancelados === "55" && conFactura === "51", `FA: «En curso», «Cancelados» y «Facturas» filtran (${enCurso} | ${cancelados} | ${conFactura})`);
+    ok(
+      enCurso === "51,52,53" && completados === "54" && cancelados === "55" && conFactura === "51",
+      `FA: «En curso», «Completados», «Cancelados» y «Facturas» filtran (${enCurso} | ${completados} | ${cancelados} | ${conFactura})`
+    );
     const elegido = await p.evaluate(() => document.querySelector("#seguimiento-filtro-facturas")?.getAttribute("aria-selected"));
     ok(elegido === "true", `FA: el filtro elegido se marca (${elegido})`);
     await capturar(p, "FA6-filtro-facturas");
