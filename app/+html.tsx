@@ -120,6 +120,7 @@ const ENLACES_SIN_JS: [string, string][] = [
   ["/vender", "Vender o intercambiar tu consola"],
   ["/quienes-somos", "Quiénes somos: Daniel Gutiérrez y el equipo"],
   ["/blog", "Blog"],
+  ["/noticias", "Noticias de consolas, videojuegos y tecnología"],
   ["/politicas/envios", "Envíos"],
   ["/politicas/devoluciones", "Devoluciones"],
 ];

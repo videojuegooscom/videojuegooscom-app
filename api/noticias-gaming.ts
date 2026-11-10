@@ -6,8 +6,28 @@
  * medios de videojuegos en español, por RSS), descarta repetidas y las que
  * ya están guardadas, y para cada una (máx. 8 por ejecución) pide a OpenAI
  * (gpt-4o-mini) un desglose en español: resumen, puntos clave, datos
- * concretos, por qué importa y a quién afecta. Solo se guardan las
- * relevantes para el mundo de la electrónica gaming.
+ * concretos, por qué importa, a quién afecta y «contexto» (antecedentes para
+ * quien no sigue la actualidad). Solo se guardan las relevantes para el mundo
+ * de la electrónica gaming.
+ *
+ * Sin repetidas y con interés (2026-11-09):
+ * - Consultas de Google Noticias pensadas para la tienda (PS5, Switch 2, Xbox,
+ *   portátiles, reparaciones y mando drift, móviles, PC, ofertas) y reparto
+ *   por turnos entre fuentes, para que no salgan todas del mismo sitio. Los
+ *   títulos claramente flojos (códigos diarios, estudios de mercado,
+ *   concursos) se saltan antes de gastar IA.
+ * - Antirrepetidas por TEMA: a la IA se le pasan los títulos (y su «tema») de
+ *   las noticias de las últimas 72 h y de las ya aceptadas en esta ejecución;
+ *   devuelve «tema» (clave corta del suceso concreto) y «repetida» (mismo
+ *   suceso aunque cambie el título o el ángulo). Las repetidas no se guardan,
+ *   ni dos con el mismo tema.
+ * - «interes» de 1 a 10 para un lector español que compra o repara consolas,
+ *   móviles, PC y accesorios: solo se guardan las de INTERES_MINIMO o más (sin
+ *   un interés válido, no se guarda).
+ * - Como mucho la mitad de las nuevas de una ejecución son «Videojuegos» si
+ *   hay de otras categorías (se quedan las de más interés).
+ * - Las columnas contexto, tema e interes son opcionales: si la migración aún
+ *   no está aplicada, se guarda sin ellas.
  *
  * Imágenes (carrusel de la pestaña): hasta 6 por noticia, y SOLO si son de la
  * noticia (más vale sin foto que con una equivocada):
@@ -73,10 +93,14 @@
  * - supabase/migrations/20261013220000_noticias_imagenes_rapidas.sql → bucket
  *   «noticias» y columna imagenes_meta (si todavía no existe, se guarda sin
  *   ella y no se copian fotos antiguas).
+ * - supabase/migrations/20261109190000_noticias_contexto_tema.sql → columnas
+ *   contexto, tema e interes (si todavía no existen, se guarda sin ellas y la
+ *   antirrepetidas usa solo los títulos).
  * - vercel.json → "images": la app pide en web la versión optimizada
  *   (/_vercel/image) de las fotos del bucket.
  * - app/(tabs)/chat-global.tsx → pestaña "Noticias Gaming" (lee la tabla y
  *   llama aquí en segundo plano al abrirse).
+ * - app/noticias/ → páginas públicas de cada noticia (enseñan el contexto).
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -221,6 +245,17 @@ const CONCURRENCIA_BUCKET = 2;
 const TIMEOUT_SUBIDA_MS = 8_000;
 const TIMEOUT_DESCARGA_BUCKET_MS = 8_000;
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+// Antirrepetidas e interés: ventana de las noticias que se le enseñan a la IA,
+// cuántos títulos como mucho (cortados) y el interés mínimo para guardar.
+const HORAS_ANTIRREPETIDAS = 72;
+const MAX_TITULOS_RECIENTES = 60;
+const LARGO_TITULO_RECIENTE = 90;
+const INTERES_MINIMO = 6;
+// Como mucho la mitad de las nuevas de una ejecución son «Videojuegos» (si hay de otras categorías).
+const MAX_VIDEOJUEGOS_POR_EJECUCION = Math.ceil(MAX_RESUMENES_IA / 2);
+// Títulos que casi nunca interesan al lector de la tienda: se saltan antes de gastar IA.
+const TITULO_POCO_INTERES =
+  /\bc[oó]digos?\b.*\b(?:free fire|fortnite|roblox|genshin|honkai|clash|brawl|pokemon go|monopoly go|coin master)\b|\b(?:free fire|roblox|genshin)\b.*\bc[oó]digos?\b|\bc[oó]digos\b.*\b(?:hoy|\d{1,2} de [a-z]+)\b|\bmercado\b.*\b20[3-5]\d\b|\bmarket (?:size|share|growth|report)\b|\bconcurso de fotograf/i;
 
 const CATEGORIAS = [
   "Consolas",
@@ -237,12 +272,17 @@ const UA =
   "Mozilla/5.0 (compatible; VideojuegosZaragozaNoticias/1.0; +https://videojuegoszaragoza.com)";
 
 // Fuentes RSS. Si alguna falla o cambia de formato, simplemente se salta.
+// Consultas de Google Noticias (8 como mucho) con los temas de la tienda: los
+// videojuegos en general ya llegan de los medios especializados de abajo.
 const CONSULTAS_GOOGLE = [
-  "videojuegos",
-  "PlayStation OR Xbox OR Nintendo",
-  "PC gaming tarjeta gráfica",
-  "móvil gaming",
-  "ofertas consolas videojuegos",
+  'PS5 OR "PlayStation 5" OR "PlayStation Plus"',
+  '"Nintendo Switch 2" OR "Nintendo Switch"',
+  '"Xbox Series" OR "Game Pass"',
+  '"Steam Deck" OR "consola portátil" OR "ROG Ally"',
+  'reparación consola OR "mando drift" OR avería consola',
+  '"móvil gaming" OR "smartphone gaming"',
+  '"tarjeta gráfica" OR "PC gaming"',
+  "ofertas consolas OR rebajas videojuegos",
 ];
 
 const FEEDS: { url: string; fuente?: string }[] = [
@@ -272,7 +312,17 @@ type Desglose = {
   datos: string[];
   por_que_importa: string | null;
   afecta_a: string | null;
+  contexto: string | null;
+  // Clave corta del suceso concreto ("zelda-ocarina-remake-lanzamiento") o null.
+  tema: string | null;
+  // Mismo suceso que una noticia ya publicada (sin dato claro: false).
+  repetida: boolean;
+  // 1-10 para el lector de la tienda; null si no llega bien (entonces no se guarda).
+  interes: number | null;
 };
+
+// Noticia ya publicada (o aceptada en esta ejecución) que se le enseña a la IA.
+type Reciente = { titulo: string; tema: string | null };
 
 // --- Utilidades de texto ----------------------------------------------------
 
@@ -1199,9 +1249,9 @@ async function leerPaginaArticulo(url: string, ms: number): Promise<PaginaArticu
 
 // --- IA -----------------------------------------------------------------
 
-const PROMPT_SISTEMA = `Eres el redactor de noticias de VideojuegosZaragoza.com, una tienda de consolas, videojuegos, accesorios y electrónica gaming en Zaragoza (España).
-Recibes una noticia (título, fuente, fecha y el texto disponible) y devuelves SOLO un objeto JSON con esta forma exacta:
-{"relevante": boolean, "categoria": "Consolas" | "Videojuegos" | "PC gaming" | "Móviles y tablets" | "Accesorios" | "Ofertas" | "Gaming", "titulo": string, "resumen": string, "puntos_clave": string[], "datos": string[], "por_que_importa": string, "afecta_a": string}
+const PROMPT_SISTEMA = `Eres el redactor de noticias de VideojuegosZaragoza.com, una tienda online de electrónica en Zaragoza (España): consolas, videojuegos, accesorios, móviles y portátiles, con compra, venta y reparación.
+Recibes una noticia (título, fuente, fecha y el texto disponible) y la lista de noticias que ya hemos publicado estos días, y devuelves SOLO un objeto JSON con esta forma exacta:
+{"relevante": boolean, "categoria": "Consolas" | "Videojuegos" | "PC gaming" | "Móviles y tablets" | "Accesorios" | "Ofertas" | "Gaming", "titulo": string, "resumen": string, "puntos_clave": string[], "datos": string[], "por_que_importa": string, "afecta_a": string, "contexto": string | null, "tema": string, "repetida": boolean, "interes": number}
 
 Reglas:
 - "relevante" es true solo si la noticia trata del mundo de la electrónica gaming: consolas, videojuegos, PC gaming (tarjetas gráficas, procesadores, periféricos), móviles y tablets para jugar, accesorios u ofertas de estos productos. Política, sucesos, deportes o tecnología sin relación con el gaming → false.
@@ -1211,8 +1261,46 @@ Reglas:
 - "datos": solo cifras, fechas, precios o especificaciones concretas que APAREZCAN LITERALMENTE en el texto recibido. Si no hay, [].
 - "por_que_importa": 2 o 3 frases pensando en un jugador o comprador en España.
 - "afecta_a": quién o qué se ve afectado, muy breve (p. ej. "Consolas Nintendo", "Jugadores de PC").
+- "contexto": 2 a 4 frases de antecedentes para quien no sigue la actualidad: qué es el juego, la consola o el servicio y qué pasó antes. Solo lo que esté en el texto o sea conocimiento general seguro y que no cambia con el tiempo (p. ej. qué compañía hace una consola o de qué saga es un juego). Nada de cifras, fechas o rumores que no estén en el texto. Si no tienes antecedentes seguros, null.
+- "tema": clave corta en minúsculas, sin tildes y con guiones, del SUCESO concreto (no del tema general), p. ej. "zelda-ocarina-remake-lanzamiento", "ps-plus-juegos-noviembre-2026", "switch-2-subida-precio". Si la noticia cubre el mismo suceso que una de la lista, usa el mismo tema que esa.
+- "repetida": true si la noticia cuenta el MISMO suceso que alguna de la lista de ya publicadas, aunque cambie el título, el medio o el ángulo (otra reacción, otro detalle, el mismo anuncio contado de otra forma). false solo si es un suceso distinto o una novedad real sobre él (p. ej. se confirma la fecha que antes era rumor).
+- "interes": entero de 1 a 10 pensando en un lector español que compra, vende o repara consolas, móviles, PC y accesorios.
+  Sube el interés: lanzamientos y precios en España, consolas y hardware nuevo, ofertas reales con precio, averías y reparaciones comunes (mando drift, sobrecalentamiento, pantallas), retrocompatibilidad, cambios en servicios (PlayStation Plus, Game Pass, Nintendo Switch Online), grandes lanzamientos (GTA 6 y similares) y cambios que afectan a lo que el lector ya tiene.
+  Baja el interés (4 o menos): códigos diarios de juegos gratuitos, estudios de mercado genéricos o previsiones a muchos años, concursos o eventos locales, noticias de otros países sin efecto en España, rumores sin fuente, notas de prensa menores, actualizaciones pequeñas de un solo juego, eSports locales y listas de relleno.
 - PROHIBIDO inventar datos, precios, fechas, nombres o declaraciones que no estén en el texto. Si el texto es escaso, sé breve y general en vez de rellenar.
 - Nunca incluyas URLs ni markdown.`;
+
+// «tema» limpio: minúsculas, sin tildes, solo letras, números y guiones (máx. 80), o null.
+function temaLimpio(valor: unknown): string | null {
+  if (typeof valor !== "string") return null;
+  const t = sinTildes(valor)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/, "");
+  return t.length >= 3 ? t : null;
+}
+
+// «interes» válido: entero de 1 a 10 (número o texto con un número), o null.
+function interesValido(valor: unknown): number | null {
+  const n = typeof valor === "number" ? valor : typeof valor === "string" && /^\s*\d+\s*$/.test(valor) ? Number(valor) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+}
+
+// Lista de ya publicadas para el prompt: las más recientes primero, cortas y sin repetir.
+function listaRecientes(recientes: Reciente[]): string {
+  const vistas = new Set<string>();
+  const lineas: string[] = [];
+  for (const r of recientes) {
+    if (lineas.length >= MAX_TITULOS_RECIENTES) break;
+    const titulo = r.titulo.replace(/\s+/g, " ").trim().slice(0, LARGO_TITULO_RECIENTE);
+    const clave = sinTildes(titulo);
+    if (!titulo || vistas.has(clave)) continue;
+    vistas.add(clave);
+    lineas.push(`- ${r.tema ? `[${r.tema}] ` : ""}${titulo}`);
+  }
+  return lineas.length ? lineas.join("\n") : "(ninguna)";
+}
 
 function listaDeTextos(valor: unknown, max: number, largo: number): string[] {
   if (!Array.isArray(valor)) return [];
@@ -1231,9 +1319,14 @@ async function desglosarConIA(
   openaiKey: string,
   noticia: Candidata,
   textoArticulo: string,
+  recientes: Reciente[],
   ms: number
 ): Promise<Desglose | null> {
   const contenido = [
+    `Noticias ya publicadas en las últimas ${HORAS_ANTIRREPETIDAS} h ([tema] título):`,
+    listaRecientes(recientes),
+    "",
+    "Noticia que tienes que desglosar:",
     `Título: ${noticia.titulo}`,
     `Fuente: ${noticia.fuente}`,
     `Fecha: ${noticia.fecha ? noticia.fecha.toISOString() : "desconocida"}`,
@@ -1248,7 +1341,7 @@ async function desglosarConIA(
       body: JSON.stringify({
         model: "gpt-4o-mini",
         temperature: 0.2,
-        max_tokens: 900,
+        max_tokens: 1100,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: PROMPT_SISTEMA },
@@ -1278,6 +1371,11 @@ async function desglosarConIA(
       datos: listaDeTextos(json.datos, 8, 300),
       por_que_importa: textoOpcional(json.por_que_importa, 1500),
       afecta_a: textoOpcional(json.afecta_a, 200),
+      contexto: json.contexto === "null" ? null : textoOpcional(json.contexto, 1200),
+      tema: temaLimpio(json.tema),
+      // Prudencia: solo cuenta como repetida si lo dice claramente; sin interés válido no se guarda.
+      repetida: json.repetida === true || json.repetida === "true",
+      interes: interesValido(json.interes),
     };
   } catch (e) {
     console.error("Noticias: fallo al desglosar con IA:", e instanceof Error ? e.message : e);
@@ -1625,7 +1723,7 @@ async function guardarFotosEnBucket(
 
 // --- Columnas que quizá aún no existen (migraciones pendientes) -----------------
 
-const COLUMNAS_OPCIONALES = ["imagenes_verificadas", "imagenes", "imagenes_meta"] as const;
+const COLUMNAS_OPCIONALES = ["imagenes_verificadas", "imagenes", "imagenes_meta", "contexto", "tema", "interes"] as const;
 // Se vacía al empezar cada ejecución (por si la migración se aplica entre medias).
 const columnasQueFaltan = new Set<string>();
 
@@ -1704,7 +1802,8 @@ async function reservarTurno(
 
 // --- Noticias nuevas ------------------------------------------------------------
 
-type Resultado = { candidatas: number; analizadas: number; nuevas: number };
+// repetidas / poco_interes: descartadas tras el desglose (mismo suceso o poco interés/variedad).
+type Resultado = { candidatas: number; analizadas: number; nuevas: number; repetidas: number; poco_interes: number };
 
 async function recogerNuevas(
   supabase: SupabaseClient,
@@ -1713,28 +1812,54 @@ async function recogerNuevas(
   prefijoBucket: string,
   restante: () => number
 ): Promise<Resultado> {
-  // 1) Recopilar de todas las fuentes en paralelo (las que fallen, se saltan)
+  // 1) Recopilar de todas las fuentes en paralelo (las que fallen, se saltan).
+  //    Cada fuente, de la más reciente a la más antigua; luego se van tomando
+  //    por turnos (una de cada fuente; dentro de cada turno, la más reciente
+  //    primero) para que no salgan todas del mismo sitio.
   const porFeed = await Promise.all(FEEDS.map(leerFeed));
   const ahora = Date.now();
-  const todas = porFeed
-    .flat()
-    .filter((n) => !n.fecha || ahora - n.fecha.getTime() < MAX_ANTIGUEDAD_MS)
-    .sort((a, b) => (b.fecha?.getTime() ?? 0) - (a.fecha?.getTime() ?? 0));
+  const masReciente = (a: Candidata, b: Candidata) => (b.fecha?.getTime() ?? 0) - (a.fecha?.getTime() ?? 0);
+  const listas = porFeed.map((lista) =>
+    lista.filter((n) => !n.fecha || ahora - n.fecha.getTime() < MAX_ANTIGUEDAD_MS).sort(masReciente)
+  );
+  const todas: Candidata[] = [];
+  for (let i = 0; listas.some((l) => i < l.length); i++) {
+    todas.push(...listas.filter((l) => i < l.length).map((l) => l[i]).sort(masReciente));
+  }
 
-  // 2) Quitar las que ya están guardadas (por url o por título parecido)
-  const { data: existentes } = await supabase
-    .from("noticias_gaming")
-    .select("url,titulo")
-    .order("created_at", { ascending: false })
-    .limit(400);
-  const urlsVistas = new Set<string>((existentes ?? []).map((r: any) => String(r.url)));
-  const titulosVistos: Set<string>[] = (existentes ?? []).map((r: any) => palabrasTitulo(String(r.titulo)));
+  // 2) Quitar las que ya están guardadas (por url o por título parecido) y
+  //    preparar la lista de las de las últimas 72 h para la IA (con su tema, si
+  //    la columna ya existe).
+  const leerExistentes = (conTema: boolean) =>
+    supabase
+      .from("noticias_gaming")
+      .select(conTema ? "url,titulo,tema,created_at" : "url,titulo,created_at")
+      .order("created_at", { ascending: false })
+      .limit(400);
+  let { data: existentes, error: errExistentes } = await leerExistentes(true);
+  if (errExistentes && apuntarColumnaQueFalta(errExistentes)) {
+    ({ data: existentes, error: errExistentes } = await leerExistentes(false));
+  }
+  if (errExistentes) console.warn("Noticias: no se pudieron leer las ya guardadas:", errExistentes.message);
+  const filasExistentes = (existentes ?? []) as unknown as { url: unknown; titulo: unknown; tema?: unknown; created_at?: unknown }[];
+  const urlsVistas = new Set<string>(filasExistentes.map((r) => String(r.url)));
+  const titulosVistos: Set<string>[] = filasExistentes.map((r) => palabrasTitulo(String(r.titulo)));
+  const desdeRecientes = ahora - HORAS_ANTIRREPETIDAS * 3_600_000;
+  const recientes: Reciente[] = filasExistentes
+    .filter((r) => {
+      const t = typeof r.created_at === "string" ? Date.parse(r.created_at) : NaN;
+      return Number.isFinite(t) && t >= desdeRecientes;
+    })
+    .map((r) => ({ titulo: String(r.titulo ?? ""), tema: temaLimpio(r.tema) }));
+  const temasVistos = new Set<string>(recientes.map((r) => r.tema).filter((t): t is string => !!t));
 
-  // 3) Quitar duplicados entre fuentes y quedarse con las más recientes
+  // 3) Quitar duplicados entre fuentes y títulos claramente flojos (códigos
+  //    diarios, estudios de mercado…) antes de gastar IA
   const elegidas: Candidata[] = [];
   for (const n of todas) {
     if (elegidas.length >= MAX_RESUMENES_IA) break;
     if (urlsVistas.has(n.url)) continue;
+    if (TITULO_POCO_INTERES.test(n.titulo)) continue;
     const palabras = palabrasTitulo(n.titulo);
     if (titulosVistos.some((t) => titulosParecidos(t, palabras))) continue;
     urlsVistas.add(n.url);
@@ -1743,8 +1868,12 @@ async function recogerNuevas(
   }
 
   // 4) Por cada una: URL real, artículo (texto + fotos), desglose con IA y
-  //    comprobación de las fotos con IA, de 4 en 4, sin pasarse del tiempo total
+  //    comprobación de las fotos con IA, de 4 en 4, sin pasarse del tiempo total.
+  //    Las aceptadas en esta ejecución se suman a la lista de recientes (las
+  //    siguientes llamadas ya las ven) y su tema no puede repetirse.
   const filas: Record<string, unknown>[] = [];
+  const aceptadas: Reciente[] = [];
+  const descartes = { repetidas: 0, poco_interes: 0 };
   const resumenesAntes = cupo.resumenes;
   let siguiente = 0;
 
@@ -1761,15 +1890,27 @@ async function recogerNuevas(
       // Se descargan mientras la IA hace el resumen.
       const candidatas = unirImagenes(pagina.portada, n.imagenes, pagina.cuerpo);
       const descargas = prepararImagenes(candidatas, Math.min(TIMEOUT_IMAGEN_MS, restante() - 8_000));
-      const d = await desglosarConIA(openaiKey, n, pagina.texto, ms);
-      const listas = await descargas;
+      // Las aceptadas en esta ejecución, primero (son las más parecidas en el tiempo).
+      const d = await desglosarConIA(openaiKey, n, pagina.texto, [...aceptadas, ...recientes], ms);
+      const fotosPreparadas = await descargas;
       if (!d || !d.relevante) continue;
+      if (d.interes === null || d.interes < INTERES_MINIMO) {
+        descartes.poco_interes++;
+        continue;
+      }
+      // Repetida por tema: lo dice la IA o el tema ya está guardado/aceptado.
+      if (d.repetida || (d.tema && temasVistos.has(d.tema))) {
+        descartes.repetidas++;
+        continue;
+      }
+      if (d.tema) temasVistos.add(d.tema);
+      aceptadas.unshift({ titulo: d.titulo, tema: d.tema });
       const fotos = await fotosComprobadas(
         openaiKey,
         cupo,
         d.titulo,
         d.resumen,
-        listas,
+        fotosPreparadas,
         Math.min(TIMEOUT_VISION_MS, restante() - 1_500)
       );
       // Sin comprobar (fallo, sin cupo o sin tiempo) se guarda sin fotos y la
@@ -1803,12 +1944,28 @@ async function recogerNuevas(
         datos: d.datos,
         por_que_importa: d.por_que_importa,
         afecta_a: d.afecta_a,
+        contexto: d.contexto,
+        tema: d.tema,
+        interes: d.interes,
         publicada_en: (n.fecha ?? new Date()).toISOString(),
         publicada: true,
       });
     }
   };
   await Promise.all(Array.from({ length: CONCURRENCIA }, trabajador));
+
+  // Variedad: si hay de otras categorías, como mucho la mitad son «Videojuegos»
+  // (se quedan las de más interés; las demás pueden volver a entrar otro día).
+  const deVideojuegos = filas.filter((f) => f.categoria === "Videojuegos");
+  if (deVideojuegos.length > MAX_VIDEOJUEGOS_POR_EJECUCION && deVideojuegos.length < filas.length) {
+    const sobran = new Set(
+      [...deVideojuegos]
+        .sort((a, b) => Number(b.interes ?? 0) - Number(a.interes ?? 0))
+        .slice(MAX_VIDEOJUEGOS_POR_EJECUCION)
+    );
+    descartes.poco_interes += sobran.size;
+    for (let i = filas.length - 1; i >= 0; i--) if (sobran.has(filas[i])) filas.splice(i, 1);
+  }
 
   // 5) Guardar (si otra ejecución ya guardó la misma url, se ignora; sus fotos
   //    copiadas al bucket se quedan sin usar, no molestan)
@@ -1829,7 +1986,13 @@ async function recogerNuevas(
     }
   }
 
-  return { candidatas: todas.length, analizadas: cupo.resumenes - resumenesAntes, nuevas };
+  return {
+    candidatas: todas.length,
+    analizadas: cupo.resumenes - resumenesAntes,
+    nuevas,
+    repetidas: descartes.repetidas,
+    poco_interes: descartes.poco_interes,
+  };
 }
 
 // --- Revisión de fotos de noticias ya guardadas (con IA) ------------------------

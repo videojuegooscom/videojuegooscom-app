@@ -5,7 +5,7 @@
  * este botón hace lo mismo sin tener que estirar la mano.
  *
  * Cómo funciona: se monta una sola vez en app/_layout.tsx. Solo aparece en las páginas de
- * lectura (catálogo, servicios, políticas, blog): en las fichas de producto y de servicio (que
+ * lectura (catálogo, servicios, políticas, blog y noticias, app/noticias/): en las fichas de producto y de servicio (que
  * terminan en «Volver atrás»), el pago y «Vender» ya hay botones abajo y taparían. Vuelve atrás
  * en el historial o, si no lo hay, a Inicio.
  * Blue (que se aparta solo de los botones) se coloca en otro sitio. «Contratar servicio» usa
@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const RUTAS = /^\/(catalogo|servicios|politicas\/|blog)/;
+const RUTAS = /^\/(catalogo|servicios|politicas\/|blog|noticias)/;
 
 function volver() {
   try {

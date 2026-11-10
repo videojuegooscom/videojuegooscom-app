@@ -40,6 +40,7 @@
  * - components/ImageLightbox.tsx → foto en grande con zoom.
  * - app/servicios.tsx → catálogo del que se navega hasta aquí, y a donde
  *   vuelve «Volver atrás» si no hay historial.
+ * - app/noticias/[id].tsx, app/noticias/index.tsx → reutilizan faltaColumna.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -144,8 +145,9 @@ function estrellas(n: number) {
   return "★".repeat(v) + "☆".repeat(5 - v);
 }
 
-// ¿Falta una columna? (la migración aún no se ha aplicado): entonces se repite la consulta sin ella.
-function faltaColumna(error: unknown) {
+// ¿Falta una columna? (la migración aún no se ha aplicado): entonces se repite la consulta sin ella. También la usan las
+// noticias (app/noticias/[id].tsx e index.tsx).
+export function faltaColumna(error: unknown) {
   const e = error as { code?: string; message?: string } | null;
   return !!e && (e.code === "42703" || e.code === "PGRST204" || /column .* does not exist|Could not find the .* column/i.test(e.message ?? ""));
 }

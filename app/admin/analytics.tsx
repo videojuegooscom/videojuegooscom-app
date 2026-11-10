@@ -44,6 +44,8 @@
  * Conectado con:
  * - lib/supabase.ts → cliente para llamar a las funciones RPC.
  * - lib/analytics.ts → quien registra los eventos que esta pantalla resume.
+ * - app/noticias/[id].tsx, app/noticias/index.tsx → «Noticias: visitas desde Google»
+ *   (#analitica-noticias-organicas): páginas vistas por categoría y entradas desde buscadores.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -679,6 +681,28 @@ export default function AdminAnalytics() {
     return { filas, mejor, cuentas: exacto("Registro: cuenta creada") };
   }, [funnel]);
 
+  // Noticias con página propia (app/noticias/[id].tsx): páginas vistas por categoría, el índice, «Comentar en el Foro»
+  // y las visitas que ENTRAN por una noticia desde un buscador (solo el nombre del buscador, lib/analytics.ts).
+  const noticiasOrganicas = useMemo(() => {
+    const porPrefijo = (prefijo: string) =>
+      funnel
+        .filter((f) => f.step_label.startsWith(prefijo))
+        .map((f) => ({ clave: f.step_label.slice(prefijo.length), n: f.sessions }))
+        .sort((a, b) => b.n - a.n);
+    const exacto = (label: string) => funnel.find((f) => f.step_label === label)?.sessions ?? 0;
+    const categorias = porPrefijo("Noticias: página vista · ");
+    const buscadores = porPrefijo("Noticias: llegada desde buscador · ");
+    return {
+      categorias,
+      vistas: categorias.reduce((s, c) => s + c.n, 0),
+      buscadores,
+      google: buscadores.find((b) => b.clave === "Google")?.n ?? 0,
+      desdeBuscadores: buscadores.reduce((s, b) => s + b.n, 0),
+      indice: exacto("Noticias: índice visto"),
+      comentar: exacto("Noticias: comentar en el Foro"),
+    };
+  }, [funnel]);
+
   // Guía de Blue y formulario de Vender: pasos de la guía (en orden), cómo termina y qué pasa
   // después en el formulario (abierto y enviado, y de ellos cuántos venían de la guía).
   const guiaVender = useMemo(() => {
@@ -1267,6 +1291,40 @@ export default function AdminAnalytics() {
                   Para que no se escape ninguna visita, pon en la biografía de Instagram videojuegoszaragoza.com/?utm_source=instagram y
                   en la de TikTok videojuegoszaragoza.com/?utm_source=tiktok.
                 </Text>
+              </View>
+            </SectionCard>
+
+            <SectionCard
+              title="Noticias: visitas desde Google"
+              subtitle="Páginas de noticias vistas por categoría y cuántas visitas entran por una noticia desde un buscador (sesiones; solo visitantes que aceptaron la analítica, sin guardar qué buscaron)."
+            >
+              <View nativeID="analitica-noticias-organicas" style={{ gap: 10 }}>
+                <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <Ionicons name="logo-google" size={16} color={COLORS.accentDark} />
+                  <Text nativeID="analitica-noticias-buscadores" style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    Entran por una noticia desde Google: {noticiasOrganicas.google}{" "}
+                    {noticiasOrganicas.google === 1 ? "sesión" : "sesiones"} · desde cualquier buscador: {noticiasOrganicas.desdeBuscadores}
+                    {noticiasOrganicas.buscadores.length > 1
+                      ? ` (${noticiasOrganicas.buscadores.map((b) => `${b.clave} ${b.n}`).join(" · ")})`
+                      : ""}
+                  </Text>
+                </View>
+                <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <Ionicons name="newspaper-outline" size={16} color={COLORS.accentDark} />
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text nativeID="analitica-noticias-vistas" style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                      Páginas de noticias vistas: {noticiasOrganicas.vistas} · índice de noticias: {noticiasOrganicas.indice} · «Comentar en el
+                      Foro»: {noticiasOrganicas.comentar}
+                    </Text>
+                    {noticiasOrganicas.categorias.length ? (
+                      <Text nativeID="analitica-noticias-categorias" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                        Por categoría: {noticiasOrganicas.categorias.map((c) => `${c.clave} ${c.n}`).join(" · ")}
+                      </Text>
+                    ) : (
+                      <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Aún nadie ha abierto la página de una noticia en estas fechas.</Text>
+                    )}
+                  </View>
+                </View>
               </View>
             </SectionCard>
 

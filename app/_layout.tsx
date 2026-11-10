@@ -46,7 +46,8 @@
  * - app/(tabs)/_layout.tsx → navegación por pestañas (inicio, catálogo,
  *   cesta, chat, blue-ia, perfil...).
  * - app/catalogo.tsx, app/servicios.tsx, app/checkout.tsx,
- *   app/producto/[id].tsx, app/servicio/[id].tsx, app/chat/[chatId].tsx,
+ *   app/producto/[id].tsx, app/servicio/[id].tsx, app/noticias/index.tsx,
+ *   app/noticias/[id].tsx, app/chat/[chatId].tsx,
  *   app/modal.tsx, app/reset-password.tsx → rutas públicas fuera de las
  *   pestañas.
  * - app/admin/_layout.tsx → todas las rutas /admin.
@@ -351,6 +352,10 @@ export default function RootLayout() {
         {/* Políticas (envíos, devoluciones, privacidad, términos) y Blog */}
         <Stack.Screen name="politicas/[slug]" />
         <Stack.Screen name="blog/index" />
+
+        {/* Noticias con página propia (índice y cada noticia, para Google) */}
+        <Stack.Screen name="noticias/index" />
+        <Stack.Screen name="noticias/[id]" />
 
         {/* Producto dinámico */}
         <Stack.Screen name="producto/[id]" />

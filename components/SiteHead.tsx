@@ -43,6 +43,8 @@
  * - app/admin/marca-seo.tsx → desde donde se edita seo_title,
  *   seo_description y logo_url.
  * - app/_layout.tsx → la monta una única vez, junto a Campanita/CookieConsentBanner.
+ * - app/noticias/[id].tsx → usa upsertMeta/upsertLink para su propia cabecera (título, descripción, og:* y
+ *   NewsArticle); aquí esas rutas solo reciben la dirección oficial (RUTAS_CON_CABECERA_PROPIA).
  */
 import { useEffect, useState } from "react";
 import { Platform } from "react-native";
@@ -57,6 +59,10 @@ const PAGINAS: Record<string, { titulo: string; descripcion?: string }> = {
   "/servicios": { titulo: "Servicios de reparación y mantenimiento", descripcion: "Reparación, limpieza y mantenimiento de consolas y dispositivos." },
   "/vender": { titulo: "Vender mi artículo", descripcion: "Vende o intercambia tu consola o dispositivo: cuéntanos qué tienes y te damos un precio." },
   "/blog": { titulo: "Blog", descripcion: "Novedades y artículos de la tienda." },
+  "/noticias": {
+    titulo: "Noticias de consolas, videojuegos y tecnología",
+    descripcion: "Las últimas noticias de consolas, videojuegos, PC, móviles y accesorios, resumidas en español por Videojuegoszaragoza.com.",
+  },
   // El dueño quiere salir en Google al buscar «Daniel Gutiérrez» (2026-11-03): su nombre va en el título y en la
   // descripción, igual que en la página y en sus datos estructurados (app/+html.tsx).
   "/quienes-somos": {
@@ -78,7 +84,11 @@ type Ajustes = { title: string; description: string; logoUrl: string };
 const DOMINIO = "https://videojuegoszaragoza.com";
 const MARCA = "Videojuegoszaragoza.com";
 
-function upsertMeta(attr: "name" | "property", key: string, content: string) {
+// Cada noticia (app/noticias/[id].tsx) pone su propio título, descripción, og:* y datos estructurados al cargarse: aquí
+// solo se pone su dirección oficial, para no pisarle el título cuando «Marca y SEO» llega después.
+const RUTAS_CON_CABECERA_PROPIA = /^\/noticias\/[^/]+$/;
+
+export function upsertMeta(attr: "name" | "property", key: string, content: string) {
   if (typeof document === "undefined") return;
 
   let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`);
@@ -90,7 +100,7 @@ function upsertMeta(attr: "name" | "property", key: string, content: string) {
   el.setAttribute("content", content);
 }
 
-function upsertLink(rel: string, href: string) {
+export function upsertLink(rel: string, href: string) {
   if (typeof document === "undefined") return;
 
   let el = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
@@ -152,6 +162,7 @@ export default function SiteHead() {
     const ruta = pathname.replace(/\/+$/, "") || "/";
     upsertLink("canonical", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
     upsertMeta("property", "og:url", `${DOMINIO}${ruta === "/" ? "/" : ruta}`);
+    if (RUTAS_CON_CABECERA_PROPIA.test(ruta)) return;
     const pagina = PAGINAS[ruta];
     if (!pagina && !ajustes) return;
     const marca = ajustes?.title || MARCA;
