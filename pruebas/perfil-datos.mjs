@@ -530,6 +530,9 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       return json((esPedido ? estado.numeros.pedidos : estado.numeros.reparaciones).filter((f) => !dueno || f[campo] === dueno));
     }
     if (estado.numeros && url.pathname.endsWith("/rest/v1/pedido_items") && metodo === "GET") return json(estado.numeros.items ?? []);
+    // Miniaturas de «Mis seguimientos» (2026-11-10): portadas de los productos y de los servicios, ficticias.
+    if (estado.numeros?.fotosProductos && url.pathname.endsWith("/rest/v1/product_media") && metodo === "GET") return json(estado.numeros.fotosProductos);
+    if (estado.numeros?.fotosServicios && url.pathname.endsWith("/rest/v1/service_media") && metodo === "GET") return json(estado.numeros.fotosServicios);
     if (estado.numeros && url.pathname.endsWith("/rest/v1/seguimiento_intentos") && metodo === "GET") return json(estado.numeros.intentos ?? []);
     if (url.pathname.endsWith("/rpc/vincular_seguimiento")) {
       if (!estado.numeros || estado.numeros.sinColumnas) return json({ code: "PGRST202", message: "Could not find the function public.vincular_seguimiento" }, 404);
@@ -8895,6 +8898,89 @@ async function seccionFA() {
     ok(/lo abren 5 → lo añaden 2/.test(await texto(p, "#analitica-facturas")), `FA: y cuántos abren «¿Te hemos dado un número de seguimiento?» y cuántos lo añaden (${await texto(p, "#analitica-facturas")})`);
     await p.locator("#analitica-facturas").scrollIntoViewIfNeeded().catch(() => {});
     await capturar(p, "FA5-analitica-facturas");
+    await ctx.close();
+  }
+
+  // FA6) Dueño, 2026-11-10: filtros con iconos («Todos», «En curso», «Cancelados», «Facturas»), miniatura del artículo y
+  // del servicio, y «¿Te hemos dado un número de seguimiento?» se abre y se vuelve a cerrar.
+  {
+    const PROD = "fa000000-0000-4000-8000-0000000000a1";
+    const SERV = "fa000000-0000-4000-8000-0000000000b1";
+    const FOTO_P = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/fa/mando.jpg";
+    const FOTO_S = "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/servicios/fa/limpieza.jpg";
+    const pedidos = [...PEDIDOS.map((x) => ({ ...x })), pedidoCliente(55, { estado: "cancelado" })];
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      aceptaAnalitica: true,
+      facturas: FACTURAS,
+      numeros: {
+        pedidos,
+        items: [
+          { pedido_id: idDe(51), titulo: "Mando DualSense", product_id: PROD },
+          { pedido_id: idDe(52), titulo: "Cable HDMI", product_id: null },
+        ],
+        fotosProductos: [{ product_id: PROD, public_url: FOTO_P, is_cover: true, sort_order: 0, kind: "image" }],
+        fotosServicios: [{ service_id: SERV, public_url: FOTO_S, is_cover: true, sort_order: 0 }],
+        reparaciones: [
+          { id: "fa000000-0000-4000-8000-0000000000c1", created_at: "2026-11-07T10:00:00Z", service_id: SERV, service_title: "Limpieza PS5", status: "nuevo", seguimiento: "recibido", seguimiento_nota: null, seguimiento_actualizado: null, codigo_seguimiento: "VZ-LIMP-IA5A", customer_user_id: CLIENTE.id },
+        ],
+      },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#seguimiento-filtros").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const filtros = await p.evaluate(() =>
+      [...document.querySelectorAll('#seguimiento-filtros [role="tab"]')].map((b) => b.innerText.replace(/[^\p{L}\p{N}() ]/gu, " ").replace(/\s+/g, " ").trim())
+    );
+    ok(filtros.join("|") === "5 Todos|3 En curso|1 Cancelados|1 Facturas", `FA: filtros con su icono, su número y su nombre (${filtros.join(" | ")})`);
+    const cajas = await p.evaluate(() =>
+      [...document.querySelectorAll('#seguimiento-filtros [role="tab"]')].map((b) => {
+        const r = b.getBoundingClientRect();
+        const t = [...b.querySelectorAll("div")].filter((d) => d.innerText.trim() && !d.querySelector("div")).at(-1);
+        return { alto: Math.round(r.height), arriba: Math.round(r.top), cortado: !!t && t.scrollWidth > t.clientWidth + 1 };
+      })
+    );
+    ok(
+      cajas.every((c) => c.alto >= 44 && !c.cortado) && new Set(cajas.map((c) => c.arriba)).size === 1,
+      `FA: los filtros caben en una fila a 390 px, de 44 px o más y sin cortar el texto (${JSON.stringify(cajas)})`
+    );
+    const visibles = async () => p.evaluate(() => [...document.querySelectorAll('[id^="seguimiento-pedido-"]')].map((e) => e.id.replace("seguimiento-pedido-", "")).join(","));
+    await p.locator("#seguimiento-filtro-curso").click();
+    const enCurso = await visibles();
+    await p.locator("#seguimiento-filtro-cancelados").click();
+    const cancelados = await visibles();
+    await p.locator("#seguimiento-filtro-facturas").click();
+    const conFactura = await visibles();
+    ok(enCurso === "51,52,53" && cancelados === "55" && conFactura === "51", `FA: «En curso», «Cancelados» y «Facturas» filtran (${enCurso} | ${cancelados} | ${conFactura})`);
+    const elegido = await p.evaluate(() => document.querySelector("#seguimiento-filtro-facturas")?.getAttribute("aria-selected"));
+    ok(elegido === "true", `FA: el filtro elegido se marca (${elegido})`);
+    await capturar(p, "FA6-filtro-facturas");
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.event_name === "seguimientos_filtro"); i++) await p.waitForTimeout(200);
+    ok((estado.eventosEnviados ?? []).some((e) => e.step_label === "Perfil: filtro de pedidos · Facturas"), "FA: el filtro usado se cuenta en la analítica");
+    await p.locator("#seguimiento-filtro-todos").click();
+    await p.waitForTimeout(300);
+    // Miniaturas: con foto la portada del producto o del servicio; sin foto, su icono.
+    const mini = await p.evaluate(() => ({
+      p51: decodeURIComponent(document.querySelector("#seguimiento-mini-51 img")?.getAttribute("src") ?? ""),
+      p52: !!document.querySelector("#seguimiento-mini-52") && !document.querySelector("#seguimiento-mini-52 img"),
+      rep: decodeURIComponent(document.querySelector('[id^="seguimiento-mini-rep-"] img')?.getAttribute("src") ?? ""),
+      lado: Math.round(document.querySelector("#seguimiento-mini-51")?.getBoundingClientRect().width ?? 0),
+    }));
+    ok(/mando\.jpg/.test(mini.p51) && mini.p52 && /limpieza\.jpg/.test(mini.rep) && mini.lado === 56, `FA: miniatura del artículo y del servicio, y el icono si no hay foto (${JSON.stringify({ ...mini, p51: mini.p51.slice(-9), rep: mini.rep.slice(-12) })})`);
+    await capturar(p, "FA6-miniaturas");
+    // «¿Te hemos dado un número de seguimiento?»: se abre y se vuelve a cerrar.
+    await p.locator("#seguimiento-anadir-abrir").click();
+    await p.getByLabel("Número de seguimiento", { exact: true }).waitFor({ timeout: 5000 }).catch(() => {});
+    const abierto = await p.getByLabel("Número de seguimiento", { exact: true }).count();
+    await p.locator("#seguimiento-anadir-cerrar").click();
+    await p.waitForTimeout(300);
+    const cerrado = { campo: await p.getByLabel("Número de seguimiento", { exact: true }).count(), enlace: await p.locator("#seguimiento-anadir-abrir").count() };
+    ok(abierto === 1 && cerrado.campo === 0 && cerrado.enlace === 1, `FA: «¿Te hemos dado un número de seguimiento?» se abre y se vuelve a cerrar (${abierto} → ${JSON.stringify(cerrado)})`);
+    const ancho = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+    ok(ancho.a <= ancho.v, `FA: nada se sale por los lados (${ancho.a}/${ancho.v})`);
+    ok(p.errores.length === 0, `FA: filtros y miniaturas sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 }

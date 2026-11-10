@@ -90,6 +90,7 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
 import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
 import SiteFooter from "../../components/SiteFooter";
+import SmartImage from "../../components/SmartImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
 import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
@@ -1498,6 +1499,8 @@ type PedidoSeg = {
   entrega: "envio" | "recogida" | null;
   total_eur: number | null;
   items: string[];
+  // Portada del primer artículo del pedido que la tenga (miniatura en «Mis pedidos»).
+  foto?: string | null;
   codigo_seguimiento?: string | null;
   // Pago con tarjeta (Stripe; migraciones 20261105120000 y 20261106100000): solo los escribe el servidor.
   pago_estado?: string | null;
@@ -1601,6 +1604,8 @@ function PagoDelPedido({ p }: { p: PedidoSeg }) {
 type ReparacionSeg = {
   id: string;
   created_at: string;
+  // Portada del servicio contratado (miniatura en «Reparaciones y Mantenimientos»).
+  foto?: string | null;
   service_title: string;
   seguimiento: EtapaReparacion;
   seguimiento_nota: string | null;
@@ -1681,6 +1686,21 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
 
   return (
     <View nativeID="seguimiento-anadir" style={{ width: "100%", maxWidth: 460, gap: 8, alignItems: "center" }}>
+      {/* Abierto se puede volver a plegar (dueño, 2026-11-10: «al darle se queda así y ya no puede volver a cerrar»). */}
+      <Pressable
+        nativeID="seguimiento-anadir-cerrar"
+        onPress={() => {
+          setAbierto(false);
+          setAviso(null);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Cerrar «añadir número de seguimiento»"
+        hitSlop={6}
+        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Ionicons name="close-circle-outline" size={18} color={SEG.accentDark} />
+        <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>¿Te hemos dado un número de seguimiento?</Text>
+      </Pressable>
       <Text style={{ color: SEG.muted, fontSize: 13.5, textAlign: "center" }}>Escríbelo aquí: vale para un pedido o una reparación.</Text>
       <View style={{ flexDirection: "row", gap: 8, width: "100%" }}>
         <TextInput
@@ -1734,6 +1754,105 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
           {aviso.texto}
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+// Filtro de «Mis pedidos» (dueño, 2026-11-10: «filtrar con un emoticono a mis pedidos en curso, cancelados y mis
+// facturas»): una fila de iconos con su texto y su recuento, sin burbuja (lección «iconos sin burbuja»); el elegido en
+// el azul de la tienda y subrayado, el resto en gris; 44 px para el dedo. «Mis facturas» solo si ya hay facturas.
+type FiltroPedidos = "todos" | "curso" | "cancelados" | "facturas";
+function pasaFiltroPedido(p: PedidoSeg, f: FiltroPedidos) {
+  if (f === "curso") return p.estado !== "cancelado" && p.estado !== "entregado";
+  if (f === "cancelados") return p.estado === "cancelado";
+  if (f === "facturas") return !!p.factura;
+  return true;
+}
+const TEXTO_FILTRO_VACIO: Record<FiltroPedidos, string> = {
+  todos: "",
+  curso: "No tienes pedidos en curso ahora mismo.",
+  cancelados: "No tienes pedidos cancelados.",
+  facturas: "Todavía no tienes facturas. Saldrán aquí en cuanto se emitan.",
+};
+function FiltrosPedidos({
+  pedidos,
+  facturasOk,
+  actual,
+  onCambiar,
+}: {
+  pedidos: PedidoSeg[];
+  facturasOk: boolean;
+  actual: FiltroPedidos;
+  onCambiar: (f: FiltroPedidos) => void;
+}) {
+  const opciones: { f: FiltroPedidos; icono: React.ComponentProps<typeof Ionicons>["name"]; texto: string }[] = [
+    { f: "todos", icono: "albums-outline", texto: "Todos" },
+    { f: "curso", icono: "time-outline", texto: "En curso" },
+    { f: "cancelados", icono: "close-circle-outline", texto: "Cancelados" },
+    ...(facturasOk ? [{ f: "facturas" as const, icono: "document-text-outline" as const, texto: "Facturas" }] : []),
+  ];
+  return (
+    // Los cuatro en UNA fila también en el móvil: icono encima del texto, como la barra de abajo de la tienda.
+    <View nativeID="seguimiento-filtros" accessibilityRole="tablist" style={{ flexDirection: "row", justifyContent: "center", width: "100%", maxWidth: 460 }}>
+      {opciones.map((o) => {
+        const elegido = o.f === actual;
+        const n = pedidos.filter((p) => pasaFiltroPedido(p, o.f)).length;
+        const color = elegido ? SEG.accentDark : SEG.muted;
+        return (
+          <Pressable
+            key={o.f}
+            nativeID={`seguimiento-filtro-${o.f}`}
+            onPress={() => {
+              onCambiar(o.f);
+              // Administración → Analítica: qué filtro se usa.
+              trackEvent("seguimientos_filtro", `Perfil: filtro de pedidos · ${o.texto}`);
+            }}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: elegido }}
+            // En la web, el lector de pantalla también sabe cuál está elegido.
+            {...({ "aria-selected": elegido } as object)}
+            accessibilityLabel={`${o.texto}: ${n}`}
+            style={({ pressed }) => ({
+              flex: 1,
+              minWidth: 0,
+              minHeight: 52,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 3,
+              paddingVertical: 4,
+              borderBottomWidth: 2,
+              borderBottomColor: elegido ? SEG.accent : "transparent",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            {/* Arriba el icono con su número; debajo el nombre (así «Cancelados» cabe a 360-390 px). */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name={o.icono} size={19} color={color} />
+              <Text style={{ color, fontWeight: "900", fontSize: 13 }}>{n}</Text>
+            </View>
+            <Text numberOfLines={1} style={{ color, fontWeight: elegido ? "900" : "800", fontSize: 12.5, textAlign: "center" }}>
+              {o.texto}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// Miniatura del artículo o del servicio (dueño, 2026-11-10), como en la cesta: la portada entera sobre blanco, por el
+// optimizador (ancho), o su icono si no hay foto. Va a la izquierda de lo que compraste o del servicio.
+function MiniaturaSeguimiento({ nativeID, foto, icono, alt }: { nativeID: string; foto?: string | null; icono: React.ComponentProps<typeof Ionicons>["name"]; alt: string }) {
+  return (
+    <View
+      nativeID={nativeID}
+      style={{ width: 56, height: 56, borderRadius: 12, overflow: "hidden", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: SEG.line, alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+    >
+      {foto ? (
+        <SmartImage uri={foto} alt={alt} ancho={56} contentFit="contain" style={{ width: "100%", height: "100%" }} />
+      ) : (
+        <Ionicons name={icono} size={24} color={SEG.mutedSoft} />
+      )}
     </View>
   );
 }
@@ -1885,6 +2004,27 @@ function SegSeparador() {
 type FichaGustada = { id: string; titulo: string; precio: number; imagen: string | null };
 const UUID_GUSTO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Portada (primera foto, la marcada como portada antes) de cada producto o servicio, por id. Si no se puede leer
+// (artículo ya vendido u oculto, sin fotos), ese id no sale y se enseña el icono.
+async function portadasDe(tipo: "producto" | "servicio", idsCrudos: string[]): Promise<Record<string, string>> {
+  const ids = [...new Set(idsCrudos.filter((id) => UUID_GUSTO.test(id)))];
+  const portada: Record<string, string> = {};
+  if (!ids.length) return portada;
+  try {
+    const fotos =
+      tipo === "producto"
+        ? await supabase.from("product_media").select("product_id,public_url,is_cover,sort_order,kind").in("product_id", ids).order("is_cover", { ascending: false }).order("sort_order", { ascending: true })
+        : await supabase.from("service_media").select("service_id,public_url,is_cover,sort_order").in("service_id", ids).order("is_cover", { ascending: false }).order("sort_order", { ascending: true });
+    for (const m of (fotos.data ?? []) as { product_id?: string; service_id?: string; public_url: string | null; kind?: string | null }[]) {
+      const id = m.product_id ?? m.service_id;
+      if (id && m.public_url && !portada[id] && (!m.kind || m.kind === "image")) portada[id] = m.public_url;
+    }
+  } catch {
+    // sin fotos: los iconos
+  }
+  return portada;
+}
+
 async function fichasGustadas(tipo: "producto" | "servicio", ids: string[]): Promise<FichaGustada[]> {
   if (!ids.length) return [];
   const tabla = tipo === "producto" ? "products" : "services";
@@ -2011,6 +2151,8 @@ function SeguimientosSeccion() {
   // no se pueden valorar (sin la migración no sale el botón).
   const [valoradas, setValoradas] = useState<Record<string, number> | null>(null);
   const [valorando, setValorando] = useState<{ solicitudId: string; titulo: string } | null>(null);
+  // Filtro de «Mis pedidos» (dueño, 2026-11-10): todos, en curso, cancelados o los que tienen factura.
+  const [filtroPedidos, setFiltroPedidos] = useState<FiltroPedidos>("todos");
 
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
   const cargar = useCallback(async (silencioso = false) => {
@@ -2048,13 +2190,21 @@ function SeguimientosSeccion() {
       } else {
         const filas = (pedRes.data ?? []) as Omit<PedidoSeg, "items">[];
         const porPedido: Record<string, string[]> = {};
+        // Miniatura de cada pedido (dueño, 2026-11-10): la portada del primer artículo que la tenga.
+        const fotoPedido: Record<string, string> = {};
         if (filas.length) {
           const itRes = await supabase
             .from("pedido_items")
-            .select("pedido_id,titulo")
+            .select("pedido_id,titulo,product_id")
             .in("pedido_id", filas.map((p) => p.id));
-          for (const it of (itRes.data ?? []) as { pedido_id: string; titulo: string }[]) {
+          const items = (itRes.data ?? []) as { pedido_id: string; titulo: string; product_id?: string | null }[];
+          for (const it of items) {
             (porPedido[it.pedido_id] ??= []).push(it.titulo);
+          }
+          const portadas = await portadasDe("producto", items.map((it) => it.product_id ?? "").filter(Boolean));
+          for (const it of items) {
+            const f = it.product_id ? portadas[it.product_id] : undefined;
+            if (f && !fotoPedido[it.pedido_id]) fotoPedido[it.pedido_id] = f;
           }
         }
         // Las devoluciones (migración 20261106100000) solo se piden si hay algún pedido pagado con tarjeta.
@@ -2092,6 +2242,7 @@ function SeguimientosSeccion() {
             ...p,
             ...devueltos[p.id],
             items: porPedido[p.id] ?? [],
+            foto: fotoPedido[p.id] ?? null,
             factura: facturas[p.id] ? { numero_factura: facturas[p.id].numero_factura, pdf: facturas[p.id].pdf } : null,
           }))
         );
@@ -2102,7 +2253,7 @@ function SeguimientosSeccion() {
       const reparacionesCon = (columnas: string) =>
         supabase.from("service_requests").select(columnas).eq("customer_user_id", uid).order("created_at", { ascending: false }).limit(50);
       let repRes: { data: any[] | null; error: any } = await reparacionesCon(
-        "id,created_at,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado,codigo_seguimiento"
+        "id,created_at,service_id,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado,codigo_seguimiento"
       );
       if (repRes.error && faltaEsquema(repRes.error)) {
         numeros = false;
@@ -2118,10 +2269,13 @@ function SeguimientosSeccion() {
         console.error("Error cargando reparaciones:", repRes.error);
         setReparaciones([]);
       } else {
+        // Miniatura de cada reparación: la portada del servicio contratado (si tiene).
+        const fotosServicio = await portadasDe("servicio", (repRes.data ?? []).map((r: any) => String(r.service_id ?? "")).filter(Boolean));
         setReparaciones(
           (repRes.data ?? []).map((r: any) => ({
             id: r.id,
             created_at: r.created_at,
+            foto: r.service_id ? fotosServicio[r.service_id] ?? null : null,
             service_title: r.service_title ?? "Servicio",
             seguimiento:
               r.seguimiento && r.seguimiento in ETIQUETA_REPARACION
@@ -2187,19 +2341,27 @@ function SeguimientosSeccion() {
               destino="/catalogo"
             />
           ) : (
-            pedidos.map((p, i) => (
-              <View key={p.id} style={{ gap: 10, alignItems: "center", width: "100%" }}>
+            <>
+            <FiltrosPedidos pedidos={pedidos} facturasOk={facturasOk} actual={filtroPedidos} onCambiar={setFiltroPedidos} />
+            {pedidos.filter((p) => pasaFiltroPedido(p, filtroPedidos)).length === 0 ? (
+              <Text nativeID="seguimiento-filtro-vacio" style={{ color: SEG.muted, fontSize: 14, textAlign: "center", lineHeight: 20, maxWidth: 420 }}>
+                {TEXTO_FILTRO_VACIO[filtroPedidos]}
+              </Text>
+            ) : null}
+            {pedidos.filter((p) => pasaFiltroPedido(p, filtroPedidos)).map((p, i) => (
+              <View key={p.id} nativeID={`seguimiento-pedido-${p.numero ?? p.id}`} style={{ gap: 10, alignItems: "center", width: "100%" }}>
                 {i > 0 ? <SegSeparador /> : null}
                 <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
                   Pedido nº {p.numero ?? "—"}
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
-                {p.items.length ? (
-                  <Text style={{ color: SEG.text, fontSize: 14.5, textAlign: "center", lineHeight: 20, maxWidth: 460 }}>
-                    {p.items.join(" · ")}
-                  </Text>
-                ) : null}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, maxWidth: 460, alignSelf: "center" }}>
+                  <MiniaturaSeguimiento nativeID={`seguimiento-mini-${p.numero ?? p.id}`} foto={p.foto} icono="cube-outline" alt={p.items[0] ?? "Artículo del pedido"} />
+                  {p.items.length ? (
+                    <Text style={{ color: SEG.text, fontSize: 14.5, lineHeight: 20, flexShrink: 1 }}>{p.items.join(" · ")}</Text>
+                  ) : null}
+                </View>
                 <LineaProgreso
                   etiquetas={etiquetasPedido(p.entrega)}
                   actual={Math.max(0, ETAPAS_PEDIDO.indexOf(p.estado))}
@@ -2213,7 +2375,8 @@ function SeguimientosSeccion() {
                 />
                 <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${p.numero ?? ""}`)} />
               </View>
-            ))
+            ))}
+            </>
           )}
         </View>
       ) : null}
@@ -2231,9 +2394,12 @@ function SeguimientosSeccion() {
           reparaciones.map((r, i) => (
             <View key={r.id} style={{ gap: 10, alignItems: "center", width: "100%" }}>
               {i > 0 ? <SegSeparador /> : null}
-              <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
-                {r.service_title} · {segFecha(r.created_at)}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, maxWidth: 460, alignSelf: "center" }}>
+                <MiniaturaSeguimiento nativeID={`seguimiento-mini-rep-${r.id}`} foto={r.foto} icono="construct-outline" alt={r.service_title} />
+                <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, lineHeight: 21, flexShrink: 1 }}>
+                  {r.service_title} · {segFecha(r.created_at)}
+                </Text>
+              </View>
               <LineaProgreso
                 etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_REPARACION[e])}
                 actual={Math.max(0, ETAPAS_REPARACION.indexOf(r.seguimiento))}
