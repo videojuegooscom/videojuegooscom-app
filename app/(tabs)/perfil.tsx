@@ -1483,6 +1483,9 @@ const ETIQUETA_REPARACION: Record<EtapaReparacion, string> = {
   entregado: "Entregada",
   cancelado: "Cancelada",
 };
+// En la barra de progreso (seis etapas en un móvil): «Reparando» en vez de «En reparación», para que quepa en su columna
+// (dueño, 2026-11-10: «arregla las etiquetas de la barra de reparaciones», se juntaban).
+const ETIQUETA_BARRA_REPARACION: Record<EtapaReparacion, string> = { ...ETIQUETA_REPARACION, reparando: "Reparando" };
 
 type EstadoPedido = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
 const ETAPAS_PEDIDO: EstadoPedido[] = ["pendiente", "confirmado", "preparado", "enviado", "entregado"];
@@ -1915,8 +1918,10 @@ function LineaProgreso({ etiquetas, actual, cancelado }: { etiquetas: string[]; 
     );
   }
 
+  const alternar = etiquetas.length > 5;
   return (
     <View style={{ width: "100%", maxWidth: 460, gap: 8, paddingVertical: 4 }}>
+      {alternar ? filaEtiquetas(0) : null}
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 18 }}>
         {etiquetas.map((_, i) => {
           const esActual = i === actual;
@@ -1937,26 +1942,64 @@ function LineaProgreso({ etiquetas, actual, cancelado }: { etiquetas: string[]; 
           );
         })}
       </View>
-      <View style={{ flexDirection: "row" }}>
-        {etiquetas.map((t, i) => (
-          <Text
-            key={i}
-            numberOfLines={2}
-            style={{
-              flex: 1,
-              textAlign: "center",
-              fontSize: 10.5,
-              lineHeight: 13,
-              color: i === actual ? SEG.accent : i < actual ? SEG.text : SEG.mutedSoft,
-              fontWeight: i === actual ? "900" : "700",
-            }}
-          >
-            {t}
-          </Text>
-        ))}
-      </View>
+      {alternar ? filaEtiquetas(1) : filaEtiquetas(null)}
     </View>
   );
+
+  // Etiquetas bajo (o sobre) los puntos, cada una centrada en su punto. Con seis etapas (reparaciones) se alternan:
+  // las pares encima de la barra y las impares debajo, y cada una tiene el ancho de DOS columnas, así «Diagnóstico» o
+  // «Lista para recoger» no se parten a media palabra ni se montan sobre la de al lado (dueño, 2026-11-10).
+  function filaEtiquetas(paridad: 0 | 1 | null) {
+    const estilo = (i: number) => ({
+      textAlign: "center" as const,
+      fontSize: 10.5,
+      lineHeight: 13,
+      color: i === actual ? SEG.accent : i < actual ? SEG.text : SEG.mutedSoft,
+      fontWeight: (i === actual ? "900" : "700") as "900" | "700",
+    });
+    if (paridad === null) {
+      return (
+        <View nativeID={`linea-etiquetas-${etiquetas.length}`} style={{ flexDirection: "row" }}>
+          {etiquetas.map((t, i) => (
+            <View key={i} style={{ flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
+              <Text nativeID={`linea-etiqueta-${etiquetas.length}-${i}`} numberOfLines={2} style={estilo(i)}>
+                {t}
+              </Text>
+            </View>
+          ))}
+        </View>
+      );
+    }
+    // Alternadas: cada etiqueta, centrada justo encima o debajo de su punto (los puntos van a 23 px de cada borde:
+    // 18 de margen + la mitad del punto) y con el ancho de dos columnas.
+    const ultima = etiquetas.length - 1;
+    return (
+      <View style={{ paddingHorizontal: 23 }}>
+        <View nativeID={`linea-etiquetas-${etiquetas.length}-${paridad === 0 ? "arriba" : "abajo"}`} style={{ height: 26, position: "relative" }}>
+          {etiquetas.map((t, i) =>
+            i % 2 === paridad ? (
+              <Text
+                key={i}
+                nativeID={`linea-etiqueta-${etiquetas.length}-${i}`}
+                numberOfLines={2}
+                style={{
+                  ...estilo(i),
+                  position: "absolute",
+                  left: `${(i / ultima) * 100}%`,
+                  width: 104,
+                  marginLeft: -52,
+                  // Las de arriba, pegadas a la barra por abajo; las de abajo, por arriba.
+                  ...(paridad === 0 ? { bottom: 0 } : { top: 0 }),
+                }}
+              >
+                {t}
+              </Text>
+            ) : null
+          )}
+        </View>
+      </View>
+    );
+  }
 }
 
 function PreguntarBoton({ onPress }: { onPress: () => void }) {
@@ -2410,7 +2453,7 @@ function SeguimientosSeccion() {
                 </Text>
               </View>
               <LineaProgreso
-                etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_REPARACION[e])}
+                etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_BARRA_REPARACION[e])}
                 actual={Math.max(0, ETAPAS_REPARACION.indexOf(r.seguimiento))}
                 cancelado={r.seguimiento === "cancelado"}
               />
