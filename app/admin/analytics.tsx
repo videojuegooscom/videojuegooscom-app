@@ -638,6 +638,11 @@ export default function AdminAnalytics() {
       // «Mis seguimientos» en el móvil (2026-11-10): el campo del número va plegado; cuántos lo abren y cuántos lo añaden.
       numeroAbierto: findExact("Perfil: abre «añadir número de seguimiento»"),
       numeroAnadido: findExact("Perfil: número de seguimiento añadido"),
+      // Filtros de «Mis pedidos» (2026-11-10): cuántas sesiones usan cada uno.
+      filtrosPedidos: funnel
+        .filter((f) => f.step_label.startsWith("Perfil: filtro de pedidos · "))
+        .map((f) => `${f.step_label.slice("Perfil: filtro de pedidos · ".length)} ${f.sessions}`)
+        .join(" · "),
       // Reseñas de servicios terminados: «Valorar el servicio» en «Mis seguimientos» y las publicadas.
       resenaServicioPedida: findExact("Seguimientos: valorar el servicio"),
       resenaServicioPublicada: findExact("Reseña de servicio publicada"),
@@ -1193,7 +1198,8 @@ export default function AdminAnalytics() {
                     <Ionicons name="document-text-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"} ·
-                      «¿Te hemos dado un número de seguimiento?»: lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido}
+                      «¿Te hemos dado un número de seguimiento?»: lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido} ·
+                      filtros de «Mis pedidos»: {coreFunnel.filtrosPedidos || "aún sin usar"}
                     </Text>
                   </View>
                   <View
