@@ -8969,6 +8969,47 @@ async function seccionFA() {
       lado: Math.round(document.querySelector("#seguimiento-mini-51")?.getBoundingClientRect().width ?? 0),
     }));
     ok(/mando\.jpg/.test(mini.p51) && mini.p52 && /limpieza\.jpg/.test(mini.rep) && mini.lado === 56, `FA: miniatura del artículo y del servicio, y el icono si no hay foto (${JSON.stringify({ ...mini, p51: mini.p51.slice(-9), rep: mini.rep.slice(-12) })})`);
+    // Barra de reparaciones (dueño, 2026-11-10: las etiquetas se juntaban): cada etiqueta dentro de su columna y sin
+    // montarse sobre la de al lado, a 390 y a 360 px; «Reparando» en vez de «En reparación».
+    // Cada etiqueta: lo que ocupa de verdad su texto (rangos), si alguna palabra se parte a la mitad (más líneas que
+    // palabras) y si se monta sobre otra (rectángulos que se cruzan) o se sale de la pantalla.
+    const barra = () =>
+      p.evaluate(() => {
+        const els = [...document.querySelectorAll('[id^="linea-etiqueta-6-"]')];
+        if (els.length !== 6) return null;
+        const info = els.map((t) => {
+          const rango = document.createRange();
+          rango.selectNodeContents(t);
+          const r = rango.getBoundingClientRect();
+          const lineas = new Set([...rango.getClientRects()].map((x) => Math.round(x.top))).size;
+          const texto = t.innerText.replace(/\s+/g, " ").trim();
+          return { texto, izq: r.left, der: r.right, arriba: r.top, abajo: r.bottom, lineas, palabras: texto.split(" ").length };
+        });
+        const partidas = info.filter((c) => c.lineas > c.palabras).map((c) => c.texto);
+        const montadas = [];
+        for (let a = 0; a < info.length; a++)
+          for (let b = a + 1; b < info.length; b++) {
+            const x = info[a];
+            const y = info[b];
+            if (x.izq < y.der - 1 && y.izq < x.der - 1 && x.arriba < y.abajo - 1 && y.arriba < x.abajo - 1) montadas.push(`${x.texto}/${y.texto}`);
+          }
+        const fuera = info.filter((c) => c.izq < 0 || c.der > window.innerWidth).map((c) => c.texto);
+        return { textos: info.map((c) => c.texto), partidas, montadas, fuera };
+      });
+    const b390 = await barra();
+    await p.setViewportSize({ width: 360, height: 780 });
+    await p.waitForTimeout(400);
+    const b360 = await barra();
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(300);
+    ok(
+      !!b390 &&
+        !!b360 &&
+        b390.textos.includes("Reparando") &&
+        !b390.textos.includes("En reparación") &&
+        [b390, b360].every((b) => !b.partidas.length && !b.montadas.length && !b.fuera.length),
+      `FA: las etiquetas de la barra de reparaciones no se parten, no se juntan ni se salen (390: ${JSON.stringify(b390)}; 360: ${JSON.stringify(b360 && { partidas: b360.partidas, montadas: b360.montadas, fuera: b360.fuera })})`
+    );
     await capturar(p, "FA6-miniaturas");
     // «¿Te hemos dado un número de seguimiento?»: se abre y se vuelve a cerrar.
     await p.locator("#seguimiento-anadir-abrir").click();
