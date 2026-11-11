@@ -197,7 +197,12 @@
  *    tabla (migración sin aplicar) no sale nada y no falla; Administración → Pedidos enseña el número, «PDF pendiente»
  *    o «Sin factura», el recuento, el filtro y «Descargar»; Analítica las cuenta.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2]
+ *  - AC) Avisos de Blue solo con cuenta (2026-11-11): sin sesión, aunque el dispositivo tenga el ajuste antiguo y un «me
+ *    gusta» que ha bajado, ni bajadas ni artículos nuevos; «… · solo con cuenta» con «Crear cuenta gratis» (44 px, icono
+ *    sin burbuja) lleva al registro con la ventaja escrita, deja la vuelta y se cuenta (también la cuenta creada después);
+ *    con sesión, el ajuste pasa a la cuenta una vez y avisa (también de los «me gusta» de la cuenta); Analítica lo enseña.
+ *
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|AC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1119,7 +1124,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -9438,8 +9443,186 @@ async function seccionRE2() {
   }
 }
 
+// ===== AC) Avisos de Blue solo con cuenta (dueño, 2026-11-11): bajadas de precio y artículos nuevos =====================
+// Sin sesión, aunque en el dispositivo queden el ajuste antiguo de artículos nuevos y un «me gusta» que ha bajado de precio,
+// Blue no los avisa y ofrece «Crear cuenta gratis», que lleva al registro (con la ventaja escrita) y deja la vuelta; la cuenta
+// creada después se cuenta aparte. Con sesión, sí avisa (el ajuste del dispositivo pasa a la cuenta una vez y también mira los
+// «me gusta» de la cuenta). Administración → Analítica lo cuenta. Productos y fotos ficticios (nada de Supabase real).
+async function seccionAC() {
+  const MANDO = "ac000000-0000-4000-8000-000000000001";
+  const SWITCH = "ac000000-0000-4000-8000-000000000002";
+  const PRODUCTOS = [
+    { id: MANDO, title: "Mando DualSense", price_eur: 49, image_url: "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/ac/mando.jpg" },
+    { id: SWITCH, title: "Switch OLED", price_eur: 199, image_url: "https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/ac/switch.jpg" },
+  ];
+  const texto = (p) => p.evaluate(() => document.body.innerText.replace(/\s+/g, " "));
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  // Lo que quedaba en el dispositivo: el ajuste antiguo de artículos nuevos, un «me gusta» y el precio que se vio (más alto).
+  const dispositivo = (ctx, { sinSesion }) =>
+    ctx.addInitScript(([mando, sw, quitar]) => {
+      try {
+        if (quitar) localStorage.removeItem("videojuegoos.supabase.auth");
+        localStorage.setItem("videojuegoszaragoza:novedades_seen_version", "1");
+        localStorage.setItem("videojuegoszaragoza:novedades_avisos", "1");
+        localStorage.setItem("videojuegoszaragoza:novedades_vistas_hasta", new Date(Date.now() - 2 * 86400000).toISOString());
+        localStorage.setItem("videojuegoszaragoza:liked_products", JSON.stringify([mando]));
+        if (!sessionStorage.getItem("ac-precios")) {
+          sessionStorage.setItem("ac-precios", "1");
+          localStorage.setItem("videojuegoszaragoza:precios_vistos", JSON.stringify({ [mando]: 59, [sw]: 249 }));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, [MANDO, SWITCH, sinSesion]);
+  // Productos ficticios para Blue: los artículos nuevos (recuento) y los precios de lo que gusta. Lo demás, como siempre.
+  const productos = (ctx, estado) =>
+    ctx.route("**/rest/v1/products*", (r) => {
+      const peticion = r.request();
+      const url = new URL(peticion.url());
+      const json = (cuerpo, extra = {}) =>
+        r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "*", ...extra }, body: JSON.stringify(cuerpo) });
+      if (peticion.method() === "HEAD" && url.searchParams.get("novedad_en")) {
+        estado.consultasNovedades = (estado.consultasNovedades ?? 0) + 1;
+        return json([], { "content-range": "*/2" });
+      }
+      const select = url.searchParams.get("select") ?? "";
+      if (peticion.method() === "GET" && (select === "id,title,price_eur" || select === "id")) {
+        const ids = (url.searchParams.get("id") ?? "").replace(/^in\.\(|\)$/g, "").split(",").map((x) => x.replace(/"/g, ""));
+        estado.preciosPedidos = [...(estado.preciosPedidos ?? []), ...ids];
+        return json(PRODUCTOS.filter((f) => ids.includes(f.id)).map((f) => (select === "id" ? { id: f.id } : { id: f.id, title: f.title, price_eur: f.price_eur })));
+      }
+      return r.fallback();
+    });
+  // Los «me gusta» guardados en la cuenta (/api/interaccion, mis_me_gusta): la Switch solo está en la cuenta.
+  const meGustaCuenta = (ctx, estado) =>
+    ctx.route("**/api/interaccion", (r) => {
+      const cuerpo = JSON.parse(r.request().postData() ?? "{}");
+      if (cuerpo.accion === "mis_me_gusta") estado.misMeGustaPedidos = (estado.misMeGustaPedidos ?? 0) + 1;
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(cuerpo.accion === "mis_me_gusta" ? { ok: true, productos: [SWITCH], servicios: [] } : { ok: true }) });
+    });
+  const abrirNoticiasYAvisos = async (p) => {
+    await p.locator("#blue-flotante").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    await p.locator('[aria-label="Abrir Blue, el asistente de la tienda"]').first().click({ timeout: 10000 }).catch(() => {});
+    await p.getByRole("tab", { name: /Noticias y avisos/ }).first().click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(2000);
+  };
+
+  // AC1) Sin sesión: ni bajadas ni artículos nuevos; «Crear cuenta gratis» lleva al registro y se cuenta.
+  {
+    const estado = { filas: [], guardados: [], aceptaAnalitica: true, productosVacios: true, flash: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await dispositivo(ctx, { sinSesion: true });
+    await productos(ctx, estado);
+    await meGustaCuenta(ctx, estado);
+    const p = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(p);
+    const t = await texto(p);
+    ok(!/Ha bajado de precio/.test(t), `AC: sin sesión Blue no avisa de bajadas de precio (${(t.match(/Ha bajado de precio[^·]*/) ?? ["ninguna"])[0]})`);
+    ok(!/Han? llegado \d+ artículos? nuevos?/.test(t), `AC: sin sesión Blue no avisa de artículos nuevos (${(t.match(/Han? llegado \d+ artículos? nuevos?/) ?? ["ninguno"])[0]})`);
+    ok((estado.consultasNovedades ?? 0) === 0 && (estado.misMeGustaPedidos ?? 0) === 0, `AC: sin sesión ni se cuentan los artículos nuevos ni se piden «me gusta» de ninguna cuenta (${estado.consultasNovedades ?? 0}, ${estado.misMeGustaPedidos ?? 0})`);
+    const linea = (await p.locator("#blue-avisos-solo-cuenta").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/Avisos de bajadas de precio y artículos nuevos · solo con cuenta/.test(linea) && /Crear cuenta gratis/.test(linea), `AC: sale la línea «… · solo con cuenta» con «Crear cuenta gratis» (${linea})`);
+    ok((await p.locator('[aria-label="Avisarme de los artículos nuevos"]').count()) === 0, "AC: sin sesión no hay interruptor de artículos nuevos (no se activan en el dispositivo)");
+    const caja = await p.locator("#blue-crear-cuenta-avisos").boundingBox().catch(() => null);
+    ok((caja?.height ?? 0) >= 44, `AC: «Crear cuenta gratis» mide 44 px o más (${Math.round(caja?.height ?? 0)})`);
+    // Sin burbuja: el icono de la línea no va dentro de un círculo con fondo.
+    const burbuja = await p.evaluate(() => {
+      const fila = document.getElementById("blue-avisos-solo-cuenta");
+      return [...(fila?.querySelectorAll("div") ?? [])].some((d) => getComputedStyle(d).borderRadius === "17px");
+    });
+    ok(!burbuja, "AC: el icono va sin burbuja");
+    await p.locator("#blue-avisos-solo-cuenta").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "AC1-sin-sesion-solo-con-cuenta");
+    await p.locator("#blue-crear-cuenta-avisos").click({ timeout: 10000 }).catch(() => {});
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    await p.locator("#perfil-ventaja-avisos").waitFor({ timeout: 20000 }).catch(() => {});
+    const url = new URL(p.url());
+    ok(url.pathname === "/perfil" && url.searchParams.get("acceso") === "registro", `AC: «Crear cuenta gratis» lleva al registro (${url.pathname}${url.search})`);
+    const ventaja = (await p.locator("#perfil-ventaja-avisos").innerText().catch(() => "")).trim();
+    ok(/Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos/.test(ventaja), `AC: el registro dice la ventaja (${ventaja || "nada"})`);
+    const volver = await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:volver_tras_acceso"));
+    ok(JSON.parse(volver ?? "{}").ruta === "/", `AC: y al entrar con la cuenta vuelve a donde estaba (${volver})`);
+    await esperar(p, () => evento(estado, "blue_cuenta_avisos").length > 0);
+    ok(evento(estado, "blue_cuenta_avisos")[0]?.step_label === "Blue: crear cuenta por avisos", `AC: el toque se cuenta en la analítica propia (${evento(estado, "blue_cuenta_avisos")[0]?.step_label ?? "nada"})`);
+    await capturar(p, "AC2-registro-con-la-ventaja");
+    // Crea la cuenta: se cuenta como creada tras «Crear cuenta gratis».
+    await p.getByPlaceholder("Nombre y apellidos").fill("Lucía Pérez").catch(() => {});
+    await p.getByPlaceholder("Nombre de usuario").fill("lucia_p").catch(() => {});
+    await p.getByPlaceholder("País de residencia").fill("España").catch(() => {});
+    await p.getByPlaceholder("tu@email.com").last().fill("lucia@example.com").catch(() => {});
+    await p.getByPlaceholder("Mínimo 8 caracteres").fill("clave123").catch(() => {});
+    await p.getByPlaceholder("Mínimo 8 caracteres").press("Enter").catch(() => {});
+    await esperar(p, () => evento(estado, "registro_blue_avisos").length > 0);
+    ok((estado.altas ?? []).length === 1 && evento(estado, "registro_blue_avisos").length === 1, `AC: la cuenta creada después se cuenta aparte (${(estado.altas ?? []).length} alta, ${evento(estado, "registro_blue_avisos").length} evento)`);
+    ok(!/lucia@example\.com|lucia_p|clave123/.test(JSON.stringify(estado.eventosEnviados ?? [])), "AC: la analítica no lleva el correo, el usuario ni la contraseña");
+    ok(p.errores.length === 0, `AC: sin sesión, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AC2) Control con sesión: el ajuste del dispositivo pasa a la cuenta una vez y Blue avisa de los dos artículos nuevos y
+  // de las dos bajadas (el «me gusta» del dispositivo y el de la cuenta).
+  {
+    // (Con el perfil completo, para que «Completa tu perfil» no tape Inicio.)
+    const perfil = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }];
+    const estado = { filas: perfil, guardados: [], productosVacios: true, flash: [], preferencias: { user_id: CLIENTE.id, avisos_noticias: true, noticias_vistas_hasta: new Date().toISOString(), avisos_novedades: false, novedades_vistas_hasta: null } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await dispositivo(ctx, { sinSesion: false });
+    await productos(ctx, estado);
+    await meGustaCuenta(ctx, estado);
+    const p = await pagina(ctx, "/");
+    await abrirNoticiasYAvisos(p);
+    const t = await texto(p);
+    const paso = (estado.preferenciasGuardadas ?? []).find((g) => g.avisos_novedades === true);
+    ok(paso?.user_id === CLIENTE.id && !!paso?.novedades_vistas_hasta, `AC: con sesión el ajuste del dispositivo pasa a la cuenta (${JSON.stringify(paso ?? null)})`);
+    ok((await p.evaluate(() => localStorage.getItem("videojuegoszaragoza:novedades_avisos"))) === null, "AC: y se quita del dispositivo (solo una vez)");
+    ok(/Han llegado 2 artículos nuevos/.test(t), `AC: con sesión sale «Han llegado 2 artículos nuevos» (${(t.match(/Han? llegado[^·]{0,30}/) ?? ["nada"])[0]})`);
+    ok(/Ha bajado de precio: Mando DualSense/.test(t), "AC: con sesión avisa de la bajada de lo que gusta en el dispositivo");
+    ok(/Ha bajado de precio: Switch OLED/.test(t) && (estado.misMeGustaPedidos ?? 0) > 0, `AC: y de la de lo que gusta en la cuenta (${estado.misMeGustaPedidos ?? 0} consultas)`);
+    ok((await p.locator('[aria-label="Avisarme de los artículos nuevos"]').count()) >= 1 && (await p.locator("#blue-avisos-solo-cuenta").count()) === 0, "AC: con sesión sale el interruptor y no «solo con cuenta»");
+    await capturar(p, "AC3-con-sesion-avisos");
+    ok(p.errores.length === 0, `AC: con sesión, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // AC3) Administración → Analítica: cuentas con los avisos, toques en «Crear cuenta gratis» y cuentas creadas después.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 20 },
+        { step_label: "Blue: crear cuenta por avisos", sessions: 5 },
+        { step_label: "Blue: cuenta creada tras «Crear cuenta gratis» (avisos)", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    await ctx.route("**/rest/v1/preferencias_usuario*", (r) => {
+      // Solo el recuento de Analítica (Blue también lee las preferencias de noticias del administrador, en cualquier orden).
+      const busqueda = decodeURIComponent(new URL(r.request().url()).search);
+      if (/avisos_novedades/.test(busqueda)) estado.consultaPreferencias = busqueda;
+      return r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "*", "content-range": "*/4" }, body: "[]" });
+    });
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-blue-avisos-cuenta").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const t = (await p.locator("#analitica-blue-avisos-cuenta").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/activados: 4 · tocan «Crear cuenta gratis»: 5 sesiones · crean la cuenta después: 2/.test(t), `AC: Analítica enseña la tarjeta (${t || "no sale"})`);
+    ok(/avisos_novedades=eq\.true/.test(estado.consultaPreferencias ?? "") && new RegExp(`user_id=neq\\.${ADMIN.id}`).test(estado.consultaPreferencias ?? ""), `AC: solo cuenta (sin filas) y sin la cuenta del administrador (${estado.consultaPreferencias ?? "sin consulta"})`);
+    await p.locator("#analitica-blue-avisos-cuenta").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "AC4-analitica");
+    const ancho = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+    ok(ancho.a <= ancho.v, `AC: la tarjeta cabe en el móvil (${ancho.a}/${ancho.v})`);
+    ok(p.errores.length === 0, `AC: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
   if (SOLO === "Q") await seccionQ();
@@ -10450,6 +10633,7 @@ try {
   await seccionNW();
   await seccionFA();
   await seccionRE2();
+  await seccionAC();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

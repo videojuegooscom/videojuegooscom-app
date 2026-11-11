@@ -45,6 +45,8 @@
  * - app/(tabs)/index.tsx, app/catalogo.tsx, app/producto/[id].tsx → llaman a
  *   trackEvent()/trackEventThrottled() en los pasos del recorrido (Inicio,
  *   Scroll, Categoría, Categoría X, Producto, Reseñas...).
+ * - components/Campanita.tsx → «Crear cuenta gratis» de los avisos de Blue
+ *   (marcarOrigenRegistro): la cuenta creada después se cuenta aparte.
  * - app/noticias/[id].tsx → página de cada noticia (vista por categoría y
  *   llegada desde un buscador, medirNoticiaDesdeBuscador).
  * - app/admin/analytics.tsx → lee analytics_events indirectamente, a través
@@ -314,12 +316,24 @@ export function medirLlegadaDesdeRedes(): void {
   });
 }
 
+// Desde dónde se fue a crear la cuenta (dueño, 2026-11-11: los avisos de Blue de bajadas de precio y artículos nuevos son
+// solo para clientes con cuenta). «blue_avisos» = «Crear cuenta gratis» del panel de Blue (components/Campanita.tsx). Solo
+// vive en memoria y caduca a la hora; si la cuenta se crea antes, se cuenta aparte (Administración → Analítica).
+let origenRegistro: { origen: string; hasta: number } | null = null;
+export function marcarOrigenRegistro(origen: string): void {
+  origenRegistro = { origen, hasta: Date.now() + 60 * 60_000 };
+}
+
 /** Al crear una cuenta (app/(tabs)/perfil.tsx): se cuenta y, si la visita llegó de una red, también de cuál. */
 export function medirCuentaCreada(): void {
   trackEvent("registro", "Registro: cuenta creada", { metadata: { red: redOrigen ?? "otra" } });
   if (redOrigen) {
     trackEvent("registro_redes", `Redes: registro desde ${NOMBRE_RED[redOrigen]}`, { metadata: { red: redOrigen } });
   }
+  if (origenRegistro && Date.now() < origenRegistro.hasta && origenRegistro.origen === "blue_avisos") {
+    trackEvent("registro_blue_avisos", "Blue: cuenta creada tras «Crear cuenta gratis» (avisos)", { metadata: { desde: "panel de Blue" } });
+  }
+  origenRegistro = null;
 }
 
 // Noticias desde Google (dueño, 2026-11-09: atraer visitas orgánicas con las noticias). Solo el NOMBRE del buscador

@@ -12,7 +12,8 @@
  *  - «Asistente» tiene UN solo botón para hablar («Hablar con Blue IA o el equipo») que lleva a Blue IA, y ya no están
  *    «Hablar con Blue IA» ni «Hablar con nuestro equipo» por separado. Siguen «Ver la guía», «Vender…».
  *  - «Noticias y avisos» junta los avisos, las noticias y los ajustes («Mis avisos»): lo que se toca mide 48 px o más.
- *  - Sin sesión: «Inicia sesión…» lleva al acceso. Con sesión (--sesion, simulada): se ve el campo «Avísame cuando llegue»
+ *  - Sin sesión: «Inicia sesión…» lleva al acceso y los avisos de bajadas y artículos nuevos dicen «solo con cuenta»
+ *    («Crear cuenta gratis», sin interruptor). Con sesión (--sesion, simulada): se ve el campo «Avísame cuando llegue»
  *    y un aviso de mensajes sin leer (simulado) con su fila.
  *  - Reservas de la cesta (15 min): con tiempo salen como «Reservado para ti» (sin número rojo) y las vencidas no; la que vence
  *    en 4 min suma al número rojo, Blue lo dice una vez (el mensaje lleva a la cesta) y la fila del panel también.
@@ -188,8 +189,15 @@ try {
   const avisos = await p.evaluate(() => document.body.innerText);
   // (Desde 2026-11-04 un apartado vacío no sale: «Avisos» solo con avisos y nada de «Estás al día» ni «No hay noticias».)
   ok(/MIS AVISOS/.test(avisos) && !/Estás al día/.test(avisos) && !/No hay noticias ahora mismo/.test(avisos), "Noticias y avisos: sale «Mis avisos» y ningún apartado vacío");
-  ok(/Avisarme de los artículos nuevos/.test(avisos) && /Avísame cuando llegue/.test(avisos), "Noticias y avisos: están los dos ajustes («Avisarme de los artículos nuevos» y «Avísame cuando llegue»)");
-  ok((await p.locator('[aria-label="Avisarme de los artículos nuevos"]').count()) >= 1, "Noticias y avisos: el interruptor de artículos nuevos está");
+  // (Desde 2026-11-11 los avisos de artículos nuevos y de bajadas de precio son solo con cuenta: sin sesión, en vez del
+  // interruptor, «… · solo con cuenta» con «Crear cuenta gratis».)
+  if (SESION) {
+    ok(/Avisarme de los artículos nuevos/.test(avisos) && /Avísame cuando llegue/.test(avisos), "Noticias y avisos: están los dos ajustes («Avisarme de los artículos nuevos» y «Avísame cuando llegue»)");
+    ok((await p.locator('[aria-label="Avisarme de los artículos nuevos"]').count()) >= 1, "Noticias y avisos: el interruptor de artículos nuevos está");
+  } else {
+    ok(/solo con cuenta/.test(avisos) && /Crear cuenta gratis/.test(avisos) && /Avísame cuando llegue/.test(avisos), "Sin sesión: los avisos de bajadas y artículos nuevos dicen «solo con cuenta» y sale «Crear cuenta gratis»");
+    ok((await p.locator('[aria-label="Avisarme de los artículos nuevos"]').count()) === 0, "Sin sesión: no hay interruptor de artículos nuevos");
+  }
   if (SESION) {
     ok(/Tienes 3 mensajes nuevos/.test(avisos), "Con sesión: sale el aviso «Tienes 3 mensajes nuevos» (simulado)");
     ok((await p.getByPlaceholder("Ej.: Switch OLED").count()) === 1, "Con sesión: se ve el campo de «Avísame cuando llegue»");
