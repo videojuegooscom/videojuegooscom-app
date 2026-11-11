@@ -71,6 +71,13 @@
  *   (api/factura.ts?solicitud=…), cómo embalarlo y a dónde enviarlo (plegable, dirección de
  *   reparacion_envio_ajustes vía lib/envio.ts), fotos de recepción (components/ImageLightbox.tsx) y
  *   «Aceptar presupuesto». Se mide con «Reparación por envío: …» (app/admin/analytics.tsx).
+ *   Parte 2 (migración 20261111130000; sin ella no sale nada de esto): CobrosDeLaReparacion paga la
+ *   etiqueta y, con la reparación lista y el presupuesto aceptado, «Pagar y enviármelo» (tarjeta por
+ *   api/pago.ts con la misma regla que los pedidos, o Bizum/transferencia con los datos del dueño y el
+ *   concepto VZ-…, y «Ya lo he pagado», que solo avisa); «Si no tiene arreglo» («Te lo compramos»
+ *   abre app/vender.tsx con el modelo y la nota; «Devuélvemelo» paga solo la vuelta) y la garantía
+ *   («Garantía hasta …» y «Ha vuelto a fallar», que crea una solicitud gratis enlazada). La vuelta de
+ *   Stripe (?pago=ok&sesion=…) se confirma con el servidor.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -95,7 +102,7 @@ import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/Campa
 import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
-import { cargarAjustesReparacionEnvio, type AjustesReparacionEnvio } from "../../lib/envio";
+import { cargarAjustesReparacionEnvio, datosPagoManual, type AjustesReparacionEnvio } from "../../lib/envio";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
 import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
@@ -1686,6 +1693,23 @@ type ReparacionSeg = {
   presupuesto_aceptado_en?: string | null;
   fotos_recepcion?: number;
   espera_pieza_hasta?: string | null;
+  // Parte 2 (migración 20261111130000; sin ella no vienen): cobros, «sin arreglo» y garantía. Los importes y «pagado»
+  // los pone la base de datos o el servidor; el cliente solo avisa, elige y pide la garantía.
+  etiqueta_avisada_en?: string | null;
+  pago_estado?: string | null;
+  pago_modo?: string | null;
+  pagado_eur?: number | null;
+  pagado_en?: string | null;
+  pago_avisado_en?: string | null;
+  diagnostico_resultado?: string | null;
+  oferta_compra_eur?: number | null;
+  vuelta_eur?: number | null;
+  sin_arreglo_eleccion?: string | null;
+  vuelta_seguimiento?: string | null;
+  entregado_en?: string | null;
+  garantia_de?: string | null;
+  // Lo que se copia a una garantía (la base de datos lo vuelve a poner desde la original).
+  datos?: { service_id: string | null; nombre: string; apellido: string; ciudad: string; metodo_contacto: string | null; contacto: string | null; codigo_postal: string | null };
 };
 
 // Número de seguimiento que da la tienda (p. ej. al crear en VeoAura la ficha de una reparación o de un pedido): al
@@ -2229,6 +2253,422 @@ function EnvioDeLaReparacion({
   );
 }
 
+// --- Reparación por envío, parte 2 (dueño, 2026-11-11; migración 20261111130000) ---------------------------------------
+// Pagar la etiqueta y «Pagar y enviármelo» (o la vuelta si no tiene arreglo): con tarjeta (api/pago.ts, el importe lo pone
+// la base de datos) o por Bizum/transferencia (los datos del dueño y el concepto = número VZ-…; «Ya lo he pagado» solo
+// avisa). «Si no tiene arreglo»: «Te lo compramos» (Vender con el modelo y la nota) o «Devuélvemelo». Garantía: «Garantía
+// hasta …» y «Ha vuelto a fallar» (una solicitud nueva gratis enlazada; la base de datos comprueba que es suya, está
+// entregada y en plazo). Todo icono + texto; la única píldora azul de la tarjeta es «Pagar con tarjeta» cuando toca.
+
+type ConceptoPago = "etiqueta" | "reparacion";
+type GarantiaSeg = { hasta: Date | null; puede: boolean; abierta: boolean };
+
+const FORMA_PAGO: Record<string, string> = { tarjeta: "con tarjeta", prueba: "con tarjeta (de prueba)", bizum: "por Bizum", transferencia: "por transferencia" };
+
+function sumarMeses(fecha: string | null | undefined, meses: number): Date | null {
+  if (!fecha) return null;
+  const d = new Date(fecha);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMonth(d.getMonth() + meses);
+  return d;
+}
+
+/** La garantía de una reparación entregada: desde la entrega de la original (una garantía no alarga la garantía). */
+function garantiaDe(r: ReparacionSeg, todas: ReparacionSeg[], meses: number, ahora = new Date()): GarantiaSeg | null {
+  if (r.seguimiento !== "entregado") return null;
+  const raiz = (r.garantia_de && todas.find((x) => x.id === r.garantia_de)) || r;
+  const hasta = sumarMeses(raiz.entregado_en ?? raiz.seguimiento_actualizado, meses);
+  const abierta = todas.some((x) => x.garantia_de === raiz.id && x.seguimiento !== "entregado" && x.seguimiento !== "cancelado");
+  return { hasta, puede: !!hasta && hasta.getTime() >= ahora.getTime() && !abierta, abierta };
+}
+
+// «Mantenimiento Playstation 5» → «Playstation 5» (el modelo para Vender); si no hay nada que quitar, el título tal cual.
+function modeloDelServicio(titulo: string) {
+  const limpio = titulo.replace(/^(mantenimiento|reparaci[oó]n|limpieza|sustituci[oó]n|cambio)( de| del)?\s+/i, "").trim();
+  return (limpio || titulo).slice(0, 60);
+}
+
+function BotonTexto({ id, icono, texto, onPress, disabled }: { id: string; icono: React.ComponentProps<typeof Ionicons>["name"]; texto: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      nativeID={id}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      hitSlop={6}
+      style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4, opacity: pressed || disabled ? 0.6 : 1 })}
+    >
+      <Ionicons name={icono} size={17} color={SEG.accentDark} />
+      <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>{texto}</Text>
+    </Pressable>
+  );
+}
+
+function PagoDeLaSolicitud({
+  r,
+  concepto,
+  importe,
+  titulo,
+  ajustes,
+  tarjeta,
+  avisadoEn,
+  onAvisado,
+}: {
+  r: ReparacionSeg;
+  concepto: ConceptoPago;
+  importe: number;
+  titulo: string;
+  ajustes: AjustesReparacionEnvio | null;
+  tarjeta: boolean;
+  avisadoEn: string | null | undefined;
+  onAvisado: (patch: Partial<ReparacionSeg>) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const manual = datosPagoManual(ajustes);
+  const campo = concepto === "etiqueta" ? "etiqueta_avisada_en" : "pago_avisado_en";
+  const id = `${concepto}-${r.id}`;
+
+  async function pagarConTarjeta() {
+    if (ocupado) return;
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const resp = await fetch("/api/pago", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+        body: JSON.stringify({ accion: "crear", solicitud: r.id, concepto }),
+      });
+      const d = (await resp.json().catch(() => null)) as { ok?: boolean; url?: string; pagado?: boolean } | null;
+      if (resp.ok && d?.pagado) {
+        onAvisado(concepto === "etiqueta" ? { etiqueta_pagada_en: new Date().toISOString() } : { pago_estado: "pagado" });
+      } else if (resp.ok && d?.url && typeof window !== "undefined") {
+        // Se mide antes de salir a Stripe (como mucho medio segundo de espera).
+        await Promise.race([
+          Promise.resolve(trackEvent("reparacion_envio", `Reparación por envío: pago con tarjeta · ${concepto === "etiqueta" ? "etiqueta" : "reparación"}`)).catch(() => {}),
+          new Promise((fin) => setTimeout(fin, 500)),
+        ]);
+        window.location.assign(d.url);
+        return;
+      } else {
+        setAviso("No hemos podido abrir el pago con tarjeta. Inténtalo de nuevo en un rato o paga por Bizum o transferencia.");
+      }
+    } catch {
+      setAviso("No hemos podido abrir el pago: revisa tu conexión.");
+    }
+    setOcupado(false);
+  }
+
+  async function yaPagado() {
+    if (ocupado) return;
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update({ [campo]: new Date().toISOString() })
+        .eq("id", r.id)
+        .select(campo);
+      const fecha = (data as Record<string, string | null>[] | null)?.[0]?.[campo];
+      if (error || !fecha) throw error ?? new Error("sin respuesta");
+      void trackEvent("reparacion_envio", `Reparación por envío: aviso de pago · ${concepto === "etiqueta" ? "etiqueta" : "reparación"}`);
+      onAvisado({ [campo]: fecha } as Partial<ReparacionSeg>);
+    } catch {
+      setAviso("No hemos podido guardar tu aviso. Inténtalo de nuevo o pregúntanos.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <View nativeID={`seguimiento-pago-${id}`} style={{ alignItems: "center", gap: 6, alignSelf: "stretch" }}>
+      <LineaIcono id={`seguimiento-pago-importe-${id}`} icono="card-outline">
+        {titulo} · {segEuros(importe)}
+      </LineaIcono>
+      {avisadoEn ? (
+        <LineaIcono id={`seguimiento-pago-avisado-${id}`} icono="hourglass-outline" color={SEG.muted}>
+          Nos avisaste del pago el {fechaCorta(avisadoEn)}: lo confirmamos en cuanto nos llegue
+        </LineaIcono>
+      ) : null}
+      {tarjeta ? (
+        <Pressable
+          nativeID={`seguimiento-pagar-tarjeta-${id}`}
+          onPress={pagarConTarjeta}
+          disabled={ocupado}
+          accessibilityRole="button"
+          style={({ pressed }) => ({ borderRadius: 999, minHeight: 44, paddingHorizontal: 22, justifyContent: "center", backgroundColor: SEG.accentDark, opacity: pressed || ocupado ? 0.85 : 1 })}
+        >
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{ocupado ? "Abriendo el pago…" : "Pagar con tarjeta"}</Text>
+        </Pressable>
+      ) : null}
+      {manual && !avisadoEn ? (
+        <>
+          <Pressable
+            nativeID={`seguimiento-pago-manual-boton-${id}`}
+            onPress={() => setAbierto((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: abierto }}
+            hitSlop={6}
+            style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Ionicons name="phone-portrait-outline" size={17} color={SEG.accentDark} />
+            <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>
+              {manual.bizum && manual.iban ? "Pagar por Bizum o transferencia" : manual.bizum ? "Pagar por Bizum" : "Pagar por transferencia"}
+            </Text>
+            <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={16} color={SEG.accentDark} />
+          </Pressable>
+          {abierto ? (
+            <View nativeID={`seguimiento-pago-manual-${id}`} style={{ alignItems: "center", gap: 4, alignSelf: "stretch" }}>
+              {manual.bizum ? (
+                <Text selectable style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                  <Text style={{ fontWeight: "800" }}>Bizum: </Text>
+                  {manual.bizum}
+                </Text>
+              ) : null}
+              {manual.iban ? (
+                <Text selectable style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                  <Text style={{ fontWeight: "800" }}>IBAN: </Text>
+                  {manual.iban}
+                </Text>
+              ) : null}
+              {manual.titular ? (
+                <Text selectable style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                  <Text style={{ fontWeight: "800" }}>Titular: </Text>
+                  {manual.titular}
+                </Text>
+              ) : null}
+              <Text selectable nativeID={`seguimiento-pago-concepto-${id}`} style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                <Text style={{ fontWeight: "800" }}>Concepto: </Text>
+                {r.codigo_seguimiento ?? "tu número de seguimiento"}
+              </Text>
+              <BotonTexto id={`seguimiento-ya-pagado-${id}`} icono="checkmark-done-outline" texto={ocupado ? "Guardando…" : "Ya lo he pagado"} onPress={yaPagado} disabled={ocupado} />
+            </View>
+          ) : null}
+        </>
+      ) : null}
+      {!tarjeta && !manual && !avisadoEn ? (
+        <LineaIcono id={`seguimiento-pago-sin-forma-${id}`} icono="chatbubble-ellipses-outline" color={SEG.muted}>
+          Para pagarlo, pregúntanos aquí debajo y te lo explicamos
+        </LineaIcono>
+      ) : null}
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+          {aviso}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function CobrosDeLaReparacion({
+  r,
+  ajustes,
+  tarjeta,
+  garantia,
+  onCambio,
+  onGarantiaPedida,
+}: {
+  r: ReparacionSeg;
+  ajustes: AjustesReparacionEnvio | null;
+  tarjeta: boolean;
+  garantia: GarantiaSeg | null;
+  onCambio: (id: string, patch: Partial<ReparacionSeg>) => void;
+  onGarantiaPedida: () => void;
+}) {
+  const [ocupado, setOcupado] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [pidiendoGarantia, setPidiendoGarantia] = useState(false);
+  const porEnvio = r.entrega_modo === "correos";
+  const sinArreglo = r.diagnostico_resultado === "sin_arreglo";
+  const cancelada = r.seguimiento === "cancelado";
+  const terminada = r.seguimiento === "enviada" || r.seguimiento === "entregado" || cancelada;
+  const pagado = r.pago_estado === "pagado";
+  const etiqueta = Number(r.etiqueta_eur ?? 0);
+  const presupuesto = Number(r.presupuesto_eur ?? 0);
+  const vuelta = Number(r.vuelta_eur ?? 0);
+  const cambiar = (patch: Partial<ReparacionSeg>) => onCambio(r.id, patch);
+
+  async function elegir(eleccion: "comprar" | "devolver") {
+    if (ocupado) return;
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const { data, error } = await supabase.from("service_requests").update({ sin_arreglo_eleccion: eleccion }).eq("id", r.id).select("sin_arreglo_eleccion");
+      if (error || !(data as { sin_arreglo_eleccion?: string }[] | null)?.[0]?.sin_arreglo_eleccion) throw error ?? new Error("sin respuesta");
+      void trackEvent("reparacion_envio", eleccion === "comprar" ? "Reparación por envío: sin arreglo · te lo compramos" : "Reparación por envío: sin arreglo · devuélvemelo");
+      cambiar({ sin_arreglo_eleccion: eleccion });
+      if (eleccion === "comprar") abrirVender();
+    } catch {
+      setAviso("No hemos podido guardar tu elección. Inténtalo de nuevo o pregúntanos.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  function abrirVender() {
+    const oferta = r.oferta_compra_eur != null ? ` Nos ofrecisteis ${segEuros(Number(r.oferta_compra_eur))}.` : "";
+    const nota = `Sin arreglo tras el diagnóstico (${r.codigo_seguimiento ?? "reparación"}).${oferta}`;
+    router.push(`/vender?articulo=${encodeURIComponent(modeloDelServicio(r.service_title))}&nota=${encodeURIComponent(nota)}`);
+  }
+
+  async function pedirGarantia() {
+    if (ocupado) return;
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const d = r.datos;
+      const { error } = await supabase.from("service_requests").insert({
+        service_id: d?.service_id ?? null,
+        service_title: r.service_title,
+        nombre: d?.nombre || "Cliente",
+        apellido: d?.apellido || "Cliente",
+        ciudad: d?.ciudad || "—",
+        metodo_contacto: d?.metodo_contacto ?? null,
+        contacto: d?.contacto ?? null,
+        entrega_modo: porEnvio ? "correos" : "recogida",
+        ...(porEnvio ? { aparatos: r.aparatos ?? 1, codigo_postal: d?.codigo_postal ?? null, condiciones_aceptadas_en: new Date().toISOString() } : null),
+        comentario: "Ha vuelto a fallar (garantía)",
+        garantia_de: r.id,
+      });
+      if (error) {
+        const m = String((error as { message?: string }).message ?? "");
+        setAviso(/garantía|cuenta|entregada/i.test(m) ? m : "No hemos podido pedir la garantía. Inténtalo de nuevo o pregúntanos.");
+        return;
+      }
+      void trackEvent("reparacion_envio", "Reparación por envío: garantía pedida");
+      setPidiendoGarantia(false);
+      onGarantiaPedida();
+    } catch {
+      setAviso("No hemos podido pedir la garantía: revisa tu conexión.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const bloques: React.ReactNode[] = [];
+  if (r.garantia_de) {
+    bloques.push(
+      <LineaIcono key="g" id={`seguimiento-es-garantia-${r.id}`} icono="shield-checkmark-outline" color={SEG.ok}>
+        Garantía de tu reparación · sin coste
+      </LineaIcono>
+    );
+  }
+  // 1) La etiqueta (por Correos, mientras no esté pagada y cueste algo).
+  if (porEnvio && !terminada && !r.etiqueta_pagada_en && etiqueta > 0) {
+    bloques.push(
+      <PagoDeLaSolicitud key="e" r={r} concepto="etiqueta" importe={etiqueta} titulo="Pagar la etiqueta" ajustes={ajustes} tarjeta={tarjeta} avisadoEn={r.etiqueta_avisada_en} onAvisado={cambiar} />
+    );
+  }
+  // 2) Sin arreglo: qué hacemos con el aparato.
+  if (sinArreglo && !cancelada) {
+    bloques.push(
+      <View key="s" nativeID={`seguimiento-sin-arreglo-${r.id}`} style={{ alignItems: "center", gap: 6, alignSelf: "stretch" }}>
+        <LineaIcono icono="alert-circle-outline" color="#92660B">
+          Tras el diagnóstico, no tiene arreglo
+        </LineaIcono>
+        {r.oferta_compra_eur != null ? (
+          <LineaIcono id={`seguimiento-oferta-${r.id}`} icono="pricetag-outline">
+            Te lo compramos por {segEuros(Number(r.oferta_compra_eur))}
+          </LineaIcono>
+        ) : null}
+        {!r.sin_arreglo_eleccion ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 16 }}>
+            <BotonTexto id={`seguimiento-te-lo-compramos-${r.id}`} icono="cash-outline" texto="Te lo compramos" onPress={() => elegir("comprar")} disabled={ocupado} />
+            <BotonTexto id={`seguimiento-devuelvemelo-${r.id}`} icono="return-down-back-outline" texto="Devuélvemelo" onPress={() => elegir("devolver")} disabled={ocupado} />
+          </View>
+        ) : r.sin_arreglo_eleccion === "comprar" ? (
+          <>
+            <LineaIcono id={`seguimiento-eleccion-${r.id}`} icono="checkmark-circle" color={SEG.ok}>
+              Has elegido «Te lo compramos»
+            </LineaIcono>
+            <BotonTexto id={`seguimiento-abrir-vender-${r.id}`} icono="open-outline" texto="Abrir Vender ahora" onPress={abrirVender} />
+          </>
+        ) : (
+          <LineaIcono id={`seguimiento-eleccion-${r.id}`} icono="checkmark-circle" color={SEG.ok}>
+            {porEnvio ? `Has elegido «Devuélvemelo»: solo pagas la vuelta${vuelta > 0 ? ` (${segEuros(vuelta)})` : ""}` : "Has elegido «Devuélvemelo»: te escribimos para dártelo"}
+          </LineaIcono>
+        )}
+      </View>
+    );
+    if (r.sin_arreglo_eleccion === "devolver" && porEnvio && vuelta > 0 && !pagado && !terminada) {
+      bloques.push(
+        <PagoDeLaSolicitud key="v" r={r} concepto="reparacion" importe={vuelta} titulo="Pagar la vuelta" ajustes={ajustes} tarjeta={tarjeta} avisadoEn={r.pago_avisado_en} onAvisado={cambiar} />
+      );
+    }
+  }
+  // 3) Reparación lista con el presupuesto aceptado: «Pagar y enviármelo» (la vuelta va incluida).
+  if (porEnvio && !sinArreglo && r.seguimiento === "listo" && r.presupuesto_aceptado_en && presupuesto > 0 && !pagado) {
+    bloques.push(
+      <PagoDeLaSolicitud key="r" r={r} concepto="reparacion" importe={presupuesto} titulo="Pagar y enviármelo" ajustes={ajustes} tarjeta={tarjeta} avisadoEn={r.pago_avisado_en} onAvisado={cambiar} />
+    );
+  }
+  if (pagado) {
+    bloques.push(
+      <LineaIcono key="p" id={`seguimiento-pagado-${r.id}`} icono="card" color={SEG.ok}>
+        Pagado{r.pagado_eur != null ? ` · ${segEuros(Number(r.pagado_eur))}` : ""}
+        {r.pago_modo && FORMA_PAGO[r.pago_modo] ? ` ${FORMA_PAGO[r.pago_modo]}` : ""}
+        {r.pagado_en ? ` · ${fechaCorta(r.pagado_en)}` : ""}
+      </LineaIcono>
+    );
+    if (r.seguimiento === "listo") {
+      bloques.push(
+        <LineaIcono key="pe" id={`seguimiento-pendiente-envio-${r.id}`} icono="cube-outline" color={SEG.muted}>
+          Te lo enviamos en cuanto salga: te avisamos con el número de Correos
+        </LineaIcono>
+      );
+    }
+  }
+  if (r.vuelta_seguimiento && (r.seguimiento === "enviada" || r.seguimiento === "entregado")) {
+    bloques.push(
+      <LineaIcono key="vs" id={`seguimiento-vuelta-${r.id}`} icono="paper-plane-outline">
+        Enviada por Correos · nº {r.vuelta_seguimiento}
+      </LineaIcono>
+    );
+  }
+  // 4) Garantía (entregada).
+  if (garantia?.hasta) {
+    bloques.push(
+      <View key="ga" nativeID={`seguimiento-garantia-${r.id}`} style={{ alignItems: "center", gap: 4, alignSelf: "stretch" }}>
+        <LineaIcono id={`seguimiento-garantia-hasta-${r.id}`} icono="shield-checkmark-outline" color={garantia.puede || garantia.abierta ? SEG.text : SEG.muted}>
+          {garantia.puede || garantia.abierta ? `Garantía hasta el ${fechaCorta(garantia.hasta.toISOString())}` : `Garantía terminada el ${fechaCorta(garantia.hasta.toISOString())}`}
+        </LineaIcono>
+        {garantia.abierta ? (
+          <LineaIcono id={`seguimiento-garantia-abierta-${r.id}`} icono="time-outline" color={SEG.muted}>
+            Ya estamos con tu garantía: la ves arriba en Mis seguimientos
+          </LineaIcono>
+        ) : garantia.puede ? (
+          pidiendoGarantia ? (
+            <View style={{ alignItems: "center", gap: 2 }}>
+              <Text nativeID={`seguimiento-garantia-confirmar-${r.id}`} style={{ color: SEG.text, fontSize: 13.5, lineHeight: 19, textAlign: "center", maxWidth: 360 }}>
+                {porEnvio ? "Lo volvemos a revisar gratis, también la etiqueta de Correos." : "Lo volvemos a revisar gratis."}
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 16 }}>
+                <BotonTexto id={`seguimiento-garantia-si-${r.id}`} icono="checkmark-outline" texto={ocupado ? "Pidiendo…" : "Sí, pedir la garantía"} onPress={pedirGarantia} disabled={ocupado} />
+                <BotonTexto id={`seguimiento-garantia-no-${r.id}`} icono="close-outline" texto="Ahora no" onPress={() => setPidiendoGarantia(false)} />
+              </View>
+            </View>
+          ) : (
+            <BotonTexto id={`seguimiento-ha-vuelto-a-fallar-${r.id}`} icono="refresh-outline" texto="Ha vuelto a fallar" onPress={() => setPidiendoGarantia(true)} />
+          )
+        ) : null}
+      </View>
+    );
+  }
+  if (!bloques.length && !aviso) return null;
+  return (
+    <View nativeID={`seguimiento-cobros-${r.id}`} style={{ width: "100%", maxWidth: 460, gap: 10, alignItems: "center" }}>
+      {bloques}
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+          {aviso}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function segFecha(iso: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -2593,6 +3033,9 @@ function SeguimientosSeccion() {
   const [filtroPedidos, setFiltroPedidos] = useState<FiltroPedidos>("todos");
   // Reparación por envío: plazo y dirección del taller (reparacion_envio_ajustes; null sin la migración).
   const [ajustesEnvio, setAjustesEnvio] = useState<AjustesReparacionEnvio | null>(null);
+  // Parte 2: ¿puede pagar con tarjeta? (api/pago.ts, la misma regla que los pedidos) y el aviso de la vuelta de Stripe.
+  const [tarjeta, setTarjeta] = useState(false);
+  const [avisoPago, setAvisoPago] = useState<{ ok: boolean; texto: string } | null>(null);
 
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
   const cargar = useCallback(async (silencioso = false) => {
@@ -2735,10 +3178,53 @@ function SeguimientosSeccion() {
             presupuesto_aceptado_en: r.presupuesto_aceptado_en ?? null,
             fotos_recepcion: Array.isArray(r.recepcion_fotos) ? r.recepcion_fotos.length : 0,
             espera_pieza_hasta: r.espera_pieza_hasta ?? null,
+            etiqueta_avisada_en: r.etiqueta_avisada_en ?? null,
+            pago_estado: r.pago_estado ?? null,
+            pago_modo: r.pago_modo ?? null,
+            pagado_eur: r.pagado_eur ?? null,
+            pagado_en: r.pagado_en ?? null,
+            pago_avisado_en: r.pago_avisado_en ?? null,
+            diagnostico_resultado: r.diagnostico_resultado ?? null,
+            oferta_compra_eur: r.oferta_compra_eur ?? null,
+            vuelta_eur: r.vuelta_eur ?? null,
+            sin_arreglo_eleccion: r.sin_arreglo_eleccion ?? null,
+            vuelta_seguimiento: r.vuelta_seguimiento ?? null,
+            entregado_en: r.entregado_en ?? null,
+            garantia_de: r.garantia_de ?? null,
+            datos: {
+              service_id: r.service_id ?? null,
+              nombre: String(r.nombre ?? ""),
+              apellido: String(r.apellido ?? ""),
+              ciudad: String(r.ciudad ?? ""),
+              metodo_contacto: r.metodo_contacto ?? null,
+              contacto: r.contacto ?? null,
+              codigo_postal: r.codigo_postal ?? null,
+            },
           }))
         );
-        // Ajustes de la reparación por envío (plazo y dirección del taller), solo si alguna va por Correos.
-        if ((repRes.data ?? []).some((r: any) => r.entrega_modo === "correos")) setAjustesEnvio(await cargarAjustesReparacionEnvio());
+        // Ajustes de la reparación por envío (plazo, dirección del taller, formas de pago y garantía), solo si alguna va
+        // por Correos o ya está entregada (la garantía vale también para las de recogida).
+        if ((repRes.data ?? []).some((r: any) => r.entrega_modo === "correos" || r.seguimiento === "entregado")) {
+          const aj = await cargarAjustesReparacionEnvio();
+          setAjustesEnvio(aj);
+          // ¿Tarjeta? Solo si hay algo que pagar ahora (como los pedidos: con la clave de prueba, solo el administrador).
+          const porPagar = (repRes.data ?? []).some(
+            (r: any) =>
+              r.entrega_modo === "correos" &&
+              r.seguimiento !== "cancelado" &&
+              ((!r.etiqueta_pagada_en && Number(r.etiqueta_eur ?? 0) > 0) ||
+                (r.pago_estado !== "pagado" && (r.seguimiento === "listo" || r.diagnostico_resultado === "sin_arreglo")))
+          );
+          if (aj?.parte2 && porPagar) {
+            try {
+              const resp = await fetch("/api/pago", { headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` } });
+              const d = (await resp.json().catch(() => null)) as { disponible?: boolean } | null;
+              setTarjeta(resp.ok && d?.disponible === true);
+            } catch {
+              setTarjeta(false);
+            }
+          }
+        }
         for (const r of repRes.data ?? []) {
           vistasReparaciones.push({
             id: String(r.id),
@@ -2773,6 +3259,56 @@ function SeguimientosSeccion() {
     cargar();
   }, [cargar]);
 
+  // Vuelta de Stripe (api/pago.ts?solicitud): «pagado» solo lo dice el servidor después de preguntárselo a Stripe.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.location?.search) return;
+    const q = new URLSearchParams(window.location.search);
+    const pago = q.get("pago");
+    if (pago !== "ok" && pago !== "cancelado") return;
+    const sesion = q.get("sesion") ?? "";
+    const limpiar = () => {
+      try {
+        q.delete("pago");
+        q.delete("sesion");
+        window.history.replaceState(null, "", `${window.location.pathname}${q.toString() ? `?${q.toString()}` : ""}`);
+      } catch {
+        // sin historial
+      }
+    };
+    if (pago === "cancelado") {
+      setAvisoPago({ ok: false, texto: "Has cancelado el pago: puedes pagarlo cuando quieras desde aquí." });
+      limpiar();
+      return;
+    }
+    let vivo = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const resp = await fetch("/api/pago", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+          body: JSON.stringify({ accion: "confirmar", sesion }),
+        });
+        const d = (await resp.json().catch(() => null)) as { ok?: boolean; pagado?: boolean } | null;
+        if (!vivo) return;
+        if (resp.ok && d?.pagado) {
+          void trackEvent("reparacion_envio", "Reparación por envío: pago con tarjeta confirmado");
+          setAvisoPago({ ok: true, texto: "Pago recibido ✓ Gracias: ya lo ves en tu reparación." });
+          cargar(true);
+        } else {
+          setAvisoPago({ ok: false, texto: "Aún no nos consta el pago. Si te lo han cobrado, en unos minutos aparecerá aquí." });
+        }
+      } catch {
+        if (vivo) setAvisoPago({ ok: false, texto: "No hemos podido comprobar el pago: revisa tu conexión." });
+      } finally {
+        limpiar();
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [cargar]);
+
   if (cargando) return <CargaMarca texto="Cargando tus seguimientos…" />;
   if (!conSesion) return null;
 
@@ -2780,6 +3316,11 @@ function SeguimientosSeccion() {
     // Móvil (dueño, 2026-11-10): un solo «¿Te hemos dado un número de seguimiento?» arriba y plegado; en cada pedido,
     // primero lo que compraste y su estado, luego pago y factura, y entrega y número de seguimiento en una línea.
     <View style={{ gap: 32, alignItems: "center" }}>
+      {avisoPago ? (
+        <LineaIcono id="seguimiento-pago-vuelta" icono={avisoPago.ok ? "checkmark-circle" : "information-circle-outline"} color={avisoPago.ok ? SEG.ok : SEG.muted}>
+          {avisoPago.texto}
+        </LineaIcono>
+      ) : null}
       {numerosOk ? <AnadirNumeroSeguimiento onAnadido={() => cargar(true)} /> : null}
       {pedidos !== null ? (
         <View style={{ gap: 18, alignItems: "center", width: "100%" }}>
@@ -2867,6 +3408,16 @@ function SeguimientosSeccion() {
                 ajustes={ajustesEnvio}
                 onAceptado={(id, fecha) => setReparaciones((lista) => lista.map((x) => (x.id === id ? { ...x, presupuesto_aceptado_en: fecha } : x)))}
               />
+              {ajustesEnvio?.parte2 ? (
+                <CobrosDeLaReparacion
+                  r={r}
+                  ajustes={ajustesEnvio}
+                  tarjeta={tarjeta}
+                  garantia={garantiaDe(r, reparaciones, ajustesEnvio.garantia_meses)}
+                  onCambio={(id, patch) => setReparaciones((lista) => lista.map((x) => (x.id === id ? { ...x, ...patch } : x)))}
+                  onGarantiaPedida={() => cargar(true)}
+                />
+              ) : null}
               {r.seguimiento_nota ? (
                 <View style={{ alignItems: "center", gap: 2, maxWidth: 460 }}>
                   <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>

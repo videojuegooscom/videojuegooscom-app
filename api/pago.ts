@@ -30,6 +30,17 @@
  *   20261106100000_pagos_devolucion). No cancela el pedido: eso es otro botón de Pedidos.
  * - POST de Stripe con la cabecera Stripe-Signature (checkout.session.completed; charge.refunded, si se devuelve desde
  *   el propio Stripe): firma comprobada en tiempo constante y con 5 minutos de margen → 200.
+ * - POST { accion: "crear", solicitud: "<uuid>", concepto: "etiqueta" | "reparacion" } (reparación por envío, parte 2,
+ *   dueño 2026-11-11; migración 20261111130000_reparacion_envio_parte2). Va AQUÍ y no en un archivo nuevo porque Vercel
+ *   gratis admite como mucho 12 funciones en api/ y ya hay 12. Con sesión y solo sobre una solicitud SUYA
+ *   (service_requests.customer_user_id), con la MISMA regla de quién puede pagar con tarjeta que los pedidos
+ *   (pagoDisponible: con la clave de prueba, solo el administrador). El importe lo pone la base de datos: «etiqueta» =
+ *   etiqueta_eur (sin pagar aún); «reparacion» = presupuesto_eur con la reparación «listo» y el presupuesto aceptado o,
+ *   si no tiene arreglo y eligió «Devuélvemelo», vuelta_eur. → { ok, url } o { ok, pagado: true }. El último cobro
+ *   abierto se guarda en stripe_sesion (se reutiliza o se cierra, como en los pedidos). La confirmación («confirmar» y el
+ *   aviso de Stripe) reconoce la solicitud por los metadatos de la sesión, comprueba que lo cobrado es el importe de la
+ *   base de datos y apunta etiqueta_pagada_en (+ etiqueta_pago_modo) o pago_estado = 'pagado' (pagado_eur lo pone el
+ *   disparador de la base de datos). Vuelve a Perfil → Mis seguimientos (?pago=ok&sesion=…).
  * Límites por IP (consumir_limite, compartido; en memoria con cupos reducidos si no responde): 10 pagos nuevos y 30
  * confirmaciones cada 10 minutos.
  *
@@ -39,7 +50,8 @@
  * - EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR: leer el pedido y apuntar el pago.
  *
  * Conectado con: app/checkout.tsx («Pagar con tarjeta» y la vuelta de Stripe), app/admin/pedidos.tsx (pagados con
- * tarjeta), app/admin/analytics.tsx (pago_tarjeta y pago_tarjeta_ok), pruebas/pago-api.mjs.
+ * tarjeta), app/admin/analytics.tsx (pago_tarjeta y pago_tarjeta_ok), pruebas/pago-api.mjs; reparación por envío:
+ * app/(tabs)/perfil.tsx («Pagar la etiqueta», «Pagar y enviármelo», «Devuélvemelo»), app/admin/services.tsx.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -413,8 +425,180 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
   return { ok: true, url: r.datos.url as string };
 }
 
+// --- Reparación por envío (parte 2): la etiqueta y la reparación (o la vuelta) de una solicitud ---------------------
+
+type ConceptoSolicitud = "etiqueta" | "reparacion";
+
+type FilaSolicitud = {
+  id: string;
+  customer_user_id: string | null;
+  codigo_seguimiento: string | null;
+  service_title: string | null;
+  entrega_modo: string | null;
+  seguimiento: string | null;
+  etiqueta_eur: number | string | null;
+  etiqueta_pagada_en: string | null;
+  presupuesto_eur: number | string | null;
+  presupuesto_aceptado_en: string | null;
+  pago_estado: string | null;
+  diagnostico_resultado: string | null;
+  sin_arreglo_eleccion: string | null;
+  vuelta_eur: number | string | null;
+  stripe_sesion: string | null;
+};
+
+const COLUMNAS_SOLICITUD =
+  "id,customer_user_id,codigo_seguimiento,service_title,entrega_modo,seguimiento,etiqueta_eur,etiqueta_pagada_en,presupuesto_eur,presupuesto_aceptado_en,pago_estado,diagnostico_resultado,sin_arreglo_eleccion,vuelta_eur,stripe_sesion";
+
+// Lo que hay que cobrar de una solicitud por ese concepto, en céntimos, sacado de la base de datos (null = nada que cobrar
+// ahora), y si ya está pagado.
+function importeSolicitud(f: FilaSolicitud, concepto: ConceptoSolicitud): { centimos: number | null; pagado: boolean } {
+  const cts = (v: unknown) => {
+    const n = Math.round(Number(v) * 100);
+    return v === null || v === undefined || !Number.isFinite(n) ? null : n;
+  };
+  if (concepto === "etiqueta") {
+    if (f.etiqueta_pagada_en) return { centimos: cts(f.etiqueta_eur), pagado: true };
+    if (f.entrega_modo !== "correos" || f.seguimiento === "cancelado") return { centimos: null, pagado: false };
+    return { centimos: cts(f.etiqueta_eur), pagado: false };
+  }
+  if (f.diagnostico_resultado === "sin_arreglo") {
+    const c = f.sin_arreglo_eleccion === "devolver" ? cts(f.vuelta_eur) : null;
+    return { centimos: c, pagado: f.pago_estado === "pagado" };
+  }
+  const listo = f.seguimiento === "listo" && !!f.presupuesto_aceptado_en;
+  return { centimos: listo || f.pago_estado === "pagado" ? cts(f.presupuesto_eur) : null, pagado: f.pago_estado === "pagado" };
+}
+
+async function leerSolicitud(supabase: SupabaseClient, id: string): Promise<FilaSolicitud | null> {
+  const { data, error } = await supabase.from("service_requests").select(COLUMNAS_SOLICITUD).eq("id", id).maybeSingle<FilaSolicitud>();
+  if (error) {
+    // Sin la migración de la parte 2 (columnas que faltan) no se ofrece el pago.
+    if (error.code === "42703" || /stripe_sesion|diagnostico_resultado|vuelta_eur|sin_arreglo/.test(String(error.message ?? ""))) {
+      throw new Rechazo(503, "falta activar el pago de las reparaciones");
+    }
+    throw new Rechazo(500, "no se pudo leer la solicitud");
+  }
+  return data ?? null;
+}
+
+async function marcarSolicitudPagada(supabase: SupabaseClient, f: FilaSolicitud, concepto: ConceptoSolicitud, s: SesionStripe, modo: Modo) {
+  const forma = modo === "real" ? "tarjeta" : "prueba";
+  const ahora = new Date().toISOString();
+  const q =
+    concepto === "etiqueta"
+      ? supabase.from("service_requests").update({ etiqueta_pagada_en: ahora, etiqueta_pago_modo: forma, stripe_sesion: s.id }).eq("id", f.id).is("etiqueta_pagada_en", null)
+      : // pagado_eur lo pone el disparador de la base de datos (el presupuesto o la vuelta).
+        supabase.from("service_requests").update({ pago_estado: "pagado", pago_modo: forma, pagado_en: ahora, stripe_sesion: s.id }).eq("id", f.id).or("pago_estado.is.null,pago_estado.neq.pagado");
+  const { error } = await q;
+  if (error) {
+    console.error("pago: no se pudo apuntar el pago de la solicitud", f.codigo_seguimiento ?? "", concepto, error.code ?? "");
+    throw new Rechazo(500, "no se pudo apuntar el pago");
+  }
+}
+
+async function crearPagoSolicitud(supabase: SupabaseClient, clave: string, modo: Modo, req: any, b: Record<string, unknown>) {
+  const id = typeof b.solicitud === "string" && UUID_RE.test(b.solicitud) ? b.solicitud.toLowerCase() : null;
+  const concepto: ConceptoSolicitud | null = b.concepto === "etiqueta" || b.concepto === "reparacion" ? b.concepto : null;
+  if (!id || !concepto) throw new Rechazo(400, "solicitud no válida");
+  const uid = await usuarioDeLaPeticion(supabase, req);
+  if (!uid) throw new Rechazo(401, "inicia sesión para pagar");
+  if (!(await pagoDisponible(supabase, modo, uid))) throw new Rechazo(403, "el pago con tarjeta no está disponible");
+  const f = await leerSolicitud(supabase, id);
+  if (!f || f.customer_user_id !== uid) throw new Rechazo(404, "solicitud no encontrada");
+  const { centimos, pagado } = importeSolicitud(f, concepto);
+  if (pagado) return { ok: true, pagado: true };
+  if (centimos === null) throw new Rechazo(409, "aún no hay nada que pagar");
+  if (centimos < MINIMO_CENTIMOS || centimos > MAXIMO_CENTIMOS) throw new Rechazo(409, "este importe no se puede pagar con tarjeta");
+
+  // ¿Ya hay un cobro abierto de esta solicitud? Del mismo concepto e importe se reutiliza; si no, se cierra.
+  if (f.stripe_sesion && SESION_RE.test(f.stripe_sesion)) {
+    const previa = await sesionDeStripe(clave, f.stripe_sesion);
+    if (previa && previa.metadata?.solicitud_id === f.id) {
+      const mismo = previa.metadata?.concepto === concepto;
+      if (mismo && previa.status === "complete" && previa.payment_status === "paid" && previa.amount_total === centimos) {
+        await marcarSolicitudPagada(supabase, f, concepto, previa, modo);
+        return { ok: true, pagado: true };
+      }
+      if (mismo && previa.status === "open" && previa.amount_total === centimos && previa.url) return { ok: true, url: previa.url };
+      if (previa.status === "open") await llamarStripe(clave, "POST", `/checkout/sessions/${encodeURIComponent(previa.id)}/expire`);
+    }
+  }
+
+  const minuto = Math.floor(Date.now() / 60_000);
+  const origen = origenDe(req);
+  const conKlarna = await klarnaDisponible(supabase);
+  const codigo = f.codigo_seguimiento ?? "";
+  const nombre =
+    concepto === "etiqueta"
+      ? `Etiqueta de Correos ${codigo} · VideojuegosZaragoza`
+      : f.diagnostico_resultado === "sin_arreglo"
+        ? `Envío de vuelta ${codigo} · VideojuegosZaragoza`
+        : `Reparación ${codigo} · VideojuegosZaragoza`;
+  const campos: Record<string, string> = {
+    mode: "payment",
+    locale: "es",
+    submit_type: "pay",
+    "payment_method_types[0]": "card",
+    ...(conKlarna ? { "payment_method_types[1]": "klarna" } : {}),
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "eur",
+    "line_items[0][price_data][unit_amount]": String(centimos),
+    "line_items[0][price_data][product_data][name]": nombre.trim(),
+    client_reference_id: f.id,
+    "metadata[solicitud_id]": f.id,
+    "metadata[concepto]": concepto,
+    "metadata[codigo]": codigo,
+    "payment_intent_data[description]": nombre.trim(),
+    "payment_intent_data[metadata][solicitud_id]": f.id,
+    "payment_intent_data[metadata][concepto]": concepto,
+    success_url: `${origen}/perfil?tab=seguimientos&pago=ok&sesion={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origen}/perfil?tab=seguimientos&pago=cancelado`,
+    expires_at: String((minuto + 31) * 60),
+  };
+  const r = await llamarStripe(clave, "POST", "/checkout/sessions", campos, `vz-rep-${f.id}-${concepto}-${centimos}-${minuto}`);
+  if (r.http !== 200 || typeof r.datos?.id !== "string" || typeof r.datos?.url !== "string") {
+    console.error("pago: Stripe no abrió el pago de la solicitud", r.http, r.datos?.error?.code ?? "");
+    throw new Rechazo(502, "no se pudo abrir el pago");
+  }
+  const { error: errApunte } = await supabase.from("service_requests").update({ stripe_sesion: r.datos.id }).eq("id", f.id);
+  if (errApunte) console.error("pago: no se pudo apuntar el cobro abierto de la solicitud", codigo, errApunte.code ?? "");
+  return { ok: true, url: r.datos.url as string };
+}
+
+// ¿Stripe dice que esa sesión está cobrada de verdad (en euros y por más de 0)? La misma regla para pedidos y solicitudes.
+function sesionCobrada(s: SesionStripe): boolean {
+  return (
+    s.status === "complete" &&
+    s.payment_status === "paid" &&
+    s.currency === "eur" &&
+    Number.isInteger(s.amount_total) &&
+    Number(s.amount_total) > 0
+  );
+}
+
+// Una sesión de Stripe de una solicitud: lo cobrado tiene que ser el importe de la base de datos.
+async function confirmarPagoSolicitud(supabase: SupabaseClient, modo: Modo, s: SesionStripe) {
+  const id = s.metadata?.solicitud_id ?? "";
+  const concepto = s.metadata?.concepto;
+  if (!UUID_RE.test(id) || s.client_reference_id !== id || (concepto !== "etiqueta" && concepto !== "reparacion")) throw new Rechazo(404, "pago no encontrado");
+  const f = await leerSolicitud(supabase, id);
+  if (!f) throw new Rechazo(404, "pago no encontrado");
+  const cobrado = sesionCobrada(s);
+  const { centimos, pagado: ya } = importeSolicitud(f, concepto);
+  if (ya) return { pagado: true, solicitud: f.id, concepto };
+  if (!cobrado) return { pagado: false, solicitud: f.id, concepto };
+  if (centimos !== s.amount_total) {
+    console.error(`pago: la solicitud ${f.codigo_seguimiento ?? f.id} cobró ${s.amount_total} céntimos y la base de datos dice ${centimos}: revísalo en Stripe`);
+    return { pagado: false, solicitud: f.id, concepto };
+  }
+  await marcarSolicitudPagada(supabase, f, concepto, s, modo);
+  return { pagado: true, solicitud: f.id, concepto };
+}
+
 async function confirmarPago(supabase: SupabaseClient, clave: string, modo: Modo, sesionId: string) {
   const s = await sesionDeStripe(clave, sesionId);
+  if (s && s.livemode === (modo === "real") && s.metadata?.solicitud_id) return confirmarPagoSolicitud(supabase, modo, s);
   const pedidoId = s?.metadata?.pedido_id ?? "";
   if (!s || !UUID_RE.test(pedidoId) || s.client_reference_id !== pedidoId || s.livemode !== (modo === "real")) {
     throw new Rechazo(404, "pago no encontrado");
@@ -426,12 +610,7 @@ async function confirmarPago(supabase: SupabaseClient, clave: string, modo: Modo
     .maybeSingle<Pick<FilaPedido, "id" | "numero" | "pago_estado" | "pago_sesion">>();
   if (error) throw faltanColumnas(error) ? new Rechazo(503, "falta activar el pago con tarjeta") : new Rechazo(500, "no se pudo leer el pedido");
   if (!p) throw new Rechazo(404, "pago no encontrado");
-  const pagado =
-    s.status === "complete" &&
-    s.payment_status === "paid" &&
-    s.currency === "eur" &&
-    Number.isInteger(s.amount_total) &&
-    Number(s.amount_total) > 0;
+  const pagado = sesionCobrada(s);
   if (pagado) await marcarPagado(supabase, p, s, modo);
   return { pagado, numero: p.numero };
 }
@@ -567,7 +746,7 @@ export default async function handler(req: any, res: any) {
 
     if (b.accion === "crear") {
       if (!(await consumirLimite(supabase, `pago:crear:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
-      responder(res, 200, await crearPago(supabase, clave, modo, req, b));
+      responder(res, 200, b.solicitud !== undefined ? await crearPagoSolicitud(supabase, clave, modo, req, b) : await crearPago(supabase, clave, modo, req, b));
       return;
     }
     if (b.accion === "confirmar") {
