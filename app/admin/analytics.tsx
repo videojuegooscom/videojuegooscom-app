@@ -48,6 +48,9 @@
  *   (#analitica-noticias-organicas): páginas vistas por categoría y entradas desde buscadores.
  * - app/(tabs)/perfil.tsx → «Pedidos: factura descargada» (#analitica-facturas): facturas de VeoAura
  *   descargadas desde «Mis pedidos» (api/factura.ts).
+ * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
+ *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
+ *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -542,6 +545,27 @@ export default function AdminAnalytics() {
     };
   }, []);
 
+  // Avisos de Blue solo con cuenta (dueño, 2026-11-11): cuántas cuentas tienen activados los avisos de artículos nuevos.
+  // Solo el número (HEAD, sin filas ni datos de nadie) y sin la cuenta del administrador. null = no se ha podido contar.
+  const [cuentasAvisosNovedades, setCuentasAvisosNovedades] = useState<number | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        let consulta = supabase.from("preferencias_usuario").select("user_id", { count: "exact", head: true }).eq("avisos_novedades", true);
+        if (s.session?.user?.id) consulta = consulta.neq("user_id", s.session.user.id);
+        const { count, error } = await consulta;
+        if (vivo) setCuentasAvisosNovedades(error ? null : count ?? 0);
+      } catch {
+        if (vivo) setCuentasAvisosNovedades(null);
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   const topes = useMemo(() => {
     if (!ritmo) return null;
     const hoy = madridDateStr(new Date());
@@ -654,6 +678,9 @@ export default function AdminAnalytics() {
       blueFichaServicio: findExact("Blue flotante: abierto en la ficha de servicio"),
       // «Activa los avisos de noticias» del panel de Blue (se activan con un toque).
       blueAvisosNoticias: findExact("Blue: avisos de noticias activados"),
+      // Avisos de bajadas de precio y artículos nuevos solo con cuenta: «Crear cuenta gratis» y las cuentas creadas después.
+      blueCuentaAvisos: findExact("Blue: crear cuenta por avisos"),
+      blueCuentaAvisosCreada: findExact("Blue: cuenta creada tras «Crear cuenta gratis» (avisos)"),
       // El aviso de una noticia nueva abre esa noticia; y cómo acaban los mensajes de Blue (se cierran solos a los 12 s).
       blueAvisoNoticia: findExact("Blue: noticia abierta desde el aviso"),
       blueMensajeTocado: findExact("Blue: mensaje tocado"),
@@ -1237,6 +1264,24 @@ export default function AdminAnalytics() {
                       avisos de noticias {coreFunnel.blueAvisosNoticias} · abren una noticia nueva desde su aviso{" "}
                       {coreFunnel.blueAvisoNoticia}. Sus mensajes: los tocan {coreFunnel.blueMensajeTocado} · los cierran con la X{" "}
                       {coreFunnel.blueMensajeCerrado} · se cierran solos {coreFunnel.blueMensajeSolo} (sesiones)
+                    </Text>
+                  </View>
+                  <View
+                    nativeID="analitica-blue-avisos-cuenta"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="notifications-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      Avisos de Blue solo con cuenta (bajadas de precio y artículos nuevos) → cuentas con los avisos de artículos
+                      nuevos activados: {cuentasAvisosNovedades ?? "sin datos"} · tocan «Crear cuenta gratis»: {coreFunnel.blueCuentaAvisos}{" "}
+                      {coreFunnel.blueCuentaAvisos === 1 ? "sesión" : "sesiones"} · crean la cuenta después: {coreFunnel.blueCuentaAvisosCreada}
                     </Text>
                   </View>
                   <View

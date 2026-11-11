@@ -3079,6 +3079,10 @@ function AuthRequiredModal({
               Puedes explorar la sala libremente, pero para escribir o enviar mensajes
               necesitas iniciar sesión o crear tu cuenta.
             </Text>
+            {/* La ventaja de tener cuenta (dueño, 2026-11-11). */}
+            <Text style={{ color: COLORS.text, fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
+              Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos.
+            </Text>
 
             <View
               style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" }}

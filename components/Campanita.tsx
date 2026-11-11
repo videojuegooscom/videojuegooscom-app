@@ -81,9 +81,15 @@
  *   mismo que la campana de Noticias Gaming). En esa pestaña un apartado vacío no sale (ni
  *   «Estás al día» ni «No hay noticias ahora mismo»; dueño, 2026-11-04).
  * - Avisos de la tienda (en «Noticias y avisos», con sus ajustes en «Mis avisos»):
- *   · Artículos nuevos: si el cliente lo activa (preferencias_usuario.avisos_novedades o,
- *     sin sesión, NOVEDADES_AVISOS_KEY), cuenta los productos con products.novedad_en
- *     posterior a la última vez que los vio. Apagado por defecto.
+ *   · SOLO CON CUENTA (dueño, 2026-11-11, ventaja de registrarse): los avisos de artículos nuevos y de bajada de
+ *     precio. Sin sesión no salen y en «Mis avisos», en vez del interruptor, va «Avisos de bajadas de precio y artículos
+ *     nuevos · solo con cuenta» con «Crear cuenta gratis» (crearCuentaPorAvisos: evento «Blue: crear cuenta por
+ *     avisos», marcarOrigenRegistro de lib/analytics.ts y vuelta a esta pantalla con VOLVER_TRAS_ACCESO_KEY).
+ *     Administración → Analítica lo mide (#analitica-blue-avisos-cuenta). Se prueba con la sección AC de
+ *     pruebas/perfil-datos.mjs.
+ *   · Artículos nuevos: si el cliente lo activa (preferencias_usuario.avisos_novedades), cuenta los productos con
+ *     products.novedad_en posterior a la última vez que los vio. Apagado por defecto. El ajuste antiguo del
+ *     dispositivo (NOVEDADES_AVISOS_KEY) se pasa a la cuenta una vez al iniciar sesión.
  *   · «Avísame cuando llegue» (con sesión): el cliente apunta hasta 10 búsquedas
  *     (tabla avisos_busqueda; también desde el catálogo y desde el buscador de Inicio cuando una
  *     búsqueda no encuentra nada, con crearAvisoBusqueda) y Blue le avisa cuando entra un artículo
@@ -96,8 +102,9 @@
  *   · Reserva que vence: cada artículo de la cesta (CART_KEY, campo reservedUntil de lib/reservas.ts:
  *     15 minutos) sale como aviso con lo que le queda; con 5 minutos o menos suma al número rojo y
  *     Blue lo dice una vez en un mensaje que lleva a la cesta (no en la propia Cesta ni en el pedido).
- *   · Bajada de precio: de lo que le gusta (LIKED_PRODUCTS_KEY) o tiene en la cesta
- *     (CART_KEY) se guarda en el móvil el precio visto (PRECIOS_VISTOS_KEY); si baja, avisa.
+ *   · Bajada de precio (con sesión): de lo que le gusta (LIKED_PRODUCTS_KEY y los «me gusta» de la cuenta,
+ *     misMeGustaServidor de lib/interaccion.ts) o tiene en la cesta (CART_KEY) se guarda en el móvil el precio visto
+ *     (PRECIOS_VISTOS_KEY); si baja, avisa.
  *   · Solo el admin: ventas de artículos de VeoAura que aún no se han podido confirmar a
  *     VeoAura (tabla escaparate_salida) → panel Escaparate.
  *   · Solo el admin: pedidos y reparaciones en curso sin ningún cambio desde hace 48 h (updated_at de pedidos y
@@ -123,6 +130,8 @@
  * - supabase/migrations/20261013200000_noticias_comentarios_preferencias.sql →
  *   tabla preferencias_usuario (cada usuario lee la suya).
  * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
+ * - lib/interaccion.ts → «me gusta» de la cuenta (bajadas de precio); app/(tabs)/perfil.tsx → registro y vuelta
+ *   (VOLVER_TRAS_ACCESO_KEY); app/admin/analytics.tsx → #analitica-blue-avisos-cuenta.
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
@@ -143,7 +152,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
-import { getAnalyticsConsent, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { getAnalyticsConsent, marcarOrigenRegistro, marcarOrigenVender, trackEvent } from "../lib/analytics";
+import { misMeGustaServidor } from "../lib/interaccion";
 import { sinEmojis } from "../lib/admin/products.utils";
 import { guardarConocimiento, temasRespondidos, TEMAS_CONOCIMIENTO, type TemaConocimiento } from "../lib/conocimiento";
 import { estadoNotificaciones, notificarMensajeNuevo } from "../lib/notificaciones";
@@ -195,9 +205,12 @@ const NOVEDADES_CONTENT_VERSION = 1;
 const NOTICIAS_AVISOS_KEY = "videojuegoszaragoza:noticias_avisos";
 const NOTICIAS_VISTAS_KEY = "videojuegoszaragoza:noticias_vistas_hasta";
 const DIA_MS = 24 * 60 * 60 * 1000;
-// Avisos de artículos nuevos sin sesión ("1" = activados) y hasta cuándo se vieron.
+// Ajuste antiguo de avisos de artículos nuevos en el dispositivo ("1" = activados; desde 2026-11-11 solo se lee para
+// pasarlo a la cuenta una vez) y hasta cuándo se vieron.
 const NOVEDADES_AVISOS_KEY = "videojuegoszaragoza:novedades_avisos";
 const NOVEDADES_VISTAS_KEY = "videojuegoszaragoza:novedades_vistas_hasta";
+// Pantalla a la que volver al entrar con la cuenta (la lee app/(tabs)/perfil.tsx; misma clave que «Comprar ya»).
+const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
 // Precio visto de cada producto que gusta o está en la cesta ({ id: precio }).
 const PRECIOS_VISTOS_KEY = "videojuegoszaragoza:precios_vistos";
 // Misma clave de la cesta que app/(tabs)/cesta.tsx, app/checkout.tsx y la ficha.
@@ -1087,34 +1100,56 @@ export default function Campanita() {
     }
   }, []);
 
-  // Artículos nuevos en la tienda desde la última vez que se vieron (solo si lo activó).
+  // Artículos nuevos en la tienda desde la última vez que se vieron (solo con cuenta y si lo activó; dueño, 2026-11-11:
+  // es una ventaja de registrarse). Sin sesión no hay aviso ni se pregunta nada. Si en el dispositivo quedaba el ajuste
+  // de antes (NOVEDADES_AVISOS_KEY = "1"), al iniciar sesión se pasa a la cuenta UNA vez y se quita del dispositivo.
   const refreshNovedadesTienda = useCallback(async () => {
-    let activado = false;
+    let local = false;
     let vistasLocal: string | null = null;
     let vistasCuenta: string | null = null;
+    let user: { id: string } | null = null;
     try {
-      activado = (await AsyncStorage.getItem(NOVEDADES_AVISOS_KEY)) === "1";
+      const { data: sessionData } = await supabase.auth.getSession();
+      user = sessionData.session?.user ?? null;
+    } catch {
+      user = null;
+    }
+    if (!user) {
+      setAvisosNovedades(false);
+      setNovedadesTienda(0);
+      return;
+    }
+    try {
+      local = (await AsyncStorage.getItem(NOVEDADES_AVISOS_KEY)) === "1";
       vistasLocal = await AsyncStorage.getItem(NOVEDADES_VISTAS_KEY);
     } catch {
       // sin almacenamiento local: se sigue con lo de la cuenta
     }
+    let activado = false;
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData.session?.user;
-      if (user) {
-        const { data, error } = await supabase
+      const { data, error } = await supabase
+        .from("preferencias_usuario")
+        .select("avisos_novedades,novedades_vistas_hasta")
+        .eq("user_id", user.id)
+        .maybeSingle<{ avisos_novedades: boolean | null; novedades_vistas_hasta: string | null }>();
+      if (error) throw error;
+      activado = data?.avisos_novedades === true;
+      vistasCuenta = data?.novedades_vistas_hasta ?? null;
+      if (local && !activado) {
+        const ahora = new Date().toISOString();
+        const desdeLocal = vistasLocal && isoAMs(vistasLocal) ? vistasLocal : ahora;
+        const { error: errorPaso } = await supabase
           .from("preferencias_usuario")
-          .select("avisos_novedades,novedades_vistas_hasta")
-          .eq("user_id", user.id)
-          .maybeSingle<{ avisos_novedades: boolean | null; novedades_vistas_hasta: string | null }>();
-        if (error) throw error;
-        if (data) {
-          activado = data.avisos_novedades === true;
-          vistasCuenta = data.novedades_vistas_hasta;
+          .upsert({ user_id: user.id, avisos_novedades: true, novedades_vistas_hasta: desdeLocal, updated_at: ahora }, { onConflict: "user_id" });
+        if (!errorPaso) {
+          activado = true;
+          vistasCuenta = desdeLocal;
         }
       }
+      if (local && activado) AsyncStorage.removeItem(NOVEDADES_AVISOS_KEY).catch(() => {});
     } catch {
-      // la columna puede no existir aún: solo lo local
+      // la columna puede no existir aún: con sesión, lo que hubiera en el dispositivo
+      activado = local;
     }
 
     setAvisosNovedades(activado);
@@ -1189,15 +1224,21 @@ export default function Campanita() {
     }
   }, []);
 
-  // Bajadas de precio de lo que gusta o está en la cesta (precio visto guardado en el móvil).
+  // Bajadas de precio de lo que gusta (en este dispositivo y en la cuenta, misMeGustaServidor) o está en la cesta (precio
+  // visto guardado en el móvil). Solo con cuenta (dueño, 2026-11-11): sin sesión no hay aviso.
   const refreshBajadas = useCallback(async () => {
     try {
-      const gustan = await getLikedProductIds();
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user) {
+        setBajadas([]);
+        return;
+      }
+      const [gustan, deCuenta] = await Promise.all([getLikedProductIds(), misMeGustaServidor()]);
       const cesta = await leerJsonLocal<unknown[]>(CART_KEY, []);
       const enCesta = (Array.isArray(cesta) ? cesta : [])
         .map((it: any) => String(it?.id ?? ""))
         .filter(Boolean);
-      const ids = [...new Set([...gustan, ...enCesta])].slice(0, 60);
+      const ids = [...new Set([...gustan, ...(deCuenta?.productos ?? []), ...enCesta])].slice(0, 60);
       if (!ids.length) {
         setBajadas([]);
         return;
@@ -2123,36 +2164,48 @@ export default function Campanita() {
     }
   }, [likedUnavailable]);
 
-  // Guarda en la cuenta (si hay sesión) los ajustes de avisos de artículos nuevos.
+  // Guarda en la cuenta (si hay sesión) los ajustes de avisos de artículos nuevos. true si la cuenta lo ha guardado.
   const guardarPreferenciasNovedades = useCallback(async (campos: { avisos_novedades?: boolean; novedades_vistas_hasta?: string }) => {
     try {
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
-      if (!user) return;
-      await supabase
+      if (!user) return false;
+      const { error } = await supabase
         .from("preferencias_usuario")
         .upsert({ user_id: user.id, ...campos, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+      return !error;
     } catch {
-      // queda lo local
+      return false;
     }
   }, []);
 
+  // El interruptor solo sale con sesión (sin ella, «Crear cuenta gratis»): se guarda en la cuenta, no en el dispositivo.
+  // Si la cuenta no lo guarda, vuelve a como estaba.
   const cambiarAvisosNovedades = useCallback(
     async (activar: boolean) => {
       const ahora = new Date().toISOString();
       setAvisosNovedades(activar);
       setNovedadesTienda(0);
-      try {
-        await AsyncStorage.setItem(NOVEDADES_AVISOS_KEY, activar ? "1" : "0");
-        // Al activarlos se empieza a contar desde ahora (sin avisar de lo que ya había).
-        if (activar) await AsyncStorage.setItem(NOVEDADES_VISTAS_KEY, ahora);
-      } catch {
-        // sin almacenamiento local
-      }
-      await guardarPreferenciasNovedades(activar ? { avisos_novedades: true, novedades_vistas_hasta: ahora } : { avisos_novedades: false });
+      // Al activarlos se empieza a contar desde ahora (sin avisar de lo que ya había).
+      if (activar) AsyncStorage.setItem(NOVEDADES_VISTAS_KEY, ahora).catch(() => {});
+      const guardado = await guardarPreferenciasNovedades(activar ? { avisos_novedades: true, novedades_vistas_hasta: ahora } : { avisos_novedades: false });
+      if (!guardado) setAvisosNovedades(!activar);
     },
     [guardarPreferenciasNovedades]
   );
+
+  // «Crear cuenta gratis» (sin sesión): los avisos de bajadas de precio y artículos nuevos son solo con cuenta. Se cuenta
+  // el toque (y, si crea la cuenta, Administración → Analítica lo ve) y al entrar con la cuenta se vuelve aquí.
+  const crearCuentaPorAvisos = useCallback(() => {
+    void trackEvent("blue_cuenta_avisos", "Blue: crear cuenta por avisos", { metadata: { pantalla: pathnameActualRef.current || "/" } });
+    marcarOrigenRegistro("blue_avisos");
+    const ruta = pathnameActualRef.current;
+    if (ruta && ruta.startsWith("/") && !ruta.startsWith("/perfil")) {
+      AsyncStorage.setItem(VOLVER_TRAS_ACCESO_KEY, JSON.stringify({ ruta, hasta: Date.now() + 30 * 60_000 })).catch(() => {});
+    }
+    setPanelOpen(false);
+    router.push("/perfil?acceso=registro" as Href);
+  }, []);
 
   // «Activa los avisos de noticias» (pestaña «Noticias y avisos», dueño 2026-11-04: que funcione con un toque): se activan
   // aquí mismo, como con la campana de Noticias Gaming (app/(tabs)/chat-global.tsx): en el dispositivo y, con sesión, en
@@ -2850,17 +2903,40 @@ export default function Campanita() {
                 {/* Ajustes de los avisos de la tienda. */}
                 <TituloSeccionBlue texto="Mis avisos" />
                 <View style={{ alignSelf: "stretch", gap: 10 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
-                    <IconoCirculoBlue icono="bag-add-outline" />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", flex: 1 }}>Avisarme de los artículos nuevos</Text>
-                    <Switch
-                      value={avisosNovedades}
-                      onValueChange={cambiarAvisosNovedades}
-                      trackColor={{ false: "#D9E3EC", true: COLORS.accentSoft }}
-                      thumbColor={avisosNovedades ? COLORS.accent : "#F4F4F5"}
-                      accessibilityLabel="Avisarme de los artículos nuevos"
-                    />
-                  </View>
+                  {isLoggedIn ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
+                      <IconoCirculoBlue icono="bag-add-outline" />
+                      <Text style={{ color: COLORS.text, fontWeight: "800", flex: 1 }}>Avisarme de los artículos nuevos</Text>
+                      <Switch
+                        value={avisosNovedades}
+                        onValueChange={cambiarAvisosNovedades}
+                        trackColor={{ false: "#D9E3EC", true: COLORS.accentSoft }}
+                        thumbColor={avisosNovedades ? COLORS.accent : "#F4F4F5"}
+                        accessibilityLabel="Avisarme de los artículos nuevos"
+                      />
+                    </View>
+                  ) : (
+                    // Sin sesión (dueño, 2026-11-11): los avisos de bajadas de precio y artículos nuevos son una ventaja de
+                    // tener cuenta. Icono sin burbuja y la acción en texto azul (44 px), sin otra píldora.
+                    <View nativeID="blue-avisos-solo-cuenta" style={{ gap: 2 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 }}>
+                        <Ionicons name="notifications-outline" size={22} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.text, fontWeight: "800", lineHeight: 20, flex: 1 }}>
+                          Avisos de bajadas de precio y artículos nuevos · solo con cuenta
+                        </Text>
+                      </View>
+                      <Pressable
+                        nativeID="blue-crear-cuenta-avisos"
+                        onPress={crearCuentaPorAvisos}
+                        accessibilityRole="button"
+                        accessibilityLabel="Crear cuenta gratis"
+                        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 34, opacity: pressed ? 0.7 : 1 })}
+                      >
+                        <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Crear cuenta gratis</Text>
+                        <Ionicons name="chevron-forward" size={16} color={COLORS.accent} />
+                      </Pressable>
+                    </View>
+                  )}
 
                   {isLoggedIn ? (
                     <>
@@ -3463,7 +3539,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "happy-outline",
     titulo: "Este soy yo",
-    texto: "Respondo dudas, aviso de lo nuevo y te paso con el equipo.",
+    texto: "Respondo dudas, te paso con el equipo y, con tu cuenta, te aviso de bajadas y novedades.",
     objetivo: [`#${BLUE_DOM_ID}`],
     ruta: "/",
     desplazar: '[data-testid="boton-ver-categorias"]',
@@ -3493,7 +3569,7 @@ const PASOS_GUIA: PasoGuia[] = [
   {
     icono: "person-circle-outline",
     titulo: "Tu cuenta",
-    texto: "Guarda tus chats, pedidos y avisos.",
+    texto: "Guarda tus chats y pedidos. Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos.",
     cuenta: true,
     soloSinSesion: true,
     sinTitulo: true,
