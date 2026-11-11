@@ -7584,8 +7584,9 @@ async function seccionTE() {
     await p.locator("#pago-entrega-recogida").click();
     await p.waitForTimeout(300);
     ok(/^Entrega en mano: Gratis$/.test(await envio()) && /^Total: 100,00€$/.test(await totalPago()) && (await p.locator("#pago-zona-sin-envio").count()) === 0, `TE: en mano, su tarifa (gratis) (${await envio()})`);
-    const sinBurbuja = await burbujas(p, ["pago-entrega-envio", "pago-entrega-recogida", "pago-volver-cesta", "pago-envio"]);
-    ok(sinBurbuja.length === 0, `TE: la entrega y «Volver a la cesta» van con su icono, sin burbuja (${sinBurbuja.join(" · ") || "ninguna"})`);
+    // Sin «Volver a la cesta» al final (dueño, 2026-11-11): ya está el botón de volver de la cabecera.
+    const sinBurbuja = await burbujas(p, ["pago-entrega-envio", "pago-entrega-recogida", "pago-envio", "pago-confianza"]);
+    ok(sinBurbuja.length === 0 && (await p.locator("#pago-volver-cesta").count()) === 0, `TE: la entrega y la confianza van con su icono, sin burbuja, y sin «Volver a la cesta» repetido (${sinBurbuja.join(" · ") || "ninguna"})`);
     await p.locator("#pago-entrega-envio").click();
     await p.getByPlaceholder("50001").fill("28001");
     await p.waitForTimeout(300);
@@ -8071,6 +8072,26 @@ async function seccionPT() {
   const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
   const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
   const pendiente = (p) => p.evaluate(() => localStorage.getItem("videojuegoszaragoza:pago_pendiente"));
+  // Las líneas del pie de «Finalizar compra» (dueño, 2026-11-11: compacto): cuántas líneas ocupa de verdad cada una (por
+  // los rectángulos de su texto, sin los iconos) y si alguna se corta con «…».
+  const lineasDelPie = (p) =>
+    p.evaluate(() =>
+      ["pago-falta", "pago-seguro", "pago-metodos", "pago-acordar", "pago-legal", "pago-confianza"]
+        .map((id) => document.getElementById(id))
+        .filter(Boolean)
+        .map((e) => {
+          const tops = [];
+          const recorrer = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+          for (let n = recorrer.nextNode(); n; n = recorrer.nextNode()) {
+            if (!n.textContent.trim() || /^[-]+$/.test(n.textContent.trim())) continue;
+            const r = document.createRange();
+            r.selectNodeContents(n);
+            for (const c of r.getClientRects()) if (c.width > 0 && !tops.some((t) => Math.abs(t - c.bottom) < 6)) tops.push(c.bottom);
+          }
+          const cortada = [e, ...e.querySelectorAll("*")].some((c) => c.scrollWidth > c.clientWidth + 1 && getComputedStyle(c).overflow === "hidden");
+          return { id: e.id, lineas: tops.length, cortada };
+        })
+    );
   const rellenar = async (p) => {
     await p.getByPlaceholder("600 000 000").fill("600111222");
     await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
@@ -8097,20 +8118,28 @@ async function seccionPT() {
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((estado.pago.consultas ?? []).some((a) => /^Bearer \S+/.test(a)), "PT: el pago pregunta al servidor con la sesión (para saber si es el administrador)");
-    ok(/^Pagar · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-sin-tarjeta").count()) === 1, `PT: con el pago disponible, «Pagar» con el total y «Confirmar sin pagar ahora» (${await texto(p, "#pago-tarjeta")})`);
-    ok(/^Pago seguro en la página de Stripe con tarjeta o Apple Pay\. La tienda nunca ve los datos de tu tarjeta\.$/.test(await texto(p, "#pago-metodos")), `PT: sin Klarna en el servidor, no se promete Klarna (${await texto(p, "#pago-metodos")})`);
+    ok(/^Pagar · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && (await p.locator("#pago-otras-formas").count()) === 1 && (await p.locator("#pago-sin-tarjeta").count()) === 0, `PT: con el pago disponible, «Pagar» con el total y «Otras formas de pago» plegado (${await texto(p, "#pago-tarjeta")})`);
+    ok(/^Pago seguro con Stripe$/.test(await texto(p, "#pago-seguro")) && /^Tarjeta · Apple Pay$/.test(await texto(p, "#pago-metodos")), `PT: «Pago seguro con Stripe» y, sin Klarna ni Bizum en el servidor, solo «Tarjeta · Apple Pay» (${await texto(p, "#pago-metodos")})`);
     ok(/Modo de prueba de Stripe \(solo lo ve el administrador\): no se cobra nada\. Tarjeta de prueba 4242 4242 4242 4242/.test(await texto(p, "#pago-modo-prueba")), "PT: en modo prueba lo dice, con la tarjeta de prueba");
     await rellenar(p);
     {
       const cuerpo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
-      ok((cuerpo.match(/La tienda nunca ve los datos de tu tarjeta/g) ?? []).length === 1 && !/Si lo prefieres, confirma sin pagar/.test(cuerpo), "PT: con el formulario completo, «la tienda nunca ve los datos de tu tarjeta» una sola vez, sin repetir lo de confirmar sin pagar");
+      // Pie compacto (dueño, 2026-11-11): sin la frase larga de Stripe, sin «Completa los datos…» suelto ni «Volver a la cesta».
+      ok(!/La tienda nunca ve los datos de tu tarjeta|Completa los datos de envío|Volver a la cesta|Productos revisados/.test(cuerpo) && (await p.locator("#pago-falta").count()) === 0, "PT: con el formulario completo, el pie sin la frase larga de Stripe, sin avisos sueltos ni «Volver a la cesta»");
       // «Finalizar compra» (dueño, 2026-11-11): sin WhatsApp, sin invitar a llamar y sin el móvil de la tienda de ejemplo.
       ok(!/whats\s*app/i.test(cuerpo) && !/llamar|627 ?748 ?741/i.test(cuerpo), "PT: «Finalizar compra» no menciona WhatsApp, ni llamar, ni enseña el móvil de la tienda");
-      ok(/Sin pagar ahora, te escribimos por el chat de la tienda para acordar el pago\./.test(cuerpo) && /Al confirmar el pedido aceptas las condiciones de la tienda y su política de privacidad\./.test(cuerpo), "PT: explica «Confirmar sin pagar ahora» y lo que se acepta al confirmar");
+      ok(/^Al pagar aceptas las Condiciones y la Política de privacidad$/.test(await texto(p, "#pago-legal")) && /^Revisados Envío a España Atención por chat$/.test(await texto(p, "#pago-confianza")), `PT: lo legal en una línea con sus enlaces dentro y la confianza en una fila de tres (${await texto(p, "#pago-legal")} · ${await texto(p, "#pago-confianza")})`);
     }
     {
       const legal = await p.evaluate(() => ["pago-legal-terminos", "pago-legal-privacidad"].map((i) => Math.round(document.getElementById(i)?.getBoundingClientRect().height ?? 0)));
-      ok(legal.every((h) => h >= 44), `PT: «Condiciones» y «Privacidad» se tocan bien (${legal.join(" y ")} px)`);
+      ok(legal.every((h) => h >= 44), `PT: «Condiciones» y «Política de privacidad» se tocan bien aunque se vean como texto (${legal.join(" y ")} px)`);
+      // El enlace lleva a su página (y se vuelve).
+      await p.locator("#pago-legal-terminos").click();
+      await p.waitForURL(/\/politicas\/terminos/, { timeout: 10000 }).catch(() => {});
+      ok(/\/politicas\/terminos/.test(p.url()), `PT: «Condiciones» abre las condiciones (${p.url().replace(BASE, "")})`);
+      await p.goBack({ waitUntil: "load" }).catch(() => {});
+      await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+      if ((await texto(p, "#pago-falta")) !== "") await rellenar(p);
       const pildorasForm = await p.evaluate(() =>
         [...document.querySelectorAll("#pago-desplazamiento [role=button]")]
           // Sin el botón redondo de volver de la cabecera (components/CabeceraMarca.tsx, el mismo en toda la tienda).
@@ -8130,6 +8159,9 @@ async function seccionPT() {
           return { fuera, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), ventana: window.innerWidth };
         });
         ok(m.fuera === 0 && m.ancho <= m.ventana + 1, `PT: «Finalizar compra» a ${ancho} px sin salirse (${JSON.stringify(m)})`);
+        // Cada línea del pie cabe entera en una línea (ni partida ni cortada con «…»).
+        const lineas = await lineasDelPie(p);
+        ok(lineas.every((l) => l.lineas === 1 && !l.cortada), `PT: a ${ancho} px el pie sin líneas partidas (${lineas.map((l) => `${l.id}:${l.lineas}${l.cortada ? "…" : ""}`).join(", ")})`);
         await p.evaluate(() => {
           const s = document.getElementById("pago-desplazamiento");
           if (s) s.scrollTop = s.scrollHeight;
@@ -8144,8 +8176,25 @@ async function seccionPT() {
       if (s) s.scrollTop = s.scrollHeight;
     });
     await p.waitForTimeout(400);
-    const botones = await p.evaluate(() => ["pago-tarjeta", "pago-sin-tarjeta"].map((i) => Math.round(document.getElementById(i)?.getBoundingClientRect().height ?? 0)));
-    ok(botones[0] >= 50 && botones[1] >= 44, `PT: los dos botones se tocan bien (${botones.join(" y ")} px)`);
+    // «Otras formas de pago»: se abre con su explicación y su botón secundario (no otra píldora azul) y se vuelve a plegar.
+    await p.locator("#pago-otras-formas").click();
+    await p.waitForTimeout(250);
+    {
+      const ayuda = await texto(p, "#pago-sin-tarjeta-ayuda");
+      const sec = await p.evaluate(() => {
+        const b = document.getElementById("pago-sin-tarjeta");
+        const s = b ? getComputedStyle(b) : null;
+        return { alto: Math.round(b?.getBoundingClientRect().height ?? 0), fondo: s?.backgroundColor ?? "", expandido: document.getElementById("pago-otras-formas")?.getAttribute("aria-expanded") };
+      });
+      ok(/^Confirmas el pedido ahora y te escribimos por el chat de la tienda para acordar el pago\.$/.test(ayuda) && sec.expandido === "true", `PT: «Otras formas de pago» se abre y explica que se confirma y se acuerda el pago por el chat (${ayuda})`);
+      ok(sec.alto >= 44 && sec.fondo !== "rgb(30, 167, 232)" && (await texto(p, "#pago-sin-tarjeta")) === "Confirmar sin pagar ahora", `PT: con «Confirmar sin pagar ahora» como botón secundario de 44 px, sin fondo azul (${JSON.stringify(sec)})`);
+      await capturar(p, "PT1-otras-formas-abierto");
+      await p.locator("#pago-otras-formas").click();
+      await p.waitForTimeout(250);
+      ok((await p.locator("#pago-sin-tarjeta").count()) === 0 && (await p.locator("#pago-otras-formas").getAttribute("aria-expanded")) === "false", "PT: y se vuelve a plegar");
+    }
+    const botones = await p.evaluate(() => ["pago-tarjeta", "pago-otras-formas"].map((i) => Math.round(document.getElementById(i)?.getBoundingClientRect().height ?? 0)));
+    ok(botones[0] >= 50 && botones[1] >= 44, `PT: «Pagar» y «Otras formas de pago» se tocan bien (${botones.join(" y ")} px)`);
     await capturar(p, "PT1-pago-tarjeta");
     await p.locator("#pago-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
@@ -8172,8 +8221,8 @@ async function seccionPT() {
   // con Klarna o sin él; sin él, no se promete (lo comprueba PT1).
   await bloque("PT1b Bizum en la página de pago", async () => {
     for (const [klarna, esperado] of [
-      [true, /^Pago seguro en la página de Stripe con tarjeta, Apple Pay, Bizum o Klarna \(también a plazos\)\. La tienda nunca ve los datos de tu tarjeta\.$/],
-      [false, /^Pago seguro en la página de Stripe con tarjeta, Apple Pay o Bizum\. La tienda nunca ve los datos de tu tarjeta\.$/],
+      [true, /^Tarjeta · Apple Pay · Bizum · Klarna$/],
+      [false, /^Tarjeta · Apple Pay · Bizum$/],
     ]) {
       const estado = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", klarna, bizum: true } };
       const ctx = await contexto(navegador, CLIENTE, "user", estado);
@@ -8198,7 +8247,7 @@ async function seccionPT() {
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(600);
     ok((await p.locator("#pago-modo-prueba").count()) === 0, "PT: con la clave real no sale el aviso de prueba");
-    ok(/^Pago seguro en la página de Stripe con tarjeta, Apple Pay o Klarna \(también a plazos\)\. La tienda nunca ve los datos de tu tarjeta\.$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor, dice que se puede pagar a plazos con Klarna (${await texto(p, "#pago-metodos")})`);
+    ok(/^Tarjeta · Apple Pay · Klarna$/.test(await texto(p, "#pago-metodos")), `PT: con Klarna en el servidor (sin Bizum), lo nombra en la fila de formas de pago (${await texto(p, "#pago-metodos")})`);
     await rellenar(p);
     await p.locator("#pago-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
@@ -8324,8 +8373,9 @@ async function seccionPT() {
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     await conCesta(ctx);
     const p = await pagina(ctx, "/checkout");
-    await p.locator("#pago-sin-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#pago-otras-formas").waitFor({ timeout: 30000 }).catch(() => {});
     await rellenar(p);
+    await p.locator("#pago-otras-formas").click();
     await p.locator("#pago-sin-tarjeta").click();
     await p.locator("#pago-referencia").waitFor({ timeout: 15000 }).catch(() => {});
     ok(/^¡Gracias por tu pedido!$/.test(await texto(p, "#pago-confirmacion-titulo")) && (await texto(p, "#pago-referencia")) === "Pedido VZ-PD7K-3M9Q" && !(estado.pago.peticiones ?? []).length && !(estado.stripeAbierto ?? []).length, "PT: «Confirmar sin pagar ahora» guarda el pedido sin abrir el pago («¡Gracias por tu pedido!» con su referencia)");
@@ -8340,10 +8390,72 @@ async function seccionPT() {
       const p2 = await pagina(c2, "/checkout");
       await p2.locator("#pago-confirmar-boton").waitFor({ timeout: 30000 }).catch(() => {});
       await p2.waitForTimeout(800);
-      ok(/^Confirmar pedido · 100,00€$/.test(await texto(p2, "#pago-confirmar-boton")) && (await p2.locator("#pago-sin-tarjeta").count()) === 0 && (await p2.locator("#pago-tarjeta").count()) === 0, `PT: ${nombre}, el botón de siempre (${await texto(p2, "#pago-confirmar-boton")})`);
+      ok(/^Confirmar pedido · 100,00€$/.test(await texto(p2, "#pago-confirmar-boton")) && (await p2.locator("#pago-otras-formas").count()) === 0 && (await p2.locator("#pago-tarjeta").count()) === 0, `PT: ${nombre}, el botón de siempre, sin «Otras formas de pago» (${await texto(p2, "#pago-confirmar-boton")})`);
+      ok(/^Pago y entrega se acuerdan por el chat$/.test(await texto(p2, "#pago-acordar")) && /^Al pedir aceptas las Condiciones y la Política de privacidad$/.test(await texto(p2, "#pago-legal")), `PT: ${nombre}, una línea de cómo se paga y «Al pedir aceptas…» (${await texto(p2, "#pago-legal")})`);
+      await p2.setViewportSize({ width: 360, height: 800 });
+      await p2.waitForTimeout(250);
+      const lineas = await lineasDelPie(p2);
+      ok(lineas.every((l) => l.lineas === 1 && !l.cortada), `PT: ${nombre}, a 360 px el pie sin líneas partidas (${lineas.map((l) => `${l.id}:${l.lineas}`).join(", ")})`);
+      if (!pago) await capturar(p2, "PT4-sin-stripe-360");
       ok(p2.errores.length === 0, `PT: ${nombre}, sin errores de JavaScript (${p2.errores[0] ?? "ninguno"})`);
       await c2.close();
     }
+  });
+
+  // PT4b) El caso de la captura del dueño (2026-11-11): con la dirección de «Mi perfil» rellenada sola (piso «ES-3 P-3D»,
+  // CP 50410, ciudad Zaragoza), el botón salía desactivado con «Completa los datos de envío» sin decir qué faltaba: era
+  // el teléfono («Mi perfil» no lo guarda). Ahora dice «Falta: teléfono», al tocar el botón lleva a ese campo y lo marca,
+  // y con el teléfono deja pagar.
+  await bloque("PT4b qué falta (caso de la captura)", async () => {
+    const fila = [{ ...perfilDe(CLIENTE)[0], provincia: "Zaragoza", direccion: "Calle de la Prueba 12", piso: "ES-3 P-3D", codigo_postal: "50410", localidad: "Zaragoza" }];
+    const estado = { filas: fila, guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", bizum: true, klarna: true } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await p.locator("#pago-direccion-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const valores = await p.evaluate(() => ["direccion", "cp", "ciudad"].map((c) => document.querySelector(`#pago-campo-${c} input`)?.value ?? ""));
+    ok(valores.join("|") === "Calle de la Prueba 12, ES-3 P-3D|50410|Zaragoza", `PT: la dirección del perfil se rellena sola, como en la captura (${valores.join(" · ")})`);
+    ok((await texto(p, "#pago-falta")) === "Falta: teléfono" && (await p.locator("#pago-tarjeta").getAttribute("aria-disabled")) === "true", `PT: el botón desactivado dice qué falta: «Falta: teléfono» (${(await texto(p, "#pago-falta")) || "no lo dice"})`);
+    for (const ancho of [360, 390]) {
+      await p.setViewportSize({ width: ancho, height: 800 });
+      await p.waitForTimeout(250);
+      const lineas = await lineasDelPie(p);
+      ok(lineas.some((l) => l.id === "pago-falta") && lineas.every((l) => l.lineas === 1 && !l.cortada), `PT: a ${ancho} px, «Falta: teléfono» y el resto del pie en una línea cada uno (${lineas.map((l) => `${l.id}:${l.lineas}`).join(", ")})`);
+      await p.evaluate(() => {
+        const s = document.getElementById("pago-desplazamiento");
+        if (s) s.scrollTop = s.scrollHeight;
+      });
+      await p.waitForTimeout(200);
+      await capturar(p, `PT4b-falta-telefono-${ancho}`);
+    }
+    await p.setViewportSize({ width: 390, height: 844 });
+    // Tocar el botón desactivado lleva al teléfono y lo marca (sin guardar nada).
+    await p.locator("#pago-tarjeta").click({ force: true });
+    await p.waitForTimeout(500);
+    const foco = await p.evaluate(() => {
+      const input = document.querySelector("#pago-campo-telefono input");
+      const r = input?.getBoundingClientRect();
+      return { enFoco: document.activeElement === input, borde: input ? getComputedStyle(input).borderTopColor : "", invalido: input?.getAttribute("aria-invalid"), visible: !!r && r.top >= 0 && r.bottom <= window.innerHeight };
+    });
+    ok(foco.enFoco && foco.visible && foco.borde === "rgb(220, 38, 38)" && !(estado.pedidosCreados ?? []).length, `PT: al tocar el botón desactivado, lleva al teléfono y lo marca en rojo, sin guardar el pedido (${JSON.stringify(foco)})`);
+    await capturar(p, "PT4b-teléfono-marcado");
+    await p.getByPlaceholder("600 000 000").fill("600 111 222");
+    await p.waitForTimeout(300);
+    const tras = await p.evaluate(() => getComputedStyle(document.querySelector("#pago-campo-telefono input")).borderTopColor);
+    ok((await p.locator("#pago-falta").count()) === 0 && (await p.locator("#pago-tarjeta").getAttribute("aria-disabled")) !== "true" && tras !== "rgb(220, 38, 38)", `PT: con el teléfono, deja pagar y se quita la marca (${tras})`);
+    // Con un correo mal escrito lo dice como «Revisa».
+    await p.getByPlaceholder("tu@email.com").fill("ana@correo");
+    await p.waitForTimeout(250);
+    ok((await texto(p, "#pago-falta")) === "Revisa: correo", `PT: un dato mal escrito: «Revisa: correo» (${await texto(p, "#pago-falta")})`);
+    await p.getByPlaceholder("tu@email.com").fill("ana@correo.es");
+    await p.waitForTimeout(250);
+    await p.locator("#pago-tarjeta").click();
+    await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
+    const creado = estado.pedidosCreados?.[0]?.p_datos ?? {};
+    ok(/checkout\.stripe\.com/.test(p.url()) && creado.codigo_postal === "50410" && creado.ciudad === "Zaragoza" && /ES-3 P-3D/.test(creado.direccion ?? ""), `PT: el caso de la captura paga (dirección con «ES-3 P-3D», 50410, Zaragoza) (${JSON.stringify({ cp: creado.codigo_postal, ciudad: creado.ciudad })})`);
+    ok(p.errores.length === 0, `PT: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
   });
 
   // PT5) Administración → Pedidos: el pago de cada pedido, el recuento, los filtros, el aviso de devolver y el enlace a
