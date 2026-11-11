@@ -65,7 +65,7 @@
  *   con «Pedidos: factura descargada» (app/admin/analytics.tsx).
  * - «Reparaciones y Mantenimientos» → reparación por envío (migración 20261111100000): barra de nueve
  *   etapas (compacta: etapa actual y «Paso N de M»), plazo, «Esperando pieza», «Descargar etiqueta»
- *   (api/reparacion-archivo.ts), cómo embalarlo y a dónde enviarlo (plegable, dirección de
+ *   (api/factura.ts?solicitud=…), cómo embalarlo y a dónde enviarlo (plegable, dirección de
  *   reparacion_envio_ajustes vía lib/envio.ts), fotos de recepción (components/ImageLightbox.tsx) y
  *   «Aceptar presupuesto». Se mide con «Reparación por envío: …» (app/admin/analytics.tsx).
  */
@@ -1940,7 +1940,7 @@ function DatosDelSeguimiento({ entrega, codigo }: { entrega: string | null; codi
 }
 
 // --- Reparación por envío en «Mis seguimientos» (dueño, 2026-11-11; migración 20261111100000) --------------------------
-// Plazo, «Esperando pieza», la etiqueta de Correos (descarga por api/reparacion-archivo.ts con enlace firmado), cómo
+// Plazo, «Esperando pieza», la etiqueta de Correos (descarga por api/factura.ts?solicitud=… con enlace firmado), cómo
 // embalarlo y a dónde enviarlo (plegable), las fotos de cuando llegó (visor de fotos) y el presupuesto con «Aceptar
 // presupuesto» (la base de datos solo le deja al cliente aceptar el suyo). Todo icono + texto, sin burbujas; la única
 // píldora azul es «Aceptar presupuesto» cuando toca.
@@ -1959,7 +1959,7 @@ function fechaCorta(fecha: string | null | undefined) {
 
 async function pedirArchivoReparacion(solicitud: string, tipo: "etiqueta" | "fotos"): Promise<{ ok: boolean; status: number; url?: string; fotos?: LightboxImage[] }> {
   const { data } = await supabase.auth.getSession();
-  const r = await fetch(`/api/reparacion-archivo?solicitud=${encodeURIComponent(solicitud)}&tipo=${tipo}`, {
+  const r = await fetch(`/api/factura?solicitud=${encodeURIComponent(solicitud)}&tipo=${tipo}`, {
     headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
   });
   const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; fotos?: LightboxImage[] } | null;

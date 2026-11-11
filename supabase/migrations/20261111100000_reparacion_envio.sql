@@ -29,7 +29,7 @@
 --      precio de un presupuesto ya aceptado, la aceptación se borra y el cliente lo vuelve a aceptar.
 --   6) Almacén PRIVADO «reparaciones» (10 MB; PDF, JPG, PNG y WebP) para las etiquetas y las fotos de recepción. Solo el
 --      administrador sube, cambia, borra y lee (reglas con is_admin(), como «product-media»). El cliente NO lo lee
---      directamente: descarga por api/reparacion-archivo.ts, que comprueba la sesión y da un enlace firmado de 60 s.
+--      directamente: descarga por api/factura.ts?solicitud=…, que comprueba la sesión y da un enlace firmado de 60 s.
 --   7) Política «Reparación por envío» (policy_pages, slug reparacion-envio): cómo funciona, embalaje, plazos, garantía,
 --      vuelta y custodia, sin cifras inventadas (el plazo y los días los pone el dueño en los ajustes y se ven en el
 --      seguimiento; la garantía, la de tu presupuesto o factura). Solo se crea si aún no existe.
@@ -37,7 +37,7 @@
 --           public.tarifas_envio / zona_envio() / calcular_envio() (20261104210000 y 20261107120000), public.is_admin(),
 --           storage.buckets / storage.objects («reparaciones»), public.policy_pages; components/ContratarServicioModal.tsx,
 --           lib/envio.ts, app/(tabs)/perfil.tsx («Mis seguimientos»), components/Campanita.tsx (avisos de
---           etapa), app/admin/services.tsx, app/admin/analytics.tsx, api/reparacion-archivo.ts, api/blue-ia.ts,
+--           etapa), app/admin/services.tsx, app/admin/analytics.tsx, api/factura.ts, api/blue-ia.ts,
 --           app/politicas/[slug].tsx, pruebas/perfiles-sql.mjs y pruebas/perfil-datos.mjs (sección RE2).
 -- Tipo:     aditiva: columnas nuevas, una tabla de una fila, dos funciones de disparador SIN security definer y sus
 --           disparadores, dos reglas de tabla (lectura con sesión y cambio solo para sus propias filas), cuatro reglas de

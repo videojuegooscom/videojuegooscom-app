@@ -199,7 +199,7 @@
  *
  * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
- * /api/reparacion-archivo y el almacén privado «reparaciones».)
+ * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
  * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
@@ -366,7 +366,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         return json((re2.solicitudes ?? []).filter((f) => !dueno || f.customer_user_id === dueno));
       }
     }
-    if (url.pathname === "/api/reparacion-archivo" && estado.re2) {
+    if (url.pathname === "/api/factura" && url.searchParams.has("solicitud") && estado.re2) {
       const solicitud = url.searchParams.get("solicitud") ?? "";
       const tipo = url.searchParams.get("tipo") ?? "";
       estado.re2.archivosPedidos = [...(estado.re2.archivosPedidos ?? []), { solicitud, tipo, auth: peticion.headers()["authorization"] ?? "" }];

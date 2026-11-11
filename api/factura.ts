@@ -13,9 +13,21 @@
  * Solo el cliente dueño del pedido (pedidos.user_id) o un administrador (profiles.role = 'admin').
  * Límite por IP (consumir_limite, compartido; en memoria con cupos reducidos si no responde): 30 cada 10 minutos.
  *
+ * También descarga los archivos de una reparación por envío (dueño, 2026-11-11), en esta misma función porque el plan
+ * gratis de Vercel admite 12 funciones como máximo: la etiqueta de Correos (PDF) y las fotos de cómo llegó el aparato,
+ * del almacén PRIVADO «reparaciones».
+ * Petición: GET /api/factura?solicitud=<uuid>&tipo=etiqueta|fotos con «Authorization: Bearer <sesión>».
+ * - tipo=etiqueta → 200 { ok: true, url }: enlace firmado de 60 s que descarga el PDF (como archivo).
+ * - tipo=fotos → 200 { ok: true, fotos: [{ id, url }] }: enlaces firmados de 5 minutos (para verlas y ampliarlas).
+ * - 400 · 401 · 404 (no hay archivo, o la solicitud no es de quien llama) · 429 · 503 sin la migración 20261111100000.
+ * Solo el cliente dueño de la solicitud (service_requests.customer_user_id) o un administrador. 60 cada 10 minutos.
+ *
  * Variables de entorno (solo servidor): EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR.
  *
- * Conectado con: supabase/migrations/20261110100000_facturas_veoaura.sql (pedido_facturas y el almacén «facturas»),
+ * Conectado con: supabase/migrations/20261111100000_reparacion_envio.sql (etiqueta_path, recepcion_fotos y el almacén
+ * «reparaciones»; los sube app/admin/services.tsx y se ven en «Mis seguimientos» de app/(tabs)/perfil.tsx, sección RE2
+ * de pruebas/perfil-datos.mjs),
+ * supabase/migrations/20261110100000_facturas_veoaura.sql (pedido_facturas y el almacén «facturas»),
  * api/escaparate-veoaura.ts (guarda la factura y su PDF), app/(tabs)/perfil.tsx («Descargar factura» en «Mis pedidos»),
  * app/admin/pedidos.tsx («Descargar» de cada pedido), api/pago.ts (mismo bloque de límite y de sesión),
  * pruebas/perfil-datos.mjs (sección FA, con esta API simulada).
@@ -43,6 +55,9 @@ function responder(res: any, http: number, cuerpo: Record<string, unknown>) {
 // --- Límite de peticiones COMPARTIDO entre instancias (el mismo bloque que api/pago.ts) ---------------------------
 type LimiteCuenta = { max: number; ventanaSegundos: number };
 const LIMITE_DESCARGAR: LimiteCuenta = { max: 30, ventanaSegundos: 600 };
+const LIMITE_REPARACION: LimiteCuenta = { max: 60, ventanaSegundos: 600 };
+const BUCKET_REPARACIONES = "reparaciones";
+const SEGUNDOS_FOTOS = 300;
 
 function ipDelCliente(req: any): string {
   for (const nombre of ["x-vercel-forwarded-for", "x-real-ip", "x-forwarded-for"]) {
@@ -135,6 +150,51 @@ function nombreArchivo(numero: string | null): string {
   return `factura${limpio ? `-${limpio}` : ""}.pdf`;
 }
 
+// Solo rutas de esa misma solicitud dentro del almacén («<solicitud>/archivo.ext»): nada de «..» ni de otras carpetas.
+function rutaValida(ruta: unknown, solicitudId: string): ruta is string {
+  return typeof ruta === "string" && ruta.startsWith(`${solicitudId}/`) && /^[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,120}$/i.test(ruta) && !ruta.includes("..");
+}
+
+// Etiqueta de Correos o fotos de recepción de una reparación por envío (ver la cabecera).
+async function archivoDeReparacion(supabase: SupabaseClient, req: any, res: any, solicitudParam: string) {
+  const solicitudId = solicitudParam.trim().toLowerCase();
+  const tipo = parametro(req, "tipo").trim();
+  if (!UUID_RE.test(solicitudId) || (tipo !== "etiqueta" && tipo !== "fotos")) throw new Rechazo(400, "petición no válida");
+  if (!(await consumirLimite(supabase, `reparacion-archivo:${await cuboDeIp(ipDelCliente(req))}`, LIMITE_REPARACION)).permitido) {
+    throw new Rechazo(429, "demasiadas descargas; espera unos minutos");
+  }
+  const uid = await usuarioDeLaPeticion(supabase, req);
+  if (!uid) throw new Rechazo(401, "inicia sesión para descargarlo");
+
+  const { data: fila, error } = await supabase
+    .from("service_requests")
+    .select("id,customer_user_id,codigo_seguimiento,etiqueta_path,recepcion_fotos")
+    .eq("id", solicitudId)
+    .maybeSingle<{ id: string; customer_user_id: string | null; codigo_seguimiento: string | null; etiqueta_path: string | null; recepcion_fotos: unknown }>();
+  if (error) {
+    const sinColumnas = error.code === "42703" || /etiqueta_path|recepcion_fotos/.test(String(error.message ?? ""));
+    throw sinColumnas ? new Rechazo(503, "la reparación por envío aún no está activada") : new Rechazo(500, "no se pudo leer la solicitud");
+  }
+  // Si la solicitud no es suya (y no es administrador), lo mismo que si no existiera.
+  if (!fila || (fila.customer_user_id !== uid && !(await esAdministrador(supabase, uid)))) throw new Rechazo(404, "no hay archivo todavía");
+
+  if (tipo === "etiqueta") {
+    if (!rutaValida(fila.etiqueta_path, fila.id)) throw new Rechazo(404, "la etiqueta aún no está lista");
+    const nombre = `etiqueta-correos${fila.codigo_seguimiento ? `-${String(fila.codigo_seguimiento).replace(/[^A-Za-z0-9_-]+/g, "")}` : ""}.pdf`;
+    const { data: firmado, error: errFirma } = await supabase.storage.from(BUCKET_REPARACIONES).createSignedUrl(fila.etiqueta_path, SEGUNDOS_ENLACE, { download: nombre });
+    if (errFirma || !firmado?.signedUrl) throw new Rechazo(502, "no se pudo preparar la descarga");
+    responder(res, 200, { ok: true, url: firmado.signedUrl });
+    return;
+  }
+
+  const rutas = (Array.isArray(fila.recepcion_fotos) ? fila.recepcion_fotos : []).filter((r): r is string => rutaValida(r, fila.id)).slice(0, 3);
+  if (!rutas.length) throw new Rechazo(404, "aún no hay fotos");
+  const { data: firmados, error: errFotos } = await supabase.storage.from(BUCKET_REPARACIONES).createSignedUrls(rutas, SEGUNDOS_FOTOS);
+  if (errFotos || !firmados) throw new Rechazo(502, "no se pudieron preparar las fotos");
+  const fotos = firmados.map((f, i) => ({ id: String(i + 1), url: f.signedUrl ?? "" })).filter((f) => !!f.url);
+  responder(res, 200, { ok: true, fotos });
+}
+
 export default async function handler(req: any, res: any) {
   try {
     if (req.method !== "GET") throw new Rechazo(405, "método no permitido");
@@ -142,6 +202,12 @@ export default async function handler(req: any, res: any) {
     const claveServidor = process.env.SUPABASE_CLAVE_SERVIDOR;
     if (!supabaseUrl || !claveServidor) throw new Rechazo(503, "descarga de facturas sin configurar");
     const supabase = createClient(supabaseUrl, claveServidor, { auth: { persistSession: false, autoRefreshToken: false } });
+
+    const solicitud = parametro(req, "solicitud");
+    if (solicitud) {
+      await archivoDeReparacion(supabase, req, res, solicitud);
+      return;
+    }
 
     const pedidoId = parametro(req, "pedido").trim().toLowerCase();
     if (!UUID_RE.test(pedidoId)) throw new Rechazo(400, "pedido no válido");
