@@ -22,6 +22,9 @@
  *     «descartado» y VeoAura solo recibe la anulación.
  *  J) Pagado con tarjeta (dueño, 2026-11-06): cuenta como pagado (sale la ficha sin esperar a «Entregado») solo cuando
  *     la privacidad ya lo dice; con el pago devuelto o el pedido cancelado, no. Su control: sin mirar la privacidad.
+ *  K) Ventas en mano que llegan DE VeoAura (pedidos.origen = 'tienda_fisica', 2026-11-11): nunca se le devuelven (ni
+ *     «pedido» ni el de pagado), un aviso apuntado de una de ellas se descarta y los pedidos web siguen igual. Su
+ *     control: una copia que no las distingue se las devolvería con los datos del cliente.
  *  CONTROLES) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
  *     tiempo: la comprobación A lo detecta. Otra que manda el de pagado con otro nombre de evento: C lo detecta. Otra
  *     que no vuelve a mirar el estado al enviar los manda de un pedido cancelado: la comprobación I lo detecta.
@@ -311,6 +314,34 @@ try {
     const devuelto = await casoJ(retorno, PRIV_TARJETA, { devuelto_en: "2026-11-06T08:00:00Z" });
     const cancelado = await casoJ(retorno, PRIV_TARJETA, { estado: "cancelado" });
     ok(!devuelto.some(esPagado) && !cancelado.some(esPagado), `J: con el pago devuelto o el pedido cancelado, no (${devuelto.map(tipo).join(",") || "nada"} · ${cancelado.map(tipo).join(",") || "nada"})`);
+  }
+
+  // K) Ventas en mano que llegan DE VeoAura (origen 'tienda_fisica', evento «venta_tienda», 2026-11-11): entregadas y con
+  //    un artículo de VeoAura, pero nunca se le devuelven (ni «pedido» ni el de pagado con los datos del cliente); un
+  //    aviso que hubiera quedado apuntado de una de ellas se descarta sin enviarse. Los pedidos web siguen igual.
+  const casoK = async (manejador) => {
+    reiniciar();
+    tablas.pedidos.push(pedido("ped-k1", 121, "entregado", [{ product_id: "p-veo-1", precio_eur: 229.9 }], { origen: "tienda_fisica", entrega: "recogida" }));
+    tablas.pedidos.push(pedido("ped-k2", 122, "pendiente", [{ product_id: "p-veo-2", precio_eur: 50 }], { origen: "web" }));
+    tablas.escaparate_salida.push({ id: randomUUID(), creado_en: ahoraIso(), evento: "pedido", id_veoaura: "VEO-1", pedido_id: "ped-k1", estado: "pendiente", intentos: 0, ultimo_intento: null, enviado_en: null, detalle: null });
+    const todos = [];
+    for (let i = 0; i < 3; i++) todos.push(...(await vuelta(manejador)).nuevos);
+    return todos;
+  };
+  {
+    const k = await casoK(retorno);
+    const deTienda = k.filter((n) => n.mensaje.pedido?.numero === 121);
+    const web = k.filter((n) => n.mensaje.pedido?.numero === 122);
+    ok(deTienda.length === 0 && !tablas.escaparate_salida.some((s) => s.pedido_id === "ped-k1" && s.evento === "pedido_pagado"), `K: una venta en mano (de VeoAura) no se le devuelve: ni «pedido» ni el de pagado (${deTienda.map(tipo).join(",") || "nada"})`);
+    ok(tablas.escaparate_salida.find((s) => s.pedido_id === "ped-k1")?.estado === "descartado", `K: el aviso que hubiera quedado apuntado se descarta sin enviarse (${tablas.escaparate_salida.find((s) => s.pedido_id === "ped-k1")?.estado})`);
+    ok(web.map(tipo).join(",") === "pedido", `K: el pedido web de al lado sigue saliendo como siempre (${web.map(tipo).join(",")})`);
+  }
+  // CONTROL) Una copia que no distingue las ventas en mano se las devuelve a VeoAura (con los datos del cliente): K lo detecta.
+  {
+    const { manejador, carpeta } = await cargar("mutado-tienda", ['const esDeVeoaura = (p: PedidoFila | undefined) => p?.origen === "tienda_fisica";', "const esDeVeoaura = (_p: PedidoFila | undefined) => false;"]);
+    const fuga = await casoK(manejador);
+    ok(fuga.some((n) => n.mensaje.pedido?.numero === 121 && esPagado(n) && PII.test(n.cuerpo)), "(control) sin distinguir las ventas en mano, se le devolverían a VeoAura con los datos del cliente: la comprobación K SÍ lo detecta");
+    rmSync(carpeta, { recursive: true, force: true });
   }
 
   // CONTROL) Una copia que no mira la privacidad manda los datos de un pago con tarjeta antes de tiempo: J lo detecta.

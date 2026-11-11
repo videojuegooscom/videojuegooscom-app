@@ -15,6 +15,8 @@
  *    como lo admite VeoAura (contrato del puente, apartado «Cliente del pedido»). Solo sale después
  *    de que VeoAura haya recibido el primer «pedido», una vez por pedido y artículo. La política
  *    de privacidad lo explica (supabase/migrations/20261103180000_privacidad_veoaura.sql).
+ *    Las ventas en mano que llegan DE VeoAura (pedidos.origen = 'tienda_fisica', evento «venta_tienda» del puente de
+ *    ida, migración 20261111170000) nunca se le devuelven: ni «pedido» ni el aviso de pagado.
  * 2. Estadísticas (una vez al día, con el cron): visitas y «me gusta» de cada artículo de
  *    VeoAura en la tienda, para decidir allí qué rebajar.
  *
@@ -203,7 +205,12 @@ type PedidoFila = {
   // Pago con tarjeta (migraciones 20261105120000 y 20261106100000; pueden no existir aún).
   pago_estado?: string | null;
   devuelto_en?: string | null;
+  // 'tienda_fisica' = venta en mano que llegó DE VeoAura (evento «venta_tienda», migración 20261111170000): nunca se le
+  // devuelve ni como «pedido» ni como «pedido_pagado» (ya la tiene, y sus datos no deben volver a salir).
+  origen?: string | null;
 };
+
+const esDeVeoaura = (p: PedidoFila | undefined) => p?.origen === "tienda_fisica";
 
 // Los datos del cliente del aviso de pedido pagado: solo nombre, correo y teléfono, como texto y con los topes del
 // contrato de VeoAura (apartado «Cliente del pedido»: nombre ≤ 120, correo ≤ 160, teléfono ≤ 40). Un correo más largo
@@ -300,9 +307,20 @@ async function pedidosRecientes(supabase: SupabaseClient): Promise<PedidoFila[]>
   const consulta = (columnas: string) =>
     supabase.from("pedidos").select(columnas).gte("created_at", desde).order("created_at", { ascending: false }).limit(1000);
   const BASE = "id,numero,estado,entrega,nombre,email,telefono,pedido_items(product_id,precio_eur)";
-  let { data, error } = await consulta(`${BASE},pago_estado,devuelto_en`);
-  // Sin las columnas del pago con tarjeta (migración sin aplicar): como antes, solo «entregado» cuenta como pagado.
-  if (error && /pago_estado|devuelto_en/.test(String(error.message ?? ""))) ({ data, error } = await consulta(BASE));
+  // Cada grupo de columnas nuevas puede no existir aún (su migración sin aplicar): se quita el que falte y se repite.
+  let conOrigen = true;
+  let conPago = true;
+  const columnas = () => `${BASE}${conPago ? ",pago_estado,devuelto_en" : ""}${conOrigen ? ",origen" : ""}`;
+  let { data, error } = await consulta(columnas());
+  for (let vuelta = 0; vuelta < 2 && error; vuelta++) {
+    const msg = String(error.message ?? "");
+    // Sin pedidos.origen (migración 20261111170000 sin aplicar): aún no puede haber ventas en mano.
+    if (conOrigen && /origen/.test(msg)) conOrigen = false;
+    // Sin las columnas del pago con tarjeta (migración sin aplicar): como antes, solo «entregado» cuenta como pagado.
+    else if (conPago && /pago_estado|devuelto_en/.test(msg)) conPago = false;
+    else break;
+    ({ data, error } = await consulta(columnas()));
+  }
   if (error) throw new Error("no se pudieron leer los pedidos");
   return (data ?? []) as unknown as PedidoFila[];
 }
@@ -311,6 +329,8 @@ async function pedidosRecientes(supabase: SupabaseClient): Promise<PedidoFila[]>
 async function apuntarAvisos(supabase: SupabaseClient, articulos: Map<string, string>, pedidos: PedidoFila[], tarjetaCuenta: boolean) {
   const pares: { pedido: PedidoFila; idVeoaura: string }[] = [];
   for (const p of pedidos) {
+    // Las ventas en mano vienen de VeoAura: nada que avisarle.
+    if (esDeVeoaura(p)) continue;
     for (const it of p.pedido_items ?? []) {
       const idVeoaura = it.product_id ? articulos.get(it.product_id) : undefined;
       if (idVeoaura) pares.push({ pedido: p, idVeoaura });
@@ -389,6 +409,11 @@ async function enviarAvisos(
     const ultimo = s.ultimo_intento ? Date.parse(s.ultimo_intento) : 0;
     if (s.estado === "error" && Date.now() - ultimo < ESPERA_REINTENTO_MS) continue;
     if (s.estado === "enviando" && Date.now() - ultimo < ENVIANDO_CADUCA_MS) continue;
+    // Un aviso de una venta en mano (no debería existir) nunca sale: queda descartado.
+    if (esDeVeoaura(pedidos.find((p) => p.id === s.pedido_id))) {
+      await supabase.from("escaparate_salida").update({ estado: "descartado", detalle: "venta en mano: viene de VeoAura" }).eq("id", s.id).in("estado", ["pendiente", "error"]);
+      continue;
+    }
     if (s.evento === "pedido_pagado") {
       // Los datos del cliente solo salen si el pedido SIGUE pagado (entregado, o con tarjeta sin devolver) ahora mismo.
       const ahora = pedidos.find((p) => p.id === s.pedido_id);

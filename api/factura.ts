@@ -22,6 +22,15 @@
  * - 400 · 401 · 404 (no hay archivo, o la solicitud no es de quien llama) · 429 · 503 sin la migración 20261111100000.
  * Solo el cliente dueño de la solicitud (service_requests.customer_user_id) o un administrador. 60 cada 10 minutos.
  *
+ * Y une a la cuenta las compras en mano que VeoAura mandó con su correo (dueño, 2026-11-11, evento «venta_tienda» de
+ * api/escaparate-veoaura.ts), también aquí por el tope de 12 funciones del plan gratis:
+ * Petición: POST /api/factura con { accion: "unir_compras_tienda" } y «Authorization: Bearer <sesión>» (la manda «Mis
+ * pedidos» de app/(tabs)/perfil.tsx al abrirse).
+ * - 200 { ok: true, unidas }: las ventas en mano (pedidos.origen = 'tienda_fisica') aún sin cuenta cuyo correo es
+ *   EXACTAMENTE el de la sesión (sin distinguir mayúsculas) pasan a esa cuenta. Solo con el correo CONFIRMADO: nadie se
+ *   queda la compra de otro registrándose con su correo sin poder abrirlo. Sin correo confirmado, { ok: true, unidas: 0 }.
+ * - 401 sin sesión · 429 (30 cada 10 minutos por IP) · 503 sin la migración 20261111170000. Nada más cambia.
+ *
  * Variables de entorno (solo servidor): EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR.
  *
  * Conectado con: supabase/migrations/20261111100000_reparacion_envio.sql (etiqueta_path, recepcion_fotos y el almacén
@@ -30,7 +39,8 @@
  * supabase/migrations/20261110100000_facturas_veoaura.sql (pedido_facturas y el almacén «facturas»),
  * api/escaparate-veoaura.ts (guarda la factura y su PDF), app/(tabs)/perfil.tsx («Descargar factura» en «Mis pedidos»),
  * app/admin/pedidos.tsx («Descargar» de cada pedido), api/pago.ts (mismo bloque de límite y de sesión),
- * pruebas/perfil-datos.mjs (sección FA, con esta API simulada).
+ * pruebas/perfil-datos.mjs (secciones FA y VT, con esta API simulada); supabase/migrations/20261111170000_ventas_tienda_veoaura.sql
+ * (pedidos.origen), pruebas/escaparate-fotos.mjs (sección VT: unir al entrar).
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -128,6 +138,47 @@ async function usuarioDeLaPeticion(supabase: SupabaseClient, req: any): Promise<
   }
 }
 
+// Quien pregunta con su correo, solo si está confirmado (para unir las compras en mano). Si no, null.
+async function cuentaConfirmada(supabase: SupabaseClient, req: any): Promise<{ id: string; correo: string | null } | null> {
+  const cab = req.headers?.authorization;
+  const valor = Array.isArray(cab) ? cab[0] : cab;
+  if (typeof valor !== "string" || !/^Bearer\s+\S+$/i.test(valor.trim())) return null;
+  try {
+    const { data, error } = await supabase.auth.getUser(valor.trim().replace(/^Bearer\s+/i, ""));
+    const u = data?.user as { id?: string; email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null } | undefined;
+    if (error || !u?.id) return null;
+    const correo = String(u.email ?? "").trim().toLowerCase();
+    return { id: u.id, correo: correo && (u.email_confirmed_at || u.confirmed_at) ? correo : null };
+  } catch {
+    return null;
+  }
+}
+
+// Une a la cuenta las ventas en mano pendientes con su correo (el mismo bloque que api/escaparate-veoaura.ts).
+async function unirComprasTienda(supabase: SupabaseClient, req: any, res: any) {
+  if (!(await consumirLimite(supabase, `unir-tienda:${await cuboDeIp(ipDelCliente(req))}`, LIMITE_DESCARGAR)).permitido) {
+    throw new Rechazo(429, "demasiadas peticiones; espera unos minutos");
+  }
+  const cuenta = await cuentaConfirmada(supabase, req);
+  if (!cuenta) throw new Rechazo(401, "inicia sesión");
+  if (!cuenta.correo) {
+    responder(res, 200, { ok: true, unidas: 0 });
+    return;
+  }
+  const { data, error } = await supabase
+    .from("pedidos")
+    .update({ user_id: cuenta.id, vinculado_en: new Date().toISOString() })
+    .eq("origen", "tienda_fisica")
+    .is("user_id", null)
+    .eq("email", cuenta.correo)
+    .select("id");
+  if (error) {
+    const sinColumna = error.code === "42703" || /origen/.test(String(error.message ?? ""));
+    throw sinColumna ? new Rechazo(503, "las compras en tienda aún no están activadas") : new Rechazo(500, "no se pudieron unir las compras");
+  }
+  responder(res, 200, { ok: true, unidas: (data ?? []).length });
+}
+
 async function esAdministrador(supabase: SupabaseClient, uid: string): Promise<boolean> {
   const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle<{ role: string }>();
   return data?.role === "admin";
@@ -197,11 +248,19 @@ async function archivoDeReparacion(supabase: SupabaseClient, req: any, res: any,
 
 export default async function handler(req: any, res: any) {
   try {
-    if (req.method !== "GET") throw new Rechazo(405, "método no permitido");
+    if (req.method !== "GET" && req.method !== "POST") throw new Rechazo(405, "método no permitido");
     const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
     const claveServidor = process.env.SUPABASE_CLAVE_SERVIDOR;
     if (!supabaseUrl || !claveServidor) throw new Rechazo(503, "descarga de facturas sin configurar");
     const supabase = createClient(supabaseUrl, claveServidor, { auth: { persistSession: false, autoRefreshToken: false } });
+
+    // POST: solo «unir_compras_tienda» (las compras en mano de VeoAura con el correo de la sesión).
+    if (req.method === "POST") {
+      const cuerpo = typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch { return null; } })() : req.body;
+      if (cuerpo?.accion !== "unir_compras_tienda") throw new Rechazo(400, "acción no válida");
+      await unirComprasTienda(supabase, req, res);
+      return;
+    }
 
     const solicitud = parametro(req, "solicitud");
     if (solicitud) {

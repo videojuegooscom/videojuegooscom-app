@@ -58,6 +58,9 @@
  *   Stripe 2026-11-11): cuántos pedidos y cuántas reparaciones/etiquetas se pagaron con tarjeta, Bizum o Klarna según
  *   Stripe (recuentos de pedidos.pago_metodo y service_requests.pago_metodo / etiqueta_pago_metodo, solo números,
  *   sin datos de nadie). Sin la migración, no sale.
+ * - api/escaparate-veoaura.ts (evento «venta_tienda») → «Ventas en tienda frente a online» (#analitica-ventas-tienda,
+ *   migración 20261111170000, dueño 2026-11-11): cuántos pedidos y qué importe en tienda (en mano, de VeoAura) y online,
+ *   sin cancelados; solo lee origen, estado y total (ningún dato de nadie). Sin la migración, no sale.
  * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
@@ -237,6 +240,12 @@ const CONVERSION_EVENTS = [
   { key: "pago_tarjeta", label: "Pago online" },
   { key: "pago_tarjeta_ok", label: "Pagado online" },
 ] as const;
+
+// Importe de «Ventas en tienda frente a online»: 1.299,00€.
+function fmtEurCanal(n: number) {
+  const [ent, dec] = (Math.round((Number.isFinite(n) ? n : 0) * 100) / 100).toFixed(2).split(".");
+  return `${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
 
 // Formas de pago online que dice Stripe (pedidos.pago_metodo y service_requests.pago_metodo / etiqueta_pago_metodo).
 const METODOS_PAGO = ["card", "bizum", "klarna"] as const;
@@ -419,6 +428,31 @@ export default function AdminAnalytics() {
   // Pagos online por forma de pago (tarjeta, Bizum, Klarna; lo dice Stripe, migración 20261111150000): recuentos de la
   // base de datos, solo números. null = la migración aún no está (o no se pudo contar).
   const [pagosPorMetodo, setPagosPorMetodo] = useState<{ pedidos: Record<MetodoPago, number>; reparaciones: Record<MetodoPago, number> } | null>(null);
+  // Ventas en tienda (en mano, llegan de VeoAura; migración 20261111170000) frente a pedidos online: recuento e importe,
+  // sin cancelados. Solo se leen origen, estado y total (ningún dato de nadie). null = la migración aún no está.
+  const [ventasCanal, setVentasCanal] = useState<{ tienda: { n: number; eur: number }; online: { n: number; eur: number } } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from("pedidos").select("origen,estado,total_eur").neq("estado", "cancelado").limit(10000);
+        if (!vivo) return;
+        if (error) return setVentasCanal(null);
+        const r = { tienda: { n: 0, eur: 0 }, online: { n: 0, eur: 0 } };
+        for (const f of (data ?? []) as { origen: string | null; total_eur: number | string | null }[]) {
+          const c = f.origen === "tienda_fisica" ? r.tienda : r.online;
+          c.n += 1;
+          c.eur += Number(f.total_eur ?? 0);
+        }
+        setVentasCanal(r);
+      } catch {
+        // sin conexión: sin el recuento
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -1376,6 +1410,26 @@ export default function AdminAnalytics() {
                         {pagosPorMetodo.pedidos.bizum + pagosPorMetodo.reparaciones.bizum} · Klarna {pagosPorMetodo.pedidos.klarna + pagosPorMetodo.reparaciones.klarna} (pedidos:{" "}
                         {pagosPorMetodo.pedidos.card}/{pagosPorMetodo.pedidos.bizum}/{pagosPorMetodo.pedidos.klarna} · reparaciones y etiquetas: {pagosPorMetodo.reparaciones.card}/
                         {pagosPorMetodo.reparaciones.bizum}/{pagosPorMetodo.reparaciones.klarna})
+                      </Text>
+                    </View>
+                  ) : null}
+                  {/* Ventas en tienda (en mano, de VeoAura) frente a online: recuento e importe, sin datos de nadie. */}
+                  {ventasCanal ? (
+                    <View
+                      nativeID="analitica-ventas-tienda"
+                      style={{
+                        borderRadius: 14,
+                        backgroundColor: COLORS.accent2,
+                        padding: 10,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Ionicons name="storefront-outline" size={15} color={COLORS.accentDark} />
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                        Ventas en tienda (de VeoAura) frente a online, sin cancelados: en tienda {ventasCanal.tienda.n} ({fmtEurCanal(ventasCanal.tienda.eur)}) · online{" "}
+                        {ventasCanal.online.n} ({fmtEurCanal(ventasCanal.online.eur)})
                       </Text>
                     </View>
                   ) : null}

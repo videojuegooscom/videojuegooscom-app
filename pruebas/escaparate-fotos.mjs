@@ -22,13 +22,21 @@
  *      después sube el PDF al almacén privado «facturas»; pedido inexistente 404; el mismo id_veoaura no duplica (lo
  *      pone al día); un archivo que no empieza por %PDF o de más de 5 MB no se guarda (queda pendiente); campos malos
  *      400; sin la migración 503; ningún dato personal en el registro.
+ *  VT1-VT8) Evento «venta_tienda» (ventas en mano de VeoAura, 2026-11-11): firma mala 401; con una cuenta (correo
+ *      confirmado) con ese correo → pedido de la tienda física pagado y entregado, unido a la cuenta, con sus líneas, el
+ *      artículo vendido y la factura guardada; sin cuenta → pendiente y se une sola al entrar con ese correo
+ *      (api/factura.ts, «unir_compras_tienda»), nunca con un correo sin confirmar; repetida (mismo id_venta) no
+ *      duplica; campos malos 400; sin la migración 503; «factura» posterior con id_venta; nada personal en el registro.
+ *      Controles: una copia de api/factura.ts sin mirar si el correo está confirmado y otra del receptor sin buscar la
+ *      venta repetida: las comprobaciones VT3 y VT4 lo detectan.
  *  CONTROL) La versión de origin/main (tope de 10 fotos) rechaza las 30: la prueba F1 fallaría con ella. Solo se
  *      ejecuta si origin/main aún no tiene el tope de 30 (si no, ya no demostraría nada).
  *
  * Uso: node pruebas/escaparate-fotos.mjs
  * Sale con código 1 si algo falla.
- * Conectado con: api/escaparate-veoaura.ts (y su versión de origin/main con git show para el control); simula en
- *   memoria products, product_media, pedidos, pedido_facturas (migración 20261110100000) y los almacenes. La lanza
+ * Conectado con: api/escaparate-veoaura.ts (y su versión de origin/main con git show para el control), api/factura.ts
+ *   (unir las compras en mano); simula en memoria products, product_media, pedidos, pedido_items, pedido_facturas
+ *   (migraciones 20261110100000 y 20261111170000), las cuentas de Auth y los almacenes. La lanza
  *   pruebas/todas.mjs (grupo api).
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
@@ -65,6 +73,10 @@ const pedidos = [PEDIDO_7];
 const facturasBd = new Map(); // id → fila de pedido_facturas
 const almacenFacturas = new Map(); // ruta → contenido del PDF
 let sinTablaFacturas = false;
+// Ventas en mano (sección VT): las líneas de los pedidos, las cuentas de la tienda (Auth) y la migración sin aplicar.
+const lineasBd = [];
+const cuentas = [];
+let sinVentas = false;
 let respuestaActual = null;
 const alDescargar = new Map(); // token → función (para simular un envío más nuevo a mitad de copia)
 
@@ -84,6 +96,8 @@ function cumple(fila, url) {
     } else if (valor.startsWith("in.(")) {
       const lista = valor.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, ""));
       if (!lista.includes(String(v))) return false;
+    } else if (valor === "is.null") {
+      if (v !== null && v !== undefined) return false;
     }
   }
   return true;
@@ -142,8 +156,50 @@ globalThis.fetch = async (entrada, opciones = {}) => {
     return json({ Key: `facturas/${r}` });
   }
 
+  // Auth de la tienda (ventas en mano): la lista de cuentas (API de administración) y la cuenta de una sesión.
+  if (ruta === "/auth/v1/admin/users" && metodo === "GET") {
+    const pagina = Number(url.searchParams.get("page") ?? 1);
+    return json({ users: pagina === 1 ? cuentas : [], aud: "authenticated" });
+  }
+  if (ruta === "/auth/v1/user" && metodo === "GET") {
+    const token = new Headers(opciones.headers).get("authorization")?.replace(/^Bearer\s+/i, "");
+    const u = cuentas.find((c) => `token-${c.id}` === token);
+    return u ? json(u) : json({ code: 401, msg: "invalid JWT" }, 401);
+  }
+  if (ruta === "/rest/v1/rpc/consumir_limite") return json({ permitido: true, reinicia_en: 600 });
+
   // Base de datos.
-  if (ruta === "/rest/v1/pedidos" && metodo === "GET") return json(pedidos.filter((f) => cumple(f, url)));
+  if (ruta === "/rest/v1/pedidos") {
+    const pide = (url.searchParams.get("select") ?? "") + [...url.searchParams.keys()].join(",") + (cuerpoTexto ?? "");
+    if (sinVentas && /origen|veoaura_venta_id|venta_forma_pago/.test(pide)) return json({ code: "42703", message: "column pedidos.veoaura_venta_id does not exist" }, 400);
+    if (metodo === "GET") {
+      const filas = pedidos.filter((f) => cumple(f, url));
+      return (new Headers(opciones.headers).get("accept") ?? "").includes("vnd.pgrst.object") ? (filas.length ? json(filas[0]) : json({ code: "PGRST116", message: "0 rows" }, 406)) : json(filas);
+    }
+    const cuerpoP = cuerpoTexto ? JSON.parse(cuerpoTexto) : null;
+    if (metodo === "POST") {
+      // Como la base de datos: índice único de veoaura_venta_id, número, referencia VZ- y total = artículos + envío (0).
+      if (cuerpoP.veoaura_venta_id && pedidos.some((f) => f.veoaura_venta_id === cuerpoP.veoaura_venta_id)) return json({ code: "23505", message: "duplicate key" }, 409);
+      const numero = 100 + pedidos.length;
+      const fila = { user_id: null, vinculado_en: null, origen: "web", ...cuerpoP, id: randomUUID(), numero, codigo_seguimiento: `VZ-TAKE-${String(numero).padStart(4, "A").replace(/[01]/g, "Z")}` };
+      pedidos.push(fila);
+      return json(fila, 201);
+    }
+    if (metodo === "PATCH") {
+      const tocadas = pedidos.filter((f) => cumple(f, url));
+      for (const f of tocadas) Object.assign(f, cuerpoP);
+      return json(tocadas.map((f) => ({ id: f.id })));
+    }
+  }
+  if (ruta === "/rest/v1/pedido_items") {
+    if (metodo === "POST") {
+      const nuevas = [].concat(JSON.parse(cuerpoTexto));
+      for (const n of nuevas) lineasBd.push({ ...n, id: randomUUID() });
+      return new Response(null, { status: 201 });
+    }
+    const n = lineasBd.filter((f) => cumple(f, url)).length;
+    return new Response(metodo === "HEAD" ? null : "[]", { status: 200, headers: { "content-type": "application/json", "content-range": `*/${n}` } });
+  }
   if (ruta === "/rest/v1/pedido_facturas") {
     if (sinTablaFacturas) return json({ code: "PGRST205", message: "Could not find the table 'public.pedido_facturas' in the schema cache" }, 404);
     const cuerpoF = cuerpoTexto ? JSON.parse(cuerpoTexto) : null;
@@ -267,6 +323,187 @@ function galeria(idVeoaura) {
 const rango = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
 const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const ultimoRegistroFotos = () => [...registro].reverse().find((r) => r.evento === "fotos");
+
+// Una copia de un archivo de api/ con un cambio (para las pruebas de control): se carga desde una carpeta temporal.
+async function cargarCopia(archivo, [buscar, cambiar]) {
+  const codigo = readFileSync(archivo, "utf8");
+  if (!codigo.includes(buscar)) throw new Error(`prueba: la copia no encuentra «${buscar}»`);
+  const carpeta = mkdtempSync(join(tmpdir(), "vz-copia-"));
+  mkdirSync(join(carpeta, "api"));
+  symlinkSync(resolve("node_modules"), join(carpeta, "node_modules"));
+  const destino = join(carpeta, "api", archivo.split("/").pop());
+  writeFileSync(destino, codigo.replace(buscar, cambiar));
+  return (await import(pathToFileURL(destino).href)).default;
+}
+
+// ===== VT) Ventas en mano de VeoAura (evento «venta_tienda», dueño 2026-11-11, opción A) ==========================
+async function seccionVT(manejador) {
+  const ARTICULO = randomUUID(); // un artículo de VeoAura publicado en la tienda
+  const idArticuloTienda = randomUUID();
+  productos.set(idArticuloTienda, { id: idArticuloTienda, id_veoaura: ARTICULO, title: "PlayStation 5 Slim", is_active: true, vendido_en: null });
+  const CONFIRMADA = { id: randomUUID(), email: "ana.compra@example.com", email_confirmed_at: "2026-11-01T10:00:00Z", aud: "authenticated", role: "authenticated" };
+  const SIN_CONFIRMAR = { id: randomUUID(), email: "sinconfirmar@example.com", email_confirmed_at: null, aud: "authenticated", role: "authenticated" };
+  cuentas.push(CONFIRMADA, SIN_CONFIRMAR);
+  const venta = (idVenta, campos = {}) => ({
+    version: 1,
+    evento: "venta_tienda",
+    id_veoaura: idVenta,
+    venta: {
+      id_venta: idVenta,
+      fecha: "2026-11-11",
+      total_eur: 254.9,
+      forma_pago: "bizum",
+      lineas: [
+        { id_veoaura: ARTICULO, titulo: "PlayStation 5 Slim", precio_eur: 229.9, cantidad: 1 },
+        { titulo: "Funda protectora", precio_eur: 12.5, cantidad: 2 },
+      ],
+      cliente: { correo: "  Ana.Compra@Example.com ", nombre: "Ana Compradora" },
+      ...campos,
+    },
+  });
+  const pedidosDe = (idVenta) => pedidos.filter((p) => p.veoaura_venta_id === idVenta);
+  const lineasDe = (pedidoId) => lineasBd.filter((l) => l.pedido_id === pedidoId);
+  const ultimo = (evento) => [...registro].reverse().find((r) => r.evento === evento);
+  const facturaVT = { id_veoaura: randomUUID(), numero_factura: "F-2026-0042", fecha: "2026-11-11", total_eur: 254.9, pdf_url: `${PDFS}/bueno.pdf?token=vt` };
+
+  // VT1) Firma mala: 401 y nada guardado.
+  {
+    const id = randomUUID();
+    const cuerpo = JSON.stringify(venta(id));
+    const fecha = String(Math.floor(Date.now() / 1000));
+    const nonce = randomBytes(16).toString("hex");
+    const res = respuesta();
+    respuestaActual = res;
+    silenciar();
+    try {
+      await manejador(peticion({ "x-veoaura-fecha": fecha, "x-veoaura-nonce": nonce, "x-veoaura-firma": "sha256=" + "0".repeat(64) }, cuerpo), res);
+    } finally {
+      hablar();
+    }
+    ok(res.codigo === 401 && pedidosDe(id).length === 0, `VT1: con la firma mala → 401 y no se guarda nada (${res.codigo} ${JSON.stringify(res.cuerpo)})`);
+  }
+
+  // VT2) Con una cuenta (correo confirmado) con ese correo: pedido pagado y entregado, unido a la cuenta, con sus líneas,
+  // el artículo de la tienda vendido y la factura guardada (y su PDF en el almacén privado).
+  const idVenta = randomUUID();
+  {
+    const r = await enviar(manejador, venta(idVenta, { factura: facturaVT }));
+    const p = pedidosDe(idVenta)[0];
+    ok(r.codigo === 200 && r.cuerpo?.ok === true && r.cuerpo?.id_tienda === p?.id && r.cuerpo?.repetida === false && /^VZ-/.test(r.cuerpo?.codigo_seguimiento ?? ""), `VT2: venta con firma buena → 200 {ok, id_tienda, codigo_seguimiento, repetida:false} (${r.codigo} ${JSON.stringify(r.cuerpo)})`);
+    ok(
+      p?.origen === "tienda_fisica" && p?.estado === "entregado" && p?.entrega === "recogida" && p?.venta_forma_pago === "bizum" && p?.total_eur === 254.9 && p?.email === "ana.compra@example.com" && p?.created_at?.startsWith("2026-11-11"),
+      `VT2: se guarda como pedido de la tienda física, entregado, con su forma de pago, total, fecha y el correo limpio (${JSON.stringify({ o: p?.origen, e: p?.estado, f: p?.venta_forma_pago, t: p?.total_eur, c: p?.email })})`
+    );
+    ok(p?.user_id === CONFIRMADA.id && !!p?.vinculado_en, `VT2: unida a la cuenta con ese correo (sin distinguir mayúsculas) (${p?.user_id === CONFIRMADA.id ? "sí" : p?.user_id})`);
+    ok(p?.telefono === "venta en mano" && !("direccion" in (p ?? {})), "VT2: sin teléfono ni dirección del cliente");
+    const ls = lineasDe(p?.id).map((l) => `${l.titulo}|${l.precio_eur}|${l.product_id ? "enlazada" : "-"}`).join(" ; ");
+    ok(ls === "PlayStation 5 Slim|229.9|enlazada ; 2 × Funda protectora|25|-", `VT2: una línea por artículo («2 × …» con su importe) y la del artículo de la tienda enlazada (${ls})`);
+    ok(productos.get(idArticuloTienda)?.is_active === false && !!productos.get(idArticuloTienda)?.vendido_en, "VT2: el artículo de la tienda queda vendido (como el evento «vendido»)");
+    const f = [...facturasBd.values()].find((x) => x.id_veoaura === facturaVT.id_veoaura);
+    ok(r.cuerpo?.factura === f?.id && f?.pedido_id === p?.id && f?.numero_factura === "F-2026-0042" && f?.pdf_path === `${p?.id}/${facturaVT.id_veoaura}.pdf`, `VT2: la factura va a pedido_facturas de ese pedido y su PDF al almacén privado (${f?.pdf_path})`);
+    ok(ultimo("venta_tienda_cuenta")?.detalle === "unida a la cuenta del cliente", `VT2: el registro lo apunta (${ultimo("venta_tienda_cuenta")?.detalle})`);
+  }
+
+  // VT3) Sin cuenta con ese correo: pendiente; al entrar el cliente con ese correo (confirmado) se une sola. Con una
+  // cuenta SIN confirmar, no.
+  const idPendiente = randomUUID();
+  const idSinConfirmar = randomUUID();
+  {
+    const r = await enviar(manejador, venta(idPendiente, { cliente: { correo: "Nueva.Clienta@example.com" } }));
+    const p = pedidosDe(idPendiente)[0];
+    ok(r.codigo === 200 && p && p.user_id === null && p.nombre === "Cliente" && ultimo("venta_tienda_cuenta")?.detalle === "pendiente: aún no hay cuenta con ese correo", `VT3: sin cuenta con ese correo queda pendiente (${p?.user_id ?? "sin cuenta"} · ${ultimo("venta_tienda_cuenta")?.detalle})`);
+    await enviar(manejador, venta(idSinConfirmar, { cliente: { correo: SIN_CONFIRMAR.email } }));
+    ok(pedidosDe(idSinConfirmar)[0]?.user_id === null, "VT3: con una cuenta cuyo correo aún no está confirmado, tampoco se une");
+
+    // Se registra (correo confirmado) y abre «Mis pedidos»: api/factura.ts une la compra.
+    const nueva = { id: randomUUID(), email: "nueva.clienta@example.com", email_confirmed_at: "2026-11-11T12:00:00Z", aud: "authenticated", role: "authenticated" };
+    cuentas.push(nueva);
+    const factura = (await import("../api/factura.ts")).default;
+    const unir = async (fn, cuenta) => {
+      const res = respuesta();
+      silenciar();
+      try {
+        await fn({ method: "POST", headers: { authorization: `Bearer token-${cuenta.id}`, "x-vercel-forwarded-for": "203.0.113.7" }, body: { accion: "unir_compras_tienda" }, query: {} }, res);
+      } finally {
+        hablar();
+      }
+      return res;
+    };
+    const u1 = await unir(factura, nueva);
+    ok(u1.codigo === 200 && u1.cuerpo?.unidas === 1 && pedidosDe(idPendiente)[0]?.user_id === nueva.id, `VT3: al entrar con ese correo se une sola a su cuenta (${u1.codigo} ${JSON.stringify(u1.cuerpo)})`);
+    const u2 = await unir(factura, nueva);
+    ok(u2.cuerpo?.unidas === 0 && pedidosDe(idVenta)[0]?.user_id === CONFIRMADA.id, `VT3: otra vez no une nada más y las de otros no se tocan (${JSON.stringify(u2.cuerpo)})`);
+    const u3 = await unir(factura, SIN_CONFIRMAR);
+    ok(u3.codigo === 200 && u3.cuerpo?.unidas === 0 && pedidosDe(idSinConfirmar)[0]?.user_id === null, `VT3: quien entra con el correo SIN confirmar no se la queda (${JSON.stringify(u3.cuerpo)})`);
+    const sinSesion = await unir(factura, { id: "nadie" });
+    ok(sinSesion.codigo === 401, `VT3: sin sesión válida, 401 (${sinSesion.codigo})`);
+
+    // CONTROL: una copia de api/factura.ts que no mira si el correo está confirmado se la daría a quien no lo ha
+    // confirmado: la comprobación de arriba lo detecta.
+    const facturaMutada = await cargarCopia("api/factura.ts", ["correo && (u.email_confirmed_at || u.confirmed_at) ? correo : null", "correo || null"]);
+    const u4 = await unir(facturaMutada, SIN_CONFIRMAR);
+    ok(u4.cuerpo?.unidas === 1 && pedidosDe(idSinConfirmar)[0]?.user_id === SIN_CONFIRMAR.id, "(control) sin comprobar que el correo está confirmado, se uniría a quien no lo ha confirmado: la comprobación VT3 SÍ lo detecta");
+    pedidosDe(idSinConfirmar)[0].user_id = null;
+  }
+
+  // VT4) La misma venta otra vez (mismo id_venta): no se duplica (ni sus líneas) y dice repetida.
+  {
+    const antesLineas = lineasDe(pedidosDe(idVenta)[0]?.id).length;
+    const r = await enviar(manejador, venta(idVenta, { factura: facturaVT }));
+    ok(r.codigo === 200 && r.cuerpo?.repetida === true && pedidosDe(idVenta).length === 1 && lineasDe(pedidosDe(idVenta)[0].id).length === antesLineas, `VT4: repetida (mismo id_venta) no duplica el pedido ni sus líneas (${pedidosDe(idVenta).length} pedido, ${antesLineas} líneas, ${JSON.stringify(r.cuerpo)})`);
+    ok([...facturasBd.values()].filter((x) => x.id_veoaura === facturaVT.id_veoaura).length === 1, "VT4: ni su factura");
+    // CONTROL: una copia que no busca antes la venta repetida no responde «repetida» (la base de datos la frena con su
+    // índice único y el reenvío falla): VT4 lo detecta.
+    const mutado = await cargarCopia("api/escaparate-veoaura.ts", ['.eq("veoaura_venta_id", v.idVenta).limit(1)', '.eq("veoaura_venta_id", "__ninguna__").limit(1)']);
+    const rc = await enviar(mutado, venta(idVenta));
+    ok(!(rc.codigo === 200 && rc.cuerpo?.repetida === true), `(control) sin buscar antes la venta repetida, el reenvío no sale como «repetida» (${rc.codigo}): la comprobación VT4 SÍ lo detecta`);
+  }
+
+  // VT5) Campos que faltan o no valen: 400 y nada guardado.
+  {
+    const malos = [
+      ["el total no es la suma de las líneas", { total_eur: 250 }],
+      ["sin correo", { cliente: { nombre: "Ana" } }],
+      ["correo sin @", { cliente: { correo: "ana.example.com" } }],
+      ["forma de pago inventada", { forma_pago: "paypal" }],
+      ["sin líneas", { lineas: [], total_eur: 0 }],
+      ["cantidad 0", { lineas: [{ titulo: "Mando", precio_eur: 10, cantidad: 0 }], total_eur: 0 }],
+      ["fecha imposible", { fecha: "2026-02-31" }],
+      ["id_venta con espacios", { id_venta: "venta con espacios" }],
+      ["factura sin su id", { factura: { ...facturaVT, id_veoaura: undefined } }],
+    ];
+    const res = [];
+    for (const [nombre, campos] of malos) {
+      const id = randomUUID();
+      const r = await enviar(manejador, venta(id, campos));
+      res.push(`${nombre}: ${r.codigo}`);
+      if (r.codigo !== 400 || pedidosDe(id).length) res.push("FALLA");
+    }
+    ok(!res.includes("FALLA"), `VT5: campos que faltan o no valen → 400 sin guardar nada (${res.join(" · ")})`);
+  }
+
+  // VT6) Sin la migración (columnas de las ventas en mano): 503 para que VeoAura lo reintente.
+  {
+    sinVentas = true;
+    const id = randomUUID();
+    const r = await enviar(manejador, venta(id));
+    sinVentas = false;
+    ok(r.codigo === 503 && pedidosDe(id).length === 0, `VT6: sin la migración 20261111170000 → 503 (reintentar) (${r.codigo} ${JSON.stringify(r.cuerpo)})`);
+  }
+
+  // VT7) Una factura enviada después con el evento «factura» y el id_venta (sin numero_pedido).
+  {
+    const idF = randomUUID();
+    const r = await enviar(manejador, { version: 1, evento: "factura", id_veoaura: idF, factura: { id_venta: idPendiente, numero_factura: "F-2026-0043", fecha: "2026-11-11", total_eur: 254.9, pdf_url: `${PDFS}/bueno.pdf?token=vt2` } });
+    const f = [...facturasBd.values()].find((x) => x.id_veoaura === idF);
+    ok(r.codigo === 200 && r.cuerpo?.id_venta === idPendiente && f?.pedido_id === pedidosDe(idPendiente)[0]?.id && !!f?.pdf_path, `VT7: una «factura» con id_venta va a esa venta en mano (${r.codigo} ${JSON.stringify(r.cuerpo)})`);
+    const r404 = await enviar(manejador, { version: 1, evento: "factura", id_veoaura: randomUUID(), factura: { id_venta: "no-existe", numero_factura: "F-1", fecha: "2026-11-11", total_eur: 1, pdf_url: `${PDFS}/bueno.pdf` } });
+    ok(r404.codigo === 404, `VT7: con un id_venta que la tienda no tiene → 404 (${r404.codigo})`);
+  }
+
+  // VT8) Ningún dato personal de estas ventas en el registro.
+  ok(!/ana\.compra|Ana Compradora|nueva\.clienta|sinconfirmar|token=vt/i.test(JSON.stringify(registro)), "VT8: el registro no lleva el correo ni el nombre del cliente ni el enlace del PDF");
+}
 
 try {
   // CONTROL: solo si origin/main aún tiene el tope de 10 fotos.
@@ -459,6 +696,9 @@ try {
   // FA8) Ningún dato personal en el registro (el pedido tiene nombre, correo y teléfono).
   const textoRegistro = JSON.stringify(registro);
   ok(!/Clienta Secreta|secreta@example\.com|600123456|token=/.test(textoRegistro), "FA8: el registro no lleva datos del cliente ni el enlace del PDF");
+
+  // --- Ventas en mano (evento «venta_tienda», 2026-11-11) --------------------------------------------------------
+  await seccionVT(manejador);
 } catch (e) {
   hablar();
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

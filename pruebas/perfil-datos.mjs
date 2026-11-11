@@ -222,7 +222,13 @@
  *    WhatsApp ni «llamar» (tampoco en «Finalizar compra», que explica «Confirmar sin pagar ahora» y enlaza Condiciones
  *    y Privacidad); a 360 y 390 px sin salirse. Administración → Pedidos: la referencia de título, «Nº interno» en
  *    pequeño y el buscador (referencia con o sin guiones, número interno, nombre); la ficha del cliente, igual.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|RE3|AC]
+ *  - VT) Ventas en mano de VeoAura (2026-11-11, migración 20261111170000): en «Mis pedidos», «Compra en tienda VZ-… ·
+ *    total · fecha» con «Pagado con Bizum · Entregado» (una línea, sin fondo) y «Descargar factura», sin barra de envío (el pedido web sigue
+ *    igual), y una sola petición «unir_compras_tienda» con la sesión, a 360 y 390 px; Administración → Pedidos: recuento
+ *    (cuántas, importe, unidas, pendientes), «En tienda · pagado …», «Unida a la cuenta del cliente» o «Pendiente de que
+ *    se registre <correo>», el filtro «En tienda» y sin envío, cancelar, WhatsApp ni teléfono; sin la migración, nada de
+ *    eso y sin errores; Analítica, tienda frente a online (recuento e importe, sin datos de nadie).
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|VT|RE2|RE3|AC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -590,6 +596,13 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const lista = ids.startsWith("in.(") ? ids.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : null;
       return json(estado.facturas.filter((f) => !lista || lista.includes(f.pedido_id)));
     }
+    // «unir_compras_tienda» (sección VT) como api/factura.ts: se apunta con qué sesión se pide y responde cuántas une
+    // (estado.unir, 0 si no se dice). Sin estado.unir no existe (como en local): 404.
+    if (url.pathname === "/api/factura" && metodo === "POST") {
+      estado.unirPedidas = [...(estado.unirPedidas ?? []), { cuerpo: JSON.parse(peticion.postData() ?? "{}"), auth: peticion.headers()["authorization"] ?? "" }];
+      if (estado.unir === undefined) return json({ ok: false, error: "no encontrado" }, 404);
+      return json({ ok: true, unidas: estado.unir });
+    }
     // /api/factura (sección FA) como el servidor (api/factura.ts): con la factura y su PDF, un enlace firmado; con la fila
     // sin PDF, 409; sin factura, 404. Se apunta el pedido pedido y la sesión con que se pide.
     if (url.pathname === "/api/factura" && estado.facturas) {
@@ -737,6 +750,11 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           // Solo cuenta la lista de Pedidos (la campanita también pregunta y repite sin la columna).
           if (/pedido_items/.test(url.searchParams.get("select") ?? "")) estado.pedidos400 = (estado.pedidos400 ?? 0) + 1;
           return json({ code: "42703", message: "column pedidos.devuelto_eur does not exist" }, 400);
+        }
+        // Sin las columnas de las ventas en mano (sección VT: migración 20261111170000 sin aplicar).
+        if (estado.pedidosSinVentas && /origen|veoaura_venta_id|venta_forma_pago/.test(url.searchParams.get("select") ?? "")) {
+          estado.pedidosVentas400 = (estado.pedidosVentas400 ?? 0) + 1;
+          return json({ code: "42703", message: "column pedidos.origen does not exist" }, 400);
         }
         if (estado.pedidosSinPago && /pago_estado|pagado_eur/.test(url.searchParams.get("select") ?? "")) {
           estado.pedidos400 = (estado.pedidos400 ?? 0) + 1;
@@ -9411,6 +9429,128 @@ async function seccionFA() {
   }
 }
 
+// ===== VT) Ventas en mano de VeoAura (dueño, 2026-11-11, opción A; migración 20261111170000): en «Mis pedidos», «Compra
+// en tienda VZ-…» con su forma de pago, «Entregado» y «Descargar factura», sin barra de envío, y la petición de unir las
+// compras con la sesión; Administración → Pedidos con «En tienda», el recuento, si está unida o pendiente de registrarse
+// y el filtro (sin envío ni cambio de estado); sin la migración, nada de esto; Analítica, tienda frente a online ==========
+async function seccionVT() {
+  // Sin los iconos (letras de la fuente de iconos, de uso privado: U+E000 a U+F8FF).
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const idDe = (n) => `ab000000-0000-4000-8000-0000000000${n}`;
+  const comun = { user_id: CLIENTE.id, vinculado_en: null, pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null, devuelto_eur: null, devuelto_en: null };
+  const PEDIDOS = [
+    { ...comun, id: idDe(71), numero: 71, created_at: "2026-11-11T11:00:00Z", estado: "entregado", entrega: "recogida", total_eur: 254.9, codigo_seguimiento: "VZ-TNDA-7K3M", origen: "tienda_fisica", venta_forma_pago: "bizum" },
+    { ...comun, id: idDe(72), numero: 72, created_at: "2026-11-09T10:00:00Z", estado: "enviado", entrega: "envio", total_eur: 49.9, codigo_seguimiento: "VZ-WEBP-4D2Q", origen: "web", venta_forma_pago: null },
+  ];
+  const ITEMS = [
+    { pedido_id: idDe(71), titulo: "PlayStation 5 Slim", product_id: null },
+    { pedido_id: idDe(71), titulo: "2 × Funda protectora", product_id: null },
+    { pedido_id: idDe(72), titulo: "Mando DualSense", product_id: null },
+  ];
+  const FACTURAS = [{ pedido_id: idDe(71), numero_factura: "F-2026-0042", pdf_path: `${idDe(71)}/f42.pdf`, fecha: "2026-11-11", recibida_en: "2026-11-11T11:05:00Z" }];
+
+  // VT1) «Mis pedidos»: la compra en tienda como un pedido más, con su forma de pago y la factura; sin barra de envío.
+  for (const ancho of [360, 390]) {
+    const estado = { filas: PERFIL, guardados: [], aceptaAnalitica: true, facturas: FACTURAS, unir: 0, numeros: { pedidos: PEDIDOS.map((x) => ({ ...x })), reparaciones: [], items: ITEMS } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { viewport: { width: ancho, height: 844 } });
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator("#seguimiento-tienda-71").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const titulo = await texto(p, "#mis-pedidos-titulo-71");
+    ok(/^Compra en tienda VZ-TNDA-7K3M · 254,90 ?€ · /.test(titulo), `VT (${ancho} px): el título dice «Compra en tienda» con su referencia, total y fecha (${titulo})`);
+    ok((await texto(p, "#seguimiento-tienda-71")) === "Pagado con Bizum · Entregado", `VT (${ancho} px): la forma de pago y «Entregado» (${await texto(p, "#seguimiento-tienda-71")})`);
+    // En una sola línea con su icono (16 px, sin burbuja) a 360 y 390 px.
+    const linea = await p.evaluate(() => {
+      const caja = document.getElementById("seguimiento-tienda-71");
+      const r = caja?.getBoundingClientRect();
+      return { alto: Math.round(r?.height ?? 0), fondo: caja ? getComputedStyle(caja).backgroundColor : "" };
+    });
+    ok(linea.alto > 0 && linea.alto <= 26 && /rgba\(0, 0, 0, 0\)|transparent/.test(linea.fondo), `VT (${ancho} px): la línea de la compra en tienda cabe en una línea y sin fondo (${JSON.stringify(linea)})`);
+    ok((await texto(p, "#seguimiento-factura-71")) === "Descargar factura F-2026-0042", `VT (${ancho} px): «Descargar factura» de la compra en tienda (${await texto(p, "#seguimiento-factura-71")})`);
+    const barras = await p.evaluate(() => {
+      const caja = (id) => document.getElementById(id)?.innerText ?? "";
+      return { tienda: /Preparado|Enviado|Confirmado/.test(caja("seguimiento-pedido-71")), web: /Enviado/.test(caja("seguimiento-pedido-72")) };
+    });
+    ok(!barras.tienda && barras.web && (await p.locator("#seguimiento-tienda-72").count()) === 0, `VT (${ancho} px): sin barra de envío en la compra en tienda (el pedido web sigue con la suya) (${JSON.stringify(barras)})`);
+    ok((await texto(p, "#mis-pedidos-titulo-72")).startsWith("Pedido VZ-WEBP-4D2Q"), "VT: el pedido web sigue llamándose «Pedido VZ-…»");
+    const pedida = (estado.unirPedidas ?? [])[0];
+    ok(pedida?.cuerpo?.accion === "unir_compras_tienda" && /^Bearer \S+\.\S+\.\S+$/.test(pedida?.auth ?? "") && (estado.unirPedidas ?? []).length === 1, `VT (${ancho} px): pide una vez unir las compras en tienda con la sesión (${JSON.stringify(estado.unirPedidas ?? []).slice(0, 120)})`);
+    const fuera = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+    ok(fuera.a <= fuera.v, `VT (${ancho} px): nada se sale por los lados (${fuera.a}/${fuera.v})`);
+    if (ancho === 390) {
+      await p.locator("#seguimiento-pedido-71").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, "VT1-mis-pedidos-compra-en-tienda");
+    }
+    ok(p.errores.length === 0, `VT (${ancho} px): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VT2) Administración → Pedidos: «En tienda», unida o pendiente de que se registre, recuento y filtro.
+  const ahora = new Date().toISOString();
+  const fila = (numero, extra) => ({
+    id: idDe(numero), numero, created_at: ahora, estado: "entregado", entrega: "recogida", nombre: "Cliente", email: "ana@example.com",
+    telefono: "venta en mano", direccion: null, codigo_postal: null, ciudad: null, notas: null, total_eur: 100, productos_eur: 100, envio_eur: 0, zona_envio: "mano",
+    envio_manual: false, user_id: null, codigo_seguimiento: `VZ-ADM${numero}-AAAA`, id_veoaura: null, vinculado_en: null, nota_admin: null, pedido_items: [],
+    pago_estado: null, pago_modo: null, pago_referencia: null, pagado_eur: null, pagado_en: null, origen: "tienda_fisica", veoaura_venta_id: `v-${numero}`, venta_forma_pago: "efectivo", ...extra,
+  });
+  const ADMIN_PEDIDOS = [
+    fila(81, { user_id: CLIENTE.id, vinculado_en: ahora }),
+    fila(82, { email: "nueva.clienta@example.com", total_eur: 54.5, productos_eur: 54.5, venta_forma_pago: "tarjeta" }),
+    fila(83, { origen: "web", veoaura_venta_id: null, venta_forma_pago: null, estado: "pendiente", entrega: "envio", telefono: "600111222", nombre: "Luis", email: "luis@example.com" }),
+  ];
+  {
+    const estado = { guardados: [], tarifas: [], pedidosAdmin: ADMIN_PEDIDOS.map((x) => ({ ...x })) };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedidos-en-tienda").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(
+      (await texto(p, "#pedidos-en-tienda")) === "Ventas en tienda (llegan de VeoAura) · 2 (154,50€) · en la cuenta del cliente: 1 · pendientes de que se registre: 1",
+      `VT: Pedidos cuenta las ventas en tienda, su importe, las unidas y las pendientes (${await texto(p, "#pedidos-en-tienda")})`
+    );
+    await p.getByText(/^En tienda \(2\)$/).first().click();
+    await p.waitForTimeout(400);
+    ok((await texto(p, "#pedido-tienda-81")) === "En tienda · pagado en efectivo · entregado Unida a la cuenta del cliente", `VT: la venta unida dice «En tienda · pagado en efectivo» y que está en la cuenta (${await texto(p, "#pedido-tienda-81")})`);
+    ok((await texto(p, "#pedido-tienda-cuenta-82")) === "Pendiente de que se registre nueva.clienta@example.com", `VT: la pendiente dice a qué correo espera (${await texto(p, "#pedido-tienda-cuenta-82")})`);
+    const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-titulo-"]')].map((e) => e.id).join(","));
+    ok(visibles === "pedido-titulo-81,pedido-titulo-82", `VT: el filtro «En tienda» deja solo las ventas en tienda (${visibles})`);
+    const sinGestion = await p.evaluate(() => ({ envio: !!document.getElementById("pedido-envio-81"), cancelar: !!document.getElementById("pedido-cancelar-82"), whatsapp: /Escribir al cliente/.test(document.body.innerText), tel: /venta en mano/.test(document.body.innerText) }));
+    ok(!sinGestion.envio && !sinGestion.cancelar && !sinGestion.whatsapp && !sinGestion.tel, `VT: sin envío, cancelar, WhatsApp ni teléfono en las ventas en tienda (${JSON.stringify(sinGestion)})`);
+    await capturar(p, "VT2-admin-pedidos-en-tienda");
+    ok(p.errores.length === 0, `VT: Pedidos sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // VT3) Sin la migración (sin la columna origen): Pedidos sale igual, sin nada de las ventas en tienda.
+  {
+    const estado = { guardados: [], tarifas: [], pedidosAdmin: [fila(83, { origen: undefined, veoaura_venta_id: undefined, venta_forma_pago: undefined, estado: "pendiente" })], pedidosSinVentas: true };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/pedidos");
+    await p.locator("#pedido-titulo-83").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok(
+      (await p.locator("#pedido-titulo-83").count()) === 1 && (await p.locator("#pedidos-en-tienda").count()) === 0 && (await p.getByText(/^En tienda \(/).count()) === 0 && (estado.pedidosVentas400 ?? 0) >= 1 && p.errores.length === 0,
+      `VT: sin la migración, Pedidos sale igual, sin «En tienda» y sin errores (consultas rechazadas: ${estado.pedidosVentas400 ?? 0})`
+    );
+    await ctx.close();
+  }
+
+  // VT4) Analítica: ventas en tienda frente a online (recuento e importe, sin datos de nadie).
+  {
+    const estado = { guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }], pedidosAdmin: ADMIN_PEDIDOS.map((x) => ({ ...x })) };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-ventas-tienda").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#analitica-ventas-tienda");
+    ok(t === "Ventas en tienda (de VeoAura) frente a online, sin cancelados: en tienda 2 (154,50€) · online 1 (100,00€)", `VT: Analítica enseña las ventas en tienda frente a online (${t})`);
+    ok(!/@|Cliente|Luis/.test(t), "VT: sin datos de nadie");
+    await p.locator("#analitica-ventas-tienda").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "VT4-analitica-ventas-tienda");
+    await ctx.close();
+  }
+}
+
 // ===== RE2) Reparación por envío (dueño, 2026-11-11; migración 20261111100000): en «Contratar servicio», «¿Cómo nos lo
 // haces llegar?» con Correos (aparatos, código postal, etiqueta, precio orientativo y casilla obligatoria; sin «Dónde
 // podemos recogerlo»); en «Mis seguimientos», la barra de nueve etapas (compacta a 360 y 390 px), el plazo, «Esperando
@@ -10327,6 +10467,7 @@ try {
   if (SOLO === "FA") await seccionFA();
   if (SOLO === "RE2") await seccionRE2();
   if (SOLO === "RE3") await seccionRE3();
+  if (SOLO === "VT") await seccionVT();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -11291,6 +11432,7 @@ try {
   await seccionPT();
   await seccionNW();
   await seccionFA();
+  await seccionVT();
   await seccionRE2();
   await seccionRE3();
   await seccionAC();

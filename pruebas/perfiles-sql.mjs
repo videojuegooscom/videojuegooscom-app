@@ -92,6 +92,12 @@
  *    etiqueta_pago_metodo solo card, klarna o bizum, los apunta el servidor sin cambiar pago_modo ni importes, un cliente
  *    no los toca y los permisos no cambian; la política «Reparación por envío» queda igual (con su «prueba de la prueba»:
  *    sin «aún no nombra Bizum», la frase se repite).
+ *  - Ventas en mano de VeoAura (20261111170000_ventas_tienda_veoaura.sql), sobre pedidos y facturas: origen ('web' por
+ *    defecto), veoaura_venta_id (única) y venta_forma_pago con sus comprobaciones; lo que había queda «web»; la venta de
+ *    un cliente solo la ve él (con su factura) y el administrador; una pendiente, solo el administrador, y al unirla el
+ *    servidor a la cuenta con ese correo la ve su dueño; nadie la cambia desde el navegador; las reglas de pedidos y las
+ *    funciones no cambian; la privacidad lo dice una vez y sin «tienda física»; se aplica dos veces (con su «prueba de la
+ *    prueba»: sin «aún no lo dice», la frase se repite).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2282,6 +2288,136 @@ try {
     const veTodas = await como(cF2, "authenticated", U1, "select pedido_id from public.pedido_facturas");
     ok(veTodas.ok && veTodas.filas.length === 3, `(control) sin «es su pedido», un cliente ve ${veTodas.filas?.length} facturas: la prueba SÍ lo detecta`);
     await cF2.end();
+  }
+
+  // Ventas en mano de VeoAura (20261111170000_ventas_tienda_veoaura.sql), sobre pedidos y facturas como en producción:
+  // tres columnas con sus comprobaciones, lo que había queda «web», repetible; la venta de un cliente solo la ve él (y el
+  // administrador), una pendiente (sin cuenta) nadie más que el administrador y, al unirla el servidor a la cuenta con
+  // ese correo, la ve su dueño con su factura; nadie la cambia desde el navegador; las reglas de pedidos no cambian; la
+  // privacidad lo explica una sola vez.
+  {
+    const VENTAS = readFileSync("supabase/migrations/20261111170000_ventas_tienda_veoaura.sql", "utf8");
+    const FACTURAS_V = readFileSync("supabase/migrations/20261110100000_facturas_veoaura.sql", "utf8");
+    const U3 = "33333333-3333-4333-8333-333333333333";
+    const ESQUEMA_V = `
+      create table public.pedidos (
+        id uuid primary key default gen_random_uuid(), numero bigint generated always as identity unique, created_at timestamptz not null default now(),
+        user_id uuid references auth.users (id) on delete set null, estado text not null default 'pendiente'
+          check (estado in ('pendiente', 'confirmado', 'preparado', 'enviado', 'entregado', 'cancelado')),
+        entrega text not null default 'envio' check (entrega in ('envio', 'recogida')),
+        nombre text not null check (char_length(btrim(nombre)) between 2 and 120), email text not null check (char_length(email) between 5 and 200),
+        telefono text not null check (char_length(telefono) between 6 and 30), total_eur numeric(10, 2) not null default 0,
+        codigo_seguimiento text, vinculado_en timestamptz);
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid not null references public.pedidos(id) on delete cascade,
+        product_id uuid, titulo text not null, precio_eur numeric(10, 2) not null default 0);
+      alter table public.pedidos enable row level security;
+      alter table public.pedido_items enable row level security;
+      create policy pedidos_admin_select on public.pedidos for select to authenticated using ((select public.is_admin()));
+      create policy pedidos_cliente_select on public.pedidos for select to authenticated using (user_id = (select auth.uid()));
+      create policy pedidos_admin_update on public.pedidos for update to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+      create policy pedido_items_cliente_select on public.pedido_items for select to authenticated using (
+        exists (select 1 from public.pedidos p where p.id = pedido_id and p.user_id = (select auth.uid())));
+      insert into public.pedidos (user_id, nombre, email, telefono, total_eur, codigo_seguimiento) values
+        ('${U1}', 'Luis', 'u1@example.com', '600111222', 100, 'VZ-WEBA-AAAA'),
+        ('${U2}', 'Marta', 'u2@example.com', '600333444', 55.5, 'VZ-WEBB-BBBB');
+      create table public.policy_pages (slug text primary key, title text, sections jsonb not null default '[]'::jsonb, updated_at timestamptz);
+      insert into public.policy_pages (slug, title, sections) values
+        ('privacidad', 'Privacidad', '[{"heading":"Qué datos recogemos","body":"Texto A."},{"heading":"Con quién compartimos tus datos","body":"Texto B."},{"heading":"Tus derechos","body":"Texto C."}]'::jsonb),
+        ('terminos', 'Términos', '[{"heading":"Precios y pago","body":"Texto D."}]'::jsonb);`;
+    const cV = await nuevaBase("vz_aislada_ventas_tienda", ESQUEMA_V + FACTURAS_V + VENTAS);
+    let repetidaV = true;
+    try {
+      await cV.query(VENTAS);
+    } catch (e) {
+      repetidaV = false;
+      console.log(String(e.message));
+    }
+    const columnasV = (await cV.query("select string_agg(column_name || ':' || is_nullable || ':' || coalesce(column_default, ''), ',' order by column_name) as c from information_schema.columns where table_schema = 'public' and table_name = 'pedidos' and column_name in ('origen', 'veoaura_venta_id', 'venta_forma_pago')")).rows[0].c;
+    const comprobacionesV = Number((await cV.query("select count(*) as n from pg_constraint where conrelid = 'public.pedidos'::regclass and conname in ('pedidos_origen_valido', 'pedidos_veoaura_venta_id_largo', 'pedidos_venta_forma_pago_valida')")).rows[0].n);
+    ok(
+      repetidaV && columnasV === "origen:NO:'web'::text,venta_forma_pago:YES:,veoaura_venta_id:YES:" && comprobacionesV === 3,
+      `Ventas en tienda: 3 columnas (origen 'web' por defecto) y 3 comprobaciones sin duplicar; se puede aplicar dos veces (${columnasV}; ${comprobacionesV})`
+    );
+    const antiguosV = (await cV.query("select string_agg(origen, ',' order by numero) as o from public.pedidos")).rows[0].o;
+    ok(antiguosV === "web,web", `Ventas en tienda: los pedidos que había quedan «web» (${antiguosV})`);
+
+    // El servidor guarda dos ventas en mano (como api/escaparate-veoaura.ts): una de un cliente con cuenta y otra pendiente.
+    const venta = (uid, correo, id) =>
+      `insert into public.pedidos (origen, veoaura_venta_id, venta_forma_pago, estado, entrega, user_id, nombre, email, telefono, total_eur, codigo_seguimiento)
+       values ('tienda_fisica', '${id}', 'efectivo', 'entregado', 'recogida', ${uid ? `'${uid}'` : "null"}, 'Cliente', '${correo}', 'venta en mano', 49.9, 'VZ-T${id.slice(-3).toUpperCase()}-CCCC') returning id`;
+    const vU1 = (await cV.query(venta(U1, "u1@example.com", "venta-001"))).rows[0].id;
+    const vPend = (await cV.query(venta(null, "nuevo@example.com", "venta-002"))).rows[0].id;
+    await cV.query(`insert into public.pedido_items (pedido_id, titulo, precio_eur) values ('${vU1}', 'Mando', 49.9), ('${vPend}', 'Juego', 49.9)`);
+    await cV.query(`insert into public.pedido_facturas (pedido_id, id_veoaura, numero_factura, fecha, total_eur, pdf_path) values ('${vU1}', gen_random_uuid(), 'F-2026-0100', current_date, 49.9, '${vU1}/f.pdf'), ('${vPend}', gen_random_uuid(), 'F-2026-0101', current_date, 49.9, '${vPend}/f.pdf')`);
+
+    const rarosV = [];
+    for (const consulta of [
+      "update public.pedidos set origen = 'otra' where numero = 1",
+      "update public.pedidos set venta_forma_pago = 'paypal' where numero = 1",
+      `update public.pedidos set veoaura_venta_id = '${"x".repeat(65)}' where numero = 1`,
+      venta(null, "otro@example.com", "venta-001"),
+    ]) {
+      try {
+        await cV.query(consulta);
+        rarosV.push("entra");
+      } catch (e) {
+        rarosV.push(e.code);
+      }
+    }
+    ok(rarosV.join(",") === "23514,23514,23514,23505", `Ventas en tienda: un origen o una forma de pago inventados, un id de 65 o la misma venta dos veces no entran (${rarosV.join(", ")})`);
+
+    const veU1 = await como(cV, "authenticated", U1, "select origen, venta_forma_pago from public.pedidos order by numero");
+    ok(veU1.ok && veU1.filas.map((f) => `${f.origen}/${f.venta_forma_pago ?? "-"}`).join(",") === "web/-,tienda_fisica/efectivo", `Ventas en tienda: el cliente ve su compra en mano (con su forma de pago) y su pedido web, nada más (${JSON.stringify(veU1.filas ?? veU1.mensaje)})`);
+    const veU2 = await como(cV, "authenticated", U2, "select origen from public.pedidos where origen = 'tienda_fisica'");
+    const veAnonV = await como(cV, "anon", null, "select id from public.pedidos");
+    ok(veU2.ok && veU2.filas.length === 0 && ((veAnonV.ok && veAnonV.filas.length === 0) || veAnonV.codigo === "42501"), `Ventas en tienda: otro cliente y un visitante no ven ninguna (${veU2.filas?.length} · ${veAnonV.filas?.length ?? veAnonV.codigo})`);
+    const veAdminV = await como(cV, "authenticated", ADMIN, "select count(*)::int as n, count(*) filter (where user_id is null)::int as pendientes from public.pedidos where origen = 'tienda_fisica'");
+    ok(veAdminV.ok && veAdminV.filas[0].n === 2 && veAdminV.filas[0].pendientes === 1, `Ventas en tienda: el administrador las ve todas, también la pendiente (${JSON.stringify(veAdminV.filas?.[0] ?? veAdminV.mensaje)})`);
+    const facU1 = await como(cV, "authenticated", U1, "select numero_factura from public.pedido_facturas order by numero_factura");
+    const facU2 = await como(cV, "authenticated", U2, "select numero_factura from public.pedido_facturas");
+    ok(facU1.ok && facU1.filas.map((f) => f.numero_factura).join(",") === "F-2026-0100" && facU2.ok && facU2.filas.length === 0, `Ventas en tienda: el cliente lee la factura de su compra en mano y nadie la de la pendiente (${JSON.stringify(facU1.filas ?? facU1.mensaje)})`);
+
+    // Nadie se la apunta ni la cambia desde el navegador (ni la pendiente).
+    const seLaQueda = await como(cV, "authenticated", U2, `update public.pedidos set user_id = '${U2}' where id = '${vPend}'`, { confirmar: true });
+    const cambiaOrigen = await como(cV, "authenticated", U1, "update public.pedidos set origen = 'web', venta_forma_pago = null", { confirmar: true });
+    const sigueV = (await cV.query(`select user_id, origen from public.pedidos where id in ('${vU1}', '${vPend}') order by numero`)).rows;
+    ok(seLaQueda.ok && seLaQueda.cuantas === 0 && cambiaOrigen.ok && cambiaOrigen.cuantas === 0 && sigueV[1].user_id === null && sigueV.every((f) => f.origen === "tienda_fisica"), `Ventas en tienda: un cliente no se queda la pendiente ni cambia el origen (${seLaQueda.cuantas ?? seLaQueda.codigo}, ${cambiaOrigen.cuantas ?? cambiaOrigen.codigo})`);
+
+    // Se registra con ese correo: el servidor la une (como api/factura.ts, «unir_compras_tienda») y ya la ve con su factura.
+    await cV.query(`insert into auth.users (id, email) values ('${U3}', 'Nuevo@Example.com')`);
+    const unidas = (await cV.query(`update public.pedidos set user_id = '${U3}', vinculado_en = now() where origen = 'tienda_fisica' and user_id is null and email = (select lower(email) from auth.users where id = '${U3}') returning id`)).rows;
+    const veU3 = await como(cV, "authenticated", U3, "select p.origen, f.numero_factura from public.pedidos p left join public.pedido_facturas f on f.pedido_id = p.id");
+    const veU2b = await como(cV, "authenticated", U2, "select id from public.pedidos where origen = 'tienda_fisica'");
+    ok(unidas.length === 1 && veU3.ok && veU3.filas.length === 1 && veU3.filas[0].numero_factura === "F-2026-0101" && veU2b.filas?.length === 0, `Ventas en tienda: al unirla a la cuenta con ese correo, su dueño la ve con su factura y otro cliente sigue sin verla (${JSON.stringify(veU3.filas ?? veU3.mensaje)})`);
+
+    const politicasV = (await cV.query("select string_agg(policyname, ',' order by policyname) as p from pg_policies where tablename = 'pedidos'")).rows[0].p;
+    ok(politicasV === "pedidos_admin_select,pedidos_admin_update,pedidos_cliente_select", `Ventas en tienda: no toca las reglas de pedidos (${politicasV})`);
+    const funcionesV = Number((await cV.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    ok(funcionesV === 1, `Ventas en tienda: no crea funciones con permisos especiales (solo la is_admin de base: ${funcionesV})`);
+
+    // Privacidad: la frase una sola vez (aplicada dos veces), al final de «Con quién compartimos tus datos»; lo demás igual.
+    const privV = (await cV.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const conQuienV2 = privV.find((s) => s.heading === "Con quién compartimos tus datos")?.body ?? "";
+    ok(
+      (conQuienV2.match(/Si nos compras en persona y nos das tu correo/g) ?? []).length === 1 && conQuienV2.startsWith("Texto B. Si nos compras en persona") && /«Mis pedidos»/.test(conQuienV2) && /solo se usa para unirla a tu cuenta/.test(conQuienV2) && !/tienda física/.test(conQuienV2),
+      `Ventas en tienda: la privacidad lo explica una sola vez (aplicada dos veces), sin «tienda física» (${conQuienV2.slice(0, 90)}…)`
+    );
+    ok(
+      privV.filter((s) => s.heading !== "Con quién compartimos tus datos").map((s) => s.body).join("|") === "Texto A.|Texto C." &&
+        (await cV.query("select sections::text as s from public.policy_pages where slug = 'terminos'")).rows[0].s.includes("Texto D.") &&
+        !(await cV.query("select sections::text as s from public.policy_pages where slug = 'terminos'")).rows[0].s.includes("compras en persona"),
+      "Ventas en tienda: los otros apartados y los términos quedan igual"
+    );
+    await cV.end();
+
+    // PRUEBA DE LA PRUEBA: sin la condición «aún no lo dice», la frase de la privacidad se repetiría.
+    const sinGuardaV = VENTAS.replace("and p.sections::text not like '%Si nos compras en persona y nos das tu correo%';", ";");
+    ok(sinGuardaV !== VENTAS, "(control) se ha podido quitar la condición de la privacidad en la copia de prueba");
+    const cV2 = await nuevaBase("vz_aislada_ventas_tienda_sin_guarda", ESQUEMA_V + FACTURAS_V + sinGuardaV);
+    await cV2.query(sinGuardaV);
+    const repetidasV = ((await cV2.query("select sections::text as s from public.policy_pages where slug = 'privacidad'")).rows[0].s.match(/Si nos compras en persona/g) ?? []).length;
+    ok(repetidasV === 2, `(control) sin la condición la frase se repite (${repetidasV} veces): la prueba SÍ lo detecta`);
+    await cV2.end();
   }
 
   // Reparación por envío (20261111100000_reparacion_envio.sql), encima de lo que hay en producción: pedidos y tarifas por
