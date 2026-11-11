@@ -236,7 +236,10 @@ const minutosQueQuedan = (ms: number) => Math.max(1, Math.ceil(ms / 60000));
 type VistosSeg = { p: Record<string, string>; r: Record<string, string> };
 type SegAviso = { clave: string; tipo: "pedido" | "reparacion"; texto: string };
 type PedidoSegDato = { id: string; numero: number | null; estado: string; entrega: string | null };
-type ReparacionSegDato = { id: string; titulo: string; etapa: string; actualizado: string };
+// porEnvio: reparación por envío (entrega_modo = 'correos'; migración 20261111100000).
+type ReparacionSegDato = { id: string; titulo: string; etapa: string; actualizado: string; porEnvio?: boolean };
+// Sin la migración de la reparación por envío no existe entrega_modo: se pregunta una vez y se recuerda (sin repetir el 400).
+let sinEntregaModo = false;
 const SEG_VISTOS_PREFIJO = "videojuegoszaragoza:seguimientos_vistos:";
 const RELOJ_SEGUIMIENTOS_MS = 120000;
 
@@ -288,6 +291,17 @@ function avisoReparacion(r: ReparacionSegDato, soloNota: boolean): string | null
   const t = `«${r.titulo}»`;
   if (soloNota) return `El taller ha dejado una nota sobre tu ${t}`;
   switch (r.etapa) {
+    // Reparación por envío (migración 20261111100000).
+    case "etiqueta":
+      return `La etiqueta de Correos de tu ${t} está lista: descárgala en «Mis seguimientos»`;
+    case "en_camino":
+      return `Tu ${t} va de camino a nuestro taller`;
+    case "presupuesto":
+      return `Tienes el presupuesto de tu ${t}: acéptalo en «Mis seguimientos»`;
+    case "esperando_pieza":
+      return `Estamos esperando una pieza para tu ${t}`;
+    case "enviada":
+      return `Te hemos enviado de vuelta tu ${t}`;
     case "recibido":
       return `Hemos recibido tu ${t}`;
     case "diagnostico":
@@ -295,7 +309,7 @@ function avisoReparacion(r: ReparacionSegDato, soloNota: boolean): string | null
     case "reparando":
       return `Tu ${t} está en reparación`;
     case "listo":
-      return `Tu ${t} está lista para recoger`;
+      return r.porEnvio ? `Tu ${t} está lista: te la enviamos pronto` : `Tu ${t} está lista para recoger`;
     case "entregado":
       // Se pide la valoración: el aviso lleva a «Mis seguimientos», donde está «Valorar el servicio».
       return `Tu ${t} está entregada. ¿Nos cuentas qué tal? Valórala en «Mis seguimientos»`;
@@ -1376,14 +1390,17 @@ export default function Campanita() {
       }
       // Con la devolución del pago con tarjeta (migración 20261106100000); sin la columna, como antes.
       const pedidosCon = (columnas: string) => supabase.from("pedidos").select(columnas).eq("user_id", uid).limit(50);
-      const [pedPrimero, rep] = await Promise.all([
+      const reparacionesCon = (columnas: string) => supabase.from("service_requests").select(columnas).eq("customer_user_id", uid).limit(50);
+      const BASE_REP = "id,service_title,seguimiento,seguimiento_actualizado";
+      const [pedPrimero, repPrimero] = await Promise.all([
         pedidosCon("id,numero,estado,entrega,devuelto_en"),
-        supabase
-          .from("service_requests")
-          .select("id,service_title,seguimiento,seguimiento_actualizado")
-          .eq("customer_user_id", uid)
-          .limit(50),
+        reparacionesCon(sinEntregaModo ? BASE_REP : `${BASE_REP},entrega_modo`),
       ]);
+      let rep = repPrimero;
+      if (rep.error && /entrega_modo/.test(String(rep.error.message ?? ""))) {
+        sinEntregaModo = true;
+        rep = await reparacionesCon(BASE_REP);
+      }
       const ped =
         pedPrimero.error && /devuelto_en/.test(String(pedPrimero.error.message ?? "")) ? await pedidosCon("id,numero,estado,entrega") : pedPrimero;
       segActualRef.current = {
@@ -1400,12 +1417,13 @@ export default function Campanita() {
             ),
         reparaciones: rep.error
           ? []
-          : ((rep.data ?? []) as { id: string; service_title: string | null; seguimiento: string | null; seguimiento_actualizado: string | null }[]).map(
+          : ((rep.data ?? []) as unknown as { id: string; service_title: string | null; seguimiento: string | null; seguimiento_actualizado: string | null; entrega_modo?: string | null }[]).map(
               (r) => ({
                 id: String(r.id),
                 titulo: String(r.service_title ?? "").trim() || "Servicio",
                 etapa: String(r.seguimiento ?? "solicitado"),
                 actualizado: String(r.seguimiento_actualizado ?? ""),
+                porEnvio: r.entrega_modo === "correos",
               })
             ),
       };

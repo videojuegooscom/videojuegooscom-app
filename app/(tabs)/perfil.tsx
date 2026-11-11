@@ -66,6 +66,11 @@
  * - «Mis pedidos» → «Descargar factura» (facturas de VeoAura: tabla pedido_facturas, migración
  *   20261110100000; descarga por api/factura.ts y lib/openExternalLink.ts → abrirDescarga). Se mide
  *   con «Pedidos: factura descargada» (app/admin/analytics.tsx).
+ * - «Reparaciones y Mantenimientos» → reparación por envío (migración 20261111100000): barra de nueve
+ *   etapas (compacta: etapa actual y «Paso N de M»), plazo, «Esperando pieza», «Descargar etiqueta»
+ *   (api/factura.ts?solicitud=…), cómo embalarlo y a dónde enviarlo (plegable, dirección de
+ *   reparacion_envio_ajustes vía lib/envio.ts), fotos de recepción (components/ImageLightbox.tsx) y
+ *   «Aceptar presupuesto». Se mide con «Reparación por envío: …» (app/admin/analytics.tsx).
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -89,6 +94,8 @@ import {
 import { firmaPedidoSeg, marcarSeguimientosVistos } from "../../components/Campanita";
 import CategoryProductsShelf, { columnasLista, RejillaTarjetas, TarjetaProducto } from "../../components/CategoryProductsShelf";
 import CargaMarca from "../../components/marca/CargaMarca";
+import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
+import { cargarAjustesReparacionEnvio, type AjustesReparacionEnvio } from "../../lib/envio";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import PerfilPublico from "../../components/PerfilPublico";
 import ReviewModal, { MejorasModal } from "../../components/ReviewModal";
@@ -1484,20 +1491,63 @@ function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: Perfi
   );
 }
 
-type EtapaReparacion = "solicitado" | "recibido" | "diagnostico" | "reparando" | "listo" | "entregado" | "cancelado";
+// Etapas de envío (reparación por envío, migración 20261111100000): etiqueta, en_camino, presupuesto, esperando_pieza y
+// enviada (de vuelta), además de las de siempre.
+type EtapaReparacion =
+  | "solicitado"
+  | "etiqueta"
+  | "en_camino"
+  | "recibido"
+  | "diagnostico"
+  | "presupuesto"
+  | "esperando_pieza"
+  | "reparando"
+  | "listo"
+  | "enviada"
+  | "entregado"
+  | "cancelado";
 const ETAPAS_REPARACION: EtapaReparacion[] = ["solicitado", "recibido", "diagnostico", "reparando", "listo", "entregado"];
+// Por Correos (dueño, 2026-11-11): Etiqueta lista → En camino → Recibida → Diagnóstico → Presupuesto → Reparando → Lista
+// → Enviada de vuelta → Entregada.
+const ETAPAS_ENVIO: EtapaReparacion[] = ["etiqueta", "en_camino", "recibido", "diagnostico", "presupuesto", "reparando", "listo", "enviada", "entregado"];
 const ETIQUETA_REPARACION: Record<EtapaReparacion, string> = {
   solicitado: "Solicitada",
+  etiqueta: "Etiqueta lista",
+  en_camino: "En camino",
   recibido: "Recibida",
   diagnostico: "Diagnóstico",
+  presupuesto: "Presupuesto",
+  esperando_pieza: "Esperando pieza",
   reparando: "En reparación",
   listo: "Lista para recoger",
+  enviada: "Enviada de vuelta",
   entregado: "Entregada",
   cancelado: "Cancelada",
 };
 // En la barra de progreso (seis etapas en un móvil): «Reparando» en vez de «En reparación», para que quepa en su columna
 // (dueño, 2026-11-10: «arregla las etiquetas de la barra de reparaciones», se juntaban).
 const ETIQUETA_BARRA_REPARACION: Record<EtapaReparacion, string> = { ...ETIQUETA_REPARACION, reparando: "Reparando" };
+
+// Etapas que no están en la barra de una reparación: en qué punto de la barra se enseñan.
+const EN_LA_BARRA: Partial<Record<EtapaReparacion, EtapaReparacion>> = {
+  etiqueta: "solicitado",
+  en_camino: "solicitado",
+  presupuesto: "diagnostico",
+  esperando_pieza: "reparando",
+  enviada: "listo",
+};
+
+// La barra de una reparación: por Correos, sus nueve etapas; si no, las seis de siempre. «Esperando pieza» se enseña en el
+// sitio de «Reparando» con su nombre.
+function barraDeReparacion(r: { seguimiento: EtapaReparacion; entrega_modo?: string | null }): { etiquetas: string[]; actual: number } {
+  const porEnvio = r.entrega_modo === "correos";
+  const etapas = porEnvio ? ETAPAS_ENVIO : ETAPAS_REPARACION;
+  const etiquetas = etapas.map((e) => (porEnvio && e === "listo" ? "Lista" : ETIQUETA_BARRA_REPARACION[e]));
+  const enBarra = etapas.includes(r.seguimiento) ? r.seguimiento : EN_LA_BARRA[r.seguimiento] ?? "solicitado";
+  const actual = etapas.indexOf(enBarra);
+  if (r.seguimiento === "esperando_pieza" && actual >= 0) etiquetas[actual] = "Esperando pieza";
+  return { etiquetas, actual };
+}
 
 type EstadoPedido = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
 const ETAPAS_PEDIDO: EstadoPedido[] = ["pendiente", "confirmado", "preparado", "enviado", "entregado"];
@@ -1626,6 +1676,16 @@ type ReparacionSeg = {
   seguimiento_nota: string | null;
   seguimiento_actualizado: string | null;
   codigo_seguimiento?: string | null;
+  // Reparación por envío (migración 20261111100000; sin ella no vienen y todo sale como antes).
+  entrega_modo?: string | null;
+  aparatos?: number | null;
+  etiqueta_eur?: number | null;
+  etiqueta_lista?: boolean;
+  etiqueta_pagada_en?: string | null;
+  presupuesto_eur?: number | null;
+  presupuesto_aceptado_en?: string | null;
+  fotos_recepcion?: number;
+  espera_pieza_hasta?: string | null;
 };
 
 // Número de seguimiento que da la tienda (p. ej. al crear en VeoAura la ficha de una reparación o de un pedido): al
@@ -1891,6 +1951,284 @@ function DatosDelSeguimiento({ entrega, codigo }: { entrega: string | null; codi
   );
 }
 
+// --- Reparación por envío en «Mis seguimientos» (dueño, 2026-11-11; migración 20261111100000) --------------------------
+// Plazo, «Esperando pieza», la etiqueta de Correos (descarga por api/factura.ts?solicitud=… con enlace firmado), cómo
+// embalarlo y a dónde enviarlo (plegable), las fotos de cuando llegó (visor de fotos) y el presupuesto con «Aceptar
+// presupuesto» (la base de datos solo le deja al cliente aceptar el suyo). Todo icono + texto, sin burbujas; la única
+// píldora azul es «Aceptar presupuesto» cuando toca.
+const PASOS_EMBALAJE = [
+  "Quita discos, tarjetas, fundas y accesorios que no hagan falta para la reparación.",
+  "Envuélvelo en plástico de burbujas o papel y mételo en una caja rígida, sin que se mueva al agitarla.",
+  "Dentro, una nota con tu nombre y tu número de seguimiento.",
+  "Cierra la caja con cinta, pega la etiqueta en una cara lisa y llévala a Correos.",
+];
+
+function fechaCorta(fecha: string | null | undefined) {
+  if (!fecha) return "";
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(fecha) ? `${fecha}T12:00:00` : fecha);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
+
+async function pedirArchivoReparacion(solicitud: string, tipo: "etiqueta" | "fotos"): Promise<{ ok: boolean; status: number; url?: string; fotos?: LightboxImage[] }> {
+  const { data } = await supabase.auth.getSession();
+  const r = await fetch(`/api/factura?solicitud=${encodeURIComponent(solicitud)}&tipo=${tipo}`, {
+    headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+  });
+  const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; fotos?: LightboxImage[] } | null;
+  return { ok: r.ok && !!d?.ok, status: r.status, url: d?.url, fotos: Array.isArray(d?.fotos) ? d.fotos : undefined };
+}
+
+function LineaIcono({ id, icono, color, children }: { id?: string; icono: React.ComponentProps<typeof Ionicons>["name"]; color?: string; children: React.ReactNode }) {
+  return (
+    <View nativeID={id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, maxWidth: 460 }}>
+      <Ionicons name={icono} size={16} color={color ?? SEG.muted} />
+      <Text style={{ color: color ?? SEG.text, fontWeight: "800", fontSize: 13.5, lineHeight: 19, textAlign: "center", flexShrink: 1 }}>{children}</Text>
+    </View>
+  );
+}
+
+function EnvioDeLaReparacion({
+  r,
+  ajustes,
+  onAceptado,
+}: {
+  r: ReparacionSeg;
+  ajustes: AjustesReparacionEnvio | null;
+  onAceptado: (id: string, fecha: string) => void;
+}) {
+  const porEnvio = r.entrega_modo === "correos";
+  const [embalajeAbierto, setEmbalajeAbierto] = useState(false);
+  const [descargando, setDescargando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [fotos, setFotos] = useState<LightboxImage[]>([]);
+  const [visor, setVisor] = useState<number | null>(null);
+  const [confirmando, setConfirmando] = useState(false);
+  const [aceptando, setAceptando] = useState(false);
+  const terminado = r.seguimiento === "enviada" || r.seguimiento === "entregado" || r.seguimiento === "cancelado";
+
+  // Las fotos de cuando llegó (enlaces firmados de unos minutos).
+  useEffect(() => {
+    if (!r.fotos_recepcion) return;
+    let vivo = true;
+    pedirArchivoReparacion(r.id, "fotos")
+      .then((d) => {
+        if (vivo && d.ok && d.fotos) setFotos(d.fotos);
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [r.id, r.fotos_recepcion]);
+
+  async function descargarEtiqueta() {
+    if (descargando) return;
+    setDescargando(true);
+    setAviso(null);
+    try {
+      const d = await pedirArchivoReparacion(r.id, "etiqueta");
+      if (d.ok && d.url) {
+        void trackEvent("reparacion_envio", "Reparación por envío: etiqueta descargada");
+        abrirDescarga(d.url);
+      } else {
+        setAviso(d.status === 404 ? "La etiqueta aún no está lista: te avisamos en cuanto la tengas." : "No hemos podido descargar la etiqueta. Inténtalo de nuevo en un rato.");
+      }
+    } catch {
+      setAviso("No hemos podido descargar la etiqueta: revisa tu conexión.");
+    } finally {
+      setDescargando(false);
+    }
+  }
+
+  async function aceptarPresupuesto() {
+    if (aceptando) return;
+    setAceptando(true);
+    setAviso(null);
+    try {
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update({ presupuesto_aceptado_en: new Date().toISOString() })
+        .eq("id", r.id)
+        .select("presupuesto_aceptado_en");
+      const fecha = (data as { presupuesto_aceptado_en?: string | null }[] | null)?.[0]?.presupuesto_aceptado_en;
+      if (error || !fecha) throw error ?? new Error("sin respuesta");
+      void trackEvent("reparacion_envio", "Reparación por envío: presupuesto aceptado");
+      setConfirmando(false);
+      onAceptado(r.id, fecha);
+    } catch {
+      setAviso("No hemos podido aceptar el presupuesto. Inténtalo de nuevo o pregúntanos.");
+    } finally {
+      setAceptando(false);
+    }
+  }
+
+  const hayPresupuesto = r.presupuesto_eur != null && Number.isFinite(Number(r.presupuesto_eur));
+  if (!porEnvio && !hayPresupuesto && !r.espera_pieza_hasta && !fotos.length) return null;
+
+  return (
+    <View nativeID={`seguimiento-envio-${r.id}`} style={{ width: "100%", maxWidth: 460, gap: 8, alignItems: "center" }}>
+      {porEnvio && !terminado ? (
+        <LineaIcono id={`seguimiento-plazo-${r.id}`} icono="time-outline">
+          Reparación en {ajustes?.plazo_horas ?? 72} h desde que llega
+        </LineaIcono>
+      ) : null}
+      {porEnvio && r.seguimiento === "listo" && ajustes?.dias_custodia ? (
+        <LineaIcono id={`seguimiento-custodia-${r.id}`} icono="shield-checkmark-outline">
+          La guardamos {ajustes.dias_custodia} {ajustes.dias_custodia === 1 ? "día" : "días"} mientras decides
+        </LineaIcono>
+      ) : null}
+      {r.espera_pieza_hasta && !terminado ? (
+        <LineaIcono id={`seguimiento-pieza-${r.id}`} icono="hourglass-outline" color="#92660B">
+          Esperando pieza · llegada aprox. {fechaCorta(r.espera_pieza_hasta)}
+        </LineaIcono>
+      ) : null}
+
+      {porEnvio ? (
+        <>
+          <LineaIcono id={`seguimiento-etiqueta-coste-${r.id}`} icono="pricetag-outline">
+            Etiqueta de Correos{r.etiqueta_eur != null ? ` · ${segEuros(Number(r.etiqueta_eur))}` : ""}
+            {r.etiqueta_pagada_en ? " · pagada" : ""}
+            {r.aparatos && r.aparatos > 1 ? ` · ${r.aparatos} aparatos` : ""}
+          </LineaIcono>
+          {r.etiqueta_lista && !terminado ? (
+            <Pressable
+              nativeID={`seguimiento-etiqueta-${r.id}`}
+              onPress={descargarEtiqueta}
+              disabled={descargando}
+              accessibilityRole="button"
+              accessibilityLabel="Descargar etiqueta de Correos"
+              hitSlop={6}
+              style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || descargando ? 0.6 : 1 })}
+            >
+              {descargando ? <ActivityIndicator size="small" color={SEG.accent} /> : <Ionicons name="download-outline" size={18} color={SEG.accentDark} />}
+              <Text style={{ color: SEG.accentDark, fontWeight: "900", fontSize: 14 }}>Descargar etiqueta</Text>
+            </Pressable>
+          ) : null}
+          {!terminado && ["solicitado", "etiqueta", "en_camino"].includes(r.seguimiento) ? (
+            <>
+              {/* Plegable: el mismo enlace lo abre y lo vuelve a cerrar. */}
+              <Pressable
+                nativeID={`seguimiento-embalaje-boton-${r.id}`}
+                onPress={() => setEmbalajeAbierto((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: embalajeAbierto }}
+                hitSlop={6}
+                style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+              >
+                <Ionicons name="cube-outline" size={17} color={SEG.accentDark} />
+                <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>Cómo embalarlo y a dónde enviarlo</Text>
+                <Ionicons name={embalajeAbierto ? "chevron-up" : "chevron-down"} size={16} color={SEG.accentDark} />
+              </Pressable>
+              {embalajeAbierto ? (
+                <View nativeID={`seguimiento-embalaje-${r.id}`} style={{ gap: 6, alignSelf: "stretch" }}>
+                  {PASOS_EMBALAJE.map((t, i) => (
+                    <Text key={i} style={{ color: SEG.text, fontSize: 13.5, lineHeight: 19 }}>
+                      {i + 1}. {t}
+                    </Text>
+                  ))}
+                  {ajustes?.direccion_taller ? (
+                    <View nativeID={`seguimiento-taller-${r.id}`} style={{ gap: 2, alignItems: "center", paddingTop: 4 }}>
+                      <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>ENVÍALO A</Text>
+                      <Text selectable style={{ color: SEG.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+                        {ajustes.direccion_taller}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Text
+                    accessibilityRole="link"
+                    onPress={() => router.push("/politicas/reparacion-envio")}
+                    style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13, textAlign: "center", textDecorationLine: "underline" }}
+                  >
+                    Condiciones de reparación por envío
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {fotos.length ? (
+        <View nativeID={`seguimiento-fotos-${r.id}`} style={{ alignItems: "center", gap: 6 }}>
+          <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>ASÍ NOS LLEGÓ</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {fotos.map((f, i) => (
+              <Pressable
+                key={f.id}
+                nativeID={`seguimiento-foto-${r.id}-${i}`}
+                onPress={() => setVisor(i)}
+                accessibilityRole="button"
+                accessibilityLabel={`Ver la foto ${i + 1} de cómo llegó`}
+                style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+              >
+                <MiniaturaSeguimiento nativeID={`seguimiento-foto-mini-${r.id}-${i}`} foto={f.url} icono="image-outline" alt={`Foto ${i + 1} de cómo llegó`} />
+              </Pressable>
+            ))}
+          </View>
+          <ImageLightbox visible={visor !== null} images={fotos} initialIndex={visor ?? 0} onClose={() => setVisor(null)} />
+        </View>
+      ) : null}
+
+      {hayPresupuesto ? (
+        r.presupuesto_aceptado_en ? (
+          <LineaIcono id={`seguimiento-presupuesto-${r.id}`} icono="checkmark-circle" color={SEG.ok}>
+            Presupuesto aceptado · {segEuros(Number(r.presupuesto_eur))} · {fechaCorta(r.presupuesto_aceptado_en)}
+          </LineaIcono>
+        ) : (
+          <View style={{ alignItems: "center", gap: 6 }}>
+            <LineaIcono id={`seguimiento-presupuesto-${r.id}`} icono="document-text-outline">
+              Presupuesto: {segEuros(Number(r.presupuesto_eur))}
+            </LineaIcono>
+            {r.seguimiento === "presupuesto" ? (
+              <>
+                {confirmando ? (
+                  <Text nativeID={`seguimiento-presupuesto-confirmar-texto-${r.id}`} style={{ color: SEG.text, fontSize: 13.5, lineHeight: 19, textAlign: "center", maxWidth: 360 }}>
+                    Al aceptarlo empezamos la reparación por {segEuros(Number(r.presupuesto_eur))}.
+                  </Text>
+                ) : null}
+                <Pressable
+                  nativeID={`seguimiento-aceptar-${r.id}`}
+                  onPress={() => (confirmando ? aceptarPresupuesto() : setConfirmando(true))}
+                  disabled={aceptando}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    borderRadius: 999,
+                    minHeight: 44,
+                    paddingHorizontal: 22,
+                    justifyContent: "center",
+                    backgroundColor: SEG.accentDark,
+                    opacity: pressed || aceptando ? 0.85 : 1,
+                  })}
+                >
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>
+                    {aceptando ? "Aceptando…" : confirmando ? "Sí, aceptar presupuesto" : "Aceptar presupuesto"}
+                  </Text>
+                </Pressable>
+                {confirmando ? (
+                  <Pressable
+                    nativeID={`seguimiento-aceptar-cancelar-${r.id}`}
+                    onPress={() => setConfirmando(false)}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                  >
+                    <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>Ahora no</Text>
+                  </Pressable>
+                ) : null}
+              </>
+            ) : null}
+          </View>
+        )
+      ) : null}
+
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+          {aviso}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function segFecha(iso: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -1913,7 +2251,8 @@ function faltaEsquema(error: any) {
 }
 
 // Línea de progreso: puntos unidos, etapa actual en azul; cancelado en rojo.
-function LineaProgreso({ etiquetas, actual, cancelado }: { etiquetas: string[]; actual: number; cancelado: boolean }) {
+// `antes`: qué se dice cuando aún no se ha llegado a la primera etapa (actual = -1; p. ej. «Solicitada» antes de la etiqueta).
+function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: string[]; actual: number; cancelado: boolean; antes?: string }) {
   if (cancelado) {
     return (
       <View style={{ width: "100%", maxWidth: 460, alignItems: "center", gap: 6, paddingVertical: 4 }}>
@@ -1926,6 +2265,41 @@ function LineaProgreso({ etiquetas, actual, cancelado }: { etiquetas: string[]; 
           ))}
         </View>
         <Text style={{ color: SEG.danger, fontWeight: "900", fontSize: 13 }}>Cancelado</Text>
+      </View>
+    );
+  }
+
+  // Más de siete etapas (reparación por envío: nueve): ni alternadas caben a 360 px sin juntarse. Se enseñan los puntos y,
+  // debajo, la etapa actual destacada con «Paso N de M» y la siguiente (dueño, 2026-11-11).
+  if (etiquetas.length > 7) {
+    const n = etiquetas.length;
+    const siguiente = actual + 1 < n ? etiquetas[actual + 1] : null;
+    return (
+      <View nativeID={`linea-compacta-${n}`} style={{ width: "100%", maxWidth: 460, gap: 8, paddingVertical: 4, alignItems: "center" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 18, alignSelf: "stretch" }}>
+          {etiquetas.map((_, i) => (
+            <React.Fragment key={i}>
+              {i > 0 ? <View style={{ flex: 1, height: 2, backgroundColor: i <= actual ? SEG.accent : SEG.line }} /> : null}
+              <View
+                style={{
+                  width: i === actual ? 16 : 10,
+                  height: i === actual ? 16 : 10,
+                  borderRadius: 8,
+                  backgroundColor: i <= actual ? SEG.accent : SEG.line,
+                  borderWidth: i === actual ? 3 : 0,
+                  borderColor: "rgba(30,167,232,0.25)",
+                }}
+              />
+            </React.Fragment>
+          ))}
+        </View>
+        <Text nativeID="linea-actual" style={{ color: SEG.accent, fontWeight: "900", fontSize: 14.5, textAlign: "center" }}>
+          {actual >= 0 ? etiquetas[actual] : antes ?? "Solicitada"}
+        </Text>
+        <Text nativeID="linea-paso" style={{ color: SEG.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+          {actual >= 0 ? `Paso ${actual + 1} de ${n}` : `${n} pasos`}
+          {siguiente ? ` · Después: ${siguiente}` : ""}
+        </Text>
       </View>
     );
   }
@@ -2217,6 +2591,8 @@ function SeguimientosSeccion() {
   const [valorando, setValorando] = useState<{ solicitudId: string; titulo: string } | null>(null);
   // Filtro de «Mis pedidos» (dueño, 2026-11-10): todos, en curso, cancelados o los que tienen factura.
   const [filtroPedidos, setFiltroPedidos] = useState<FiltroPedidos>("todos");
+  // Reparación por envío: plazo y dirección del taller (reparacion_envio_ajustes; null sin la migración).
+  const [ajustesEnvio, setAjustesEnvio] = useState<AjustesReparacionEnvio | null>(null);
 
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
   const cargar = useCallback(async (silencioso = false) => {
@@ -2316,9 +2692,9 @@ function SeguimientosSeccion() {
       // Reparaciones (las columnas de seguimiento y el número pueden no existir aún)
       const reparacionesCon = (columnas: string) =>
         supabase.from("service_requests").select(columnas).eq("customer_user_id", uid).order("created_at", { ascending: false }).limit(50);
-      let repRes: { data: any[] | null; error: any } = await reparacionesCon(
-        "id,created_at,service_id,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado,codigo_seguimiento"
-      );
+      // select("*"): trae las columnas que existan (también las de la reparación por envío, migración 20261111100000) sin
+      // pedir ninguna por su nombre, así antes de la migración no hay errores 400 en la consola.
+      let repRes: { data: any[] | null; error: any } = await reparacionesCon("*");
       if (repRes.error && faltaEsquema(repRes.error)) {
         numeros = false;
         repRes = await reparacionesCon("id,created_at,service_title,status,seguimiento,seguimiento_nota,seguimiento_actualizado");
@@ -2350,8 +2726,19 @@ function SeguimientosSeccion() {
             seguimiento_nota: r.seguimiento_nota ?? null,
             seguimiento_actualizado: r.seguimiento_actualizado ?? null,
             codigo_seguimiento: r.codigo_seguimiento ?? null,
+            entrega_modo: r.entrega_modo ?? null,
+            aparatos: r.aparatos ?? null,
+            etiqueta_eur: r.etiqueta_eur ?? null,
+            etiqueta_lista: !!r.etiqueta_path,
+            etiqueta_pagada_en: r.etiqueta_pagada_en ?? null,
+            presupuesto_eur: r.presupuesto_eur ?? null,
+            presupuesto_aceptado_en: r.presupuesto_aceptado_en ?? null,
+            fotos_recepcion: Array.isArray(r.recepcion_fotos) ? r.recepcion_fotos.length : 0,
+            espera_pieza_hasta: r.espera_pieza_hasta ?? null,
           }))
         );
+        // Ajustes de la reparación por envío (plazo y dirección del taller), solo si alguna va por Correos.
+        if ((repRes.data ?? []).some((r: any) => r.entrega_modo === "correos")) setAjustesEnvio(await cargarAjustesReparacionEnvio());
         for (const r of repRes.data ?? []) {
           vistasReparaciones.push({
             id: String(r.id),
@@ -2464,10 +2851,21 @@ function SeguimientosSeccion() {
                   {r.service_title} · {segFecha(r.created_at)}
                 </Text>
               </View>
-              <LineaProgreso
-                etiquetas={ETAPAS_REPARACION.map((e) => ETIQUETA_BARRA_REPARACION[e])}
-                actual={Math.max(0, ETAPAS_REPARACION.indexOf(r.seguimiento))}
-                cancelado={r.seguimiento === "cancelado"}
+              {(() => {
+                const barra = barraDeReparacion(r);
+                return (
+                  <LineaProgreso
+                    etiquetas={barra.etiquetas}
+                    actual={r.entrega_modo === "correos" ? barra.actual : Math.max(0, barra.actual)}
+                    cancelado={r.seguimiento === "cancelado"}
+                    antes="Solicitada · preparando tu etiqueta"
+                  />
+                );
+              })()}
+              <EnvioDeLaReparacion
+                r={r}
+                ajustes={ajustesEnvio}
+                onAceptado={(id, fecha) => setReparaciones((lista) => lista.map((x) => (x.id === id ? { ...x, presupuesto_aceptado_en: fecha } : x)))}
               />
               {r.seguimiento_nota ? (
                 <View style={{ alignItems: "center", gap: 2, maxWidth: 460 }}>
@@ -2504,7 +2902,7 @@ function SeguimientosSeccion() {
                   </Pressable>
                 )
               ) : null}
-              <DatosDelSeguimiento entrega={null} codigo={r.codigo_seguimiento} />
+              <DatosDelSeguimiento entrega={r.entrega_modo === "correos" ? "Reparación por envío" : null} codigo={r.codigo_seguimiento} />
               <PreguntarBoton onPress={() => router.push(`/blue-ia?reparacion=${r.id}`)} />
             </View>
           ))

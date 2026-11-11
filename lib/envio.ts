@@ -15,7 +15,11 @@
  * Sin la migración aplicada (la tabla no existe) o si falla la lectura, cargarTarifas devuelve null y el envío es gratis,
  * como antes.
  *
- * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx y app/admin/pedidos.tsx.
+ * Reparación por envío (2026-11-11): cargarAjustesReparacionEnvio y calcularEtiquetaReparacion (la etiqueta de Correos
+ * con la misma regla que el disparador trg_service_requests_envio, migración 20261111100000).
+ *
+ * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx, app/admin/pedidos.tsx,
+ * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx y app/admin/services.tsx.
  */
 import { supabase } from "./supabase";
 
@@ -193,6 +197,78 @@ export function calcularEnvio(
 /** ¿Hay algún envío que cueste algo? (si todas las zonas están a 0, la cesta dice «Gratis» sin pedir el código postal) */
 export function hayEnviosDePago(zonas: ZonaEnvio[] | null): boolean {
   return !!zonas && zonas.some((z) => z.activa && (z.precio_eur > 0 || !!z.tramos?.some((t) => t.precio_eur > 0)));
+}
+
+// --- Reparación por envío (dueño, 2026-11-11; migración 20261111100000_reparacion_envio.sql) ---------------------------
+// El cliente del resto de España nos manda su aparato por Correos con una etiqueta. Su precio lo pone la base de datos al
+// crear la solicitud (disparador trg_service_requests_envio) con LA MISMA regla que aquí: peso = aparatos × peso por
+// aparato (reparacion_envio_ajustes.peso_aparato_kg, con embalaje) y precio = el tramo de Correos de su zona por código
+// postal (calcularEnvio, como calcular_envio). Si la zona no tiene tramos de Correos, no se ofrece.
+
+export type AjustesReparacionEnvio = {
+  activo: boolean;
+  direccion_taller: string | null;
+  peso_aparato_kg: number;
+  /** true mientras el peso por aparato sea el estimado inicial (el dueño aún no ha puesto el real). */
+  peso_estimado: boolean;
+  dias_custodia: number | null;
+  bizum: string | null;
+  iban: string | null;
+  titular: string | null;
+  plazo_horas: number;
+};
+
+/** Los ajustes (fila única). null sin sesión, sin la migración o si falla la lectura (entonces todo sigue como siempre). */
+export async function cargarAjustesReparacionEnvio(): Promise<AjustesReparacionEnvio | null> {
+  try {
+    const { data, error } = await supabase.from("reparacion_envio_ajustes").select("*").eq("id", 1).maybeSingle();
+    if (error || !data) return null;
+    const r = data as Record<string, unknown>;
+    const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    return {
+      activo: r.activo === true,
+      direccion_taller: texto(r.direccion_taller),
+      peso_aparato_kg: numero(r.peso_aparato_kg) || PESO_SIN_DATO_KG,
+      peso_estimado: r.peso_estimado !== false,
+      dias_custodia: r.dias_custodia == null ? null : numero(r.dias_custodia) || null,
+      bizum: texto(r.bizum),
+      iban: texto(r.iban),
+      titular: texto(r.titular),
+      plazo_horas: numero(r.plazo_horas) || 72,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export type EtiquetaReparacion =
+  | { estado: "sin_cp" }
+  /** Zaragoza y Cuarte: allí se recoge (no hay tarifa de Correos). */
+  | { estado: "local" }
+  /** Zona sin tramos de Correos o desactivada (islas, Ceuta y Melilla hoy): se pide escribir. */
+  | { estado: "sin_tarifa"; zona: ZonaEnvio | null }
+  | { estado: "ok"; precio: number; pesoKg: number; zona: ZonaEnvio };
+
+/** La etiqueta de Correos de una reparación por envío (la misma cuenta que el disparador de la base de datos). */
+export function calcularEtiquetaReparacion(
+  zonas: ZonaEnvio[] | null,
+  codigoPostal: string | null | undefined,
+  aparatos: number,
+  pesoAparatoKg: number
+): EtiquetaReparacion {
+  const cp = limpiarCodigoPostal(codigoPostal);
+  if (cp.length !== 5) return { estado: "sin_cp" };
+  if (!zonas) return { estado: "sin_tarifa", zona: null };
+  const zona = zonaDeEntrega(zonas, "envio", cp);
+  if (zona?.zona === "local") return { estado: "local" };
+  if (!zona || !zona.activa || !zona.tramos) return { estado: "sin_tarifa", zona };
+  const pesoKg = Math.round(Math.max(1, Math.min(10, Math.round(aparatos))) * pesoAparatoKg * 1000) / 1000;
+  return { estado: "ok", precio: calcularEnvio(zonas, { entrega: "envio", codigoPostal: cp, productos: 0, pesoKg }).precio, pesoKg, zona };
+}
+
+/** ¿Alguna zona tiene tramos de Correos activos? (sin ninguna, la reparación por envío no se puede ofrecer) */
+export function hayTarifaCorreos(zonas: ZonaEnvio[] | null): boolean {
+  return !!zonas && zonas.some((z) => z.activa && z.zona !== "mano" && z.zona !== "local" && !!z.tramos);
 }
 
 /** El menor importe a partir del cual alguna zona de envío a domicilio sale gratis (para el aviso de la cesta). */

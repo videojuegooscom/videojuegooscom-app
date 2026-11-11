@@ -74,6 +74,13 @@
  *  - Facturas de VeoAura (20261110100000_facturas_veoaura.sql): el cliente lee solo las de sus pedidos, otro cliente no,
  *    un visitante no, el administrador todas; nadie crea, cambia ni borra desde el navegador; el almacén «facturas» es
  *    privado (5 MB, PDF) y sin reglas; repetible (con su «prueba de las pruebas»: sin «es su pedido», se ven las de otros).
+ *  - Reparación por envío (20261111100000_reparacion_envio.sql), encima de las tarifas por kilos, los números de
+ *    seguimiento y las opciones de servicio: el precio de la etiqueta lo pone la base de datos (aparatos × peso por aparato
+ *    y el tramo de Correos de su zona); sin sesión, desactivada, sin código postal con tarifa o sin condiciones no entra;
+ *    el cliente solo acepta SU presupuesto (no cambia precio, etapa ni nada más), otro cliente nada; los ajustes los lee
+ *    quien tiene sesión y solo los escribe el administrador; no se activa sin dirección o con el peso estimado; el almacén
+ *    «reparaciones» es privado y solo para el administrador; las etapas nuevas entran y las viejas siguen; repetible (con
+ *    sus «pruebas de las pruebas»: sin el disparador del cliente cambia el precio; sin el de la etiqueta, la pone él).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2220,6 +2227,225 @@ try {
     const veTodas = await como(cF2, "authenticated", U1, "select pedido_id from public.pedido_facturas");
     ok(veTodas.ok && veTodas.filas.length === 3, `(control) sin «es su pedido», un cliente ve ${veTodas.filas?.length} facturas: la prueba SÍ lo detecta`);
     await cF2.end();
+  }
+
+  // Reparación por envío (20261111100000_reparacion_envio.sql), encima de lo que hay en producción: pedidos y tarifas por
+  // kilos de Correos (20261104210000, 20261107100000, 20261107120000), etapas y números de seguimiento (20261013150000,
+  // 20261031170000) y opciones de servicio (20261108230000), con los disparadores y reglas de service_requests copiados
+  // de la base de datos real.
+  {
+    const RE = readFileSync("supabase/migrations/20261111100000_reparacion_envio.sql", "utf8");
+    const previas = [
+      "20261104210000_tarifas_envio.sql",
+      "20261107100000_tarifas_envio_correos.sql",
+      "20261107120000_envio_por_kilos.sql",
+      "20261013150000_seguimiento_reparaciones.sql",
+      "20261031170000_seguimiento_codigos.sql",
+      "20261108230000_servicios_opciones.sql",
+    ].map((f) => readFileSync(`supabase/migrations/${f}`, "utf8"));
+    const S1 = "53535353-5353-4535-8535-535353535353";
+    const ESQUEMA_RE = `
+      create table public.pedidos (
+        id uuid primary key default gen_random_uuid(), numero bigint generated always as identity unique, created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(), user_id uuid references auth.users (id) on delete set null,
+        estado text not null default 'pendiente', entrega text not null default 'envio', nombre text not null, email text not null,
+        telefono text not null, direccion text, codigo_postal text, ciudad text, notas text, total_eur numeric not null default 0, nota_admin text);
+      alter table public.pedidos enable row level security;
+      create table public.products (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      create table public.pedido_items (id uuid primary key default gen_random_uuid(), pedido_id uuid not null references public.pedidos (id) on delete cascade,
+        product_id uuid references public.products (id) on delete set null, titulo text not null, precio_eur numeric not null default 0);
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad',
+        '[{"heading":"Para qué usamos tus datos","body":"Para gestionar tu pedido."}]'::jsonb);
+      create table public.services (id uuid primary key default gen_random_uuid(), title text not null, price_eur numeric not null default 0,
+        status text not null default 'PUBLISHED', is_active boolean not null default true);
+      alter table public.services enable row level security;
+      create policy services_select_public_or_admin on public.services for select using (((status = 'PUBLISHED') and (is_active = true)) or public.is_admin());
+      insert into public.services (id, title, price_eur) values ('${S1}', 'Reparación de mando', 45);
+      create table public.service_requests (
+        id uuid primary key default gen_random_uuid(), created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+        service_id uuid references public.services (id) on delete set null, service_title text not null, nombre text not null, apellido text not null,
+        metodo_contacto text, contacto text, ciudad text not null, direccion text, disponibilidad text, comentario text,
+        status text not null default 'nuevo', nota_admin text, customer_user_id uuid references auth.users (id) on delete set null);
+      create function public.solicitudes_campos_internos() returns trigger language plpgsql security definer set search_path = public, pg_temp as $f$
+      begin
+        if not public.is_admin() then
+          new.status := 'nuevo'; new.nota_admin := null;
+          if tg_table_name = 'service_requests' then new.seguimiento := 'solicitado'; new.seguimiento_nota := null; new.seguimiento_actualizado := now(); end if;
+        end if;
+        return new;
+      end $f$;
+      create function public.set_request_customer_user_id() returns trigger language plpgsql security definer set search_path = public as $f$
+      begin new.customer_user_id := auth.uid(); return new; end $f$;
+      create function public.set_service_requests_updated_at() returns trigger language plpgsql set search_path = public, pg_temp as $f$
+      begin new.updated_at = now(); return new; end $f$;
+      alter table public.service_requests enable row level security;
+      create policy service_requests_insert_public on public.service_requests for insert to anon, authenticated with check (true);
+      create policy service_requests_select_own on public.service_requests for select to authenticated using (customer_user_id = auth.uid());
+      create policy service_requests_select_admin on public.service_requests for select to authenticated using (public.is_admin());
+      create policy service_requests_update_admin on public.service_requests for update to authenticated using (public.is_admin()) with check (public.is_admin());`;
+    // Los disparadores de producción, una vez existen las columnas de seguimiento.
+    const DISPARADORES = `
+      create trigger trg_service_requests_campos_internos before insert on public.service_requests for each row execute function public.solicitudes_campos_internos();
+      create trigger trg_service_requests_customer_user_id before insert on public.service_requests for each row execute function public.set_request_customer_user_id();
+      create trigger trg_service_requests_updated_at before update on public.service_requests for each row execute function public.set_service_requests_updated_at();`;
+    const montar = async (nombre, migracion) => {
+      const cR = await nuevaBase(nombre, ESQUEMA_RE);
+      await cR.query(previas[0] + previas[1] + previas[2] + previas[3] + DISPARADORES + previas[4] + previas[5]);
+      await cR.query("insert into public.service_requests (service_id, service_title, nombre, apellido, ciudad) values (null, 'De antes', 'Ana', 'Ruiz', 'Zaragoza')");
+      await cR.query("update public.service_requests set seguimiento = 'listo' where service_title = 'De antes'");
+      await cR.query(migracion);
+      return cR;
+    };
+    const cR = await montar("vz_aislada_reparacion_envio", RE);
+    let repetidaR = true;
+    try {
+      await cR.query(RE);
+    } catch (e) {
+      repetidaR = false;
+      console.log(String(e.message));
+    }
+    const politicasR = (await cR.query("select count(*)::int as n from public.policy_pages where slug = 'reparacion-envio'")).rows[0].n;
+    const antes = (await cR.query("select seguimiento from public.service_requests where service_title = 'De antes'")).rows[0];
+    ok(repetidaR && politicasR === 1 && antes.seguimiento === "listo", `Envío: se puede aplicar dos veces, la política sale una vez (${politicasR}) y la solicitud de antes sigue igual (${antes.seguimiento})`);
+    const sinCifras = (await cR.query("select sections::text as s from public.policy_pages where slug = 'reparacion-envio'")).rows[0].s;
+    ok(!/72|1 año|\b\d+ días/.test(sinCifras) && /presupuesto o en tu factura/.test(sinCifras) && /vuelta a tu casa va incluido/.test(sinCifras), "Envío: la política no lleva cifras fijas (plazo, garantía ni custodia) y explica la vuelta incluida");
+
+    // Sin permisos delicados: ni security definer en sus funciones ni reglas para visitantes ni «using (true)».
+    const definer = (await cR.query("select count(*)::int as n from pg_proc where proname in ('reparacion_envio_al_crear', 'reparacion_envio_cliente_cambia') and prosecdef")).rows[0].n;
+    const reglasNuevas = (await cR.query("select policyname, roles::text as roles, coalesce(qual, '') || coalesce(with_check, '') as expr from pg_policies where policyname like 'reparacion%' or policyname = 'service_requests_update_cliente_presupuesto'")).rows;
+    ok(
+      definer === 0 && reglasNuevas.length === 7 && reglasNuevas.every((p) => p.roles === "{authenticated}" && !/^\s*true\s*$/.test(p.expr)),
+      `Envío: funciones sin security definer y 7 reglas, todas solo con sesión y ninguna «using (true)» (${reglasNuevas.map((p) => p.policyname).join(", ")})`
+    );
+
+    // Ajustes: con sesión se leen, sin sesión no; solo el administrador los cambia; no se activa sin dirección ni con el peso estimado.
+    const leeAnonA = await como(cR, "anon", null, "select * from public.reparacion_envio_ajustes");
+    const leeU1A = await como(cR, "authenticated", U1, "select activo, peso_aparato_kg::float8 as p, peso_estimado, plazo_horas from public.reparacion_envio_ajustes");
+    ok((leeAnonA.ok ? leeAnonA.filas.length === 0 : leeAnonA.codigo === "42501") && leeU1A.ok && leeU1A.filas.length === 1 && leeU1A.filas[0].activo === false && leeU1A.filas[0].p === 2 && leeU1A.filas[0].peso_estimado === true && leeU1A.filas[0].plazo_horas === 72,
+      `Envío: los ajustes los lee un cliente con sesión (empiezan desactivados, 2 kg estimado y 72 h) y un visitante no (${JSON.stringify(leeU1A.filas ?? leeU1A.mensaje)})`);
+    const cambiaU1 = await como(cR, "authenticated", U1, "update public.reparacion_envio_ajustes set activo = false, bizum = '600000000'", { confirmar: true });
+    const bizum = (await cR.query("select bizum from public.reparacion_envio_ajustes")).rows[0].bizum;
+    ok(cambiaU1.ok && cambiaU1.cuantas === 0 && bizum === null, "Envío: un cliente no puede cambiar los ajustes");
+    const corrConsola = async (consulta) => {
+      try {
+        await cR.query(consulta);
+        return "entra";
+      } catch (e) {
+        return e.code;
+      }
+    };
+    const pideU1 = (extra = "", cols = "", vals = "") =>
+      como(cR, "authenticated", U1, `insert into public.service_requests (service_id, service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en${cols})
+        values ('${S1}', 'Reparación de mando', 'Luis', 'Pérez', 'Madrid', 'correos', 2, '28001', now()${vals}) returning id, etiqueta_eur::text as e, etiqueta_peso_kg::float8 as kg, etiqueta_path, presupuesto_eur, seguimiento, customer_user_id, recepcion_fotos::text as f, condiciones_aceptadas_en ${extra}`, { confirmar: true });
+    const desactivada = await pideU1();
+    ok(!desactivada.ok && /no está disponible/.test(desactivada.mensaje), `Envío: desactivada, una solicitud por Correos no entra (${desactivada.mensaje})`);
+    const activarSinDireccion = await como(cR, "authenticated", ADMIN, "update public.reparacion_envio_ajustes set activo = true, peso_estimado = false");
+    const activarEstimado = await como(cR, "authenticated", ADMIN, "update public.reparacion_envio_ajustes set activo = true, direccion_taller = 'Taller, Calle Falsa 1, 50410 Cuarte'");
+    ok(!activarSinDireccion.ok && activarSinDireccion.codigo === "23514" && !activarEstimado.ok && activarEstimado.codigo === "23514", `Envío: no se activa sin dirección del taller ni con el peso aún estimado (${activarSinDireccion.codigo}, ${activarEstimado.codigo})`);
+    const activar = await como(cR, "authenticated", ADMIN, "update public.reparacion_envio_ajustes set activo = true, direccion_taller = 'Taller, Calle Falsa 1, 50410 Cuarte', peso_aparato_kg = 3, peso_estimado = false", { confirmar: true });
+    ok(activar.ok && activar.cuantas === 1, `Envío: el administrador la activa con dirección y peso real (${activar.cuantas ?? activar.mensaje})`);
+
+    // El precio de la etiqueta lo pone la base de datos: 2 aparatos × 3 kg = 6 kg → tramo de 10 kg de la península (22,95 €).
+    const intentoTrampa = await pideU1("", ", etiqueta_eur, etiqueta_path, presupuesto_eur, presupuesto_aceptado_en, seguimiento, recepcion_fotos, pago_estado, customer_user_id",
+      ", 0.01, 'x/falsa.pdf', 1, now(), 'listo', '[\"a\"]', 'pagado', '" + U2 + "'");
+    const fila = intentoTrampa.filas?.[0] ?? {};
+    const penKg = (await cR.query("select tramos from public.tarifas_envio where zona = 'peninsula'")).rows[0].tramos;
+    const esperado = penKg.find((t) => t.hasta_kg >= 6).precio_eur;
+    ok(
+      intentoTrampa.ok && Number(fila.e) === Number(esperado) && fila.kg === 6 && fila.etiqueta_path === null && fila.presupuesto_eur === null && fila.seguimiento === "solicitado" && fila.customer_user_id === U1 && fila.f === "[]",
+      `Envío: la etiqueta la calcula la base de datos (2 × 3 kg = 6 kg → ${esperado} €) y el cliente no pone precio, PDF, presupuesto, etapa, fotos, pago ni otra cuenta (${JSON.stringify(fila ?? intentoTrampa.mensaje)})`
+    );
+    const idU1 = fila.id;
+    const raros = [];
+    raros.push((await como(cR, "anon", null, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en) values ('X', 'A', 'B', 'C', 'correos', 1, '28001', now())`)).mensaje ?? "entra");
+    raros.push((await como(cR, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal) values ('X', 'A', 'B', 'C', 'correos', 1, '28001')`)).codigo ?? "entra");
+    raros.push((await como(cR, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en) values ('X', 'A', 'B', 'C', 'correos', 1, '07001', now())`)).mensaje ?? "entra");
+    raros.push((await como(cR, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en) values ('X', 'A', 'B', 'C', 'correos', 1, '50003', now())`)).mensaje ?? "entra");
+    raros.push((await como(cR, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en) values ('X', 'A', 'B', 'C', 'correos', 11, '28001', now())`)).codigo ?? "entra");
+    raros.push((await como(cR, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo) values ('X', 'A', 'B', 'C', 'mensajero')`)).codigo ?? "entra");
+    ok(
+      /inicia sesión/.test(raros[0]) && raros[1] === "23514" && /tarifa de Correos/.test(raros[2]) && /tarifa de Correos/.test(raros[3]) && raros[4] === "23514" && raros[5] === "23514",
+      `Envío: no entra sin sesión, sin aceptar las condiciones, a una zona sin tramos (Baleares, Zaragoza), con 11 aparatos ni con otro modo (${raros.join(" | ")})`
+    );
+    const recogidaAnon = await como(cR, "anon", null, `insert into public.service_requests (service_title, nombre, apellido, ciudad, direccion, aparatos, etiqueta_eur) values ('Limpieza', 'Pepe', 'Gil', 'Zaragoza', 'Calle 1', 3, 9)`, { confirmar: true });
+    const filaRecogida = (await cR.query("select entrega_modo, aparatos, etiqueta_eur from public.service_requests where nombre = 'Pepe'")).rows[0];
+    ok(recogidaAnon.ok && filaRecogida.entrega_modo === "recogida" && filaRecogida.aparatos === null && filaRecogida.etiqueta_eur === null, `Envío: la recogida de siempre entra igual, también sin sesión, y sin datos de etiqueta (${JSON.stringify(filaRecogida)})`);
+
+    // Presupuesto: el administrador lo pone; el cliente SOLO lo acepta (cuando la etapa es «presupuesto»), otro cliente nada.
+    const aceptar = (uid, id = idU1, cuando = "'2000-01-01'") => como(cR, "authenticated", uid, `update public.service_requests set presupuesto_aceptado_en = ${cuando} where id = '${id}' returning presupuesto_aceptado_en`, { confirmar: true });
+    await cR.query(`update public.service_requests set presupuesto_eur = 59.90, seguimiento = 'diagnostico' where id = '${idU1}'`);
+    const antesDeTiempo = await aceptar(U1);
+    ok(!antesDeTiempo.ok && /Aún no hay un presupuesto/.test(antesDeTiempo.mensaje), `Envío: antes de la etapa «Presupuesto» no se puede aceptar (${antesDeTiempo.mensaje})`);
+    const ponAdmin = await como(cR, "authenticated", ADMIN, `update public.service_requests set seguimiento = 'presupuesto', presupuesto_eur = 59.90 where id = '${idU1}'`, { confirmar: true });
+    const trampas = [];
+    for (const set of ["presupuesto_eur = 1", "seguimiento = 'entregado'", "etiqueta_pagada_en = now()", "etiqueta_eur = 0", "nota_admin = 'hola'", "presupuesto_aceptado_en = now(), presupuesto_eur = 1", "pago_estado = 'pagado'"]) {
+      const r = await como(cR, "authenticated", U1, `update public.service_requests set ${set} where id = '${idU1}'`, { confirmar: true });
+      trampas.push(r.ok ? `entra(${set})` : r.codigo);
+    }
+    const otro = await aceptar(U2);
+    const tras = (await cR.query(`select presupuesto_eur::text as p, seguimiento, etiqueta_pagada_en, presupuesto_aceptado_en, nota_admin from public.service_requests where id = '${idU1}'`)).rows[0];
+    ok(
+      ponAdmin.ok && trampas.every((t) => t === "42501") && otro.ok && otro.cuantas === 0 && tras.p === "59.90" && tras.seguimiento === "presupuesto" && tras.etiqueta_pagada_en === null && tras.presupuesto_aceptado_en === null && tras.nota_admin === null,
+      `Envío: el cliente no cambia el precio, la etapa, la etiqueta, la nota, el pago ni nada más, y otro cliente no acepta el suyo (${trampas.join(", ")}; otro: ${otro.cuantas ?? otro.codigo})`
+    );
+    const acepta = await aceptar(U1);
+    const aceptadoEn = acepta.filas?.[0]?.presupuesto_aceptado_en;
+    ok(acepta.ok && acepta.cuantas === 1 && aceptadoEn && new Date(aceptadoEn).getFullYear() >= 2026, `Envío: el cliente acepta SU presupuesto y la hora la pone la base de datos (${aceptadoEn?.toISOString?.() ?? acepta.mensaje})`);
+    const otraVez = await aceptar(U1, idU1, "now()");
+    const quitar = await aceptar(U1, idU1, "null");
+    ok(!otraVez.ok && !quitar.ok, `Envío: no se acepta dos veces ni se deshace la aceptación (${otraVez.codigo}, ${quitar.codigo})`);
+    await como(cR, "authenticated", ADMIN, `update public.service_requests set presupuesto_eur = 69.90 where id = '${idU1}'`, { confirmar: true });
+    const nuevoPrecio = (await cR.query(`select presupuesto_aceptado_en from public.service_requests where id = '${idU1}'`)).rows[0].presupuesto_aceptado_en;
+    ok(nuevoPrecio === null, "Envío: si el administrador cambia el precio de un presupuesto aceptado, hay que volver a aceptarlo");
+
+    // Etapas: las nuevas entran, una inventada no, y las de siempre siguen valiendo.
+    const etapas = [];
+    for (const e of ["etiqueta", "en_camino", "esperando_pieza", "enviada", "entregado", "inventada"]) etapas.push(await corrConsola(`update public.service_requests set seguimiento = '${e}' where id = '${idU1}'`));
+    ok(etapas.join(",") === "entra,entra,entra,entra,entra,23514", `Envío: las etapas nuevas entran y una inventada no (${etapas.join(", ")})`);
+    const fotosDeMas = await corrConsola(`update public.service_requests set recepcion_fotos = '["a","b","c","d"]' where id = '${idU1}'`);
+    ok(fotosDeMas === "23514", `Envío: como mucho 3 fotos de recepción (${fotosDeMas})`);
+
+    // Almacén «reparaciones»: privado, 10 MB, PDF e imágenes; solo el administrador sube y lee; el cliente y un visitante, nada.
+    const alm = (await cR.query("select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'reparaciones'")).rows[0];
+    ok(!!alm && alm.public === false && Number(alm.file_size_limit) === 10485760 && alm.allowed_mime_types.join(",") === "application/pdf,image/jpeg,image/png,image/webp", `Envío: almacén «reparaciones» privado, 10 MB, PDF/JPG/PNG/WebP (${JSON.stringify(alm ?? null)})`);
+    const subeAdmin = await como(cR, "authenticated", ADMIN, `insert into storage.objects (bucket_id, name) values ('reparaciones', '${idU1}/etiqueta-1.pdf')`, { confirmar: true });
+    const subeU1 = await como(cR, "authenticated", U1, `insert into storage.objects (bucket_id, name) values ('reparaciones', '${idU1}/falsa.pdf')`);
+    const leeU1 = await como(cR, "authenticated", U1, "select name from storage.objects where bucket_id = 'reparaciones'");
+    const leeAnonR = await como(cR, "anon", null, "select name from storage.objects where bucket_id = 'reparaciones'");
+    const leeAdmin = await como(cR, "authenticated", ADMIN, "select name from storage.objects where bucket_id = 'reparaciones'");
+    const subeOtroBucket = await como(cR, "authenticated", ADMIN, `insert into storage.objects (bucket_id, name) values ('product-media', 'x.jpg')`);
+    ok(
+      subeAdmin.ok && !subeU1.ok && leeU1.ok && leeU1.filas.length === 0 && leeAnonR.ok && leeAnonR.filas.length === 0 && leeAdmin.ok && leeAdmin.filas.length === 1 && !subeOtroBucket.ok,
+      `Envío: el administrador sube y lee en «reparaciones»; el cliente y un visitante ni suben ni leen; sus reglas no abren otros almacenes (${subeU1.codigo}, ${leeU1.filas?.length}, ${leeAnonR.filas?.length}, ${leeAdmin.filas?.length}, ${subeOtroBucket.codigo})`
+    );
+    // Si el dueño ya editó la política, aplicarla otra vez no la pisa.
+    await cR.query("update public.policy_pages set intro = 'Texto del dueño' where slug = 'reparacion-envio'");
+    await cR.query(RE);
+    ok((await cR.query("select intro from public.policy_pages where slug = 'reparacion-envio'")).rows[0].intro === "Texto del dueño", "Envío: aplicarla otra vez no pisa la política que ya editó el dueño");
+    await cR.end();
+
+    // PRUEBAS DE LAS PRUEBAS: (a) sin el disparador del cliente, el cliente SÍ cambiaría el precio de su presupuesto;
+    // (b) sin el de la etiqueta, el precio de la etiqueta sería el que mande el navegador.
+    const sinCliente = RE.replace(/if not exists \(select 1 from pg_trigger where tgname = 'trg_service_requests_cliente'[\s\S]*?end if;/, "");
+    const sinEtiqueta = RE.replace(/if not exists \(select 1 from pg_trigger where tgname = 'trg_service_requests_envio'[\s\S]*?end if;/, "");
+    ok(sinCliente !== RE && sinEtiqueta !== RE, "(control) se han podido quitar los disparadores en las copias de prueba");
+    const cR2 = await montar("vz_aislada_reparacion_envio_sin_cliente", sinCliente);
+    await cR2.query("update public.reparacion_envio_ajustes set activo = true, direccion_taller = 'Taller, Calle Falsa 1, 50410 Cuarte', peso_estimado = false");
+    const idC = (await cR2.query(`insert into public.service_requests (service_title, nombre, apellido, ciudad, customer_user_id) values ('X', 'A', 'B', 'C', '${U1}') returning id`)).rows[0].id;
+    await cR2.query(`update public.service_requests set customer_user_id = '${U1}', presupuesto_eur = 59.90, seguimiento = 'presupuesto' where id = '${idC}'`);
+    const baja = await como(cR2, "authenticated", U1, `update public.service_requests set presupuesto_eur = 1 where id = '${idC}'`, { confirmar: true });
+    ok(baja.ok && baja.cuantas === 1, `(control) sin el disparador del cliente, el cliente se baja el presupuesto: la prueba SÍ lo detecta (${baja.cuantas ?? baja.mensaje})`);
+    await cR2.end();
+    const cR3 = await montar("vz_aislada_reparacion_envio_sin_etiqueta", sinEtiqueta);
+    await cR3.query("update public.reparacion_envio_ajustes set activo = true, direccion_taller = 'Taller, Calle Falsa 1, 50410 Cuarte', peso_estimado = false");
+    const barata = await como(cR3, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en, etiqueta_eur) values ('X', 'A', 'B', 'C', 'correos', 2, '28001', now(), 0.01) returning etiqueta_eur::text as e`, { confirmar: true });
+    ok(barata.ok && barata.filas[0].e === "0.01", `(control) sin el disparador de la etiqueta, el navegador pone su precio: la prueba SÍ lo detecta (${barata.filas?.[0]?.e ?? barata.mensaje})`);
+    await cR3.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

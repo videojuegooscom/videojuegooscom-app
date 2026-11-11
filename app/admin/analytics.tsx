@@ -48,6 +48,9 @@
  *   (#analitica-noticias-organicas): páginas vistas por categoría y entradas desde buscadores.
  * - app/(tabs)/perfil.tsx → «Pedidos: factura descargada» (#analitica-facturas): facturas de VeoAura
  *   descargadas desde «Mis pedidos» (api/factura.ts).
+ * - Reparación por envío (#analitica-reparacion-envio, migración 20261111100000): el embudo contado en
+ *   service_requests (solicitadas → etiqueta pagada → recibidas → presupuesto aceptado, solo números) y
+ *   las sesiones de components/ContratarServicioModal.tsx y app/(tabs)/perfil.tsx.
  * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
@@ -395,6 +398,38 @@ export default function AdminAnalytics() {
   const [conversions, setConversions] = useState<ConversionDay[]>([]);
   // Ritmo de la analítica (tabla analitica_ritmo, últimos 31 días). null = la migración de los topes aún no está.
   const [ritmo, setRitmo] = useState<DiaRitmo[] | null>(null);
+  // Reparación por envío (migración 20261111100000): el embudo contado en la base de datos (solo números, sin datos de
+  // nadie). null = la migración aún no está aplicada (o no se pudo contar).
+  const [embudoEnvio, setEmbudoEnvio] = useState<{ solicitadas: number; pagadas: number; recibidas: number; aceptadas: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    type Cuenta = { count: number | null; error: unknown };
+    const contar = (filtro: (q: any) => any): Promise<Cuenta> =>
+      filtro(supabase.from("service_requests").select("id", { count: "exact", head: true }).eq("entrega_modo", "correos"));
+    (async () => {
+      try {
+        // Primero una (sin la migración falla una sola vez) y, si existe, las otras tres.
+        const primera = await contar((q) => q);
+        if (primera.error) {
+          if (vivo) setEmbudoEnvio(null);
+          return;
+        }
+        const r = await Promise.all([
+          contar((q) => q.not("etiqueta_pagada_en", "is", null)),
+          contar((q) => q.in("seguimiento", ["recibido", "diagnostico", "presupuesto", "esperando_pieza", "reparando", "listo", "enviada", "entregado"])),
+          contar((q) => q.not("presupuesto_aceptado_en", "is", null)),
+        ]);
+        if (!vivo) return;
+        if (r.some((x) => x.error)) return setEmbudoEnvio(null);
+        setEmbudoEnvio({ solicitadas: primera.count ?? 0, pagadas: r[0].count ?? 0, recibidas: r[1].count ?? 0, aceptadas: r[2].count ?? 0 });
+      } catch {
+        // sin conexión: sin el embudo
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   function applyPreset(p: DatePreset) {
     setDateErr(null);
@@ -596,7 +631,15 @@ export default function AdminAnalytics() {
     const opciones = porPrefijo("Servicio: opción elegida · ").sort((x, y) => y.n - x.n);
     // «Nuestros Servicios» (app/servicios.tsx): qué vídeos se ven (cada uno por su título o su red).
     const videos = porPrefijo("Nuestros Servicios: vídeo visto · ").sort((x, y) => y.n - x.n);
-    return { servicios, faltaba, opciones, videos };
+    // Reparación por envío (components/ContratarServicioModal.tsx y app/(tabs)/perfil.tsx), en sesiones.
+    const exacto = (l: string) => funnel.find((f) => f.step_label === l)?.sessions ?? 0;
+    const envio = {
+      correosElegido: exacto("Contratar: envío por Correos elegido"),
+      solicitada: exacto("Reparación por envío: solicitada"),
+      etiquetaDescargada: exacto("Reparación por envío: etiqueta descargada"),
+      presupuestoAceptado: exacto("Reparación por envío: presupuesto aceptado"),
+    };
+    return { servicios, faltaba, opciones, videos, envio };
   }, [funnel]);
 
   // Recorrido principal: agrupa por prefijo de step_label para armar un
@@ -1147,6 +1190,25 @@ export default function AdminAnalytics() {
                           Opciones elegidas en la ficha: {contratarServicio.opciones.map((o) => `${o.clave} ${o.n}`).join(" · ")}
                         </Text>
                       ) : null}
+                    </View>
+                  </View>
+                  <View
+                    nativeID="analitica-reparacion-envio"
+                    style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}
+                  >
+                    <Ionicons name="cube-outline" size={15} color={COLORS.accentDark} />
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>Reparación por envío</Text>
+                      {embudoEnvio ? (
+                        <Text nativeID="analitica-reparacion-envio-bd" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                          En total: solicitadas {embudoEnvio.solicitadas} → etiqueta pagada {embudoEnvio.pagadas} → recibidas {embudoEnvio.recibidas} → presupuesto aceptado {embudoEnvio.aceptadas}
+                        </Text>
+                      ) : (
+                        <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Aún sin datos (falta aplicar su migración o no hay ninguna).</Text>
+                      )}
+                      <Text nativeID="analitica-reparacion-envio-sesiones" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                        En este periodo (sesiones): eligen Correos {contratarServicio.envio.correosElegido} · la solicitan {contratarServicio.envio.solicitada} · descargan la etiqueta {contratarServicio.envio.etiquetaDescargada} · aceptan el presupuesto {contratarServicio.envio.presupuestoAceptado}
+                      </Text>
                     </View>
                   </View>
                   <View

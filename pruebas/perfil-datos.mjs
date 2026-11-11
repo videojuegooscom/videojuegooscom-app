@@ -202,7 +202,9 @@
  *    sin burbuja) lleva al registro con la ventaja escrita, deja la vuelta y se cuenta (también la cuenta creada después);
  *    con sesión, el ajuste pasa a la cuenta una vez y avisa (también de los «me gusta» de la cuenta); Analítica lo enseña.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|AC]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|AC]
+ * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
+ * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
  * «HO», «AD», «SV», «VA», «FS», «MG», «RS» o «VP» de cuarto argumento solo se ejecuta esa sección (visor, números, chat, cabecera y gesto, novedades del panel,
  * redes junto al logo, Blue en el panel, portadas de las categorías, Blue IA, «Reparación / Limpieza», la Cesta con Blue,
@@ -235,6 +237,8 @@ const TIPOS = {
 const DINAMICAS = [
   [/^\/producto\/[^/]+$/, "producto/[id].html"],
   [/^\/servicio\/[^/]+$/, "servicio/[id].html"],
+  [/^\/contratar\/[^/]+$/, "contratar/[id].html"],
+  [/^\/politicas\/[^/]+$/, "politicas/[slug].html"],
   [/^\/noticias\/[^/]+$/, "noticias/[id].html"],
   [/^\/admin\/cliente\/[^/]+$/, "admin/cliente/[userId].html"],
 ];
@@ -321,6 +325,68 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (url.pathname.endsWith("/auth/v1/logout")) {
       estado.salio = true;
       return r.fulfill({ status: 204, headers: CORS, body: "" });
+    }
+    // Reparación por envío (sección RE2): los ajustes, las solicitudes, la API de archivos, la subida al almacén privado y
+    // los recuentos de Analítica, como la base de datos y el servidor. Sin `estado.re2`, la tabla de ajustes no existe
+    // (migración sin aplicar): PGRST205, sin ir a la base de datos real.
+    if (url.pathname.endsWith("/rest/v1/reparacion_envio_ajustes")) {
+      estado.consultasAjustesEnvio = (estado.consultasAjustesEnvio ?? 0) + 1;
+      if (!estado.re2?.ajustes) return json({ code: "PGRST205", message: "Could not find the table 'public.reparacion_envio_ajustes' in the schema cache" }, 404);
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        estado.re2.ajustesGuardados = [...(estado.re2.ajustesGuardados ?? []), cuerpo];
+        estado.re2.ajustes = { ...estado.re2.ajustes, ...cuerpo };
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      return /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "") ? json(estado.re2.ajustes) : json([estado.re2.ajustes]);
+    }
+    if (estado.re2 && url.pathname.endsWith("/rest/v1/service_requests")) {
+      const re2 = estado.re2;
+      if (metodo === "HEAD") {
+        const q = url.searchParams;
+        const n =
+          q.get("etiqueta_pagada_en") === "not.is.null" ? re2.cuentas?.pagadas : q.get("presupuesto_aceptado_en") === "not.is.null" ? re2.cuentas?.aceptadas : q.get("seguimiento") ? re2.cuentas?.recibidas : re2.cuentas?.solicitadas;
+        re2.recuentos = [...(re2.recuentos ?? []), decodeURIComponent(url.search)];
+        if (!re2.cuentas) return json({ code: "42703", message: "column service_requests.entrega_modo does not exist" }, 400);
+        return json([], 200, { "content-range": `*/${n ?? 0}`, "access-control-expose-headers": "*" });
+      }
+      if (metodo === "POST") {
+        const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
+        re2.enviadas = [...(re2.enviadas ?? []), cuerpo];
+        if (re2.errorAlCrear) return json(re2.errorAlCrear, 400);
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "PATCH") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        re2.cambios = [...(re2.cambios ?? []), { id, cuerpo }];
+        // Como la base de datos: la hora de aceptar el presupuesto la pone ella.
+        if ("presupuesto_aceptado_en" in cuerpo) cuerpo.presupuesto_aceptado_en = "2026-11-11T10:00:00Z";
+        re2.solicitudes = (re2.solicitudes ?? []).map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
+        const fila = re2.solicitudes.find((f) => f.id === id);
+        return /return=representation/.test(peticion.headers()["prefer"] ?? "") ? json(fila ? [fila] : []) : r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      if (metodo === "GET") {
+        const dueno = (url.searchParams.get("customer_user_id") ?? "").replace(/^eq\./, "");
+        return json((re2.solicitudes ?? []).filter((f) => !dueno || f.customer_user_id === dueno));
+      }
+    }
+    if (url.pathname === "/api/factura" && url.searchParams.has("solicitud") && estado.re2) {
+      const solicitud = url.searchParams.get("solicitud") ?? "";
+      const tipo = url.searchParams.get("tipo") ?? "";
+      estado.re2.archivosPedidos = [...(estado.re2.archivosPedidos ?? []), { solicitud, tipo, auth: peticion.headers()["authorization"] ?? "" }];
+      const f = (estado.re2.solicitudes ?? []).find((x) => x.id === solicitud);
+      if (tipo === "etiqueta") {
+        if (!f?.etiqueta_path) return json({ ok: false, error: "la etiqueta aún no está lista" }, 404);
+        return json({ ok: true, url: `https://descargas.ejemplo.invalid/firmado/reparaciones/${f.etiqueta_path}?token=firmado` });
+      }
+      const rutas = Array.isArray(f?.recepcion_fotos) ? f.recepcion_fotos : [];
+      if (!rutas.length) return json({ ok: false, error: "aún no hay fotos" }, 404);
+      return json({ ok: true, fotos: rutas.map((ruta, i) => ({ id: String(i + 1), url: `https://fotos.ejemplo.invalid/storage/v1/object/sign/reparaciones/${ruta}?token=firmado` })) });
+    }
+    if (estado.re2 && /^\/storage\/v1\/object\/reparaciones\//.test(url.pathname) && metodo === "POST") {
+      estado.re2.subidas = [...(estado.re2.subidas ?? []), { ruta: decodeURIComponent(url.pathname.slice("/storage/v1/object/".length)), tipo: peticion.headers()["content-type"] ?? "" }];
+      return json({ Key: url.pathname.slice("/storage/v1/object/".length) });
     }
     // Subida de la foto de perfil o de una portada de categoría (nada llega a ningún almacén): se apunta qué se mandaría
     // (y la foto, para mirarla).
@@ -9048,6 +9114,335 @@ async function seccionFA() {
   }
 }
 
+// ===== RE2) Reparación por envío (dueño, 2026-11-11; migración 20261111100000): en «Contratar servicio», «¿Cómo nos lo
+// haces llegar?» con Correos (aparatos, código postal, etiqueta, precio orientativo y casilla obligatoria; sin «Dónde
+// podemos recogerlo»); en «Mis seguimientos», la barra de nueve etapas (compacta a 360 y 390 px), el plazo, «Esperando
+// pieza», «Descargar etiqueta» (API simulada), cómo embalarlo (se abre y se cierra), las fotos de recepción en el visor y
+// «Aceptar presupuesto»; en Administración, el filtro de entrega, la etiqueta pagada y subida, el presupuesto y los ajustes
+// (no se activan sin dirección ni con el peso estimado); en Analítica, el embudo. Las fotos son falsas (fotos.ejemplo.invalid).
+async function seccionRE2() {
+  const ID = "5e000000-0000-4000-8000-0000000000e2";
+  const TITULO = "Reparación de mando";
+  const OPCIONES = [{ nombre: "Básica", precio_eur: 45 }];
+  const TRAMOS = [
+    { hasta_kg: 1, precio_eur: 13.65 }, { hasta_kg: 2, precio_eur: 17.1 }, { hasta_kg: 3, precio_eur: 17.1 }, { hasta_kg: 4, precio_eur: 17.1 },
+    { hasta_kg: 5, precio_eur: 17.1 }, { hasta_kg: 10, precio_eur: 22.95 }, { hasta_kg: 15, precio_eur: 27.81 },
+  ];
+  const TARIFAS = [
+    { zona: "mano", nombre: "Entrega en mano", codigos: null, precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 10, tramos: null },
+    { zona: "local", nombre: "Zaragoza y Cuarte", codigos: "50001-50022, 50410", precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 20, tramos: null },
+    { zona: "peninsula", nombre: "Península", codigos: "*", precio_eur: 13.65, gratis_desde_eur: null, activa: true, orden: 30, tramos: TRAMOS },
+    { zona: "baleares", nombre: "Islas Baleares", codigos: "07", precio_eur: 0, gratis_desde_eur: null, activa: false, orden: 40, tramos: null },
+  ];
+  const AJUSTES = { id: 1, activo: true, direccion_taller: "Taller VZ, Calle de Prueba 1, 50410 Cuarte de Huerva", peso_aparato_kg: 3, peso_estimado: false, dias_custodia: null, bizum: null, iban: null, titular: null, plazo_horas: 72 };
+  const PERFIL_RE = [{ user_id: CLIENTE.id, nombre: "Luis Pérez", usuario: "luis_p", pais: "España", provincia: "Madrid", localidad: "Madrid", codigo_postal: "28001", fecha_nacimiento: "1990-05-02" }];
+  const azulesEn = (p, sel) =>
+    p.evaluate((s) => {
+      const caja = document.querySelector(s);
+      if (!caja) return -1;
+      return [...caja.querySelectorAll("*")].filter((d) => getComputedStyle(d).backgroundColor === "rgb(30, 167, 232)" && d.innerText.trim()).length;
+    }, sel);
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+
+  // RE2-1) Contratar: Correos con aparatos, código postal, etiqueta, precio orientativo y casilla obligatoria.
+  {
+    const estado = {
+      filas: PERFIL_RE,
+      guardados: [],
+      aceptaAnalitica: true,
+      servicio: { id: ID, title: TITULO, description: "Cambio de joystick.", price_eur: 45, like_count: 0, modalidades: OPCIONES },
+      fotosServicio: [],
+      tarifas: TARIFAS,
+      re2: { ajustes: { ...AJUSTES }, solicitudes: [] },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/contratar/${ID}?opcion=B%C3%A1sica`);
+    await p.locator("#contratar-entrega").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    ok((await p.locator("#contratar-entrega").count()) === 1 && (await p.locator("#contratar-direccion").count()) === 1, "RE2: con la reparación por envío activa sale «¿Cómo nos lo haces llegar?» y, con la recogida, «Dónde podemos recogerlo»");
+    await p.locator("#contratar-entrega").getByText("Recogida en Zaragoza o Cuarte", { exact: true }).first().click();
+    await p.locator("#contratar-entrega").getByText("Envío por Correos (resto de España)", { exact: true }).click();
+    await p.locator("#contratar-correos").waitFor({ timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(300);
+    const cp = await p.evaluate(() => document.querySelector("#contratar-cp")?.value ?? "");
+    const etiqueta1 = await texto(p, "#contratar-etiqueta");
+    ok((await p.locator("#contratar-direccion").count()) === 0 && cp === "28001" && /Etiqueta de Correos: 17,10€ · 3 kg/.test(etiqueta1),
+      `RE2: con Correos se oculta la dirección de recogida, sale su código postal del perfil (${cp}) y la etiqueta de 1 aparato (${etiqueta1})`);
+    await p.locator("#contratar-aparatos select").selectOption("2");
+    await p.waitForTimeout(300);
+    const etiqueta2 = await texto(p, "#contratar-etiqueta");
+    const orientativo = await texto(p, "#contratar-precio-orientativo");
+    ok(/Etiqueta de Correos: 22,95€ · 6 kg/.test(etiqueta2) && /Precio orientativo: desde 90,00€ \(2 × 45,00€\)/.test(orientativo) && /tras el diagnóstico/.test(orientativo),
+      `RE2: con 2 aparatos, 6 kg → 22,95 € y «desde 90,00€» con la nota del diagnóstico (${etiqueta2} | ${orientativo})`);
+    const falta = await texto(p, "#contratar-enviar");
+    await p.locator("#contratar-enviar").click();
+    await p.waitForTimeout(400);
+    ok(falta === "Te falta: aceptar las condiciones" && (estado.re2.enviadas ?? []).length === 0, `RE2: la casilla de las condiciones es obligatoria («${falta}») y no se envía nada`);
+    await p.locator("#contratar-cp").fill("07001");
+    await p.waitForTimeout(200);
+    const baleares = await texto(p, "#contratar-etiqueta");
+    await p.locator("#contratar-cp").fill("50003");
+    await p.waitForTimeout(200);
+    const zaragoza = await texto(p, "#contratar-etiqueta");
+    const faltaCp = await texto(p, "#contratar-enviar");
+    ok(/Aún no tenemos tarifa de Correos/.test(baleares) && /En Zaragoza y Cuarte te lo recogemos/.test(zaragoza) && /código postal/.test(faltaCp),
+      `RE2: sin tarifa de Correos (Baleares) o en Zaragoza lo dice y no deja enviar (${baleares} | ${zaragoza} | ${faltaCp})`);
+    await p.locator("#contratar-cp").fill("28001");
+    await p.locator("#contratar-condiciones").click();
+    await p.waitForTimeout(200);
+    const enviarTxt = await texto(p, "#contratar-enviar");
+    const casilla = await p.evaluate(() => {
+      const r = document.querySelector("#contratar-condiciones")?.getBoundingClientRect();
+      return { alto: Math.round(r?.height ?? 0), marcada: document.querySelector("#contratar-condiciones")?.getAttribute("aria-checked") };
+    });
+    ok(enviarTxt === "Enviar solicitud · desde 90,00€" && casilla.alto >= 44 && casilla.marcada === "true", `RE2: con todo, «${enviarTxt}» (una sola píldora) y la casilla de 44 px marcada (${JSON.stringify(casilla)})`);
+    const ancho = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+    ok(ancho.a <= ancho.v, `RE2: el formulario no se sale por los lados a 390 px (${ancho.a}/${ancho.v})`);
+    await p.evaluate(() => document.querySelector("#contratar-correos")?.scrollIntoView({ block: "center" }));
+    await p.waitForTimeout(300);
+    await capturar(p, "RE2-1-contratar-correos");
+    await p.locator("#contratar-enviar").click();
+    await p.locator("#contratar-enviada").waitFor({ timeout: 10000 }).catch(() => {});
+    const enviada = (estado.re2.enviadas ?? [])[0] ?? {};
+    ok(
+      enviada.entrega_modo === "correos" && enviada.aparatos === 2 && enviada.codigo_postal === "28001" && typeof enviada.condiciones_aceptadas_en === "string" && enviada.direccion === null && !("etiqueta_eur" in enviada) && enviada.modalidad === "Básica",
+      `RE2: la solicitud manda entrega_modo, aparatos, código postal y condiciones, y NO el precio de la etiqueta (${JSON.stringify(enviada)})`
+    );
+    ok((await p.locator("#contratar-enviada-correos").count()) === 1, "RE2: al enviarla explica que la etiqueta estará en Mis seguimientos");
+    await capturar(p, "RE2-2-contratar-enviada");
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Reparación por envío: solicitada"); i++) await p.waitForTimeout(200);
+    const etiquetas = (estado.eventosEnviados ?? []).map((e) => e.step_label);
+    ok(etiquetas.includes("Contratar: envío por Correos elegido") && etiquetas.includes("Reparación por envío: solicitada"), `RE2: la analítica cuenta «envío por Correos elegido» y la solicitud (${etiquetas.filter((e) => /Correos|envío/.test(e)).join(", ")})`);
+    ok(p.errores.length === 0, `RE2: contratar sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    // La política de las condiciones (texto de reserva, el mismo que pone la migración).
+    const pol = await pagina(ctx, "/politicas/reparacion-envio");
+    await pol.getByText("Cómo embalarlo", { exact: true }).waitFor({ timeout: 30000 }).catch(() => {});
+    const tPol = (await pol.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+    ok(/Reparación por envío/.test(tPol) && /presupuesto o en tu factura/.test(tPol) && /plazo que te indicamos en tu seguimiento/.test(tPol) && !/72 h|1 año/.test(tPol),
+      "RE2: la política «Reparación por envío» se ve, sin cifras inventadas de plazo ni garantía");
+    await ctx.close();
+  }
+
+  // RE2-2) Sin la migración (tabla de ajustes inexistente): el formulario como siempre, sin Correos.
+  {
+    const estado = { filas: PERFIL_RE, guardados: [], servicio: { id: ID, title: TITULO, description: "x", price_eur: 45, like_count: 0, modalidades: OPCIONES }, fotosServicio: [], tarifas: TARIFAS, solicitudesServicio: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/contratar/${ID}`);
+    await p.locator("#contratar-direccion").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    ok((await p.locator("#contratar-entrega").count()) === 0 && (await p.locator("#contratar-direccion").count()) === 1 && (estado.consultasAjustesEnvio ?? 0) >= 1,
+      "RE2: sin la migración no se ofrece Correos y sale la dirección de recogida de siempre");
+    ok(p.errores.length === 0, `RE2: sin la migración, sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE2-3) Mis seguimientos: barra de envío, plazo, etiqueta, embalaje plegable, fotos, «Esperando pieza» y presupuesto.
+  const A = "5e000000-0000-4000-8000-0000000000a2";
+  const B = "5e000000-0000-4000-8000-0000000000b2";
+  const base = { created_at: "2026-11-10T10:00:00Z", service_id: ID, service_title: TITULO, status: "nuevo", seguimiento_nota: null, seguimiento_actualizado: "2026-11-11T09:00:00Z", customer_user_id: CLIENTE.id, entrega_modo: "correos", aparatos: 2, codigo_postal: "28001", etiqueta_eur: 22.95, etiqueta_peso_kg: 6, etiqueta_pagada_en: null, condiciones_aceptadas_en: "2026-11-10T10:00:00Z", presupuesto_eur: null, presupuesto_aceptado_en: null, recepcion_fotos: [], espera_pieza_hasta: null };
+  const SOLICITUDES = () => [
+    { ...base, id: A, codigo_seguimiento: "VZ-ETIQ-AAAA", seguimiento: "etiqueta", etiqueta_path: `${A}/etiqueta-1.pdf` },
+    { ...base, id: B, codigo_seguimiento: "VZ-PRES-BBBB", seguimiento: "presupuesto", etiqueta_path: `${B}/etiqueta-1.pdf`, etiqueta_pagada_en: "2026-11-10T12:00:00Z", presupuesto_eur: 59.9, recepcion_fotos: [`${B}/recepcion-1.jpg`, `${B}/recepcion-2.jpg`], espera_pieza_hasta: "2026-11-20" },
+  ];
+  {
+    const estado = { filas: PERFIL_RE, guardados: [], aceptaAnalitica: true, re2: { ajustes: { ...AJUSTES }, solicitudes: SOLICITUDES() } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator(`#seguimiento-envio-${A}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const barras = await p.evaluate(() => ({
+      n: document.querySelectorAll("#linea-compacta-9").length,
+      actuales: [...document.querySelectorAll("#linea-actual")].map((e) => e.innerText.trim()),
+      pasos: [...document.querySelectorAll("#linea-paso")].map((e) => e.innerText.trim()),
+    }));
+    ok(barras.n === 2 && barras.actuales.join("|") === "Etiqueta lista|Presupuesto" && barras.pasos[0] === "Paso 1 de 9 · Después: En camino" && barras.pasos[1] === "Paso 5 de 9 · Después: Reparando",
+      `RE2: la barra de envío tiene nueve etapas y enseña la actual con «Paso N de M» (${JSON.stringify(barras)})`);
+    // Sin juntarse ni partir palabras a 390 y 360 px: cada texto cabe en su línea y dentro de la pantalla.
+    const medir = () =>
+      p.evaluate(() =>
+        [...document.querySelectorAll("#linea-actual, #linea-paso, [id^='seguimiento-plazo-'], [id^='seguimiento-pieza-'], [id^='seguimiento-etiqueta-coste-']")].map((t) => {
+          const rango = document.createRange();
+          rango.selectNodeContents(t);
+          const r = rango.getBoundingClientRect();
+          const lineas = new Set([...rango.getClientRects()].map((x) => Math.round(x.top))).size;
+          const palabras = t.innerText.trim().split(/\s+/).length;
+          return { t: t.innerText.trim().slice(0, 30), partida: lineas > palabras, fuera: r.left < 0 || r.right > window.innerWidth };
+        })
+      );
+    const m390 = await medir();
+    await p.setViewportSize({ width: 360, height: 780 });
+    await p.waitForTimeout(400);
+    const m360 = await medir();
+    const puntos = await p.evaluate(() => {
+      const fila = document.querySelector("#linea-compacta-9 > div");
+      const r = fila?.getBoundingClientRect();
+      return { izq: Math.round(r?.left ?? -1), der: Math.round(r?.right ?? 9999), v: window.innerWidth };
+    });
+    await capturar(p, "RE2-3-seguimientos-360");
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(300);
+    ok([...m390, ...m360].every((x) => !x.partida && !x.fuera) && puntos.izq >= 0 && puntos.der <= puntos.v,
+      `RE2: a 390 y 360 px nada se parte ni se sale, y los nueve puntos caben (${JSON.stringify([...m390, ...m360].filter((x) => x.partida || x.fuera))} ${JSON.stringify(puntos)})`);
+    const plazo = await texto(p, `#seguimiento-plazo-${A}`);
+    const pieza = await texto(p, `#seguimiento-pieza-${B}`);
+    ok(/Reparación en 72 h desde que llega/.test(plazo) && /Esperando pieza · llegada aprox\. 20 nov 2026/.test(pieza), `RE2: el plazo a la vista y «Esperando pieza» con su fecha (${plazo} | ${pieza})`);
+    // Descargar etiqueta (API con la sesión → enlace firmado).
+    await p.locator(`#seguimiento-etiqueta-${A}`).click();
+    for (let i = 0; i < 20 && !(estado.pdfsBajados ?? []).length; i++) await p.waitForTimeout(200);
+    const pedida = (estado.re2.archivosPedidos ?? []).find((x) => x.tipo === "etiqueta");
+    ok(!!pedida && pedida.solicitud === A && /^Bearer \S+/.test(pedida.auth) && (estado.pdfsBajados ?? []).some((x) => x.includes(`${A}/etiqueta-1.pdf`)), `RE2: «Descargar etiqueta» pide el enlace con la sesión y baja el PDF (${JSON.stringify(pedida)})`);
+    // Cómo embalarlo: se abre (con la dirección del taller) y se vuelve a cerrar con el mismo enlace.
+    await p.locator(`#seguimiento-embalaje-boton-${A}`).click();
+    await p.waitForTimeout(300);
+    const abierto = await texto(p, `#seguimiento-embalaje-${A}`);
+    await capturar(p, "RE2-4-seguimientos-embalaje");
+    await p.locator(`#seguimiento-embalaje-boton-${A}`).click();
+    await p.waitForTimeout(300);
+    ok(/caja rígida/.test(abierto) && /Taller VZ, Calle de Prueba 1/.test(abierto) && (await p.locator(`#seguimiento-embalaje-${A}`).count()) === 0, "RE2: «Cómo embalarlo y a dónde enviarlo» se abre con la dirección del taller y se vuelve a cerrar");
+    // Fotos de recepción: miniaturas falsas que se abren en el visor.
+    const minis = await p.evaluate((b) => [...document.querySelectorAll(`[id^="seguimiento-foto-mini-${b}-"] img`)].map((i) => i.getAttribute("src") ?? ""), B);
+    ok(minis.length === 2 && minis.every((s) => /fotos\.ejemplo\.invalid\/storage\/v1\/object\/sign\/reparaciones\//.test(s)), `RE2: dos miniaturas de cómo llegó, con enlace firmado (${minis.length})`);
+    await p.locator(`#seguimiento-foto-${B}-1`).click();
+    await p.locator("#visor-fotos").waitFor({ timeout: 5000 }).catch(() => {});
+    const visor = await p.locator("#visor-fotos").count();
+    await p.locator("#visor-fotos-cerrar").click().catch(() => {});
+    await p.waitForTimeout(400);
+    ok(visor === 1 && (await p.locator("#visor-fotos").count()) === 0, "RE2: tocar una foto la abre en el visor y se cierra");
+    // Presupuesto: una sola píldora azul, con confirmación, y queda aceptado.
+    const azules = await azulesEn(p, `#seguimiento-envio-${B}`);
+    await p.evaluate((b) => document.querySelector(`#seguimiento-aceptar-${b}`)?.scrollIntoView({ block: "center" }), B);
+    await p.locator(`#seguimiento-aceptar-${B}`).click();
+    await p.waitForTimeout(300);
+    const confirma = await texto(p, `#seguimiento-presupuesto-confirmar-texto-${B}`);
+    ok(azules === 1 && /59,90€/.test(confirma) && !(estado.re2.cambios ?? []).length, `RE2: «Aceptar presupuesto» es la única píldora azul y pide confirmación antes de guardar (${azules} · ${confirma})`);
+    await capturar(p, "RE2-5-seguimientos-presupuesto");
+    await p.locator(`#seguimiento-aceptar-${B}`).click();
+    await p.locator(`#seguimiento-presupuesto-${B}`).getByText(/Presupuesto aceptado/).waitFor({ timeout: 5000 }).catch(() => {});
+    const cambio = (estado.re2.cambios ?? [])[0];
+    const aceptado = await texto(p, `#seguimiento-presupuesto-${B}`);
+    ok(!!cambio && cambio.id === B && Object.keys(cambio.cuerpo).join(",") === "presupuesto_aceptado_en" && /Presupuesto aceptado · 59,90€ · 11 nov 2026/.test(aceptado),
+      `RE2: al confirmar solo manda la aceptación y queda «${aceptado}» (${JSON.stringify(cambio)})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Reparación por envío: presupuesto aceptado"); i++) await p.waitForTimeout(200);
+    const ev = (estado.eventosEnviados ?? []).map((e) => e.step_label);
+    ok(ev.includes("Reparación por envío: etiqueta descargada") && ev.includes("Reparación por envío: presupuesto aceptado"), "RE2: la analítica cuenta la etiqueta descargada y el presupuesto aceptado");
+    const ancho = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+    ok(ancho.a <= ancho.v, `RE2: «Mis seguimientos» no se sale por los lados (${ancho.a}/${ancho.v})`);
+    await p.evaluate((a) => document.querySelector(`#seguimiento-envio-${a}`)?.scrollIntoView({ block: "center" }), A);
+    await capturar(p, "RE2-6-seguimientos-390");
+    ok(p.errores.length === 0, `RE2: «Mis seguimientos» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE2-4) Administración → Servicios: filtro de entrega, etiqueta pagada y subida, presupuesto y ajustes.
+  {
+    const R = "5e000000-0000-4000-8000-0000000000c2";
+    const recogida = { ...base, id: R, codigo_seguimiento: "VZ-RECO-CCCC", nombre: "Ana", apellido: "Gómez", ciudad: "Zaragoza", metodo_contacto: "gmail", contacto: "ana@example.com", direccion: "Calle Mayor 1", disponibilidad: null, comentario: null, entrega_modo: "recogida", aparatos: null, etiqueta_eur: null, etiqueta_peso_kg: null, condiciones_aceptadas_en: null, seguimiento: "diagnostico", etiqueta_path: null };
+    const porEnvio = { ...SOLICITUDES()[0], seguimiento: "solicitado", etiqueta_path: null, nombre: "Luis", apellido: "Pérez", ciudad: "Madrid", metodo_contacto: "gmail", contacto: "luis@example.com", direccion: null, disponibilidad: null, comentario: null };
+    const estado = {
+      guardados: [],
+      filas: [],
+      serviciosAdmin: [],
+      serviciosMedia: [],
+      tarifas: TARIFAS,
+      re2: { ajustes: { ...AJUSTES, activo: false, direccion_taller: null, peso_aparato_kg: 2, peso_estimado: true }, solicitudes: [porEnvio, recogida] },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await p.getByText("Solicitudes", { exact: true }).first().click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#solicitudes-filtro-entrega").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#solicitudes-filtro-entrega select").selectOption("correos").catch(() => {});
+    await p.waitForTimeout(300);
+    const soloEnvio = await texto(p, "#solicitudes-lista");
+    await p.locator("#solicitudes-filtro-entrega select").selectOption("recogida").catch(() => {});
+    await p.waitForTimeout(300);
+    const soloRecogida = await texto(p, "#solicitudes-lista");
+    await p.locator("#solicitudes-filtro-entrega select").selectOption("correos").catch(() => {});
+    await p.waitForTimeout(300);
+    const opciones = await p.evaluate(() => [...(document.querySelector("#solicitudes-filtro-entrega select")?.options ?? [])].map((o) => o.textContent));
+    ok(/Luis Pérez/.test(soloEnvio) && !/Ana Gómez/.test(soloEnvio) && /Ana Gómez/.test(soloRecogida) && !/Luis Pérez/.test(soloRecogida) && opciones.join("|") === "Todas|Recogida (1)|Por envío (1)",
+      `RE2: el filtro «Entrega» separa recogida y envío, con cuántas hay (${opciones.join(" | ")})`);
+    const datos = await texto(p, `#solicitud-envio-datos-${A}`);
+    ok(/Aparatos: 2/.test(datos) && /C\.P\. 28001/.test(datos) && /22,95/.test(datos) && /6 kg/.test(datos) && /sin pagar/.test(datos), `RE2: cada solicitud por envío enseña aparatos, código postal, coste y peso de la etiqueta y si está pagada (${datos})`);
+    const chips = await texto(p, `#solicitud-envio-${A}`);
+    const etapas = (await p.locator("#solicitudes-lista").innerText()).replace(/\s+/g, " ");
+    ok(/Etiqueta lista/.test(etapas) && /En camino/.test(etapas) && /Enviada de vuelta/.test(etapas) && /Esperando pieza/.test(etapas), "RE2: el cambio de etapa tiene las etapas de envío");
+    await p.locator(`#solicitud-envio-${A}`).getByText("Marcar etiqueta pagada", { exact: true }).click();
+    await p.waitForTimeout(500);
+    const pagada = (estado.re2.cambios ?? []).find((c) => c.id === A && "etiqueta_pagada_en" in c.cuerpo);
+    ok(!!pagada && /pagada el/.test(await texto(p, `#solicitud-envio-datos-${A}`)), `RE2: «Marcar etiqueta pagada» lo guarda (${JSON.stringify(pagada)} · ${chips.slice(0, 40)})`);
+    // Subir etiqueta (PDF): al almacén privado y la solicitud pasa a «Etiqueta lista».
+    const [selector] = await Promise.all([p.waitForEvent("filechooser", { timeout: 10000 }).catch(() => null), p.locator(`#solicitud-envio-${A}`).getByText("Subir etiqueta (PDF)", { exact: true }).click()]);
+    if (selector) await selector.setFiles({ name: "etiqueta.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n%%EOF") });
+    for (let i = 0; i < 25 && !(estado.re2.cambios ?? []).some((c) => "etiqueta_path" in c.cuerpo); i++) await p.waitForTimeout(200);
+    const subida = (estado.re2.subidas ?? [])[0];
+    const conEtiqueta = (estado.re2.cambios ?? []).find((c) => "etiqueta_path" in c.cuerpo);
+    ok(!!subida && subida.ruta.startsWith(`reparaciones/${A}/etiqueta-`) && !!conEtiqueta && conEtiqueta.cuerpo.etiqueta_path === subida.ruta.slice("reparaciones/".length) && conEtiqueta.cuerpo.seguimiento === "etiqueta",
+      `RE2: «Subir etiqueta» la sube al almacén privado y pasa la solicitud a «Etiqueta lista» (${JSON.stringify({ subida, conEtiqueta })})`);
+    // Presupuesto con guardar.
+    await p.locator(`#solicitud-envio-${A}`).getByPlaceholder("Ej: 59,90").fill("59,90");
+    await p.locator(`#solicitud-envio-${A}`).getByText("Guardar presupuesto", { exact: true }).click();
+    await p.waitForTimeout(500);
+    const presu = (estado.re2.cambios ?? []).find((c) => "presupuesto_eur" in c.cuerpo);
+    const estadoPresu = await texto(p, `#solicitud-presupuesto-estado-${A}`);
+    ok(!!presu && presu.cuerpo.presupuesto_eur === 59.9 && /aún no lo ha aceptado/.test(estadoPresu), `RE2: el presupuesto se guarda y se ve si el cliente lo aceptó (${JSON.stringify(presu)} · ${estadoPresu})`);
+    await p.evaluate((a) => document.querySelector(`#solicitud-envio-${a}`)?.scrollIntoView({ block: "center" }), A);
+    await capturar(p, "RE2-7-admin-solicitud");
+    // Ajustes: plegados; no se activan sin dirección ni con el peso estimado (y dicen qué falta); se vuelven a plegar.
+    await p.evaluate(() => document.querySelector("#reparacion-envio-ajustes")?.scrollIntoView({ block: "start" }));
+    await p.locator("#reparacion-envio-ajustes-abrir").click();
+    await p.locator("#reparacion-envio-ajustes-form").waitFor({ timeout: 5000 }).catch(() => {});
+    const aviso = await texto(p, "#reparacion-envio-ajustes-form");
+    ok(/Para activarla falta: la dirección del taller · el peso real por aparato/.test(aviso) && (await p.locator("#reparacion-envio-peso-estimado").count()) === 1, `RE2: los ajustes dicen qué falta para activarla y que el peso es estimado (${aviso.slice(0, 160)})`);
+    await p.locator("#reparacion-envio-ajustes-form").getByText("Activada", { exact: true }).click({ force: true }).catch(() => {});
+    await p.locator("#reparacion-envio-ajustes-form").getByText("Guardar ajustes", { exact: true }).click();
+    await p.waitForTimeout(500);
+    const g1 = (estado.re2.ajustesGuardados ?? [])[0] ?? {};
+    await capturar(p, "RE2-8-admin-ajustes");
+    await p.locator("#reparacion-envio-ajustes-form").getByPlaceholder("Nombre, calle, número, código postal y ciudad").fill("Taller VZ, Calle de Prueba 1, 50410 Cuarte de Huerva");
+    await p.locator("#reparacion-envio-ajustes-form").getByPlaceholder("Ej: 3,5").fill("3,5");
+    await p.waitForTimeout(200);
+    await p.locator("#reparacion-envio-ajustes-form").getByText("Activada", { exact: true }).click();
+    await p.locator("#reparacion-envio-ajustes-form").getByText("Guardar ajustes", { exact: true }).click();
+    await p.waitForTimeout(500);
+    const g2 = (estado.re2.ajustesGuardados ?? [])[1] ?? {};
+    ok(g1.activo === false && g2.activo === true && g2.peso_aparato_kg === 3.5 && g2.peso_estimado === false && /Calle de Prueba/.test(g2.direccion_taller ?? ""),
+      `RE2: sin dirección ni peso real no se activa; con ellos sí (${JSON.stringify({ g1: g1.activo, g2 })})`);
+    await p.locator("#reparacion-envio-ajustes-abrir").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#reparacion-envio-ajustes-form").count()) === 0 && /activada/.test(await texto(p, "#reparacion-envio-ajustes-abrir")), "RE2: el bloque de ajustes se vuelve a plegar y dice que está activada");
+    ok(p.errores.length === 0, `RE2: Administración sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE2-5) Analítica: el embudo contado en la base de datos y las sesiones.
+  {
+    const estado = {
+      guardados: [],
+      re2: { cuentas: { solicitadas: 5, pagadas: 4, recibidas: 3, aceptadas: 2 } },
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Contratar: envío por Correos elegido", sessions: 6 },
+        { step_label: "Reparación por envío: solicitada", sessions: 5 },
+        { step_label: "Reparación por envío: etiqueta descargada", sessions: 4 },
+        { step_label: "Reparación por envío: presupuesto aceptado", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-reparacion-envio-bd").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#analitica-reparacion-envio");
+    ok(/solicitadas 5 → etiqueta pagada 4 → recibidas 3 → presupuesto aceptado 2/.test(t) && /eligen Correos 6 · la solicitan 5 · descargan la etiqueta 4 · aceptan el presupuesto 2/.test(t),
+      `RE2: Analítica enseña el embudo de la reparación por envío (${t})`);
+    // (los recuentos sin «entrega_modo» son los de Blue del administrador: reparaciones de más de 48 h sin cambios)
+    const deEnvio = (estado.re2.recuentos ?? []).filter((q) => /entrega_modo=eq\.correos/.test(q));
+    ok(deEnvio.length === 4, `RE2: cuenta solo las de envío, sin bajar filas (${deEnvio.length} recuentos con entrega_modo=correos)`);
+    await p.evaluate(() => document.querySelector("#analitica-reparacion-envio")?.scrollIntoView({ block: "center" }));
+    await capturar(p, "RE2-9-analitica");
+    ok(p.errores.length === 0, `RE2: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== AC) Avisos de Blue solo con cuenta (dueño, 2026-11-11): bajadas de precio y artículos nuevos =====================
 // Sin sesión, aunque en el dispositivo queden el ajuste antiguo de artículos nuevos y un «me gusta» que ha bajado de precio,
 // Blue no los avisa y ofrece «Crear cuenta gratis», que lleva al registro (con la ventaja escrita) y deja la vuelta; la cuenta
@@ -9205,7 +9600,9 @@ async function seccionAC() {
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     await ctx.route("**/rest/v1/preferencias_usuario*", (r) => {
-      estado.consultaPreferencias = decodeURIComponent(new URL(r.request().url()).search);
+      // Solo el recuento de Analítica (Blue también lee las preferencias de noticias del administrador, en cualquier orden).
+      const busqueda = decodeURIComponent(new URL(r.request().url()).search);
+      if (/avisos_novedades/.test(busqueda)) estado.consultaPreferencias = busqueda;
       return r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "*", "content-range": "*/4" }, body: "[]" });
     });
     const p = await pagina(ctx, "/admin/analytics");
@@ -9270,6 +9667,7 @@ try {
   if (SOLO === "PT") await seccionPT();
   if (SOLO === "NW") await seccionNW();
   if (SOLO === "FA") await seccionFA();
+  if (SOLO === "RE2") await seccionRE2();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -10234,6 +10632,7 @@ try {
   await seccionPT();
   await seccionNW();
   await seccionFA();
+  await seccionRE2();
   await seccionAC();
   }
 } catch (e) {
