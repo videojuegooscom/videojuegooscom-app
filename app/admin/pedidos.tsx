@@ -38,6 +38,10 @@
  *   20261110100000, tabla pedido_facturas): cada pedido enseña su número de factura y «Descargar» (api/factura.ts, la
  *   misma que usa el cliente en «Mis pedidos»), «PDF pendiente» o «Sin factura»; recuento arriba y filtro «Factura:
  *   todas / con factura / sin factura». Sin la migración, no se enseña.
+ * - Referencia del pedido (dueño, 2026-11-11: «como una empresa profesional»): el título de cada pedido es su referencia
+ *   «Pedido VZ-XXXX-XXXX» (codigo_seguimiento, la que ve el cliente) y el número interno va debajo, en pequeño («Nº
+ *   interno 101»; sin referencia, «Pedido nº 101» como antes). Buscador arriba: referencia (con o sin guiones), número
+ *   interno, nombre, correo o teléfono. El mensaje de WhatsApp que manda el administrador también nombra la referencia.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -174,10 +178,8 @@ function EtiquetaNumero({
   desdeChat: boolean;
 }) {
   return (
-    <View style={{ alignItems: "center", gap: 2 }}>
-      <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, letterSpacing: 1 }}>
-        Nº de seguimiento {codigo}
-      </Text>
+    // La referencia ya va en el título del pedido: aquí, de dónde viene y si el cliente ya la tiene.
+    <View accessibilityLabel={`Referencia ${codigo}`} style={{ alignItems: "center", gap: 2 }}>
       <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
         {[
           veoaura ? "Ficha de VeoAura" : null,
@@ -187,7 +189,7 @@ function EtiquetaNumero({
               : desdeChat
                 ? "Asignado desde el chat: ya está en la cuenta del cliente"
                 : "En la cuenta del cliente"
-            : "Aún no está en ninguna cuenta: dale este número al cliente",
+            : "Aún no está en ninguna cuenta: dale esta referencia al cliente",
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -223,6 +225,8 @@ export default function PedidosAdmin() {
   const [facturas, setFacturas] = useState<Record<string, { numero_factura: string | null; pdf: boolean }>>({});
   const [filtroFactura, setFiltroFactura] = useState<"todas" | "con" | "sin">("todas");
   const [facturaMsg, setFacturaMsg] = useState<{ id: string; texto: string } | null>(null);
+  // Buscador: referencia VZ-…, número interno, nombre, correo o teléfono (dueño, 2026-11-11).
+  const [busqueda, setBusqueda] = useState("");
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -344,11 +348,27 @@ export default function PedidosAdmin() {
     return pedidos.filter((p) => p.estado === filtro);
   }, [pedidos, filtro]);
 
-  // Filtro «Factura: todas / con factura / sin factura», que se suma al de arriba.
+  // Filtro «Factura: todas / con factura / sin factura», que se suma al de arriba; y el buscador (referencia VZ-…, con o sin
+  // guiones ni mayúsculas, número interno, nombre, correo o teléfono), que busca en TODOS los pedidos cargados.
   const visibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (q) {
+      const soloLetras = q.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const soloCifras = q.replace(/[^\d]/g, "");
+      return pedidos.filter((p) => {
+        const ref = String(p.codigo_seguimiento ?? "").replace(/[^A-Z0-9]/g, "");
+        return (
+          (soloLetras.length >= 3 && ref.includes(soloLetras)) ||
+          (/^\d+$/.test(q) && String(p.numero) === q) ||
+          (soloCifras.length >= 6 && String(p.telefono ?? "").replace(/[^\d]/g, "").includes(soloCifras)) ||
+          String(p.nombre ?? "").toLowerCase().includes(q) ||
+          String(p.email ?? "").toLowerCase().includes(q)
+        );
+      });
+    }
     if (!facturasOk || filtroFactura === "todas") return visiblesPorEstado;
     return visiblesPorEstado.filter((p) => (filtroFactura === "con" ? !!facturas[p.id] : !facturas[p.id]));
-  }, [visiblesPorEstado, facturas, facturasOk, filtroFactura]);
+  }, [visiblesPorEstado, pedidos, busqueda, facturas, facturasOk, filtroFactura]);
 
   // Pago con tarjeta: cuántos pedidos se han pagado (y cuánto), cuántos se empezaron sin terminar, cuántos fueron de
   // prueba y cuántos pagados están cancelados o con otro total (hay que devolver la diferencia desde Stripe).
@@ -480,7 +500,9 @@ export default function PedidosAdmin() {
   function whatsapp(p: Pedido) {
     const tel = p.telefono.replace(/[^\d]/g, "");
     const conPrefijo = tel.length === 9 ? `34${tel}` : tel;
-    const texto = encodeURIComponent(`Hola ${p.nombre}, te escribimos por tu pedido nº ${p.numero} en Videojuegoszaragoza.com.`);
+    // Al cliente, la referencia del pedido (nunca el número interno).
+    const ref = p.codigo_seguimiento ? ` ${p.codigo_seguimiento}` : "";
+    const texto = encodeURIComponent(`Hola ${p.nombre}, te escribimos por tu pedido${ref} en Videojuegoszaragoza.com.`);
     openExternalLink(`https://wa.me/${conPrefijo}?text=${texto}`);
   }
 
@@ -550,8 +572,28 @@ export default function PedidosAdmin() {
         showsVerticalScrollIndicator={false}
       >
         <View style={{ width: "100%", maxWidth: 760, gap: 14 }}>
-          <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-            {loading ? "Cargando…" : `${visibles.length} de ${pedidos.length} pedidos`}
+          {/* Buscador arriba (como Productos y Servicios): con algo escrito busca en todos los pedidos, sin filtros. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bg2 }}>
+            <Ionicons name="search" size={18} color={COLORS.muted} />
+            <TextInput
+              nativeID="pedidos-buscar"
+              value={busqueda}
+              onChangeText={setBusqueda}
+              placeholder="Buscar por referencia (VZ-…), nombre, correo o teléfono"
+              placeholderTextColor="rgba(11,33,56,0.45)"
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Buscar pedidos por referencia, nombre, correo o teléfono"
+              style={{ flex: 1, minWidth: 0, minHeight: 44, color: COLORS.text, fontSize: 16, fontWeight: "700" }}
+            />
+            {busqueda ? (
+              <Pressable onPress={() => setBusqueda("")} accessibilityRole="button" accessibilityLabel="Borrar la búsqueda" hitSlop={8} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="close-circle" size={18} color={COLORS.muted} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Text nativeID="pedidos-recuento" style={{ color: COLORS.muted, textAlign: "center" }}>
+            {loading ? "Cargando…" : busqueda.trim() ? `${visibles.length} ${visibles.length === 1 ? "pedido encontrado" : "pedidos encontrados"}` : `${visibles.length} de ${pedidos.length} pedidos`}
           </Text>
           {/* Dueño, 2026-11-03: «Entregado» cuenta como pagado; si el pedido lleva artículos de VeoAura, su ficha de cliente
               (nombre, correo y teléfono) va a VeoAura (api/escaparate-retorno.ts). Se ve en Administración → Escaparate. */}
@@ -660,12 +702,18 @@ export default function PedidosAdmin() {
                 key={p.id}
                 style={{ gap: 8, alignItems: "center", paddingVertical: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}
               >
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
-                  Pedido nº {p.numero} · {fmtEUR(p.total_eur)}
+                {/* La referencia (lo que ve el cliente) es el dato principal; el número interno, en pequeño. */}
+                <Text nativeID={`pedido-titulo-${p.numero}`} selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
+                  {p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : `Pedido nº ${p.numero}`} · {fmtEUR(p.total_eur)}
                 </Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
                   {fmtFecha(p.created_at)} · {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
+                {p.codigo_seguimiento ? (
+                  <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
+                    Nº interno {p.numero}
+                  </Text>
+                ) : null}
                 {p.codigo_seguimiento ? (
                   <EtiquetaNumero
                     codigo={p.codigo_seguimiento}

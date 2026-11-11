@@ -70,7 +70,7 @@
  *   funciona una vez desplegado en Vercel (no en `expo start --web` local,
  *   que no tiene funciones serverless).
  *
- * - Contexto por URL: ?producto=<id>, ?servicio=<id>, ?pedido=<nº>,
+ * - Contexto por URL: ?producto=<id>, ?servicio=<id>, ?pedido=<referencia VZ-XXXX-XXXX>,
  *   ?reparacion=<id> o ?tema=<texto>. Se muestra "Preguntas por: …" arriba y
  *   se antepone al primer mensaje que se manda a la API (mismo formato
  *   {message, history}). ?servicio lo manda «Preguntar por este servicio» de
@@ -476,7 +476,14 @@ export default function BlueIAScreen() {
         prefijo: `[Sobre el servicio: ${servicio.title}${precio}]`,
       };
     }
-    if (pedido) return { visible: `tu pedido nº ${pedido}`, prefijo: `[Sobre mi pedido nº ${pedido}]` };
+    // ?pedido=VZ-XXXX-XXXX: la referencia del pedido (dueño, 2026-11-11: nunca el número interno). Un enlace antiguo con
+    // el número se queda en «tu pedido», sin enseñarlo.
+    if (pedido) {
+      const ref = /^VZ-[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(pedido) ? pedido.toUpperCase() : "";
+      return ref
+        ? { visible: `tu pedido ${ref}`, prefijo: `[Sobre mi pedido ${ref}]` }
+        : { visible: "tu pedido", prefijo: "[Sobre mi pedido]" };
+    }
     if (reparacion)
       return { visible: `tu reparación ${reparacion}`, prefijo: `[Sobre mi reparación: ${reparacion}]` };
     if (tema) return { visible: tema, prefijo: `[Tema: ${tema}]` };

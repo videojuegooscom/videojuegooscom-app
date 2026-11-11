@@ -569,10 +569,11 @@ try {
     return q;
   };
   const PEDIDOS_SEG = [
-    { id: "p1", numero: 12, estado: "enviado", entrega: "envio" }, // visto «confirmado»  → aviso
-    { id: "p2", numero: 13, estado: "pendiente", entrega: "recogida" }, // visto «pendiente» → nada
-    { id: "p3", numero: 14, estado: "pendiente", entrega: "envio" }, // nuevo y en su etapa inicial → nada
-    { id: "p4", numero: 15, estado: "enviado", entrega: "recogida" }, // visto «preparado»  → aviso («listo para recoger»)
+    // Con su referencia (codigo_seguimiento): el aviso la nombra a ella, nunca el número interno (dueño, 2026-11-11).
+    { id: "p1", numero: 12, codigo_seguimiento: "VZ-AB2C-DE12", estado: "enviado", entrega: "envio" }, // visto «confirmado»  → aviso
+    { id: "p2", numero: 13, codigo_seguimiento: "VZ-AB2C-DE13", estado: "pendiente", entrega: "recogida" }, // visto «pendiente» → nada
+    { id: "p3", numero: 14, codigo_seguimiento: "VZ-AB2C-DE14", estado: "pendiente", entrega: "envio" }, // nuevo y en su etapa inicial → nada
+    { id: "p4", numero: 15, codigo_seguimiento: "VZ-AB2C-DE15", estado: "enviado", entrega: "recogida" }, // visto «preparado»  → aviso («listo para recoger»)
   ];
   const REPARACIONES_SEG = [
     { id: "r1", service_title: "Reparación de mando", seguimiento: "listo", seguimiento_actualizado: "2026-10-21T10:00:00+00:00" }, // visto «reparando» → aviso
@@ -599,19 +600,19 @@ try {
   //      lo dice junto; lo ya visto no se repite.
   {
     const pedidosDev = [
-      { id: "p5", numero: 21, estado: "cancelado", entrega: "envio", devuelto_en: "2026-11-06T08:00:00Z" }, // visto «cancelado»
-      { id: "p6", numero: 22, estado: "confirmado", entrega: "envio", devuelto_en: "2026-11-06T08:00:00Z" }, // visto «confirmado»
-      { id: "p7", numero: 23, estado: "cancelado", entrega: "envio", devuelto_en: "2026-11-05T08:00:00Z" }, // ya visto devuelto
-      { id: "p8", numero: 24, estado: "enviado", entrega: "envio", devuelto_en: null }, // sin cambios
+      { id: "p5", numero: 21, codigo_seguimiento: "VZ-CD3E-FG21", estado: "cancelado", entrega: "envio", devuelto_en: "2026-11-06T08:00:00Z" }, // visto «cancelado»
+      { id: "p6", numero: 22, codigo_seguimiento: "VZ-CD3E-FG22", estado: "confirmado", entrega: "envio", devuelto_en: "2026-11-06T08:00:00Z" }, // visto «confirmado»
+      { id: "p7", numero: 23, codigo_seguimiento: "VZ-CD3E-FG23", estado: "cancelado", entrega: "envio", devuelto_en: "2026-11-05T08:00:00Z" }, // ya visto devuelto
+      { id: "p8", numero: 24, codigo_seguimiento: "VZ-CD3E-FG24", estado: "enviado", entrega: "envio", devuelto_en: null }, // sin cambios
     ];
     const c = await contextoSeg({ pedidos: pedidosDev, reparaciones: [], vistos: { p: { p5: "cancelado", p6: "confirmado", p7: "cancelado|devuelto", p8: "enviado" }, r: {} } });
     const q = await abrirSeg(c);
     await q.waitForTimeout(3000);
     await abrirPanelAvisos(q);
     const t = await q.evaluate(() => document.body.innerText);
-    ok(/Tu pedido nº 21 se ha cancelado y te hemos devuelto el pago/.test(t), "Seguimientos S0b: «Tu pedido nº 21 se ha cancelado y te hemos devuelto el pago»");
-    ok(/Te hemos devuelto el pago de tu pedido nº 22/.test(t), "Seguimientos S0b: «Te hemos devuelto el pago de tu pedido nº 22» aunque la etapa no cambie");
-    ok(!/nº 23|nº 24/.test(t), "Seguimientos S0b: lo ya visto o sin cambios no se repite");
+    ok(/Tu pedido VZ-CD3E-FG21 se ha cancelado y te hemos devuelto el pago/.test(t), "Seguimientos S0b: «Tu pedido VZ-CD3E-FG21 se ha cancelado y te hemos devuelto el pago»");
+    ok(/Te hemos devuelto el pago de tu pedido VZ-CD3E-FG22/.test(t), "Seguimientos S0b: «Te hemos devuelto el pago de tu pedido VZ-CD3E-FG22» aunque la etapa no cambie");
+    ok(!/FG23|FG24/.test(t) && !/pedido nº/.test(t), "Seguimientos S0b: lo ya visto o sin cambios no se repite, y nunca sale el número interno");
     ok(q.errores.length === 0, `Seguimientos S0b: sin errores de JavaScript (${q.errores[0] ?? "ninguno"})`);
     await capturar(q, "09b-aviso-devuelto");
     await c.close();
@@ -625,7 +626,7 @@ try {
     await abrirPanelAvisos(q);
     const n = await insignia(q);
     const t = await q.evaluate(() => document.body.innerText);
-    ok(n === baseSeg && !/Tu pedido nº|está lista para recoger|nota sobre tu/.test(t), `Seguimientos S1: la primera vez no avisa de lo antiguo (${n}, sin avisos: ${baseSeg})`);
+    ok(n === baseSeg && !/Tu pedido (nº|VZ-)|está lista para recoger|nota sobre tu/.test(t), `Seguimientos S1: la primera vez no avisa de lo antiguo (${n}, sin avisos: ${baseSeg})`);
     const guardado = await q.evaluate((k) => localStorage.getItem(k), CLAVE_VISTOS);
     ok(!!guardado && /"p1":"enviado"/.test(guardado), "Seguimientos S1: y apunta lo que hay como visto");
     await c.close();
@@ -640,17 +641,17 @@ try {
     const n = await insignia(q);
     ok(n === baseSeg + 4, `Seguimientos S2: 4 novedades suman 4 al número rojo (${n}, sin ellas: ${baseSeg})`);
     const t = await q.evaluate(() => document.body.innerText);
-    ok(/Tu pedido nº 12 está enviado/.test(t), "Seguimientos S2: «Tu pedido nº 12 está enviado» (envío a domicilio)");
-    ok(/Tu pedido nº 15 está listo para recoger/.test(t), "Seguimientos S2: «Tu pedido nº 15 está listo para recoger» (recogida en tienda)");
+    ok(/Tu pedido VZ-AB2C-DE12 está enviado/.test(t), "Seguimientos S2: «Tu pedido VZ-AB2C-DE12 está enviado» (envío a domicilio, con la referencia)");
+    ok(/Tu pedido VZ-AB2C-DE15 está listo para recoger/.test(t), "Seguimientos S2: «Tu pedido VZ-AB2C-DE15 está listo para recoger» (recogida en tienda)");
     ok(/Tu «Reparación de mando» está lista para recoger/.test(t), "Seguimientos S2: «Tu «Reparación de mando» está lista para recoger»");
     ok(/El taller ha dejado una nota sobre tu «Limpieza de consola»/.test(t), "Seguimientos S2: si solo cambia la nota, «El taller ha dejado una nota…»");
-    ok(!/nº 13|nº 14|Cambio de pantalla/.test(t), "Seguimientos S2: ni lo que no cambió ni lo recién pedido en su etapa inicial");
+    ok(!/DE13|DE14|Cambio de pantalla/.test(t) && !/pedido nº/.test(t), "Seguimientos S2: ni lo que no cambió ni lo recién pedido en su etapa inicial");
     const filas = await q.getByRole("button", { name: /Ver seguimiento/ }).evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
     ok(filas.length === 4 && filas.every((h) => h >= 47.5), `Seguimientos S2: 4 filas que se tocan de 48 px o más (${filas.join(", ")})`);
     await capturar(q, "09-avisos-estado");
     // Tocar un aviso lleva a Seguimientos y, al verlos, los avisos desaparecen. La fila del panel («Ver seguimiento»), no el
     // mensaje de Blue que dice lo mismo y que, si ya ha salido, queda detrás del panel (antes la prueba cogía ese).
-    await q.getByRole("button", { name: /Ver seguimiento/ }).filter({ hasText: "Tu pedido nº 12" }).first().tap();
+    await q.getByRole("button", { name: /Ver seguimiento/ }).filter({ hasText: "Tu pedido VZ-AB2C-DE12" }).first().tap();
     await q.waitForURL(/\/perfil\?tab=seguimientos/, { timeout: 15000 }).then(
       () => ok(true, "Seguimientos S2: tocar un aviso lleva a Perfil → Seguimientos"),
       () => ok(false, `Seguimientos S2: debía llevar a Perfil → Seguimientos (está en ${q.url()})`)
@@ -664,7 +665,7 @@ try {
     await abrirPanelAvisos(q);
     const despues = await insignia(q);
     const t2 = await q.evaluate(() => document.body.innerText);
-    ok(despues === baseSeg && !/Tu pedido nº|está lista para recoger|nota sobre tu/.test(t2), `Seguimientos S2: tras verlos, ya no hay avisos (${despues}, sin ellos: ${baseSeg})`);
+    ok(despues === baseSeg && !/Tu pedido (nº|VZ-)|está lista para recoger|nota sobre tu/.test(t2), `Seguimientos S2: tras verlos, ya no hay avisos (${despues}, sin ellos: ${baseSeg})`);
     ok(q.errores.length === 0, `Seguimientos S2: sin errores de JavaScript (${q.errores.length}${q.errores[0] ? ": " + q.errores[0] : ""})`);
     await c.close();
   }
@@ -674,9 +675,9 @@ try {
     const c = await contextoSeg({ pedidos: PEDIDOS_SEG, reparaciones: REPARACIONES_SEG, vistos: VISTOS_SEG });
     const q = await abrirSeg(c);
     const dicho = await q
-      .waitForFunction(() => /Tu pedido nº 12 está enviado/.test(document.getElementById("blue-mensaje")?.textContent ?? ""), null, { timeout: 40000 })
+      .waitForFunction(() => /Tu pedido VZ-AB2C-DE12 está enviado/.test(document.getElementById("blue-mensaje")?.textContent ?? ""), null, { timeout: 40000 })
       .then(() => true, () => false);
-    ok(dicho, "Seguimientos S3: Blue dice «Tu pedido nº 12 está enviado.» en un mensaje");
+    ok(dicho, "Seguimientos S3: Blue dice «Tu pedido VZ-AB2C-DE12 está enviado.» en un mensaje");
     if (dicho) {
       await capturar(q, "10-mensaje-estado");
       await q.locator("#blue-mensaje").tap();

@@ -7,7 +7,9 @@
  * 1. Doble toque en «Confirmar pedido»: sale UNA sola petición a crear_pedido_idempotente, con una
  *    clave (UUID), y el aviso a VeoAura (/api/escaparate-retorno) sale una sola vez.
  * 2. Fallo de red y reintento tras recargar la página: el segundo intento manda la MISMA clave.
- * 3. Si el servidor responde repetido = true: se muestra el mismo número y se despierta igualmente el
+ *    Mientras, la pantalla dice «No hemos podido guardar tu pedido» y «No te hemos cobrado nada».
+ *    La confirmación enseña la referencia del pedido («Pedido VZ-…», /api/pago simulado), nunca «Pedido nº 101».
+ * 3. Si el servidor responde repetido = true: se muestra el mismo pedido y se despierta igualmente el
  *    aviso a VeoAura (si la primera respuesta se perdió nadie lo había hecho; repetirlo es seguro porque
  *    api/escaparate-retorno.ts solo procesa lo que hay en la base de datos y avisa una vez por pedido).
  * 4. Si la función nueva aún no existe en la base de datos (migración sin aplicar): cae a la antigua
@@ -122,6 +124,12 @@ async function escenario(navegador, nombre, respuestas, { retraso = 0, antiguo =
     llamadas.retorno++;
     return r.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
+  // api/pago.ts simulado: sin pago online y, con «referencia», la del pedido (VZ-T<número>-ABCD), como el servidor.
+  await ctx.route("**/api/pago", (r) => {
+    const c = r.request().method() === "POST" ? r.request().postDataJSON() : null;
+    const cuerpo = c?.accion === "referencia" ? { ok: true, referencia: `VZ-T${c.numero}-ABCD` } : { ok: true, disponible: false, modo: null };
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(cuerpo) });
+  });
   return { ctx, llamadas, nombre };
 }
 
@@ -136,7 +144,7 @@ async function rellenarYEnviar(p, { doble = false, envio = false } = {}) {
     await p.getByRole("radio", { name: envio ? /Envío a domicilio/ : /Entrega en mano/ }).click();
     await p.getByPlaceholder("Nombre completo").fill("Cliente de Prueba");
     await p.getByPlaceholder("tu@email.com").fill("prueba@example.com");
-    await p.getByPlaceholder("627 748 741").fill("600123123");
+    await p.getByPlaceholder("600 000 000").fill("600123123");
     if (envio) {
       await p.getByPlaceholder("Calle, número, piso...").fill("Calle de Prueba 1");
       await p.getByPlaceholder("50001").fill("50001");
@@ -161,12 +169,14 @@ try {
     const p = await ctx.newPage();
     await p.goto(BASE + "/checkout", { waitUntil: "load", timeout: 60000 });
     await rellenarYEnviar(p, { doble: true });
-    await p.getByText(/Pedido nº 101 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
+    await p.getByText("Pedido VZ-T101-ABCD").waitFor({ timeout: 20000 }).catch(() => {});
     await p.waitForTimeout(1500);
     ok(llamadas.nuevo.length === 1, `doble toque: una sola petición a crear_pedido_idempotente (${llamadas.nuevo.length})`);
     ok(UUID_RE.test(llamadas.nuevo[0]?.p_clave ?? ""), `doble toque: la petición lleva una clave UUID (${llamadas.nuevo[0]?.p_clave})`);
     ok(llamadas.retorno === 1, `doble toque: el aviso a VeoAura sale una sola vez (${llamadas.retorno})`);
-    ok(await p.getByText(/Pedido nº 101 recibido/).count() > 0, "doble toque: se muestra «Pedido nº 101 recibido»");
+    // Con su referencia (dueño, 2026-11-11), nunca «Pedido nº 101».
+    const cuerpo1 = await p.evaluate(() => document.body.innerText);
+    ok((await p.getByText("¡Gracias por tu pedido!", { exact: true }).count()) > 0 && (await p.getByText("Pedido VZ-T101-ABCD").count()) > 0 && !/nº 101/.test(cuerpo1), "doble toque: se muestra «¡Gracias por tu pedido!» con la referencia «Pedido VZ-T101-ABCD» (sin el número interno)");
     ok((await p.evaluate((k) => localStorage.getItem(k), CLAVE_KEY)) === null, "doble toque: tras el pedido, la clave guardada se borra");
     ok(llamadas.antiguo.length === 0, "doble toque: no se usa la función antigua");
     await ctx.close();
@@ -182,9 +192,15 @@ try {
     const clave1 = llamadas.nuevo[0]?.p_clave;
     const guardada = await p.evaluate((k) => localStorage.getItem(k), CLAVE_KEY);
     ok(!!clave1 && !!guardada && guardada.includes(clave1), "reintento: tras el fallo de red la clave queda guardada");
+    // Sin guardar: lo dice claro, que no se ha cobrado nada, y ofrece volver a intentarlo (sin WhatsApp).
+    const sinGuardar = await p.evaluate(() => document.body.innerText);
+    ok(
+      /No hemos podido guardar tu pedido/.test(sinGuardar) && /No te hemos cobrado nada/.test(sinGuardar) && (await p.locator("#pago-volver-intentar").count()) === 1 && !/WhatsApp/i.test(sinGuardar),
+      "reintento: sin conexión dice «No hemos podido guardar tu pedido», que no se ha cobrado nada y «Volver a intentarlo»"
+    );
     await p.reload({ waitUntil: "load" });
     await rellenarYEnviar(p);
-    await p.getByText(/Pedido nº 102 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
+    await p.getByText("Pedido VZ-T102-ABCD").waitFor({ timeout: 20000 }).catch(() => {});
     const clave2 = llamadas.nuevo[1]?.p_clave;
     ok(llamadas.nuevo.length === 2, `reintento: dos peticiones en total (${llamadas.nuevo.length})`);
     ok(!!clave1 && clave1 === clave2, `reintento: el segundo intento manda la MISMA clave (${clave1} / ${clave2})`);
@@ -197,9 +213,9 @@ try {
     const p = await ctx.newPage();
     await p.goto(BASE + "/checkout", { waitUntil: "load", timeout: 60000 });
     await rellenarYEnviar(p);
-    await p.getByText(/Pedido nº 103 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
+    await p.getByText("Pedido VZ-T103-ABCD").waitFor({ timeout: 20000 }).catch(() => {});
     await p.waitForTimeout(1500);
-    ok(await p.getByText(/Pedido nº 103 recibido/).count() > 0, "repetido: se muestra el número del pedido ya existente");
+    ok(await p.getByText("Pedido VZ-T103-ABCD").count() > 0, "repetido: se muestra la referencia del pedido ya existente");
     ok(llamadas.retorno === 1, `repetido: se despierta el aviso a VeoAura una vez (por si la primera respuesta se perdió) (${llamadas.retorno})`);
     await ctx.close();
   }
@@ -213,13 +229,13 @@ try {
     await p.waitForTimeout(2500); // el primer intento (recogida) falla por red
     await p.reload({ waitUntil: "load" });
     await rellenarYEnviar(p, { envio: true });
-    await p.getByText(/Pedido nº 106 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
+    await p.getByText("Pedido VZ-T106-ABCD").waitFor({ timeout: 20000 }).catch(() => {});
     await p.waitForTimeout(1500);
     const [a, b] = llamadas.nuevo;
     ok(llamadas.nuevo.length === 2 && a?.p_datos?.entrega === "recogida" && b?.p_datos?.entrega === "envio", `cambio de entrega: primero recogida y después envío (${a?.p_datos?.entrega} → ${b?.p_datos?.entrega})`);
     ok(!!a?.p_clave && a.p_clave === b?.p_clave, `cambio de entrega: el reintento manda la MISMA clave, así que el servidor corrige ese pedido y no crea otro (${a?.p_clave} / ${b?.p_clave})`);
     ok(b?.p_datos?.direccion === "Calle de Prueba 1" && b?.p_datos?.codigo_postal === "50001", "cambio de entrega: el reintento lleva la dirección nueva");
-    ok(await p.getByText(/Pedido nº 106 recibido/).count() > 0 && llamadas.retorno === 1, `cambio de entrega: se muestra el pedido y se despierta el aviso a VeoAura (${llamadas.retorno})`);
+    ok(await p.getByText("Pedido VZ-T106-ABCD").count() > 0 && llamadas.retorno === 1, `cambio de entrega: se muestra el pedido y se despierta el aviso a VeoAura (${llamadas.retorno})`);
     await ctx.close();
   }
 
@@ -229,9 +245,9 @@ try {
     const p = await ctx.newPage();
     await p.goto(BASE + "/checkout", { waitUntil: "load", timeout: 60000 });
     await rellenarYEnviar(p);
-    await p.getByText(/Pedido nº 104 recibido/).waitFor({ timeout: 20000 }).catch(() => {});
+    await p.getByText("Pedido VZ-T104-ABCD").waitFor({ timeout: 20000 }).catch(() => {});
     ok(llamadas.nuevo.length === 1 && llamadas.antiguo.length === 1, `respaldo: se intenta la nueva (${llamadas.nuevo.length}) y se usa la antigua (${llamadas.antiguo.length})`);
-    ok(await p.getByText(/Pedido nº 104 recibido/).count() > 0, "respaldo: el pedido sigue adelante con la función antigua");
+    ok(await p.getByText("Pedido VZ-T104-ABCD").count() > 0, "respaldo: el pedido sigue adelante con la función antigua");
     await ctx.close();
   }
 } catch (e) {

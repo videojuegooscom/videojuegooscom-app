@@ -23,8 +23,12 @@
  *      ese orden; pagado con Bizum se apunta igual (complete + paid) y con pago_metodo «bizum» (la tarjeta, «card»); si
  *      Stripe rechaza Bizum (sin activar en la cuenta), se reintenta UNA vez sin él y el pago se abre, y la tienda deja de
  *      prometerlo; sin la columna pago_metodo, el pago se apunta igual.
+ *  P13) Referencia del pedido (2026-11-11): la página de pago y la descripción del cobro dicen «Pedido VZ-… ·
+ *      VideojuegosZaragoza» (nunca «nº»); «confirmar» la devuelve; «referencia» solo a quien hizo el pedido (clave de la
+ *      compra o su cuenta; si no, 404), con límite por IP y también sin la clave de Stripe.
  *  CONTROL) Sin la comprobación de Klarna o de Bizum en la privacidad, sin el reintento sin Bizum, sin la de
- *      administrador, sin la de «paid», sin la de la firma o sin la del dueño del pedido, las pruebas lo detectan.
+ *      administrador, sin la de «paid», sin la de la firma, sin la del dueño del pedido (al pagar y al pedir la
+ *      referencia) o con «Pedido nº» en Stripe, las pruebas lo detectan.
  *
  * Uso: node pruebas/pago-api.mjs
  * Sale con código 1 si algo falla.
@@ -62,6 +66,8 @@ const roles = { [ADMIN]: "admin", [CLIENTE]: "user" };
 const fila = (numero, extra) => ({
   id: `00000000-0000-4000-8000-${String(numero).padStart(12, "0")}`,
   numero,
+  // La referencia que ve el cliente (la pone la base de datos).
+  codigo_seguimiento: `VZ-T${numero}-ABCD`,
   estado: "pendiente",
   total_eur: 100,
   user_id: ADMIN,
@@ -420,6 +426,22 @@ async function bateria(manejador) {
   pagarEnStripe(id102, "pi_3SinColumna1");
   r.confirmaSinColumna = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: id102 } });
   r.fila102SinColumna = { ...pedido(102) };
+  sinColumnaMetodo = false;
+
+  // P13 Referencia del pedido (dueño, 2026-11-11): solo a quien lo hizo (clave de la compra o su cuenta), sin Stripe.
+  r.refConClave = await pedir(manejador, "POST", { cuerpo: { accion: "referencia", numero: 103, clave: CLAVE_ANON } });
+  r.refConCuenta = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "referencia", numero: 101 } });
+  r.refAjena = await pedir(manejador, "POST", { token: "token-cliente", cuerpo: { accion: "referencia", numero: 101 } });
+  r.refClaveMala = await pedir(manejador, "POST", { cuerpo: { accion: "referencia", numero: 103, clave: CLAVE_C } });
+  r.refSinNada = await pedir(manejador, "POST", { cuerpo: { accion: "referencia", numero: 103 } });
+  r.refMalNumero = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "referencia", numero: "1 or 1=1" } });
+  delete process.env.STRIPE_SECRET_KEY;
+  r.refSinStripe = await pedir(manejador, "POST", { cuerpo: { accion: "referencia", numero: 103, clave: CLAVE_ANON } });
+  r.crearSinStripe = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 101 } });
+  process.env.STRIPE_SECRET_KEY = CLAVE_PRUEBA;
+  limitePermitido = false;
+  r.refLimite = await pedir(manejador, "POST", { cuerpo: { accion: "referencia", numero: 103, clave: CLAVE_ANON } });
+  limitePermitido = true;
   return r;
 }
 
@@ -438,6 +460,14 @@ try {
   ok(r.adminCrea.codigo === 200 && /^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_/.test(r.adminCrea.cuerpo?.url ?? ""), `P2: el administrador abre el pago (${r.adminCrea.codigo} ${r.adminCrea.cuerpo?.url ?? r.adminCrea.cuerpo?.error})`);
   ok(c["line_items[0][price_data][unit_amount]"] === "10690" && c["line_items[0][price_data][currency]"] === "eur" && c["payment_method_types[0]"] === "card" && c.mode === "payment", `P2: el importe es el total GUARDADO (106,90 € → 10690), en euros y con tarjeta, aunque el navegador mande otro (${c["line_items[0][price_data][unit_amount]"]})`);
   ok(c["metadata[pedido_id]"] === pedido(101).id && c.client_reference_id === pedido(101).id && c["metadata[numero]"] === "101", "P2: la sesión lleva el pedido");
+  // Lo que ve el cliente en Stripe y en su banco: la referencia, nunca «Pedido nº 101» (dueño, 2026-11-11).
+  ok(
+    c["line_items[0][price_data][product_data][name]"] === "Pedido VZ-T101-ABCD · VideojuegosZaragoza" &&
+      c["payment_intent_data[description]"] === "Pedido VZ-T101-ABCD · VideojuegosZaragoza" &&
+      c["metadata[referencia]"] === "VZ-T101-ABCD" &&
+      !Object.values(c).some((v) => /nº|número/i.test(v)),
+    `P2: la línea del pago y la descripción llevan la referencia del pedido, sin el número interno (${c["line_items[0][price_data][product_data][name]"]} | ${c["payment_intent_data[description]"]})`
+  );
   ok(c.success_url === "https://videojuegoszaragoza.com/checkout?pago=ok&sesion={CHECKOUT_SESSION_ID}" && c.cancel_url === "https://videojuegoszaragoza.com/checkout?pago=cancelado&pedido=101", `P2: vuelve a la tienda (${c.success_url})`);
   ok(!Object.keys(c).some((k) => /email|customer|phone|address|name\]$/.test(k) && !/product_data/.test(k)), "P2: a Stripe no se le manda ningún dato del cliente");
   ok(/^vz-pago-.+-10690-\d+$/.test(r.sesion101?.clave ?? "") && Number(c.expires_at) - Date.now() / 1000 > 29 * 60, `P2: con clave de idempotencia y caducidad de unos 30 minutos (${r.sesion101?.clave})`);
@@ -453,7 +483,8 @@ try {
 
   ok(r.confirmarSinPagar.codigo === 200 && r.confirmarSinPagar.cuerpo?.pagado === false && r.filaSinPagar.pago_estado === "iniciado", "P6: una sesión sin pagar no apunta nada");
   ok(r.confirmarSinCobrar.cuerpo?.pagado === false && r.fila103.pago_estado === "iniciado", "P6: terminada pero aún sin cobrar (un pago que tarda), tampoco");
-  ok(r.confirmar.cuerpo?.pagado === true && r.confirmar.cuerpo?.numero === 101, `P6: pagada en Stripe, se confirma (${JSON.stringify(r.confirmar.cuerpo)})`);
+  ok(r.confirmar.cuerpo?.pagado === true && r.confirmar.cuerpo?.numero === 101 && r.confirmar.cuerpo?.referencia === "VZ-T101-ABCD", `P6: pagada en Stripe, se confirma con la referencia del pedido (${JSON.stringify(r.confirmar.cuerpo)})`);
+  ok(r.confirmarSinPagar.cuerpo?.referencia === "VZ-T101-ABCD", "P6: sin pagar, también devuelve la referencia (para «No se ha hecho el pago»)");
   ok(r.filaPagada.pago_estado === "pagado" && r.filaPagada.pagado_eur === 112.4 && r.filaPagada.pago_referencia === "pi_3Prueba123" && r.filaPagada.pago_modo === "prueba" && !!r.filaPagada.pagado_en, `P6: apunta «pagado», lo cobrado, la referencia y el modo (${JSON.stringify({ e: r.filaPagada.pago_estado, eur: r.filaPagada.pagado_eur, ref: r.filaPagada.pago_referencia })})`);
   ok(r.confirmarOtraVez.cuerpo?.pagado === true && r.pagadoEnIgual, "P6: confirmarlo otra vez no lo apunta dos veces");
   ok(r.otroModo.codigo === 404 && r.ajena.codigo === 404 && r.formato.codigo === 400, `P6: otra clave (real), un pago sin pedido o un formato raro no valen (${r.otroModo.codigo}, ${r.ajena.codigo}, ${r.formato.codigo})`);
@@ -495,6 +526,11 @@ try {
   ok(r.getTrasRechazo.cuerpo?.bizum === false && r.getTrasRechazo.cuerpo?.klarna === true, `P12: tras el rechazo, la tienda deja de prometer Bizum (${JSON.stringify(r.getTrasRechazo.cuerpo)})`);
   ok(r.confirmaSinColumna.cuerpo?.pagado === true && r.fila102SinColumna.pago_estado === "pagado" && r.fila102SinColumna.pago_metodo == null, `P12: sin la columna del método (migración sin aplicar), el pago se apunta igual (${r.fila102SinColumna.pago_estado})`);
 
+  ok(r.refConClave.codigo === 200 && r.refConClave.cuerpo?.referencia === "VZ-T103-ABCD" && r.refConCuenta.cuerpo?.referencia === "VZ-T101-ABCD", `P13: la referencia del pedido, con la clave de la compra (sin cuenta) o con su cuenta (${JSON.stringify(r.refConClave.cuerpo)})`);
+  ok(r.refAjena.codigo === 404 && r.refClaveMala.codigo === 404 && r.refSinNada.codigo === 404 && !r.refAjena.cuerpo?.referencia, `P13: de otra persona, con otra clave o sin nada, 404 sin decir si existe (${r.refAjena.codigo}, ${r.refClaveMala.codigo}, ${r.refSinNada.codigo})`);
+  ok(r.refMalNumero.codigo === 400 && r.refLimite.codigo === 429, `P13: un número raro, 400; pasado el límite por IP, 429 (${r.refMalNumero.codigo}, ${r.refLimite.codigo})`);
+  ok(r.refSinStripe.codigo === 200 && r.refSinStripe.cuerpo?.referencia === "VZ-T103-ABCD" && r.crearSinStripe.codigo === 503, `P13: sin la clave de Stripe, la referencia sigue saliendo (y pagar, no: ${r.crearSinStripe.codigo})`);
+
   // CONTROL: cada defensa quitada en una copia de la función; la batería tiene que notarlo.
   const fuente = readFileSync("api/pago.ts", "utf8");
   const carpeta = mkdtempSync(join(tmpdir(), "vz-pago-"));
@@ -509,6 +545,14 @@ try {
     ["klarna", '.includes("Klarna");', ".includes(\"\");", (m) => m.getSinKlarna.cuerpo?.klarna === true, "Klarna sale sin estar en la privacidad (P11)"],
     ["bizum", '.includes("Bizum")', '.includes("")', (m) => m.getSinBizum.cuerpo?.bizum === true, "Bizum sale sin estar en la privacidad (P12)"],
     ["reintento sin Bizum", "if (r.http === 200 || !m.bizum || !rechazoPorBizum(r.datos)) return r;", "return r;", (m) => m.creaRechazo.codigo !== 200, "si Stripe rechaza Bizum, el pago no se abre (P12)"],
+    [
+      "dueño de la referencia",
+      'if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");\n  return { ok: true, referencia',
+      'if (!p) throw new Rechazo(404, "pedido no encontrado");\n  return { ok: true, referencia',
+      (m) => m.refAjena.codigo === 200,
+      "otra persona ve la referencia de un pedido ajeno (P13)",
+    ],
+    ["referencia en Stripe", "const concepto = referencia ? `Pedido ${referencia}` : \"Pedido\";", "const concepto = `Pedido nº ${p.numero}`;", (m) => m.sesion101?.campos?.["line_items[0][price_data][product_data][name]"] !== "Pedido VZ-T101-ABCD · VideojuegosZaragoza", "la página de pago vuelve a decir «Pedido nº 101» (P2)"],
   ];
   for (const [nombre, buscar, poner, detecta, texto] of mutaciones) {
     const roto = fuente.replace(buscar, poner);

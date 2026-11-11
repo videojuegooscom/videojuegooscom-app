@@ -4,6 +4,8 @@
  * Qué hace: antes era una campanita; ahora es Blue, el capibara asistente de la
  * tienda (se monta una sola vez en app/_layout.tsx, fuera del Stack, así que no se
  * reinicia al navegar).
+ * - Avisos de pedidos: nombran el pedido por su referencia («Tu pedido VZ-XXXX-XXXX está enviado»), nunca por su número
+ *   interno (dueño, 2026-11-11).
  * - SOLO sale en Inicio, en las fichas de producto y de servicio y, para el dueño, en el panel (pantallaConBlue;
  *   dueño, 2026-11-04). En el resto de pantallas no se ve ni dice nada; la guía, si está abierta, sigue pasando por ellas.
  * - FIJO arriba a la derecha, donde no estorba (posicionFija): en las fichas, dentro de la cabecera, a la altura de la
@@ -235,7 +237,9 @@ const minutosQueQuedan = (ms: number) => Math.max(1, Math.ceil(ms / 60000));
 // en un dispositivo solo se apunta lo que hay (no se avisa de lo antiguo).
 type VistosSeg = { p: Record<string, string>; r: Record<string, string> };
 type SegAviso = { clave: string; tipo: "pedido" | "reparacion"; texto: string };
-type PedidoSegDato = { id: string; numero: number | null; estado: string; entrega: string | null };
+// referencia: el código del pedido que ve el cliente (pedidos.codigo_seguimiento, «VZ-XXXX-XXXX»); el número interno
+// (numero) ya no se le enseña (dueño, 2026-11-11: «como una empresa profesional»).
+type PedidoSegDato = { id: string; numero: number | null; referencia?: string | null; estado: string; entrega: string | null };
 // porEnvio: reparación por envío (entrega_modo = 'correos'; migración 20261111100000).
 type ReparacionSegDato = { id: string; titulo: string; etapa: string; actualizado: string; porEnvio?: boolean };
 // Sin la migración de la reparación por envío no existe entrega_modo: se pregunta una vez y se recuerda (sin repetir el 400).
@@ -264,24 +268,25 @@ export function firmaPedidoSeg(estado: string | null | undefined, devueltoEn: st
 }
 
 function avisoPedido(p: PedidoSegDato): string | null {
-  const n = p.numero ?? "";
+  // «tu pedido VZ-AB2C-D3EF»; sin la referencia, «tu pedido» a secas (nunca el número interno).
+  const n = p.referencia ? ` ${p.referencia}` : "";
   const [estado, devuelto] = p.estado.split("|");
   if (devuelto) {
     return estado === "cancelado"
-      ? `Tu pedido nº ${n} se ha cancelado y te hemos devuelto el pago`
-      : `Te hemos devuelto el pago de tu pedido nº ${n}`;
+      ? `Tu pedido${n} se ha cancelado y te hemos devuelto el pago`
+      : `Te hemos devuelto el pago de tu pedido${n}`;
   }
   switch (estado) {
     case "confirmado":
-      return `Tu pedido nº ${n} está confirmado`;
+      return `Tu pedido${n} está confirmado`;
     case "preparado":
-      return `Estamos preparando tu pedido nº ${n}`;
+      return `Estamos preparando tu pedido${n}`;
     case "enviado":
-      return p.entrega === "recogida" ? `Tu pedido nº ${n} está listo para recoger` : `Tu pedido nº ${n} está enviado`;
+      return p.entrega === "recogida" ? `Tu pedido${n} está listo para recoger` : `Tu pedido${n} está enviado`;
     case "entregado":
-      return `Tu pedido nº ${n} está entregado`;
+      return `Tu pedido${n} está entregado`;
     case "cancelado":
-      return `Tu pedido nº ${n} se ha cancelado`;
+      return `Tu pedido${n} se ha cancelado`;
     default:
       return null; // «pendiente»: es como queda al pedirlo, no es una novedad
   }
@@ -1393,7 +1398,7 @@ export default function Campanita() {
       const reparacionesCon = (columnas: string) => supabase.from("service_requests").select(columnas).eq("customer_user_id", uid).limit(50);
       const BASE_REP = "id,service_title,seguimiento,seguimiento_actualizado";
       const [pedPrimero, repPrimero] = await Promise.all([
-        pedidosCon("id,numero,estado,entrega,devuelto_en"),
+        pedidosCon("id,numero,codigo_seguimiento,estado,entrega,devuelto_en"),
         reparacionesCon(sinEntregaModo ? BASE_REP : `${BASE_REP},entrega_modo`),
       ]);
       let rep = repPrimero;
@@ -1402,15 +1407,16 @@ export default function Campanita() {
         rep = await reparacionesCon(BASE_REP);
       }
       const ped =
-        pedPrimero.error && /devuelto_en/.test(String(pedPrimero.error.message ?? "")) ? await pedidosCon("id,numero,estado,entrega") : pedPrimero;
+        pedPrimero.error && /devuelto_en/.test(String(pedPrimero.error.message ?? "")) ? await pedidosCon("id,numero,codigo_seguimiento,estado,entrega") : pedPrimero;
       segActualRef.current = {
         uid,
         pedidos: ped.error
           ? []
-          : ((ped.data ?? []) as unknown as { id: string; numero: number | null; estado: string | null; entrega: string | null; devuelto_en?: string | null }[]).map(
+          : ((ped.data ?? []) as unknown as { id: string; numero: number | null; codigo_seguimiento?: string | null; estado: string | null; entrega: string | null; devuelto_en?: string | null }[]).map(
               (p) => ({
                 id: String(p.id),
                 numero: p.numero ?? null,
+                referencia: p.codigo_seguimiento ?? null,
                 estado: firmaPedidoSeg(p.estado, p.devuelto_en),
                 entrega: p.entrega ?? null,
               })
