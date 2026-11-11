@@ -78,6 +78,10 @@
  *   abre app/vender.tsx con el modelo y la nota; «Devuélvemelo» paga solo la vuelta) y la garantía
  *   («Garantía hasta …» y «Ha vuelto a fallar», que crea una solicitud gratis enlazada). La vuelta de
  *   Stripe (?pago=ok&sesion=…) se confirma con el servidor.
+ *   Bizum de Stripe (dueño, 2026-11-11): si el servidor dice que la página de pago online ofrece Bizum
+ *   (GET /api/pago → bizum), el botón es «Pagar con tarjeta o Bizum» (si no, «Pagar con tarjeta»: nunca
+ *   se promete Bizum online sin él); el Bizum/transferencia «a mano» solo sale si el dueño rellenó sus
+ *   datos. En «Mis pedidos», «Pagado online con Bizum/tarjeta/Klarna» cuando se sabe (pedidos.pago_metodo).
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -1577,6 +1581,8 @@ type PedidoSeg = {
   // Pago con tarjeta (Stripe; migraciones 20261105120000 y 20261106100000): solo los escribe el servidor.
   pago_estado?: string | null;
   pago_modo?: string | null;
+  // Con qué se pagó online, según Stripe: card, klarna o bizum (migración 20261111150000; puede no venir).
+  pago_metodo?: string | null;
   pagado_eur?: number | string | null;
   pagado_en?: string | null;
   devuelto_eur?: number | string | null;
@@ -1655,18 +1661,20 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
   );
 }
 
-// «Pagado online · 240,00€ · 6 nov 2026» (tarjeta o Klarna) debajo del total (y, si se devolvió, «Devuelto …»): solo texto con su
-// icono, sin burbuja, como el resto de «Mis seguimientos».
+// «Pagado online con Bizum · 240,00€ · 6 nov 2026» (tarjeta, Bizum o Klarna, si se sabe) debajo del total (y, si se
+// devolvió, «Devuelto …»): solo texto con su icono, sin burbuja, como el resto de «Mis seguimientos».
+const METODO_ONLINE: Record<string, string> = { card: " con tarjeta", bizum: " con Bizum", klarna: " con Klarna" };
 function PagoDelPedido({ p }: { p: PedidoSeg }) {
   if (p.pago_estado !== "pagado") return null;
   const devuelto = !!p.devuelto_en;
+  const con = METODO_ONLINE[p.pago_metodo ?? ""] ?? "";
   return (
     <View nativeID={`seguimiento-pago-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
       <Ionicons name={devuelto ? "return-down-back-outline" : "card"} size={16} color={devuelto ? SEG.muted : SEG.ok} />
       <Text style={{ color: devuelto ? SEG.muted : SEG.ok, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>
         {devuelto
           ? `Pago devuelto · ${segEuros(Number(p.devuelto_eur))} · ${segFecha(p.devuelto_en ?? null)}`
-          : `Pagado online · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
+          : `Pagado online${con} · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
         {p.pago_modo === "prueba" ? " (de prueba)" : ""}
       </Text>
     </View>
@@ -2258,7 +2266,8 @@ function EnvioDeLaReparacion({
 // la base de datos) o por Bizum/transferencia (los datos del dueño y el concepto = número VZ-…; «Ya lo he pagado» solo
 // avisa). «Si no tiene arreglo»: «Te lo compramos» (Vender con el modelo y la nota) o «Devuélvemelo». Garantía: «Garantía
 // hasta …» y «Ha vuelto a fallar» (una solicitud nueva gratis enlazada; la base de datos comprueba que es suya, está
-// entregada y en plazo). Todo icono + texto; la única píldora azul de la tarjeta es «Pagar con tarjeta» cuando toca.
+// entregada y en plazo). Todo icono + texto; la única píldora azul de la tarjeta es «Pagar con tarjeta» (o «Pagar con
+// tarjeta o Bizum» si la página de pago online ofrece Bizum) cuando toca.
 
 type ConceptoPago = "etiqueta" | "reparacion";
 type GarantiaSeg = { hasta: Date | null; puede: boolean; abierta: boolean };
@@ -2311,6 +2320,7 @@ function PagoDeLaSolicitud({
   titulo,
   ajustes,
   tarjeta,
+  bizum = false,
   avisadoEn,
   onAvisado,
 }: {
@@ -2320,6 +2330,7 @@ function PagoDeLaSolicitud({
   titulo: string;
   ajustes: AjustesReparacionEnvio | null;
   tarjeta: boolean;
+  bizum?: boolean;
   avisadoEn: string | null | undefined;
   onAvisado: (patch: Partial<ReparacionSeg>) => void;
 }) {
@@ -2353,7 +2364,11 @@ function PagoDeLaSolicitud({
         window.location.assign(d.url);
         return;
       } else {
-        setAviso("No hemos podido abrir el pago con tarjeta. Inténtalo de nuevo en un rato o paga por Bizum o transferencia.");
+        setAviso(
+          manual
+            ? `No hemos podido abrir el pago online. Inténtalo de nuevo en un rato o ${manual.bizum && manual.iban ? "paga por Bizum o transferencia" : manual.bizum ? "paga por Bizum" : "paga por transferencia"} con los datos de aquí debajo.`
+            : "No hemos podido abrir el pago online. Inténtalo de nuevo en un rato o pregúntanos aquí debajo."
+        );
       }
     } catch {
       setAviso("No hemos podido abrir el pago: revisa tu conexión.");
@@ -2400,7 +2415,7 @@ function PagoDeLaSolicitud({
           accessibilityRole="button"
           style={({ pressed }) => ({ borderRadius: 999, minHeight: 44, paddingHorizontal: 22, justifyContent: "center", backgroundColor: SEG.accentDark, opacity: pressed || ocupado ? 0.85 : 1 })}
         >
-          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{ocupado ? "Abriendo el pago…" : "Pagar con tarjeta"}</Text>
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{ocupado ? "Abriendo el pago…" : bizum ? "Pagar con tarjeta o Bizum" : "Pagar con tarjeta"}</Text>
         </Pressable>
       ) : null}
       {manual && !avisadoEn ? (
@@ -2466,6 +2481,7 @@ function CobrosDeLaReparacion({
   r,
   ajustes,
   tarjeta,
+  bizum = false,
   garantia,
   onCambio,
   onGarantiaPedida,
@@ -2473,6 +2489,7 @@ function CobrosDeLaReparacion({
   r: ReparacionSeg;
   ajustes: AjustesReparacionEnvio | null;
   tarjeta: boolean;
+  bizum?: boolean;
   garantia: GarantiaSeg | null;
   onCambio: (id: string, patch: Partial<ReparacionSeg>) => void;
   onGarantiaPedida: () => void;
@@ -2558,7 +2575,7 @@ function CobrosDeLaReparacion({
   // 1) La etiqueta (por Correos, mientras no esté pagada y cueste algo).
   if (porEnvio && !terminada && !r.etiqueta_pagada_en && etiqueta > 0) {
     bloques.push(
-      <PagoDeLaSolicitud key="e" r={r} concepto="etiqueta" importe={etiqueta} titulo="Pagar la etiqueta" ajustes={ajustes} tarjeta={tarjeta} avisadoEn={r.etiqueta_avisada_en} onAvisado={cambiar} />
+      <PagoDeLaSolicitud key="e" r={r} concepto="etiqueta" importe={etiqueta} titulo="Pagar la etiqueta" ajustes={ajustes} tarjeta={tarjeta} bizum={bizum} avisadoEn={r.etiqueta_avisada_en} onAvisado={cambiar} />
     );
   }
   // 2) Sin arreglo: qué hacemos con el aparato.
@@ -2594,14 +2611,14 @@ function CobrosDeLaReparacion({
     );
     if (r.sin_arreglo_eleccion === "devolver" && porEnvio && vuelta > 0 && !pagado && !terminada) {
       bloques.push(
-        <PagoDeLaSolicitud key="v" r={r} concepto="reparacion" importe={vuelta} titulo="Pagar la vuelta" ajustes={ajustes} tarjeta={tarjeta} avisadoEn={r.pago_avisado_en} onAvisado={cambiar} />
+        <PagoDeLaSolicitud key="v" r={r} concepto="reparacion" importe={vuelta} titulo="Pagar la vuelta" ajustes={ajustes} tarjeta={tarjeta} bizum={bizum} avisadoEn={r.pago_avisado_en} onAvisado={cambiar} />
       );
     }
   }
   // 3) Reparación lista con el presupuesto aceptado: «Pagar y enviármelo» (la vuelta va incluida).
   if (porEnvio && !sinArreglo && r.seguimiento === "listo" && r.presupuesto_aceptado_en && presupuesto > 0 && !pagado) {
     bloques.push(
-      <PagoDeLaSolicitud key="r" r={r} concepto="reparacion" importe={presupuesto} titulo="Pagar y enviármelo" ajustes={ajustes} tarjeta={tarjeta} avisadoEn={r.pago_avisado_en} onAvisado={cambiar} />
+      <PagoDeLaSolicitud key="r" r={r} concepto="reparacion" importe={presupuesto} titulo="Pagar y enviármelo" ajustes={ajustes} tarjeta={tarjeta} bizum={bizum} avisadoEn={r.pago_avisado_en} onAvisado={cambiar} />
     );
   }
   if (pagado) {
@@ -3035,6 +3052,8 @@ function SeguimientosSeccion() {
   const [ajustesEnvio, setAjustesEnvio] = useState<AjustesReparacionEnvio | null>(null);
   // Parte 2: ¿puede pagar con tarjeta? (api/pago.ts, la misma regla que los pedidos) y el aviso de la vuelta de Stripe.
   const [tarjeta, setTarjeta] = useState(false);
+  // ¿La página de pago online ofrece también Bizum? (api/pago.ts; sin él, no se promete)
+  const [bizumOnline, setBizumOnline] = useState(false);
   const [avisoPago, setAvisoPago] = useState<{ ok: boolean; texto: string } | null>(null);
 
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
@@ -3092,10 +3111,12 @@ function SeguimientosSeccion() {
         }
         // Las devoluciones (migración 20261106100000) solo se piden si hay algún pedido pagado con tarjeta.
         const pagados = filas.filter((p) => p.pago_estado === "pagado").map((p) => p.id);
-        const devueltos: Record<string, { devuelto_eur: number | null; devuelto_en: string | null }> = {};
+        // Con qué se pagó online (pago_metodo, migración 20261111150000): si la columna aún no existe, sin él.
+        const devueltos: Record<string, { devuelto_eur: number | null; devuelto_en: string | null; pago_metodo?: string | null }> = {};
         if (pagados.length) {
-          const dev = await supabase.from("pedidos").select("id,devuelto_eur,devuelto_en").in("id", pagados);
-          for (const d of (dev.error ? [] : dev.data ?? []) as { id: string; devuelto_eur: number | null; devuelto_en: string | null }[]) devueltos[d.id] = d;
+          let dev: { data: any[] | null; error: any } = await supabase.from("pedidos").select("id,devuelto_eur,devuelto_en,pago_metodo").in("id", pagados);
+          if (dev.error) dev = await supabase.from("pedidos").select("id,devuelto_eur,devuelto_en").in("id", pagados);
+          for (const d of (dev.error ? [] : dev.data ?? []) as { id: string; devuelto_eur: number | null; devuelto_en: string | null; pago_metodo?: string | null }[]) devueltos[d.id] = d;
         }
         // Facturas de VeoAura (migración 20261110100000): con la sesión del cliente, solo ve las de sus pedidos. Sin la
         // tabla (42P01/PGRST205) no se enseña nada y no falla.
@@ -3218,10 +3239,12 @@ function SeguimientosSeccion() {
           if (aj?.parte2 && porPagar) {
             try {
               const resp = await fetch("/api/pago", { headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` } });
-              const d = (await resp.json().catch(() => null)) as { disponible?: boolean } | null;
+              const d = (await resp.json().catch(() => null)) as { disponible?: boolean; bizum?: boolean } | null;
               setTarjeta(resp.ok && d?.disponible === true);
+              setBizumOnline(resp.ok && d?.disponible === true && d?.bizum === true);
             } catch {
               setTarjeta(false);
+              setBizumOnline(false);
             }
           }
         }
@@ -3413,6 +3436,7 @@ function SeguimientosSeccion() {
                   r={r}
                   ajustes={ajustesEnvio}
                   tarjeta={tarjeta}
+                  bizum={bizumOnline}
                   garantia={garantiaDe(r, reparaciones, ajustesEnvio.garantia_meses)}
                   onCambio={(id, patch) => setReparaciones((lista) => lista.map((x) => (x.id === id ? { ...x, ...patch } : x)))}
                   onGarantiaPedida={() => cargar(true)}

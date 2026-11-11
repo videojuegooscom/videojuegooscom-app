@@ -87,6 +87,11 @@
  *    el importe de «pagado» (también con tarjeta) lo pone la base de datos; «sin arreglo» con la vuelta = la etiqueta y una
  *    sola elección; la garantía solo de la suya, entregada, en plazo, gratis y una abierta; la política sin cifras; se
  *    aplica tres veces (con sus «pruebas de las pruebas»: sin el importe de la base de datos, sin el plazo y sin el candado).
+ *  - Bizum de Stripe (20261111150000_privacidad_bizum_stripe.sql), sobre los pagos y sobre la parte 2: Bizum en la
+ *    privacidad y en los términos una sola vez y lo demás igual; pedidos.pago_metodo y service_requests.pago_metodo /
+ *    etiqueta_pago_metodo solo card, klarna o bizum, los apunta el servidor sin cambiar pago_modo ni importes, un cliente
+ *    no los toca y los permisos no cambian; la política «Reparación por envío» queda igual (con su «prueba de la prueba»:
+ *    sin «aún no nombra Bizum», la frase se repite).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2109,6 +2114,50 @@ try {
     ok(tar.peninsula === "6.90/true" && tar.mano === "0.00/true" && tar.local === "0.00/true", `Tarifas Correos: península 6,90 €; en mano y Zaragoza siguen a 0 € (${JSON.stringify(tar)})`);
     ok(tar.baleares === "0.00/false" && tar.ceuta_melilla === "0.00/false", "Tarifas Correos: Baleares, Ceuta y Melilla pasan a «escríbenos» (sin envío desde la web)");
     ok(tar.canarias === "9.50/true", "Tarifas Correos: lo que el dueño ya había puesto no se toca");
+
+    // Bizum de Stripe (20261111150000): Bizum en la privacidad y en los términos una sola vez (aplicada dos veces), lo
+    // demás igual; pedidos.pago_metodo con su comprobación (card, klarna o bizum), que escribe el servidor y no un cliente.
+    const BIZUM = readFileSync("supabase/migrations/20261111150000_privacidad_bizum_stripe.sql", "utf8");
+    const antesBizum = (await c39.query("select slug, sections::text as s from public.policy_pages order by slug")).rows;
+    await c39.query(BIZUM);
+    await c39.query(BIZUM);
+    const privB = (await c39.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const conQuienB = privB.find((s) => s.heading === "Con quién compartimos tus datos")?.body ?? "";
+    const precB = (await c39.query("select sections -> 1 ->> 'body' as b from public.policy_pages where slug = 'terminos'")).rows[0].b;
+    ok(
+      (conQuienB.match(/Si eliges pagar con Bizum/g) ?? []).length === 1 && /Klarna Bank AB/.test(conQuienB) && /Stripe Payments Europe/.test(conQuienB) && /app de tu banco/.test(conQuienB),
+      "Bizum: la privacidad nombra Bizum una sola vez (aplicada dos veces) y lo de Stripe y Klarna sigue"
+    );
+    ok((precB.match(/Si pagas con tarjeta, con Bizum o con Klarna/g) ?? []).length === 1 && !/Si pagas con tarjeta o con Klarna/.test(precB) && /confirmar el pedido sin pagar/.test(precB), `Bizum: los términos nombran Bizum una vez (${precB.slice(200, 300)})`);
+    const despuesBizum = (await c39.query("select slug, sections::text as s from public.policy_pages order by slug")).rows;
+    ok(
+      despuesBizum.filter((f) => f.slug !== "privacidad" && f.slug !== "terminos").every((f) => f.s === antesBizum.find((x) => x.slug === f.slug)?.s) &&
+        privB.filter((s) => s.heading !== "Con quién compartimos tus datos").every((s) => JSON.parse(antesBizum.find((x) => x.slug === "privacidad").s).some((a) => a.heading === s.heading && a.body === s.body)),
+      "Bizum: las otras políticas y los otros apartados de la privacidad quedan igual"
+    );
+    const rarosB = [];
+    for (const v of ["'tarjeta'", "'paypal'", "''"]) {
+      try {
+        await c39.query(`update public.pedidos set pago_metodo = ${v} where numero = 1`);
+        rarosB.push("entra");
+      } catch (e) {
+        rarosB.push(e.code);
+      }
+    }
+    const bienB = (await c39.query("update public.pedidos set pago_metodo = 'bizum' where numero = 1 returning pago_metodo, pago_modo")).rows[0];
+    const clienteMetodo = await como(c39, "authenticated", U1, "update public.pedidos set pago_metodo = 'card' where numero = 1", { confirmar: true });
+    const comprobacionB = Number((await c39.query("select count(*) as n from pg_constraint where conrelid = 'public.pedidos'::regclass and conname = 'pedidos_metodo_pago_valido'")).rows[0].n);
+    const politicasB = (await c39.query("select policyname from pg_policies where tablename = 'pedidos' order by 1")).rows.map((x) => x.policyname);
+    ok(
+      rarosB.every((x) => x === "23514") && bienB.pago_metodo === "bizum" && bienB.pago_modo === "prueba" && clienteMetodo.ok && clienteMetodo.cuantas === 0 && comprobacionB === 1 && politicasB.join(",") === "pedidos_admin_select,pedidos_admin_update,pedidos_cliente_select",
+      `Bizum: pedidos.pago_metodo solo card, klarna o bizum (una comprobación), pago_modo igual, un cliente no lo cambia y los permisos no cambian (${rarosB.join(", ")}; ${clienteMetodo.cuantas ?? clienteMetodo.codigo})`
+    );
+    // Prueba de la prueba: sin «aún no nombra Bizum», la frase se repetiría.
+    const BIZUM_SIN = BIZUM.replace("and p.sections::text not like '%Bizum%';", ";");
+    ok(BIZUM_SIN !== BIZUM, "(control) se ha podido quitar la condición «aún no nombra Bizum» en la copia de prueba");
+    await c39.query(BIZUM_SIN);
+    const privB2 = (await c39.query("select sections::text as s from public.policy_pages where slug = 'privacidad'")).rows[0].s;
+    ok((privB2.match(/Si eliges pagar con Bizum/g) ?? []).length === 2, "(control) sin la condición, Bizum se repetiría: la prueba SÍ lo detecta");
     await c39.end();
 
     // PRUEBA DE LAS PRUEBAS: sin la condición «ya nombra a Stripe», la frase se repetiría; sin las comprobaciones, entraría
@@ -2545,6 +2594,30 @@ try {
     await cP.query(`update public.service_requests set pago_estado = 'pagado', pago_modo = 'tarjeta', pagado_eur = 0.01, pagado_en = now(), stripe_sesion = 'cs_test_abcdefghij' where id = '${idT}'`);
     const trasT = await sel(idT);
     ok(trasT.pe === 80 && trasT.pago_modo === "tarjeta", `Envío 2: con tarjeta, el importe apuntado es el de la base de datos (80 €), no el que llegue (${trasT.pe})`);
+    // Bizum de Stripe (20261111150000) encima: con qué se pagó online (pago_metodo y etiqueta_pago_metodo) lo apunta el
+    // servidor; solo card, klarna o bizum; un cliente no puede tocarlo; la política «Reparación por envío» no cambia.
+    const BIZUM_RE = readFileSync("supabase/migrations/20261111150000_privacidad_bizum_stripe.sql", "utf8");
+    const polAntesB = (await cP.query("select sections::text as s from public.policy_pages where slug = 'reparacion-envio'")).rows[0].s;
+    await cP.query(BIZUM_RE);
+    await cP.query(BIZUM_RE);
+    await cP.query(`update public.service_requests set pago_metodo = 'bizum', etiqueta_pago_metodo = 'card' where id = '${idT}'`);
+    const trasB = await sel(idT);
+    const rarosRB = [];
+    for (const set of ["pago_metodo = 'tarjeta'", "etiqueta_pago_metodo = 'transferencia'"]) {
+      try {
+        await cP.query(`update public.service_requests set ${set} where id = '${idT}'`);
+        rarosRB.push("entra");
+      } catch (e) {
+        rarosRB.push(e.code);
+      }
+    }
+    const clienteRB = await cambiaU(U1, idT, "pago_metodo = 'klarna'");
+    const clienteRB2 = await cambiaU(U1, idT, "etiqueta_pago_metodo = 'klarna'");
+    const polDespuesB = (await cP.query("select sections::text as s from public.policy_pages where slug = 'reparacion-envio'")).rows[0].s;
+    ok(
+      trasB.pago_metodo === "bizum" && trasB.etiqueta_pago_metodo === "card" && trasB.pago_modo === "tarjeta" && trasB.pe === 80 && rarosRB.every((x) => x === "23514") && !clienteRB.ok && clienteRB.codigo === "42501" && !clienteRB2.ok && polDespuesB === polAntesB && /con tarjeta, Bizum o transferencia/.test(polDespuesB),
+      `Bizum: en la reparación, el servidor apunta con qué se pagó online (Bizum) sin cambiar pago_modo ni el importe; valores raros no entran; un cliente no lo toca; la política de la reparación sigue igual (${rarosRB.join(", ")}; ${clienteRB.codigo}, ${clienteRB2.codigo})`
+    );
     // Enviada con su número de Correos y entregada (la fecha de entrega la pone la base de datos).
     await comoAdmin(idR, "seguimiento = 'enviada', vuelta_seguimiento = 'PK123456789ES'");
     await comoAdmin(idR, "seguimiento = 'entregado'");

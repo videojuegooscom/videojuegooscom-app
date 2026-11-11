@@ -209,6 +209,11 @@
  *    «Devuélvemelo») y la garantía («Garantía hasta…», «Ha vuelto a fallar» crea la solicitud enlazada; fuera de plazo no
  *    sale), a 360 y 390 px y una sola píldora azul por tarjeta; Administración (peso por servicio con «estimado», marcar
  *    pagado con forma y fecha, diagnóstico, enviada con su nº, filtro «Cobro y garantía»); Analítica (embudo completo).
+ *  - Bizum de Stripe (2026-11-11, migración 20261111150000), en PT y RE3: debajo de «Pagar» se nombra Bizum solo si el
+ *    servidor lo ofrece (con o sin Klarna); «Pagar con tarjeta o Bizum» en «Mis seguimientos» solo entonces (si no,
+ *    «Pagar con tarjeta»), sigue siendo la única píldora azul; «Pagado online con Bizum» en «Mis pedidos» y en
+ *    Administración → Pedidos (con el recuento por forma de pago), «por Bizum online» en Servicios y el recuento por
+ *    forma de pago en Analítica (solo números).
  * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|RE3|AC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
@@ -499,6 +504,13 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     if (metodo === "HEAD" && url.pathname.endsWith("/rest/v1/escaparate_salida")) {
       return json([], 200, { "content-range": `*/${estado.salida ?? 0}`, "access-control-expose-headers": "*" });
     }
+    // Analítica (sección PT): pagos online por forma de pago (pago_metodo / etiqueta_pago_metodo), contados sin descargar filas.
+    if (metodo === "HEAD" && estado.pagosPorMetodo && /\/rest\/v1\/(pedidos|service_requests)$/.test(url.pathname)) {
+      const col = url.searchParams.has("etiqueta_pago_metodo") ? "etiqueta" : "pago";
+      const m = (url.searchParams.get(col === "etiqueta" ? "etiqueta_pago_metodo" : "pago_metodo") ?? "").replace(/^eq\./, "");
+      const n = url.pathname.endsWith("/pedidos") ? estado.pagosPorMetodo.pedidos[m] : estado.pagosPorMetodo[col][m];
+      return json([], 200, { "content-range": `*/${n ?? 0}`, "access-control-expose-headers": "*" });
+    }
     // Blue del administrador: pedidos y reparaciones olvidados (48 h sin cambios), contados sin descargar filas.
     if (metodo === "HEAD" && estado.olvidados && /\/rest\/v1\/(pedidos|service_requests)$/.test(url.pathname)) {
       const n = url.pathname.endsWith("/pedidos") ? estado.olvidados.pedidos : estado.olvidados.reparaciones;
@@ -592,7 +604,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const auth = peticion.headers()["authorization"] ?? "";
       if (metodo === "GET") {
         estado.pago.consultas = [...(estado.pago.consultas ?? []), auth];
-        return json({ ok: true, disponible: estado.pago.disponible, modo: estado.pago.disponible ? estado.pago.modo : null, klarna: estado.pago.klarna === true });
+        return json({ ok: true, disponible: estado.pago.disponible, modo: estado.pago.disponible ? estado.pago.modo : null, klarna: estado.pago.klarna === true, bizum: estado.pago.bizum === true });
       }
       const cuerpo = JSON.parse(peticion.postData() ?? "{}");
       estado.pago.peticiones = [...(estado.pago.peticiones ?? []), { cuerpo, auth }];
@@ -8099,6 +8111,26 @@ async function seccionPT() {
     await ctx.close();
   });
 
+  // PT1b) Bizum de Stripe (dueño, 2026-11-11): debajo del botón se nombra Bizum solo si el servidor lo ofrece (bizum: true),
+  // con Klarna o sin él; sin él, no se promete (lo comprueba PT1).
+  await bloque("PT1b Bizum en la página de pago", async () => {
+    for (const [klarna, esperado] of [
+      [true, /^Pago seguro en la página de Stripe con tarjeta, Apple Pay, Bizum o Klarna \(también a plazos\)\. La tienda nunca ve los datos de tu tarjeta\.$/],
+      [false, /^Pago seguro en la página de Stripe con tarjeta, Apple Pay o Bizum\. La tienda nunca ve los datos de tu tarjeta\.$/],
+    ]) {
+      const estado = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", klarna, bizum: true } };
+      const ctx = await contexto(navegador, CLIENTE, "user", estado);
+      await conCesta(ctx);
+      const p = await pagina(ctx, "/checkout");
+      await p.locator("#pago-metodos").waitFor({ timeout: 30000 }).catch(() => {});
+      await p.waitForTimeout(400);
+      ok(esperado.test(await texto(p, "#pago-metodos")), `PT: con Bizum en el servidor${klarna ? " y Klarna" : ""}, lo dice debajo del botón (${await texto(p, "#pago-metodos")})`);
+      ok(/^Pagar · 100,00€$/.test(await texto(p, "#pago-tarjeta")) && p.errores.length === 0, `PT: con Bizum, el mismo botón «Pagar» con el total y sin errores (${await texto(p, "#pago-tarjeta")})`);
+      if (klarna) await capturar(p, "PT1b-pago-bizum");
+      await ctx.close();
+    }
+  });
+
   // PT2) Modo real con un cliente: cancela en Stripe, vuelve, reintenta con la misma clave y paga; la analítica cuenta
   // «Pago con tarjeta» y «Pagado con tarjeta» una sola vez (también al recargar).
   await bloque("PT2 cliente en modo real", async () => {
@@ -8204,7 +8236,7 @@ async function seccionPT() {
     const pedidos = [
       base(201, { pago_estado: "pagado", pago_modo: "prueba", pago_referencia: "pi_3Prueba201", pagado_eur: 106.9, pagado_en: ahora }),
       base(202, { pago_estado: "iniciado", pago_modo: "real" }),
-      base(203, { estado: "cancelado", total_eur: 50, pago_estado: "pagado", pago_modo: "real", pago_referencia: "pi_3Real203", pagado_eur: 50, pagado_en: ahora }),
+      base(203, { estado: "cancelado", total_eur: 50, pago_estado: "pagado", pago_modo: "real", pago_referencia: "pi_3Real203", pagado_eur: 50, pagado_en: ahora, pago_metodo: "bizum" }),
       base(204, {}),
       base(205, { total_eur: 120, pago_estado: "pagado", pago_modo: "real", pago_referencia: "pi_3Real205", pagado_eur: 106.9, pagado_en: ahora }),
     ];
@@ -8214,9 +8246,10 @@ async function seccionPT() {
     await p.locator("#pedidos-pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
     ok(
-      /^Pago online \(Stripe: tarjeta o Klarna\) · pagados: 3 \(cobrado de verdad: 156,90€; de prueba: 1\) · empezados sin terminar: 1 · por devolver: 1$/.test(await texto(p, "#pedidos-pago-tarjeta")),
-      `PT: Pedidos cuenta los pagados (y lo cobrado de verdad), los de prueba, los sin terminar y los que hay que devolver (${await texto(p, "#pedidos-pago-tarjeta")})`
+      /^Pago online \(Stripe: tarjeta, Bizum o Klarna\) · pagados: 3 \(cobrado de verdad: 156,90€; de prueba: 1\) · con tarjeta: 0, Bizum: 1, Klarna: 0 · empezados sin terminar: 1 · por devolver: 1$/.test(await texto(p, "#pedidos-pago-tarjeta")),
+      `PT: Pedidos cuenta los pagados (y lo cobrado de verdad), los de prueba, por forma de pago, los sin terminar y los que hay que devolver (${await texto(p, "#pedidos-pago-tarjeta")})`
     );
+    ok(/^Pagado online con Bizum · 50,00€ · /.test(await texto(p, "#pedido-pago-203")), `PT: un pedido pagado con Bizum lo dice (${await texto(p, "#pedido-pago-203")})`);
     ok(/^Pagado online · 106,90€ · .+ · de prueba \(sin cobro real\) Ver el pago en Stripe$/.test(await texto(p, "#pedido-pago-201")), `PT: un pedido pagado enseña cuánto, cuándo, que fue de prueba y su enlace (${await texto(p, "#pedido-pago-201")})`);
     ok(/^Pago online empezado, sin terminar$/.test(await texto(p, "#pedido-pago-202")) && (await p.locator("#pedido-pago-204").count()) === 0, "PT: uno empezado sin terminar lo dice; uno sin pago con tarjeta no enseña nada");
     ok(/El total ahora es 120,00€: la diferencia se arregla desde Stripe o por el chat\./.test(await texto(p, "#pedido-pago-205")), `PT: si el total cambió después de pagar, lo avisa (${await texto(p, "#pedido-pago-205")})`);
@@ -8332,7 +8365,7 @@ async function seccionPT() {
       guardados: [],
       numeros: {
         pedidos: [
-          pedido(41, { pago_estado: "pagado", pago_modo: "real", pagado_eur: 240, pagado_en: "2026-11-06T06:21:00Z" }),
+          pedido(41, { pago_estado: "pagado", pago_modo: "real", pagado_eur: 240, pagado_en: "2026-11-06T06:21:00Z", pago_metodo: "bizum" }),
           pedido(42, { pago_estado: "pagado", pago_modo: "real", pagado_eur: 99.9, pagado_en: "2026-11-05T10:00:00Z", devuelto_eur: 99.9, devuelto_en: "2026-11-06T08:00:00Z" }),
           pedido(43, {}),
         ],
@@ -8344,7 +8377,7 @@ async function seccionPT() {
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
     await p.locator("#seguimiento-pago-41").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(500);
-    ok(/^Pagado online · 240,00€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-41")), `PT: «Mis seguimientos» dice «Pagado online» con el importe y la fecha (${await texto(p, "#seguimiento-pago-41")})`);
+    ok(/^Pagado online con Bizum · 240,00€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-41")), `PT: «Mis seguimientos» dice «Pagado online» con la forma de pago, el importe y la fecha (${await texto(p, "#seguimiento-pago-41")})`);
     ok(/^Pago devuelto · 99,90€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-42")) && (await p.locator("#seguimiento-pago-43").count()) === 0, `PT: si se devolvió lo dice; sin pago con tarjeta, nada (${await texto(p, "#seguimiento-pago-42")})`);
     const debajo = await p.evaluate(() => {
       const pago = document.getElementById("seguimiento-pago-41");
@@ -8424,6 +8457,8 @@ async function seccionPT() {
         { event_name: "pago_tarjeta", created_at: ahora },
         { event_name: "pago_tarjeta_ok", created_at: ahora },
       ],
+      // Bizum de Stripe: recuentos por forma de pago (pedidos; reparaciones y etiquetas).
+      pagosPorMetodo: { pedidos: { card: 2, bizum: 1, klarna: 0 }, pago: { card: 1, bizum: 2, klarna: 0 }, etiqueta: { card: 0, bizum: 1, klarna: 1 } },
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const p = await pagina(ctx, "/admin/analytics");
@@ -8431,6 +8466,9 @@ async function seccionPT() {
     await p.waitForTimeout(1000);
     const todo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
     ok(/Pago online: 2/.test(todo) && /Pagado online: 1/.test(todo) && /Inicio de pago: 1/.test(todo), `PT: Analítica cuenta los pagos online abiertos y los pagados (${(todo.match(/Pago online: \d+|Pagado online: \d+/g) ?? []).join(", ")})`);
+    await p.locator("#analitica-pago-metodos").waitFor({ timeout: 15000 }).catch(() => {});
+    const metodos = await texto(p, "#analitica-pago-metodos");
+    ok(/tarjeta 3 · Bizum 4 · Klarna 1 \(pedidos: 2\/1\/0 · reparaciones y etiquetas: 1\/3\/1\)/.test(metodos), `PT: Analítica cuenta los pagos online por forma de pago, solo números (${metodos})`);
     ok(p.errores.length === 0, `PT: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
   });
@@ -9572,6 +9610,7 @@ async function seccionRE3() {
     const azulesL = await azulesEn(p, `#seguimiento-cobros-${L}`);
     const azulesEnvioL = await azulesEn(p, `#seguimiento-envio-${L}`);
     ok(azulesL === 1 && azulesEnvioL === 0, `RE3: en la reparación lista, «Pagar con tarjeta» es la única píldora azul (${azulesL} + ${azulesEnvioL})`);
+    ok((await texto(p, `#seguimiento-pagar-tarjeta-reparacion-${L}`)) === "Pagar con tarjeta", `RE3: sin Bizum en el pago online, el botón no lo promete (${await texto(p, `#seguimiento-pagar-tarjeta-reparacion-${L}`)})`);
     // Bizum / transferencia: plegable, con el concepto VZ-…; se abre y se cierra.
     await p.locator(`#seguimiento-pago-manual-boton-reparacion-${L}`).click();
     await p.waitForTimeout(300);
@@ -9678,13 +9717,19 @@ async function seccionRE3() {
 
   // RE3-4) Vuelta de Stripe: se confirma con el servidor y se limpia la dirección. Y sin la migración, nada de esto sale.
   {
-    const estado = { filas: PERFIL_RE, guardados: [], pago: { disponible: true, modo: "prueba" }, re2: { ajustes: { ...AJUSTES }, solicitudes: SOLICITUDES() } };
+    // (con Bizum en el pago online: el botón lo dice, y sigue siendo la única píldora azul)
+    const estado = { filas: PERFIL_RE, guardados: [], pago: { disponible: true, modo: "prueba", bizum: true }, re2: { ajustes: { ...AJUSTES }, solicitudes: SOLICITUDES() } };
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil?tab=seguimientos&pago=ok&sesion=cs_test_vueltaRE3abc");
     await p.locator("#seguimiento-pago-vuelta").waitFor({ timeout: 40000 }).catch(() => {});
     const conf = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "confirmar");
     const avisoTxt = await texto(p, "#seguimiento-pago-vuelta");
     ok(!!conf && conf.cuerpo.sesion === "cs_test_vueltaRE3abc" && /Pago recibido/.test(avisoTxt) && !/pago=/.test(p.url()), `RE3: a la vuelta de Stripe se confirma con el servidor y se limpia la dirección (${avisoTxt} · ${p.url()})`);
+    await p.locator(`#seguimiento-pagar-tarjeta-reparacion-${L}`).waitFor({ timeout: 20000 }).catch(() => {});
+    const botonBizum = await texto(p, `#seguimiento-pagar-tarjeta-reparacion-${L}`);
+    ok(botonBizum === "Pagar con tarjeta o Bizum" && (await azulesEn(p, `#seguimiento-cobros-${L}`)) === 1, `RE3: con Bizum en el pago online, «Pagar con tarjeta o Bizum», la única píldora azul (${botonBizum})`);
+    await p.evaluate((l) => document.querySelector(`#seguimiento-cobros-${l}`)?.scrollIntoView({ block: "center" }), L);
+    await capturar(p, "RE3-6-pagar-con-bizum-390");
     ok(p.errores.length === 0, `RE3: la vuelta de Stripe sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
     const { garantia_meses: _g, ...sinParte2 } = AJUSTES;
@@ -9706,7 +9751,8 @@ async function seccionRE3() {
     const filas = [
       { ...SOLICITUDES()[1], pago_avisado_en: "2026-11-11T10:00:00Z" },
       { ...SOLICITUDES()[2], sin_arreglo_eleccion: "devolver", sin_arreglo_eleccion_en: "2026-11-11T10:00:00Z" },
-      { ...SOLICITUDES()[3] },
+      // (pagada online con Bizum de Stripe: pago_modo «tarjeta» y pago_metodo «bizum», migración 20261111150000)
+      { ...SOLICITUDES()[3], pago_modo: "tarjeta", pago_metodo: "bizum" },
       { ...base, id: GN, codigo_seguimiento: "VZ-NUEV-GGGG", seguimiento: "solicitado", garantia_de: G, presupuesto_eur: 0, presupuesto_aceptado_en: "2026-11-11T11:00:00Z", etiqueta_eur: 0, etiqueta_pagada_en: null },
       { ...base, id: R, codigo_seguimiento: "VZ-DIAG-RRRR", seguimiento: "diagnostico" },
     ];
@@ -9747,6 +9793,7 @@ async function seccionRE3() {
     await p.locator("#solicitudes-filtro-cobro select").selectOption("ALL").catch(() => {});
     await p.waitForTimeout(300);
     ok(/El cliente dice que ya lo pagó/.test(await texto(p, `#solicitud-pago-avisado-${L}`)), "RE3: se ve que el cliente dice que ya lo pagó");
+    ok(/^Pagado 49,90€ por Bizum online el /.test(await texto(p, `#solicitud-pago-${G}`)), `RE3: lo pagado online dice con qué de verdad (${await texto(p, `#solicitud-pago-${G}`)})`);
     // Marcar reparación pagada: forma y fecha, sin importe (lo pone la base de datos).
     await p.locator(`#solicitud-envio-${L}`).getByText("Marcar reparación pagada", { exact: true }).click();
     await p.locator(`#solicitud-pago-marcar-${L}`).getByText("Transferencia", { exact: true }).click();

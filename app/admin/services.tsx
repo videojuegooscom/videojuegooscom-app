@@ -66,6 +66,9 @@
  *   la base de datos), los avisos «ya lo he pagado» del cliente, el diagnóstico («Sin arreglo» y «Te lo
  *   compramos por»), qué eligió el cliente, «Marcar enviada» con el nº de Correos de la vuelta y la
  *   marca «Garantía»; el filtro «Cobro y garantía» y su resumen con cuántas hay de cada.
+ *   Bizum de Stripe (dueño, 2026-11-11; migración 20261111150000): lo pagado online dice con qué de verdad
+ *   («por Bizum online», «por tarjeta online», «por Klarna online»; lo dice Stripe, pago_metodo y
+ *   etiqueta_pago_metodo); sin esas columnas, «por tarjeta» como antes. El recuento está en Analítica.
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("services") dentro del
  *   Stack protegido del panel admin.
@@ -235,6 +238,9 @@ type ServiceRequestRow = {
   etiqueta_avisada_en?: string | null;
   pago_estado?: string | null;
   pago_modo?: string | null;
+  // Con qué se pagó online, según Stripe: card, klarna o bizum (migración 20261111150000; puede no existir aún).
+  pago_metodo?: string | null;
+  etiqueta_pago_metodo?: string | null;
   pagado_eur?: number | null;
   pagado_en?: string | null;
   pago_avisado_en?: string | null;
@@ -259,6 +265,15 @@ const FORMAS_PAGO = [
   { value: "tarjeta", label: "Tarjeta" },
 ] as const;
 const FORMA_PAGO_LABEL: Record<string, string> = { bizum: "Bizum", transferencia: "transferencia", tarjeta: "tarjeta", prueba: "tarjeta (de prueba)" };
+// Pagado online (pago_modo «tarjeta» o «prueba»: la página de Stripe): con qué de verdad, si Stripe lo dijo (migración
+// 20261111150000). «por Bizum online», «por Klarna online»…
+const COLUMNAS_METODO = "pago_metodo,etiqueta_pago_metodo";
+const METODO_ONLINE_LABEL: Record<string, string> = { card: "tarjeta online", bizum: "Bizum online", klarna: "Klarna online" };
+function formaDePago(modo: string | null | undefined, metodo: string | null | undefined): string {
+  if (!modo) return "";
+  const online = (modo === "tarjeta" || modo === "prueba") && metodo ? METODO_ONLINE_LABEL[metodo] : null;
+  return online ? `${online}${modo === "prueba" ? " (de prueba)" : ""}` : FORMA_PAGO_LABEL[modo] ?? modo;
+}
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 // Sin la migración de la reparación por envío, se pregunta una vez y se recuerda (no se repite el error en cada carga).
 let sinColumnasEnvio = false;
@@ -944,7 +959,7 @@ function PanelEnvioSolicitud({
             {request.etiqueta_peso_kg != null ? ` (${String(request.etiqueta_peso_kg).replace(".", ",")} kg)` : ""}
             {" · "}
             {request.etiqueta_pagada_en
-              ? `pagada el ${formatDate(request.etiqueta_pagada_en)}${request.etiqueta_pago_modo ? ` por ${FORMA_PAGO_LABEL[request.etiqueta_pago_modo] ?? request.etiqueta_pago_modo}` : ""}`
+              ? `pagada el ${formatDate(request.etiqueta_pagada_en)}${request.etiqueta_pago_modo ? ` por ${formaDePago(request.etiqueta_pago_modo, request.etiqueta_pago_metodo)}` : ""}`
               : Number(request.etiqueta_eur ?? 0) === 0 && request.etiqueta_eur != null
                 ? "gratis"
                 : "sin pagar"}
@@ -1065,7 +1080,7 @@ function PanelEnvioSolicitud({
             <>
               <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
                 {request.pago_estado === "pagado"
-                  ? `Pagado ${fmtEUR(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${FORMA_PAGO_LABEL[request.pago_modo] ?? request.pago_modo}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
+                  ? `Pagado ${fmtEUR(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${formaDePago(request.pago_modo, request.pago_metodo)}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
                   : request.diagnostico_resultado === "sin_arreglo"
                     ? request.sin_arreglo_eleccion === "devolver" && request.vuelta_eur != null
                       ? `Pendiente de pago: la vuelta, ${fmtEUR(Number(request.vuelta_eur))}`
@@ -1894,7 +1909,9 @@ export default function AdminServices() {
       const conParte2 = !sinColumnasEnvio && !!(await cargarAjustesReparacionEnvio())?.parte2;
       setParte2Ok(conParte2);
       if (conParte2) {
-        res = await consulta(`${completa},modalidad,modalidad_precio_eur,${COLUMNAS_ENVIO},${COLUMNAS_ENVIO_2}`);
+        // Con qué se pagó online (migración 20261111150000); sin esas columnas, como antes.
+        res = await consulta(`${completa},modalidad,modalidad_precio_eur,${COLUMNAS_ENVIO},${COLUMNAS_ENVIO_2},${COLUMNAS_METODO}`);
+        if (res.error) res = await consulta(`${completa},modalidad,modalidad_precio_eur,${COLUMNAS_ENVIO},${COLUMNAS_ENVIO_2}`);
         if (res.error && faltaEsquema(res.error)) setParte2Ok(false);
       }
       if (!sinColumnasEnvio && res.error) {

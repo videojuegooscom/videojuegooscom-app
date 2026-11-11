@@ -11,6 +11,9 @@
  * pregunta a Stripe y solo entonces sale «pagado». «Confirmar sin pagar ahora» sigue como antes (pago por el chat). Con
  * la clave de prueba de Stripe solo lo ve el administrador. Se mide con la analítica propia (pago_tarjeta y
  * pago_tarjeta_ok, Administración → Analítica) y cada pedido enseña su pago en Administración → Pedidos.
+ * Debajo del botón se dice con qué se puede pagar en la página de Stripe (textoMetodosPago): tarjeta y Apple Pay y, solo
+ * si el servidor los ofrece, Bizum (2026-11-11) y Klarna a plazos (2026-11-06). Con qué se pagó de verdad se ve en
+ * Administración → Pedidos y se cuenta en Analítica.
  *
  * Cómo funciona: guarda el carrito en local con la misma clave que usa
  * cesta.tsx (CART_KEY = "videojuegoos_cart_v1"), valida el formulario campo
@@ -195,8 +198,17 @@ function funcionNoDisponible(e: { code?: string; message?: string }): boolean {
 }
 
 // --- Pago con tarjeta (api/pago.ts, Stripe) ---------------------------------------------------------------------------
-// klarna: la página de pago también ofrece Klarna (solo cuando la privacidad ya lo nombra; api/pago.ts).
-type PagoTarjeta = { disponible: boolean; modo: "prueba" | "real" | null; klarna?: boolean };
+// klarna / bizum: la página de pago también ofrece Klarna / Bizum (solo cuando la privacidad ya los nombra y, Bizum,
+// cuando Stripe no lo ha rechazado; api/pago.ts). Sin ellos no se prometen.
+type PagoTarjeta = { disponible: boolean; modo: "prueba" | "real" | null; klarna?: boolean; bizum?: boolean };
+
+// «Pago seguro en la página de Stripe con tarjeta, Apple Pay, Bizum o Klarna (también a plazos)…», solo con lo que se ofrece.
+function textoMetodosPago(p: PagoTarjeta): string {
+  const m = ["tarjeta", "Apple Pay"];
+  if (p.bizum) m.push("Bizum");
+  if (p.klarna) m.push("Klarna (también a plazos)");
+  return `Pago seguro en la página de Stripe con ${m.slice(0, -1).join(", ")} o ${m[m.length - 1]}. La tienda nunca ve los datos de tu tarjeta.`;
+}
 // En la confirmación: null = pedido sin pago con tarjeta (como siempre); el resto, cómo va el pago.
 type EstadoPago = "comprobando" | "pagado" | "sin_confirmar" | "cancelado" | "sin_abrir" | null;
 
@@ -635,9 +647,9 @@ export default function CheckoutScreen() {
     (async () => {
       try {
         const r = await fetch("/api/pago", { headers: await cabecerasConSesion() });
-        const d = (await r.json().catch(() => null)) as { ok?: boolean; disponible?: boolean; modo?: string; klarna?: boolean } | null;
+        const d = (await r.json().catch(() => null)) as { ok?: boolean; disponible?: boolean; modo?: string; klarna?: boolean; bizum?: boolean } | null;
         if (vivo && r.ok && d?.ok) {
-          setPagoTarjeta({ disponible: d.disponible === true, modo: d.modo === "prueba" || d.modo === "real" ? d.modo : null, klarna: d.klarna === true });
+          setPagoTarjeta({ disponible: d.disponible === true, modo: d.modo === "prueba" || d.modo === "real" ? d.modo : null, klarna: d.klarna === true, bizum: d.bizum === true });
         }
       } catch {
         // sin servidor: como siempre, sin pago con tarjeta
@@ -1283,12 +1295,10 @@ export default function CheckoutScreen() {
                 </Pressable>
               </View>
 
-              {/* Cómo se paga en la página de Stripe: tarjeta (con Apple Pay) y, si se ofrece, Klarna a plazos (dueño, 2026-11-06). */}
+              {/* Cómo se paga en la página de Stripe: tarjeta (con Apple Pay) y, si se ofrecen, Bizum (2026-11-11) y Klarna a plazos (2026-11-06). */}
               {pagoTarjeta.disponible ? (
                 <Text nativeID="pago-metodos" style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                  {pagoTarjeta.klarna
-                    ? "Pago seguro en la página de Stripe con tarjeta, Apple Pay o Klarna (también a plazos). La tienda nunca ve los datos de tu tarjeta."
-                    : "Pago seguro en la página de Stripe con tarjeta o Apple Pay. La tienda nunca ve los datos de tu tarjeta."}
+                  {textoMetodosPago(pagoTarjeta)}
                 </Text>
               ) : null}
               {/* Con pago con tarjeta, confirmar sin pagar sigue como siempre (el pago se habla por el chat). Solo texto. */}
