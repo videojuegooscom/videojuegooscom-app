@@ -46,6 +46,7 @@
  * - lib/analytics.ts → quien registra los eventos que esta pantalla resume.
  * - app/noticias/[id].tsx, app/noticias/index.tsx → «Noticias: visitas desde Google»
  *   (#analitica-noticias-organicas): páginas vistas por categoría y entradas desde buscadores.
+ * - app/(tabs)/blue-ia.tsx → «Blue: ver mis facturas» y «Blue: factura descargada» (#analitica-facturas, 2026-11-11).
  * - app/(tabs)/perfil.tsx → «Pedidos: factura descargada» (#analitica-facturas): facturas de VeoAura
  *   descargadas desde «Mis pedidos» (api/factura.ts).
  * - Reparación por envío (#analitica-reparacion-envio, migración 20261111100000): el embudo contado en
@@ -811,6 +812,9 @@ export default function AdminAnalytics() {
       meGustaServicio: findExact("Servicio: me gusta"),
       // Facturas de VeoAura descargadas por los clientes en «Mis pedidos» (app/(tabs)/perfil.tsx).
       facturaDescargada: findExact("Pedidos: factura descargada"),
+      // Las facturas desde Blue IA (app/(tabs)/blue-ia.tsx, 2026-11-11): «Ver mis facturas» y «Descargar factura» ahí mismo.
+      blueVerFacturas: findExact("Blue: ver mis facturas"),
+      blueFacturaDescargada: findExact("Blue: factura descargada"),
       // «Mis seguimientos» en el móvil (2026-11-10): el campo del número va plegado; cuántos lo abren y cuántos lo añaden.
       numeroAbierto: findExact("Perfil: abre «añadir número de seguimiento»"),
       numeroAnadido: findExact("Perfil: número de seguimiento añadido"),
@@ -1448,6 +1452,7 @@ export default function AdminAnalytics() {
                     <Ionicons name="document-text-outline" size={15} color={COLORS.accentDark} />
                     <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                       Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"} ·
+                      desde Blue IA: «Ver mis facturas» {coreFunnel.blueVerFacturas} · «Descargar factura» {coreFunnel.blueFacturaDescargada} (sesiones) ·
                       «¿Te hemos dado un número de seguimiento?»: lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido} ·
                       filtros de «Mis pedidos»: {coreFunnel.filtrosPedidos || "aún sin usar"}
                     </Text>

@@ -67,7 +67,8 @@
  * - app/(tabs)/_layout.tsx → define esta pestaña dentro de la barra inferior.
  * - «Mis pedidos» → «Descargar factura» (facturas de VeoAura: tabla pedido_facturas, migración
  *   20261110100000; descarga por api/factura.ts y lib/openExternalLink.ts → abrirDescarga). Se mide
- *   con «Pedidos: factura descargada» (app/admin/analytics.tsx).
+ *   con «Pedidos: factura descargada» (app/admin/analytics.tsx). «Ver mis facturas» de Blue IA
+ *   (app/(tabs)/blue-ia.tsx) abre /perfil?tab=seguimientos&filtro=facturas: el filtro «Facturas» ya puesto.
  * - «Reparaciones y Mantenimientos» → reparación por envío (migración 20261111100000): barra de nueve
  *   etapas (compacta: etapa actual y «Paso N de M»), plazo, «Esperando pieza», «Descargar etiqueta»
  *   (api/factura.ts?solicitud=…), cómo embalarlo y a dónde enviarlo (plegable, dirección de
@@ -520,11 +521,14 @@ export default function PerfilScreen() {
   // ?aviso=… lo manda quien trae aquí para iniciar sesión (p. ej. "Hablar con el equipo").
   // ?acceso=registro | entrar → abre directamente el formulario de crear cuenta o de iniciar
   // sesión (lo usa la guía de Blue, components/Campanita.tsx).
+  // ?filtro=facturas (con ?tab=seguimientos) → «Mis pedidos» con el filtro «Facturas» ya puesto («Ver mis facturas» de
+  // Blue IA, app/(tabs)/blue-ia.tsx; dueño, 2026-11-11).
   const {
     tab: tabParam,
     aviso: avisoParam,
     acceso: accesoParam,
-  } = useLocalSearchParams<{ tab?: string; aviso?: string; acceso?: string }>();
+    filtro: filtroParam,
+  } = useLocalSearchParams<{ tab?: string; aviso?: string; acceso?: string; filtro?: string }>();
   const aviso = typeof avisoParam === "string" ? avisoParam.slice(0, 160) : "";
   useEffect(() => {
     if (accesoParam === "registro" || accesoParam === "entrar") {
@@ -1113,7 +1117,7 @@ export default function PerfilScreen() {
 
               {showSeguimientos ? (
                 <SectionCard padding={cardPadding}>
-                  <SeguimientosSeccion />
+                  <SeguimientosSeccion filtroInicial={filtroParam === "facturas" ? "facturas" : undefined} />
                 </SectionCard>
               ) : showMeGusta ? (
                 <SectionCard padding={cardPadding}>
@@ -3086,7 +3090,7 @@ function MeGustaSeccion() {
   );
 }
 
-function SeguimientosSeccion() {
+function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos }) {
   const [cargando, setCargando] = useState(true);
   const [conSesion, setConSesion] = useState(false);
   const [pedidos, setPedidos] = useState<PedidoSeg[] | null>(null); // null = tabla aún no disponible
@@ -3100,7 +3104,11 @@ function SeguimientosSeccion() {
   const [valoradas, setValoradas] = useState<Record<string, number> | null>(null);
   const [valorando, setValorando] = useState<{ solicitudId: string; titulo: string } | null>(null);
   // Filtro de «Mis pedidos» (dueño, 2026-11-10): todos, en curso, cancelados o los que tienen factura.
-  const [filtroPedidos, setFiltroPedidos] = useState<FiltroPedidos>("todos");
+  // Llega ya puesto con ?filtro=facturas («Ver mis facturas» de Blue IA).
+  const [filtroPedidos, setFiltroPedidos] = useState<FiltroPedidos>(filtroInicial ?? "todos");
+  useEffect(() => {
+    if (filtroInicial) setFiltroPedidos(filtroInicial);
+  }, [filtroInicial]);
   // Reparación por envío: plazo y dirección del taller (reparacion_envio_ajustes; null sin la migración).
   const [ajustesEnvio, setAjustesEnvio] = useState<AjustesReparacionEnvio | null>(null);
   // Parte 2: ¿puede pagar con tarjeta? (api/pago.ts, la misma regla que los pedidos) y el aviso de la vuelta de Stripe.

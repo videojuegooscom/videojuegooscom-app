@@ -488,6 +488,13 @@ try {
     respuestaChat = JSON.stringify({ respuesta: `Repito: ${"x".repeat(5)} PROHIBIDO-PRUEBA`, acciones: [{ tipo: "vender", articulo: "", busqueda: "" }] });
     const r3 = await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.63" } });
     ok(!r3.cuerpo?.accionChips && !/PROHIBIDO-PRUEBA/.test(r3.cuerpo?.reply ?? ""), "botones: una respuesta bloqueada por la revisión de salida no lleva botones");
+    // «Ver mis facturas» (dueño, 2026-11-11): el botón «facturas» pasa sin datos (ni artículo ni búsqueda) y las
+    // instrucciones lo piden siempre que pregunten por la factura; la descarga la decide la app, no el modelo.
+    respuestaChat = JSON.stringify({ respuesta: "Tu factura está en Mis pedidos: pulsa Ver mis facturas aquí debajo.", acciones: [{ tipo: "facturas", articulo: "F-2026-0001", busqueda: "VZ-AAAA-BBBB" }] });
+    const r4 = await preguntar({ cabeceras: { "x-vercel-forwarded-for": "198.51.100.64" }, cuerpo: mensaje({ message: "¿Dónde está mi factura?" }) });
+    ok(JSON.stringify(r4.cuerpo?.accionChips ?? null) === JSON.stringify([{ tipo: "facturas" }]), `botones: «facturas» pasa, sin datos del modelo (${JSON.stringify(r4.cuerpo?.accionChips ?? null)})`);
+    const sistema4 = String(ultimoChat?.messages?.[0]?.content ?? "");
+    ok(/facturas: «Ver mis facturas»/.test(sistema4) && /ofrece el botón «facturas»/.test(sistema4), "botones: las instrucciones ofrecen «Ver mis facturas» siempre que preguntan por la factura");
     respuestaChat = "Hola desde la prueba";
   }
 } catch (e) {
