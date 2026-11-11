@@ -11,9 +11,18 @@
  * pregunta a Stripe y solo entonces sale «pagado». «Confirmar sin pagar ahora» sigue como antes (pago por el chat). Con
  * la clave de prueba de Stripe solo lo ve el administrador. Se mide con la analítica propia (pago_tarjeta y
  * pago_tarjeta_ok, Administración → Analítica) y cada pedido enseña su pago en Administración → Pedidos.
- * Debajo del botón se dice con qué se puede pagar en la página de Stripe (textoMetodosPago): tarjeta y Apple Pay y, solo
+ * Debajo del botón se dice con qué se puede pagar en la página de Stripe (metodosPago): tarjeta y Apple Pay y, solo
  * si el servidor los ofrece, Bizum (2026-11-11) y Klarna a plazos (2026-11-06). Con qué se pagó de verdad se ve en
  * Administración → Pedidos y se cuenta en Analítica.
+ *
+ * Pie de «Finalizar compra» (dueño, 2026-11-11: «como otra tienda profesional de nuestro sector»), compacto y por orden:
+ * qué falta si aún no se puede pagar («Falta: teléfono», en una línea; al tocar el botón desactivado lleva al primer
+ * campo que falta y lo marca en rojo), la píldora «Pagar · total», «Pago seguro con Stripe» con candado, las formas de
+ * pago en una fila discreta (Tarjeta · Apple Pay · Bizum · Klarna, cada una solo si el servidor la ofrece), lo legal en
+ * una línea con los enlaces dentro del texto (44 px para el dedo), «Otras formas de pago» plegable (dentro, «Confirmar
+ * sin pagar ahora» como botón secundario) y la confianza en una sola fila de tres. Sin «Volver a la cesta»: ya está el
+ * botón de volver de la cabecera. El teléfono es el único dato que «Mi perfil» no guarda: con la dirección del perfil
+ * rellenada sola, el botón seguía desactivado con un «Completa los datos de envío» que no decía que faltaba el teléfono.
  *
  * Cómo funciona: guarda el carrito en local con la misma clave que usa
  * cesta.tsx (CART_KEY = "videojuegoos_cart_v1"), valida el formulario campo
@@ -28,7 +37,7 @@
  * api/pago.ts, acción «referencia», solo para quien hizo el pedido; el número interno nunca se enseña) y si se ha cobrado
  * o no; UNA sola píldora azul con lo siguiente («Volver a intentar el pago», «Comprobar otra vez», «Volver a
  * intentarlo» o «Hablar con el equipo») y lo demás como texto con icono. En el formulario, debajo del botón, lo que se
- * acepta al confirmar con sus páginas (Condiciones y Privacidad).
+ * acepta al pagar con sus páginas (Condiciones y Política de privacidad).
  *
  * "Comprar ya" → vendido automático: si el producto se añadió con el botón
  * "Comprar ya" de app/producto/[id].tsx (que ya exige sesión iniciada),
@@ -208,12 +217,31 @@ function funcionNoDisponible(e: { code?: string; message?: string }): boolean {
 // cuando Stripe no lo ha rechazado; api/pago.ts). Sin ellos no se prometen.
 type PagoTarjeta = { disponible: boolean; modo: "prueba" | "real" | null; klarna?: boolean; bizum?: boolean };
 
-// «Pago seguro en la página de Stripe con tarjeta, Apple Pay, Bizum o Klarna (también a plazos)…», solo con lo que se ofrece.
-function textoMetodosPago(p: PagoTarjeta): string {
-  const m = ["tarjeta", "Apple Pay"];
+// Las formas de pago de la página de Stripe, en una fila discreta («Tarjeta · Apple Pay · Bizum · Klarna»), solo con lo
+// que se ofrece.
+function metodosPago(p: PagoTarjeta): string {
+  const m = ["Tarjeta", "Apple Pay"];
   if (p.bizum) m.push("Bizum");
-  if (p.klarna) m.push("Klarna (también a plazos)");
-  return `Pago seguro en la página de Stripe con ${m.slice(0, -1).join(", ")} o ${m[m.length - 1]}. La tienda nunca ve los datos de tu tarjeta.`;
+  if (p.klarna) m.push("Klarna");
+  return m.join(" · ");
+}
+
+// Los datos del formulario que se comprueban, en el orden en que salen (para decir qué falta y llevar al primero).
+type CampoClave = "nombre" | "correo" | "telefono" | "direccion" | "cp" | "ciudad";
+const ETIQUETA_CAMPO: Record<CampoClave, string> = {
+  nombre: "nombre",
+  correo: "correo",
+  telefono: "teléfono",
+  direccion: "dirección",
+  cp: "código postal",
+  ciudad: "ciudad",
+};
+// «teléfono» · «teléfono y correo» · «nombre, correo y teléfono» · «nombre, correo y 2 más» (siempre en una línea).
+function listaCampos(claves: CampoClave[]): string {
+  const n = claves.map((c) => ETIQUETA_CAMPO[c]);
+  if (n.length <= 1) return n.join("");
+  if (n.length <= 3) return `${n.slice(0, -1).join(", ")} y ${n[n.length - 1]}`;
+  return `${n.slice(0, 2).join(", ")} y ${n.length - 2} más`;
 }
 // En la confirmación: null = pedido sin pago con tarjeta (como siempre); el resto, cómo va el pago.
 type EstadoPago = "comprobando" | "pagado" | "sin_confirmar" | "cancelado" | "sin_abrir" | null;
@@ -498,24 +526,64 @@ export default function CheckoutScreen() {
   const articulosSoloMano = items.filter((it) => soloMano.includes(it.id));
   const bloqueoSoloMano = entrega === "envio" && articulosSoloMano.length > 0;
 
-  const formOk = useMemo(() => {
-    if (items.length === 0) return false;
-    // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega). Con envíos de
-    // pago, sin un código postal completo no se sabe el envío (ni el total).
-    if (!envio.disponible || faltaCodigo || bloqueoSoloMano) return false;
+  // Cada dato del formulario: si está vacío y si vale. Con envíos de pago, sin un código postal completo no se sabe el
+  // envío (ni el total). En mano no se piden dirección, código postal ni ciudad.
+  const campos = useMemo(() => {
+    const lista: { clave: CampoClave; vacio: boolean; ok: boolean }[] = [
+      { clave: "nombre", vacio: !safeStr(fullName), ok: safeStr(fullName).length >= 2 },
+      { clave: "correo", vacio: !safeStr(email), ok: isValidEmail(email) },
+      { clave: "telefono", vacio: !safeStr(phone), ok: isValidPhone(phone) },
+    ];
+    if (entrega === "envio") {
+      lista.push(
+        { clave: "direccion", vacio: !safeStr(address1), ok: safeStr(address1).length >= 6 },
+        { clave: "cp", vacio: !safeStr(postalCode), ok: safeStr(postalCode).length >= 4 && !faltaCodigo },
+        { clave: "ciudad", vacio: !safeStr(city), ok: safeStr(city).length >= 2 }
+      );
+    }
+    return lista;
+  }, [fullName, email, phone, address1, postalCode, city, entrega, faltaCodigo]);
+  const camposMal = campos.filter((c) => !c.ok);
 
-    const nameOk = safeStr(fullName).length >= 2;
-    const emailOk = isValidEmail(email);
-    const phoneOk = isValidPhone(phone);
+  // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega).
+  const formOk = items.length > 0 && envio.disponible && !bloqueoSoloMano && camposMal.length === 0;
 
-    if (entrega === "recogida") return nameOk && emailOk && phoneOk;
+  // Qué falta para poder pagar, en una línea justo encima del botón (dueño, 2026-11-11: «di QUÉ falta»).
+  const textoFalta = formOk
+    ? null
+    : bloqueoSoloMano
+      ? "Elige «Entrega en mano» para este pedido"
+      : !envio.disponible
+        ? "A esta zona, por el chat de la tienda"
+        : camposMal.some((c) => c.vacio)
+          ? `Falta: ${listaCampos(camposMal.filter((c) => c.vacio).map((c) => c.clave))}`
+          : camposMal.length
+            ? `Revisa: ${listaCampos(camposMal.map((c) => c.clave))}`
+            : null;
 
-    const addrOk = safeStr(address1).length >= 6;
-    const cpOk = safeStr(postalCode).length >= 4;
-    const cityOk = safeStr(city).length >= 2;
+  // Al tocar el botón desactivado: al primer dato que falta, marcado en rojo hasta que se arregle.
+  const camposRef = useRef<Partial<Record<CampoClave, TextInput | null>>>({});
+  const [marcarFaltan, setMarcarFaltan] = useState(false);
+  const irAlQueFalta = useCallback(() => {
+    setMarcarFaltan(true);
+    const web = Platform.OS === "web" && typeof document !== "undefined";
+    if (bloqueoSoloMano || !envio.disponible) {
+      if (web) document.getElementById(bloqueoSoloMano ? "pago-solo-mano" : "pago-zona-sin-envio")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+    const primero = camposMal[0];
+    const input = primero ? camposRef.current[primero.clave] : null;
+    if (!input) return;
+    if (web) (input as unknown as HTMLElement).scrollIntoView?.({ block: "center" });
+    input.focus();
+  }, [bloqueoSoloMano, envio.disponible, camposMal]);
+  const marcado = (clave: CampoClave) => marcarFaltan && camposMal.some((c) => c.clave === clave);
+  const refCampo = (clave: CampoClave) => (r: TextInput | null) => {
+    camposRef.current[clave] = r;
+  };
 
-    return nameOk && emailOk && phoneOk && addrOk && cpOk && cityOk;
-  }, [items.length, fullName, email, phone, address1, postalCode, city, entrega, envio.disponible, faltaCodigo, bloqueoSoloMano]);
+  // «Otras formas de pago» (plegable): confirmar el pedido sin pagar ahora y acordar el pago por el chat.
+  const [otrasFormas, setOtrasFormas] = useState(false);
 
   // Resumen del pedido que se manda al chat de la tienda con «Hablar con el equipo» (con la referencia, nunca el número
   // interno). Sin referencia (no se pudo guardar), lleva los datos para que el equipo lo termine con el cliente.
@@ -1255,8 +1323,11 @@ export default function CheckoutScreen() {
                 </View>
               ) : null}
 
-              <Field label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />
+              <Field nativeID="pago-campo-nombre" inputRef={refCampo("nombre")} marcado={marcado("nombre")} label="Nombre y apellidos" value={fullName} onChangeText={setFullName} placeholder="Nombre completo" />
               <Field
+                nativeID="pago-campo-correo"
+                inputRef={refCampo("correo")}
+                marcado={marcado("correo")}
                 label="Email"
                 value={email}
                 onChangeText={setEmail}
@@ -1265,6 +1336,9 @@ export default function CheckoutScreen() {
                 autoCapitalize="none"
               />
               <Field
+                nativeID="pago-campo-telefono"
+                inputRef={refCampo("telefono")}
+                marcado={marcado("telefono")}
                 label="Teléfono"
                 value={phone}
                 onChangeText={setPhone}
@@ -1283,6 +1357,9 @@ export default function CheckoutScreen() {
                     </View>
                   ) : null}
                   <Field
+                    nativeID="pago-campo-direccion"
+                    inputRef={refCampo("direccion")}
+                    marcado={marcado("direccion")}
                     label="Dirección"
                     value={address1}
                     onChangeText={setAddress1}
@@ -1292,6 +1369,9 @@ export default function CheckoutScreen() {
                   <View style={{ flexDirection: "row", gap: 10 }}>
                     <View style={{ flex: 1 }}>
                       <Field
+                        nativeID="pago-campo-cp"
+                        inputRef={refCampo("cp")}
+                        marcado={marcado("cp")}
                         label="Código postal"
                         value={postalCode}
                         onChangeText={setPostalCode}
@@ -1300,7 +1380,7 @@ export default function CheckoutScreen() {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Field label="Ciudad" value={city} onChangeText={setCity} placeholder="Zaragoza" />
+                      <Field nativeID="pago-campo-ciudad" inputRef={refCampo("ciudad")} marcado={marcado("ciudad")} label="Ciudad" value={city} onChangeText={setCity} placeholder="Zaragoza" />
                     </View>
                   </View>
                 </>
@@ -1313,39 +1393,29 @@ export default function CheckoutScreen() {
                 placeholder="Ej.: por la tarde, portal B..."
                 multiline
               />
-
-              {/* Micro trust */}
-              <View style={{ gap: 6, alignItems: "center", paddingTop: 6 }}>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
-                  {(
-                    [
-                      { icon: "checkmark-circle-outline", label: "Productos revisados" },
-                      { icon: "cube-outline", label: "Envío a España" },
-                      { icon: "receipt-outline", label: "Recibo" },
-                      { icon: "chatbubbles-outline", label: "Atención por chat" },
-                    ] as const
-                  ).map((item) => (
-                    <View
-                      key={item.label}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                    >
-                      <Ionicons name={item.icon} size={14} color={COLORS.muted} />
-                      <Text style={{ color: COLORS.muted, lineHeight: 20 }}>{item.label}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
             </View>
 
-            {/* Una sola acción principal, clara y con el total a la vista, al final del formulario (dentro del
-                desplazamiento: nunca tapa los campos ni se queda bajo el teclado). */}
-            <View nativeID="pago-confirmar" style={{ gap: 10, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2" }}>
+            {/* Resumen y pago (dueño, 2026-11-11: «como otra tienda profesional»): qué falta, UNA píldora con el total,
+                el pago seguro y sus formas, lo legal en una línea, «Otras formas de pago» plegable y la confianza en una
+                fila. Al final del formulario, dentro del desplazamiento: nunca tapa los campos ni se queda bajo el teclado. */}
+            <View nativeID="pago-confirmar" style={{ gap: 8, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#E3EAF2", alignItems: "center" }}>
               {err ? (
                 <Text nativeID="pago-error" style={{ color: "#B91C1C", fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
                   {err}
                 </Text>
               ) : null}
-              <View style={{ ...columnStyle, maxWidth: 460 }}>
+              {/* Qué falta, en una línea justo encima del botón (sin envío posible o sin un dato, el botón no deja pagar). */}
+              {textoFalta ? (
+                <View nativeID="pago-falta" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, maxWidth: "100%" }}>
+                  <Ionicons name="alert-circle-outline" size={16} color={COLORS.danger} />
+                  <Text numberOfLines={1} style={{ color: COLORS.danger, fontWeight: "800", fontSize: 13.5, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+                    {textoFalta}
+                  </Text>
+                </View>
+              ) : null}
+              {/* Con el botón desactivado (aria-disabled), el toque lo recoge una capa transparente encima, sin papel de
+                  botón, que lleva al dato que falta. */}
+              <View style={{ ...columnStyle, maxWidth: 460, position: "relative" }}>
                 <Pressable
                   nativeID={pagoTarjeta.disponible ? "pago-tarjeta" : "pago-confirmar-boton"}
                   disabled={!formOk || submitting || redirigiendo}
@@ -1375,37 +1445,38 @@ export default function CheckoutScreen() {
                     </>
                   )}
                 </Pressable>
+                {!formOk && !submitting && !redirigiendo ? (
+                  <Pressable
+                    nativeID="pago-ir-al-que-falta"
+                    onPress={irAlQueFalta}
+                    accessible={false}
+                    aria-hidden
+                    tabIndex={-1}
+                    style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999 }}
+                  />
+                ) : null}
               </View>
 
-              {/* Cómo se paga en la página de Stripe: tarjeta (con Apple Pay) y, si se ofrecen, Bizum (2026-11-11) y Klarna a plazos (2026-11-06). */}
+              {/* Pago seguro con candado y, debajo, las formas de pago de la página de Stripe en una fila discreta: tarjeta
+                  (con Apple Pay) y, si el servidor los ofrece, Bizum (2026-11-11) y Klarna (2026-11-06). Sin Stripe, una
+                  línea: el pago se acuerda por el chat. */}
               {pagoTarjeta.disponible ? (
-                <Text nativeID="pago-metodos" style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                  {textoMetodosPago(pagoTarjeta)}
+                <View style={{ alignItems: "center", gap: 2 }}>
+                  <View nativeID="pago-seguro" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                    <Ionicons name="lock-closed" size={13} color={COLORS.muted} />
+                    <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18 }}>
+                      Pago seguro con Stripe
+                    </Text>
+                  </View>
+                  <Text nativeID="pago-metodos" numberOfLines={1} style={{ color: "rgba(11,33,56,0.55)", fontSize: 12, lineHeight: 18, textAlign: "center" }}>
+                    {metodosPago(pagoTarjeta)}
+                  </Text>
+                </View>
+              ) : (
+                <Text nativeID="pago-acordar" numberOfLines={1} style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  Pago y entrega se acuerdan por el chat
                 </Text>
-              ) : null}
-              {/* Con pago con tarjeta, confirmar sin pagar sigue como siempre (el pago se habla por el chat). Solo texto. */}
-              {pagoTarjeta.disponible ? (
-                <Pressable
-                  nativeID="pago-sin-tarjeta"
-                  disabled={!formOk || submitting || redirigiendo}
-                  onPress={() => onPay(false)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => ({
-                    alignSelf: "center",
-                    minHeight: 44,
-                    paddingHorizontal: 8,
-                    justifyContent: "center",
-                    opacity: !formOk || submitting || redirigiendo ? 0.45 : pressed ? 0.6 : 1,
-                  })}
-                >
-                  <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14, textAlign: "center" }}>Confirmar sin pagar ahora</Text>
-                </Pressable>
-              ) : null}
-              {pagoTarjeta.disponible ? (
-                <Text nativeID="pago-sin-tarjeta-ayuda" style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center", marginTop: -6 }}>
-                  Sin pagar ahora, te escribimos por el chat de la tienda para acordar el pago.
-                </Text>
-              ) : null}
+              )}
               {pagoTarjeta.modo === "prueba" ? (
                 <Text nativeID="pago-modo-prueba" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                   Modo de prueba de Stripe (solo lo ve el administrador): no se cobra nada. Tarjeta de prueba 4242 4242 4242 4242,
@@ -1413,67 +1484,84 @@ export default function CheckoutScreen() {
                 </Text>
               ) : null}
 
-              {/* Con el pago disponible y todo rellenado, ya lo explican «pago-metodos» y «Confirmar sin pagar ahora»: no se repite. */}
-              {formOk && pagoTarjeta.disponible ? null : (
-              <Text style={{ color: "rgba(11,33,56,0.55)", textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
-                {formOk
-                  ? "Te confirmamos pago y entrega por el chat de la tienda."
-                  : bloqueoSoloMano
-                    ? "Elige «Entrega en mano» para este pedido."
-                    : !envio.disponible
-                    ? "Escríbenos por el chat para envíos a esta zona."
-                    : faltaCodigo
-                      ? "Escribe tu código postal para calcular el envío."
-                      : entrega === "recogida"
-                        ? "Completa nombre, email y teléfono para confirmar el pedido."
-                        : "Completa los datos de envío para confirmar el pedido."}
-              </Text>
-              )}
-
-              {/* Lo legal, a mano y sin letra pequeña escondida: qué se acepta al confirmar, con sus dos páginas (44 px). */}
-              <View nativeID="pago-legal" style={{ alignItems: "center" }}>
-                <Text style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                  Al confirmar el pedido aceptas las condiciones de la tienda y su política de privacidad.
+              {/* Lo legal en UNA línea, con los enlaces dentro del texto: se ven como texto, pero su zona para el dedo es de
+                  44 px de alto (relleno vertical que no cambia la línea). */}
+              <Text nativeID="pago-legal" style={{ color: "rgba(11,33,56,0.55)", fontSize: 11.5, lineHeight: 18, textAlign: "center", marginVertical: 4 }}>
+                {pagoTarjeta.disponible ? "Al pagar" : "Al pedir"} aceptas las{" "}
+                <Text nativeID="pago-legal-terminos" accessibilityRole="link" onPress={() => router.push("/politicas/terminos" as never)} style={{ color: COLORS.accent, fontWeight: "800", paddingVertical: 16 }}>
+                  Condiciones
+                </Text>{" "}
+                y la{" "}
+                <Text nativeID="pago-legal-privacidad" accessibilityRole="link" onPress={() => router.push("/politicas/privacidad" as never)} style={{ color: COLORS.accent, fontWeight: "800", paddingVertical: 16 }}>
+                  Política de privacidad
                 </Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 14 }}>
-                  {(
-                    [
-                      { id: "pago-legal-terminos", icono: "document-text-outline", texto: "Condiciones", ruta: "/politicas/terminos" },
-                      { id: "pago-legal-privacidad", icono: "shield-checkmark-outline", texto: "Privacidad", ruta: "/politicas/privacidad" },
-                    ] as const
-                  ).map((l) => (
-                    <Pressable
-                      key={l.id}
-                      nativeID={l.id}
-                      onPress={() => router.push(l.ruta as never)}
-                      accessibilityRole="link"
-                      style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.6 : 1 })}
-                    >
-                      <Ionicons name={l.icono} size={15} color={COLORS.accent} />
-                      <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>{l.texto}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
+              </Text>
 
-              {/* Volver: solo el texto con su icono, sin burbuja. */}
-              <Pressable
-                nativeID="pago-volver-cesta"
-                onPress={() => router.push("/cesta")}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  alignSelf: "center",
-                  minHeight: 44,
-                  paddingHorizontal: 8,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  opacity: pressed ? 0.6 : 1,
-                })}
-              >
-                <Ionicons name="arrow-back" size={18} color={COLORS.accent} />
-                <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14 }}>Volver a la cesta</Text>
-              </Pressable>
+              {/* Otras formas de pago (plegable, se vuelve a plegar): confirmar el pedido ahora y acordar el pago por el
+                  chat de la tienda, con un botón secundario (la única píldora azul es «Pagar»). */}
+              {pagoTarjeta.disponible ? (
+                <View style={{ alignItems: "center", alignSelf: "stretch" }}>
+                  <Pressable
+                    nativeID="pago-otras-formas"
+                    onPress={() => setOtrasFormas((v) => !v)}
+                    accessibilityRole="button"
+                    aria-expanded={otrasFormas}
+                    style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+                  >
+                    <Ionicons name="wallet-outline" size={17} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14 }}>Otras formas de pago</Text>
+                    <Ionicons name={otrasFormas ? "chevron-up" : "chevron-down"} size={16} color={COLORS.accent} />
+                  </Pressable>
+                  {otrasFormas ? (
+                    <View nativeID="pago-otras-formas-detalle" style={{ alignItems: "center", gap: 8, paddingBottom: 4, ...columnStyle, maxWidth: 460 }}>
+                      <Text nativeID="pago-sin-tarjeta-ayuda" style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+                        Confirmas el pedido ahora y te escribimos por el chat de la tienda para acordar el pago.
+                      </Text>
+                      <Pressable
+                        nativeID="pago-sin-tarjeta"
+                        disabled={submitting || redirigiendo}
+                        onPress={() => (formOk ? onPay(false) : irAlQueFalta())}
+                        accessibilityRole="button"
+                        style={({ pressed }) => ({
+                          alignSelf: "stretch",
+                          minHeight: 46,
+                          paddingHorizontal: 18,
+                          borderRadius: 999,
+                          borderWidth: 1.5,
+                          borderColor: COLORS.accent,
+                          backgroundColor: "transparent",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          opacity: !formOk || submitting || redirigiendo ? 0.45 : pressed ? 0.6 : 1,
+                        })}
+                      >
+                        <Ionicons name="chatbubbles-outline" size={17} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center" }}>Confirmar sin pagar ahora</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Confianza: una sola fila de tres, icono + texto corto (cabe en una línea a 360 px). */}
+              <View nativeID="pago-confianza" style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", columnGap: 12, marginTop: 4, maxWidth: "100%" }}>
+                {(
+                  [
+                    { icon: "checkmark-circle-outline", label: "Revisados" },
+                    { icon: "cube-outline", label: "Envío a España" },
+                    { icon: "chatbubbles-outline", label: "Atención por chat" },
+                  ] as const
+                ).map((item) => (
+                  <View key={item.label} style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
+                    <Ionicons name={item.icon} size={13} color={COLORS.muted} />
+                    <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, lineHeight: 18 }}>
+                      {item.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
             </View>
           </ScrollView>
@@ -1538,13 +1626,19 @@ function Field(props: {
   keyboardType?: any;
   autoCapitalize?: any;
   multiline?: boolean;
+  nativeID?: string;
+  inputRef?: (r: TextInput | null) => void;
+  /** Marcado en rojo: es lo que falta para pagar (se ha tocado el botón desactivado). */
+  marcado?: boolean;
 }) {
-  const { label, value, onChangeText, placeholder, keyboardType, autoCapitalize, multiline } = props;
+  const { label, value, onChangeText, placeholder, keyboardType, autoCapitalize, multiline, nativeID, inputRef, marcado } = props;
 
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={{ color: "rgba(11,33,56,0.70)", fontWeight: "800", textAlign: "center" }}>{label}</Text>
+    <View nativeID={nativeID} style={{ gap: 8 }}>
+      <Text style={{ color: marcado ? COLORS.danger : "rgba(11,33,56,0.70)", fontWeight: "800", textAlign: "center" }}>{label}</Text>
       <TextInput
+        ref={inputRef}
+        aria-invalid={marcado || undefined}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -1555,8 +1649,10 @@ function Field(props: {
         style={{
           width: "100%",
           borderRadius: 14,
-          borderWidth: 1,
-          borderColor: "#E3EAF2",
+          borderWidth: marcado ? 1.5 : 1,
+          borderColor: marcado ? COLORS.danger : "#E3EAF2",
+          // Con la marca, el contorno del foco (web) también en rojo.
+          ...(marcado ? { outlineColor: COLORS.danger } : null),
           backgroundColor: "#F6FAFD",
           paddingVertical: Platform.select({ web: 12, default: 12 }),
           paddingHorizontal: 12,
