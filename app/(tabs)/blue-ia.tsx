@@ -81,6 +81,12 @@
  *   atienda una persona?»; petición del dueño, 2026-11-01). Abre el chat
  *   privado con la tienda (abrirChatEquipo) con un resumen de las últimas 6
  *   vueltas; sin sesión, lleva a /perfil con un aviso.
+ * - «Ver mis facturas» (botón «facturas», dueño, 2026-11-11): abre Perfil → «Mis pedidos» con el
+ *   filtro «Facturas» (/perfil?tab=seguimientos&filtro=facturas). BlueIAFacturas consulta con la
+ *   sesión del cliente sus pedidos y facturas (no se fía del modelo) y, si alguna tiene PDF, añade
+ *   «Descargar factura F-…» (/api/factura?pedido=… y abrirDescarga de lib/openExternalLink.ts); sin
+ *   factura, el plazo; sin sesión, «Inicia sesión para ver tus facturas». Analítica propia: «Blue: ver
+ *   mis facturas» y «Blue: factura descargada» (app/admin/analytics.tsx, #analitica-facturas).
  * - Cada respuesta lleva al lado a Blue, la mascota de atención al cliente
  *   (la misma imagen que Blue flotante: AvatarBlue), quieta; mientras
  *   escribe, se mueve.
@@ -114,7 +120,7 @@ import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { abrirChatEquipo } from "../../components/ProductChatThread";
 import { trackEvent } from "../../lib/analytics";
 import { estadoAtencion, HORARIO_CORTO, type EstadoAtencion } from "../../lib/horarioAtencion";
-import { openExternalLink } from "../../lib/openExternalLink";
+import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -195,6 +201,8 @@ const ACCIONES_BLUE: Record<
     ruta: (c) => `/catalogo${c.busqueda ? `?query=${encodeURIComponent(c.busqueda)}` : ""}`,
   },
   seguimientos: { label: () => "Mis seguimientos", icono: "receipt-outline", ruta: () => "/perfil?tab=seguimientos" },
+  // «Mis pedidos» con el filtro «Facturas» ya puesto; la descarga directa la añade BlueIAFacturas con la sesión.
+  facturas: { label: () => "Ver mis facturas", icono: "document-text-outline", ruta: () => "/perfil?tab=seguimientos&filtro=facturas" },
   megusta: { label: () => "Mis me gusta", icono: "heart-outline", ruta: () => "/perfil?tab=megusta" },
   perfil: { label: () => "Mi perfil", icono: "person-circle-outline", ruta: () => "/perfil" },
   cesta: { label: () => "Ver mi cesta", icono: "bag-outline", ruta: () => "/cesta" },
@@ -226,6 +234,8 @@ type BlueIAMessage = {
   socialChips?: SocialChip[];
   productChips?: ProductChip[];
   accionChips?: AccionChip[];
+  // Referencia VZ- que nombró la persona (o la respuesta), para «Descargar factura» de ese pedido si es suyo.
+  refPedido?: string;
 };
 
 
@@ -1036,9 +1046,16 @@ export default function BlueIAScreen() {
           }
         }
 
+        // «Ver mis facturas»: la referencia VZ- del pedido por el que pregunta (primero lo que escribió, luego la respuesta).
+        // Solo sirve para elegir entre SUS pedidos (BlueIAFacturas los consulta con su sesión).
+        const RE_REF = /VZ-[A-Z0-9]{4}-[A-Z0-9]{4}/i;
+        const refPedido = accionChips?.some((c) => c.tipo === "facturas")
+          ? (apiText.match(RE_REF)?.[0] ?? String(data.reply).match(RE_REF)?.[0])?.toUpperCase()
+          : undefined;
+
         setMessages((prev) => [
           ...prev,
-          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips, productChips, accionChips },
+          { id: `${Date.now()}-a`, role: "assistant", text: String(data.reply), socialChips, productChips, accionChips, refPedido },
         ]);
 
         // Con sesión, la vuelta se guarda en su cuenta (los errores no).
@@ -1743,7 +1760,7 @@ function BlueIABubble({ message }: { message: BlueIAMessage }) {
         </Text>
 
         {!!message.productChips?.length && <BlueIAProductChips chips={message.productChips} />}
-        {!!message.accionChips?.length && <BlueIAAccionChips chips={message.accionChips} />}
+        {!!message.accionChips?.length && <BlueIAAccionChips chips={message.accionChips} refPedido={message.refPedido} />}
         {!!message.socialChips?.length && <BlueIASocialChips chips={message.socialChips} />}
       </View>
     </View>
@@ -1787,43 +1804,194 @@ function BlueIAProductChips({ chips }: { chips: ProductChip[] }) {
 // Botones de la tienda que ofrece Blue IA (vender, cambiar, reparar, buscar, mis seguimientos…): icono, nombre (con lo
 // que contó la persona, «Vender PS4 Pro») y flecha, como los de artículos. Al tocarlos se abre esa pantalla, con lo
 // contado ya escrito en el formulario de Vender o en el buscador del catálogo.
-function BlueIAAccionChips({ chips }: { chips: AccionChip[] }) {
+function BlueIAAccionChips({ chips, refPedido }: { chips: AccionChip[]; refPedido?: string }) {
   return (
     <View nativeID="blue-ia-acciones" style={{ gap: 8 }}>
       {chips.map((chip) => {
         const def = ACCIONES_BLUE[chip.tipo];
         if (!def) return null;
-        const label = def.label(chip);
-        return (
-          <Pressable
-            key={chip.tipo}
-            nativeID={`blue-ia-accion-${chip.tipo}`}
-            onPress={() => {
-              void trackEvent("blue_ia_boton", `Blue IA: botón tocado · ${def.label({ tipo: chip.tipo })}`, { metadata: { tipo: chip.tipo, con_datos: !!(chip.articulo || chip.busqueda) } });
-              router.push(def.ruta(chip) as never);
-            }}
-            accessibilityRole="link"
-            accessibilityLabel={label}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              minHeight: 44,
-              paddingVertical: 9,
-              paddingHorizontal: 12,
-              borderRadius: 14,
-              backgroundColor: "#FFFFFF",
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              opacity: pressed ? 0.82 : 1,
-            })}
-          >
-            <Ionicons name={def.icono} size={16} color={COLORS.accent} />
-            <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>{label}</Text>
-            <Ionicons name="chevron-forward" size={14} color={COLORS.accent} />
-          </Pressable>
-        );
+        const tocar = () => {
+          void trackEvent("blue_ia_boton", `Blue IA: botón tocado · ${def.label({ tipo: chip.tipo })}`, { metadata: { tipo: chip.tipo, con_datos: !!(chip.articulo || chip.busqueda) } });
+          router.push(def.ruta(chip) as never);
+        };
+        if (chip.tipo === "facturas") return <BlueIAFacturas key={chip.tipo} refPedido={refPedido} onVer={tocar} />;
+        return <ChipTienda key={chip.tipo} nativeID={`blue-ia-accion-${chip.tipo}`} icono={def.icono} label={def.label(chip)} onPress={tocar} />;
       })}
+    </View>
+  );
+}
+
+// Un botón de la tienda bajo la respuesta: icono sin burbuja, texto y flecha (o rueda mientras trabaja), 44 px.
+function ChipTienda({
+  nativeID,
+  icono,
+  label,
+  onPress,
+  boton,
+  ocupado,
+}: {
+  nativeID: string;
+  icono: IoniconName;
+  label: string;
+  onPress: () => void;
+  // true: hace algo aquí mismo (descargar), no abre otra pantalla.
+  boton?: boolean;
+  ocupado?: boolean;
+}) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      disabled={ocupado}
+      accessibilityRole={boton ? "button" : "link"}
+      accessibilityLabel={label}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        minHeight: 44,
+        paddingVertical: 9,
+        paddingHorizontal: 12,
+        borderRadius: 14,
+        backgroundColor: "#FFFFFF",
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        opacity: pressed || ocupado ? 0.7 : 1,
+      })}
+    >
+      <Ionicons name={icono} size={16} color={COLORS.accent} />
+      <Text style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>{label}</Text>
+      {ocupado ? <ActivityIndicator size="small" color={COLORS.accent} /> : <Ionicons name={boton ? "download-outline" : "chevron-forward"} size={14} color={COLORS.accent} />}
+    </Pressable>
+  );
+}
+
+// «Ver mis facturas» (dueño, 2026-11-11: «que Blue IA le dé la opción de redirigirlo a la pestaña donde está la factura o
+// directamente descargarla si está disponible»). Lo decide la app, no el modelo (lección «lo que llega del navegador no es
+// de fiar»): con la sesión del cliente se consultan SUS pedidos y sus facturas (RLS, como «Mis pedidos» de
+// app/(tabs)/perfil.tsx). Con alguna factura con PDF, «Descargar factura F-…» (la del pedido VZ- que nombró si es suyo y
+// la tiene; si no nombró uno suyo, la del más reciente) con /api/factura?pedido=… y abrirDescarga, igual que «Mis
+// pedidos». Sin factura aún: «Ver mis facturas» y el plazo. Sin sesión: «Inicia sesión para ver tus facturas».
+// Analítica propia: «Blue: ver mis facturas» y «Blue: factura descargada» (Administración → Analítica, #analitica-facturas).
+const RE_REF_PEDIDO = /^VZ-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const AVISO_LOGIN_FACTURAS = "Inicia sesión para ver tus facturas";
+type FacturasDeBlue = { estado: "cargando" } | { estado: "sin_sesion" } | { estado: "listo"; factura: { pedidoId: string; numero: string } | null };
+function BlueIAFacturas({ refPedido, onVer }: { refPedido?: string; onVer: () => void }) {
+  const [info, setInfo] = useState<FacturasDeBlue>({ estado: "cargando" });
+  const [pidiendo, setPidiendo] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const uid = data.session?.user?.id;
+        if (!uid) {
+          if (vivo) setInfo({ estado: "sin_sesion" });
+          return;
+        }
+        // Sus pedidos, del más reciente al más antiguo (la referencia puede no existir aún: sin ella, sin elegir por VZ-).
+        const pedidosCon = (columnas: string) =>
+          supabase.from("pedidos").select(columnas).eq("user_id", uid).order("created_at", { ascending: false }).limit(50);
+        let ped: { data: any[] | null; error: any } = await pedidosCon("id,codigo_seguimiento");
+        if (ped.error) ped = await pedidosCon("id");
+        const pedidos = (ped.error ? [] : ped.data ?? []) as { id: string; codigo_seguimiento?: string | null }[];
+        let factura: { pedidoId: string; numero: string } | null = null;
+        if (pedidos.length) {
+          const fac = await supabase
+            .from("pedido_facturas")
+            .select("pedido_id,numero_factura,pdf_path,fecha,recibida_en")
+            .in("pedido_id", pedidos.map((p) => p.id));
+          // La más reciente de cada pedido, solo con su PDF (la misma que da api/factura.ts).
+          const porPedido: Record<string, { numero: string; pdf: boolean; orden: string }> = {};
+          for (const f of (fac.error ? [] : fac.data ?? []) as { pedido_id: string; numero_factura: string | null; pdf_path: string | null; fecha: string | null; recibida_en: string | null }[]) {
+            const orden = `${f.fecha ?? ""}|${f.recibida_en ?? ""}`;
+            if (!porPedido[f.pedido_id] || orden > porPedido[f.pedido_id].orden) porPedido[f.pedido_id] = { numero: f.numero_factura ?? "", pdf: !!f.pdf_path, orden };
+          }
+          const conPdf = (id: string) => (porPedido[id]?.pdf ? { pedidoId: id, numero: porPedido[id].numero } : null);
+          const ref = refPedido && RE_REF_PEDIDO.test(refPedido) ? refPedido : null;
+          const nombrado = ref ? pedidos.find((p) => (p.codigo_seguimiento ?? "").toUpperCase() === ref) : undefined;
+          // Si nombró un pedido suyo, solo el de ese pedido (si aún no tiene, ninguno); si no, el más reciente con factura.
+          factura = nombrado ? conPdf(nombrado.id) : pedidos.map((p) => conPdf(p.id)).find(Boolean) ?? null;
+        }
+        if (vivo) setInfo({ estado: "listo", factura });
+      } catch {
+        if (vivo) setInfo({ estado: "listo", factura: null });
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [refPedido]);
+
+  const ver = () => {
+    void trackEvent("blue_ver_facturas", "Blue: ver mis facturas", { metadata: { con_factura: info.estado === "listo" && !!info.factura } });
+    onVer();
+  };
+
+  async function descargar(pedidoId: string) {
+    if (pidiendo) return;
+    setPidiendo(true);
+    setAviso(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const r = await fetch(`/api/factura?pedido=${encodeURIComponent(pedidoId)}`, {
+        headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string } | null;
+      if (r.ok && d?.ok && d.url) {
+        void trackEvent("blue_factura_descargada", "Blue: factura descargada");
+        abrirDescarga(d.url);
+      } else if (r.status === 409) {
+        setAviso("La factura está llegando, prueba en unos minutos.");
+      } else {
+        setAviso("No hemos podido descargar la factura. Pulsa «Ver mis facturas» o inténtalo en un rato.");
+      }
+    } catch {
+      setAviso("No hemos podido descargar la factura: revisa tu conexión.");
+    } finally {
+      setPidiendo(false);
+    }
+  }
+
+  if (info.estado === "sin_sesion") {
+    return (
+      <ChipTienda
+        nativeID="blue-ia-accion-facturas-entrar"
+        icono="log-in-outline"
+        label={AVISO_LOGIN_FACTURAS}
+        onPress={() => {
+          void trackEvent("blue_ver_facturas", "Blue: ver mis facturas", { metadata: { sin_sesion: true } });
+          router.push(`/perfil?acceso=entrar&aviso=${encodeURIComponent(AVISO_LOGIN_FACTURAS)}` as never);
+        }}
+      />
+    );
+  }
+  const factura = info.estado === "listo" ? info.factura : null;
+  return (
+    <View style={{ gap: 8 }}>
+      {factura ? (
+        <ChipTienda
+          nativeID="blue-ia-accion-factura-descargar"
+          icono="document-text-outline"
+          label={`Descargar factura${factura.numero ? ` ${factura.numero}` : ""}`}
+          onPress={() => descargar(factura.pedidoId)}
+          boton
+          ocupado={pidiendo}
+        />
+      ) : null}
+      <ChipTienda nativeID="blue-ia-accion-facturas" icono="receipt-outline" label="Ver mis facturas" onPress={ver} />
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18 }}>
+          {aviso}
+        </Text>
+      ) : info.estado === "listo" && !factura ? (
+        // Aún sin factura: el plazo (regla del dueño, 2026-11-11), aunque la respuesta no lo diga.
+        <Text nativeID="blue-ia-facturas-plazo" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18 }}>
+          Tu factura saldrá en «Mis pedidos»: con tarjeta, en un máximo de 24 horas; en efectivo u otra forma de pago, entre 24 y 48 horas.
+        </Text>
+      ) : null}
     </View>
   );
 }

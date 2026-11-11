@@ -197,6 +197,11 @@
  *    tabla (migración sin aplicar) no sale nada y no falla; Administración → Pedidos enseña el número, «PDF pendiente»
  *    o «Sin factura», el recuento, el filtro y «Descargar»; Analítica las cuenta.
  *
+ *  - FB) Facturas desde Blue IA (2026-11-11): con el botón «facturas» de la respuesta (simulada), «Ver mis facturas» abre
+ *    «Mis pedidos» con el filtro «Facturas» marcado; con factura, «Descargar factura F-…» (la del pedido VZ- que nombra si
+ *    es suyo; si no, la más reciente) descarga con la sesión el pedido correcto; si ese pedido aún no la tiene, el plazo;
+ *    sin sesión, «Inicia sesión para ver tus facturas»; la analítica cuenta los toques y Analítica los enseña; 390 px.
+ *
  *  - AC) Avisos de Blue solo con cuenta (2026-11-11): sin sesión, aunque el dispositivo tenga el ajuste antiguo y un «me
  *    gusta» que ha bajado, ni bajadas ni artículos nuevos; «… · solo con cuenta» con «Crear cuenta gratis» (44 px, icono
  *    sin burbuja) lleva al registro con la ventaja escrita, deja la vuelta y se cuenta (también la cuenta creada después);
@@ -228,7 +233,7 @@
  *    (cuántas, importe, unidas, pendientes), «En tienda · pagado …», «Unida a la cuenta del cliente» o «Pendiente de que
  *    se registre <correo>», el filtro «En tienda» y sin envío, cancelar, WhatsApp ni teléfono; sin la migración, nada de
  *    eso y sin errores; Analítica, tienda frente a online (recuento e importe, sin datos de nadie).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|VT|RE2|RE3|AC]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -9429,6 +9434,166 @@ async function seccionFA() {
   }
 }
 
+// ===== FB) Facturas desde Blue IA (dueño, 2026-11-11: «que Blue IA le dé la opción de redirigirlo a la pestaña donde está
+// la factura o directamente descargarla si está disponible»): con el botón «facturas» de la respuesta (simulada), «Ver mis
+// facturas» abre «Mis pedidos» con el filtro «Facturas» marcado; con una factura con PDF, «Descargar factura F-…» (la del
+// pedido VZ- que nombra si es suyo; si no, la del más reciente) descarga con la sesión el pedido correcto; si el pedido que
+// nombra aún no la tiene, solo «Ver mis facturas» y el plazo; sin sesión, «Inicia sesión para ver tus facturas»; la
+// analítica cuenta los toques y Administración → Analítica los enseña; a 390 px sin salirse ==========================
+async function seccionFB() {
+  const limpio = (t) => (t ?? "").replace(/\p{Co}/gu, "").replace(/\s+/g, " ").trim();
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const idDe = (n) => `fb000000-0000-4000-8000-0000000000${n}`;
+  const pedido = (n, fecha, extra) => ({
+    id: idDe(n), numero: n, created_at: fecha, estado: "entregado", entrega: "envio", total_eur: 59.9, user_id: CLIENTE.id,
+    codigo_seguimiento: `VZ-FBLU-E${n}A`, vinculado_en: null, pago_estado: "pagado", pago_modo: "real", pagado_eur: 59.9,
+    pagado_en: fecha, devuelto_eur: null, devuelto_en: null, ...extra,
+  });
+  // Del más reciente al más antiguo (como los pide la tienda): 57 con factura, 52 sin ella, 51 con factura.
+  const PEDIDOS = [pedido(57, "2026-11-10T10:00:00Z"), pedido(52, "2026-11-09T10:00:00Z"), pedido(51, "2026-11-08T10:00:00Z")];
+  const FACTURAS = [
+    { pedido_id: idDe(57), numero_factura: "F-2026-0031", pdf_path: `${idDe(57)}/f31.pdf`, fecha: "2026-11-10", recibida_en: "2026-11-10T12:00:00Z" },
+    { pedido_id: idDe(51), numero_factura: "F-2026-0012", pdf_path: `${idDe(51)}/f12.pdf`, fecha: "2026-11-08", recibida_en: "2026-11-08T12:00:00Z" },
+  ];
+  const RESPUESTA = {
+    reply: "Tu factura está en Perfil → Mis pedidos, en tu pedido. Pulsa Ver mis facturas aquí debajo.",
+    accionChips: [{ tipo: "facturas" }],
+  };
+  const estadoCliente = (extra) => ({
+    filas: PERFIL, guardados: [], aceptaAnalitica: true, blueIa: () => RESPUESTA,
+    numeros: { pedidos: PEDIDOS.map((x) => ({ ...x })), reparaciones: [], items: [] }, ...extra,
+  });
+  const preguntar = async (p, pregunta) => {
+    const campo = p.getByPlaceholder("Pregúntale a Blue IA…");
+    await campo.waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(1200);
+    await campo.fill(pregunta);
+    await p.getByRole("button", { name: "Enviar la pregunta" }).click();
+    await p.locator("#blue-ia-acciones").last().waitFor({ timeout: 15000 }).catch(() => {});
+  };
+  const ancho = (p) => p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+
+  // FB1) Con facturas: «Descargar factura» de la más reciente; nombrando VZ- de otro pedido suyo, la de ese; la descarga
+  // va con la sesión al pedido correcto y se cuenta; «Ver mis facturas» abre «Mis pedidos» con «Facturas» marcado.
+  {
+    const estado = estadoCliente({ facturas: FACTURAS });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/blue-ia");
+    await preguntar(p, "¿Dónde está mi factura?");
+    await p.locator("#blue-ia-accion-factura-descargar").first().waitFor({ timeout: 15000 }).catch(() => {});
+    const botones = (await p.locator("#blue-ia-acciones").last().locator("[role=link], [role=button]").allInnerTexts()).map(limpio);
+    ok(botones.join(" | ") === "Descargar factura F-2026-0031 | Ver mis facturas", `FB: con facturas, Blue enseña «Descargar factura» de la más reciente y «Ver mis facturas» (${botones.join(" | ")})`);
+    const altos = await p.locator("#blue-ia-acciones").last().locator("[role=link], [role=button]").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+    const a1 = await ancho(p);
+    ok(altos.every((h) => h >= 44) && a1.a <= a1.v, `FB: los botones miden 44 px o más y nada se sale a 390 px (${altos.join(",")}; ${a1.a}/${a1.v})`);
+    await p.locator("#blue-ia-acciones").last().scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "FB1-blue-descargar-factura");
+    const urlAntes = p.url();
+    await Promise.all([p.waitForEvent("download", { timeout: 10000 }).catch(() => null), p.locator("#blue-ia-accion-factura-descargar").first().click()]);
+    for (let i = 0; i < 20 && !(estado.pdfsBajados ?? []).length; i++) await p.waitForTimeout(200);
+    const pedida = (estado.facturasPedidas ?? [])[0];
+    ok(pedida?.pedido === idDe(57) && /^Bearer \S+\.\S+\.\S+$/.test(pedida?.auth ?? "") && ((estado.pdfsBajados ?? [])[0] ?? "").endsWith("f31.pdf"), `FB: descarga con la sesión la factura del pedido correcto (${JSON.stringify(pedida ?? null).slice(0, 110)}; ${(estado.pdfsBajados ?? [])[0] ?? "nada"})`);
+    ok(p.url() === urlAntes, `FB: y no se va de Blue IA (${p.url().replace(BASE, "")})`);
+    for (let i = 0; i < 20 && !evento(estado, "blue_factura_descargada").length; i++) await p.waitForTimeout(250);
+    const evD = evento(estado, "blue_factura_descargada")[0];
+    ok(evD?.step_label === "Blue: factura descargada" && !/F-2026|fb000000|Ana|cliente@/.test(JSON.stringify(evD?.metadata ?? {})), `FB: la descarga se cuenta («Blue: factura descargada»), sin datos personales (${evD?.step_label ?? "nada"})`);
+
+    // Pregunta por un pedido suyo concreto (VZ-FBLU-E51A): la factura de ese pedido, no la más reciente.
+    await preguntar(p, "¿Y la factura de mi pedido VZ-FBLU-E51A?");
+    await p.waitForTimeout(400);
+    await p.locator("#blue-ia-acciones").last().locator("#blue-ia-accion-factura-descargar").waitFor({ timeout: 15000 }).catch(() => {});
+    const segundo = limpio(await p.locator("#blue-ia-acciones").last().locator("#blue-ia-accion-factura-descargar").innerText().catch(() => ""));
+    ok(segundo === "Descargar factura F-2026-0012", `FB: si nombra la referencia de un pedido suyo, la factura de ese pedido (${segundo})`);
+    await p.locator("#blue-ia-acciones").last().locator("#blue-ia-accion-factura-descargar").click();
+    for (let i = 0; i < 20 && (estado.facturasPedidas ?? []).length < 2; i++) await p.waitForTimeout(200);
+    ok((estado.facturasPedidas ?? [])[1]?.pedido === idDe(51), `FB: y descarga la de ese pedido (${(estado.facturasPedidas ?? [])[1]?.pedido ?? "nada"})`);
+
+    // «Ver mis facturas» → «Mis pedidos» con el filtro «Facturas» marcado (solo los pedidos con factura).
+    await p.locator("#blue-ia-acciones").last().locator("#blue-ia-accion-facturas").click();
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    await p.locator("#seguimiento-filtro-facturas").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(600);
+    const url = new URL(p.url());
+    const marcado = await p.evaluate(() => document.querySelector("#seguimiento-filtro-facturas")?.getAttribute("aria-selected"));
+    const visibles = await p.evaluate(() => [...document.querySelectorAll('[id^="seguimiento-pedido-"]')].map((e) => e.id.replace("seguimiento-pedido-", "")).join(","));
+    ok(url.pathname === "/perfil" && url.searchParams.get("tab") === "seguimientos" && url.searchParams.get("filtro") === "facturas", `FB: «Ver mis facturas» abre Mis pedidos (${url.pathname}${url.search})`);
+    ok(marcado === "true" && visibles === "57,51", `FB: con el filtro «Facturas» ya marcado y solo los pedidos con factura (${marcado}; ${visibles})`);
+    await capturar(p, "FB1-mis-pedidos-facturas");
+    for (let i = 0; i < 20 && !evento(estado, "blue_ver_facturas").length; i++) await p.waitForTimeout(250);
+    ok(evento(estado, "blue_ver_facturas")[0]?.step_label === "Blue: ver mis facturas" && evento(estado, "blue_ia_boton").some((e) => /tocado · Ver mis facturas/.test(e.step_label ?? "")), `FB: «Ver mis facturas» se cuenta (${evento(estado, "blue_ver_facturas").map((e) => e.step_label).join(" | ") || "nada"})`);
+    const a2 = await ancho(p);
+    ok(a2.a <= a2.v, `FB: Mis pedidos sin salirse a 390 px (${a2.a}/${a2.v})`);
+    ok(p.errores.length === 0, `FB: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FB2) Nombra un pedido suyo que aún no tiene factura: nada de descargar otra; «Ver mis facturas» y el plazo.
+  {
+    const estado = estadoCliente({ facturas: FACTURAS });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/blue-ia");
+    await preguntar(p, "No me sale la factura del pedido VZ-FBLU-E52A");
+    await p.locator("#blue-ia-facturas-plazo").waitFor({ timeout: 15000 }).catch(() => {});
+    const botones = (await p.locator("#blue-ia-acciones").last().locator("[role=link], [role=button]").allInnerTexts()).map(limpio);
+    const plazo = limpio(await p.locator("#blue-ia-facturas-plazo").innerText().catch(() => ""));
+    ok(botones.join(" | ") === "Ver mis facturas" && /24 horas/.test(plazo) && /entre 24 y 48 horas/.test(plazo), `FB: sin factura en ese pedido, solo «Ver mis facturas» y el plazo (${botones.join(" | ")}; ${plazo})`);
+    const a = await ancho(p);
+    ok(a.a <= a.v, `FB: sin salirse a 390 px (${a.a}/${a.v})`);
+    await p.locator("#blue-ia-facturas-plazo").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "FB2-blue-sin-factura");
+    ok(!(estado.facturasPedidas ?? []).length && p.errores.length === 0, `FB: no pide ninguna factura y sin errores (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FB3) Sin sesión: «Inicia sesión para ver tus facturas», que lleva a entrar; no consulta facturas.
+  {
+    const estado = estadoCliente({ facturas: FACTURAS, filas: [] });
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.removeItem("videojuegoos.supabase.auth");
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const p = await pagina(ctx, "/blue-ia");
+    await preguntar(p, "¿Dónde descargo mi factura?");
+    await p.locator("#blue-ia-accion-facturas-entrar").waitFor({ timeout: 15000 }).catch(() => {});
+    const botones = (await p.locator("#blue-ia-acciones").last().locator("[role=link], [role=button]").allInnerTexts()).map(limpio);
+    ok(botones.join(" | ") === "Inicia sesión para ver tus facturas" && (estado.consultasFacturas ?? 0) === 0, `FB: sin sesión invita a iniciar sesión y no consulta facturas (${botones.join(" | ")}; ${estado.consultasFacturas ?? 0} consultas)`);
+    await capturar(p, "FB3-blue-sin-sesion");
+    await p.locator("#blue-ia-accion-facturas-entrar").click();
+    await p.waitForURL(/\/perfil/, { timeout: 15000 }).catch(() => {});
+    const url = new URL(p.url());
+    ok(url.pathname === "/perfil" && url.searchParams.get("acceso") === "entrar" && /Inicia sesión para ver tus facturas/.test(url.searchParams.get("aviso") ?? ""), `FB: lleva a entrar con el aviso (${url.pathname}${decodeURIComponent(url.search)})`);
+    ok(p.errores.length === 0, `FB: sin sesión, sin errores (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // FB4) Administración → Analítica: cuántas sesiones usan «Ver mis facturas» y «Descargar factura» desde Blue IA.
+  {
+    const estado = {
+      guardados: [],
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Pedidos: factura descargada", sessions: 3 },
+        { step_label: "Blue: ver mis facturas", sessions: 4 },
+        { step_label: "Blue: factura descargada", sessions: 2 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-facturas").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = limpio(await p.locator("#analitica-facturas").innerText().catch(() => ""));
+    ok(/desde Blue IA: «Ver mis facturas» 4 · «Descargar factura» 2 \(sesiones\)/.test(t), `FB: Analítica cuenta las facturas desde Blue IA (${t})`);
+    await p.locator("#analitica-facturas").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "FB4-analitica-facturas-blue");
+    ok(p.errores.length === 0, `FB: Analítica sin errores (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== VT) Ventas en mano de VeoAura (dueño, 2026-11-11, opción A; migración 20261111170000): en «Mis pedidos», «Compra
 // en tienda VZ-…» con su forma de pago, «Entregado» y «Descargar factura», sin barra de envío, y la petición de unir las
 // compras con la sesión; Administración → Pedidos con «En tienda», el recuento, si está unida o pendiente de registrarse
@@ -10465,6 +10630,7 @@ try {
   if (SOLO === "PT") await seccionPT();
   if (SOLO === "NW") await seccionNW();
   if (SOLO === "FA") await seccionFA();
+  if (SOLO === "FB") await seccionFB();
   if (SOLO === "RE2") await seccionRE2();
   if (SOLO === "RE3") await seccionRE3();
   if (SOLO === "VT") await seccionVT();
