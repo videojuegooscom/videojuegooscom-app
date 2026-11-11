@@ -41,8 +41,9 @@
  * Conectado con:
  * - components/SocialLinks.tsx y app/(tabs)/blue-ia.tsx (chips de redes
  *   sociales) → sustituyen su Linking.openURL directo por esta función.
- * - app/(tabs)/index.tsx, app/producto/[id].tsx, app/servicio/[id].tsx,
- *   app/checkout.tsx → sus respectivas openWhatsApp() usan esta función
+ * - app/(tabs)/index.tsx, app/producto/[id].tsx, app/servicio/[id].tsx
+ *   (app/checkout.tsx ya no abre WhatsApp desde el 2026-11-11: el pedido se
+ *   habla por el chat de la tienda) → sus respectivas openWhatsApp() usan esta función
  *   para el enlace principal de wa.me (el enlace de reserva de
  *   api.whatsapp.com, por si wa.me fallara, se deja con Linking.openURL
  *   normal: es solo un plan B interno, no hace falta el truco de Chrome

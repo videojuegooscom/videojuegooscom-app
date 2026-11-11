@@ -258,7 +258,8 @@ function AsignarSeguimiento({
       // Aviso al cliente en esta misma conversación (lo escribe el administrador, como cualquier mensaje suyo).
       const mensaje =
         datos.tipo === "pedido"
-          ? `Te he asignado el seguimiento de tu pedido nº ${datos.numero_pedido} («${datos.titulo}»). Lo tienes en Perfil → Mis seguimientos, con el número ${datos.codigo_seguimiento}.`
+          ? // Al cliente, la referencia del pedido (nunca el número interno; dueño, 2026-11-11).
+            `Te he asignado el seguimiento de tu pedido ${datos.codigo_seguimiento} («${datos.titulo}»). Lo tienes en Perfil → Mis seguimientos.`
           : `Te he asignado el seguimiento de «${datos.titulo}». Lo tienes en Perfil → Mis seguimientos, con el número ${datos.codigo_seguimiento}.`;
       const { error: errMensaje } = await supabase.from("product_chat_messages").insert({ chat_id: chatId, body: mensaje });
       setAviso({

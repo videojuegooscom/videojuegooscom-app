@@ -10,6 +10,8 @@
  * tienda», que abre la cajita de ideas de components/ReviewModal.tsx) y la
  * pestaña «Mis seguimientos»; se cambia de pestaña tocándola o deslizando el
  * dedo. Al final, el pie de página (con las redes sociales, una sola vez).
+ * En «Mis pedidos», cada pedido se llama por su referencia («Pedido VZ-XXXX-XXXX · total · fecha»), nunca por su número
+ * interno (dueño, 2026-11-11); «Preguntar a Blue» le pasa esa referencia (?pedido=VZ-…).
  *
  * Cómo funciona:
  * - Usa Supabase Auth (supabase.auth.signInWithPassword / signUp / signOut /
@@ -1750,12 +1752,15 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
       const r = (data ?? {}) as { ok?: boolean; motivo?: string; tipo?: "pedido" | "reparacion"; titulo?: string; numero?: number };
       if (r.ok && r.tipo) {
         trackEvent("seguimiento_numero_anadido", "Perfil: número de seguimiento añadido", { metadata: { tipo: r.tipo } });
+        // La referencia escrita, con el formato de la tienda (como la normaliza vincular_seguimiento): «VZ-7K3M-9QPD».
+        const limpio = codigo.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const referencia = `VZ-${limpio.slice(2, 6)}-${limpio.slice(6, 10)}`;
         setCodigo("");
         setAviso({
           ok: true,
           texto:
             r.tipo === "pedido"
-              ? `Listo: el pedido nº ${r.numero ?? ""} ya está en «Mis pedidos».`
+              ? `Listo: el pedido ${referencia} ya está en «Mis pedidos».`
               : `Listo: «${r.titulo ?? "tu reparación"}» ya está en «Reparaciones y Mantenimientos».`,
         });
         onAnadido();
@@ -3366,8 +3371,9 @@ function SeguimientosSeccion() {
             {pedidos.filter((p) => pasaFiltroPedido(p, filtroPedidos)).map((p, i) => (
               <View key={p.id} nativeID={`seguimiento-pedido-${p.numero ?? p.id}`} style={{ gap: 10, alignItems: "center", width: "100%" }}>
                 {i > 0 ? <SegSeparador /> : null}
-                <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
-                  Pedido nº {p.numero ?? "—"}
+                {/* La referencia del pedido (VZ-XXXX-XXXX), como una empresa: nunca el número interno (dueño, 2026-11-11). */}
+                <Text nativeID={`mis-pedidos-titulo-${p.numero ?? p.id}`} style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
+                  {p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : "Pedido"}
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
@@ -3384,11 +3390,9 @@ function SeguimientosSeccion() {
                 />
                 <PagoDelPedido p={p} />
                 <FacturaDelPedido p={p} facturasOk={facturasOk} />
-                <DatosDelSeguimiento
-                  entrega={p.entrega ? (p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio") : null}
-                  codigo={p.codigo_seguimiento}
-                />
-                <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${p.numero ?? ""}`)} />
+                {/* La referencia ya va en el título: aquí solo la entrega. */}
+                <DatosDelSeguimiento entrega={p.entrega ? (p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio") : null} />
+                <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${encodeURIComponent(p.codigo_seguimiento ?? "")}`)} />
               </View>
             ))}
             </>

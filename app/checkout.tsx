@@ -17,10 +17,18 @@
  *
  * Cómo funciona: guarda el carrito en local con la misma clave que usa
  * cesta.tsx (CART_KEY = "videojuegoos_cart_v1"), valida el formulario campo
- * a campo (formOk) y construye el texto del pedido (buildWhatsText). En la
- * confirmación, "Hablar con nosotros" lo manda al chat de la tienda
- * (abrirChatEquipo); sin sesión lleva a Blue IA con ?pedido=. WhatsApp queda
- * solo como enlace secundario ("¿Prefieres WhatsApp?").
+ * a campo (formOk) y construye el resumen del pedido (buildTextoPedido). En la
+ * confirmación, "Hablar con el equipo" lo manda al chat de la tienda
+ * (abrirChatEquipo, el mismo de Blue IA); sin sesión lleva a Blue IA con
+ * ?pedido=<referencia>. Sin WhatsApp ni teléfono (dueño, 2026-11-11).
+ *
+ * Confirmación y «No se ha hecho el pago» (dueño, 2026-11-11: «intuitiva, práctica y profesional»): el título dice qué
+ * ha pasado («¡Gracias por tu pedido!», «¡Gracias por tu compra!» si ya está pagado, «No se ha hecho el pago», «No se ha podido abrir el pago», «Aún no nos
+ * consta el pago», «No hemos podido guardar tu pedido»), debajo la referencia «Pedido VZ-XXXX-XXXX» (la pide a
+ * api/pago.ts, acción «referencia», solo para quien hizo el pedido; el número interno nunca se enseña) y si se ha cobrado
+ * o no; UNA sola píldora azul con lo siguiente («Volver a intentar el pago», «Comprobar otra vez», «Volver a
+ * intentarlo» o «Hablar con el equipo») y lo demás como texto con icono. En el formulario, debajo del botón, lo que se
+ * acepta al confirmar con sus páginas (Condiciones y Privacidad).
  *
  * "Comprar ya" → vendido automático: si el producto se añadió con el botón
  * "Comprar ya" de app/producto/[id].tsx (que ya exige sesión iniciada),
@@ -57,7 +65,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -78,7 +85,6 @@ import SmartImage from "../components/SmartImage";
 import { abrirChatEquipo } from "../components/ProductChatThread";
 import { calcularEnvio, cargarDatosEnvio, cargarTarifas, fmtKg, hayEnviosDePago, limpiarCodigoPostal, pesoDeCompra, type ZonaEnvio } from "../lib/envio";
 import { supabase } from "../lib/supabase";
-import { openExternalLink } from "../lib/openExternalLink";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analytics";
 import { datosDeFila } from "../components/PerfilPublico";
@@ -118,8 +124,8 @@ type BuyNowMark = { productId: string; userId: string };
 
 // Si el pedido incluye el producto de "Comprar ya" y la sesión coincide,
 // lo marca como vendido a esa persona (ver sql/product_sales.sql). No
-// bloquea ni avisa si falla: es un extra sobre el pedido por WhatsApp, que
-// es lo que de verdad cierra la venta.
+// bloquea ni avisa si falla: es un extra sobre el pedido guardado, que es
+// lo que de verdad cierra la venta.
 async function markBuyNowSoldIfApplies(items: CartItem[]) {
   try {
     const raw = await AsyncStorage.getItem(BUY_NOW_MARK_KEY);
@@ -273,11 +279,16 @@ async function irAlPagoConTarjeta(
   } catch {
     // sin conexión: abajo
   }
-  return { aviso: "No hemos podido abrir la página de pago. Tu pedido está guardado: vuelve a intentarlo o háblalo con nosotros." };
+  return { aviso: AVISO_SIN_ABRIR };
 }
 
+// Referencia del pedido que ve el cliente («VZ-XXXX-XXXX», pedidos.codigo_seguimiento). El número interno (numero) solo
+// se usa por dentro: nunca se enseña (dueño, 2026-11-11: «como una empresa profesional»).
+const REFERENCIA_RE = /^VZ-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const refValida = (v: unknown): string | null => (typeof v === "string" && REFERENCIA_RE.test(v) ? v : null);
+
 // Al volver de Stripe: el servidor se lo pregunta a Stripe (la vuelta del navegador por sí sola no vale).
-async function confirmarPagoConTarjeta(sesion: string): Promise<{ pagado: boolean; numero: number | null } | null> {
+async function confirmarPagoConTarjeta(sesion: string): Promise<{ pagado: boolean; numero: number | null; referencia: string | null } | null> {
   if (!/^cs_(test|live)_[A-Za-z0-9]{8,240}$/.test(sesion)) return null;
   try {
     const r = await fetch("/api/pago", {
@@ -285,24 +296,42 @@ async function confirmarPagoConTarjeta(sesion: string): Promise<{ pagado: boolea
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accion: "confirmar", sesion }),
     });
-    const d = (await r.json().catch(() => null)) as { ok?: boolean; pagado?: boolean; numero?: number } | null;
-    if (r.ok && d?.ok) return { pagado: d.pagado === true, numero: Number(d.numero) || null };
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; pagado?: boolean; numero?: number; referencia?: string } | null;
+    if (r.ok && d?.ok) return { pagado: d.pagado === true, numero: Number(d.numero) || null, referencia: refValida(d.referencia) };
   } catch {
     // sin conexión: se puede comprobar otra vez
   }
   return null;
 }
 
-// Resumen corto del pedido para el chat cuando la cesta ya no está (al volver de Stripe).
-function textoDelPedido(numero: number | null, pago: EstadoPago): string {
-  const base = numero ? `¡Hola! Tengo el pedido nº ${numero} en Videojuegoszaragoza.com.` : "¡Hola! Tengo un pedido en Videojuegoszaragoza.com.";
-  if (pago === "pagado") return `${base} Ya lo he pagado online. ¿Me confirmas la entrega?`;
-  return `${base} ¿Me confirmas disponibilidad, forma de pago y entrega?`;
+// La referencia de un pedido recién hecho: la da el servidor (api/pago.ts, «referencia») solo a quien lo hizo (su cuenta
+// o la clave de la compra que guarda este navegador). Sin ella, la pantalla dice «tu pedido» sin número.
+async function referenciaDelPedido(numero: number, clave: string | null): Promise<string | null> {
+  if (Platform.OS !== "web") return null;
+  try {
+    const r = await fetch("/api/pago", {
+      method: "POST",
+      headers: await cabecerasConSesion(),
+      body: JSON.stringify({ accion: "referencia", numero, clave }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; referencia?: string } | null;
+    if (r.ok && d?.ok) return refValida(d.referencia);
+  } catch {
+    // sin conexión: sin referencia en pantalla (el pedido está guardado igual)
+  }
+  return null;
 }
 
-const BRAND = {
-  whatsappPhoneE164: "+34627748741",
-};
+// Resumen corto del pedido para el chat de la tienda cuando la cesta ya no está (al volver de Stripe).
+function textoDelPedido(referencia: string | null, pago: EstadoPago): string {
+  const base = referencia ? `Hola, tengo el pedido ${referencia} en Videojuegoszaragoza.com.` : "Hola, tengo un pedido en Videojuegoszaragoza.com.";
+  if (pago === "pagado") return `${base} Ya lo he pagado online. ¿Me confirmáis la entrega?`;
+  if (pago === "cancelado" || pago === "sin_abrir") return `${base} No he podido terminar el pago online. ¿Me ayudáis a pagarlo?`;
+  return `${base} ¿Me confirmáis la disponibilidad, el pago y la entrega?`;
+}
+
+// Aviso de «no se ha podido abrir la página de pago» (en la pantalla «No se ha podido abrir el pago» ya lo dice el título).
+const AVISO_SIN_ABRIR = "No hemos podido abrir la página de pago. Vuelve a intentarlo en un momento.";
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(n: number) {
@@ -376,17 +405,6 @@ async function saveCart(items: CartItem[]) {
   }
 }
 
-function openWhatsApp(prefill: string) {
-  const phone = BRAND.whatsappPhoneE164.replace(/[^\d+]/g, "");
-  const text = encodeURIComponent((prefill ?? "").trim().slice(0, 900));
-  const url = `https://wa.me/${phone.replace("+", "")}?text=${text}`;
-  try {
-    openExternalLink(url);
-  } catch {
-    Linking.openURL(`https://api.whatsapp.com/send?phone=${phone.replace("+", "")}&text=${text}`);
-  }
-}
-
 export default function CheckoutScreen() {
   useWindowDimensions(); // fuerza re-render en cambios de tamaño (web/responsive)
   const insets = useSafeAreaInsets();
@@ -417,7 +435,8 @@ export default function CheckoutScreen() {
   const [entrega, setEntrega] = useState<"envio" | "recogida">("envio");
   // Número del pedido ya registrado (pantalla de confirmación), con cómo va su pago con tarjeta y la clave de la compra
   // (para volver a intentar el pago).
-  const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; texto: string; pago?: EstadoPago; clave?: string | null } | null>(null);
+  // referencia: la del pedido que ve el cliente (VZ-XXXX-XXXX); numero solo se usa por dentro (pagar, volver de Stripe).
+  const [pedidoHecho, setPedidoHecho] = useState<{ numero: number | null; referencia?: string | null; texto: string; pago?: EstadoPago; clave?: string | null } | null>(null);
   // Pago con tarjeta: si el servidor lo ofrece a quien mira (con la clave de prueba, solo al administrador).
   const [pagoTarjeta, setPagoTarjeta] = useState<PagoTarjeta>({ disponible: false, modo: null });
   const [avisoPago, setAvisoPago] = useState<string | null>(null);
@@ -498,18 +517,22 @@ export default function CheckoutScreen() {
     return nameOk && emailOk && phoneOk && addrOk && cpOk && cityOk;
   }, [items.length, fullName, email, phone, address1, postalCode, city, entrega, envio.disponible, faltaCodigo, bloqueoSoloMano]);
 
-  const buildWhatsText = useCallback((numero: number | null) => {
+  // Resumen del pedido que se manda al chat de la tienda con «Hablar con el equipo» (con la referencia, nunca el número
+  // interno). Sin referencia (no se pudo guardar), lleva los datos para que el equipo lo termine con el cliente.
+  const buildTextoPedido = useCallback((referencia: string | null, guardado: boolean) => {
     const lines: string[] = [];
     lines.push(
-      numero
-        ? `¡Hola! Acabo de hacer el pedido nº ${numero} en Videojuegoszaragoza.com 👇`
-        : "¡Hola! Quiero hacer un pedido desde Videojuegoszaragoza.com 👇"
+      referencia
+        ? `Hola, acabo de hacer el pedido ${referencia} en Videojuegoszaragoza.com.`
+        : guardado
+          ? "Hola, acabo de hacer un pedido en Videojuegoszaragoza.com."
+          : "Hola, quiero hacer este pedido en Videojuegoszaragoza.com (la web no ha podido guardarlo)."
     );
     lines.push("");
-    lines.push(entrega === "recogida" ? "🤝 Entrega: en mano en Cuarte de Huerva" : "🚚 Entrega: envío a domicilio");
+    lines.push(entrega === "recogida" ? "Entrega: en mano en Cuarte de Huerva" : "Entrega: envío a domicilio");
     lines.push("");
     if (items.length > 0) {
-      lines.push("🛒 Pedido:");
+      lines.push("Pedido:");
       for (const it of items) {
         lines.push(`- ${it.title} x${it.qty} (${fmtEUR(it.priceEUR * it.qty)})`);
       }
@@ -517,7 +540,7 @@ export default function CheckoutScreen() {
       lines.push(`Total: ${fmtEUR(total)}`);
       lines.push("");
     }
-    lines.push("📦 Datos:");
+    lines.push("Datos:");
     if (safeStr(fullName)) lines.push(`Nombre: ${safeStr(fullName)}`);
     if (safeStr(email)) lines.push(`Email: ${safeStr(email)}`);
     if (safeStr(phone)) lines.push(`Tel: ${safeStr(phone)}`);
@@ -532,8 +555,8 @@ export default function CheckoutScreen() {
     lines.push("");
     lines.push(
       entrega === "recogida"
-        ? "¿Me confirmas disponibilidad, forma de pago y cuándo puedo pasar a recogerlo?"
-        : "¿Me confirmas disponibilidad y forma de pago/envío?"
+        ? "¿Me confirmáis la disponibilidad, el pago y cuándo me lo entregáis en mano?"
+        : "¿Me confirmáis la disponibilidad, el pago y el envío?"
     );
     return lines.join("\n");
   }, [items, total, shipping, fullName, email, phone, address1, postalCode, city, notes, entrega]);
@@ -549,11 +572,13 @@ export default function CheckoutScreen() {
     if (!pedidoHecho || abriendoChat) return;
     setAbriendoChat(true);
     try {
+      // El chat de la tienda (el mismo «Hablar con el equipo» de Blue IA y de la ficha); sin sesión, Blue IA con el
+      // pedido de contexto, desde donde también se habla con el equipo.
       const r = await abrirChatEquipo({ resumen: pedidoHecho.texto });
       if (r === "login") {
         router.push(
-          (pedidoHecho.numero
-            ? `/blue-ia?pedido=${pedidoHecho.numero}`
+          (pedidoHecho.referencia
+            ? `/blue-ia?pedido=${encodeURIComponent(pedidoHecho.referencia)}`
             : `/blue-ia?tema=${encodeURIComponent("Mi pedido")}`) as never
         );
       }
@@ -665,9 +690,11 @@ export default function CheckoutScreen() {
   const comprobarVuelta = useCallback(async (sesion: string) => {
     const pendiente = await leerPagoPendiente();
     const numeroGuardado = pendiente?.numero ?? null;
-    setPedidoHecho({ numero: numeroGuardado, texto: textoDelPedido(numeroGuardado, null), pago: "comprobando", clave: pendiente?.clave ?? null });
+    setPedidoHecho((p) => ({ numero: numeroGuardado, referencia: p?.referencia ?? null, texto: textoDelPedido(p?.referencia ?? null, null), pago: "comprobando", clave: pendiente?.clave ?? null }));
     const r = await confirmarPagoConTarjeta(sesion);
     const numero = r?.numero ?? numeroGuardado;
+    // La referencia la da la confirmación; si no llegó, se pide aparte (solo a quien hizo el pedido).
+    const referencia = r?.referencia ?? (numero ? await referenciaDelPedido(numero, pendiente?.clave ?? null) : null);
     if (r?.pagado) {
       // Se cuenta una sola vez: al recargar esta página ya no hay pago pendiente guardado.
       if (pendiente) {
@@ -678,9 +705,9 @@ export default function CheckoutScreen() {
           // nada que borrar
         }
       }
-      setPedidoHecho({ numero, texto: textoDelPedido(numero, "pagado"), pago: "pagado", clave: null });
+      setPedidoHecho({ numero, referencia, texto: textoDelPedido(referencia, "pagado"), pago: "pagado", clave: null });
     } else {
-      setPedidoHecho({ numero, texto: textoDelPedido(numero, null), pago: "sin_confirmar", clave: pendiente?.clave ?? null });
+      setPedidoHecho({ numero, referencia, texto: textoDelPedido(referencia, null), pago: "sin_confirmar", clave: pendiente?.clave ?? null });
     }
   }, []);
   useEffect(() => {
@@ -698,7 +725,10 @@ export default function CheckoutScreen() {
       const pendiente = await leerPagoPendiente();
       const enLaUrl = Number(params.pedido);
       const numero = pendiente?.numero ?? (Number.isInteger(enLaUrl) && enLaUrl > 0 ? enLaUrl : null);
-      setPedidoHecho({ numero, texto: textoDelPedido(numero, null), pago: "cancelado", clave: pendiente?.clave ?? null });
+      // Se enseña ya y la referencia llega enseguida (sin dejar la cesta vacía en pantalla mientras tanto).
+      setPedidoHecho({ numero, referencia: null, texto: textoDelPedido(null, "cancelado"), pago: "cancelado", clave: pendiente?.clave ?? null });
+      const referencia = numero ? await referenciaDelPedido(numero, pendiente?.clave ?? null) : null;
+      if (referencia) setPedidoHecho((p) => (p && p.numero === numero ? { ...p, referencia, texto: textoDelPedido(referencia, p.pago ?? null) } : p));
     })();
   }, [params.pago, params.sesion, params.pedido, comprobarVuelta]);
 
@@ -711,7 +741,10 @@ export default function CheckoutScreen() {
       const enCurso = pagoEnCursoRef.current;
       if (!e.persisted || !enCurso) return;
       setRedirigiendo(false);
-      setPedidoHecho((p) => p ?? { numero: enCurso.numero, texto: textoDelPedido(enCurso.numero, null), pago: "cancelado", clave: enCurso.clave });
+      setPedidoHecho((p) => p ?? { numero: enCurso.numero, referencia: null, texto: textoDelPedido(null, "cancelado"), pago: "cancelado", clave: enCurso.clave });
+      referenciaDelPedido(enCurso.numero, enCurso.clave).then((referencia) => {
+        if (referencia) setPedidoHecho((p) => (p && p.numero === enCurso.numero && !p.referencia ? { ...p, referencia, texto: textoDelPedido(referencia, p.pago ?? null) } : p));
+      });
     };
     window.addEventListener("pageshow", alVolver);
     return () => window.removeEventListener("pageshow", alVolver);
@@ -728,9 +761,10 @@ export default function CheckoutScreen() {
     if (r === "redirigiendo") return;
     setRedirigiendo(false);
     if (r === "pagado") {
-      setPedidoHecho((p) => (p ? { ...p, pago: "pagado", texto: textoDelPedido(p.numero, "pagado") } : p));
+      setPedidoHecho((p) => (p ? { ...p, pago: "pagado", texto: textoDelPedido(p.referencia ?? null, "pagado") } : p));
     } else {
-      setAvisoPago(r.aviso);
+      // Al reintentar se dice que ha vuelto a fallar (no el mismo texto del título).
+      setAvisoPago(r.aviso === AVISO_SIN_ABRIR ? "Sigue sin abrirse la página de pago. Espera un momento y vuelve a intentarlo, o habla con el equipo." : r.aviso);
     }
   }, [pedidoHecho, redirigiendo, pagoTarjeta.modo]);
 
@@ -762,8 +796,8 @@ export default function CheckoutScreen() {
       // 1) Se registra el pedido en la tienda (supabase/migrations/20261013120000_pedidos.sql).
       //    El total lo calcula la base de datos con los precios reales. Se manda una clave única de
       //    esta compra: repetir el envío devuelve el mismo pedido (repetido = true) en vez de crear
-      //    otro. Si la función nueva aún no existe o falla la red, el pedido sigue por WhatsApp
-      //    como hasta ahora.
+      //    otro. Si la función nueva aún no existe, se usa la antigua; si falla la red, la pantalla
+      //    lo dice y deja volver a intentarlo (la cesta se queda como estaba).
       let numero: number | null = null;
       let repetido = false;
       // La clave de esta compra: con ella (o con la cuenta) el servidor sabe que el pedido es de quien lo paga.
@@ -799,7 +833,7 @@ export default function CheckoutScreen() {
           await AsyncStorage.removeItem(PEDIDO_CLAVE_KEY);
         }
       } catch {
-        // sin número: se sigue por WhatsApp (la clave queda guardada para el reintento)
+        // sin número: «No hemos podido guardar tu pedido» (la clave queda guardada para el reintento)
       }
       // Si el pedido lleva artículos de VeoAura, el servidor avisa a VeoAura para que no los
       // venda también en la tienda física (api/escaparate-retorno.ts). No se espera. Se despierta
@@ -821,31 +855,32 @@ export default function CheckoutScreen() {
         await markBuyNowSoldIfApplies(items);
       }
 
-      // 2) Con el pedido registrado, la cesta se vacía y se muestra la confirmación.
-      const texto = buildWhatsText(numero);
-      if (numero) {
-        await saveCart([]);
-        setItems([]);
-      }
+      // 2) Con el pedido registrado, la cesta se vacía y se muestra la confirmación (con la referencia, sin el número
+      //    interno). Si no se pudo guardar, la cesta se queda como estaba para volver a intentarlo.
+      if (numero) await saveCart([]);
       // 3) Con tarjeta: a la página de pago de Stripe (con el total que pone el servidor). Si no se puede abrir, el pedido
       //    ya está guardado y la confirmación ofrece volver a intentarlo o hablarlo por el chat.
       if (tarjeta && numero) {
         const medidoPago = trackEvent("pago_tarjeta", "Pago online", { path: "/checkout", metadata: { numero, total, modo: pagoTarjeta.modo } });
         setRedirigiendo(true);
+        setItems([]);
         pagoEnCursoRef.current = { numero, clave: claveCompra };
         const r = await irAlPagoConTarjeta(numero, claveCompra, Promise.all([medidoPedido, medidoPago]));
         if (r === "redirigiendo") return;
+        const referencia = await referenciaDelPedido(numero, claveCompra);
         setRedirigiendo(false);
         if (r === "pagado") {
-          setPedidoHecho({ numero, texto: textoDelPedido(numero, "pagado"), pago: "pagado", clave: null });
+          setPedidoHecho({ numero, referencia, texto: textoDelPedido(referencia, "pagado"), pago: "pagado", clave: null });
         } else {
           setAvisoPago(r.aviso);
-          setPedidoHecho({ numero, texto, pago: "sin_abrir", clave: claveCompra });
+          setPedidoHecho({ numero, referencia, texto: buildTextoPedido(referencia, true), pago: "sin_abrir", clave: claveCompra });
         }
         return;
       }
       // 4) Pantalla de confirmación: desde ahí se habla con la tienda por el chat.
-      setPedidoHecho({ numero, texto, pago: null, clave: claveCompra });
+      const referencia = numero ? await referenciaDelPedido(numero, claveCompra) : null;
+      if (numero) setItems([]);
+      setPedidoHecho({ numero, referencia, texto: buildTextoPedido(referencia, !!numero), pago: null, clave: claveCompra });
     } catch (e: any) {
       console.error("Error al finalizar el pedido:", e);
       setErr("No se pudo finalizar el pedido. Inténtalo de nuevo.");
@@ -853,7 +888,55 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       enviandoRef.current = false;
     }
-  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildWhatsText, pagoTarjeta]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta]);
+
+  // --- Confirmación y «No se ha hecho el pago» (dueño, 2026-11-11: «intuitiva, práctica y profesional») ---------------
+  // Siempre dice qué ha pasado (título), con qué pedido (su referencia VZ-…) y qué no se ha cobrado; UNA sola píldora azul
+  // con lo siguiente que hay que hacer y lo demás como texto con su icono. Sin WhatsApp ni teléfono: el chat de la tienda.
+  const estadoPago = pedidoHecho?.pago ?? null;
+  // Sin número: la base de datos no llegó a guardarlo (sin conexión). La cesta sigue como estaba.
+  const sinGuardar = !!pedidoHecho && !pedidoHecho.numero && estadoPago === null;
+  const sesionStripe = typeof params.sesion === "string" ? params.sesion : "";
+  const conProblema = estadoPago === "cancelado" || estadoPago === "sin_abrir" || estadoPago === "sin_confirmar" || sinGuardar;
+  const tituloConfirmacion =
+    estadoPago === "comprobando"
+      ? "Comprobando tu pago"
+      : estadoPago === "pagado"
+        ? "¡Gracias por tu compra!"
+        : estadoPago === "cancelado"
+          ? "No se ha hecho el pago"
+          : estadoPago === "sin_abrir"
+            ? "No se ha podido abrir el pago"
+            : estadoPago === "sin_confirmar"
+              ? "Aún no nos consta el pago"
+              : sinGuardar
+                ? "No hemos podido guardar tu pedido"
+                : "¡Gracias por tu pedido!";
+  const textoConfirmacion =
+    estadoPago === "pagado"
+      ? `Pago recibido${pagoTarjeta.modo === "prueba" ? " (pago de prueba: no se ha cobrado nada)" : ""}. Te escribimos por el chat de la tienda para la entrega.`
+      : estadoPago === "cancelado" || estadoPago === "sin_abrir"
+        ? ofreceReintento
+          ? "No te hemos cobrado nada. Tu pedido sigue guardado: vuelve a intentar el pago cuando quieras o, si prefieres otra forma de pago, habla con el equipo."
+          : "No te hemos cobrado nada. Tu pedido sigue guardado: habla con el equipo y te ayudamos a terminar el pago."
+        : estadoPago === "sin_confirmar"
+          ? "Si has terminado el pago, se confirmará solo en unos minutos y no tienes que hacer nada más. Si no llegaste a pagar, vuelve a intentarlo."
+          : sinGuardar
+            ? "No te hemos cobrado nada y tu cesta sigue igual. Vuelve a intentarlo en un momento; si no se arregla, habla con el equipo."
+            : "Te escribimos por el chat de la tienda para confirmar la disponibilidad, el pago y la entrega.";
+  // La única píldora: lo siguiente que hay que hacer.
+  const principal: "reintentar" | "comprobar" | "volver" | "hablar" | null =
+    !pedidoHecho || estadoPago === "comprobando"
+      ? null
+      : estadoPago === "sin_confirmar" && sesionStripe
+        ? "comprobar"
+        : ofreceReintento
+          ? "reintentar"
+          : sinGuardar
+            ? "volver"
+            : "hablar";
+  // El aviso de «no se ha podido abrir» ya lo dice el título de esa pantalla: no se repite.
+  const avisoVisible = avisoPago && !(estadoPago === "sin_abrir" && avisoPago === AVISO_SIN_ABRIR) ? avisoPago : null;
 
   // Cabecera: con el formulario va DENTRO del desplazamiento (se desplaza con todo, como en Servicios); en las demás
   // pantallas (cargando, confirmación, cesta vacía) arriba.
@@ -871,10 +954,15 @@ export default function CheckoutScreen() {
       <View style={columnStyle}>
         <CabeceraMarca onBack={smartBackToHome} />
         <View style={{ marginTop: 8 }}>
-          <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
-            Finalizar compra
-          </Text>
-          <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>Rápido, claro y sin costes ocultos.</Text>
+          {/* En la confirmación, el título de la pantalla es el del estado del pedido (más abajo): aquí no se repite. */}
+          {pedidoHecho ? null : (
+            <>
+              <Text accessibilityRole="header" style={{ color: COLORS.text, fontSize: 22, fontWeight: "900", textAlign: "center" }}>
+                Finalizar compra
+              </Text>
+              <Text style={{ color: COLORS.muted, marginTop: 4, textAlign: "center" }}>Rápido, claro y sin costes ocultos.</Text>
+            </>
+          )}
         </View>
 
         {/* Con el formulario, el aviso sale junto al botón (donde se ha tocado). */}
@@ -901,53 +989,64 @@ export default function CheckoutScreen() {
           <CargaMarca texto="Abriendo el pago seguro de Stripe…" />
         </View>
       ) : pedidoHecho ? (
-        // Confirmación: el pedido ya está registrado (sin número, se completa por el chat), con cómo va su pago con tarjeta.
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, alignItems: "center" }}>
-          <View nativeID="pago-confirmacion" style={{ ...columnStyle, gap: 12, alignItems: "center" }}>
-            <MarcaAnimada cual="pareja" ancho={240} />
-            <Text nativeID="pago-confirmacion-titulo" style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
-              {pedidoHecho.pago === "pagado"
-                ? pedidoHecho.numero
-                  ? `Pedido nº ${pedidoHecho.numero} pagado`
-                  : "Pedido pagado"
-                : pedidoHecho.numero
-                  ? `Pedido nº ${pedidoHecho.numero} recibido`
-                  : "Pedido enviado"}
-            </Text>
-            {pedidoHecho.pago === "comprobando" ? (
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <ActivityIndicator size="small" color={COLORS.accent} />
-                <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>Comprobando el pago con Stripe…</Text>
-              </View>
+        // Confirmación y «No se ha hecho el pago»: qué ha pasado, con qué pedido (su referencia) y qué hacer ahora.
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 32 + insets.bottom, alignItems: "center" }}>
+          <View nativeID="pago-confirmacion" style={{ ...columnStyle, maxWidth: 460, gap: 12, alignItems: "center" }}>
+            {conProblema ? (
+              // Si algo no ha ido bien, nada de celebraciones: un icono sereno, sin burbuja.
+              <Ionicons name={sinGuardar ? "cloud-offline-outline" : "card-outline"} size={52} color={COLORS.accent} />
             ) : (
-              <Text nativeID="pago-confirmacion-texto" style={{ color: pedidoHecho.pago === "pagado" ? COLORS.success : COLORS.muted, fontWeight: pedidoHecho.pago === "pagado" ? "800" : "400", lineHeight: 22, textAlign: "center" }}>
-                {pedidoHecho.pago === "pagado"
-                  ? `Pago recibido${pagoTarjeta.modo === "prueba" ? " (pago de prueba: no se ha cobrado nada)" : ""}. Te escribimos por el chat de la tienda para la entrega.`
-                  : pedidoHecho.pago === "cancelado"
-                    ? "No se ha hecho el pago. Tu pedido sigue guardado: puedes pagarlo ahora o hablarlo con nosotros por el chat."
-                    : pedidoHecho.pago === "sin_confirmar"
-                      ? "Aún no nos consta el pago. Si te lo han cobrado, se confirmará solo en unos minutos; si no, vuelve a intentarlo o escríbenos."
-                      : pedidoHecho.numero
-                        ? "Te escribimos por el chat de la tienda para confirmar la disponibilidad, el pago y la entrega."
-                        : "Escríbenos por el chat de la tienda y te confirmamos la disponibilidad, el pago y la entrega."}
-              </Text>
+              <MarcaAnimada cual="pareja" ancho={220} />
             )}
-            {avisoPago ? (
-              <Text nativeID="pago-aviso" style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                {avisoPago}
+            <Text nativeID="pago-confirmacion-titulo" accessibilityRole="header" style={{ color: COLORS.text, fontWeight: "900", fontSize: 22, textAlign: "center" }}>
+              {tituloConfirmacion}
+            </Text>
+            {/* La referencia del pedido, como en cualquier empresa (nunca «Pedido nº 2»). Se puede copiar. */}
+            {pedidoHecho.referencia ? (
+              <Text nativeID="pago-referencia" selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, letterSpacing: 0.5, textAlign: "center" }}>
+                Pedido {pedidoHecho.referencia}
               </Text>
             ) : null}
-            {/* Volver a intentar el pago con tarjeta: tras cancelarlo en Stripe, si no se pudo abrir o si aún no consta. */}
-            {ofreceReintento ? (
+            {estadoPago === "comprobando" ? (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <ActivityIndicator size="small" color={COLORS.accent} />
+                <Text style={{ color: COLORS.muted, lineHeight: 22, textAlign: "center" }}>Lo estamos comprobando con Stripe, un momento…</Text>
+              </View>
+            ) : (
+              <Text
+                nativeID="pago-confirmacion-texto"
+                style={{ color: estadoPago === "pagado" ? COLORS.success : COLORS.muted, fontWeight: estadoPago === "pagado" ? "800" : "500", lineHeight: 22, textAlign: "center" }}
+              >
+                {textoConfirmacion}
+              </Text>
+            )}
+            {avisoVisible ? (
+              <Text nativeID="pago-aviso" style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
+                {avisoVisible}
+              </Text>
+            ) : null}
+
+            {/* UNA sola píldora azul: lo siguiente que hay que hacer. */}
+            {principal ? (
               <Pressable
-                nativeID="pago-reintentar-tarjeta"
-                onPress={pagarPedidoGuardado}
-                disabled={redirigiendo}
+                nativeID={
+                  principal === "reintentar" ? "pago-reintentar-tarjeta" : principal === "comprobar" ? "pago-comprobar-otra-vez" : principal === "volver" ? "pago-volver-intentar" : "pago-hablar"
+                }
+                onPress={() => {
+                  if (principal === "reintentar") pagarPedidoGuardado();
+                  else if (principal === "comprobar") comprobarVuelta(sesionStripe);
+                  else if (principal === "volver") {
+                    setAvisoPago(null);
+                    setPedidoHecho(null);
+                  } else hablarConNosotros();
+                }}
+                disabled={redirigiendo || (principal === "hablar" && abriendoChat)}
                 accessibilityRole="button"
                 style={({ pressed }) => ({
-                  opacity: redirigiendo ? 0.6 : pressed ? 0.88 : 1,
+                  opacity: redirigiendo || (principal === "hablar" && abriendoChat) ? 0.6 : pressed ? 0.88 : 1,
+                  alignSelf: "stretch",
                   marginTop: 6,
-                  minHeight: 50,
+                  minHeight: 52,
                   paddingHorizontal: 22,
                   borderRadius: 999,
                   flexDirection: "row",
@@ -957,59 +1056,41 @@ export default function CheckoutScreen() {
                   backgroundColor: COLORS.accentDark,
                 })}
               >
-                {redirigiendo ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="card-outline" size={18} color="#FFFFFF" />}
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>Pagar ahora</Text>
+                {(principal === "reintentar" && redirigiendo) || (principal === "hablar" && abriendoChat) ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons
+                    name={principal === "reintentar" ? "card-outline" : principal === "comprobar" ? "refresh-outline" : principal === "volver" ? "refresh-outline" : "chatbubbles-outline"}
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                )}
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16, textAlign: "center" }}>
+                  {principal === "reintentar"
+                    ? "Volver a intentar el pago"
+                    : principal === "comprobar"
+                      ? "Comprobar otra vez"
+                      : principal === "volver"
+                        ? "Volver a intentarlo"
+                        : "Hablar con el equipo"}
+                </Text>
               </Pressable>
             ) : null}
-            {pedidoHecho.pago === "sin_confirmar" ? (
-              <Pressable
-                nativeID="pago-comprobar-otra-vez"
-                onPress={() => {
-                  const sesion = typeof params.sesion === "string" ? params.sesion : "";
-                  if (sesion) comprobarVuelta(sesion);
-                }}
-                accessibilityRole="button"
-                style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
-              >
-                <Ionicons name="refresh-outline" size={18} color={COLORS.accent} />
-                <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Comprobar otra vez</Text>
-              </Pressable>
-            ) : null}
-            {/* UNA sola píldora por pantalla: si se ofrece «Pagar ahora», hablar con nosotros es icono + texto, sin fondo. */}
-            <Pressable
-              nativeID="pago-hablar"
-              onPress={hablarConNosotros}
-              disabled={abriendoChat}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                opacity: abriendoChat ? 0.6 : pressed ? (ofreceReintento ? 0.6 : 0.88) : 1,
-                marginTop: ofreceReintento ? 0 : 6,
-                minHeight: ofreceReintento ? 44 : 50,
-                paddingHorizontal: ofreceReintento ? 8 : 22,
-                borderRadius: 999,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                backgroundColor: ofreceReintento ? "transparent" : COLORS.accentDark,
-              })}
-            >
-              {abriendoChat ? (
-                <ActivityIndicator size="small" color={ofreceReintento ? COLORS.accent : "#FFFFFF"} />
-              ) : (
-                <Ionicons name="chatbubbles-outline" size={18} color={ofreceReintento ? COLORS.accent : "#FFFFFF"} />
-              )}
-              <Text style={{ color: ofreceReintento ? COLORS.accent : "#FFFFFF", fontWeight: ofreceReintento ? "800" : "900", fontSize: 15 }}>Hablar con nosotros</Text>
-            </Pressable>
-            {/* WhatsApp solo como alternativa discreta. */}
-            <Pressable onPress={() => openWhatsApp(pedidoHecho.texto)} hitSlop={6} style={{ paddingVertical: 2 }}>
-              <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center", textDecorationLine: "underline" }}>
-                ¿Prefieres WhatsApp?
-              </Text>
-            </Pressable>
-            <Pressable onPress={() => router.replace("/catalogo")} style={{ paddingVertical: 10 }}>
-              <Text style={{ color: COLORS.accent, fontWeight: "800", textAlign: "center" }}>Seguir viendo productos</Text>
-            </Pressable>
+
+            {/* Lo demás, como texto con su icono (sin burbuja), de 44 px. */}
+            <View style={{ alignItems: "center", gap: 2, marginTop: 2 }}>
+              {ofreceReintento && principal !== "reintentar" ? (
+                <AccionTexto nativeID="pago-reintentar-tarjeta" icono="card-outline" texto="Volver a intentar el pago" onPress={pagarPedidoGuardado} cargando={redirigiendo} />
+              ) : null}
+              {principal !== "hablar" ? (
+                <AccionTexto nativeID="pago-hablar" icono="chatbubbles-outline" texto="Hablar con el equipo" onPress={hablarConNosotros} cargando={abriendoChat} />
+              ) : null}
+              {sinGuardar ? (
+                <AccionTexto nativeID="pago-volver-cesta" icono="arrow-back" texto="Volver a la cesta" onPress={() => router.push("/cesta")} />
+              ) : estadoPago !== "comprobando" ? (
+                <AccionTexto nativeID="pago-seguir-comprando" icono="bag-handle-outline" texto="Seguir comprando" onPress={() => router.replace("/catalogo")} />
+              ) : null}
+            </View>
           </View>
         </ScrollView>
       ) : items.length === 0 ? (
@@ -1187,7 +1268,8 @@ export default function CheckoutScreen() {
                 label="Teléfono"
                 value={phone}
                 onChangeText={setPhone}
-                placeholder="627 748 741"
+                // Un ejemplo, no el móvil de la tienda (no se atiende por teléfono): así nadie lo confunde con un número al que llamar.
+                placeholder="600 000 000"
                 keyboardType="phone-pad"
               />
               {entrega === "envio" ? (
@@ -1228,7 +1310,7 @@ export default function CheckoutScreen() {
                 label="Notas (opcional)"
                 value={notes}
                 onChangeText={setNotes}
-                placeholder="Entregar por la tarde, no llamar al timbre..."
+                placeholder="Ej.: por la tarde, portal B..."
                 multiline
               />
 
@@ -1240,7 +1322,7 @@ export default function CheckoutScreen() {
                       { icon: "checkmark-circle-outline", label: "Productos revisados" },
                       { icon: "cube-outline", label: "Envío a España" },
                       { icon: "receipt-outline", label: "Recibo" },
-                      { icon: "headset-outline", label: "Soporte" },
+                      { icon: "chatbubbles-outline", label: "Atención por chat" },
                     ] as const
                   ).map((item) => (
                     <View
@@ -1319,6 +1401,11 @@ export default function CheckoutScreen() {
                   <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 14, textAlign: "center" }}>Confirmar sin pagar ahora</Text>
                 </Pressable>
               ) : null}
+              {pagoTarjeta.disponible ? (
+                <Text nativeID="pago-sin-tarjeta-ayuda" style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center", marginTop: -6 }}>
+                  Sin pagar ahora, te escribimos por el chat de la tienda para acordar el pago.
+                </Text>
+              ) : null}
               {pagoTarjeta.modo === "prueba" ? (
                 <Text nativeID="pago-modo-prueba" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
                   Modo de prueba de Stripe (solo lo ve el administrador): no se cobra nada. Tarjeta de prueba 4242 4242 4242 4242,
@@ -1342,6 +1429,32 @@ export default function CheckoutScreen() {
                         : "Completa los datos de envío para confirmar el pedido."}
               </Text>
               )}
+
+              {/* Lo legal, a mano y sin letra pequeña escondida: qué se acepta al confirmar, con sus dos páginas (44 px). */}
+              <View nativeID="pago-legal" style={{ alignItems: "center" }}>
+                <Text style={{ color: "rgba(11,33,56,0.55)", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  Al confirmar el pedido aceptas las condiciones de la tienda y su política de privacidad.
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 14 }}>
+                  {(
+                    [
+                      { id: "pago-legal-terminos", icono: "document-text-outline", texto: "Condiciones", ruta: "/politicas/terminos" },
+                      { id: "pago-legal-privacidad", icono: "shield-checkmark-outline", texto: "Privacidad", ruta: "/politicas/privacidad" },
+                    ] as const
+                  ).map((l) => (
+                    <Pressable
+                      key={l.id}
+                      nativeID={l.id}
+                      onPress={() => router.push(l.ruta as never)}
+                      accessibilityRole="link"
+                      style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.6 : 1 })}
+                    >
+                      <Ionicons name={l.icono} size={15} color={COLORS.accent} />
+                      <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>{l.texto}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
 
               {/* Volver: solo el texto con su icono, sin burbuja. */}
               <Pressable
@@ -1367,6 +1480,22 @@ export default function CheckoutScreen() {
         </>
       )}
     </View>
+  );
+}
+
+// Acción secundaria: solo su icono y su texto en azul (sin burbuja), de 44 px para el dedo.
+function AccionTexto({ nativeID, icono, texto, onPress, cargando }: { nativeID: string; icono: React.ComponentProps<typeof Ionicons>["name"]; texto: string; onPress: () => void; cargando?: boolean }) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      disabled={cargando}
+      accessibilityRole="button"
+      style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: cargando ? 0.6 : pressed ? 0.6 : 1 })}
+    >
+      {cargando ? <ActivityIndicator size="small" color={COLORS.accent} /> : <Ionicons name={icono} size={18} color={COLORS.accent} />}
+      <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 15, textAlign: "center" }}>{texto}</Text>
+    </Pressable>
   );
 }
 

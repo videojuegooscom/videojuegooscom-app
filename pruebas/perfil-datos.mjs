@@ -214,6 +214,14 @@
  *    «Pagar con tarjeta»), sigue siendo la única píldora azul; «Pagado online con Bizum» en «Mis pedidos» y en
  *    Administración → Pedidos (con el recuento por forma de pago), «por Bizum online» en Servicios y el recuento por
  *    forma de pago en Analítica (solo números).
+ *  - Referencia del pedido y «No se ha hecho el pago» (2026-11-11), en PT, TE, P, E, Q y FA: el cliente ve «Pedido
+ *    VZ-XXXX-XXXX» (pedida a /api/pago con la clave de la compra y la sesión) y nunca «Pedido nº 101»; cada estado del
+ *    pago con su título («¡Gracias por tu compra!», «No se ha hecho el pago», «No se ha podido abrir el pago»…), «No te hemos
+ *    cobrado nada», UNA sola píldora azul («Volver a intentar el pago») y «Hablar con el equipo» / «Seguir comprando»
+ *    como icono + texto de 44 px; «Hablar con el equipo» abre el chat de la tienda con el resumen por referencia; sin
+ *    WhatsApp ni «llamar» (tampoco en «Finalizar compra», que explica «Confirmar sin pagar ahora» y enlaza Condiciones
+ *    y Privacidad); a 360 y 390 px sin salirse. Administración → Pedidos: la referencia de título, «Nº interno» en
+ *    pequeño y el buscador (referencia con o sin guiones, número interno, nombre); la ficha del cliente, igual.
  * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|RE3|AC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
@@ -600,6 +608,12 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Pago con tarjeta (sección PT): /api/pago como el servidor (api/pago.ts), sin Stripe de verdad. Sin `estado.pago` no
     // existe (como en local): el pago sale como siempre, sin tarjeta. Se apunta lo que se le pide.
+    // La referencia del pedido (api/pago.ts, «referencia»), como el servidor: la de `estado.referencia` o una ficticia. Se
+    // apunta aparte (no cuenta en estado.pago.peticiones) con lo que se ha pedido y con qué sesión.
+    if (url.pathname === "/api/pago" && metodo === "POST" && /"accion":"referencia"/.test(peticion.postData() ?? "")) {
+      estado.referenciasPedidas = [...(estado.referenciasPedidas ?? []), { cuerpo: JSON.parse(peticion.postData() ?? "{}"), auth: peticion.headers()["authorization"] ?? "" }];
+      return json({ ok: true, referencia: estado.referencia ?? "VZ-PD7K-3M9Q" });
+    }
     if (url.pathname === "/api/pago" && estado.pago) {
       const auth = peticion.headers()["authorization"] ?? "";
       if (metodo === "GET") {
@@ -612,7 +626,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         if (estado.pago.falla) return json({ ok: false, error: "no se pudo abrir el pago" }, 502);
         return json({ ok: true, url: `https://checkout.stripe.com/c/pay/cs_test_prueba${cuerpo.numero}${(estado.pago.peticiones ?? []).length}` });
       }
-      if (cuerpo.accion === "confirmar") return json({ ok: true, pagado: estado.pago.pagado !== false, numero: estado.pagoNumero ?? 101 });
+      if (cuerpo.accion === "confirmar") return json({ ok: true, pagado: estado.pago.pagado !== false, numero: estado.pagoNumero ?? 101, referencia: estado.referencia ?? "VZ-PD7K-3M9Q" });
       if (cuerpo.accion === "devolver") {
         if (estado.pago.devolverFalla) return json({ ok: false, error: "Stripe no ha podido hacer la devolución" }, 502);
         const fila = (estado.pedidosAdmin ?? []).find((x) => x.numero === cuerpo.numero);
@@ -1492,11 +1506,12 @@ async function seccionP() {
     // El pedido, en el mismo campo (el número dice si es pedido o reparación).
     await campos.first().fill(COD_PED);
     await botones.first().click();
-    await p.getByText("Listo: el pedido nº 31 ya está en «Mis pedidos».").waitFor({ timeout: 10000 }).catch(() => {});
+    await p.getByText(`Listo: el pedido ${COD_PED} ya está en «Mis pedidos».`).waitFor({ timeout: 10000 }).catch(() => {});
     // La lista se vuelve a cargar justo después del «Listo»: se espera a que el pedido ya esté en ella.
-    await p.getByText(`Nº de seguimiento ${COD_PED}`).waitFor({ timeout: 10000 }).catch(() => {});
+    await p.locator("#mis-pedidos-titulo-31").waitFor({ timeout: 10000 }).catch(() => {});
     const t2 = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
-    ok(/Listo: el pedido nº 31 ya está en «Mis pedidos»\./.test(t2) && /Pedido nº 31/.test(t2) && t2.includes(`Nº de seguimiento ${COD_PED}`) && /Nintendo Switch OLED/.test(t2), "P: un pedido también, con su número y sus artículos");
+    // Referencia del pedido (dueño, 2026-11-11): «Pedido VZ-…» y nunca «Pedido nº 31» (el número interno).
+    ok(t2.includes(`Listo: el pedido ${COD_PED} ya está en «Mis pedidos».`) && t2.includes(`Pedido ${COD_PED} · 249,99€`) && !/nº 31/.test(t2) && /Nintendo Switch OLED/.test(t2), "P: un pedido también, con su referencia (no el número interno) y sus artículos");
 
     // Errores: no existe y de otra cuenta.
     await campos.first().fill("VZ-2222-2222");
@@ -1540,12 +1555,20 @@ async function seccionP() {
     await p.getByText("Todos", { exact: true }).click();
     await p.waitForTimeout(300);
     const tp = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
-    ok(tp.includes(`Nº de seguimiento ${COD_PED}`) && /Ficha de VeoAura · Aún no está en ninguna cuenta: dale este número al cliente/.test(tp), "P: cada pedido enseña su número, si es de VeoAura y si falta dárselo al cliente");
-    ok(tp.includes(`Nº de seguimiento ${COD_AJENO}`) && /El cliente lo añadió a su cuenta el/.test(tp), "P: y cuándo lo añadió el cliente a su cuenta");
+    ok(tp.includes(`Pedido ${COD_PED} · 249,99€`) && /Nº interno 31/.test(tp) && /Ficha de VeoAura · Aún no está en ninguna cuenta: dale esta referencia al cliente/.test(tp), "P: cada pedido enseña su referencia de título (el número interno en pequeño), si es de VeoAura y si falta dársela al cliente");
+    ok(tp.includes(`Pedido ${COD_AJENO}`) && /El cliente lo añadió a su cuenta el/.test(tp), "P: y cuándo lo añadió el cliente a su cuenta");
     await p.getByText("Sin cuenta (1)").click();
     await p.waitForTimeout(300);
     const sinCuenta = (await p.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
-    ok(/Pedido nº 31/.test(sinCuenta) && !/Pedido nº 30/.test(sinCuenta), "P: el filtro «Sin cuenta» deja los pedidos que aún no están en ninguna cuenta");
+    ok(sinCuenta.includes(`Pedido ${COD_PED}`) && !sinCuenta.includes(`Pedido ${COD_AJENO}`), "P: el filtro «Sin cuenta» deja los pedidos que aún no están en ninguna cuenta");
+    // El buscador encuentra por la referencia (en minúsculas y sin guiones también), por el número interno y por el nombre.
+    for (const [buscado, esperado] of [["vz ab2c d3ef", "31"], [COD_AJENO, "30"], ["31", "31"], ["luis", "31"]]) {
+      await p.locator("#pedidos-buscar").fill(buscado);
+      await p.waitForTimeout(250);
+      const titulos = await p.evaluate(() => [...document.querySelectorAll('[id^="pedido-titulo-"]')].map((e) => e.id.replace("pedido-titulo-", "")));
+      ok(titulos.join(",") === esperado, `P: el buscador de Pedidos encuentra «${buscado}» (${titulos.join(", ") || "ninguno"})`);
+    }
+    await p.locator("#pedidos-buscar").fill("");
     await capturar(p, "P3-admin-pedidos");
     ok(p.errores.length === 0, `P: Pedidos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
 
@@ -7545,7 +7568,7 @@ async function seccionTE() {
     const envio = () => texto(p, "#pago-envio");
     const totalPago = () => texto(p, "#pago-total");
     ok(/^Envío: Escribe tu código postal$/.test(await envio()) && (await confirmar.getAttribute("aria-disabled")) === "true", `TE: sin código postal el envío aún no se sabe y no deja confirmar (${await envio()})`);
-    await p.getByPlaceholder("627 748 741").fill("600111222");
+    await p.getByPlaceholder("600 000 000").fill("600111222");
     await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
     await p.getByPlaceholder("Zaragoza").fill("Madrid");
     await p.getByPlaceholder("50001").fill("28001");
@@ -7578,9 +7601,9 @@ async function seccionTE() {
     ok(await sinDesbordar(p), "TE: el pago no se ensancha");
     await capturar(p, "TE3-pago-final");
     await confirmar.click();
-    await p.getByText("Pedido nº 101 recibido").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.getByText("Pedido VZ-PD7K-3M9Q").waitFor({ timeout: 15000 }).catch(() => {});
     const datos = estado.pedidosCreados?.[0]?.p_datos ?? {};
-    ok((await p.getByText("Pedido nº 101 recibido").count()) === 1 && datos.codigo_postal === "28001" && datos.entrega === "envio" && (estado.pedidosCreados?.[0]?.p_productos ?? []).length === 2, `TE: el pedido se manda con su código postal y sale el número (${JSON.stringify({ cp: datos.codigo_postal, entrega: datos.entrega })})`);
+    ok((await p.getByText("¡Gracias por tu pedido!", { exact: true }).count()) === 1 && (await p.getByText("Pedido VZ-PD7K-3M9Q").count()) === 1 && datos.codigo_postal === "28001" && datos.entrega === "envio" && (estado.pedidosCreados?.[0]?.p_productos ?? []).length === 2, `TE: el pedido se manda con su código postal y sale el número (${JSON.stringify({ cp: datos.codigo_postal, entrega: datos.entrega })})`);
     for (let i = 0; i < 20 && !evento(estado, "order_whatsapp").length; i++) await p.waitForTimeout(250);
     const ev = evento(estado, "order_whatsapp")[0]?.metadata ?? {};
     ok(ev.envio === 6.9 && ev.zona === "peninsula" && Math.abs(ev.total - 106.9) < 0.001, `TE: la analítica propia apunta el envío y la zona del pedido (${JSON.stringify({ envio: ev.envio, zona: ev.zona, total: ev.total })})`);
@@ -7634,7 +7657,7 @@ async function seccionTE() {
     await conCesta(ctx);
     const p = await pagina(ctx, "/checkout");
     await p.locator("#pago-envio").waitFor({ timeout: 30000 }).catch(() => {});
-    await p.getByPlaceholder("627 748 741").fill("600111222");
+    await p.getByPlaceholder("600 000 000").fill("600111222");
     await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
     await p.getByPlaceholder("Zaragoza").fill("Madrid");
     await p.getByPlaceholder("50001").fill("28001");
@@ -7787,7 +7810,7 @@ async function seccionTE() {
     await p.waitForTimeout(500);
     const linea = async () => (await texto(p, "#pedido-envio-101")).split(" Envío a mano")[0];
     const todo = async () => (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
-    ok(/^Artículos 100,00€ · Envío 6,90€ \(Resto de la España peninsular\) · automático/.test(await linea()) && /Pedido nº 101 · 106,90€/.test(await todo()), `TE: Pedidos enseña artículos, envío con su zona, «automático» y el total (${await linea()})`);
+    ok(/^Artículos 100,00€ · Envío 6,90€ \(Resto de la España peninsular\) · automático/.test(await linea()) && /Pedido VZ-ABCD-EFGH · 106,90€/.test(await todo()), `TE: Pedidos enseña artículos, envío con su zona, «automático» y el total (${await linea()})`);
     await p.locator("#pedido-envio-campo-101").fill("tres");
     await p.locator("#pedido-envio-guardar-101").click();
     await p.waitForTimeout(400);
@@ -7797,11 +7820,11 @@ async function seccionTE() {
     for (let i = 0; i < 20 && !(estado.cambiosEnvio ?? []).length; i++) await p.waitForTimeout(200);
     await p.waitForTimeout(400);
     ok(JSON.stringify(estado.cambiosEnvio?.[0]?.cuerpo) === '{"envio_eur":3.5}', `TE: a mano solo manda el envío (la base de datos lo marca y suma) (${JSON.stringify(estado.cambiosEnvio?.[0]?.cuerpo)})`);
-    ok(/Envío 3,50€ .*· a mano/.test(await linea()) && /Pedido nº 101 · 103,50€/.test(await todo()) && /puesto a mano/.test(await texto(p, "#pedido-envio-mensaje-101")), `TE: y enseña lo que deja la base de datos: «a mano» y el total nuevo (${await linea()})`);
+    ok(/Envío 3,50€ .*· a mano/.test(await linea()) && /Pedido VZ-ABCD-EFGH · 103,50€/.test(await todo()) && /puesto a mano/.test(await texto(p, "#pedido-envio-mensaje-101")), `TE: y enseña lo que deja la base de datos: «a mano» y el total nuevo (${await linea()})`);
     await p.locator("#pedido-envio-automatico-101").click();
     for (let i = 0; i < 20 && (estado.cambiosEnvio ?? []).length < 2; i++) await p.waitForTimeout(200);
     await p.waitForTimeout(400);
-    ok(JSON.stringify(estado.cambiosEnvio?.[1]?.cuerpo) === '{"envio_manual":false}' && /Envío 6,90€ .*· automático/.test(await linea()) && /Pedido nº 101 · 106,90€/.test(await todo()), `TE: «Volver al automático» lo devuelve a la tarifa (${await linea()})`);
+    ok(JSON.stringify(estado.cambiosEnvio?.[1]?.cuerpo) === '{"envio_manual":false}' && /Envío 6,90€ .*· automático/.test(await linea()) && /Pedido VZ-ABCD-EFGH · 106,90€/.test(await todo()), `TE: «Volver al automático» lo devuelve a la tarifa (${await linea()})`);
     ok((await p.locator("#pedido-envio-automatico-101").count()) === 0, "TE: y ya no ofrece volver (ya es automático)");
     const precios = await p.evaluate(() => [...document.querySelectorAll("*")].filter((e) => e.children.length === 0 && /^60,00€$/.test((e.textContent ?? "").trim())).map((e) => getComputedStyle(e).color));
     ok(precios.length >= 1 && precios.every((c) => c === "rgb(30, 167, 232)"), `TE: los precios de los artículos van en azul (${precios.join(", ")})`);
@@ -7813,9 +7836,9 @@ async function seccionTE() {
     const estado2 = { guardados: [], tarifas: null, pedidosAdmin: [{ ...pedido }], pedidosSinEnvio: true };
     const ctx2 = await contexto(navegador, ADMIN, "admin", estado2);
     const p2 = await pagina(ctx2, "/admin/pedidos");
-    await p2.getByText(/Pedido nº 101/).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await p2.locator("#pedido-titulo-101").first().waitFor({ timeout: 30000 }).catch(() => {});
     await p2.waitForTimeout(500);
-    ok((await p2.getByText(/Pedido nº 101/).count()) >= 1 && (await p2.locator("#pedido-envio-101").count()) === 0 && (estado2.pedidos400 ?? 0) === 1 && p2.errores.length === 0, `TE: sin la migración, Pedidos sale igual sin el envío (${estado2.pedidos400 ?? 0} intento fallido, sin errores)`);
+    ok((await p2.locator("#pedido-titulo-101").count()) >= 1 && (await p2.locator("#pedido-envio-101").count()) === 0 && (estado2.pedidos400 ?? 0) === 1 && p2.errores.length === 0, `TE: sin la migración, Pedidos sale igual sin el envío (${estado2.pedidos400 ?? 0} intento fallido, sin errores)`);
     await ctx2.close();
   });
 }
@@ -8049,7 +8072,7 @@ async function seccionPT() {
   const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
   const pendiente = (p) => p.evaluate(() => localStorage.getItem("videojuegoszaragoza:pago_pendiente"));
   const rellenar = async (p) => {
-    await p.getByPlaceholder("627 748 741").fill("600111222");
+    await p.getByPlaceholder("600 000 000").fill("600111222");
     await p.getByPlaceholder("Calle, número, piso...").fill("Calle Mayor 5, 3º B");
     await p.getByPlaceholder("Zaragoza").fill("Zaragoza");
     await p.getByPlaceholder("50001").fill("50003");
@@ -8081,6 +8104,40 @@ async function seccionPT() {
     {
       const cuerpo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
       ok((cuerpo.match(/La tienda nunca ve los datos de tu tarjeta/g) ?? []).length === 1 && !/Si lo prefieres, confirma sin pagar/.test(cuerpo), "PT: con el formulario completo, «la tienda nunca ve los datos de tu tarjeta» una sola vez, sin repetir lo de confirmar sin pagar");
+      // «Finalizar compra» (dueño, 2026-11-11): sin WhatsApp, sin invitar a llamar y sin el móvil de la tienda de ejemplo.
+      ok(!/whats\s*app/i.test(cuerpo) && !/llamar|627 ?748 ?741/i.test(cuerpo), "PT: «Finalizar compra» no menciona WhatsApp, ni llamar, ni enseña el móvil de la tienda");
+      ok(/Sin pagar ahora, te escribimos por el chat de la tienda para acordar el pago\./.test(cuerpo) && /Al confirmar el pedido aceptas las condiciones de la tienda y su política de privacidad\./.test(cuerpo), "PT: explica «Confirmar sin pagar ahora» y lo que se acepta al confirmar");
+    }
+    {
+      const legal = await p.evaluate(() => ["pago-legal-terminos", "pago-legal-privacidad"].map((i) => Math.round(document.getElementById(i)?.getBoundingClientRect().height ?? 0)));
+      ok(legal.every((h) => h >= 44), `PT: «Condiciones» y «Privacidad» se tocan bien (${legal.join(" y ")} px)`);
+      const pildorasForm = await p.evaluate(() =>
+        [...document.querySelectorAll("#pago-desplazamiento [role=button]")]
+          // Sin el botón redondo de volver de la cabecera (components/CabeceraMarca.tsx, el mismo en toda la tienda).
+          .filter((b) => getComputedStyle(b).backgroundColor === "rgb(30, 167, 232)" && b.getBoundingClientRect().height > 0 && b.getAttribute("aria-label") !== "Volver atrás")
+          .map((b) => b.id || b.innerText.trim() || `${b.getAttribute("aria-label") ?? ""}:${b.outerHTML.slice(0, 80)}`)
+      );
+      ok(pildorasForm.length === 1 && pildorasForm[0] === "pago-tarjeta", `PT: «Finalizar compra» con UNA sola píldora azul, «Pagar» (${pildorasForm.join(", ")})`);
+      // A 360 y 390 px, nada se sale por los lados.
+      for (const ancho of [360, 390]) {
+        await p.setViewportSize({ width: ancho, height: 800 });
+        await p.waitForTimeout(300);
+        const m = await p.evaluate(() => {
+          const fuera = [...document.querySelectorAll("#pago-desplazamiento *")].filter((e) => {
+            const r = e.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && (r.left < -1 || r.right > window.innerWidth + 1);
+          }).length;
+          return { fuera, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), ventana: window.innerWidth };
+        });
+        ok(m.fuera === 0 && m.ancho <= m.ventana + 1, `PT: «Finalizar compra» a ${ancho} px sin salirse (${JSON.stringify(m)})`);
+        await p.evaluate(() => {
+          const s = document.getElementById("pago-desplazamiento");
+          if (s) s.scrollTop = s.scrollHeight;
+        });
+        await p.waitForTimeout(200);
+        await capturar(p, `PT1-finalizar-compra-${ancho}`);
+      }
+      await p.setViewportSize({ width: 390, height: 844 });
     }
     await p.evaluate(() => {
       const s = document.getElementById("pago-desplazamiento");
@@ -8104,7 +8161,7 @@ async function seccionPT() {
     await p.waitForTimeout(800);
     const confirmar = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "confirmar");
     ok(confirmar?.cuerpo.sesion === "cs_test_prueba1011", `PT: al volver se lo pregunta al servidor con la sesión de Stripe (${confirmar?.cuerpo.sesion})`);
-    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago recibido \(pago de prueba: no se ha cobrado nada\)\. Te escribimos por el chat de la tienda para la entrega\.$/.test(await texto(p, "#pago-confirmacion-texto")), `PT: sale «Pedido nº 101 pagado» y que fue de prueba (${await texto(p, "#pago-confirmacion-texto")})`);
+    ok(/^¡Gracias por tu compra!$/.test(await texto(p, "#pago-confirmacion-titulo")) && (await texto(p, "#pago-referencia")) === "Pedido VZ-PD7K-3M9Q" && /^Pago recibido \(pago de prueba: no se ha cobrado nada\)\. Te escribimos por el chat de la tienda para la entrega\.$/.test(await texto(p, "#pago-confirmacion-texto")), `PT: sale «¡Gracias por tu compra!» con su referencia «Pedido VZ-…» y que fue de prueba (${await texto(p, "#pago-referencia")} · ${await texto(p, "#pago-confirmacion-texto")})`);
     ok((await pendiente(p)) === null, "PT: y ya no queda un pago pendiente guardado");
     await capturar(p, "PT1-pagado");
     ok(p.errores.length === 0, `PT: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -8149,14 +8206,50 @@ async function seccionPT() {
     await p.goto(`${BASE}/checkout?pago=cancelado&pedido=101`, { waitUntil: "load" });
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^No se ha hecho el pago\. Tu pedido sigue guardado/.test(await texto(p, "#pago-confirmacion-texto")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si cancela en Stripe, el pedido sigue guardado y puede volver a pagar (${await texto(p, "#pago-confirmacion-texto")})`);
+    await p.locator("#pago-referencia").waitFor({ timeout: 10000 }).catch(() => {});
+    // «No se ha hecho el pago» (dueño, 2026-11-11): qué ha pasado, con qué pedido (su referencia) y que no se ha cobrado.
+    ok(/^No se ha hecho el pago$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^No te hemos cobrado nada\. Tu pedido sigue guardado/.test(await texto(p, "#pago-confirmacion-texto")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si cancela en Stripe, «No se ha hecho el pago», no se ha cobrado nada y puede volver a pagar (${await texto(p, "#pago-confirmacion-texto")})`);
+    const ref = estado.referenciasPedidas?.[0];
+    ok((await texto(p, "#pago-referencia")) === "Pedido VZ-PD7K-3M9Q" && ref?.cuerpo?.numero === 101 && ref?.cuerpo?.clave === clave && /^Bearer \S+/.test(ref?.auth ?? ""), `PT: enseña la referencia «Pedido VZ-…», pedida al servidor con el pedido, la clave de la compra y la sesión (${await texto(p, "#pago-referencia")} · ${JSON.stringify(ref?.cuerpo ?? null)})`);
+    {
+      const todo = (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+      ok(!/whats\s*app/i.test(todo) && !/llam(ar|a(no)?s)\b|tel[eé]fono/i.test(todo), `PT: «No se ha hecho el pago» no menciona WhatsApp ni llamar (${(todo.match(/whats\s*app|llamar|tel[eé]fono/gi) ?? []).join(", ") || "nada"})`);
+      ok(!/nº\s*\d|n\.º\s*\d|#\s*101\b|número 101/i.test(todo) && /VZ-PD7K-3M9Q/.test(todo), "PT: y nunca el número interno («nº 101»), solo la referencia VZ-…");
+    }
+    ok((await p.locator("#pago-seguir-comprando").count()) === 1 && (await texto(p, "#pago-reintentar-tarjeta")) === "Volver a intentar el pago", `PT: «Volver a intentar el pago», «Hablar con el equipo» y «Seguir comprando» (${await texto(p, "#pago-reintentar-tarjeta")})`);
     await capturar(p, "PT2-cancelado");
     const pildoras = async () =>
       p.evaluate(() =>
         [...document.querySelectorAll("#pago-confirmacion [role=button]")].filter((b) => getComputedStyle(b).backgroundColor === "rgb(30, 167, 232)").map((b) => b.id || b.innerText.trim())
       );
     const pildorasCancelado = await pildoras();
-    ok(pildorasCancelado.length === 1 && pildorasCancelado[0] === "pago-reintentar-tarjeta" && (await p.locator("#pago-hablar").count()) === 1, `PT: tras cancelar, UNA sola píldora azul («Pagar ahora»); «Hablar con nosotros» es icono + texto (${pildorasCancelado.join(", ")})`);
+    ok(pildorasCancelado.length === 1 && pildorasCancelado[0] === "pago-reintentar-tarjeta" && (await texto(p, "#pago-hablar")) === "Hablar con el equipo", `PT: tras cancelar, UNA sola píldora azul («Volver a intentar el pago»); «Hablar con el equipo» es icono + texto (${pildorasCancelado.join(", ")})`);
+    {
+      // Acciones secundarias: icono + texto, sin burbuja y de 44 px o más.
+      const sec = await p.evaluate(() =>
+        ["pago-hablar", "pago-seguir-comprando"].map((i) => {
+          const e = document.getElementById(i);
+          const s = e ? getComputedStyle(e) : null;
+          return !!e && s.backgroundColor === "rgba(0, 0, 0, 0)" && parseFloat(s.borderTopWidth) === 0 && e.getBoundingClientRect().height >= 44;
+        })
+      );
+      ok(sec.every(Boolean), `PT: «Hablar con el equipo» y «Seguir comprando» sin burbuja y de 44 px (${sec.join(", ")})`);
+    }
+    // A 360 y 390 px, nada se sale por los lados y todo se ve entero.
+    for (const ancho of [360, 390]) {
+      await p.setViewportSize({ width: ancho, height: 800 });
+      await p.waitForTimeout(300);
+      const m = await p.evaluate(() => {
+        const fuera = [...document.querySelectorAll("#pago-confirmacion *")].filter((e) => {
+          const r = e.getBoundingClientRect();
+          return r.width > 0 && (r.left < -1 || r.right > window.innerWidth + 1);
+        }).length;
+        return { fuera, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), ventana: window.innerWidth };
+      });
+      ok(m.fuera === 0 && m.ancho <= m.ventana + 1, `PT: «No se ha hecho el pago» a ${ancho} px sin salirse (${JSON.stringify(m)})`);
+      await capturar(p, `PT2-no-se-ha-hecho-el-pago-${ancho}`);
+    }
+    await p.setViewportSize({ width: 390, height: 844 });
     await p.locator("#pago-reintentar-tarjeta").click();
     await p.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 }).catch(() => {});
     const reintento = estado.pago.peticiones?.[1]?.cuerpo ?? {};
@@ -8164,9 +8257,10 @@ async function seccionPT() {
     await p.goto(`${BASE}/checkout?pago=ok&sesion=cs_live_prueba1012`, { waitUntil: "load" });
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok(/^Pedido nº 101 pagado$/.test(await texto(p, "#pago-confirmacion-titulo")) && /^Pago recibido\. Te escribimos/.test(await texto(p, "#pago-confirmacion-texto")), `PT: pagado de verdad, sin «de prueba» (${await texto(p, "#pago-confirmacion-texto")})`);
+    ok(/^¡Gracias por tu compra!$/.test(await texto(p, "#pago-confirmacion-titulo")) && (await texto(p, "#pago-referencia")) === "Pedido VZ-PD7K-3M9Q" && /^Pago recibido\. Te escribimos/.test(await texto(p, "#pago-confirmacion-texto")), `PT: pagado de verdad, sin «de prueba» y con su referencia (${await texto(p, "#pago-confirmacion-texto")})`);
     const pildorasPagado = await pildoras();
-    ok(pildorasPagado.length === 1 && pildorasPagado[0] === "pago-hablar", `PT: ya pagado, la única píldora es «Hablar con nosotros» (${pildorasPagado.join(", ")})`);
+    ok(pildorasPagado.length === 1 && pildorasPagado[0] === "pago-hablar" && (await texto(p, "#pago-hablar")) === "Hablar con el equipo", `PT: ya pagado, la única píldora es «Hablar con el equipo» (${pildorasPagado.join(", ")})`);
+    await capturar(p, "PT2-pagado");
     await p.reload({ waitUntil: "load" });
     await p.locator("#pago-confirmacion-texto").waitFor({ timeout: 30000 }).catch(() => {});
     await p.waitForTimeout(1500);
@@ -8180,6 +8274,26 @@ async function seccionPT() {
     await ctx.close();
   });
 
+  // PT2b) «Hablar con el equipo» en «No se ha hecho el pago» abre el chat de la tienda (el mismo de Blue IA), con el
+  // resumen del pedido por su referencia; nunca WhatsApp.
+  await bloque("PT2b Hablar con el equipo", async () => {
+    const CHAT = "c4a70000-0000-4000-8000-000000000001";
+    const estado = {
+      filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pago: { disponible: true, modo: "real" },
+      chats: [{ id: CHAT, customer_user_id: CLIENTE.id, product_id: null, sell_request_id: null, last_message_at: new Date().toISOString() }],
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/checkout?pago=cancelado&pedido=101");
+    await p.locator("#pago-referencia").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.locator("#pago-hablar").click();
+    await p.waitForURL(/\/chat\//, { timeout: 15000 }).catch(() => {});
+    const m = (estado.mensajesChatEnviados ?? [])[0];
+    ok(p.url().includes(`/chat/${CHAT}`) && m?.chat_id === CHAT, `PT: «Hablar con el equipo» abre el chat de la tienda (${p.url().replace(BASE, "")})`);
+    ok(/pedido VZ-PD7K-3M9Q/.test(m?.body ?? "") && /No he podido terminar el pago online/.test(m?.body ?? "") && !/nº|whats\s*app/i.test(m?.body ?? ""), `PT: y le deja al equipo el resumen con la referencia, sin el número interno ni WhatsApp (${(m?.body ?? "").slice(0, 110)})`);
+    ok(!(estado.stripeAbierto ?? []).length && p.errores.length === 0, `PT: sin abrir el pago ni errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  });
+
   // PT3) Si no se puede abrir el pago: el pedido ya está guardado, lo dice y ofrece volver a intentarlo.
   await bloque("PT3 sin poder abrir el pago", async () => {
     const estado = { filas: perfilDe(CLIENTE), guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101, pago: { disponible: true, modo: "real", falla: true } };
@@ -8189,8 +8303,16 @@ async function seccionPT() {
     await p.locator("#pago-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await rellenar(p);
     await p.locator("#pago-tarjeta").click();
+    await p.locator("#pago-confirmacion-titulo").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(300);
+    ok(
+      /^No se ha podido abrir el pago$/.test(await texto(p, "#pago-confirmacion-titulo")) && (await texto(p, "#pago-referencia")) === "Pedido VZ-PD7K-3M9Q" && /^No te hemos cobrado nada\. Tu pedido sigue guardado/.test(await texto(p, "#pago-confirmacion-texto")) && (await p.locator("#pago-aviso").count()) === 0 && (await p.locator("#pago-reintentar-tarjeta").count()) === 1,
+      `PT: si no se abre el pago, lo dice en el título (sin repetirlo en rojo), con la referencia, que no se ha cobrado nada y que se puede reintentar (${await texto(p, "#pago-confirmacion-titulo")})`
+    );
+    // Reintentar y que vuelva a fallar: se dice que ha vuelto a fallar.
+    await p.locator("#pago-reintentar-tarjeta").click();
     await p.locator("#pago-aviso").waitFor({ timeout: 15000 }).catch(() => {});
-    ok(/^Pedido nº 101 recibido$/.test(await texto(p, "#pago-confirmacion-titulo")) && /No hemos podido abrir la página de pago\. Tu pedido está guardado/.test(await texto(p, "#pago-aviso")) && (await p.locator("#pago-reintentar-tarjeta").count()) === 1, `PT: si no se abre el pago, el pedido está guardado y se puede reintentar (${await texto(p, "#pago-aviso")})`);
+    ok(/^Sigue sin abrirse la página de pago\./.test(await texto(p, "#pago-aviso")), `PT: si al reintentar vuelve a fallar, lo dice (${await texto(p, "#pago-aviso")})`);
     ok(!/checkout\.stripe\.com/.test(p.url()) && p.errores.length === 0, "PT: sin salir de la tienda ni errores de JavaScript");
     await ctx.close();
   });
@@ -8205,8 +8327,9 @@ async function seccionPT() {
     await p.locator("#pago-sin-tarjeta").waitFor({ timeout: 30000 }).catch(() => {});
     await rellenar(p);
     await p.locator("#pago-sin-tarjeta").click();
-    await p.getByText("Pedido nº 101 recibido").waitFor({ timeout: 15000 }).catch(() => {});
-    ok((await p.getByText("Pedido nº 101 recibido").count()) === 1 && !(estado.pago.peticiones ?? []).length && !(estado.stripeAbierto ?? []).length, "PT: «Confirmar sin pagar ahora» guarda el pedido sin abrir el pago");
+    await p.locator("#pago-referencia").waitFor({ timeout: 15000 }).catch(() => {});
+    ok(/^¡Gracias por tu pedido!$/.test(await texto(p, "#pago-confirmacion-titulo")) && (await texto(p, "#pago-referencia")) === "Pedido VZ-PD7K-3M9Q" && !(estado.pago.peticiones ?? []).length && !(estado.stripeAbierto ?? []).length, "PT: «Confirmar sin pagar ahora» guarda el pedido sin abrir el pago («¡Gracias por tu pedido!» con su referencia)");
+    await capturar(p, "PT4-pedido-recibido");
     ok((await p.locator("#pago-reintentar-tarjeta").count()) === 0, "PT: y no ofrece pagar (el pago se habla por el chat)");
     await ctx.close();
 
@@ -8381,7 +8504,7 @@ async function seccionPT() {
     ok(/^Pago devuelto · 99,90€ · 6 nov 2026$/.test(await texto(p, "#seguimiento-pago-42")) && (await p.locator("#seguimiento-pago-43").count()) === 0, `PT: si se devolvió lo dice; sin pago con tarjeta, nada (${await texto(p, "#seguimiento-pago-42")})`);
     const debajo = await p.evaluate(() => {
       const pago = document.getElementById("seguimiento-pago-41");
-      const titulo = [...document.querySelectorAll("div")].find((e) => e.children.length === 0 && /^Pedido nº 41 · 240,00€/.test((e.textContent ?? "").trim()));
+      const titulo = [...document.querySelectorAll("div")].find((e) => e.children.length === 0 && /^Pedido VZ-PUD8-HNS1 · 240,00€/.test((e.textContent ?? "").trim()));
       const s = pago ? getComputedStyle(pago) : null;
       const color = pago ? [...pago.querySelectorAll("*")].map((e) => getComputedStyle(e).color).find((c) => c === "rgb(21, 128, 61)") : null;
       return {
@@ -8403,7 +8526,7 @@ async function seccionPT() {
     const ahora = new Date().toISOString();
     const P1 = "00000000-0000-4000-8000-0000000000e1";
     const fila = (n, extra) => ({
-      id: `0f100000-0000-4000-8000-0000000000${n}`, numero: n, created_at: ahora, estado: "pendiente", entrega: "envio", total_eur: 240, user_id: CLIENTE.id,
+      id: `0f100000-0000-4000-8000-0000000000${n}`, numero: n, codigo_seguimiento: `VZ-PAG2-FC${n}`, created_at: ahora, estado: "pendiente", entrega: "envio", total_eur: 240, user_id: CLIENTE.id,
       email: CLIENTE.email, pedido_items: [{ id: `it-${n}`, titulo: "Gafas VR ps5 sin caja", precio_eur: 240 }],
       pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null, devuelto_eur: null, devuelto_en: null, ...extra,
     });
@@ -8439,7 +8562,7 @@ async function seccionPT() {
       `PT: y sus intentos de compra de 90 días (${await texto(p, "#ficha-compras-intentos")})`
     );
     const lista = (await p.locator("#ficha-compras").innerText()).replace(/\s+/g, " ");
-    ok(/Añadido a la cesta · Gafas VR ps5 sin caja/.test(lista) && /Pagó online · pedido nº 51/.test(lista), `PT: lo último que hizo, con el artículo y el pedido (${lista.slice(0, 160)})`);
+    ok(/Añadido a la cesta · Gafas VR ps5 sin caja/.test(lista) && /Pagó online · pedido VZ-PAG2-FC51/.test(lista), `PT: lo último que hizo, con el artículo y la referencia del pedido (${lista.slice(0, 160)})`);
     await capturar(p, "PT9-ficha-cliente");
     ok(p.errores.length === 0, `PT: la ficha sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
     await ctx.close();
@@ -8531,7 +8654,7 @@ async function seccionQ() {
   const a1 = (estado.asignaciones ?? [])[0];
   ok(!!a1 && a1.cuerpo.chat_id === CHAT_PRODUCTO && a1.cuerpo.tipo === "pedido" && a1.cuerpo.etapa === "confirmado" && a1.cuerpo.total_eur === 249.99 && a1.cuerpo.entrega === "envio" && /^Bearer .+/.test(a1.auth) && !("customer_user_id" in a1.cuerpo), `Q: manda la conversación (no el cliente), el pedido confirmado, el importe y la sesión del administrador (${JSON.stringify(a1?.cuerpo ?? null)})`);
   const m1 = (estado.mensajesChatEnviados ?? [])[0];
-  ok(!!m1 && m1.chat_id === CHAT_PRODUCTO && /pedido nº 31/.test(m1.body) && /VZ-AB2C-D3EF/.test(m1.body) && /Mis seguimientos/.test(m1.body), `Q: y le avisa en el chat con el número (${m1?.body?.slice(0, 90)})`);
+  ok(!!m1 && m1.chat_id === CHAT_PRODUCTO && /tu pedido VZ-AB2C-D3EF/.test(m1.body) && !/nº 31/.test(m1.body) && /Mis seguimientos/.test(m1.body), `Q: y le avisa en el chat con la referencia del pedido, sin el número interno (${m1?.body?.slice(0, 90)})`);
   ok((await p.getByText(/Asignado ✓ Nº VZ-AB2C-D3EF\. El cliente ya lo ve en «Mis seguimientos» y se lo hemos dicho en el chat\./).count()) === 1, "Q: y confirma que el cliente ya lo ve");
 
   // Consulta general: reparación; sin título no se puede; con un error se explica.
@@ -8948,9 +9071,9 @@ async function seccionFA() {
     const estado = estadoCliente({});
     const ctx = await contexto(navegador, CLIENTE, "user", estado);
     const p = await pagina(ctx, "/perfil?tab=seguimientos");
-    await p.getByText("Pedido nº 51", { exact: false }).first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.getByText("Pedido VZ-FACT-UR1A", { exact: false }).first().waitFor({ timeout: 40000 }).catch(() => {});
     await p.waitForTimeout(800);
-    ok((await p.getByText("Pedido nº 51", { exact: false }).count()) >= 1 && (estado.consultasFacturas ?? 0) >= 1, `FA: sin la tabla, «Mis pedidos» sale igual (consultas a facturas: ${estado.consultasFacturas ?? 0})`);
+    ok((await p.getByText("Pedido VZ-FACT-UR1A", { exact: false }).count()) >= 1 && (estado.consultasFacturas ?? 0) >= 1, `FA: sin la tabla, «Mis pedidos» sale igual (consultas a facturas: ${estado.consultasFacturas ?? 0})`);
     ok(
       (await p.locator('[id^="seguimiento-factura-espera-"]').count()) === 4 && (await p.locator('[id^="seguimiento-factura-5"]').count()) === 0,
       "FA: y cada pedido enseña su apartado «Factura», sin botón de descarga"
@@ -10851,9 +10974,9 @@ try {
       comentariosOcultos: 3,
       // Ficha de Dani: un pedido con su cuenta, otro sin sesión con su correo (en otras mayúsculas) y uno de otra persona.
       pedidosFicha: [
-        { id: "p1000000-0000-4000-8000-000000000001", numero: 12, created_at: "2026-10-29T10:00:00Z", estado: "confirmado", entrega: "envio", total_eur: 155, user_id: U[0].user_id, email: "dani@example.com", pedido_items: [{ id: "i1", titulo: "PlayStation 5", precio_eur: 155 }] },
-        { id: "p2000000-0000-4000-8000-000000000002", numero: 15, created_at: "2026-10-30T10:00:00Z", estado: "pendiente", entrega: "recogida", total_eur: 30, user_id: null, email: "Dani@Example.com", pedido_items: [{ id: "i2", titulo: "Mando DualSense", precio_eur: 30 }] },
-        { id: "p3000000-0000-4000-8000-000000000003", numero: 20, created_at: "2026-10-30T11:00:00Z", estado: "pendiente", entrega: "envio", total_eur: 99, user_id: null, email: "otra@example.com", pedido_items: [] },
+        { id: "p1000000-0000-4000-8000-000000000001", numero: 12, codigo_seguimiento: "VZ-FCH2-PD12", created_at: "2026-10-29T10:00:00Z", estado: "confirmado", entrega: "envio", total_eur: 155, user_id: U[0].user_id, email: "dani@example.com", pedido_items: [{ id: "i1", titulo: "PlayStation 5", precio_eur: 155 }] },
+        { id: "p2000000-0000-4000-8000-000000000002", numero: 15, codigo_seguimiento: "VZ-FCH2-PD15", created_at: "2026-10-30T10:00:00Z", estado: "pendiente", entrega: "recogida", total_eur: 30, user_id: null, email: "Dani@Example.com", pedido_items: [{ id: "i2", titulo: "Mando DualSense", precio_eur: 30 }] },
+        { id: "p3000000-0000-4000-8000-000000000003", numero: 20, codigo_seguimiento: "VZ-FCH2-PD20", created_at: "2026-10-30T11:00:00Z", estado: "pendiente", entrega: "envio", total_eur: 99, user_id: null, email: "otra@example.com", pedido_items: [] },
       ],
       serviciosFicha: [
         { id: "s1000000-0000-4000-8000-000000000001", created_at: "2026-10-28T10:00:00Z", service_title: "Reparación de mando", status: "nuevo", ciudad: "Zaragoza", seguimiento: "recibido", seguimiento_nota: null, seguimiento_actualizado: null },
@@ -10947,9 +11070,9 @@ try {
     const fp = f.locator("#ficha-pedidos");
     await fp.waitFor({ timeout: 10000 }).catch(() => {});
     const tp = (await fp.innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Pedido nº 12 · 155,00€/.test(tp) && /PlayStation 5/.test(tp), `E: la ficha enseña sus pedidos con número, importe y artículos (${tp.slice(0, 90)})`);
-    ok(/Pedido nº 15/.test(tp) && /Hecho sin sesión/.test(tp), "E: también el que hizo sin sesión con su correo (avisando de que no lo ve en «Mis seguimientos»)");
-    ok(!/Pedido nº 20/.test(tp), "E: y no los de otras personas");
+    ok(/Pedido VZ-FCH2-PD12 · 155,00€/.test(tp) && /Nº interno 12/.test(tp) && /PlayStation 5/.test(tp), `E: la ficha enseña sus pedidos con su referencia (el número interno en pequeño), importe y artículos (${tp.slice(0, 90)})`);
+    ok(/Pedido VZ-FCH2-PD15/.test(tp) && /Hecho sin sesión/.test(tp), "E: también el que hizo sin sesión con su correo (avisando de que no lo ve en «Mis seguimientos»)");
+    ok(!/PD20|Nº interno 20/.test(tp), "E: y no los de otras personas");
     ok((await fp.getByRole("button", { name: "Listo para recoger", exact: true }).count()) === 1, "E: con entrega en mano, la etapa se llama «Listo para recoger» (como la ve el cliente)");
     const altos = await fp.getByRole("button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().height)));
     ok(altos.length >= 12 && altos.every((h) => h >= 44), `E: los botones de etapa se tocan bien, de 44 px o más (${[...new Set(altos)].join(", ")})`);

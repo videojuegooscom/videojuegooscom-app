@@ -8,6 +8,9 @@
  * cualquier otra cosa (intercambios, garantías, acuerdos puntuales) que no
  * encaje en ninguna tabla concreta.
  *
+ * Pedidos (dueño, 2026-11-11): cada uno con su referencia «Pedido VZ-XXXX-XXXX» (la que ve el cliente) de título y el
+ * número interno en pequeño; en la actividad de compra, también la referencia del pedido si está en la ficha.
+ *
  * Cómo funciona:
  * - user_id, email y fecha de alta llegan como parámetros de navegación
  *   desde app/admin/users.tsx (ya los tenía cargados de
@@ -141,6 +144,8 @@ const ESTADOS_PEDIDO: EstadoPedido[] = ["pendiente", "confirmado", "preparado", 
 type PedidoFicha = {
   id: string;
   numero: number | null;
+  // Referencia del pedido (VZ-XXXX-XXXX): la que ve el cliente; el número interno va en pequeño (dueño, 2026-11-11).
+  codigo_seguimiento?: string | null;
   created_at: string;
   estado: EstadoPedido;
   entrega: "envio" | "recogida" | null;
@@ -364,7 +369,7 @@ export default function ClienteFicha() {
       setSeguimientoDisponible(conSeguimiento);
 
       // Pedidos: con su cuenta y, aparte, los hechos sin sesión con su mismo correo.
-      const COLUMNAS_PEDIDO = "id,numero,created_at,estado,entrega,total_eur,user_id,pedido_items(id,titulo,precio_eur)";
+      const COLUMNAS_PEDIDO = "id,numero,codigo_seguimiento,created_at,estado,entrega,total_eur,user_id,pedido_items(id,titulo,precio_eur)";
       const [conCuenta, sinSesion] = await Promise.all([
         supabase.from("pedidos").select(COLUMNAS_PEDIDO).eq("user_id", userId).order("created_at", { ascending: false }).limit(100),
         email
@@ -657,7 +662,13 @@ export default function ClienteFicha() {
                                   <Text key={`${e.created_at}-${i}`} style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
                                     {fmtDate(e.created_at)} · {EVENTOS_COMPRA.find((x) => x.key === e.event_name)?.label ?? e.event_name}
                                     {e.titulo ? ` · ${e.titulo}` : ""}
-                                    {e.metadata?.numero ? ` · pedido nº ${e.metadata.numero}` : ""}
+                                    {e.metadata?.numero
+                                      ? (() => {
+                                          // La analítica guarda el número interno: se enseña la referencia de ese pedido si está en la ficha.
+                                          const ref = (pedidos ?? []).find((x) => x.numero === e.metadata?.numero)?.codigo_seguimiento;
+                                          return ref ? ` · pedido ${ref}` : ` · pedido nº ${e.metadata.numero}`;
+                                        })()
+                                      : ""}
                                   </Text>
                                 ))}
                               </View>
@@ -1115,12 +1126,17 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
   return (
     <View style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 6 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
-          Pedido nº {pedido.numero ?? "—"}
+        <Text numberOfLines={1} selectable style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
+          {pedido.codigo_seguimiento ? `Pedido ${pedido.codigo_seguimiento}` : `Pedido nº ${pedido.numero ?? "—"}`}
           {pedido.total_eur != null ? ` · ${eur(pedido.total_eur)}` : ""}
         </Text>
         <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{fmtDate(pedido.created_at)}</Text>
       </View>
+      {pedido.codigo_seguimiento && pedido.numero != null ? (
+        <Text nativeID={`ficha-pedido-interno-${pedido.numero}`} style={{ color: COLORS.muted2, fontSize: 11, fontWeight: "700" }}>
+          Nº interno {pedido.numero}
+        </Text>
+      ) : null}
       {items.length ? (
         <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>{items.map((it) => it.titulo).join(" · ")}</Text>
       ) : null}

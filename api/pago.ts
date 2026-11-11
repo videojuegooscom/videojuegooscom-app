@@ -36,7 +36,11 @@
  * - POST { accion: "crear", numero, clave? } → { ok, url } (la página de Stripe) o { ok, pagado: true } si ya está
  *   pagado. El pedido tiene que ser de quien llama: de su cuenta (sesión) o con la clave de la compra, que solo tiene el
  *   navegador que lo hizo (pedidos.clave_unica). Si no, 404 (no se dice si existe).
- * - POST { accion: "confirmar", sesion: "cs_…" } → { ok, pagado, numero }.
+ * - POST { accion: "confirmar", sesion: "cs_…" } → { ok, pagado, numero, referencia }.
+ * - POST { accion: "referencia", numero, clave? } → { ok, referencia } (dueño, 2026-11-11: el cliente ve su pedido como
+ *   «Pedido VZ-XXXX-XXXX», nunca «Pedido nº 2»). Con la misma regla de dueño que «crear» (su cuenta o la clave de la
+ *   compra; si no, 404) y sin necesitar Stripe. En la página de pago de Stripe, la línea y la descripción del cobro
+ *   también llevan la referencia («Pedido VZ-… · VideojuegosZaragoza»); el número interno sigue en los metadatos.
  * - POST { accion: "devolver", numero } (SOLO el administrador, dueño 2026-11-06) → { ok, devuelto_eur }: devuelve en
  *   Stripe el pago entero de ese pedido (una sola vez: clave de idempotencia por pedido) y lo apunta (migración
  *   20261106100000_pagos_devolucion). No cancela el pedido: eso es otro botón de Pedidos.
@@ -79,7 +83,7 @@ const MAXIMO_CENTIMOS = 2_000_000;
 const ESTADOS_PAGABLES = ["pendiente", "confirmado", "preparado", "enviado"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESION_RE = /^cs_(test|live)_[A-Za-z0-9]{8,240}$/;
-const COLUMNAS_PEDIDO = "id,numero,estado,total_eur,user_id,clave_unica,pago_estado,pago_sesion";
+const COLUMNAS_PEDIDO = "id,numero,codigo_seguimiento,estado,total_eur,user_id,clave_unica,pago_estado,pago_sesion";
 const codificar = new TextEncoder();
 
 type Modo = "prueba" | "real";
@@ -87,6 +91,8 @@ type Modo = "prueba" | "real";
 type FilaPedido = {
   id: string;
   numero: number;
+  // La referencia del pedido que ve el cliente («VZ-XXXX-XXXX», la pone la base de datos). numero es solo interno.
+  codigo_seguimiento: string | null;
   estado: string;
   total_eur: number | string;
   user_id: string | null;
@@ -438,7 +444,8 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
   if (error) throw faltanColumnas(error) ? new Rechazo(503, "falta activar el pago con tarjeta") : new Rechazo(500, "no se pudo leer el pedido");
   const suyo = !!p && ((!!claveCompra && String(p.clave_unica ?? "").toLowerCase() === claveCompra) || (!!uid && p.user_id === uid));
   if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");
-  if (p.pago_estado === "pagado") return { ok: true, pagado: true, numero };
+  const referencia = p.codigo_seguimiento ?? null;
+  if (p.pago_estado === "pagado") return { ok: true, pagado: true, numero, referencia };
   if (!ESTADOS_PAGABLES.includes(p.estado)) throw new Rechazo(409, "este pedido ya no se puede pagar con tarjeta");
   const centimos = Math.round(Number(p.total_eur) * 100);
   if (!Number.isFinite(centimos) || centimos < MINIMO_CENTIMOS || centimos > MAXIMO_CENTIMOS) {
@@ -451,7 +458,7 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
     if (previa && previa.metadata?.pedido_id === p.id) {
       if (previa.status === "complete" && previa.payment_status === "paid") {
         await marcarPagado(supabase, p, previa, modo);
-        return { ok: true, pagado: true, numero };
+        return { ok: true, pagado: true, numero, referencia };
       }
       if (previa.status === "open" && previa.amount_total === centimos && previa.url) return { ok: true, url: previa.url };
       if (previa.status === "open") await llamarStripe(clave, "POST", `/checkout/sessions/${encodeURIComponent(previa.id)}/expire`);
@@ -465,6 +472,9 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
   // Tarjeta (con Apple Pay y Link) y, si la privacidad ya los nombra, Klarna (a plazos, 2026-11-06) y Bizum (2026-11-11),
   // en tiposDePago. Confirman al momento, como la tarjeta: «pagado» sigue siendo complete + paid preguntado a Stripe.
   const metodos = await metodosOnline(supabase);
+  // Lo que ve el cliente en la página de pago y en su banco: la referencia del pedido, como una empresa (dueño,
+  // 2026-11-11: nunca «Pedido nº 2»). El número interno solo va en los metadatos (devoluciones, VeoAura).
+  const concepto = referencia ? `Pedido ${referencia}` : "Pedido";
   const campos: Record<string, string> = {
     mode: "payment",
     locale: "es",
@@ -472,11 +482,12 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "eur",
     "line_items[0][price_data][unit_amount]": String(centimos),
-    "line_items[0][price_data][product_data][name]": `Pedido nº ${p.numero} · VideojuegosZaragoza`,
+    "line_items[0][price_data][product_data][name]": `${concepto} · VideojuegosZaragoza`,
     client_reference_id: p.id,
     "metadata[pedido_id]": p.id,
     "metadata[numero]": String(p.numero),
-    "payment_intent_data[description]": `Pedido nº ${p.numero}`,
+    ...(referencia ? { "metadata[referencia]": referencia } : {}),
+    "payment_intent_data[description]": `${concepto} · VideojuegosZaragoza`,
     "payment_intent_data[metadata][pedido_id]": p.id,
     "payment_intent_data[metadata][numero]": String(p.numero),
     success_url: `${origen}/checkout?pago=ok&sesion={CHECKOUT_SESSION_ID}`,
@@ -688,14 +699,35 @@ async function confirmarPago(supabase: SupabaseClient, clave: string, modo: Modo
   }
   const { data: p, error } = await supabase
     .from("pedidos")
-    .select("id,numero,pago_estado,pago_sesion")
+    .select("id,numero,codigo_seguimiento,pago_estado,pago_sesion")
     .eq("id", pedidoId)
-    .maybeSingle<Pick<FilaPedido, "id" | "numero" | "pago_estado" | "pago_sesion">>();
+    .maybeSingle<Pick<FilaPedido, "id" | "numero" | "codigo_seguimiento" | "pago_estado" | "pago_sesion">>();
   if (error) throw faltanColumnas(error) ? new Rechazo(503, "falta activar el pago con tarjeta") : new Rechazo(500, "no se pudo leer el pedido");
   if (!p) throw new Rechazo(404, "pago no encontrado");
   const pagado = sesionCobrada(s);
   if (pagado) await marcarPagado(supabase, p, s, modo);
-  return { pagado, numero: p.numero };
+  // numero (interno) para que la tienda pueda volver a intentar el pago; referencia, lo que se le enseña al cliente.
+  return { pagado, numero: p.numero, referencia: p.codigo_seguimiento ?? null };
+}
+
+// La referencia de un pedido (VZ-XXXX-XXXX) para enseñársela al cliente al terminar la compra, también sin cuenta y sin
+// pago online. Solo a quien hizo el pedido: con su cuenta o con la clave de la compra que guarda su navegador (la misma
+// regla que «crear»). Si no es suyo, 404 (no se dice si existe). No hace falta Stripe.
+async function referenciaPedido(supabase: SupabaseClient, req: any, b: Record<string, unknown>) {
+  const numero = Number(b.numero);
+  if (!Number.isInteger(numero) || numero <= 0 || numero > 1e12) throw new Rechazo(400, "pedido no válido");
+  const claveCompra = typeof b.clave === "string" && UUID_RE.test(b.clave) ? b.clave.toLowerCase() : null;
+  const uid = await usuarioDeLaPeticion(supabase, req);
+  if (!claveCompra && !uid) throw new Rechazo(404, "pedido no encontrado");
+  const { data: p, error } = await supabase
+    .from("pedidos")
+    .select("numero,user_id,clave_unica,codigo_seguimiento")
+    .eq("numero", numero)
+    .maybeSingle<{ numero: number; user_id: string | null; clave_unica: string | null; codigo_seguimiento: string | null }>();
+  if (error) throw new Rechazo(500, "no se pudo leer el pedido");
+  const suyo = !!p && ((!!claveCompra && String(p.clave_unica ?? "").toLowerCase() === claveCompra) || (!!uid && p.user_id === uid));
+  if (!p || !suyo) throw new Rechazo(404, "pedido no encontrado");
+  return { ok: true, referencia: p.codigo_seguimiento ?? null };
 }
 
 async function esAdministrador(supabase: SupabaseClient, uid: string | null): Promise<boolean> {
@@ -784,7 +816,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
     if (req.method !== "POST") throw new Rechazo(405, "método no permitido");
-    if (!modo || !supabase) throw new Rechazo(503, "el pago con tarjeta no está configurado");
+    if (!supabase) throw new Rechazo(503, "el pago con tarjeta no está configurado");
 
     const crudo = await leerCuerpo(req);
     const texto = new TextDecoder("utf-8").decode(crudo);
@@ -792,6 +824,7 @@ export default async function handler(req: any, res: any) {
     // Aviso de Stripe (webhook): firmado con el secreto del aviso.
     const firma = cabecera(req, "stripe-signature");
     if (firma) {
+      if (!modo) throw new Rechazo(503, "el pago con tarjeta no está configurado");
       const secreto = String(process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
       if (!secreto) throw new Rechazo(503, "aviso de Stripe sin configurar");
       if (!(await firmaDeStripeValida(secreto, crudo, firma))) throw new Rechazo(400, "firma no válida");
@@ -826,6 +859,14 @@ export default async function handler(req: any, res: any) {
       throw new Rechazo(400, "cuerpo no válido");
     }
     const cubo = await cuboDeIp(ipDelCliente(req));
+
+    // La referencia del pedido (no necesita Stripe: también vale con el pago online sin configurar).
+    if (b.accion === "referencia") {
+      if (!(await consumirLimite(supabase, `pago:referencia:${cubo}`, LIMITE_CONFIRMAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
+      responder(res, 200, await referenciaPedido(supabase, req, b));
+      return;
+    }
+    if (!modo) throw new Rechazo(503, "el pago con tarjeta no está configurado");
 
     if (b.accion === "crear") {
       if (!(await consumirLimite(supabase, `pago:crear:${cubo}`, LIMITE_CREAR)).permitido) throw new Rechazo(429, "demasiados intentos; espera unos minutos");
