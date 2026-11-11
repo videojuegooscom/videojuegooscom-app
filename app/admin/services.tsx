@@ -52,6 +52,12 @@
  * - app/servicios.tsx, app/servicio/[id].tsx → lo que ve el público.
  * - components/ContratarServicioModal.tsx → origen de cada fila de
  *   service_requests.
+ * - Reparación por envío (dueño, 2026-11-11; migración 20261111100000): en «Solicitudes», el bloque
+ *   plegable «Reparación por envío» (AjustesEnvioPanel: activarla, dirección del taller, peso por
+ *   aparato, custodia, Bizum, IBAN, titular y plazo; no se activa si falta algo y lo dice), el filtro
+ *   «Entrega» y, en cada solicitud (PanelEnvioSolicitud), aparatos, coste de la etiqueta, «Marcar
+ *   etiqueta pagada», «Subir etiqueta» y «Subir fotos de recepción» (almacén privado «reparaciones»),
+ *   presupuesto y si el cliente lo aceptó, y «Esperando pieza hasta». lib/envio.ts lee los ajustes.
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("services") dentro del
  *   Stack protegido del panel admin.
@@ -77,6 +83,7 @@ import { supabase } from "../../lib/supabase";
 import SmartImage from "../../components/SmartImage";
 import ImageLightbox, { type LightboxImage } from "../../components/ImageLightbox";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
+import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
 import {
@@ -198,12 +205,43 @@ type ServiceRequestRow = {
   // La opción que eligió el cliente y su precio (lo pone la base de datos; migración 20261108230000).
   modalidad?: string | null;
   modalidad_precio_eur?: number | null;
+  // Reparación por envío (migración 20261111100000; puede no existir aún). El precio de la etiqueta lo pone la base de datos.
+  entrega_modo?: "recogida" | "correos" | null;
+  aparatos?: number | null;
+  codigo_postal?: string | null;
+  etiqueta_eur?: number | null;
+  etiqueta_peso_kg?: number | null;
+  etiqueta_path?: string | null;
+  etiqueta_pagada_en?: string | null;
+  condiciones_aceptadas_en?: string | null;
+  presupuesto_eur?: number | null;
+  presupuesto_aceptado_en?: string | null;
+  recepcion_fotos?: string[] | null;
+  espera_pieza_hasta?: string | null;
 };
+
+const COLUMNAS_ENVIO =
+  "entrega_modo,aparatos,codigo_postal,etiqueta_eur,etiqueta_peso_kg,etiqueta_path,etiqueta_pagada_en,condiciones_aceptadas_en,presupuesto_eur,presupuesto_aceptado_en,recepcion_fotos,espera_pieza_hasta";
+// Sin la migración de la reparación por envío, se pregunta una vez y se recuerda (no se repite el error en cada carga).
+let sinColumnasEnvio = false;
+const BUCKET_REPARACIONES = "reparaciones";
 
 // La pone api/asignar-seguimiento.ts al asignar un seguimiento desde el chat.
 const NOTA_ASIGNADO_CHAT = "Asignado desde el chat";
 
-type Seguimiento = "solicitado" | "recibido" | "diagnostico" | "reparando" | "listo" | "entregado" | "cancelado";
+type Seguimiento =
+  | "solicitado"
+  | "etiqueta"
+  | "en_camino"
+  | "recibido"
+  | "diagnostico"
+  | "presupuesto"
+  | "esperando_pieza"
+  | "reparando"
+  | "listo"
+  | "enviada"
+  | "entregado"
+  | "cancelado";
 
 const SEGUIMIENTO_ETAPAS: Seguimiento[] = [
   "solicitado",
@@ -214,13 +252,35 @@ const SEGUIMIENTO_ETAPAS: Seguimiento[] = [
   "entregado",
   "cancelado",
 ];
+// Con la migración 20261111100000: el presupuesto y la espera de una pieza también en las de recogida; las de envío,
+// con todas sus etapas (Etiqueta lista → En camino → … → Enviada de vuelta → Entregada).
+const SEGUIMIENTO_ETAPAS_RECOGIDA: Seguimiento[] = ["solicitado", "recibido", "diagnostico", "presupuesto", "esperando_pieza", "reparando", "listo", "entregado", "cancelado"];
+const SEGUIMIENTO_ETAPAS_ENVIO: Seguimiento[] = [
+  "solicitado",
+  "etiqueta",
+  "en_camino",
+  "recibido",
+  "diagnostico",
+  "presupuesto",
+  "esperando_pieza",
+  "reparando",
+  "listo",
+  "enviada",
+  "entregado",
+  "cancelado",
+];
 
 const SEGUIMIENTO_LABEL: Record<Seguimiento, string> = {
   solicitado: "Solicitada",
+  etiqueta: "Etiqueta lista",
+  en_camino: "En camino",
   recibido: "Recibida",
   diagnostico: "Diagnóstico",
+  presupuesto: "Presupuesto",
+  esperando_pieza: "Esperando pieza",
   reparando: "En reparación",
   listo: "Lista para recoger",
+  enviada: "Enviada de vuelta",
   entregado: "Entregada",
   cancelado: "Cancelada",
 };
@@ -552,10 +612,13 @@ function RequestSeguimiento({
   isMobile,
   onSaved,
   onMissingMigration,
+  envioOk = false,
 }: {
   request: ServiceRequestRow;
   disponible: boolean;
   isMobile: boolean;
+  // ¿Existe ya la reparación por envío (migración 20261111100000)? Entonces hay más etapas.
+  envioOk?: boolean;
   onSaved: (patch: Partial<ServiceRequestRow>) => void;
   onMissingMigration: () => void;
 }) {
@@ -605,10 +668,10 @@ function RequestSeguimiento({
         {request.seguimiento_actualizado ? ` · ${formatDate(request.seguimiento_actualizado)}` : ""}
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
-        {SEGUIMIENTO_ETAPAS.map((s) => (
+        {(!envioOk ? SEGUIMIENTO_ETAPAS : request.entrega_modo === "correos" ? SEGUIMIENTO_ETAPAS_ENVIO : SEGUIMIENTO_ETAPAS_RECOGIDA).map((s) => (
           <ChipButton
             key={s}
-            label={SEGUIMIENTO_LABEL[s]}
+            label={request.entrega_modo === "correos" && s === "listo" ? "Lista" : SEGUIMIENTO_LABEL[s]}
             variant={etapa === s ? (s === "cancelado" ? "danger" : "primary") : "ghost"}
             onPress={() => {
               setEtapa(s);
@@ -653,6 +716,368 @@ function RequestSeguimiento({
         <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
           {msg.text}
         </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// --- Reparación por envío (dueño, 2026-11-11; migración 20261111100000) ---------------------------------------------
+
+// Elegir archivos en la web (la etiqueta en PDF o las fotos de recepción). En el móvil nativo no hay selector: null.
+function elegirArchivosWeb(accept: string, multiple: boolean): Promise<File[] | null> {
+  if (Platform.OS !== "web" || typeof document === "undefined") return Promise.resolve(null);
+  return new Promise((resolver) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.multiple = multiple;
+    input.onchange = () => resolver(input.files ? Array.from(input.files) : []);
+    input.click();
+  });
+}
+
+const EXT_TIPO: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+const DIEZ_MB = 10 * 1024 * 1024;
+
+// Lo de una solicitud por envío: aparatos, etiqueta (coste, pagada, subir), fotos de recepción, espera de pieza y
+// presupuesto (y si el cliente lo aceptó). El presupuesto y la pieza también salen en las de recogida.
+function PanelEnvioSolicitud({
+  request,
+  isMobile,
+  onSaved,
+  onVerFotos,
+}: {
+  request: ServiceRequestRow;
+  isMobile: boolean;
+  onSaved: (patch: Partial<ServiceRequestRow>) => void;
+  onVerFotos: (fotos: LightboxImage[]) => void;
+}) {
+  const porEnvio = request.entrega_modo === "correos";
+  const [presupuesto, setPresupuesto] = useState(request.presupuesto_eur != null ? String(request.presupuesto_eur).replace(".", ",") : "");
+  const [pieza, setPieza] = useState(request.espera_pieza_hasta ?? "");
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const fotos = Array.isArray(request.recepcion_fotos) ? request.recepcion_fotos : [];
+
+  async function guardar(patch: Partial<ServiceRequestRow>, que: string, ok: string) {
+    setOcupado(que);
+    setMsg(null);
+    const { error } = await supabase.from("service_requests").update(patch).eq("id", request.id);
+    setOcupado(null);
+    if (error) {
+      console.error(`Error guardando (${que}):`, error);
+      setMsg({ ok: false, text: "No se pudo guardar. Inténtalo de nuevo." });
+      return false;
+    }
+    onSaved(patch);
+    setMsg({ ok: true, text: ok });
+    return true;
+  }
+
+  async function subir(tipo: "etiqueta" | "fotos") {
+    const archivos = await elegirArchivosWeb(tipo === "etiqueta" ? "application/pdf" : "image/jpeg,image/png,image/webp", tipo === "fotos");
+    if (!archivos?.length) return;
+    const lista = archivos.slice(0, tipo === "etiqueta" ? 1 : 3);
+    if (lista.some((f) => f.size > DIEZ_MB || !EXT_TIPO[f.type])) {
+      setMsg({ ok: false, text: tipo === "etiqueta" ? "La etiqueta tiene que ser un PDF de 10 MB como mucho." : "Las fotos tienen que ser JPG, PNG o WebP de 10 MB como mucho." });
+      return;
+    }
+    setOcupado(tipo);
+    setMsg(null);
+    const rutas: string[] = [];
+    for (const [i, f] of lista.entries()) {
+      const ruta = `${request.id}/${tipo === "etiqueta" ? "etiqueta" : `recepcion-${i + 1}`}-${Date.now()}.${EXT_TIPO[f.type]}`;
+      const { error } = await supabase.storage.from(BUCKET_REPARACIONES).upload(ruta, f, { contentType: f.type, upsert: false });
+      if (error) {
+        console.error("Error subiendo a reparaciones:", error);
+        setOcupado(null);
+        setMsg({ ok: false, text: "No se pudo subir el archivo. Inténtalo de nuevo." });
+        return;
+      }
+      rutas.push(ruta);
+    }
+    setOcupado(null);
+    if (tipo === "etiqueta") {
+      // Con la etiqueta subida, la solicitud pasa a «Etiqueta lista» (el cliente recibe el aviso de Blue).
+      const avanza = !request.seguimiento || request.seguimiento === "solicitado";
+      await guardar(
+        { etiqueta_path: rutas[0], ...(avanza ? { seguimiento: "etiqueta" as Seguimiento, seguimiento_actualizado: new Date().toISOString() } : null) },
+        "etiqueta",
+        avanza ? "Etiqueta subida ✓ · la solicitud pasa a «Etiqueta lista»" : "Etiqueta subida ✓"
+      );
+    } else {
+      await guardar({ recepcion_fotos: rutas }, "fotos", `${rutas.length === 1 ? "Foto subida" : `${rutas.length} fotos subidas`} ✓`);
+    }
+  }
+
+  async function verFotos() {
+    if (!fotos.length) return;
+    const { data, error } = await supabase.storage.from(BUCKET_REPARACIONES).createSignedUrls(fotos, 300);
+    if (error || !data) {
+      setMsg({ ok: false, text: "No se pudieron abrir las fotos." });
+      return;
+    }
+    onVerFotos(data.filter((f) => !!f.signedUrl).map((f, i) => ({ id: String(i), url: f.signedUrl as string })));
+  }
+
+  async function verEtiqueta() {
+    if (!request.etiqueta_path) return;
+    const { data } = await supabase.storage.from(BUCKET_REPARACIONES).createSignedUrl(request.etiqueta_path, 60);
+    if (data?.signedUrl && typeof window !== "undefined") window.open(data.signedUrl, "_blank", "noopener");
+  }
+
+  const precio = Number(presupuesto.replace(/\./g, "").replace(",", "."));
+  const presupuestoValido = presupuesto.trim() !== "" && Number.isFinite(precio) && precio >= 0 && precio <= 99999;
+  const piezaValida = pieza.trim() === "" || /^\d{4}-\d{2}-\d{2}$/.test(pieza.trim());
+
+  return (
+    <View nativeID={`solicitud-envio-${request.id}`} style={{ gap: 8, alignItems: "center", paddingTop: 4 }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+        {porEnvio ? "REPARACIÓN POR ENVÍO" : "PRESUPUESTO"}
+      </Text>
+      {porEnvio ? (
+        <>
+          <Text nativeID={`solicitud-envio-datos-${request.id}`} style={{ color: COLORS.text, fontSize: 13, textAlign: "center" }}>
+            <Text style={{ fontWeight: "800" }}>Aparatos: </Text>
+            {request.aparatos ?? 1}
+            {request.codigo_postal ? ` · C.P. ${request.codigo_postal}` : ""}
+            {" · "}
+            <Text style={{ fontWeight: "800" }}>Etiqueta: </Text>
+            {request.etiqueta_eur != null ? fmtEUR(Number(request.etiqueta_eur)) : "—"}
+            {request.etiqueta_peso_kg != null ? ` (${String(request.etiqueta_peso_kg).replace(".", ",")} kg)` : ""}
+            {" · "}
+            {request.etiqueta_pagada_en ? `pagada el ${formatDate(request.etiqueta_pagada_en)}` : "sin pagar"}
+          </Text>
+          {request.condiciones_aceptadas_en ? (
+            <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>Condiciones aceptadas el {formatDate(request.condiciones_aceptadas_en)}</Text>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+            {!request.etiqueta_pagada_en ? (
+              <ChipButton
+                label={ocupado === "pagada" ? "Guardando…" : "Marcar etiqueta pagada"}
+                icon="card-outline"
+                disabled={!!ocupado}
+                isMobile={isMobile}
+                onPress={() => guardar({ etiqueta_pagada_en: new Date().toISOString() }, "pagada", "Etiqueta marcada como pagada ✓")}
+              />
+            ) : null}
+            <ChipButton
+              label={ocupado === "etiqueta" ? "Subiendo…" : request.etiqueta_path ? "Cambiar etiqueta (PDF)" : "Subir etiqueta (PDF)"}
+              icon="document-attach-outline"
+              disabled={!!ocupado}
+              isMobile={isMobile}
+              onPress={() => subir("etiqueta")}
+            />
+            {request.etiqueta_path ? <ChipButton label="Ver etiqueta" icon="eye-outline" isMobile={isMobile} onPress={verEtiqueta} /> : null}
+            <ChipButton
+              label={ocupado === "fotos" ? "Subiendo…" : fotos.length ? `Cambiar fotos de recepción (${fotos.length})` : "Subir fotos de recepción (hasta 3)"}
+              icon="camera-outline"
+              disabled={!!ocupado}
+              isMobile={isMobile}
+              onPress={() => subir("fotos")}
+            />
+            {fotos.length ? <ChipButton label="Ver fotos" icon="images-outline" isMobile={isMobile} onPress={verFotos} /> : null}
+          </View>
+        </>
+      ) : null}
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+        <View style={{ flexGrow: 1, flexBasis: 140 }}>
+          <TextField label="Presupuesto (€)" value={presupuesto} onChangeText={setPresupuesto} placeholder="Ej: 59,90" keyboardType="decimal-pad" />
+        </View>
+        <ChipButton
+          label={ocupado === "presupuesto" ? "Guardando…" : "Guardar presupuesto"}
+          variant="primary"
+          icon="checkmark"
+          disabled={!!ocupado || !presupuestoValido || precio === Number(request.presupuesto_eur ?? NaN)}
+          isMobile={isMobile}
+          onPress={() => guardar({ presupuesto_eur: Math.round(precio * 100) / 100 }, "presupuesto", "Presupuesto guardado ✓ · pon la etapa «Presupuesto» para que el cliente lo acepte")}
+        />
+      </View>
+      <Text nativeID={`solicitud-presupuesto-estado-${request.id}`} style={{ color: request.presupuesto_aceptado_en ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+        {request.presupuesto_eur == null
+          ? "Sin presupuesto todavía"
+          : request.presupuesto_aceptado_en
+            ? `El cliente lo aceptó el ${formatDate(request.presupuesto_aceptado_en)}`
+            : "El cliente aún no lo ha aceptado"}
+      </Text>
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+        <View style={{ flexGrow: 1, flexBasis: 140 }}>
+          <TextField label="Esperando pieza hasta" value={pieza} onChangeText={setPieza} placeholder="AAAA-MM-DD" />
+        </View>
+        <ChipButton
+          label={ocupado === "pieza" ? "Guardando…" : pieza.trim() ? "Guardar fecha" : "Quitar fecha"}
+          icon="hourglass-outline"
+          disabled={!!ocupado || !piezaValida || pieza.trim() === (request.espera_pieza_hasta ?? "")}
+          isMobile={isMobile}
+          onPress={() => guardar({ espera_pieza_hasta: pieza.trim() || null }, "pieza", pieza.trim() ? "Fecha de la pieza guardada ✓" : "Fecha quitada ✓")}
+        />
+      </View>
+      {msg ? <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>{msg.text}</Text> : null}
+    </View>
+  );
+}
+
+// Ajustes de la reparación por envío (fila única reparacion_envio_ajustes), plegados en «Solicitudes». No se activa sin
+// la dirección del taller, con el peso por aparato aún estimado o sin tarifa de Correos (y se dice qué falta).
+function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
+  const [abierto, setAbierto] = useState(false);
+  const [aj, setAj] = useState<AjustesReparacionEnvio | null | undefined>(undefined);
+  const [tarifaOk, setTarifaOk] = useState(false);
+  const [form, setForm] = useState({ direccion: "", peso: "", custodia: "", bizum: "", iban: "", titular: "", plazo: "" });
+  const [pesoTocado, setPesoTocado] = useState(false);
+  const [activo, setActivo] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState<{ tono: "success" | "warning"; texto: string } | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    Promise.all([cargarAjustesReparacionEnvio(), cargarTarifas()]).then(([a, t]) => {
+      if (!vivo) return;
+      setAj(a);
+      setTarifaOk(hayTarifaCorreos(t));
+      if (a) {
+        setActivo(a.activo);
+        setForm({
+          direccion: a.direccion_taller ?? "",
+          peso: String(a.peso_aparato_kg).replace(".", ","),
+          custodia: a.dias_custodia != null ? String(a.dias_custodia) : "",
+          bizum: a.bizum ?? "",
+          iban: a.iban ?? "",
+          titular: a.titular ?? "",
+          plazo: String(a.plazo_horas),
+        });
+      }
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  if (aj === undefined) return null;
+  if (aj === null) {
+    return (
+      <Text nativeID="reparacion-envio-ajustes" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+        Reparación por envío: falta aplicar su migración (20261111100000).
+      </Text>
+    );
+  }
+
+  const peso = Number(form.peso.replace(",", "."));
+  const pesoValido = Number.isFinite(peso) && peso > 0 && peso <= 30;
+  const pesoEstimado = aj.peso_estimado && !pesoTocado;
+  const faltan = [
+    form.direccion.trim().length >= 10 ? null : "la dirección del taller",
+    pesoEstimado || !pesoValido ? "el peso real por aparato" : null,
+    tarifaOk ? null : "una tarifa de Correos por kilos (Administración → Tarifas de envío)",
+  ].filter(Boolean) as string[];
+  const set = (k: keyof typeof form) => (v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    if (k === "peso") setPesoTocado(true);
+    setMsg(null);
+  };
+
+  async function guardar() {
+    if (guardando) return;
+    const custodia = form.custodia.trim() ? Math.round(Number(form.custodia)) : null;
+    const plazo = Math.round(Number(form.plazo || "72"));
+    if (!pesoValido || (custodia !== null && !(custodia >= 1 && custodia <= 365)) || !(plazo >= 1 && plazo <= 2000)) {
+      setMsg({ tono: "warning", texto: "Revisa el peso (hasta 30 kg), los días de custodia (1-365) y el plazo en horas." });
+      return;
+    }
+    const activar = activo && faltan.length === 0;
+    setGuardando(true);
+    const { data: sesion } = await supabase.auth.getSession();
+    const patch = {
+      activo: activar,
+      direccion_taller: form.direccion.trim() || null,
+      peso_aparato_kg: Math.round(peso * 1000) / 1000,
+      ...(pesoTocado ? { peso_estimado: false } : null),
+      dias_custodia: custodia,
+      bizum: form.bizum.trim() || null,
+      iban: form.iban.replace(/\s+/g, " ").trim() || null,
+      titular: form.titular.trim() || null,
+      plazo_horas: plazo,
+      updated_at: new Date().toISOString(),
+      updated_by: sesion.session?.user?.id ?? null,
+    };
+    const { error } = await supabase.from("reparacion_envio_ajustes").update(patch).eq("id", 1);
+    setGuardando(false);
+    if (error) {
+      console.error("Error guardando la reparación por envío:", error);
+      setMsg({ tono: "warning", texto: "No se pudo guardar. Revisa los datos (dirección de 10 a 300 letras, IBAN de 15 a 42)." });
+      return;
+    }
+    setAj({ ...aj!, ...patch, peso_estimado: pesoTocado ? false : aj!.peso_estimado });
+    setActivo(activar);
+    setPesoTocado(false);
+    setMsg({ tono: "success", texto: activar ? "Guardado ✓ · la reparación por envío está activada" : "Guardado ✓ · la reparación por envío está desactivada" });
+  }
+
+  return (
+    <View nativeID="reparacion-envio-ajustes" style={{ gap: 10, alignItems: "center" }}>
+      <Pressable
+        nativeID="reparacion-envio-ajustes-abrir"
+        onPress={() => setAbierto((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: abierto }}
+        style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Ionicons name="cube-outline" size={18} color={COLORS.accent} />
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+          Reparación por envío · {aj.activo ? "activada" : "desactivada"}
+        </Text>
+        <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={16} color={COLORS.text} />
+      </Pressable>
+      {abierto ? (
+        <View nativeID="reparacion-envio-ajustes-form" style={{ gap: 10, width: "100%", maxWidth: 560 }}>
+          <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
+            <ChipButton label="Desactivada" variant={!activo ? "primary" : "ghost"} isMobile={isMobile} onPress={() => setActivo(false)} />
+            <ChipButton
+              label="Activada"
+              variant={activo ? "primary" : "ghost"}
+              disabled={faltan.length > 0}
+              isMobile={isMobile}
+              onPress={() => setActivo(true)}
+            />
+          </View>
+          {faltan.length ? (
+            <AdminNotice tone="warning" text={`Para activarla falta: ${faltan.join(" · ")}.`} />
+          ) : null}
+          <TextField label="Dirección del taller (a dónde lo envía el cliente)" value={form.direccion} onChangeText={set("direccion")} placeholder="Nombre, calle, número, código postal y ciudad" multiline />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
+              <TextField label="Peso por aparato (kg)" value={form.peso} onChangeText={set("peso")} placeholder="Ej: 3,5" keyboardType="decimal-pad" />
+            </View>
+            <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
+              <TextField label="Plazo (horas)" value={form.plazo} onChangeText={set("plazo")} placeholder="72" keyboardType="numeric" />
+            </View>
+            <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
+              <TextField label="Días de custodia" value={form.custodia} onChangeText={set("custodia")} placeholder="Los decides tú" keyboardType="numeric" />
+            </View>
+            <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
+              <TextField label="Bizum" value={form.bizum} onChangeText={set("bizum")} placeholder="Número de Bizum" />
+            </View>
+          </View>
+          {pesoEstimado ? (
+            <Text nativeID="reparacion-envio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+              Peso estimado ({form.peso} kg con embalaje): corrígelo con el real de lo que más reparas.
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "45%" }}>
+              <TextField label="IBAN (para la parte de pago)" value={form.iban} onChangeText={set("iban")} placeholder="ES00 0000 0000 0000 0000 0000" />
+            </View>
+            <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "45%" }}>
+              <TextField label="Titular" value={form.titular} onChangeText={set("titular")} placeholder="Nombre del titular" />
+            </View>
+          </View>
+          <View style={{ alignItems: "center" }}>
+            <ChipButton label={guardando ? "Guardando…" : "Guardar ajustes"} variant="primary" icon="checkmark" disabled={guardando} isMobile={isMobile} onPress={guardar} />
+          </View>
+          {msg ? <AdminNotice tone={msg.tono} text={msg.texto} /> : null}
+        </View>
       ) : null}
     </View>
   );
@@ -1141,6 +1566,10 @@ export default function AdminServices() {
   const [seguimientoOk, setSeguimientoOk] = useState(true);
   // false = aún no hay números de seguimiento (migración 20261031170000 sin aplicar): no se enseñan.
   const [numerosOk, setNumerosOk] = useState(false);
+  // false = aún no existe la reparación por envío (migración 20261111100000).
+  const [envioOk, setEnvioOk] = useState(false);
+  // Fotos de recepción abiertas en el visor (enlaces firmados del almacén privado).
+  const [visorEnvio, setVisorEnvio] = useState<LightboxImage[] | null>(null);
   // Reseñas de los servicios terminados (migración 20261103210000): la de cada solicitud y la media de cada servicio.
   // Vacías si la migración aún no está aplicada.
   const [resenasSolicitud, setResenasSolicitud] = useState<Record<string, { rating: number; comment: string }>>({});
@@ -1177,8 +1606,15 @@ export default function AdminServices() {
         supabase.from("service_requests").select(columnas).order("created_at", { ascending: false }).limit(200);
       const seguimiento = "seguimiento,seguimiento_nota,seguimiento_actualizado";
       const completa = `${base},${seguimiento},customer_user_id,codigo_seguimiento,id_veoaura,vinculado_en,nota_admin`;
-      // Con la opción elegida si la base de datos ya la tiene (migración 20261108230000); si no, sin ella.
-      let res: { data: any[] | null; error: any } = await consulta(`${completa},modalidad,modalidad_precio_eur`);
+      // Con la reparación por envío (migración 20261111100000) y la opción elegida (20261108230000) si la base de datos ya
+      // las tiene; si no, sin ellas (y sin volver a preguntar por las de envío en esta visita).
+      let res: { data: any[] | null; error: any } = { data: null, error: { code: "42703" } };
+      if (!sinColumnasEnvio) {
+        res = await consulta(`${completa},modalidad,modalidad_precio_eur,${COLUMNAS_ENVIO}`);
+        if (res.error && faltaEsquema(res.error)) sinColumnasEnvio = true;
+      }
+      setEnvioOk(!res.error);
+      if (res.error && faltaEsquema(res.error)) res = await consulta(`${completa},modalidad,modalidad_precio_eur`);
       if (res.error && faltaEsquema(res.error)) res = await consulta(completa);
       setNumerosOk(!res.error);
       if (res.error && faltaEsquema(res.error)) res = await consulta(`${base},${seguimiento}`);
@@ -1207,6 +1643,9 @@ export default function AdminServices() {
   const [filtroOpcion, setFiltroOpcion] = useState("ALL");
   const [filtroRecogida, setFiltroRecogida] = useState<"ALL" | "si" | "no">("ALL");
   const [filtroMetodo, setFiltroMetodo] = useState<"ALL" | MetodoContacto>("ALL");
+  // Entrega (reparación por envío): todas, recogida o por envío.
+  const [filtroEntrega, setFiltroEntrega] = useState<"ALL" | "recogida" | "correos">("ALL");
+  const cuentaPorEnvio = useMemo(() => requests.filter((r) => r.entrega_modo === "correos").length, [requests]);
   const opcionesSolicitadas = useMemo(() => {
     const cuenta = new Map<string, number>();
     for (const r of requests) if (r.modalidad) cuenta.set(r.modalidad, (cuenta.get(r.modalidad) ?? 0) + 1);
@@ -1222,8 +1661,9 @@ export default function AdminServices() {
     else if (filtroOpcion !== "ALL") lista = lista.filter((r) => r.modalidad === filtroOpcion);
     if (filtroRecogida !== "ALL") lista = lista.filter((r) => (filtroRecogida === "si") === !!r.direccion?.trim());
     if (filtroMetodo !== "ALL") lista = lista.filter((r) => r.metodo_contacto === filtroMetodo);
+    if (filtroEntrega !== "ALL") lista = lista.filter((r) => (r.entrega_modo === "correos" ? "correos" : "recogida") === filtroEntrega);
     return lista;
-  }, [requests, requestFilter, filtroOpcion, filtroRecogida, filtroMetodo]);
+  }, [requests, requestFilter, filtroOpcion, filtroRecogida, filtroMetodo, filtroEntrega]);
 
   // Cuántas de cada (para los desplegables de filtro).
   const cuentaRecogida = useMemo(() => requests.filter((r) => !!r.direccion?.trim()).length, [requests]);
@@ -1416,6 +1856,8 @@ export default function AdminServices() {
           </>
       ) : (
           <>
+            {/* Ajustes de la reparación por envío (plegados). */}
+            <AjustesEnvioPanel isMobile={isMobile} />
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
               {(["ALL", "nuevo", "revisado", "contactado", "descartado"] as const).map((f) => (
                 <ChipButton
@@ -1472,7 +1914,22 @@ export default function AdminServices() {
                     ]}
                   />
                 </View>
-                <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "30%" }}>
+                {envioOk ? (
+                  <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "30%" }}>
+                    <SelectorIOS
+                      nativeID="solicitudes-filtro-entrega"
+                      label="Entrega"
+                      value={filtroEntrega}
+                      onChange={(v) => setFiltroEntrega(v as "ALL" | "recogida" | "correos")}
+                      options={[
+                        { value: "ALL", label: "Todas" },
+                        { value: "recogida", label: `Recogida (${requests.length - cuentaPorEnvio})` },
+                        { value: "correos", label: `Por envío (${cuentaPorEnvio})` },
+                      ]}
+                    />
+                  </View>
+                ) : null}
+                <View style={{ flexGrow: 1, flexBasis: isMobile ? (envioOk ? "45%" : "100%") : "30%" }}>
                   <SelectorIOS
                     nativeID="solicitudes-filtro-metodo"
                     label="Contacto"
@@ -1621,6 +2078,7 @@ export default function AdminServices() {
                       </View>
 
                       <RequestSeguimiento
+                        key={`seg-${r.id}-${r.seguimiento ?? ""}`}
                         request={r}
                         disponible={seguimientoOk}
                         isMobile={isMobile}
@@ -1628,7 +2086,17 @@ export default function AdminServices() {
                           setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))
                         }
                         onMissingMigration={() => setSeguimientoOk(false)}
+                        envioOk={envioOk}
                       />
+
+                      {envioOk ? (
+                        <PanelEnvioSolicitud
+                          request={r}
+                          isMobile={isMobile}
+                          onSaved={(patch) => setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))}
+                          onVerFotos={setVisorEnvio}
+                        />
+                      ) : null}
 
                       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
                         {(["nuevo", "revisado", "contactado", "descartado"] as RequestStatus[])
@@ -1663,6 +2131,8 @@ export default function AdminServices() {
         initialIndex={visor?.inicio ?? 0}
         onClose={() => setVisor(null)}
       />
+      {/* Fotos de recepción de una reparación por envío (enlaces firmados de 5 minutos). */}
+      <ImageLightbox visible={!!visorEnvio} images={visorEnvio ?? []} initialIndex={0} onClose={() => setVisorEnvio(null)} />
 
       {/* Modal crear/editar servicio: cabecera fija con la X y el
           formulario desplazable dentro (maxHeight), con sitio para el

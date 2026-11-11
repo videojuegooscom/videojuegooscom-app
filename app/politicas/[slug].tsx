@@ -248,6 +248,45 @@ const FALLBACK_POLICIES: Record<string, Policy> = {
       },
     ],
   },
+  // Reparación por envío (dueño, 2026-11-11): el mismo texto que pone la migración 20261111100000 (el bueno vive en
+  // policy_pages y lo edita el dueño). Sin cifras inventadas: el plazo y la custodia los indica el seguimiento.
+  "reparacion-envio": {
+    title: "Reparación por envío",
+    intro:
+      "Si no estás en Zaragoza o Cuarte de Huerva, puedes mandarnos tu consola, mando, móvil o portátil por Correos desde cualquier punto de la España peninsular y te lo devolvemos reparado.",
+    sections: [
+      {
+        heading: "Cómo funciona",
+        body:
+          "1. Pide la reparación desde «Contratar servicio ahora» en la ficha del servicio, eligiendo «Envío por Correos», con tu sesión iniciada. 2. Te preparamos la etiqueta de Correos: su coste lo ves antes de enviar la solicitud y depende de tu código postal y del peso. 3. Descarga la etiqueta en Perfil → Mis seguimientos, embala el aparato y llévalo a Correos. 4. Te avisamos cuando llegue, te enseñamos las fotos de cómo lo recibimos y lo diagnosticamos. 5. Te mandamos el presupuesto y solo reparamos cuando lo aceptas desde Mis seguimientos. 6. Te lo devolvemos reparado y puedes seguir cada paso en Mis seguimientos.",
+      },
+      {
+        heading: "Cómo embalarlo",
+        body:
+          "Quita discos, tarjetas, fundas y accesorios que no hagan falta para la reparación. Si puedes, apaga y desvincula la cuenta del aparato. Envuélvelo en plástico de burbujas o papel y mételo en una caja rígida, sin que se mueva al agitarla (rellena los huecos). Cierra bien la caja con cinta y pega la etiqueta de Correos en una cara lisa. Dentro, una nota con tu nombre y tu número de seguimiento VZ-.",
+      },
+      {
+        heading: "Plazos",
+        body:
+          "La reparación se hace en el plazo que te indicamos en tu seguimiento, contado desde que el aparato llega a nuestro taller, si no hay que pedir piezas. Si hace falta una pieza, te avisamos en Mis seguimientos con la fecha aproximada de llegada.",
+      },
+      { heading: "Garantía", body: "La reparación tiene la garantía que figura en tu presupuesto o en tu factura." },
+      {
+        heading: "La vuelta",
+        body: "El envío de vuelta a tu casa va incluido en el precio de la reparación. Solo pagas aparte la etiqueta para mandárnoslo.",
+      },
+      {
+        heading: "Si no tiene arreglo",
+        body: "Si tras el diagnóstico tu aparato no tiene arreglo, te ofrecemos comprártelo o devolvértelo pagando solo el envío de vuelta.",
+      },
+      {
+        heading: "Custodia",
+        body:
+          "Cuando tu aparato esté listo, o si no tiene arreglo, lo guardamos durante el plazo que te indicamos en tu seguimiento mientras decides qué hacer.",
+      },
+      { heading: "Dudas", body: "Escríbenos desde Blue IA o el chat de la tienda y lo vemos contigo." },
+    ],
+  },
 };
 
 function normalizeSections(value: unknown): PolicySection[] {

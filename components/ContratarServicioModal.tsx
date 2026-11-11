@@ -28,9 +28,21 @@
  * - Analítica (Administración → Analítica, #analitica-contratar-servicio):
  *   ventana abierta, solicitud enviada, cerrada sin enviar y qué faltaba, por
  *   servicio. trackEvent respeta a quien rechazó la analítica.
+ * - Reparación por envío (dueño, 2026-11-11; migración 20261111100000): con
+ *   sesión y si el dueño la ha activado (reparacion_envio_ajustes.activo) y
+ *   hay tarifa de Correos, «¿Cómo nos lo haces llegar?» ofrece «Recogida en
+ *   Zaragoza o Cuarte» (lo de siempre) o «Envío por Correos (resto de
+ *   España)». Con Correos: cuántos aparatos, el código postal, el coste de la
+ *   etiqueta (calcularEtiquetaReparacion, la misma cuenta que hará la base de
+ *   datos, que es la que manda), el precio orientativo (opción × aparatos) y
+ *   la casilla obligatoria de las condiciones; no sale «Dónde podemos
+ *   recogerlo». Sin la migración o desactivada, todo como antes. Se mide con
+ *   «Contratar: envío por Correos elegido» y «Reparación por envío: solicitada».
  *
  * Conectado con:
- * - sql/service_requests.sql y supabase/migrations/20261108230000_servicios_opciones.sql.
+ * - sql/service_requests.sql, supabase/migrations/20261108230000_servicios_opciones.sql y
+ *   supabase/migrations/20261111100000_reparacion_envio.sql; lib/envio.ts (tarifas y etiqueta);
+ *   app/politicas/[slug].tsx (/politicas/reparacion-envio).
  * - app/servicio/[id].tsx → quien monta y abre este modal (servicio, opciones y la opción elegida en la ficha).
  * - app/admin/services.tsx (pestaña "Solicitudes") → donde se revisa cada envío, con su opción.
  */
@@ -41,6 +53,15 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
+import {
+  calcularEtiquetaReparacion,
+  cargarAjustesReparacionEnvio,
+  cargarTarifas,
+  fmtKg,
+  hayTarifaCorreos,
+  type AjustesReparacionEnvio,
+  type ZonaEnvio,
+} from "../lib/envio";
 import { SelectorIOS } from "../lib/admin/products.components";
 import { BotonAtrasFlotante } from "./BotonAtrasAlcance";
 import CabeceraMarca from "./CabeceraMarca";
@@ -118,14 +139,24 @@ const DISPONIBILIDAD_OPTIONS: { value: Disponibilidad; label: string }[] = [
 ];
 
 // Campos obligatorios, en el orden del formulario (para «Te falta: …» y para llevar al primero que falte).
-type CampoObligatorio = "nombre" | "apellido" | "metodo" | "contacto" | "ciudad";
+type CampoObligatorio = "nombre" | "apellido" | "metodo" | "contacto" | "ciudad" | "cp" | "condiciones";
 const NOMBRE_CAMPO: Record<CampoObligatorio, string> = {
   nombre: "nombre",
   apellido: "apellido",
   metodo: "método de contacto",
   contacto: "contacto",
   ciudad: "ciudad",
+  cp: "código postal",
+  condiciones: "aceptar las condiciones",
 };
+
+// Reparación por envío: cómo nos llega el aparato.
+type EntregaModo = "recogida" | "correos";
+const ENTREGA_OPTIONS: { value: EntregaModo; label: string }[] = [
+  { value: "recogida", label: "Recogida en Zaragoza o Cuarte" },
+  { value: "correos", label: "Envío por Correos (resto de España)" },
+];
+const APARATOS_OPTIONS = Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: i === 0 ? "1 aparato" : `${i + 1} aparatos` }));
 
 // «nombre, apellido y contacto»
 function enumerar(partes: string[]) {
@@ -180,6 +211,8 @@ function TextField({
   onLayoutY,
   nativeID,
   marcado,
+  keyboardType,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -193,6 +226,8 @@ function TextField({
   nativeID?: string;
   // Falta y el cliente ya intentó enviar: borde de aviso.
   marcado?: boolean;
+  keyboardType?: "default" | "number-pad";
+  maxLength?: number;
 }) {
   // Las mismas piezas que «Vender ahora» (dueño, 2026-11-09: «que siga nuestro diseño de página»): etiqueta centrada,
   // recuadro con el texto centrado y, al completarlo, más suave y con su check verde.
@@ -206,6 +241,8 @@ function TextField({
         onChangeText={onChangeText}
         placeholder={prefix ? `${prefix} ${placeholder ?? ""}` : placeholder}
         multiline={!!multiline}
+        keyboardType={keyboardType}
+        maxLength={maxLength}
         filled={!multiline && value.trim().length >= 2}
         style={{
           ...(marcado ? { borderColor: COLORS.accent } : null),
@@ -279,6 +316,13 @@ export default function ContratarServicioModal({
   const [direccion, setDireccion] = useState("");
   const [disponibilidad, setDisponibilidad] = useState<Disponibilidad | null>(null);
   const [comentario, setComentario] = useState("");
+  // Reparación por envío (solo con sesión, activada por el dueño y con tarifa de Correos).
+  const [ajustesEnvio, setAjustesEnvio] = useState<AjustesReparacionEnvio | null>(null);
+  const [zonas, setZonas] = useState<ZonaEnvio[] | null>(null);
+  const [entrega, setEntrega] = useState<EntregaModo>("recogida");
+  const [aparatos, setAparatos] = useState(1);
+  const [codigoPostal, setCodigoPostal] = useState("");
+  const [condiciones, setCondiciones] = useState(false);
 
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -294,6 +338,7 @@ export default function ContratarServicioModal({
     apellido: useRef<TextInput>(null),
     contacto: useRef<TextInput>(null),
     ciudad: useRef<TextInput>(null),
+    cp: useRef<TextInput>(null),
   };
   // Posición de cada campo dentro del formulario (para llevar al que falta).
   const posiciones = useRef<Record<string, number>>({});
@@ -349,6 +394,17 @@ export default function ContratarServicioModal({
           setMetodo((v) => v ?? "gmail");
           setContacto((v) => v || String(user.email));
         }
+        // 3) Reparación por envío: ¿está activada y hay tarifa de Correos? (sin la migración, null: todo como antes)
+        const [aj, tz] = await Promise.all([cargarAjustesReparacionEnvio(), cargarTarifas()]);
+        if (!vivo) return;
+        setAjustesEnvio(aj);
+        setZonas(tz);
+        if (aj?.activo && hayTarifaCorreos(tz)) {
+          // Su código postal, del perfil (si lo tiene).
+          const { data: cpPerfil } = await supabase.from("perfiles_cliente").select("codigo_postal").eq("user_id", user.id).maybeSingle();
+          const cp = String((cpPerfil as { codigo_postal?: string | null } | null)?.codigo_postal ?? "").replace(/[^0-9]/g, "");
+          if (vivo && cp.length === 5) setCodigoPostal((v) => v || cp);
+        }
       } catch {
         if (vivo) setUserId(null);
       }
@@ -362,12 +418,21 @@ export default function ContratarServicioModal({
   const metodoOption = useMemo(() => METODO_OPTIONS.find((m) => m.value === metodo) ?? null, [metodo]);
   const opcionElegida = modalidades.find((m) => m.nombre === modalidad) ?? null;
 
+  // Reparación por envío: solo con sesión, activada y con alguna tarifa de Correos.
+  const correosDisponible = !!userId && !!ajustesEnvio?.activo && hayTarifaCorreos(zonas);
+  const porCorreos = correosDisponible && entrega === "correos";
+  const etiquetaEnvio = porCorreos ? calcularEtiquetaReparacion(zonas, codigoPostal, aparatos, ajustesEnvio?.peso_aparato_kg ?? 2) : null;
+  const precioBase = opcionElegida ? opcionElegida.precio_eur : service?.precio ?? null;
+
   const faltan: CampoObligatorio[] = [
     ...(nombre.trim().length >= 2 ? [] : (["nombre"] as const)),
     ...(apellido.trim().length >= 2 ? [] : (["apellido"] as const)),
     ...(metodo ? [] : (["metodo"] as const)),
     ...(!metodo || contacto.trim().length >= 3 ? [] : (["contacto"] as const)),
     ...(ciudad.trim().length >= 2 ? [] : (["ciudad"] as const)),
+    // Por Correos: un código postal con tarifa y las condiciones aceptadas.
+    ...(porCorreos && etiquetaEnvio?.estado !== "ok" ? (["cp"] as const) : []),
+    ...(porCorreos && !condiciones ? (["condiciones"] as const) : []),
   ];
   const isValid = faltan.length === 0;
 
@@ -381,6 +446,10 @@ export default function ContratarServicioModal({
     setDireccion("");
     setDisponibilidad(null);
     setComentario("");
+    setEntrega("recogida");
+    setAparatos(1);
+    setCodigoPostal("");
+    setCondiciones(false);
     setSending(false);
     setSent(false);
     setError(null);
@@ -401,9 +470,16 @@ export default function ContratarServicioModal({
     if (!primero) return;
     setIntentado(true);
     trackEvent("servicio_ventana", `Contratar: le faltaba · ${NOMBRE_CAMPO[primero]}`, { path: ruta, metadata: { faltan } });
-    const y = posiciones.current[primero];
+    // El código postal y la casilla van dentro del bloque de Correos: su posición se suma a la del bloque.
+    const pos = posiciones.current;
+    const y =
+      primero === "cp"
+        ? (pos.correos ?? 0) + (pos.fila3 ?? 0) + (pos.cpDentro ?? 0)
+        : primero === "condiciones"
+          ? (pos.correos ?? 0) + (pos.condicionesDentro ?? 0)
+          : pos[primero];
     if (typeof y === "number") scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
-    const ref = primero === "metodo" ? null : refs[primero];
+    const ref = primero === "metodo" || primero === "condiciones" ? null : refs[primero];
     setTimeout(() => ref?.current?.focus(), 250);
   }
 
@@ -425,18 +501,23 @@ export default function ContratarServicioModal({
       metodo_contacto: metodo,
       contacto: contacto.trim(),
       ciudad: ciudad.trim(),
-      direccion: direccion.trim() || null,
+      direccion: porCorreos ? null : direccion.trim() || null,
       disponibilidad,
       comentario: comentario.trim() || null,
       // El trigger de la BD también lo fija con auth.uid(); invitado → null
       customer_user_id: userId,
+      // Por Correos (migración 20261111100000): el precio de la etiqueta y la hora de aceptar las condiciones los pone la
+      // base de datos. Por recogida no se manda nada nuevo (funciona igual sin la migración).
+      ...(porCorreos
+        ? { entrega_modo: "correos", aparatos, codigo_postal: codigoPostal.replace(/[^0-9]/g, ""), condiciones_aceptadas_en: new Date().toISOString() }
+        : null),
     };
     try {
       // Con la opción elegida (su precio lo pone la base de datos); sin la migración 20261108230000, sin ella.
       let { error: insertError } = await supabase
         .from("service_requests")
         .insert(opcionElegida ? { ...fila, modalidad: opcionElegida.nombre } : fila);
-      if (insertError && opcionElegida && faltaColumna(insertError)) {
+      if (insertError && opcionElegida && !porCorreos && faltaColumna(insertError)) {
         ({ error: insertError } = await supabase.from("service_requests").insert(fila));
       }
 
@@ -444,12 +525,18 @@ export default function ContratarServicioModal({
       enviadaRef.current = true;
       trackEvent("servicio_ventana", `Contratar: solicitud enviada · ${service.title}`, {
         path: ruta,
-        metadata: { opcion: opcionElegida?.nombre ?? null, recogida: !!direccion.trim(), metodo },
+        metadata: { opcion: opcionElegida?.nombre ?? null, recogida: !porCorreos && !!direccion.trim(), metodo, correos: porCorreos },
       });
+      if (porCorreos) trackEvent("reparacion_envio", "Reparación por envío: solicitada", { path: ruta, metadata: { aparatos } });
       setSent(true);
     } catch (e: any) {
       console.error("Error enviando la solicitud de servicio:", e);
-      setError("No se pudo enviar la solicitud. Inténtalo de nuevo en unos instantes.");
+      // Lo que explica la base de datos (p. ej. «Aún no tenemos tarifa de Correos para ese código postal…»).
+      setError(
+        e?.code === "P0001" && typeof e?.message === "string" && e.message.length < 200
+          ? e.message
+          : "No se pudo enviar la solicitud. Inténtalo de nuevo en unos instantes."
+      );
     } finally {
       setSending(false);
     }
@@ -630,6 +717,11 @@ export default function ContratarServicioModal({
                 Nos pondremos en contacto contigo lo antes posible para confirmar los detalles de «{service?.title}
                 {opcionElegida ? ` · ${opcionElegida.nombre}` : ""}».
               </Text>
+              {porCorreos ? (
+                <Text nativeID="contratar-enviada-correos" style={{ color: COLORS.text, textAlign: "center", lineHeight: 20, fontWeight: "700" }}>
+                  Te preparamos la etiqueta de Correos: la descargarás en Mis seguimientos, con cómo embalarlo y a dónde enviarlo.
+                </Text>
+              ) : null}
               {userId ? (
                 <AnimatedPressable
                   nativeID="contratar-ver-seguimientos"
@@ -799,13 +891,129 @@ export default function ContratarServicioModal({
                 />
               </View>
 
-              <TextField
-                label="Dirección (opcional)"
-                nativeID="contratar-direccion"
-                value={direccion}
-                onChangeText={setDireccion}
-                placeholder="Dónde podemos recogerlo"
-              />
+              {/* Reparación por envío (2026-11-11): solo si el dueño la ha activado y hay tarifa de Correos. */}
+              {correosDisponible ? (
+                <ChipGroup
+                  label="¿Cómo nos lo haces llegar?"
+                  nativeID="contratar-entrega"
+                  options={ENTREGA_OPTIONS}
+                  value={entrega}
+                  onChange={(v) => {
+                    setEntrega(v);
+                    setError(null);
+                    if (v === "correos" && service) trackEvent("servicio_ventana", "Contratar: envío por Correos elegido", { path: ruta });
+                  }}
+                />
+              ) : null}
+
+              {porCorreos ? (
+                <View
+                  nativeID="contratar-correos"
+                  style={{ gap: comoPagina ? 18 : 14 }}
+                  onLayout={(e) => {
+                    posiciones.current.correos = e.nativeEvent.layout.y;
+                  }}
+                >
+                  <View
+                    style={{ flexDirection: "row", gap: 12, alignItems: "flex-end" }}
+                    onLayout={(e) => {
+                      posiciones.current.fila3 = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <SelectorIOS
+                        nativeID="contratar-aparatos"
+                        label="¿Cuántos aparatos?"
+                        centrado
+                        value={String(aparatos)}
+                        onChange={(v) => setAparatos(Math.max(1, Math.min(10, Number(v) || 1)))}
+                        options={APARATOS_OPTIONS}
+                      />
+                    </View>
+                    <TextField
+                      label="Tu código postal"
+                      nativeID="contratar-cp"
+                      value={codigoPostal}
+                      onChangeText={(t) => setCodigoPostal(t.replace(/[^0-9]/g, "").slice(0, 5))}
+                      placeholder="Ej: 28001"
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      flex={1}
+                      inputRef={refs.cp}
+                      marcado={marca("cp")}
+                      onLayoutY={(y) => {
+                        posiciones.current.cpDentro = y;
+                      }}
+                    />
+                  </View>
+                  {/* Etiqueta de Correos y precio orientativo, sin burbuja: icono y texto. */}
+                  <View nativeID="contratar-etiqueta" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <Ionicons name="pricetag-outline" size={18} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14.5, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+                      {etiquetaEnvio?.estado === "ok"
+                        ? `Etiqueta de Correos: ${fmtEURServicio(etiquetaEnvio.precio)} · ${fmtKg(etiquetaEnvio.pesoKg)}`
+                        : etiquetaEnvio?.estado === "local"
+                          ? "En Zaragoza y Cuarte te lo recogemos: elige «Recogida en Zaragoza o Cuarte»."
+                          : etiquetaEnvio?.estado === "sin_tarifa"
+                            ? "Aún no tenemos tarifa de Correos para tu código postal: escríbenos y lo vemos contigo."
+                            : "Escribe tu código postal para calcular la etiqueta."}
+                    </Text>
+                  </View>
+                  {precioBase != null ? (
+                    <View nativeID="contratar-precio-orientativo" style={{ alignItems: "center", gap: 2 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+                        Precio orientativo: desde {fmtEURServicio(precioBase * aparatos)}
+                        {aparatos > 1 ? ` (${aparatos} × ${fmtEURServicio(precioBase)})` : ""}
+                      </Text>
+                      <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 17, textAlign: "center" }}>
+                        El precio final te lo confirmamos tras el diagnóstico. La vuelta va incluida.
+                      </Text>
+                    </View>
+                  ) : null}
+                  {/* Casilla obligatoria (44 px para el dedo) con el enlace a las condiciones. */}
+                  <View
+                    onLayout={(e) => {
+                      posiciones.current.condicionesDentro = e.nativeEvent.layout.y;
+                    }}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}
+                  >
+                    <Pressable
+                      nativeID="contratar-condiciones"
+                      onPress={() => setCondiciones((v) => !v)}
+                      role="checkbox"
+                      aria-checked={condiciones}
+                      accessibilityLabel="Acepto las condiciones de reparación por envío"
+                      hitSlop={6}
+                      style={({ pressed }) => ({ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                    >
+                      <Ionicons
+                        name={condiciones ? "checkbox" : "square-outline"}
+                        size={24}
+                        color={condiciones ? COLORS.accent : marca("condiciones") ? COLORS.accent : COLORS.muted}
+                      />
+                    </Pressable>
+                    <Text style={{ color: COLORS.text, fontSize: 13.5, lineHeight: 19, flexShrink: 1 }}>
+                      <Text onPress={() => setCondiciones((v) => !v)}>Acepto las </Text>
+                      <Text
+                        nativeID="contratar-condiciones-enlace"
+                        accessibilityRole="link"
+                        onPress={() => router.push("/politicas/reparacion-envio")}
+                        style={{ color: COLORS.accent, fontWeight: "800", textDecorationLine: "underline" }}
+                      >
+                        condiciones de reparación por envío
+                      </Text>
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <TextField
+                  label="Dirección (opcional)"
+                  nativeID="contratar-direccion"
+                  value={direccion}
+                  onChangeText={setDireccion}
+                  placeholder="Dónde podemos recogerlo"
+                />
+              )}
 
               <TextField
                 label="Cuéntanos qué necesitas (opcional)"
@@ -846,9 +1054,11 @@ export default function ContratarServicioModal({
                     {sending
                       ? "Enviando…"
                       : isValid
-                        ? opcionElegida
-                          ? `Enviar solicitud · ${fmtEURServicio(opcionElegida.precio_eur)}`
-                          : "Enviar solicitud"
+                        ? porCorreos && precioBase != null
+                          ? `Enviar solicitud · desde ${fmtEURServicio(precioBase * aparatos)}`
+                          : opcionElegida
+                            ? `Enviar solicitud · ${fmtEURServicio(opcionElegida.precio_eur)}`
+                            : "Enviar solicitud"
                         : `Te falta: ${enumerar(faltan.map((c) => NOMBRE_CAMPO[c]))}`}
                   </Text>
                 </View>
