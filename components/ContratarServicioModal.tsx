@@ -38,6 +38,10 @@
  *   la casilla obligatoria de las condiciones; no sale «Dónde podemos
  *   recogerlo». Sin la migración o desactivada, todo como antes. Se mide con
  *   «Contratar: envío por Correos elegido» y «Reparación por envío: solicitada».
+ *   Parte 2 (migración 20261111130000): el peso de la etiqueta es el del
+ *   servicio (services.envio_peso_kg, con su caja) y, si no lo tiene, el
+ *   peso por defecto de los ajustes (lib/envio.ts pesoAparatoReparacion), la
+ *   misma regla que la base de datos.
  *
  * Conectado con:
  * - sql/service_requests.sql, supabase/migrations/20261108230000_servicios_opciones.sql y
@@ -56,9 +60,11 @@ import { trackEvent } from "../lib/analytics";
 import {
   calcularEtiquetaReparacion,
   cargarAjustesReparacionEnvio,
+  cargarPesoEnvioServicio,
   cargarTarifas,
   fmtKg,
   hayTarifaCorreos,
+  pesoAparatoReparacion,
   type AjustesReparacionEnvio,
   type ZonaEnvio,
 } from "../lib/envio";
@@ -323,6 +329,8 @@ export default function ContratarServicioModal({
   const [aparatos, setAparatos] = useState(1);
   const [codigoPostal, setCodigoPostal] = useState("");
   const [condiciones, setCondiciones] = useState(false);
+  // Peso de UN aparato de este servicio con su caja (services.envio_peso_kg, parte 2); null = el de los ajustes.
+  const [pesoServicio, setPesoServicio] = useState<number | null>(null);
 
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -395,10 +403,11 @@ export default function ContratarServicioModal({
           setContacto((v) => v || String(user.email));
         }
         // 3) Reparación por envío: ¿está activada y hay tarifa de Correos? (sin la migración, null: todo como antes)
-        const [aj, tz] = await Promise.all([cargarAjustesReparacionEnvio(), cargarTarifas()]);
+        const [aj, tz, peso] = await Promise.all([cargarAjustesReparacionEnvio(), cargarTarifas(), cargarPesoEnvioServicio(service.id)]);
         if (!vivo) return;
         setAjustesEnvio(aj);
         setZonas(tz);
+        setPesoServicio(peso);
         if (aj?.activo && hayTarifaCorreos(tz)) {
           // Su código postal, del perfil (si lo tiene).
           const { data: cpPerfil } = await supabase.from("perfiles_cliente").select("codigo_postal").eq("user_id", user.id).maybeSingle();
@@ -421,7 +430,7 @@ export default function ContratarServicioModal({
   // Reparación por envío: solo con sesión, activada y con alguna tarifa de Correos.
   const correosDisponible = !!userId && !!ajustesEnvio?.activo && hayTarifaCorreos(zonas);
   const porCorreos = correosDisponible && entrega === "correos";
-  const etiquetaEnvio = porCorreos ? calcularEtiquetaReparacion(zonas, codigoPostal, aparatos, ajustesEnvio?.peso_aparato_kg ?? 2) : null;
+  const etiquetaEnvio = porCorreos ? calcularEtiquetaReparacion(zonas, codigoPostal, aparatos, pesoAparatoReparacion(pesoServicio, ajustesEnvio)) : null;
   const precioBase = opcionElegida ? opcionElegida.precio_eur : service?.precio ?? null;
 
   const faltan: CampoObligatorio[] = [

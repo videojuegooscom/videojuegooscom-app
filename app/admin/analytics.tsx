@@ -50,7 +50,10 @@
  *   descargadas desde «Mis pedidos» (api/factura.ts).
  * - Reparación por envío (#analitica-reparacion-envio, migración 20261111100000): el embudo contado en
  *   service_requests (solicitadas → etiqueta pagada → recibidas → presupuesto aceptado, solo números) y
- *   las sesiones de components/ContratarServicioModal.tsx y app/(tabs)/perfil.tsx.
+ *   las sesiones de components/ContratarServicioModal.tsx y app/(tabs)/perfil.tsx. Parte 2 (migración
+ *   20261111130000, si los ajustes ya traen garantia_meses): el embudo sigue con pagadas → enviadas, más «sin
+ *   arreglo: compradas / devueltas» y «garantías abiertas» (recuentos, sin datos de nadie), y las sesiones de
+ *   pago con tarjeta, avisos de pago, «Te lo compramos», «Devuélvemelo» y garantías pedidas.
  * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
@@ -73,6 +76,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -401,11 +405,14 @@ export default function AdminAnalytics() {
   // Reparación por envío (migración 20261111100000): el embudo contado en la base de datos (solo números, sin datos de
   // nadie). null = la migración aún no está aplicada (o no se pudo contar).
   const [embudoEnvio, setEmbudoEnvio] = useState<{ solicitadas: number; pagadas: number; recibidas: number; aceptadas: number } | null>(null);
+  // Parte 2 (migración 20261111130000): reparaciones pagadas y enviadas, sin arreglo (compradas / devueltas) y garantías
+  // abiertas. null = aún no está (o no se pudo contar).
+  const [embudoEnvio2, setEmbudoEnvio2] = useState<{ cobradas: number; enviadas: number; sinArreglo: number; compradas: number; devueltas: number; garantias: number } | null>(null);
   useEffect(() => {
     let vivo = true;
     type Cuenta = { count: number | null; error: unknown };
-    const contar = (filtro: (q: any) => any): Promise<Cuenta> =>
-      filtro(supabase.from("service_requests").select("id", { count: "exact", head: true }).eq("entrega_modo", "correos"));
+    const contarTodas = (filtro: (q: any) => any): Promise<Cuenta> => filtro(supabase.from("service_requests").select("id", { count: "exact", head: true }));
+    const contar = (filtro: (q: any) => any): Promise<Cuenta> => contarTodas((q) => filtro(q.eq("entrega_modo", "correos")));
     (async () => {
       try {
         // Primero una (sin la migración falla una sola vez) y, si existe, las otras tres.
@@ -422,6 +429,19 @@ export default function AdminAnalytics() {
         if (!vivo) return;
         if (r.some((x) => x.error)) return setEmbudoEnvio(null);
         setEmbudoEnvio({ solicitadas: primera.count ?? 0, pagadas: r[0].count ?? 0, recibidas: r[1].count ?? 0, aceptadas: r[2].count ?? 0 });
+        // Parte 2: solo si la base de datos ya la tiene (sin errores antes de la migración).
+        if (!(await cargarAjustesReparacionEnvio())?.parte2) return;
+        const r2 = await Promise.all([
+          contar((q) => q.eq("pago_estado", "pagado").or("diagnostico_resultado.is.null,diagnostico_resultado.eq.reparable")),
+          contar((q) => q.in("seguimiento", ["enviada", "entregado"]).or("diagnostico_resultado.is.null,diagnostico_resultado.eq.reparable")),
+          contarTodas((q) => q.eq("diagnostico_resultado", "sin_arreglo")),
+          contarTodas((q) => q.eq("diagnostico_resultado", "sin_arreglo").eq("sin_arreglo_eleccion", "comprar")),
+          contarTodas((q) => q.eq("diagnostico_resultado", "sin_arreglo").eq("sin_arreglo_eleccion", "devolver")),
+          contarTodas((q) => q.not("garantia_de", "is", null).not("seguimiento", "in", "(entregado,cancelado)")),
+        ]);
+        if (!vivo || r2.some((x) => x.error)) return;
+        const [cobradas, enviadas, sinArreglo, compradas, devueltas, garantias] = r2.map((x) => x.count ?? 0);
+        setEmbudoEnvio2({ cobradas, enviadas, sinArreglo, compradas, devueltas, garantias });
       } catch {
         // sin conexión: sin el embudo
       }
@@ -638,6 +658,14 @@ export default function AdminAnalytics() {
       solicitada: exacto("Reparación por envío: solicitada"),
       etiquetaDescargada: exacto("Reparación por envío: etiqueta descargada"),
       presupuestoAceptado: exacto("Reparación por envío: presupuesto aceptado"),
+      // Parte 2 (app/(tabs)/perfil.tsx).
+      tarjeta:
+        exacto("Reparación por envío: pago con tarjeta · etiqueta") + exacto("Reparación por envío: pago con tarjeta · reparación"),
+      tarjetaOk: exacto("Reparación por envío: pago con tarjeta confirmado"),
+      avisos: exacto("Reparación por envío: aviso de pago · etiqueta") + exacto("Reparación por envío: aviso de pago · reparación"),
+      comprar: exacto("Reparación por envío: sin arreglo · te lo compramos"),
+      devolver: exacto("Reparación por envío: sin arreglo · devuélvemelo"),
+      garantia: exacto("Reparación por envío: garantía pedida"),
     };
     return { servicios, faltaba, opciones, videos, envio };
   }, [funnel]);
@@ -1209,6 +1237,16 @@ export default function AdminAnalytics() {
                       <Text nativeID="analitica-reparacion-envio-sesiones" style={{ color: COLORS.text, fontSize: 12.5 }}>
                         En este periodo (sesiones): eligen Correos {contratarServicio.envio.correosElegido} · la solicitan {contratarServicio.envio.solicitada} · descargan la etiqueta {contratarServicio.envio.etiquetaDescargada} · aceptan el presupuesto {contratarServicio.envio.presupuestoAceptado}
                       </Text>
+                      {embudoEnvio2 ? (
+                        <>
+                          <Text nativeID="analitica-reparacion-envio-bd2" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                            Después: pagadas {embudoEnvio2.cobradas} → enviadas {embudoEnvio2.enviadas} · sin arreglo {embudoEnvio2.sinArreglo} (compradas {embudoEnvio2.compradas}, devueltas {embudoEnvio2.devueltas}) · garantías abiertas {embudoEnvio2.garantias}
+                          </Text>
+                          <Text nativeID="analitica-reparacion-envio-sesiones2" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                            Cobros (sesiones): abren el pago con tarjeta {contratarServicio.envio.tarjeta} · confirmados {contratarServicio.envio.tarjetaOk} · avisan de Bizum o transferencia {contratarServicio.envio.avisos} · «Te lo compramos» {contratarServicio.envio.comprar} · «Devuélvemelo» {contratarServicio.envio.devolver} · garantías pedidas {contratarServicio.envio.garantia}
+                          </Text>
+                        </>
+                      ) : null}
                     </View>
                   </View>
                   <View

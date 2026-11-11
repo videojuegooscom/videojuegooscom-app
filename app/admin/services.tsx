@@ -58,6 +58,14 @@
  *   «Entrega» y, en cada solicitud (PanelEnvioSolicitud), aparatos, coste de la etiqueta, «Marcar
  *   etiqueta pagada», «Subir etiqueta» y «Subir fotos de recepción» (almacén privado «reparaciones»),
  *   presupuesto y si el cliente lo aceptó, y «Esperando pieza hasta». lib/envio.ts lee los ajustes.
+ * - Reparación por envío, parte 2 (dueño, 2026-11-11; migración 20261111130000; sin ella, todo como antes):
+ *   en la ficha de cada servicio, «Peso para el envío (kg, con su caja)» con la marca «estimado» hasta
+ *   que el dueño lo guarde; en los ajustes, «Peso por defecto (si el servicio no tiene el suyo)», la
+ *   garantía en meses y el aviso de que Bizum, IBAN y titular se enseñan al cliente; en cada solicitud,
+ *   «Marcar etiqueta pagada» y «Marcar reparación/vuelta pagada» con forma y fecha (el importe lo pone
+ *   la base de datos), los avisos «ya lo he pagado» del cliente, el diagnóstico («Sin arreglo» y «Te lo
+ *   compramos por»), qué eligió el cliente, «Marcar enviada» con el nº de Correos de la vuelta y la
+ *   marca «Garantía»; el filtro «Cobro y garantía» y su resumen con cuántas hay de cada.
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("services") dentro del
  *   Stack protegido del panel admin.
@@ -167,6 +175,9 @@ type ServiceRow = {
   like_count?: number | null;
   // Opciones que elige el cliente (Básica, Completa…; migración 20261108230000). undefined = la columna aún no existe.
   modalidades?: ModalidadServicio[];
+  // Peso de UN aparato con su caja para la etiqueta de Correos (parte 2, migración 20261111130000; undefined sin ella).
+  envio_peso_kg?: number | null;
+  envio_peso_estimado?: boolean;
   created_at: string;
   updated_at: string;
   media: ServiceMediaRow[];
@@ -218,10 +229,37 @@ type ServiceRequestRow = {
   presupuesto_aceptado_en?: string | null;
   recepcion_fotos?: string[] | null;
   espera_pieza_hasta?: string | null;
+  // Parte 2 (migración 20261111130000; puede no existir aún): cobros, «sin arreglo» y garantía. Los importes (pagado_eur,
+  // vuelta_eur) los pone la base de datos.
+  etiqueta_pago_modo?: string | null;
+  etiqueta_avisada_en?: string | null;
+  pago_estado?: string | null;
+  pago_modo?: string | null;
+  pagado_eur?: number | null;
+  pagado_en?: string | null;
+  pago_avisado_en?: string | null;
+  vuelta_seguimiento?: string | null;
+  diagnostico_resultado?: "reparable" | "sin_arreglo" | null;
+  oferta_compra_eur?: number | null;
+  vuelta_eur?: number | null;
+  sin_arreglo_eleccion?: "comprar" | "devolver" | null;
+  sin_arreglo_eleccion_en?: string | null;
+  entregado_en?: string | null;
+  garantia_de?: string | null;
 };
 
 const COLUMNAS_ENVIO =
   "entrega_modo,aparatos,codigo_postal,etiqueta_eur,etiqueta_peso_kg,etiqueta_path,etiqueta_pagada_en,condiciones_aceptadas_en,presupuesto_eur,presupuesto_aceptado_en,recepcion_fotos,espera_pieza_hasta";
+// Parte 2: solo se piden si la base de datos ya las tiene (los ajustes traen garantia_meses), sin errores antes.
+const COLUMNAS_ENVIO_2 =
+  "etiqueta_pago_modo,etiqueta_avisada_en,pago_estado,pago_modo,pagado_eur,pagado_en,pago_avisado_en,vuelta_seguimiento,diagnostico_resultado,oferta_compra_eur,vuelta_eur,sin_arreglo_eleccion,sin_arreglo_eleccion_en,entregado_en,garantia_de";
+const FORMAS_PAGO = [
+  { value: "bizum", label: "Bizum" },
+  { value: "transferencia", label: "Transferencia" },
+  { value: "tarjeta", label: "Tarjeta" },
+] as const;
+const FORMA_PAGO_LABEL: Record<string, string> = { bizum: "Bizum", transferencia: "transferencia", tarjeta: "tarjeta", prueba: "tarjeta (de prueba)" };
+const hoyISO = () => new Date().toISOString().slice(0, 10);
 // Sin la migración de la reparación por envío, se pregunta una vez y se recuerda (no se repite el error en cada carga).
 let sinColumnasEnvio = false;
 const BUCKET_REPARACIONES = "reparaciones";
@@ -739,22 +777,77 @@ function elegirArchivosWeb(accept: string, multiple: boolean): Promise<File[] | 
 const EXT_TIPO: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const DIEZ_MB = 10 * 1024 * 1024;
 
+// «Marcar pagado» (parte 2): cómo se pagó y cuándo; el importe lo pone la base de datos. Plegable: se abre y se cierra.
+function MarcarPagado({
+  id,
+  etiqueta,
+  isMobile,
+  ocupado,
+  onGuardar,
+}: {
+  id: string;
+  etiqueta: string;
+  isMobile: boolean;
+  ocupado: boolean;
+  onGuardar: (modo: string, fechaISO: string) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [modo, setModo] = useState<string>("bizum");
+  const [fecha, setFecha] = useState(hoyISO());
+  const valida = /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim()) && !Number.isNaN(new Date(`${fecha.trim()}T12:00:00`).getTime());
+  if (!abierto) return <ChipButton label={etiqueta} icon="card-outline" disabled={ocupado} isMobile={isMobile} onPress={() => setAbierto(true)} />;
+  return (
+    <View nativeID={id} style={{ gap: 6, alignItems: "center", width: "100%", maxWidth: 520 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+        {FORMAS_PAGO.map((f) => (
+          <ChipButton key={f.value} label={f.label} variant={modo === f.value ? "primary" : "ghost"} isMobile={isMobile} onPress={() => setModo(f.value)} />
+        ))}
+      </View>
+      <View style={{ width: "100%", maxWidth: 240 }}>
+        <TextField label="Fecha del pago" value={fecha} onChangeText={setFecha} placeholder="AAAA-MM-DD" />
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+        <ChipButton
+          label={ocupado ? "Guardando…" : "Guardar pago"}
+          variant="primary"
+          icon="checkmark"
+          disabled={ocupado || !valida}
+          isMobile={isMobile}
+          onPress={() => {
+            // Con la hora de ahora si es hoy; si no, a mediodía de ese día.
+            const iso = fecha.trim() === hoyISO() ? new Date().toISOString() : new Date(`${fecha.trim()}T12:00:00`).toISOString();
+            onGuardar(modo, iso);
+            setAbierto(false);
+          }}
+        />
+        <ChipButton label="Cancelar" isMobile={isMobile} onPress={() => setAbierto(false)} />
+      </View>
+    </View>
+  );
+}
+
 // Lo de una solicitud por envío: aparatos, etiqueta (coste, pagada, subir), fotos de recepción, espera de pieza y
-// presupuesto (y si el cliente lo aceptó). El presupuesto y la pieza también salen en las de recogida.
+// presupuesto (y si el cliente lo aceptó). El presupuesto y la pieza también salen en las de recogida. Con la parte 2
+// (parte2): forma y fecha del pago de la etiqueta, el diagnóstico («Sin arreglo» con «Te lo compramos por»), qué eligió
+// el cliente, sus avisos de pago, «Marcar pagado» de la reparación o la vuelta y «Marcar enviada» con el nº de Correos.
 function PanelEnvioSolicitud({
   request,
   isMobile,
   onSaved,
   onVerFotos,
+  parte2 = false,
 }: {
   request: ServiceRequestRow;
   isMobile: boolean;
   onSaved: (patch: Partial<ServiceRequestRow>) => void;
   onVerFotos: (fotos: LightboxImage[]) => void;
+  parte2?: boolean;
 }) {
   const porEnvio = request.entrega_modo === "correos";
   const [presupuesto, setPresupuesto] = useState(request.presupuesto_eur != null ? String(request.presupuesto_eur).replace(".", ",") : "");
   const [pieza, setPieza] = useState(request.espera_pieza_hasta ?? "");
+  const [oferta, setOferta] = useState(request.oferta_compra_eur != null ? String(request.oferta_compra_eur).replace(".", ",") : "");
+  const [numeroVuelta, setNumeroVuelta] = useState(request.vuelta_seguimiento ?? "");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const fotos = Array.isArray(request.recepcion_fotos) ? request.recepcion_fotos : [];
@@ -762,14 +855,18 @@ function PanelEnvioSolicitud({
   async function guardar(patch: Partial<ServiceRequestRow>, que: string, ok: string) {
     setOcupado(que);
     setMsg(null);
-    const { error } = await supabase.from("service_requests").update(patch).eq("id", request.id);
+    // Con la parte 2 se lee la fila guardada: los importes (pagado_eur, vuelta_eur) los pone la base de datos.
+    const consulta = supabase.from("service_requests").update(patch).eq("id", request.id);
+    const { data, error } = parte2 ? await consulta.select(`id,seguimiento,seguimiento_actualizado,etiqueta_pagada_en,presupuesto_eur,presupuesto_aceptado_en,${COLUMNAS_ENVIO_2}`) : await consulta;
     setOcupado(null);
     if (error) {
       console.error(`Error guardando (${que}):`, error);
-      setMsg({ ok: false, text: "No se pudo guardar. Inténtalo de nuevo." });
+      const m = String((error as { message?: string }).message ?? "");
+      setMsg({ ok: false, text: /Aún no hay importe|Di cómo se ha pagado/.test(m) ? m : "No se pudo guardar. Inténtalo de nuevo." });
       return false;
     }
-    onSaved(patch);
+    const fila = Array.isArray(data) ? (data[0] as Partial<ServiceRequestRow> | undefined) : undefined;
+    onSaved(fila ? { ...patch, ...fila } : patch);
     setMsg({ ok: true, text: ok });
     return true;
   }
@@ -846,13 +943,31 @@ function PanelEnvioSolicitud({
             {request.etiqueta_eur != null ? fmtEUR(Number(request.etiqueta_eur)) : "—"}
             {request.etiqueta_peso_kg != null ? ` (${String(request.etiqueta_peso_kg).replace(".", ",")} kg)` : ""}
             {" · "}
-            {request.etiqueta_pagada_en ? `pagada el ${formatDate(request.etiqueta_pagada_en)}` : "sin pagar"}
+            {request.etiqueta_pagada_en
+              ? `pagada el ${formatDate(request.etiqueta_pagada_en)}${request.etiqueta_pago_modo ? ` por ${FORMA_PAGO_LABEL[request.etiqueta_pago_modo] ?? request.etiqueta_pago_modo}` : ""}`
+              : Number(request.etiqueta_eur ?? 0) === 0 && request.etiqueta_eur != null
+                ? "gratis"
+                : "sin pagar"}
           </Text>
           {request.condiciones_aceptadas_en ? (
             <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>Condiciones aceptadas el {formatDate(request.condiciones_aceptadas_en)}</Text>
           ) : null}
+          {request.etiqueta_avisada_en && !request.etiqueta_pagada_en ? (
+            <Text nativeID={`solicitud-etiqueta-avisada-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+              El cliente dice que ya pagó la etiqueta ({formatDate(request.etiqueta_avisada_en)}): compruébalo y márcala pagada
+            </Text>
+          ) : null}
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
-            {!request.etiqueta_pagada_en ? (
+            {!request.etiqueta_pagada_en && parte2 && Number(request.etiqueta_eur ?? 0) > 0 ? (
+              <MarcarPagado
+                id={`solicitud-etiqueta-pago-${request.id}`}
+                etiqueta="Marcar etiqueta pagada"
+                isMobile={isMobile}
+                ocupado={!!ocupado}
+                onGuardar={(modo, iso) => guardar({ etiqueta_pagada_en: iso, etiqueta_pago_modo: modo }, "pagada", `Etiqueta marcada como pagada por ${FORMA_PAGO_LABEL[modo] ?? modo} ✓`)}
+              />
+            ) : null}
+            {!request.etiqueta_pagada_en && !parte2 ? (
               <ChipButton
                 label={ocupado === "pagada" ? "Guardando…" : "Marcar etiqueta pagada"}
                 icon="card-outline"
@@ -902,6 +1017,111 @@ function PanelEnvioSolicitud({
             : "El cliente aún no lo ha aceptado"}
       </Text>
 
+      {parte2 ? (
+        <View nativeID={`solicitud-cobro-${request.id}`} style={{ gap: 8, alignItems: "center", width: "100%" }}>
+          {/* Diagnóstico: reparable o sin arreglo (con «Te lo compramos por», opcional). */}
+          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>DIAGNÓSTICO</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+            {(["reparable", "sin_arreglo"] as const).map((d) => (
+              <ChipButton
+                key={d}
+                label={d === "reparable" ? "Reparable" : "Sin arreglo"}
+                variant={request.diagnostico_resultado === d ? (d === "sin_arreglo" ? "danger" : "primary") : "ghost"}
+                disabled={!!ocupado || request.diagnostico_resultado === d}
+                isMobile={isMobile}
+                onPress={() => guardar({ diagnostico_resultado: d }, "diagnostico", d === "sin_arreglo" ? "Marcada sin arreglo ✓ · el cliente elige «Te lo compramos» o «Devuélvemelo»" : "Marcada reparable ✓")}
+              />
+            ))}
+          </View>
+          {request.diagnostico_resultado === "sin_arreglo" ? (
+            <>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+                <View style={{ flexGrow: 1, flexBasis: 140 }}>
+                  <TextField label="Te lo compramos por (€, opcional)" value={oferta} onChangeText={setOferta} placeholder="Ej: 40" keyboardType="decimal-pad" />
+                </View>
+                <ChipButton
+                  label={ocupado === "oferta" ? "Guardando…" : oferta.trim() ? "Guardar oferta" : "Quitar oferta"}
+                  icon="pricetag-outline"
+                  disabled={!!ocupado || (oferta.trim() !== "" && !(Number(oferta.replace(/\./g, "").replace(",", ".")) >= 0))}
+                  isMobile={isMobile}
+                  onPress={() => {
+                    const n = Number(oferta.replace(/\./g, "").replace(",", "."));
+                    guardar({ oferta_compra_eur: oferta.trim() ? Math.round(n * 100) / 100 : null }, "oferta", oferta.trim() ? "Oferta guardada ✓ · el cliente la ve" : "Oferta quitada ✓");
+                  }}
+                />
+              </View>
+              <Text nativeID={`solicitud-eleccion-${request.id}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                {request.sin_arreglo_eleccion === "comprar"
+                  ? `El cliente eligió «Te lo compramos»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}: le llega su solicitud a Vender`
+                  : request.sin_arreglo_eleccion === "devolver"
+                    ? `El cliente eligió «Devuélvemelo»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}${porEnvio ? ` · vuelta ${request.vuelta_eur != null ? fmtEUR(Number(request.vuelta_eur)) : "—"}` : ""}`
+                    : `El cliente aún no ha elegido${porEnvio && request.vuelta_eur != null ? ` · la vuelta le costaría ${fmtEUR(Number(request.vuelta_eur))}` : ""}`}
+              </Text>
+            </>
+          ) : null}
+
+          {/* Cobro de la reparación (o de la vuelta si no tiene arreglo). */}
+          {porEnvio ? (
+            <>
+              <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                {request.pago_estado === "pagado"
+                  ? `Pagado ${fmtEUR(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${FORMA_PAGO_LABEL[request.pago_modo] ?? request.pago_modo}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
+                  : request.diagnostico_resultado === "sin_arreglo"
+                    ? request.sin_arreglo_eleccion === "devolver" && request.vuelta_eur != null
+                      ? `Pendiente de pago: la vuelta, ${fmtEUR(Number(request.vuelta_eur))}`
+                      : "Sin nada que cobrar todavía"
+                    : request.presupuesto_aceptado_en && request.presupuesto_eur != null
+                      ? Number(request.presupuesto_eur) === 0
+                        ? "Sin coste (garantía)"
+                        : `Pendiente de pago: ${fmtEUR(Number(request.presupuesto_eur))}${request.seguimiento === "listo" ? " · el cliente ya puede pagarlo" : " · podrá pagarlo cuando esté «Lista»"}`
+                      : "Sin nada que cobrar todavía"}
+              </Text>
+              {request.pago_avisado_en && request.pago_estado !== "pagado" ? (
+                <Text nativeID={`solicitud-pago-avisado-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                  El cliente dice que ya lo pagó ({formatDate(request.pago_avisado_en)}): compruébalo y márcalo pagado
+                </Text>
+              ) : null}
+              {request.pago_estado !== "pagado" &&
+              ((request.diagnostico_resultado === "sin_arreglo" && request.sin_arreglo_eleccion === "devolver" && Number(request.vuelta_eur ?? 0) > 0) ||
+                (request.diagnostico_resultado !== "sin_arreglo" && !!request.presupuesto_aceptado_en && Number(request.presupuesto_eur ?? 0) > 0)) ? (
+                <MarcarPagado
+                  id={`solicitud-pago-marcar-${request.id}`}
+                  etiqueta={request.diagnostico_resultado === "sin_arreglo" ? "Marcar vuelta pagada" : "Marcar reparación pagada"}
+                  isMobile={isMobile}
+                  ocupado={!!ocupado}
+                  onGuardar={(modo, iso) => guardar({ pago_estado: "pagado", pago_modo: modo, pagado_en: iso }, "pago", `Pagado por ${FORMA_PAGO_LABEL[modo] ?? modo} ✓ · ya puedes enviarlo`)}
+                />
+              ) : null}
+              {/* Pagada (o sin coste): se envía con el número de Correos de la vuelta. */}
+              {request.seguimiento !== "enviada" && request.seguimiento !== "entregado" &&
+              (request.pago_estado === "pagado" || (request.seguimiento === "listo" && request.presupuesto_aceptado_en && Number(request.presupuesto_eur ?? -1) === 0)) ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
+                  <View style={{ flexGrow: 1, flexBasis: 160 }}>
+                    <TextField label="Nº de seguimiento de Correos (vuelta)" value={numeroVuelta} onChangeText={setNumeroVuelta} placeholder="Ej: PK123456789ES" />
+                  </View>
+                  <ChipButton
+                    label={ocupado === "enviada" ? "Guardando…" : "Marcar enviada"}
+                    variant="primary"
+                    icon="paper-plane-outline"
+                    disabled={!!ocupado || numeroVuelta.trim().length < 4}
+                    isMobile={isMobile}
+                    onPress={() =>
+                      guardar(
+                        { vuelta_seguimiento: numeroVuelta.trim(), seguimiento: "enviada", seguimiento_actualizado: new Date().toISOString() },
+                        "enviada",
+                        "Enviada de vuelta ✓ · el cliente ve el número de Correos"
+                      )
+                    }
+                  />
+                </View>
+              ) : request.vuelta_seguimiento ? (
+                <Text style={{ color: COLORS.text, fontSize: 12.5, textAlign: "center" }}>Vuelta por Correos: nº {request.vuelta_seguimiento}</Text>
+              ) : null}
+            </>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, alignItems: "flex-end", width: "100%", maxWidth: 520 }}>
         <View style={{ flexGrow: 1, flexBasis: 140 }}>
           <TextField label="Esperando pieza hasta" value={pieza} onChangeText={setPieza} placeholder="AAAA-MM-DD" />
@@ -925,7 +1145,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
   const [abierto, setAbierto] = useState(false);
   const [aj, setAj] = useState<AjustesReparacionEnvio | null | undefined>(undefined);
   const [tarifaOk, setTarifaOk] = useState(false);
-  const [form, setForm] = useState({ direccion: "", peso: "", custodia: "", bizum: "", iban: "", titular: "", plazo: "" });
+  const [form, setForm] = useState({ direccion: "", peso: "", custodia: "", bizum: "", iban: "", titular: "", plazo: "", garantia: "12" });
   const [pesoTocado, setPesoTocado] = useState(false);
   const [activo, setActivo] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -947,6 +1167,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
           iban: a.iban ?? "",
           titular: a.titular ?? "",
           plazo: String(a.plazo_horas),
+          garantia: String(a.garantia_meses),
         });
       }
     });
@@ -982,8 +1203,9 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
     if (guardando) return;
     const custodia = form.custodia.trim() ? Math.round(Number(form.custodia)) : null;
     const plazo = Math.round(Number(form.plazo || "72"));
-    if (!pesoValido || (custodia !== null && !(custodia >= 1 && custodia <= 365)) || !(plazo >= 1 && plazo <= 2000)) {
-      setMsg({ tono: "warning", texto: "Revisa el peso (hasta 30 kg), los días de custodia (1-365) y el plazo en horas." });
+    const garantia = Math.round(Number(form.garantia || "12"));
+    if (!pesoValido || (custodia !== null && !(custodia >= 1 && custodia <= 365)) || !(plazo >= 1 && plazo <= 2000) || (aj!.parte2 && !(garantia >= 1 && garantia <= 60))) {
+      setMsg({ tono: "warning", texto: "Revisa el peso (hasta 30 kg), los días de custodia (1-365), el plazo en horas y los meses de garantía (1-60)." });
       return;
     }
     const activar = activo && faltan.length === 0;
@@ -999,6 +1221,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
       iban: form.iban.replace(/\s+/g, " ").trim() || null,
       titular: form.titular.trim() || null,
       plazo_horas: plazo,
+      ...(aj!.parte2 ? { garantia_meses: garantia } : null),
       updated_at: new Date().toISOString(),
       updated_by: sesion.session?.user?.id ?? null,
     };
@@ -1048,7 +1271,13 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
           <TextField label="Dirección del taller (a dónde lo envía el cliente)" value={form.direccion} onChangeText={set("direccion")} placeholder="Nombre, calle, número, código postal y ciudad" multiline />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
-              <TextField label="Peso por aparato (kg)" value={form.peso} onChangeText={set("peso")} placeholder="Ej: 3,5" keyboardType="decimal-pad" />
+              <TextField
+                label={aj.parte2 ? "Peso por defecto (si el servicio no tiene el suyo)" : "Peso por aparato (kg)"}
+                value={form.peso}
+                onChangeText={set("peso")}
+                placeholder="Ej: 3,5"
+                keyboardType="decimal-pad"
+              />
             </View>
             <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
               <TextField label="Plazo (horas)" value={form.plazo} onChangeText={set("plazo")} placeholder="72" keyboardType="numeric" />
@@ -1059,7 +1288,18 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
             <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
               <TextField label="Bizum" value={form.bizum} onChangeText={set("bizum")} placeholder="Número de Bizum" />
             </View>
+            {aj.parte2 ? (
+              <View style={{ flexGrow: 1, flexBasis: isMobile ? "45%" : "22%" }}>
+                <TextField label="Garantía (meses)" value={form.garantia} onChangeText={set("garantia")} placeholder="12" keyboardType="numeric" />
+              </View>
+            ) : null}
           </View>
+          {aj.parte2 ? (
+            <Text nativeID="reparacion-envio-pagos-aviso" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              El Bizum, el IBAN y el titular se enseñan al cliente para pagar la etiqueta y la reparación (solo los que rellenes), con su
+              número VZ- como concepto. El peso de cada aparato se pone en la ficha de cada servicio (Catálogo); este es el de respaldo.
+            </Text>
+          ) : null}
           {pesoEstimado ? (
             <Text nativeID="reparacion-envio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
               Peso estimado ({form.peso} kg con embalaje): corrígelo con el real de lo que más reparas.
@@ -1067,7 +1307,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
           ) : null}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "45%" }}>
-              <TextField label="IBAN (para la parte de pago)" value={form.iban} onChangeText={set("iban")} placeholder="ES00 0000 0000 0000 0000 0000" />
+              <TextField label={aj.parte2 ? "IBAN (se enseña al cliente)" : "IBAN (para la parte de pago)"} value={form.iban} onChangeText={set("iban")} placeholder="ES00 0000 0000 0000 0000 0000" />
             </View>
             <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "45%" }}>
               <TextField label="Titular" value={form.titular} onChangeText={set("titular")} placeholder="Nombre del titular" />
@@ -1105,6 +1345,8 @@ export default function AdminServices() {
   const [search, setSearch] = useState("");
   // false = falta la columna services.modalidades (migración 20261108230000 sin aplicar): no se enseña el editor.
   const [opcionesOk, setOpcionesOk] = useState(false);
+  // false = aún no hay peso por servicio (migración 20261111130000): no se enseña el campo.
+  const [pesosOk, setPesosOk] = useState(false);
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -1134,10 +1376,23 @@ export default function AdminServices() {
         }
       }
 
+      // Pesos para el envío (parte 2): solo si la base de datos ya los tiene (los ajustes traen garantia_meses).
+      const pesos: Record<string, { kg: number | null; estimado: boolean }> = {};
+      const conPesos = !!(await cargarAjustesReparacionEnvio())?.parte2;
+      setPesosOk(conPesos);
+      if (conPesos && ids.length) {
+        const { data: filasPeso, error: errPeso } = await supabase.from("services").select("id,envio_peso_kg,envio_peso_estimado").in("id", ids);
+        if (errPeso) setPesosOk(false);
+        for (const f of (filasPeso ?? []) as { id: string; envio_peso_kg: number | string | null; envio_peso_estimado: boolean | null }[]) {
+          pesos[f.id] = { kg: f.envio_peso_kg == null ? null : Number(f.envio_peso_kg), estimado: f.envio_peso_estimado === true };
+        }
+      }
+
       setServices(
         (rows ?? []).map((r: any) => ({
           ...r,
           modalidades: "modalidades" in r ? leerModalidades(r.modalidades) : undefined,
+          ...(pesos[r.id] ? { envio_peso_kg: pesos[r.id].kg, envio_peso_estimado: pesos[r.id].estimado } : null),
           media: mediaByService[r.id] ?? [],
         }))
       );
@@ -1187,6 +1442,10 @@ export default function AdminServices() {
   const [opciones, setOpciones] = useState<{ nombre: string; precio: string; foto: string | null }[]>([]);
   // La opción a la que se le está eligiendo foto (se abre debajo de su fila).
   const [fotoOpcionAbierta, setFotoOpcionAbierta] = useState<number | null>(null);
+  // Peso para el envío (parte 2): texto con coma, si es el estimado y si el dueño lo ha tocado (o dado por bueno).
+  const [pesoEnvio, setPesoEnvio] = useState("");
+  const [pesoEstimado, setPesoEstimado] = useState(false);
+  const [pesoTocado, setPesoTocado] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
   // Precio guardado sin céntimos porque la base de datos aún no los admite (ver save()).
@@ -1209,6 +1468,9 @@ export default function AdminServices() {
     setCoverId(null);
     setOpciones([]);
     setFotoOpcionAbierta(null);
+    setPesoEnvio("");
+    setPesoEstimado(false);
+    setPesoTocado(false);
     setModalErr(null);
     setModalOpen(true);
   }
@@ -1230,6 +1492,9 @@ export default function AdminServices() {
       (s.modalidades ?? []).map((m) => ({ nombre: m.nombre, precio: String(m.precio_eur).replace(".", ","), foto: m.foto ?? null }))
     );
     setFotoOpcionAbierta(null);
+    setPesoEnvio(s.envio_peso_kg != null ? String(s.envio_peso_kg).replace(".", ",") : "");
+    setPesoEstimado(s.envio_peso_estimado === true);
+    setPesoTocado(false);
     setModalErr(null);
     setModalOpen(true);
   }
@@ -1461,6 +1726,12 @@ export default function AdminServices() {
       };
     });
     const opcionesConFotoNueva = filasOpciones.map((o) => fotoValida(o.foto)).filter((f) => f?.startsWith("nueva:"));
+    // Peso para el envío (parte 2): vacío = el peso por defecto de los ajustes; si no, entre 0 y 30 kg.
+    const pesoKg = pesoEnvio.trim() ? Number(pesoEnvio.trim().replace(",", ".")) : null;
+    if (pesosOk && pesoTocado && pesoKg !== null && !(Number.isFinite(pesoKg) && pesoKg > 0 && pesoKg <= 30)) {
+      setModalErr("El peso para el envío tiene que estar entre 0,1 y 30 kg (o vacío para usar el peso por defecto).");
+      return;
+    }
 
     setSaving(true);
     setModalErr(null);
@@ -1522,6 +1793,14 @@ export default function AdminServices() {
           const { error } = await supabase.from("services").update({ modalidades: conFotos }).eq("id", serviceId);
           if (error) throw error;
         }
+        // El peso que el dueño ha guardado (o dado por bueno) deja de ser «estimado».
+        if (pesosOk && pesoTocado) {
+          const { error } = await supabase
+            .from("services")
+            .update({ envio_peso_kg: pesoKg === null ? null : Math.round(pesoKg * 1000) / 1000, envio_peso_estimado: false })
+            .eq("id", serviceId);
+          if (error) throw error;
+        }
       }
 
       closeModal();
@@ -1568,6 +1847,8 @@ export default function AdminServices() {
   const [numerosOk, setNumerosOk] = useState(false);
   // false = aún no existe la reparación por envío (migración 20261111100000).
   const [envioOk, setEnvioOk] = useState(false);
+  // false = aún no está la parte 2 (migración 20261111130000): sin cobros, «sin arreglo» ni garantía.
+  const [parte2Ok, setParte2Ok] = useState(false);
   // Fotos de recepción abiertas en el visor (enlaces firmados del almacén privado).
   const [visorEnvio, setVisorEnvio] = useState<LightboxImage[] | null>(null);
   // Reseñas de los servicios terminados (migración 20261103210000): la de cada solicitud y la media de cada servicio.
@@ -1609,7 +1890,14 @@ export default function AdminServices() {
       // Con la reparación por envío (migración 20261111100000) y la opción elegida (20261108230000) si la base de datos ya
       // las tiene; si no, sin ellas (y sin volver a preguntar por las de envío en esta visita).
       let res: { data: any[] | null; error: any } = { data: null, error: { code: "42703" } };
-      if (!sinColumnasEnvio) {
+      // Parte 2 (cobros, sin arreglo y garantía): solo si los ajustes ya traen garantia_meses (sin errores antes).
+      const conParte2 = !sinColumnasEnvio && !!(await cargarAjustesReparacionEnvio())?.parte2;
+      setParte2Ok(conParte2);
+      if (conParte2) {
+        res = await consulta(`${completa},modalidad,modalidad_precio_eur,${COLUMNAS_ENVIO},${COLUMNAS_ENVIO_2}`);
+        if (res.error && faltaEsquema(res.error)) setParte2Ok(false);
+      }
+      if (!sinColumnasEnvio && res.error) {
         res = await consulta(`${completa},modalidad,modalidad_precio_eur,${COLUMNAS_ENVIO}`);
         if (res.error && faltaEsquema(res.error)) sinColumnasEnvio = true;
       }
@@ -1645,6 +1933,32 @@ export default function AdminServices() {
   const [filtroMetodo, setFiltroMetodo] = useState<"ALL" | MetodoContacto>("ALL");
   // Entrega (reparación por envío): todas, recogida o por envío.
   const [filtroEntrega, setFiltroEntrega] = useState<"ALL" | "recogida" | "correos">("ALL");
+  // Parte 2: cobros, «sin arreglo» y garantía (qué hay que mirar y cuántas hay de cada).
+  type FiltroCobro = "ALL" | "avisado" | "pendiente" | "pagada" | "sin_arreglo" | "comprar" | "devolver" | "garantia";
+  const [filtroCobro, setFiltroCobro] = useState<FiltroCobro>("ALL");
+  const pasaCobro = useCallback((r: ServiceRequestRow, f: FiltroCobro) => {
+    if (f === "ALL") return true;
+    if (f === "avisado") return (!!r.pago_avisado_en && r.pago_estado !== "pagado") || (!!r.etiqueta_avisada_en && !r.etiqueta_pagada_en);
+    if (f === "pendiente")
+      return (
+        r.entrega_modo === "correos" &&
+        r.pago_estado !== "pagado" &&
+        r.seguimiento !== "cancelado" &&
+        ((r.diagnostico_resultado === "sin_arreglo" && r.sin_arreglo_eleccion === "devolver" && Number(r.vuelta_eur ?? 0) > 0) ||
+          (r.diagnostico_resultado !== "sin_arreglo" && !!r.presupuesto_aceptado_en && Number(r.presupuesto_eur ?? 0) > 0))
+      );
+    if (f === "pagada") return r.pago_estado === "pagado";
+    if (f === "sin_arreglo") return r.diagnostico_resultado === "sin_arreglo";
+    if (f === "comprar" || f === "devolver") return r.diagnostico_resultado === "sin_arreglo" && r.sin_arreglo_eleccion === f;
+    return !!r.garantia_de;
+  }, []);
+  const cuentaCobro = useMemo(() => {
+    const c = {} as Record<FiltroCobro, number>;
+    for (const f of ["avisado", "pendiente", "pagada", "sin_arreglo", "comprar", "devolver", "garantia"] as FiltroCobro[]) c[f] = requests.filter((r) => pasaCobro(r, f)).length;
+    c.ALL = requests.length;
+    return c;
+  }, [requests, pasaCobro]);
+  const garantiasAbiertas = useMemo(() => requests.filter((r) => !!r.garantia_de && r.seguimiento !== "entregado" && r.seguimiento !== "cancelado").length, [requests]);
   const cuentaPorEnvio = useMemo(() => requests.filter((r) => r.entrega_modo === "correos").length, [requests]);
   const opcionesSolicitadas = useMemo(() => {
     const cuenta = new Map<string, number>();
@@ -1662,8 +1976,9 @@ export default function AdminServices() {
     if (filtroRecogida !== "ALL") lista = lista.filter((r) => (filtroRecogida === "si") === !!r.direccion?.trim());
     if (filtroMetodo !== "ALL") lista = lista.filter((r) => r.metodo_contacto === filtroMetodo);
     if (filtroEntrega !== "ALL") lista = lista.filter((r) => (r.entrega_modo === "correos" ? "correos" : "recogida") === filtroEntrega);
+    if (filtroCobro !== "ALL") lista = lista.filter((r) => pasaCobro(r, filtroCobro));
     return lista;
-  }, [requests, requestFilter, filtroOpcion, filtroRecogida, filtroMetodo, filtroEntrega]);
+  }, [requests, requestFilter, filtroOpcion, filtroRecogida, filtroMetodo, filtroEntrega, filtroCobro, pasaCobro]);
 
   // Cuántas de cada (para los desplegables de filtro).
   const cuentaRecogida = useMemo(() => requests.filter((r) => !!r.direccion?.trim()).length, [requests]);
@@ -1944,7 +2259,35 @@ export default function AdminServices() {
                     ]}
                   />
                 </View>
+                {parte2Ok ? (
+                  <View style={{ flexGrow: 1, flexBasis: isMobile ? "100%" : "30%" }}>
+                    <SelectorIOS
+                      nativeID="solicitudes-filtro-cobro"
+                      label="Cobro y garantía"
+                      value={filtroCobro}
+                      onChange={(v) => setFiltroCobro(v as FiltroCobro)}
+                      options={[
+                        { value: "ALL", label: "Todas" },
+                        { value: "avisado", label: `Dicen que ya pagaron (${cuentaCobro.avisado})` },
+                        { value: "pendiente", label: `Pendientes de pago (${cuentaCobro.pendiente})` },
+                        { value: "pagada", label: `Pagadas (${cuentaCobro.pagada})` },
+                        { value: "sin_arreglo", label: `Sin arreglo (${cuentaCobro.sin_arreglo})` },
+                        { value: "comprar", label: `Sin arreglo · te lo compramos (${cuentaCobro.comprar})` },
+                        { value: "devolver", label: `Sin arreglo · devuélvemelo (${cuentaCobro.devolver})` },
+                        { value: "garantia", label: `Garantía (${cuentaCobro.garantia})` },
+                      ]}
+                    />
+                  </View>
+                ) : null}
               </View>
+            ) : null}
+
+            {parte2Ok && !requestsLoading && requests.length ? (
+              <Text nativeID="servicios-cobros-resumen" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                Cobros · dicen que ya pagaron: {cuentaCobro.avisado} · pendientes: {cuentaCobro.pendiente} · pagadas: {cuentaCobro.pagada} · sin arreglo:{" "}
+                {cuentaCobro.sin_arreglo} (te lo compramos {cuentaCobro.comprar}, devuélvemelo {cuentaCobro.devolver}) · garantías: {cuentaCobro.garantia} (abiertas{" "}
+                {garantiasAbiertas})
+              </Text>
             ) : null}
 
             {numerosOk && !requestsLoading ? (
@@ -1986,6 +2329,15 @@ export default function AdminServices() {
                           <Text style={{ color: COLORS.muted, fontSize: 12.5, marginTop: 2, textAlign: "center" }}>
                             {r.service_title} · {formatDate(r.created_at)}
                           </Text>
+                          {r.garantia_de ? (
+                            <Text nativeID={`solicitud-garantia-${r.id}`} style={{ color: COLORS.success, fontWeight: "900", fontSize: 12.5, marginTop: 4, textAlign: "center" }}>
+                              Garantía · sin coste
+                              {(() => {
+                                const o = requests.find((x) => x.id === r.garantia_de);
+                                return o?.codigo_seguimiento ? ` · de ${o.codigo_seguimiento}` : "";
+                              })()}
+                            </Text>
+                          ) : null}
                           {r.codigo_seguimiento ? (
                             <View style={{ alignItems: "center", gap: 2, marginTop: 6 }}>
                               <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, letterSpacing: 1 }}>
@@ -2095,6 +2447,7 @@ export default function AdminServices() {
                           isMobile={isMobile}
                           onSaved={(patch) => setRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))}
                           onVerFotos={setVisorEnvio}
+                          parte2={parte2Ok}
                         />
                       ) : null}
 
@@ -2196,6 +2549,34 @@ export default function AdminServices() {
               {opciones.some((o) => o.nombre.trim() || o.precio.trim()) ? null : (
                 <TextField label="Precio (€)" value={price} onChangeText={setPrice} placeholder="0,00" keyboardType="decimal-pad" />
               )}
+
+              {/* Reparación por envío, parte 2: el peso de UN aparato de este servicio con su caja (para la etiqueta de
+                  Correos). «Estimado» hasta que el dueño lo guarde (o lo dé por bueno). */}
+              {pesosOk ? (
+                <View nativeID="servicio-peso-envio" style={{ gap: 4, width: "100%", alignSelf: "stretch" }}>
+                  <TextField
+                    label="Peso para el envío (kg, con su caja)"
+                    value={pesoEnvio}
+                    onChangeText={(t) => {
+                      setPesoEnvio(t);
+                      setPesoTocado(true);
+                    }}
+                    placeholder="Vacío = el peso por defecto"
+                    keyboardType="decimal-pad"
+                  />
+                  {pesoEstimado && !pesoTocado && pesoEnvio.trim() ? (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <Text nativeID="servicio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                        Estimado: corrígelo con el real o dalo por bueno
+                      </Text>
+                      <ChipButton label="Es correcto" icon="checkmark" isMobile={isMobile} onPress={() => setPesoTocado(true)} />
+                    </View>
+                  ) : null}
+                  <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
+                    Tramos de Correos: hasta 1, 2, 3, 4, 5, 10… kg. Con varios aparatos se suma.
+                  </Text>
+                </View>
+              ) : null}
 
               {/* Opciones que elige el cliente en la ficha y al contratar (dueño, 2026-11-08): nombre y precio de cada
                   una; la primera sale elegida. Con opciones, el precio del servicio es el de la más barata. */}

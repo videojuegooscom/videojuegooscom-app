@@ -16,7 +16,9 @@
  * como antes.
  *
  * Reparación por envío (2026-11-11): cargarAjustesReparacionEnvio y calcularEtiquetaReparacion (la etiqueta de Correos
- * con la misma regla que el disparador trg_service_requests_envio, migración 20261111100000).
+ * con la misma regla que el disparador trg_service_requests_envio, migración 20261111100000). Parte 2 (migración
+ * 20261111130000): el peso por aparato es el del servicio (pesoAparatoReparacion, cargarPesoEnvioServicio), los datos de
+ * Bizum/transferencia (datosPagoManual) y la garantía en meses.
  *
  * Conectado con: app/(tabs)/cesta.tsx, app/checkout.tsx, app/admin/envios.tsx, app/admin/pedidos.tsx,
  * components/ContratarServicioModal.tsx, app/(tabs)/perfil.tsx y app/admin/services.tsx.
@@ -216,7 +218,40 @@ export type AjustesReparacionEnvio = {
   iban: string | null;
   titular: string | null;
   plazo_horas: number;
+  /** Meses de garantía de la reparación (parte 2, migración 20261111130000; 12 si aún no existe la columna). */
+  garantia_meses: number;
+  /** true si la parte 2 ya está aplicada (la fila trae garantia_meses): cobros, «sin arreglo» y garantía. */
+  parte2: boolean;
 };
+
+/**
+ * El peso de UN aparato para la etiqueta (parte 2, dueño 2026-11-11: «un mando no pesa como una consola»): el del servicio
+ * (services.envio_peso_kg, con su caja) si lo tiene y, si no, el peso por defecto de los ajustes. La misma regla que el
+ * disparador reparacion_envio_al_crear de la base de datos.
+ */
+export function pesoAparatoReparacion(pesoServicioKg: number | null | undefined, ajustes: Pick<AjustesReparacionEnvio, "peso_aparato_kg"> | null): number {
+  if (pesoServicioKg && pesoServicioKg > 0) return pesoServicioKg;
+  return ajustes?.peso_aparato_kg ?? PESO_SIN_DATO_KG;
+}
+
+/** El peso para el envío de un servicio (services.envio_peso_kg). null sin la columna, sin dato o si falla. */
+export async function cargarPesoEnvioServicio(serviceId: string): Promise<number | null> {
+  try {
+    // select("*"): trae la columna si existe, sin un 400 en la consola antes de la migración.
+    const { data, error } = await supabase.from("services").select("*").eq("id", serviceId).maybeSingle();
+    if (error || !data) return null;
+    const n = numero((data as { envio_peso_kg?: unknown }).envio_peso_kg);
+    return n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Datos para pagar por Bizum o transferencia: solo los que el dueño ha rellenado (si no hay ninguno, null). */
+export function datosPagoManual(a: AjustesReparacionEnvio | null): { bizum: string | null; iban: string | null; titular: string | null } | null {
+  if (!a || (!a.bizum && !a.iban)) return null;
+  return { bizum: a.bizum, iban: a.iban, titular: a.titular };
+}
 
 /** Los ajustes (fila única). null sin sesión, sin la migración o si falla la lectura (entonces todo sigue como siempre). */
 export async function cargarAjustesReparacionEnvio(): Promise<AjustesReparacionEnvio | null> {
@@ -235,6 +270,8 @@ export async function cargarAjustesReparacionEnvio(): Promise<AjustesReparacionE
       iban: texto(r.iban),
       titular: texto(r.titular),
       plazo_horas: numero(r.plazo_horas) || 72,
+      garantia_meses: r.garantia_meses == null ? 12 : numero(r.garantia_meses) || 12,
+      parte2: "garantia_meses" in r,
     };
   } catch {
     return null;

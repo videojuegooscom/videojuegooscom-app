@@ -103,6 +103,8 @@
  * Conectado con:
  * - lib/supabase.ts → cliente usado para el INSERT.
  * - app/(tabs)/index.tsx → abre este modal desde el botón "Vender ahora".
+ * - app/vender.tsx → la página, con articuloInicial, cambio y problemaInicial (la nota de una reparación
+ *   sin arreglo, «Te lo compramos» de app/(tabs)/perfil.tsx: ya marca que no funciona).
  * - app/admin/cotizaciones.tsx → panel donde el admin ve lo que aquí se
  *   envía.
  */
@@ -702,6 +704,7 @@ export default function VenderAhoraModal({
   comoPagina = false,
   articuloInicial = "",
   cambio = false,
+  problemaInicial = "",
 }: {
   visible: boolean;
   onClose: () => void;
@@ -712,6 +715,9 @@ export default function VenderAhoraModal({
   articuloInicial?: string;
   // Desde «Cambiar mi artículo» de Blue IA: es un cambio (parte de pago); el motivo ya lo dice.
   cambio?: boolean;
+  // Desde «Te lo compramos» de una reparación sin arreglo (app/(tabs)/perfil.tsx, parte 2 de la reparación por envío):
+  // la nota del diagnóstico, ya escrita como el problema que tiene.
+  problemaInicial?: string;
 }) {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
@@ -726,9 +732,10 @@ export default function VenderAhoraModal({
   const [apellido, setApellido] = useState("");
 
   const [articulo, setArticulo] = useState(articuloInicial);
-  const [funcionaBien, setFuncionaBien] = useState<boolean | null>(null);
+  // Con una nota de «sin arreglo» (reparación por envío) ya se sabe que no funciona y la nota va en el problema.
+  const [funcionaBien, setFuncionaBien] = useState<boolean | null>(problemaInicial ? false : null);
   const [motivoVenta, setMotivoVenta] = useState(cambio ? "Quiero cambiarlo por otro artículo de la tienda: " : "");
-  const [descripcionProblema, setDescripcionProblema] = useState("");
+  const [descripcionProblema, setDescripcionProblema] = useState(problemaInicial);
   const [ciudad, setCiudad] = useState("");
   const [precioEstimado, setPrecioEstimado] = useState("");
 

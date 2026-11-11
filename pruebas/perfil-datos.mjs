@@ -202,7 +202,14 @@
  *    sin burbuja) lleva al registro con la ventaja escrita, deja la vuelta y se cuenta (también la cuenta creada después);
  *    con sesión, el ajuste pasa a la cuenta una vez y avisa (también de los «me gusta» de la cuenta); Analítica lo enseña.
  *
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|AC]
+ *  - RE3) Reparación por envío, parte 2 (2026-11-11, migración 20261111130000): la etiqueta con el peso del servicio;
+ *    en «Mis seguimientos», pagar la etiqueta y «Pagar y enviármelo» (tarjeta simulada con la sesión y la solicitud, sin
+ *    importe del navegador; Bizum/transferencia plegable con el concepto VZ-… y «Ya lo he pagado», que solo avisa), la
+ *    vuelta de Stripe confirmada con el servidor, «sin arreglo» («Te lo compramos» abre Vender con el modelo y la nota;
+ *    «Devuélvemelo») y la garantía («Garantía hasta…», «Ha vuelto a fallar» crea la solicitud enlazada; fuera de plazo no
+ *    sale), a 360 y 390 px y una sola píldora azul por tarjeta; Administración (peso por servicio con «estimado», marcar
+ *    pagado con forma y fecha, diagnóstico, enviada con su nº, filtro «Cobro y garantía»); Analítica (embudo completo).
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|RE2|RE3|AC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -344,8 +351,16 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       const re2 = estado.re2;
       if (metodo === "HEAD") {
         const q = url.searchParams;
+        // Parte 2 (sección RE3): pagadas, enviadas, sin arreglo (compradas / devueltas) y garantías abiertas.
+        const c2 = re2.cuentas2 ?? {};
         const n =
-          q.get("etiqueta_pagada_en") === "not.is.null" ? re2.cuentas?.pagadas : q.get("presupuesto_aceptado_en") === "not.is.null" ? re2.cuentas?.aceptadas : q.get("seguimiento") ? re2.cuentas?.recibidas : re2.cuentas?.solicitadas;
+          q.get("garantia_de") === "not.is.null" ? c2.garantias
+          : q.get("sin_arreglo_eleccion") === "eq.comprar" ? c2.compradas
+          : q.get("sin_arreglo_eleccion") === "eq.devolver" ? c2.devueltas
+          : q.get("diagnostico_resultado") === "eq.sin_arreglo" ? c2.sinArreglo
+          : q.get("pago_estado") === "eq.pagado" ? c2.cobradas
+          : q.get("seguimiento") === "in.(enviada,entregado)" ? c2.enviadas
+          : q.get("etiqueta_pagada_en") === "not.is.null" ? re2.cuentas?.pagadas : q.get("presupuesto_aceptado_en") === "not.is.null" ? re2.cuentas?.aceptadas : q.get("seguimiento") ? re2.cuentas?.recibidas : re2.cuentas?.solicitadas;
         re2.recuentos = [...(re2.recuentos ?? []), decodeURIComponent(url.search)];
         if (!re2.cuentas) return json({ code: "42703", message: "column service_requests.entrega_modo does not exist" }, 400);
         return json([], 200, { "content-range": `*/${n ?? 0}`, "access-control-expose-headers": "*" });
@@ -354,6 +369,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         const cuerpo = [].concat(JSON.parse(peticion.postData() ?? "{}"))[0];
         re2.enviadas = [...(re2.enviadas ?? []), cuerpo];
         if (re2.errorAlCrear) return json(re2.errorAlCrear, 400);
+        // Como la base de datos (sección RE3): la solicitud nueva aparece en «Mis seguimientos».
+        if (re2.alCrear) re2.solicitudes = [re2.alCrear(cuerpo), ...(re2.solicitudes ?? [])];
         return r.fulfill({ status: 201, headers: CORS, body: "" });
       }
       if (metodo === "PATCH") {
@@ -362,7 +379,14 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         re2.cambios = [...(re2.cambios ?? []), { id, cuerpo }];
         // Como la base de datos: la hora de aceptar el presupuesto la pone ella.
         if ("presupuesto_aceptado_en" in cuerpo) cuerpo.presupuesto_aceptado_en = "2026-11-11T10:00:00Z";
-        re2.solicitudes = (re2.solicitudes ?? []).map((f) => (f.id === id ? { ...f, ...cuerpo } : f));
+        // Parte 2 (sección RE3), como sus disparadores: las horas de los avisos, la vuelta y el importe pagado los pone ella.
+        const guardado = { ...cuerpo };
+        for (const k of ["etiqueta_avisada_en", "pago_avisado_en"]) if (k in guardado) guardado[k] = "2026-11-11T10:00:00Z";
+        const previa = (re2.solicitudes ?? []).find((f) => f.id === id) ?? {};
+        if (guardado.diagnostico_resultado === "sin_arreglo") guardado.vuelta_eur = previa.etiqueta_eur ?? null;
+        if (guardado.pago_estado === "pagado") guardado.pagado_eur = (guardado.diagnostico_resultado ?? previa.diagnostico_resultado) === "sin_arreglo" ? previa.vuelta_eur : previa.presupuesto_eur;
+        re2.cambios[re2.cambios.length - 1].guardado = guardado;
+        re2.solicitudes = (re2.solicitudes ?? []).map((f) => (f.id === id ? { ...f, ...(re2.comoBaseDeDatos ? guardado : cuerpo) } : f));
         const fila = re2.solicitudes.find((f) => f.id === id);
         return /return=representation/.test(peticion.headers()["prefer"] ?? "") ? json(fila ? [fila] : []) : r.fulfill({ status: 204, headers: CORS, body: "" });
       }
@@ -9443,6 +9467,358 @@ async function seccionRE2() {
   }
 }
 
+// ===== RE3) Reparación por envío, parte 2 (dueño, 2026-11-11; migración 20261111130000) ===================================
+// La etiqueta con el peso del servicio; en «Mis seguimientos», los cobros (tarjeta simulada: /api/pago con la sesión y la
+// solicitud, nunca un importe; Bizum/transferencia plegable con el concepto VZ-… y «Ya lo he pagado», que solo avisa), la
+// vuelta de Stripe, «sin arreglo» y la garantía, a 390 y 360 px; sin la migración no sale nada de esto; Administración y
+// Analítica. Sin fotos reales (las solicitudes no tienen fotos) y con datos de pago FALSOS.
+async function seccionRE3() {
+  const ID = "5e000000-0000-4000-8000-0000000000e3";
+  const TRAMOS = [
+    { hasta_kg: 1, precio_eur: 13.65 }, { hasta_kg: 2, precio_eur: 17.1 }, { hasta_kg: 3, precio_eur: 17.1 }, { hasta_kg: 4, precio_eur: 17.1 },
+    { hasta_kg: 5, precio_eur: 17.1 }, { hasta_kg: 10, precio_eur: 22.95 }, { hasta_kg: 15, precio_eur: 27.81 },
+  ];
+  const TARIFAS = [
+    { zona: "mano", nombre: "Entrega en mano", codigos: null, precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 10, tramos: null },
+    { zona: "local", nombre: "Zaragoza y Cuarte", codigos: "50001-50022, 50410", precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 20, tramos: null },
+    { zona: "peninsula", nombre: "Península", codigos: "*", precio_eur: 13.65, gratis_desde_eur: null, activa: true, orden: 30, tramos: TRAMOS },
+  ];
+  const AJUSTES = {
+    id: 1, activo: true, direccion_taller: "C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza", peso_aparato_kg: 2, peso_estimado: false, dias_custodia: null,
+    bizum: "600 000 000", iban: "ES00 0000 0000 0000 0000 0000", titular: "Titular de prueba", plazo_horas: 72, garantia_meses: 12,
+  };
+  const PERFIL_RE = [{ user_id: CLIENTE.id, nombre: "Luis Pérez", usuario: "luis_p", pais: "España", provincia: "Madrid", localidad: "Madrid", codigo_postal: "28001", fecha_nacimiento: "1990-05-02" }];
+  const texto = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+  const azulesEn = (p, sel) =>
+    p.evaluate((s) => {
+      const caja = document.querySelector(s);
+      if (!caja) return -1;
+      return [...caja.querySelectorAll("*")].filter((d) => getComputedStyle(d).backgroundColor === "rgb(30, 167, 232)" && d.innerText.trim()).length;
+    }, sel);
+  const haceDias = (d) => new Date(Date.now() - d * 86400000).toISOString();
+
+  // RE3-1) Contratar: la etiqueta con el peso del servicio (5 kg con su caja), no el de los ajustes (2 kg).
+  {
+    const estado = {
+      filas: PERFIL_RE,
+      guardados: [],
+      servicio: { id: ID, title: "Mantenimiento Playstation 5", description: "Limpieza y pasta térmica.", price_eur: 60, like_count: 0, modalidades: [], envio_peso_kg: 5, envio_peso_estimado: true },
+      fotosServicio: [],
+      tarifas: TARIFAS,
+      re2: { ajustes: { ...AJUSTES }, solicitudes: [] },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, `/contratar/${ID}`);
+    await p.locator("#contratar-entrega").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    // (el selector se abre tocando la opción elegida y después se elige Correos, como en RE2)
+    await p.locator("#contratar-entrega").getByText("Recogida en Zaragoza o Cuarte", { exact: true }).first().click().catch(() => {});
+    await p.locator("#contratar-entrega").getByText("Envío por Correos (resto de España)", { exact: true }).click().catch(() => {});
+    await p.locator("#contratar-correos").waitFor({ timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(300);
+    const e1 = await texto(p, "#contratar-etiqueta");
+    await p.locator("#contratar-aparatos select").selectOption("2").catch(() => {});
+    await p.waitForTimeout(300);
+    const e2 = await texto(p, "#contratar-etiqueta");
+    ok(/Etiqueta de Correos: 17,10€ · 5 kg/.test(e1) && /Etiqueta de Correos: 22,95€ · 10 kg/.test(e2), `RE3: la etiqueta usa el peso del servicio (5 kg; con 2, 10 kg) y no el de los ajustes (${e1} | ${e2})`);
+    ok(p.errores.length === 0, `RE3: contratar sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE3-2) Mis seguimientos: etiqueta por pagar, lista para «Pagar y enviármelo», sin arreglo, entregada con garantía y
+  // entregada fuera de plazo.
+  const E = "5e000000-0000-4000-8000-0000000003e1";
+  const L = "5e000000-0000-4000-8000-0000000003a2";
+  const S = "5e000000-0000-4000-8000-0000000003b3";
+  const G = "5e000000-0000-4000-8000-0000000003c4";
+  const V = "5e000000-0000-4000-8000-0000000003d5";
+  const base = {
+    created_at: "2026-11-10T10:00:00Z", service_id: ID, service_title: "Reparación Mando DualSense", status: "nuevo", seguimiento_nota: null, seguimiento_actualizado: "2026-11-11T09:00:00Z",
+    customer_user_id: CLIENTE.id, nombre: "Luis", apellido: "Pérez", ciudad: "Madrid", metodo_contacto: "gmail", contacto: "luis@example.com", direccion: null, disponibilidad: null, comentario: null,
+    entrega_modo: "correos", aparatos: 1, codigo_postal: "28001", etiqueta_eur: 17.1, etiqueta_peso_kg: 2, etiqueta_path: null, etiqueta_pagada_en: "2026-11-10T12:00:00Z",
+    condiciones_aceptadas_en: "2026-11-10T10:00:00Z", presupuesto_eur: null, presupuesto_aceptado_en: null, recepcion_fotos: [], espera_pieza_hasta: null,
+    etiqueta_pago_modo: "bizum", etiqueta_avisada_en: null, pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null, pago_avisado_en: null, vuelta_seguimiento: null,
+    diagnostico_resultado: null, oferta_compra_eur: null, vuelta_eur: null, sin_arreglo_eleccion: null, sin_arreglo_eleccion_en: null, entregado_en: null, garantia_de: null,
+  };
+  const SOLICITUDES = () => [
+    { ...base, id: E, codigo_seguimiento: "VZ-ETIQ-EEEE", seguimiento: "etiqueta", etiqueta_pagada_en: null, etiqueta_pago_modo: null, etiqueta_path: `${E}/etiqueta-1.pdf` },
+    { ...base, id: L, codigo_seguimiento: "VZ-LIST-LLLL", seguimiento: "listo", presupuesto_eur: 59.9, presupuesto_aceptado_en: "2026-11-11T09:00:00Z" },
+    { ...base, id: S, codigo_seguimiento: "VZ-SINA-SSSS", seguimiento: "diagnostico", diagnostico_resultado: "sin_arreglo", oferta_compra_eur: 40, vuelta_eur: 17.1 },
+    { ...base, id: G, codigo_seguimiento: "VZ-GARA-GGGG", seguimiento: "entregado", presupuesto_eur: 49.9, presupuesto_aceptado_en: "2026-10-01T09:00:00Z", pago_estado: "pagado", pago_modo: "bizum", pagado_eur: 49.9, pagado_en: haceDias(31), vuelta_seguimiento: "PK123456789ES", entregado_en: haceDias(30) },
+    { ...base, id: V, codigo_seguimiento: "VZ-VIEJ-VVVV", seguimiento: "entregado", entrega_modo: "recogida", aparatos: null, codigo_postal: null, etiqueta_eur: null, etiqueta_pagada_en: null, entregado_en: haceDias(400) },
+  ];
+  {
+    const estado = {
+      filas: PERFIL_RE,
+      guardados: [],
+      aceptaAnalitica: true,
+      pago: { disponible: true, modo: "prueba" },
+      re2: {
+        ajustes: { ...AJUSTES },
+        solicitudes: SOLICITUDES(),
+        comoBaseDeDatos: true,
+        alCrear: (c) => ({ ...base, ...c, id: "5e000000-0000-4000-8000-0000000003f6", codigo_seguimiento: "VZ-NUEV-GGGG", seguimiento: "solicitado", created_at: "2026-11-11T11:00:00Z", presupuesto_eur: 0, presupuesto_aceptado_en: "2026-11-11T11:00:00Z", etiqueta_eur: 0, etiqueta_pagada_en: null }),
+      },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator(`#seguimiento-cobros-${L}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    // ¿Tarjeta? Se pregunta al servidor con la sesión (la misma regla que los pedidos).
+    ok((estado.pago.consultas ?? []).some((a) => /^Bearer \S+/.test(a)), `RE3: pregunta a /api/pago con la sesión si puede pagar con tarjeta (${(estado.pago.consultas ?? []).length})`);
+    const etiquetaTxt = await texto(p, `#seguimiento-pago-importe-etiqueta-${E}`);
+    const repTxt = await texto(p, `#seguimiento-pago-importe-reparacion-${L}`);
+    ok(/Pagar la etiqueta · 17,10€/.test(etiquetaTxt) && /Pagar y enviármelo · 59,90€/.test(repTxt), `RE3: la etiqueta por pagar y «Pagar y enviármelo» con el importe de la base de datos (${etiquetaTxt} | ${repTxt})`);
+    const azulesL = await azulesEn(p, `#seguimiento-cobros-${L}`);
+    const azulesEnvioL = await azulesEn(p, `#seguimiento-envio-${L}`);
+    ok(azulesL === 1 && azulesEnvioL === 0, `RE3: en la reparación lista, «Pagar con tarjeta» es la única píldora azul (${azulesL} + ${azulesEnvioL})`);
+    // Bizum / transferencia: plegable, con el concepto VZ-…; se abre y se cierra.
+    await p.locator(`#seguimiento-pago-manual-boton-reparacion-${L}`).click();
+    await p.waitForTimeout(300);
+    const manual = await texto(p, `#seguimiento-pago-manual-reparacion-${L}`);
+    await p.evaluate((l) => document.querySelector(`#seguimiento-cobros-${l}`)?.scrollIntoView({ block: "center" }), L);
+    await capturar(p, "RE3-1-pagar-y-enviarmelo-390");
+    ok(/Bizum: 600 000 000/.test(manual) && /IBAN: ES00 0000/.test(manual) && /Titular: Titular de prueba/.test(manual) && /Concepto: VZ-LIST-LLLL/.test(manual), `RE3: Bizum, IBAN, titular y el concepto VZ-… (${manual})`);
+    await p.locator(`#seguimiento-pago-manual-boton-etiqueta-${E}`).click();
+    await p.waitForTimeout(200);
+    const abiertoE = await p.locator(`#seguimiento-pago-manual-etiqueta-${E}`).count();
+    await p.locator(`#seguimiento-pago-manual-boton-etiqueta-${E}`).click();
+    await p.waitForTimeout(200);
+    ok(abiertoE === 1 && (await p.locator(`#seguimiento-pago-manual-etiqueta-${E}`).count()) === 0, "RE3: «Pagar por Bizum o transferencia» se abre y se vuelve a cerrar");
+    // «Ya lo he pagado»: solo manda el aviso (la hora la pone la base de datos) y lo enseña; nunca «pagado» ni un importe.
+    await p.locator(`#seguimiento-ya-pagado-reparacion-${L}`).click();
+    await p.locator(`#seguimiento-pago-avisado-reparacion-${L}`).waitFor({ timeout: 5000 }).catch(() => {});
+    const aviso = (estado.re2.cambios ?? []).find((c) => c.id === L);
+    const avisadoTxt = await texto(p, `#seguimiento-pago-avisado-reparacion-${L}`);
+    ok(!!aviso && Object.keys(aviso.cuerpo).join(",") === "pago_avisado_en" && /Nos avisaste del pago el 11 nov 2026/.test(avisadoTxt), `RE3: «Ya lo he pagado» solo avisa (${JSON.stringify(aviso?.cuerpo)} · ${avisadoTxt})`);
+    // Sin arreglo: la oferta y las dos opciones; «Devuélvemelo» deja pagar solo la vuelta.
+    const sinArreglo = await texto(p, `#seguimiento-sin-arreglo-${S}`);
+    ok(/no tiene arreglo/.test(sinArreglo) && /Te lo compramos por 40,00€/.test(sinArreglo) && /Devuélvemelo/.test(sinArreglo), `RE3: «sin arreglo» con la oferta y las dos opciones (${sinArreglo})`);
+    await p.evaluate((s) => document.querySelector(`#seguimiento-sin-arreglo-${s}`)?.scrollIntoView({ block: "center" }), S);
+    await capturar(p, "RE3-2-sin-arreglo-390");
+    await p.locator(`#seguimiento-devuelvemelo-${S}`).click();
+    await p.locator(`#seguimiento-pago-importe-reparacion-${S}`).waitFor({ timeout: 5000 }).catch(() => {});
+    const eleccion = (estado.re2.cambios ?? []).find((c) => c.id === S);
+    const vuelta = await texto(p, `#seguimiento-pago-importe-reparacion-${S}`);
+    ok(!!eleccion && JSON.stringify(eleccion.cuerpo) === '{"sin_arreglo_eleccion":"devolver"}' && /Pagar la vuelta · 17,10€/.test(vuelta), `RE3: «Devuélvemelo» guarda la elección y deja pagar solo la vuelta (${JSON.stringify(eleccion?.cuerpo)} · ${vuelta})`);
+    // Garantía: dentro de plazo, «Ha vuelto a fallar» con confirmación crea la solicitud enlazada; fuera de plazo no sale.
+    const gTxt = await texto(p, `#seguimiento-garantia-${G}`);
+    const vTxt = await texto(p, `#seguimiento-garantia-${V}`);
+    ok(/Garantía hasta el \d{1,2} \S+ \d{4}/.test(gTxt) && /Ha vuelto a fallar/.test(gTxt) && /Garantía terminada/.test(vTxt) && (await p.locator(`#seguimiento-ha-vuelto-a-fallar-${V}`).count()) === 0,
+      `RE3: «Garantía hasta …» con «Ha vuelto a fallar» dentro de plazo y sin botón fuera de plazo (${gTxt} | ${vTxt})`);
+    const vueltaTxt = await texto(p, `#seguimiento-vuelta-${G}`);
+    ok(/Enviada por Correos · nº PK123456789ES/.test(vueltaTxt), `RE3: la entregada enseña el número de Correos de la vuelta (${vueltaTxt})`);
+    await p.locator(`#seguimiento-ha-vuelto-a-fallar-${G}`).click();
+    await p.waitForTimeout(300);
+    const confirmar = await texto(p, `#seguimiento-garantia-confirmar-${G}`);
+    ok(/gratis/.test(confirmar) && !(estado.re2.enviadas ?? []).length, `RE3: pide confirmación antes de crear la garantía (${confirmar})`);
+    await p.evaluate((g) => document.querySelector(`#seguimiento-garantia-${g}`)?.scrollIntoView({ block: "center" }), G);
+    await capturar(p, "RE3-3-garantia-390");
+    await p.locator(`#seguimiento-garantia-si-${G}`).click();
+    await p.locator(`#seguimiento-garantia-abierta-${G}`).waitFor({ timeout: 8000 }).catch(() => {});
+    const creada = (estado.re2.enviadas ?? [])[0] ?? {};
+    ok(creada.garantia_de === G && creada.service_title === "Reparación Mando DualSense" && creada.entrega_modo === "correos" && !("presupuesto_eur" in creada) && !("etiqueta_eur" in creada),
+      `RE3: «Sí, pedir la garantía» crea la solicitud enlazada sin importes (${JSON.stringify(creada)})`);
+    ok((await p.locator(`#seguimiento-garantia-abierta-${G}`).count()) === 1 && (await p.locator("[id^='seguimiento-es-garantia-']").count()) === 1,
+      "RE3: tras pedirla, la original dice que la garantía está abierta y la nueva sale marcada «Garantía · sin coste»");
+    // A 390 y 360 px: nada se sale ni se parte.
+    const medir = () =>
+      p.evaluate(() => ({
+        ancho: document.documentElement.scrollWidth,
+        v: window.innerWidth,
+        fuera: [...document.querySelectorAll("[id^='seguimiento-cobros-'] *")].filter((d) => {
+          const r = d.getBoundingClientRect();
+          return r.width > 0 && (r.left < -1 || r.right > window.innerWidth + 1);
+        }).length,
+      }));
+    const m390 = await medir();
+    await p.setViewportSize({ width: 360, height: 780 });
+    await p.waitForTimeout(400);
+    const m360 = await medir();
+    await p.evaluate((l) => document.querySelector(`#seguimiento-cobros-${l}`)?.scrollIntoView({ block: "center" }), L);
+    await capturar(p, "RE3-4-cobros-360");
+    await p.setViewportSize({ width: 390, height: 844 });
+    ok(m390.ancho <= m390.v && m360.ancho <= m360.v && m390.fuera === 0 && m360.fuera === 0, `RE3: a 390 y 360 px nada se sale por los lados (${JSON.stringify([m390, m360])})`);
+    // Tarjeta: pide el pago con la sesión y la solicitud (nunca un importe) y abre la página de Stripe.
+    await p.locator(`#seguimiento-pagar-tarjeta-etiqueta-${E}`).click();
+    for (let i = 0; i < 25 && !(estado.stripeAbierto ?? []).length; i++) await p.waitForTimeout(200);
+    const crear = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "crear");
+    ok(!!crear && crear.cuerpo.solicitud === E && crear.cuerpo.concepto === "etiqueta" && Object.keys(crear.cuerpo).sort().join(",") === "accion,concepto,solicitud" && /^Bearer \S+/.test(crear.auth) && (estado.stripeAbierto ?? []).length === 1,
+      `RE3: «Pagar con tarjeta» pide el pago de esa solicitud con la sesión, sin importe, y abre Stripe (${JSON.stringify(crear?.cuerpo)})`);
+    for (let i = 0; i < 20 && !(estado.eventosEnviados ?? []).some((e) => e.step_label === "Reparación por envío: garantía pedida"); i++) await p.waitForTimeout(200);
+    const ev = (estado.eventosEnviados ?? []).map((e) => e.step_label);
+    ok(["Reparación por envío: aviso de pago · reparación", "Reparación por envío: sin arreglo · devuélvemelo", "Reparación por envío: garantía pedida", "Reparación por envío: pago con tarjeta · etiqueta"].every((l) => ev.includes(l)),
+      `RE3: la analítica cuenta el aviso de pago, «Devuélvemelo», la garantía y el pago con tarjeta (${ev.filter((e) => /envío/.test(e)).join(", ")})`);
+    ok(p.errores.length === 0, `RE3: «Mis seguimientos» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE3-3) «Te lo compramos»: guarda la elección y abre Vender con el modelo y la nota ya escritos.
+  {
+    const S2 = "5e000000-0000-4000-8000-0000000003b7";
+    const estado = {
+      filas: PERFIL_RE,
+      guardados: [],
+      re2: { ajustes: { ...AJUSTES }, solicitudes: [{ ...base, id: S2, codigo_seguimiento: "VZ-COMP-RRRR", seguimiento: "diagnostico", diagnostico_resultado: "sin_arreglo", oferta_compra_eur: 40, vuelta_eur: 17.1 }], comoBaseDeDatos: true },
+    };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator(`#seguimiento-te-lo-compramos-${S2}`).click({ timeout: 40000 }).catch(() => {});
+    await p.waitForURL(/\/vender/, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const url = decodeURIComponent(p.url());
+    const valores = await p.evaluate(() => [...document.querySelectorAll("input, textarea")].map((e) => e.value));
+    const cambio = (estado.re2.cambios ?? [])[0];
+    ok(!!cambio && JSON.stringify(cambio.cuerpo) === '{"sin_arreglo_eleccion":"comprar"}' && /\/vender\?articulo=Mando DualSense/.test(url) && valores.includes("Mando DualSense") && valores.some((v) => /Sin arreglo tras el diagnóstico \(VZ-COMP-RRRR\)\. Nos ofrecisteis 40,00€/.test(v)),
+      `RE3: «Te lo compramos» guarda la elección y abre Vender con el modelo y la nota (${url} · ${JSON.stringify(valores.filter(Boolean)).slice(0, 200)})`);
+    await capturar(p, "RE3-5-vender-con-nota-390");
+    ok(p.errores.length === 0, `RE3: «Te lo compramos» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE3-4) Vuelta de Stripe: se confirma con el servidor y se limpia la dirección. Y sin la migración, nada de esto sale.
+  {
+    const estado = { filas: PERFIL_RE, guardados: [], pago: { disponible: true, modo: "prueba" }, re2: { ajustes: { ...AJUSTES }, solicitudes: SOLICITUDES() } };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil?tab=seguimientos&pago=ok&sesion=cs_test_vueltaRE3abc");
+    await p.locator("#seguimiento-pago-vuelta").waitFor({ timeout: 40000 }).catch(() => {});
+    const conf = (estado.pago.peticiones ?? []).find((x) => x.cuerpo.accion === "confirmar");
+    const avisoTxt = await texto(p, "#seguimiento-pago-vuelta");
+    ok(!!conf && conf.cuerpo.sesion === "cs_test_vueltaRE3abc" && /Pago recibido/.test(avisoTxt) && !/pago=/.test(p.url()), `RE3: a la vuelta de Stripe se confirma con el servidor y se limpia la dirección (${avisoTxt} · ${p.url()})`);
+    ok(p.errores.length === 0, `RE3: la vuelta de Stripe sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+    const { garantia_meses: _g, ...sinParte2 } = AJUSTES;
+    const estado2 = { filas: PERFIL_RE, guardados: [], re2: { ajustes: sinParte2, solicitudes: SOLICITUDES() } };
+    const ctx2 = await contexto(navegador, CLIENTE, "user", estado2);
+    const p2 = await pagina(ctx2, "/perfil?tab=seguimientos");
+    await p2.locator(`#seguimiento-envio-${E}`).waitFor({ timeout: 40000 }).catch(() => {});
+    await p2.waitForTimeout(800);
+    ok((await p2.locator("[id^='seguimiento-cobros-']").count()) === 0 && (await p2.locator(`#seguimiento-envio-${E}`).count()) === 1 && p2.errores.length === 0,
+      `RE3: sin la migración de la parte 2, «Mis seguimientos» sigue como en la parte 1, sin cobros ni errores (${p2.errores[0] ?? "ninguno"})`);
+    await ctx2.close();
+  }
+
+  // RE3-5) Administración → Servicios: el peso del servicio con «estimado», marcar pagado con forma y fecha, diagnóstico,
+  // enviada con su número, la marca «Garantía» y el filtro «Cobro y garantía».
+  {
+    const R = "5e000000-0000-4000-8000-0000000003e8";
+    const GN = "5e000000-0000-4000-8000-0000000003f9";
+    const filas = [
+      { ...SOLICITUDES()[1], pago_avisado_en: "2026-11-11T10:00:00Z" },
+      { ...SOLICITUDES()[2], sin_arreglo_eleccion: "devolver", sin_arreglo_eleccion_en: "2026-11-11T10:00:00Z" },
+      { ...SOLICITUDES()[3] },
+      { ...base, id: GN, codigo_seguimiento: "VZ-NUEV-GGGG", seguimiento: "solicitado", garantia_de: G, presupuesto_eur: 0, presupuesto_aceptado_en: "2026-11-11T11:00:00Z", etiqueta_eur: 0, etiqueta_pagada_en: null },
+      { ...base, id: R, codigo_seguimiento: "VZ-DIAG-RRRR", seguimiento: "diagnostico" },
+    ];
+    const estado = {
+      guardados: [],
+      filas: [],
+      serviciosAdmin: [{ id: ID, title: "Mantenimiento Playstation 5", description: "x", price_eur: 60, status: "PUBLISHED", is_active: true, view_count: 3, like_count: 0, modalidades: [], envio_peso_kg: 5, envio_peso_estimado: true, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" }],
+      serviciosMedia: [],
+      tarifas: TARIFAS,
+      re2: { ajustes: { ...AJUSTES }, solicitudes: filas, comoBaseDeDatos: true },
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/services");
+    await p.locator('[aria-label="Editar Mantenimiento Playstation 5"]').click({ timeout: 30000 }).catch(() => {});
+    await p.locator("#servicio-peso-envio").waitFor({ timeout: 10000 }).catch(() => {});
+    const pesoValor = await p.locator("#servicio-peso-envio input").first().inputValue().catch(() => "");
+    const estimado = await texto(p, "#servicio-peso-estimado");
+    ok(pesoValor === "5" && /Estimado/.test(estimado) && /Peso para el envío \(kg, con su caja\)/.test(await texto(p, "#servicio-peso-envio")), `RE3: la ficha del servicio enseña su peso para el envío con la marca «estimado» (${pesoValor} · ${estimado})`);
+    await p.evaluate(() => document.querySelector("#servicio-peso-envio")?.scrollIntoView({ block: "center" }));
+    await p.waitForTimeout(800);
+    await capturar(p, "RE3-6-admin-peso-servicio");
+    await p.locator("#servicio-peso-envio").getByText("Es correcto", { exact: true }).click();
+    await p.getByText("Guardar cambios", { exact: true }).click({ timeout: 10000 }).catch(() => {});
+    await p.waitForTimeout(1500);
+    const pesoGuardado = (estado.serviciosGuardados ?? []).find((g) => "envio_peso_kg" in g);
+    ok(!!pesoGuardado && pesoGuardado.envio_peso_kg === 5 && pesoGuardado.envio_peso_estimado === false, `RE3: «Es correcto» y guardar deja el peso como del dueño (${JSON.stringify(pesoGuardado)})`);
+
+    await p.getByText("Solicitudes", { exact: true }).first().click().catch(() => {});
+    await p.locator("#solicitudes-filtro-cobro").waitFor({ timeout: 15000 }).catch(() => {});
+    const opciones = await p.evaluate(() => [...(document.querySelector("#solicitudes-filtro-cobro select")?.options ?? [])].map((o) => o.textContent));
+    const resumen = await texto(p, "#servicios-cobros-resumen");
+    ok(opciones.includes("Dicen que ya pagaron (1)") && opciones.includes("Sin arreglo · devuélvemelo (1)") && opciones.includes("Garantía (1)") && /garantías: 1 \(abiertas 1\)/.test(resumen),
+      `RE3: el filtro «Cobro y garantía» y el resumen cuentan avisos, sin arreglo y garantías (${opciones.join(" | ")} · ${resumen})`);
+    await p.locator("#solicitudes-filtro-cobro select").selectOption("garantia").catch(() => {});
+    await p.waitForTimeout(300);
+    const soloGarantia = await texto(p, "#solicitudes-lista");
+    ok(/Garantía · sin coste · de VZ-GARA-GGGG/.test(soloGarantia) && !/VZ-LIST-LLLL/.test(soloGarantia), `RE3: el filtro deja solo la garantía, marcada con su reparación original (${soloGarantia.slice(0, 160)})`);
+    await p.locator("#solicitudes-filtro-cobro select").selectOption("ALL").catch(() => {});
+    await p.waitForTimeout(300);
+    ok(/El cliente dice que ya lo pagó/.test(await texto(p, `#solicitud-pago-avisado-${L}`)), "RE3: se ve que el cliente dice que ya lo pagó");
+    // Marcar reparación pagada: forma y fecha, sin importe (lo pone la base de datos).
+    await p.locator(`#solicitud-envio-${L}`).getByText("Marcar reparación pagada", { exact: true }).click();
+    await p.locator(`#solicitud-pago-marcar-${L}`).getByText("Transferencia", { exact: true }).click();
+    await p.evaluate((l) => document.querySelector(`#solicitud-pago-marcar-${l}`)?.scrollIntoView({ block: "center" }), L);
+    await capturar(p, "RE3-7-admin-marcar-pagado");
+    await p.locator(`#solicitud-pago-marcar-${L}`).getByText("Guardar pago", { exact: true }).click();
+    await p.waitForTimeout(600);
+    const pago = (estado.re2.cambios ?? []).find((c) => c.id === L && "pago_estado" in c.cuerpo);
+    const pagoTxt = await texto(p, `#solicitud-pago-${L}`);
+    ok(!!pago && pago.cuerpo.pago_estado === "pagado" && pago.cuerpo.pago_modo === "transferencia" && typeof pago.cuerpo.pagado_en === "string" && !("pagado_eur" in pago.cuerpo) && /Pagado 59,90\s?€ por transferencia/.test(pagoTxt),
+      `RE3: «Marcar reparación pagada» manda forma y fecha, no el importe, y enseña el de la base de datos (${JSON.stringify(pago?.cuerpo)} · ${pagoTxt})`);
+    // Enviada con el número de Correos de la vuelta.
+    await p.locator(`#solicitud-envio-${L}`).getByPlaceholder("Ej: PK123456789ES").fill("PK987654321ES");
+    await p.locator(`#solicitud-envio-${L}`).getByText("Marcar enviada", { exact: true }).click();
+    await p.waitForTimeout(600);
+    const enviada = (estado.re2.cambios ?? []).find((c) => c.id === L && "vuelta_seguimiento" in c.cuerpo);
+    ok(!!enviada && enviada.cuerpo.vuelta_seguimiento === "PK987654321ES" && enviada.cuerpo.seguimiento === "enviada", `RE3: «Marcar enviada» guarda el nº de Correos y pasa a «Enviada de vuelta» (${JSON.stringify(enviada?.cuerpo)})`);
+    // Diagnóstico «Sin arreglo» y la oferta.
+    await p.locator(`#solicitud-cobro-${R}`).getByText("Sin arreglo", { exact: true }).click();
+    await p.waitForTimeout(500);
+    await p.locator(`#solicitud-cobro-${R}`).getByPlaceholder("Ej: 40").fill("35");
+    await p.locator(`#solicitud-cobro-${R}`).getByText("Guardar oferta", { exact: true }).click();
+    await p.waitForTimeout(500);
+    const diag = (estado.re2.cambios ?? []).find((c) => c.id === R && "diagnostico_resultado" in c.cuerpo);
+    const ofe = (estado.re2.cambios ?? []).find((c) => c.id === R && "oferta_compra_eur" in c.cuerpo);
+    const eleccionR = await texto(p, `#solicitud-eleccion-${R}`);
+    ok(diag?.cuerpo.diagnostico_resultado === "sin_arreglo" && ofe?.cuerpo.oferta_compra_eur === 35 && /la vuelta le costaría 17,10/.test(eleccionR), `RE3: el diagnóstico «Sin arreglo» con su oferta y la vuelta que calcula la base de datos (${eleccionR})`);
+    // Ajustes: peso por defecto, garantía en meses y el aviso de los datos de pago.
+    await p.evaluate(() => document.querySelector("#reparacion-envio-ajustes")?.scrollIntoView({ block: "start" }));
+    await p.locator("#reparacion-envio-ajustes-abrir").click();
+    await p.locator("#reparacion-envio-ajustes-form").waitFor({ timeout: 5000 }).catch(() => {});
+    const form = await texto(p, "#reparacion-envio-ajustes-form");
+    ok(/Peso por defecto \(si el servicio no tiene el suyo\)/.test(form) && /Garantía \(meses\)/.test(form) && /se enseñan al cliente/.test(form) && !/Para activarla falta/.test(form), `RE3: los ajustes con el peso por defecto, la garantía y el aviso de los datos de pago (${form.slice(0, 200)})`);
+    await capturar(p, "RE3-8-admin-ajustes");
+    await p.locator("#reparacion-envio-ajustes-abrir").click();
+    await p.waitForTimeout(300);
+    ok((await p.locator("#reparacion-envio-ajustes-form").count()) === 0, "RE3: los ajustes se vuelven a plegar");
+    const ancho = await p.evaluate(() => ({ a: document.documentElement.scrollWidth, v: window.innerWidth }));
+    ok(ancho.a <= ancho.v, `RE3: Administración no se sale por los lados (${ancho.a}/${ancho.v})`);
+    ok(p.errores.length === 0, `RE3: Administración sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // RE3-6) Analítica: el embudo entero (contado en la base de datos) y las sesiones de los cobros.
+  {
+    const estado = {
+      guardados: [],
+      re2: { ajustes: { ...AJUSTES }, cuentas: { solicitadas: 6, pagadas: 5, recibidas: 4, aceptadas: 3 }, cuentas2: { cobradas: 3, enviadas: 2, sinArreglo: 2, compradas: 1, devueltas: 1, garantias: 1 } },
+      embudo: [
+        { step_label: "Inicio", sessions: 10 },
+        { step_label: "Reparación por envío: pago con tarjeta · etiqueta", sessions: 2 },
+        { step_label: "Reparación por envío: pago con tarjeta · reparación", sessions: 1 },
+        { step_label: "Reparación por envío: pago con tarjeta confirmado", sessions: 2 },
+        { step_label: "Reparación por envío: aviso de pago · reparación", sessions: 1 },
+        { step_label: "Reparación por envío: sin arreglo · te lo compramos", sessions: 1 },
+        { step_label: "Reparación por envío: sin arreglo · devuélvemelo", sessions: 1 },
+        { step_label: "Reparación por envío: garantía pedida", sessions: 1 },
+      ],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.locator("#analitica-reparacion-envio-bd2").waitFor({ timeout: 40000 }).catch(() => {});
+    const t = await texto(p, "#analitica-reparacion-envio");
+    ok(/solicitadas 6 → etiqueta pagada 5 → recibidas 4 → presupuesto aceptado 3/.test(t) && /pagadas 3 → enviadas 2 · sin arreglo 2 \(compradas 1, devueltas 1\) · garantías abiertas 1/.test(t) && /abren el pago con tarjeta 3 · confirmados 2 · avisan de Bizum o transferencia 1 · «Te lo compramos» 1 · «Devuélvemelo» 1 · garantías pedidas 1/.test(t),
+      `RE3: Analítica enseña el embudo entero y los cobros, sin datos de nadie (${t})`);
+    await p.evaluate(() => document.querySelector("#analitica-reparacion-envio")?.scrollIntoView({ block: "center" }));
+    await capturar(p, "RE3-9-analitica");
+    ok(p.errores.length === 0, `RE3: Analítica sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 // ===== AC) Avisos de Blue solo con cuenta (dueño, 2026-11-11): bajadas de precio y artículos nuevos =====================
 // Sin sesión, aunque en el dispositivo queden el ajuste antiguo de artículos nuevos y un «me gusta» que ha bajado de precio,
 // Blue no los avisa y ofrece «Crear cuenta gratis», que lleva al registro (con la ventaja escrita) y deja la vuelta; la cuenta
@@ -9668,6 +10044,7 @@ try {
   if (SOLO === "NW") await seccionNW();
   if (SOLO === "FA") await seccionFA();
   if (SOLO === "RE2") await seccionRE2();
+  if (SOLO === "RE3") await seccionRE3();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;
@@ -10633,6 +11010,7 @@ try {
   await seccionNW();
   await seccionFA();
   await seccionRE2();
+  await seccionRE3();
   await seccionAC();
   }
 } catch (e) {

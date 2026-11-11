@@ -81,6 +81,12 @@
  *    quien tiene sesión y solo los escribe el administrador; no se activa sin dirección o con el peso estimado; el almacén
  *    «reparaciones» es privado y solo para el administrador; las etapas nuevas entran y las viejas siguen; repetible (con
  *    sus «pruebas de las pruebas»: sin el disparador del cliente cambia el precio; sin el de la etiqueta, la pone él).
+ *  - Reparación por envío, parte 2 (20261111130000_reparacion_envio_parte2.sql), encima de la parte 1: pesos estimados por
+ *    servicio sin pisar los del dueño, queda activada con la dirección de la política (salvo si el dueño ya tocó los
+ *    ajustes), la etiqueta con el peso del servicio; el cliente no se marca pagado ni cambia importes y solo avisa una vez;
+ *    el importe de «pagado» (también con tarjeta) lo pone la base de datos; «sin arreglo» con la vuelta = la etiqueta y una
+ *    sola elección; la garantía solo de la suya, entregada, en plazo, gratis y una abierta; la política sin cifras; se
+ *    aplica tres veces (con sus «pruebas de las pruebas»: sin el importe de la base de datos, sin el plazo y sin el candado).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2446,6 +2452,170 @@ try {
     const barata = await como(cR3, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en, etiqueta_eur) values ('X', 'A', 'B', 'C', 'correos', 2, '28001', now(), 0.01) returning etiqueta_eur::text as e`, { confirmar: true });
     ok(barata.ok && barata.filas[0].e === "0.01", `(control) sin el disparador de la etiqueta, el navegador pone su precio: la prueba SÍ lo detecta (${barata.filas?.[0]?.e ?? barata.mensaje})`);
     await cR3.end();
+
+    // ---- Parte 2 (20261111130000_reparacion_envio_parte2.sql), encima de la parte 1: peso por servicio, activación con la
+    // dirección de la política, cobros (el cliente solo avisa; «pagado» y los importes los pone la base de datos), «sin
+    // arreglo» con la vuelta calculada y la garantía solo suya, entregada y en plazo. Con sus «pruebas de las pruebas».
+    const RE2M = readFileSync("supabase/migrations/20261111130000_reparacion_envio_parte2.sql", "utf8");
+    const PS5 = "53535353-5353-4535-8535-5353535353a5";
+    const LIMPIEZA = "53535353-5353-4535-8535-5353535353b6";
+    const montar2 = async (nombre, m2, antesDeAplicar = "") => {
+      const c2 = await montar(nombre, RE);
+      await c2.query(`insert into public.services (id, title, price_eur) values ('${PS5}', 'Mantenimiento Playstation 5', 60), ('${LIMPIEZA}', 'Limpieza a fondo', 30)`);
+      if (antesDeAplicar) await c2.query(antesDeAplicar);
+      await c2.query(m2);
+      return c2;
+    };
+    const cP = await montar2("vz_aislada_reparacion_envio_parte2", RE2M);
+    // Repetible, sin pisar lo que el dueño cambie después (un peso guardado y la reparación desactivada desde el panel).
+    await cP.query(`update public.services set envio_peso_kg = 2.5, envio_peso_estimado = false where id = '${PS5}'`);
+    let repetidaP = true;
+    try {
+      await cP.query(RE2M);
+      await cP.query(RE2M);
+    } catch (e) {
+      repetidaP = false;
+      console.log(String(e.message));
+    }
+    const pesos = Object.fromEntries((await cP.query("select title, envio_peso_kg::float8 as kg, envio_peso_estimado as est from public.services")).rows.map((f) => [f.title, f]));
+    ok(
+      repetidaP && pesos["Reparación de mando"].kg === 1 && pesos["Reparación de mando"].est === true && pesos["Mantenimiento Playstation 5"].kg === 2.5 && pesos["Mantenimiento Playstation 5"].est === false && pesos["Limpieza a fondo"].kg === null,
+      `Envío 2: se aplica tres veces; pesos estimados por título (mando 1 kg), sin pisar el que guardó el dueño (PS5 2,5) y sin inventar el que no encaja (${JSON.stringify(pesos)})`
+    );
+    const aj2 = (await cP.query("select activo, direccion_taller, peso_estimado, garantia_meses from public.reparacion_envio_ajustes")).rows[0];
+    ok(aj2.activo === true && aj2.direccion_taller === "C. Miguel Servet, 3, 50410 Cuarte de Huerva, Zaragoza" && aj2.peso_estimado === false && aj2.garantia_meses === 12,
+      `Envío 2: queda activada con la dirección de la política, el peso por defecto como respaldo y 12 meses de garantía (${JSON.stringify(aj2)})`);
+    const definer2 = (await cP.query("select count(*)::int as n from pg_proc where proname in ('reparacion_envio_al_crear', 'reparacion_envio_cliente_cambia') and prosecdef")).rows[0].n;
+    const reglas2 = (await cP.query("select count(*)::int as n from pg_policies where policyname like 'reparacion%' or policyname = 'service_requests_update_cliente_presupuesto'")).rows[0].n;
+    ok(definer2 === 0 && reglas2 === 7, `Envío 2: sin security definer y sin reglas nuevas (${definer2}, ${reglas2} reglas)`);
+    const pol2 = (await cP.query("select sections::text as s from public.policy_pages where slug = 'reparacion-envio'")).rows[0].s;
+    ok(/Pagar y enviármelo/.test(pol2) && /Ha vuelto a fallar/.test(pol2) && !/presupuesto o en tu factura/.test(pol2) && !/72|1 año|12 meses|\b\d+ días/.test(pol2) && (pol2.match(/Pagar y enviármelo/g) ?? []).length === 1,
+      "Envío 2: la política explica «Pagar y enviármelo» y la garantía, sin cifras y una sola vez aunque se aplique tres veces");
+
+    // El peso de la etiqueta: el del servicio × aparatos; sin peso, el de los ajustes (2 kg).
+    const penKg2 = (await cP.query("select tramos from public.tarifas_envio where zona = 'peninsula'")).rows[0].tramos;
+    const tramo = (kg) => Number(penKg2.find((t) => t.hasta_kg >= kg).precio_eur);
+    const pide = (uid, servicio, aparatos = 1, extra = "") =>
+      como(cP, "authenticated", uid, `insert into public.service_requests (service_id, service_title, nombre, apellido, ciudad, entrega_modo, aparatos, codigo_postal, condiciones_aceptadas_en${extra ? ", " + extra.split("=")[0] : ""})
+        values ('${servicio}', 'X', 'Luis', 'Pérez', 'Madrid', 'correos', ${aparatos}, '28001', now()${extra ? ", " + extra.split("=").slice(1).join("=") : ""}) returning id, etiqueta_eur::float8 as e, etiqueta_peso_kg::float8 as kg, diagnostico_resultado, pago_estado, vuelta_eur, garantia_de`, { confirmar: true });
+    const m2 = await pide(U1, S1, 2);
+    const p1 = await pide(U1, PS5, 1);
+    const l1 = await pide(U1, LIMPIEZA, 1);
+    ok(m2.ok && m2.filas[0].kg === 2 && m2.filas[0].e === tramo(2) && p1.ok && p1.filas[0].kg === 2.5 && p1.filas[0].e === tramo(2.5) && l1.ok && l1.filas[0].kg === 2 && l1.filas[0].e === tramo(2),
+      `Envío 2: etiqueta con el peso de cada servicio (2 mandos = 2 kg, PS5 2,5 kg) y, sin peso, el de los ajustes (${JSON.stringify([m2.filas?.[0] ?? m2.mensaje, p1.filas?.[0] ?? p1.mensaje, l1.filas?.[0] ?? l1.mensaje])})`);
+    const trampaCrear = await pide(U1, S1, 1, "pago_estado='pagado'");
+    const trampaCrear2 = await pide(U1, S1, 1, "diagnostico_resultado='sin_arreglo'");
+    ok(trampaCrear.ok && trampaCrear.filas[0].pago_estado === null && trampaCrear2.ok && trampaCrear2.filas[0].diagnostico_resultado === null, "Envío 2: al crear, el cliente no se pone pagado ni «sin arreglo»");
+    const idR = m2.filas[0].id;
+    const sel = async (id) => (await cP.query(`select *, pagado_eur::float8 as pe, vuelta_eur::float8 as ve, etiqueta_eur::float8 as ee, presupuesto_eur::float8 as pr from public.service_requests where id = '${id}'`)).rows[0];
+    const cambiaU = (uid, id, set) => como(cP, "authenticated", uid, `update public.service_requests set ${set} where id = '${id}' returning *`, { confirmar: true });
+    const comoAdmin = (id, set) => como(cP, "authenticated", ADMIN, `update public.service_requests set ${set} where id = '${id}' returning *`, { confirmar: true });
+
+    // Cobros: el cliente no puede marcarse pagado ni cambiar importes; solo avisa (una vez, con la hora de la base de datos).
+    const trampas2 = [];
+    for (const set of ["pago_estado = 'pagado', pago_modo = 'bizum'", "pagado_eur = 1", "etiqueta_pagada_en = now()", "etiqueta_eur = 0", "etiqueta_pago_modo = 'bizum'", "vuelta_eur = 0", "diagnostico_resultado = 'sin_arreglo'", "oferta_compra_eur = 999", "vuelta_seguimiento = 'PK1234'", "entregado_en = now()", "garantia_de = id", "stripe_sesion = 'cs_test_falsa_123'"]) {
+      const r = await cambiaU(U1, idR, set);
+      trampas2.push(r.ok ? `entra(${set})` : r.codigo);
+    }
+    ok(trampas2.every((t) => t === "42501"), `Envío 2: el cliente no se marca pagado ni cambia importes, diagnóstico, oferta, envío, garantía ni el cobro abierto (${trampas2.join(", ")})`);
+    const avisa = await cambiaU(U1, idR, "etiqueta_avisada_en = '2000-01-01'");
+    const avisa2 = await cambiaU(U1, idR, "etiqueta_avisada_en = now()");
+    const tras1 = await sel(idR);
+    ok(avisa.ok && avisa.cuantas === 1 && new Date(tras1.etiqueta_avisada_en).getFullYear() >= 2026 && tras1.etiqueta_pagada_en === null && !avisa2.ok,
+      `Envío 2: «Ya lo he pagado» de la etiqueta solo avisa (con la hora de la base de datos), no la marca pagada y no se repite (${avisa.mensaje ?? ""} ${avisa2.codigo})`);
+    const otroAvisa = await cambiaU(U2, idR, "pago_avisado_en = now()");
+    ok(otroAvisa.ok && otroAvisa.cuantas === 0, "Envío 2: otro cliente no toca la solicitud");
+    const antesListo = await cambiaU(U1, idR, "pago_avisado_en = now()");
+    ok(!antesListo.ok && /nada que pagar/.test(antesListo.mensaje), `Envío 2: no se avisa del pago de la reparación antes de que esté lista (${antesListo.mensaje})`);
+    const etiquetaPagada = await comoAdmin(idR, "etiqueta_pagada_en = now(), etiqueta_pago_modo = 'bizum'");
+    ok(etiquetaPagada.ok && etiquetaPagada.filas[0].etiqueta_pago_modo === "bizum", "Envío 2: el administrador marca la etiqueta pagada por Bizum");
+    await comoAdmin(idR, "presupuesto_eur = 59.90, seguimiento = 'presupuesto'");
+    await cambiaU(U1, idR, "presupuesto_aceptado_en = now()");
+    await comoAdmin(idR, "seguimiento = 'listo'");
+    const avisaRep = await cambiaU(U1, idR, "pago_avisado_en = now()");
+    const sinModo = await comoAdmin(idR, "pago_estado = 'pagado'");
+    const marca = await comoAdmin(idR, "pago_estado = 'pagado', pago_modo = 'bizum', pagado_eur = 1");
+    const despues = await comoAdmin(idR, "pagado_eur = 2, presupuesto_eur = 10");
+    const tras2 = await sel(idR);
+    ok(avisaRep.ok && !sinModo.ok && marca.ok && despues.ok && tras2.pago_estado === "pagado" && tras2.pe === 59.9 && !!tras2.pagado_en,
+      `Envío 2: con la reparación lista avisa del pago; el administrador marca pagado (con su forma) y el importe lo pone la base de datos aunque mande otro, y ya no cambia (${sinModo.codigo}; ${tras2.pe})`);
+    // Tarjeta: lo que apunta el servidor (sin sesión de cliente) también lleva el importe de la base de datos.
+    const idT = p1.filas[0].id;
+    await cP.query(`update public.service_requests set presupuesto_eur = 80, presupuesto_aceptado_en = now(), seguimiento = 'listo' where id = '${idT}'`);
+    await cP.query(`update public.service_requests set pago_estado = 'pagado', pago_modo = 'tarjeta', pagado_eur = 0.01, pagado_en = now(), stripe_sesion = 'cs_test_abcdefghij' where id = '${idT}'`);
+    const trasT = await sel(idT);
+    ok(trasT.pe === 80 && trasT.pago_modo === "tarjeta", `Envío 2: con tarjeta, el importe apuntado es el de la base de datos (80 €), no el que llegue (${trasT.pe})`);
+    // Enviada con su número de Correos y entregada (la fecha de entrega la pone la base de datos).
+    await comoAdmin(idR, "seguimiento = 'enviada', vuelta_seguimiento = 'PK123456789ES'");
+    await comoAdmin(idR, "seguimiento = 'entregado'");
+    const tras3 = await sel(idR);
+    ok(tras3.vuelta_seguimiento === "PK123456789ES" && !!tras3.entregado_en, "Envío 2: enviada con su número de Correos y la fecha de entrega la pone la base de datos");
+
+    // Sin arreglo: la vuelta la calcula la base de datos (misma tarifa y peso que la etiqueta); el cliente elige una vez.
+    const idS = l1.filas[0].id;
+    const eligeAntes = await cambiaU(U1, idS, "sin_arreglo_eleccion = 'devolver'");
+    await comoAdmin(idS, "diagnostico_resultado = 'sin_arreglo', oferta_compra_eur = 40, vuelta_eur = 0.5");
+    const trasS = await sel(idS);
+    const elige = await cambiaU(U1, idS, "sin_arreglo_eleccion = 'devolver'");
+    const eligeOtra = await cambiaU(U1, idS, "sin_arreglo_eleccion = 'comprar'");
+    const avisaVuelta = await cambiaU(U1, idS, "pago_avisado_en = now()");
+    await comoAdmin(idS, "pago_estado = 'pagado', pago_modo = 'transferencia'");
+    const trasS2 = await sel(idS);
+    ok(!eligeAntes.ok && trasS.ve === trasS.ee && trasS.ve === tramo(2) && elige.ok && !!trasS2.sin_arreglo_eleccion_en && !eligeOtra.ok && avisaVuelta.ok && trasS2.pe === trasS.ve,
+      `Envío 2: «sin arreglo»: la vuelta = la etiqueta (${trasS.ve} €, la base de datos, aunque el administrador mande otra), el cliente elige «Devuélvemelo» una vez, avisa y se cobra la vuelta (${eligeAntes.codigo}, ${eligeOtra.codigo}, ${trasS2.pe})`);
+
+    // Garantía: solo de una SUYA, entregada y dentro de plazo; gratis (presupuesto y etiqueta 0) y enlazada; una abierta.
+    const garantia = (uid, de) =>
+      como(cP, "authenticated", uid, `insert into public.service_requests (service_title, nombre, apellido, ciudad, entrega_modo, garantia_de, presupuesto_eur, etiqueta_eur) values ('Otro', 'A', 'B', 'C', 'correos', '${de}', 99, 99)
+        returning id, garantia_de, presupuesto_eur::float8 as pr, presupuesto_aceptado_en, etiqueta_eur::float8 as ee, etiqueta_peso_kg::float8 as kg, service_id, service_title, nombre, codigo_postal`, { confirmar: true });
+    const ajena = await garantia(U2, idR);
+    const noEntregada = await garantia(U1, idS);
+    const g1 = await garantia(U1, idR);
+    const g2 = await garantia(U1, idR);
+    const fg = g1.filas?.[0] ?? {};
+    ok(!ajena.ok && !noEntregada.ok && /entregada/.test(noEntregada.mensaje) && g1.ok && fg.garantia_de === idR && fg.pr === 0 && !!fg.presupuesto_aceptado_en && fg.ee === 0 && fg.kg === 2 && fg.service_id === S1 && fg.nombre === "Luis" && fg.codigo_postal === "28001" && !g2.ok && /abierta/.test(g2.mensaje),
+      `Envío 2: la garantía solo de la suya y entregada, gratis (presupuesto y etiqueta 0), con los datos de la original, y una sola abierta (${ajena.mensaje} | ${noEntregada.mensaje} | ${JSON.stringify(fg)} | ${g2.mensaje})`);
+    await cP.query(`update public.service_requests set entregado_en = now() - interval '13 months' where id = '${idT}'`);
+    await cP.query(`update public.service_requests set seguimiento = 'entregado' where id = '${idT}'`);
+    const fuera = await garantia(U1, idT);
+    await cP.query(`update public.service_requests set entregado_en = now() - interval '11 months' where id = '${idT}'`);
+    const dentro = await garantia(U1, idT);
+    ok(!fuera.ok && /terminado/.test(fuera.mensaje) && dentro.ok, `Envío 2: fuera de plazo (13 meses con 12 de garantía) no entra y dentro sí (${fuera.mensaje})`);
+    await cP.end();
+
+    // Si el dueño ya la desactivó desde el panel (updated_by), aplicarla no la vuelve a activar.
+    const cP2 = await montar2("vz_aislada_reparacion_envio_parte2_dueno", RE2M, `update public.reparacion_envio_ajustes set direccion_taller = 'Taller del dueño, Calle 1, 50001', updated_by = '${ADMIN}'`);
+    const aj3 = (await cP2.query("select activo, direccion_taller from public.reparacion_envio_ajustes")).rows[0];
+    ok(aj3.activo === false && aj3.direccion_taller === "Taller del dueño, Calle 1, 50001", `Envío 2: con los ajustes ya tocados por el dueño no se activa ni se cambia su dirección (${JSON.stringify(aj3)})`);
+    await cP2.end();
+
+    // PRUEBAS DE LAS PRUEBAS: (a) sin poner el importe en la base de datos, el que mande el administrador se guardaría;
+    // (b) sin la comprobación del plazo, entraría una garantía de hace 13 meses; (c) sin la lista de columnas libres
+    // reducida, el cliente se marcaría pagado.
+    const sinImporte = RE2M.replace("new.pagado_eur := case when new.diagnostico_resultado = 'sin_arreglo' then new.vuelta_eur else new.presupuesto_eur end;", "new.pagado_eur := coalesce(new.pagado_eur, new.presupuesto_eur);");
+    const sinPlazo = RE2M.replace(/if coalesce\(v_orig\.entregado_en[\s\S]*?end if;/, "");
+    const sinCandado = RE2M.replace("if (to_jsonb(new) - v_libres) is distinct from (to_jsonb(old) - v_libres) then", "if false then");
+    ok(sinImporte !== RE2M && sinPlazo !== RE2M && sinCandado !== RE2M, "(control) se han podido quitar las comprobaciones en las copias de prueba");
+    const cQ = await montar2("vz_aislada_reparacion_envio_parte2_controles", sinImporte);
+    const idQ = (await cQ.query(`insert into public.service_requests (service_title, nombre, apellido, ciudad) values ('X', 'A', 'B', 'C') returning id`)).rows[0].id;
+    await cQ.query(`update public.service_requests set customer_user_id = '${U1}', presupuesto_eur = 59.90, presupuesto_aceptado_en = now(), seguimiento = 'listo' where id = '${idQ}'`);
+    await como(cQ, "authenticated", ADMIN, `update public.service_requests set pago_estado = 'pagado', pago_modo = 'bizum', pagado_eur = 1 where id = '${idQ}'`, { confirmar: true });
+    const qe = Number((await cQ.query(`select pagado_eur from public.service_requests where id = '${idQ}'`)).rows[0].pagado_eur);
+    ok(qe === 1, `(control) sin poner el importe la base de datos, se guarda el del administrador (${qe}): la prueba SÍ lo detecta`);
+    await cQ.end();
+    const cQ2 = await montar2("vz_aislada_reparacion_envio_parte2_sin_plazo", sinPlazo);
+    const idQ2 = (await cQ2.query(`insert into public.service_requests (service_title, nombre, apellido, ciudad, customer_user_id) values ('X', 'A', 'B', 'C', '${U1}') returning id`)).rows[0].id;
+    await cQ2.query(`update public.service_requests set customer_user_id = '${U1}', seguimiento = 'entregado' where id = '${idQ2}'`);
+    await cQ2.query(`update public.service_requests set entregado_en = now() - interval '13 months' where id = '${idQ2}'`);
+    const vieja = await como(cQ2, "authenticated", U1, `insert into public.service_requests (service_title, nombre, apellido, ciudad, garantia_de) values ('X', 'A', 'B', 'C', '${idQ2}') returning id`, { confirmar: true });
+    ok(vieja.ok, `(control) sin la comprobación del plazo, entra una garantía de hace 13 meses: la prueba SÍ lo detecta (${vieja.mensaje ?? "entra"})`);
+    await cQ2.end();
+    const cQ3 = await montar2("vz_aislada_reparacion_envio_parte2_sin_candado", sinCandado);
+    const idQ3 = (await cQ3.query(`insert into public.service_requests (service_title, nombre, apellido, ciudad) values ('X', 'A', 'B', 'C') returning id`)).rows[0].id;
+    await cQ3.query(`update public.service_requests set customer_user_id = '${U1}', presupuesto_eur = 59.90 where id = '${idQ3}'`);
+    const sePaga = await como(cQ3, "authenticated", U1, `update public.service_requests set pago_estado = 'pagado', pago_modo = 'bizum' where id = '${idQ3}'`, { confirmar: true });
+    ok(sePaga.ok && sePaga.cuantas === 1, `(control) sin el candado del cliente, el cliente se marca pagado: la prueba SÍ lo detecta (${sePaga.cuantas ?? sePaga.mensaje})`);
+    await cQ3.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
