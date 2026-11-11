@@ -12,7 +12,7 @@
  *   3. |ahora − fecha| ≤ 300 s; si no → 401.
  *   4. HMAC-SHA256 de «fecha.nonce.cuerpo» con el secreto, comparado en tiempo constante → 401.
  *   5. Nonce no usado en los últimos 10 minutos (tabla public.escaparate_nonces) → 401.
- *   6. version = 1 y evento «publicar», «vendido», «retirar», «seguimiento» o «factura» → 400.
+ *   6. version = 1 y evento «publicar», «vendido», «retirar», «seguimiento», «factura» o «venta_tienda» → 400.
  *   7. Campos válidos: título ≤ 200, precio > 0, fotos solo https:// y como mucho 30 en orden (la
  *      primera es la portada; si llegan más se usan las 30 primeras, sin rechazar el mensaje) (texto
  *      guardado como texto plano: la app lo muestra con <Text>, nunca como HTML). «caracteristicas» (ficha técnica,
@@ -59,6 +59,28 @@
  *   reintento): tiene que empezar por «%PDF» y pesar ≤ 5 MB; se guarda en el almacén PRIVADO «facturas»
  *   (<pedido_id>/<id_veoaura>.pdf). Si no se puede, la factura queda «PDF pendiente» (pdf_path null) hasta que VeoAura
  *   la reenvíe. El resultado se apunta en escaparate_registro («factura» y «factura_pdf»), sin datos personales.
+ *   Desde el 2026-11-11 la factura de una venta en mano puede referirse a ella por "id_venta" (texto) en lugar de
+ *   "numero_pedido" (si llegan los dos, manda id_venta).
+ *
+ * Evento «venta_tienda» (2026-11-11, decisión del dueño «opción A»; el mismo sobre firmado, version 1): una venta en mano
+ * registrada en VeoAura (que hace su factura) con el correo del cliente. La tienda la guarda como un PEDIDO más
+ * (pedidos.origen = 'tienda_fisica', ya entregado, con su referencia VZ- y sus líneas en pedido_items), la une a la cuenta
+ * con ese correo (exacto, sin distinguir mayúsculas, solo una cuenta con el correo confirmado) y el cliente la ve en
+ * «Mis pedidos» con su factura. Si aún no hay cuenta, queda pendiente y se une sola cuando entra con ese correo
+ * (api/factura.ts, accion «unir_compras_tienda»). Cuerpo:
+ *   { version: 1, evento: "venta_tienda", id_veoaura: <uuid de la venta en VeoAura>, venta: {
+ *       id_venta: texto ≤ 64 (letras, cifras y . _ : -; si falta, se usa id_veoaura): el id único de la venta,
+ *       fecha: "AAAA-MM-DD" o fecha y hora ISO, total_eur: número ≥ 0 (= la suma de las líneas),
+ *       forma_pago: "efectivo" | "tarjeta" | "bizum" | "transferencia" | "otro",
+ *       lineas: 1 a 50 de { id_veoaura (uuid del artículo, opcional), titulo ≤ 200, precio_eur ≥ 0 (por unidad), cantidad 1-99 },
+ *       cliente: { correo (obligatorio, ≤ 160), nombre ≤ 120 (opcional) },
+ *       factura (opcional): { id_veoaura (uuid de la factura), numero_factura, fecha, total_eur, pdf_url } (como «factura») } }
+ *   Respuesta 200 { ok: true, id_tienda, codigo_seguimiento, repetida, factura (id o null) } SOLO después de guardar; un
+ *   reenvío con el mismo id_venta NO la duplica (repetida: true; la factura, si viene, se pone al día). 400 campos malos
+ *   (también si el total no es la suma de las líneas); 503 sin la migración 20261111170000 (reintentar). Las líneas con
+ *   un id_veoaura de un artículo de la tienda lo marcan vendido (como «vendido»). Teléfono y dirección no se piden ni se
+ *   guardan. Unir a la cuenta y bajar el PDF van justo DESPUÉS de responder. api/escaparate-retorno.ts nunca devuelve
+ *   estas ventas a VeoAura (vienen de allí). Contrato completo: docs/puente-veoaura-ventas-en-mano.md.
  * Responder rápido: VeoAura espera como mucho 8 s. Se guarda el producto, se responde y las
  * fotos (enlaces temporales de 1 h) se descargan justo después, con waitUntil de Vercel (6 a la
  * vez, con un reintento). Cada «publicar» trae la lista COMPLETA de fotos y la galería queda
@@ -78,7 +100,8 @@
  * veoaura_envio), 20261015100000_escaparate_novedades_retorno.sql (novedad_en; el puente de
  * vuelta tienda → VeoAura está en api/escaparate-retorno.ts), products / product_media / categories de la tienda;
  * 20261110100000_facturas_veoaura.sql (pedido_facturas y el almacén privado «facturas», que leen api/factura.ts,
- * app/(tabs)/perfil.tsx y app/admin/pedidos.tsx); pruebas/escaparate-fotos.mjs (fotos y facturas) y escaparate-registro.mjs.
+ * app/(tabs)/perfil.tsx y app/admin/pedidos.tsx); 20261111170000_ventas_tienda_veoaura.sql (pedidos.origen,
+ * veoaura_venta_id y venta_forma_pago); pruebas/escaparate-fotos.mjs (fotos, facturas y ventas en mano) y escaparate-registro.mjs.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -94,14 +117,37 @@ const BUCKET = "product-media";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIPOS_FOTO: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-type Evento = "publicar" | "vendido" | "retirar" | "seguimiento" | "factura";
-const EVENTOS: Evento[] = ["publicar", "vendido", "retirar", "seguimiento", "factura"];
+type Evento = "publicar" | "vendido" | "retirar" | "seguimiento" | "factura" | "venta_tienda";
+const EVENTOS: Evento[] = ["publicar", "vendido", "retirar", "seguimiento", "factura", "venta_tienda"];
 
 // «factura»: la factura que emite VeoAura de un pedido de la tienda. El PDF va al almacén PRIVADO «facturas».
 const BUCKET_FACTURAS = "facturas";
 const MAX_PDF = 5 * 1024 * 1024;
 
-type DatosFactura = { numeroPedido: number; numeroFactura: string; fecha: string; total: number; pdfUrl: string };
+// Lo común de una factura (evento «factura» o dentro de «venta_tienda»).
+type CamposFactura = { numeroFactura: string; fecha: string; total: number; pdfUrl: string };
+// El pedido al que va: por su número (pedidos de la web) o por el id de la venta en mano (venta_tienda).
+type DatosFactura = CamposFactura & { numeroPedido: number | null; idVenta: string | null };
+
+// «venta_tienda»: una venta en mano registrada en VeoAura (ver la cabecera).
+const FORMAS_PAGO_TIENDA = ["efectivo", "tarjeta", "bizum", "transferencia", "otro"] as const;
+const MAX_LINEAS_VENTA = 50;
+const ID_VENTA_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+const CORREO_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// pedidos.telefono es obligatorio (6-30 letras): en una venta en mano no se pide ni se guarda el teléfono del cliente.
+const TELEFONO_VENTA_EN_MANO = "venta en mano";
+
+type LineaVenta = { idVeoaura: string | null; titulo: string; precio: number; cantidad: number };
+type VentaTienda = {
+  idVenta: string;
+  fecha: string;
+  total: number;
+  formaPago: (typeof FORMAS_PAGO_TIENDA)[number];
+  lineas: LineaVenta[];
+  correo: string;
+  nombre: string | null;
+  factura: (CamposFactura & { idVeoaura: string }) | null;
+};
 
 // «seguimiento»: la ficha de un cliente creada en VeoAura (una reparación o mantenimiento, o un pedido). Las etapas son las
 // mismas que ve el cliente en Perfil → «Mis seguimientos».
@@ -766,10 +812,20 @@ async function guardarSeguimiento(supabase: SupabaseClient, idVeoaura: string, f
 
 function validarFactura(f: any): DatosFactura {
   if (!f || typeof f !== "object" || Array.isArray(f)) throw new Rechazo(400, "falta factura");
+  // De una venta en mano (venta_tienda): por su id_venta. Si no, por el número de pedido de la tienda.
+  if (f.id_venta !== undefined && f.id_venta !== null) {
+    if (typeof f.id_venta !== "string" || !ID_VENTA_RE.test(f.id_venta.trim())) throw new Rechazo(400, "id_venta no válido");
+    return { ...validarCamposFactura(f), numeroPedido: null, idVenta: f.id_venta.trim() };
+  }
   const numeroPedido = f.numero_pedido;
   if (typeof numeroPedido !== "number" || !Number.isInteger(numeroPedido) || numeroPedido <= 0 || numeroPedido > 1e12) {
     throw new Rechazo(400, "número de pedido no válido");
   }
+  return { ...validarCamposFactura(f), numeroPedido, idVenta: null };
+}
+
+// Número, fecha, total y enlace del PDF de una factura (los mismos en «factura» y en «venta_tienda»).
+function validarCamposFactura(f: any): CamposFactura {
   const numeroFactura = textoFicha(f.numero_factura, 40);
   if (!numeroFactura) throw new Rechazo(400, "número de factura no válido");
   const fecha = typeof f.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.fecha) ? f.fecha : null;
@@ -781,7 +837,7 @@ function validarFactura(f: any): DatosFactura {
   if (typeof pdfUrl !== "string" || pdfUrl.length > 2000 || !pdfUrl.startsWith("https://") || !urlFotoSegura(pdfUrl)) {
     throw new Rechazo(400, "enlace del PDF no válido");
   }
-  return { numeroPedido, numeroFactura, fecha, total: Math.round(total * 100) / 100, pdfUrl };
+  return { numeroFactura, fecha, total: Math.round(total * 100) / 100, pdfUrl };
 }
 
 // ¿Falta la tabla de facturas? (la migración 20261110100000 aún no está aplicada)
@@ -794,9 +850,17 @@ type FacturaGuardada = { id: string; pedidoId: string; sello: string };
 // Guarda (o pone al día, por id_veoaura: nunca duplica) la fila de la factura. El PDF se descarga después de responder:
 // mientras tanto pdf_path queda en null («PDF pendiente»), también cuando VeoAura reenvía una factura rectificada.
 async function guardarFactura(supabase: SupabaseClient, idVeoaura: string, f: DatosFactura): Promise<FacturaGuardada> {
-  const { data: pedido, error: errPedido } = await supabase.from("pedidos").select("id").eq("numero", f.numeroPedido).maybeSingle<{ id: string }>();
+  const consulta = supabase.from("pedidos").select("id");
+  const { data: pedido, error: errPedido } = await (f.idVenta ? consulta.eq("veoaura_venta_id", f.idVenta) : consulta.eq("numero", f.numeroPedido as number)).maybeSingle<{ id: string }>();
+  if (errPedido && f.idVenta && faltaVentas(errPedido)) throw new Rechazo(503, "ventas en mano aún no activadas en la tienda");
   if (errPedido) throw new Rechazo(500, "no se pudo leer el pedido");
   if (!pedido) throw new Rechazo(404, "pedido no encontrado");
+  return guardarFacturaDe(supabase, idVeoaura, f, pedido.id);
+}
+
+// Guarda la fila de la factura de un pedido ya conocido (también la que llega dentro de «venta_tienda»).
+async function guardarFacturaDe(supabase: SupabaseClient, idVeoaura: string, f: CamposFactura, pedidoId: string): Promise<FacturaGuardada> {
+  const pedido = { id: pedidoId };
   // El sello (actualizada_en) dice qué envío es el último: si llega otro mientras se descarga el PDF, el viejo no aplica.
   const sello = new Date().toISOString();
   const campos = {
@@ -884,6 +948,166 @@ async function copiarFactura(supabase: SupabaseClient, g: FacturaGuardada, idVeo
   if (error) throw new Error("no se pudo apuntar el PDF (queda pendiente)");
   if (!(aplicado ?? []).length) return "descartado: llegó un envío más nuevo de la misma factura";
   return `PDF guardado (${Math.max(1, Math.round(pdf.length / 1024))} KB)`;
+}
+
+// --- venta_tienda: ventas en mano registradas en VeoAura ---------------------------------------------------------------
+
+const redondear2 = (n: number) => Math.round(n * 100) / 100;
+
+function validarVenta(v: any, idVeoaura: string): VentaTienda {
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Rechazo(400, "falta venta");
+  const idVenta = v.id_venta === undefined || v.id_venta === null ? idVeoaura : typeof v.id_venta === "string" ? v.id_venta.trim() : "";
+  if (!ID_VENTA_RE.test(idVenta)) throw new Rechazo(400, "id_venta no válido");
+  // Fecha de la venta: «AAAA-MM-DD» o fecha y hora ISO; que exista y no sea de más de un día en el futuro.
+  const textoFecha = typeof v.fecha === "string" ? v.fecha.trim() : "";
+  const soloDia = /^\d{4}-\d{2}-\d{2}$/.test(textoFecha);
+  const cuando = soloDia ? new Date(`${textoFecha}T12:00:00Z`) : /^\d{4}-\d{2}-\d{2}T/.test(textoFecha) ? new Date(textoFecha) : new Date(NaN);
+  if (!Number.isFinite(cuando.getTime()) || (soloDia && cuando.toISOString().slice(0, 10) !== textoFecha) || cuando.getTime() > Date.now() + 86_400_000 || cuando.getUTCFullYear() < 2020) {
+    throw new Rechazo(400, "fecha no válida");
+  }
+  const formaPago = FORMAS_PAGO_TIENDA.find((f) => f === v.forma_pago);
+  if (!formaPago) throw new Rechazo(400, "forma de pago no válida");
+  const lista = Array.isArray(v.lineas) ? v.lineas : [];
+  if (!lista.length || lista.length > MAX_LINEAS_VENTA) throw new Rechazo(400, "líneas no válidas");
+  const lineas: LineaVenta[] = lista.map((l: any) => {
+    if (!l || typeof l !== "object" || Array.isArray(l)) throw new Rechazo(400, "línea no válida");
+    const titulo = texto(l.titulo, 200);
+    if (!titulo) throw new Rechazo(400, "título de línea no válido");
+    if (typeof l.precio_eur !== "number" || !Number.isFinite(l.precio_eur) || l.precio_eur < 0 || l.precio_eur > 1_000_000) throw new Rechazo(400, "precio de línea no válido");
+    const cantidad = l.cantidad === undefined ? 1 : l.cantidad;
+    if (typeof cantidad !== "number" || !Number.isInteger(cantidad) || cantidad < 1 || cantidad > 99) throw new Rechazo(400, "cantidad no válida");
+    let idArticulo: string | null = null;
+    if (l.id_veoaura !== undefined && l.id_veoaura !== null) {
+      if (typeof l.id_veoaura !== "string" || !UUID_RE.test(l.id_veoaura)) throw new Rechazo(400, "id_veoaura de línea no válido");
+      idArticulo = l.id_veoaura.toLowerCase();
+    }
+    return { idVeoaura: idArticulo, titulo, precio: redondear2(l.precio_eur), cantidad };
+  });
+  if (typeof v.total_eur !== "number" || !Number.isFinite(v.total_eur) || v.total_eur < 0 || v.total_eur > 1_000_000) throw new Rechazo(400, "total no válido");
+  const total = redondear2(v.total_eur);
+  // Lo que se cobró: tiene que ser la suma de las líneas (precio por unidad × cantidad), al céntimo.
+  const suma = lineas.reduce((s, l) => s + Math.round(l.precio * 100) * l.cantidad, 0);
+  if (suma !== Math.round(total * 100)) throw new Rechazo(400, "el total no es la suma de las líneas");
+  const c = v.cliente && typeof v.cliente === "object" && !Array.isArray(v.cliente) ? v.cliente : {};
+  const correo = typeof c.correo === "string" ? c.correo.trim().toLowerCase() : "";
+  if (correo.length < 5 || correo.length > 160 || !CORREO_RE.test(correo)) throw new Rechazo(400, "correo del cliente no válido");
+  const nombre = textoFicha(c.nombre, 120);
+  let factura: VentaTienda["factura"] = null;
+  if (v.factura !== undefined && v.factura !== null) {
+    if (typeof v.factura !== "object" || Array.isArray(v.factura)) throw new Rechazo(400, "factura no válida");
+    if (typeof v.factura.id_veoaura !== "string" || !UUID_RE.test(v.factura.id_veoaura)) throw new Rechazo(400, "id_veoaura de la factura no válido");
+    factura = { ...validarCamposFactura(v.factura), idVeoaura: v.factura.id_veoaura.toLowerCase() };
+  }
+  return { idVenta, fecha: cuando.toISOString(), total, formaPago, lineas, correo, nombre: nombre && nombre.length >= 2 ? nombre : null, factura };
+}
+
+// ¿Faltan las columnas de las ventas en mano? (la migración 20261111170000 aún no está aplicada)
+function faltaVentas(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === "42703" || error.code === "PGRST204" || /origen|veoaura_venta_id|venta_forma_pago/.test(String(error.message ?? "")));
+}
+
+type VentaGuardada = { idTienda: string; codigo: string | null; repetida: boolean; unida: boolean };
+
+// Las líneas de la venta (una por artículo; «2 × Mando» con su importe si hay varias unidades). Los artículos de VeoAura
+// que estén en la tienda quedan enlazados (miniatura en «Mis pedidos») y se marcan vendidos.
+async function guardarLineas(supabase: SupabaseClient, pedidoId: string, v: VentaTienda) {
+  const ids = [...new Set(v.lineas.map((l) => l.idVeoaura).filter((x): x is string => !!x))];
+  const enTienda = new Map<string, string>();
+  if (ids.length) {
+    const { data } = await supabase.from("products").select("id,id_veoaura").in("id_veoaura", ids);
+    for (const p of (data ?? []) as { id: string; id_veoaura: string }[]) enTienda.set(String(p.id_veoaura).toLowerCase(), p.id);
+  }
+  const { error } = await supabase.from("pedido_items").insert(
+    v.lineas.map((l) => ({
+      pedido_id: pedidoId,
+      product_id: l.idVeoaura ? enTienda.get(l.idVeoaura) ?? null : null,
+      titulo: (l.cantidad > 1 ? `${l.cantidad} × ${l.titulo}` : l.titulo).slice(0, 200),
+      precio_eur: redondear2(l.precio * l.cantidad),
+    }))
+  );
+  if (error) throw new Rechazo(500, "no se pudieron guardar las líneas");
+  for (const id of ids) if (enTienda.has(id)) await ocultar(supabase, id, "vendido");
+}
+
+// Crea la venta como un pedido entregado (la base de datos le pone la referencia VZ-) la primera vez; un reenvío con el
+// mismo id_venta no la duplica (y completa las líneas si un envío anterior se cortó a medias).
+async function guardarVenta(supabase: SupabaseClient, v: VentaTienda): Promise<VentaGuardada> {
+  const buscar = () => supabase.from("pedidos").select("id,codigo_seguimiento,user_id").eq("veoaura_venta_id", v.idVenta).limit(1);
+  const { data: previas, error: errBuscar } = await buscar();
+  if (faltaVentas(errBuscar)) throw new Rechazo(503, "ventas en mano aún no activadas en la tienda");
+  if (errBuscar) throw new Rechazo(500, "no se pudo leer la venta");
+  type FilaVenta = { id: string; codigo_seguimiento: string | null; user_id: string | null };
+  let fila = (previas ?? [])[0] as FilaVenta | undefined;
+  let repetida = !!fila;
+  if (!fila) {
+    const { data, error } = await supabase
+      .from("pedidos")
+      .insert({
+        origen: "tienda_fisica",
+        veoaura_venta_id: v.idVenta,
+        venta_forma_pago: v.formaPago,
+        estado: "entregado",
+        entrega: "recogida",
+        nombre: v.nombre ?? "Cliente",
+        email: v.correo,
+        telefono: TELEFONO_VENTA_EN_MANO,
+        total_eur: v.total,
+        productos_eur: v.total,
+        created_at: v.fecha,
+      })
+      .select("id,codigo_seguimiento,user_id")
+      .single<FilaVenta>();
+    if (faltaVentas(error)) throw new Rechazo(503, "ventas en mano aún no activadas en la tienda");
+    if (error || !data) {
+      // Dos envíos a la vez: el índice único lo impide; se usa la que ya se creó.
+      const { data: otra } = await buscar();
+      fila = (otra ?? [])[0] as FilaVenta | undefined;
+      if (!fila) throw new Rechazo(500, "no se pudo guardar la venta");
+      repetida = true;
+    } else {
+      fila = data;
+    }
+  }
+  const { count } = await supabase.from("pedido_items").select("id", { count: "exact", head: true }).eq("pedido_id", fila.id);
+  if (!count) await guardarLineas(supabase, fila.id, v);
+  if (!repetida) {
+    // Lo cobrado es lo que dice VeoAura (la suma de las líneas): sin envío. Si el disparador de envío lo hubiera
+    // calculado (una tarifa «en mano» que no fuera 0), se deja a mano en 0 € y el total queda en lo cobrado.
+    const { data: ahora } = await supabase.from("pedidos").select("total_eur").eq("id", fila.id).maybeSingle<{ total_eur: number | string }>();
+    if (ahora && Math.round(Number(ahora.total_eur) * 100) !== Math.round(v.total * 100)) {
+      await supabase.from("pedidos").update({ envio_eur: 0, productos_eur: v.total }).eq("id", fila.id);
+    }
+  }
+  return { idTienda: fila.id, codigo: fila.codigo_seguimiento ?? null, repetida, unida: !!fila.user_id };
+}
+
+// La cuenta con ese correo (exacto, sin distinguir mayúsculas) y con el correo confirmado: así nadie se queda la compra
+// de otro por registrarse con su correo sin poder abrirlo. Con la clave del servidor (API de administración de Auth).
+async function cuentaConCorreo(supabase: SupabaseClient, correo: string): Promise<string | null> {
+  const POR_PAGINA = 1000;
+  for (let pagina = 1; pagina <= 20; pagina++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page: pagina, perPage: POR_PAGINA });
+    if (error) throw new Error("no se pudieron leer las cuentas");
+    const usuarios = (data?.users ?? []) as { id: string; email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null }[];
+    const u = usuarios.find((x) => String(x.email ?? "").trim().toLowerCase() === correo);
+    if (u) return u.email_confirmed_at || u.confirmed_at ? u.id : null;
+    if (usuarios.length < POR_PAGINA) return null;
+  }
+  return null;
+}
+
+// Une a esa cuenta las ventas en mano pendientes con ese correo (las que aún no son de nadie). Devuelve cuántas. (El
+// mismo bloque está en api/factura.ts, que lo hace al entrar el cliente: cada función es autónoma.)
+async function unirVentasPendientes(supabase: SupabaseClient, uid: string, correo: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("pedidos")
+    .update({ user_id: uid, vinculado_en: new Date().toISOString() })
+    .eq("origen", "tienda_fisica")
+    .is("user_id", null)
+    .eq("email", correo.trim().toLowerCase())
+    .select("id");
+  if (error) throw new Error(faltaVentas(error) ? "ventas en mano aún no activadas" : "no se pudieron unir las compras");
+  return (data ?? []).length;
 }
 
 // vendido: sin stock y no comprable. retirar: oculto (no se ve ni se compra), sin borrarlo.
@@ -996,13 +1220,50 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    // Ventas en mano de VeoAura: se guarda el pedido (y la fila de su factura, si viene), se responde y, justo después,
+    // se une a la cuenta con ese correo y se baja el PDF. Sin datos personales en el registro.
+    if ((evento as Evento) === "venta_tienda") {
+      const venta = validarVenta(mensaje.venta, idVeoaura);
+      const g = await guardarVenta(supabase, venta);
+      const fg = venta.factura ? await guardarFacturaDe(supabase, venta.factura.idVeoaura, venta.factura, g.idTienda) : null;
+      await registrar(supabase, {
+        evento,
+        id_veoaura: idVeoaura,
+        resultado: "ok",
+        http: 200,
+        detalle: `venta ${venta.idVenta.slice(0, 40)} · ${g.codigo ?? "sin referencia"} · ${venta.lineas.length} líneas · ${venta.formaPago}${g.repetida ? " · repetida" : ""}${fg ? " · con factura" : ""}`,
+      });
+      responder(res, 200, { ok: true, id_tienda: g.idTienda, codigo_seguimiento: g.codigo, repetida: g.repetida, factura: fg?.id ?? null });
+      const idV = idVeoaura;
+      await despuesDeResponder(async () => {
+        if (!g.unida) {
+          try {
+            const uid = await cuentaConCorreo(supabase, venta.correo);
+            const unidas = uid ? await unirVentasPendientes(supabase, uid, venta.correo) : 0;
+            await registrar(supabase, { evento: "venta_tienda_cuenta", id_veoaura: idV, resultado: "ok", http: 200, detalle: unidas ? "unida a la cuenta del cliente" : "pendiente: aún no hay cuenta con ese correo" });
+          } catch (e: unknown) {
+            await registrar(supabase, { evento: "venta_tienda_cuenta", id_veoaura: idV, resultado: "error", http: 502, detalle: e instanceof Error ? e.message : "no se pudo unir a la cuenta" });
+          }
+        }
+        if (fg && venta.factura) {
+          try {
+            const resumen = await copiarFactura(supabase, fg, venta.factura.idVeoaura, venta.factura.pdfUrl);
+            await registrar(supabase, { evento: "factura_pdf", id_veoaura: venta.factura.idVeoaura, resultado: "ok", http: 200, detalle: resumen });
+          } catch (e: unknown) {
+            await registrar(supabase, { evento: "factura_pdf", id_veoaura: venta.factura.idVeoaura, resultado: "error", http: 502, detalle: e instanceof Error ? e.message : "error al copiar el PDF" });
+          }
+        }
+      });
+      return;
+    }
+
     // Facturas de VeoAura: se guarda la fila, se responde y el PDF se descarga justo después (VeoAura espera ≤ 8 s).
     if ((evento as Evento) === "factura") {
       const datos = validarFactura(mensaje.factura);
       const g = await guardarFactura(supabase, idVeoaura, datos);
       // Sin datos personales: solo el número de pedido y el de la factura.
-      await registrar(supabase, { evento, id_veoaura: idVeoaura, resultado: "ok", http: 200, detalle: `pedido nº ${datos.numeroPedido} · ${datos.numeroFactura}` });
-      responder(res, 200, { ok: true, id_tienda: g.id, numero_pedido: datos.numeroPedido });
+      await registrar(supabase, { evento, id_veoaura: idVeoaura, resultado: "ok", http: 200, detalle: `${datos.idVenta ? `venta ${datos.idVenta.slice(0, 40)}` : `pedido nº ${datos.numeroPedido}`} · ${datos.numeroFactura}` });
+      responder(res, 200, datos.idVenta ? { ok: true, id_tienda: g.id, id_venta: datos.idVenta } : { ok: true, id_tienda: g.id, numero_pedido: datos.numeroPedido });
       const idV = idVeoaura;
       await despuesDeResponder(async () => {
         try {

@@ -42,6 +42,11 @@
  *   «Pedido VZ-XXXX-XXXX» (codigo_seguimiento, la que ve el cliente) y el número interno va debajo, en pequeño («Nº
  *   interno 101»; sin referencia, «Pedido nº 101» como antes). Buscador arriba: referencia (con o sin guiones), número
  *   interno, nombre, correo o teléfono. El mensaje de WhatsApp que manda el administrador también nombra la referencia.
+ * - Ventas en tienda (dueño, 2026-11-11; migración 20261111170000, pedidos.origen = 'tienda_fisica'): las ventas en mano
+ *   que VeoAura manda con el evento «venta_tienda» (api/escaparate-veoaura.ts) salen como un pedido más con «En tienda ·
+ *   pagado <forma> · entregado» y «Unida a la cuenta del cliente» o «Pendiente de que se registre <correo>»; recuento
+ *   arriba (cuántas, importe, unidas y pendientes) y filtro «En tienda». Sin envío, teléfono, cambio de estado, cancelar ni
+ *   WhatsApp (las gestiona VeoAura). Sin la migración, no se enseña nada de esto.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
@@ -98,7 +103,15 @@ type Pedido = {
   // Devolución (migración 20261106100000; puede no existir aún).
   devuelto_eur?: number | string | null;
   devuelto_en?: string | null;
+  // Venta en mano registrada en VeoAura (evento «venta_tienda», migración 20261111170000; puede no existir aún).
+  origen?: "web" | "tienda_fisica" | null;
+  veoaura_venta_id?: string | null;
+  venta_forma_pago?: string | null;
 };
+
+// Cómo se pagó una venta en mano (lo dice VeoAura).
+const FORMA_PAGO_TIENDA: Record<string, string> = { efectivo: "en efectivo", tarjeta: "con tarjeta", bizum: "con Bizum", transferencia: "por transferencia", otro: "" };
+const enTienda = (p: Pedido) => p.origen === "tienda_fisica";
 
 // Nombre de la forma de pago online (tarjeta, Bizum o Klarna), si Stripe la dijo.
 const METODO_PAGO: Record<string, string> = { card: "tarjeta", bizum: "Bizum", klarna: "Klarna" };
@@ -203,7 +216,9 @@ export default function PedidosAdmin() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar">("activos");
+  const [filtro, setFiltro] = useState<Estado | "activos" | "todos" | "sin_vincular" | "veoaura" | "pagados_tarjeta" | "pago_sin_terminar" | "en_tienda">("activos");
+  // false = aún no hay ventas en mano (migración 20261111170000 sin aplicar): ni filtro ni recuento.
+  const [ventasOk, setVentasOk] = useState(false);
   // false = aún no hay columnas de pago con tarjeta (migración 20261105120000 sin aplicar): no se enseñan.
   const [pagoOk, setPagoOk] = useState(false);
   // false = aún no hay columnas de devolución (migración 20261106100000 sin aplicar): no se ofrece «Devolver el pago».
@@ -241,17 +256,21 @@ export default function PedidosAdmin() {
     const DEVOLUCION = ",devuelto_eur,devuelto_en";
     // Con qué se pagó online, según Stripe (migración 20261111150000): card, klarna o bizum.
     const METODO = ",pago_metodo";
+    // Ventas en mano de VeoAura (migración 20261111170000).
+    const VENTA = ",origen,veoaura_venta_id,venta_forma_pago";
+    let conVenta = true;
     let conMetodo = true;
     let conDevolucion = true;
     let conPago = true;
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}${conVenta ? VENTA : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 5 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 6 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conMetodo && /pago_metodo/.test(msg)) conMetodo = false;
+      if (conVenta && /origen|veoaura_venta_id|venta_forma_pago/.test(msg)) conVenta = false;
+      else if (conMetodo && /pago_metodo/.test(msg)) conMetodo = false;
       else if (conDevolucion && /devuelto_eur|devuelto_en/.test(msg)) conDevolucion = false;
       else if (conPago && /pago_estado|pago_modo|pago_referencia|pagado_eur|pagado_en/.test(msg)) conPago = false;
       else if (conEnvio && /productos_eur|envio_eur|zona_envio|envio_manual/.test(msg)) conEnvio = false;
@@ -264,6 +283,7 @@ export default function PedidosAdmin() {
     setEnvioOk(!res.error && conEnvio);
     if (conEnvio) cargarTarifas().then(setZonas);
     setNumerosOk(!res.error && conNumeros);
+    setVentasOk(!res.error && conVenta);
     const { data, error } = res;
     if (error) {
       const msg = String(error.message ?? "").toLowerCase();
@@ -345,8 +365,21 @@ export default function PedidosAdmin() {
     if (filtro === "veoaura") return pedidos.filter((p) => !!p.id_veoaura);
     if (filtro === "pagados_tarjeta") return pedidos.filter((p) => p.pago_estado === "pagado");
     if (filtro === "pago_sin_terminar") return pedidos.filter((p) => p.pago_estado === "iniciado");
+    if (filtro === "en_tienda") return pedidos.filter(enTienda);
     return pedidos.filter((p) => p.estado === filtro);
   }, [pedidos, filtro]);
+
+  // Ventas en mano (VeoAura): cuántas, cuántas ya están en la cuenta del cliente, cuántas esperan a que se registre y su
+  // importe.
+  const resumenTienda = useMemo(() => {
+    const ventas = pedidos.filter(enTienda);
+    return {
+      total: ventas.length,
+      unidas: ventas.filter((p) => !!p.user_id).length,
+      pendientes: ventas.filter((p) => !p.user_id).length,
+      importe: ventas.reduce((a, p) => a + Number(p.total_eur ?? 0), 0),
+    };
+  }, [pedidos]);
 
   // Filtro «Factura: todas / con factura / sin factura», que se suma al de arriba; y el buscador (referencia VZ-…, con o sin
   // guiones ni mayúsculas, número interno, nombre, correo o teléfono), que busca en TODOS los pedidos cargados.
@@ -402,7 +435,8 @@ export default function PedidosAdmin() {
       veoaura: deVeoaura.length,
       veoauraVinculados: deVeoaura.filter((p) => !!p.user_id).length,
       sinVincular: pedidos.filter((p) => !p.user_id).length,
-      anadidosConNumero: pedidos.filter((p) => !!p.vinculado_en).length,
+      // (Las compras en mano se unen solas con el correo: no cuentan como «añadidas con su número».)
+      anadidosConNumero: pedidos.filter((p) => !!p.vinculado_en && !enTienda(p)).length,
       desdeChat: pedidos.filter((p) => p.nota_admin === NOTA_ASIGNADO_CHAT).length,
     };
   }, [pedidos]);
@@ -522,6 +556,7 @@ export default function PedidosAdmin() {
           { value: "pago_sin_terminar" as const, label: `Pago sin terminar (${resumenPago.sinTerminar})` },
         ]
       : []),
+    ...(ventasOk ? [{ value: "en_tienda" as const, label: `En tienda (${resumenTienda.total})` }] : []),
   ];
 
   return (
@@ -621,6 +656,13 @@ export default function PedidosAdmin() {
             </Text>
           ) : null}
 
+          {ventasOk && !loading ? (
+            <Text nativeID="pedidos-en-tienda" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              Ventas en tienda (llegan de VeoAura) · {resumenTienda.total} ({fmtEUR(resumenTienda.importe)}) · en la cuenta del cliente:{" "}
+              {resumenTienda.unidas} · pendientes de que se registre: {resumenTienda.pendientes}
+            </Text>
+          ) : null}
+
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
             {chips.map((c) => {
               const activo = filtro === c.value;
@@ -707,14 +749,27 @@ export default function PedidosAdmin() {
                   {p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : `Pedido nº ${p.numero}`} · {fmtEUR(p.total_eur)}
                 </Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-                  {fmtFecha(p.created_at)} · {p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
+                  {fmtFecha(p.created_at)} · {enTienda(p) ? "Compra en tienda" : p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
                 {p.codigo_seguimiento ? (
                   <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
                     Nº interno {p.numero}
                   </Text>
                 ) : null}
-                {p.codigo_seguimiento ? (
+                {enTienda(p) ? (
+                  // Venta en mano de VeoAura: cómo se pagó y si ya está en la cuenta del cliente (o a quién espera).
+                  <View nativeID={`pedido-tienda-${p.numero}`} style={{ alignItems: "center", gap: 2 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Ionicons name="storefront-outline" size={16} color="#15803D" />
+                      <Text style={{ color: "#15803D", fontWeight: "800", textAlign: "center" }}>
+                        En tienda · pagado{FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""] ? ` ${FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""]}` : ""} · entregado
+                      </Text>
+                    </View>
+                    <Text nativeID={`pedido-tienda-cuenta-${p.numero}`} selectable style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+                      {p.user_id ? "Unida a la cuenta del cliente" : `Pendiente de que se registre ${p.email}`}
+                    </Text>
+                  </View>
+                ) : p.codigo_seguimiento ? (
                   <EtiquetaNumero
                     codigo={p.codigo_seguimiento}
                     veoaura={!!p.id_veoaura}
@@ -798,8 +853,8 @@ export default function PedidosAdmin() {
                   </View>
                 ) : null}
 
-                {/* Envío del pedido: automático (con la tarifa) o a mano para este pedido. */}
-                {envioOk ? (
+                {/* Envío del pedido: automático (con la tarifa) o a mano para este pedido. (Una venta en mano no tiene envío.) */}
+                {envioOk && !enTienda(p) ? (
                   <View nativeID={`pedido-envio-${p.numero}`} style={{ alignItems: "center", gap: 6 }}>
                     <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
                       Artículos {fmtEUR(Number(p.productos_eur ?? p.total_eur))} · Envío {Number(p.envio_eur ?? 0) === 0 ? "gratis" : fmtEUR(Number(p.envio_eur))}
@@ -862,7 +917,8 @@ export default function PedidosAdmin() {
 
                 <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{p.nombre}</Text>
                 <Text style={{ color: COLORS.muted, textAlign: "center" }}>
-                  {p.telefono} · {p.email}
+                  {/* Una venta en mano no guarda teléfono (solo el correo con el que se une a la cuenta). */}
+                  {enTienda(p) ? p.email : `${p.telefono} · ${p.email}`}
                 </Text>
                 {p.entrega === "envio" && (p.direccion || p.ciudad) ? (
                   <Text style={{ color: COLORS.muted, textAlign: "center" }}>
@@ -875,7 +931,7 @@ export default function PedidosAdmin() {
 
                 {/* Devolver el pago y cancelar el pedido (dueño, 2026-11-06): texto con su icono, sin burbuja; el primer
                     toque pide confirmar y el segundo lo hace. */}
-                {(devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en) || (p.estado !== "cancelado" && p.estado !== "entregado") ? (
+                {!enTienda(p) && ((devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en) || (p.estado !== "cancelado" && p.estado !== "entregado")) ? (
                   <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18 }}>
                     {devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en ? (
                       <Pressable
@@ -913,6 +969,9 @@ export default function PedidosAdmin() {
                   </Text>
                 ) : null}
 
+                {/* Una venta en mano ya está pagada y entregada (la gestiona VeoAura): sin cambiar estado ni WhatsApp. */}
+                {enTienda(p) ? null : (
+                <>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginTop: 4 }}>
                   {ESTADOS.map((e) => {
                     const activo = p.estado === e.value;
@@ -963,6 +1022,8 @@ export default function PedidosAdmin() {
                   <Ionicons name="logo-whatsapp" size={16} color={COLORS.text} />
                   <Text style={{ color: COLORS.text, fontWeight: "800" }}>Escribir al cliente</Text>
                 </Pressable>
+                </>
+                )}
               </View>
             ))
           )}

@@ -84,6 +84,10 @@
  *   (GET /api/pago → bizum), el botón es «Pagar con tarjeta o Bizum» (si no, «Pagar con tarjeta»: nunca
  *   se promete Bizum online sin él); el Bizum/transferencia «a mano» solo sale si el dueño rellenó sus
  *   datos. En «Mis pedidos», «Pagado online con Bizum/tarjeta/Klarna» cuando se sabe (pedidos.pago_metodo).
+ * - «Mis pedidos» → compras en mano (dueño, 2026-11-11; migración 20261111170000, pedidos.origen = 'tienda_fisica'):
+ *   las manda VeoAura (api/escaparate-veoaura.ts, evento «venta_tienda») y salen como un pedido más, «Compra en tienda
+ *   VZ-… · total · fecha», con la forma de pago, «Entregado» y «Descargar factura», sin barra de envío. Al abrir «Mis
+ *   seguimientos» se pide a api/factura.ts («unir_compras_tienda») que una a la cuenta las que llegaron con su correo.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -1591,7 +1595,51 @@ type PedidoSeg = {
   devuelto_en?: string | null;
   // Factura emitida por VeoAura (migración 20261110100000; puede no existir aún): la última de este pedido.
   factura?: { numero_factura: string | null; pdf: boolean } | null;
+  // Venta en mano registrada en VeoAura (migración 20261111170000; puede no venir): origen 'tienda_fisica' y cómo se pagó.
+  origen?: string | null;
+  venta_forma_pago?: string | null;
 };
+
+// «Pagado con Bizum · Entregado» bajo el título «Compra en tienda VZ-…» (venta en mano que manda VeoAura, evento
+// «venta_tienda»): ya entregada y pagada, sin barra de envío. Solo texto con su icono, sin burbuja, como la línea del pago online.
+const FORMA_PAGO_TIENDA: Record<string, string> = {
+  efectivo: "en efectivo",
+  tarjeta: "con tarjeta",
+  bizum: "con Bizum",
+  transferencia: "por transferencia",
+  otro: "",
+};
+function CompraEnTienda({ p }: { p: PedidoSeg }) {
+  const forma = FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""] ?? "";
+  return (
+    <View nativeID={`seguimiento-tienda-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+      <Ionicons name="storefront-outline" size={16} color={SEG.ok} />
+      <Text style={{ color: SEG.ok, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>
+        {/* «Compra en tienda» ya va en el título del pedido. */}
+        {`Pagado${forma ? ` ${forma}` : ""} · Entregado`}
+      </Text>
+    </View>
+  );
+}
+
+// Una vez por sesión de la app: pide al servidor que una a esta cuenta las compras en mano que VeoAura mandó con su
+// correo (api/factura.ts, «unir_compras_tienda»; solo con el correo confirmado). Devuelve cuántas ha unido.
+const cuentasYaUnidas = new Set<string>();
+async function unirComprasEnTienda(uid: string, token: string): Promise<number> {
+  if (cuentasYaUnidas.has(uid)) return 0;
+  cuentasYaUnidas.add(uid);
+  try {
+    const r = await fetch("/api/factura", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ accion: "unir_compras_tienda" }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; unidas?: number } | null;
+    return r.ok && d?.ok ? Number(d.unidas ?? 0) : 0;
+  } catch {
+    return 0;
+  }
+}
 
 // Factura del pedido (la emite VeoAura, la tienda no factura): el apartado «Factura» sale SIEMPRE en cada pedido (dueño,
 // 2026-11-10: «que el apartado de factura aparezca aunque no haya ninguna factura»): con factura, «Descargar factura F-…»
@@ -3061,6 +3109,8 @@ function SeguimientosSeccion() {
   const [bizumOnline, setBizumOnline] = useState(false);
   const [avisoPago, setAvisoPago] = useState<{ ok: boolean; texto: string } | null>(null);
 
+  // Para recargar desde dentro de `cargar` (al unirse una compra en mano a la cuenta).
+  const cargarRef = useRef<((silencioso?: boolean) => Promise<void>) | null>(null);
   // silencioso: al añadir un número se recarga sin volver a la pantalla de carga (el aviso de «Listo» sigue a la vista).
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setCargando(true);
@@ -3080,10 +3130,15 @@ function SeguimientosSeccion() {
       // Pedidos (la tabla puede no existir aún; el número de seguimiento, tampoco)
       const pedidosCon = (columnas: string) =>
         supabase.from("pedidos").select(columnas).eq("user_id", uid).order("created_at", { ascending: false }).limit(50);
-      // Con el pago con tarjeta (si sus columnas aún no existen, como antes).
-      let pedRes: { data: any[] | null; error: any } = await pedidosCon(
-        "id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento,pago_estado,pago_modo,pagado_eur,pagado_en"
-      );
+      // Las compras en mano que VeoAura mandó con su correo pasan a su cuenta (una vez por sesión de la app); si se ha
+      // unido alguna, se recarga sin la pantalla de carga.
+      void unirComprasEnTienda(uid, data.session?.access_token ?? "").then((n) => {
+        if (n > 0) cargarRef.current?.(true);
+      });
+      // Con el pago con tarjeta y las ventas en mano (si sus columnas aún no existen, como antes).
+      const CON_PAGO = "id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento,pago_estado,pago_modo,pagado_eur,pagado_en";
+      let pedRes: { data: any[] | null; error: any } = await pedidosCon(`${CON_PAGO},origen,venta_forma_pago`);
+      if (pedRes.error && faltaEsquema(pedRes.error)) pedRes = await pedidosCon(CON_PAGO);
       if (pedRes.error && faltaEsquema(pedRes.error)) pedRes = await pedidosCon("id,numero,created_at,estado,entrega,total_eur,codigo_seguimiento");
       let numeros = !pedRes.error;
       if (pedRes.error && faltaEsquema(pedRes.error)) {
@@ -3284,6 +3339,7 @@ function SeguimientosSeccion() {
   }, []);
 
   useEffect(() => {
+    cargarRef.current = cargar;
     cargar();
   }, [cargar]);
 
@@ -3373,7 +3429,8 @@ function SeguimientosSeccion() {
                 {i > 0 ? <SegSeparador /> : null}
                 {/* La referencia del pedido (VZ-XXXX-XXXX), como una empresa: nunca el número interno (dueño, 2026-11-11). */}
                 <Text nativeID={`mis-pedidos-titulo-${p.numero ?? p.id}`} style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
-                  {p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : "Pedido"}
+                  {p.origen === "tienda_fisica" ? "Compra en tienda" : "Pedido"}
+                  {p.codigo_seguimiento ? ` ${p.codigo_seguimiento}` : ""}
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
                   {` · ${segFecha(p.created_at)}`}
                 </Text>
@@ -3383,15 +3440,26 @@ function SeguimientosSeccion() {
                     <Text style={{ color: SEG.text, fontSize: 14.5, lineHeight: 20, flexShrink: 1 }}>{p.items.join(" · ")}</Text>
                   ) : null}
                 </View>
-                <LineaProgreso
-                  etiquetas={etiquetasPedido(p.entrega)}
-                  actual={Math.max(0, ETAPAS_PEDIDO.indexOf(p.estado))}
-                  cancelado={p.estado === "cancelado"}
-                />
-                <PagoDelPedido p={p} />
-                <FacturaDelPedido p={p} facturasOk={facturasOk} />
-                {/* La referencia ya va en el título: aquí solo la entrega. */}
-                <DatosDelSeguimiento entrega={p.entrega ? (p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio") : null} />
+                {p.origen === "tienda_fisica" ? (
+                  // Compra en mano (llega de VeoAura): ya pagada y entregada, sin barra de envío; su forma de pago y su
+                  // factura.
+                  <>
+                    <CompraEnTienda p={p} />
+                    <FacturaDelPedido p={p} facturasOk={facturasOk} />
+                  </>
+                ) : (
+                  <>
+                    <LineaProgreso
+                      etiquetas={etiquetasPedido(p.entrega)}
+                      actual={Math.max(0, ETAPAS_PEDIDO.indexOf(p.estado))}
+                      cancelado={p.estado === "cancelado"}
+                    />
+                    <PagoDelPedido p={p} />
+                    <FacturaDelPedido p={p} facturasOk={facturasOk} />
+                    {/* La referencia ya va en el título: aquí solo la entrega. */}
+                    <DatosDelSeguimiento entrega={p.entrega ? (p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio") : null} />
+                  </>
+                )}
                 <PreguntarBoton onPress={() => router.push(`/blue-ia?pedido=${encodeURIComponent(p.codigo_seguimiento ?? "")}`)} />
               </View>
             ))}
