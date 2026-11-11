@@ -223,7 +223,7 @@ export type SeccionBusqueda = {
  */
 export const SECCIONES_BUSQUEDA: SeccionBusqueda[] = [
   { titulo: "Iniciar sesión", descripcion: "Entra en tu cuenta", ruta: "/perfil?acceso=entrar", icono: "log-in-outline", palabras: ["iniciar sesion", "inicio de sesion", "login", "entrar", "acceder", "acceso", "identificarme", "contrasena", "olvide mi contrasena"] },
-  { titulo: "Crear cuenta", descripcion: "Regístrate en un minuto", ruta: "/perfil?acceso=registro", icono: "person-add-outline", palabras: ["crear cuenta", "registro", "registrarme", "registrarse", "darme de alta", "nueva cuenta", "cuenta nueva"] },
+  { titulo: "Crear cuenta", descripcion: "Gratis: Blue te avisa de bajadas de precio y artículos nuevos", ruta: "/perfil?acceso=registro", icono: "person-add-outline", palabras: ["crear cuenta", "registro", "registrarme", "registrarse", "darme de alta", "nueva cuenta", "cuenta nueva", "avisos de bajada", "bajada de precio", "avisos de novedades"] },
   { titulo: "Mi cuenta", descripcion: "Tus datos y tus pedidos", ruta: "/perfil", icono: "person-outline", palabras: ["mi cuenta", "cuenta", "perfil", "mis pedidos", "pedidos", "seguimiento", "seguimientos", "mis datos"] },
   { titulo: "Blog", descripcion: "Lee el blog de la tienda", ruta: "/blog", icono: "newspaper-outline", palabras: ["blog", "articulos", "entradas"] },
   { titulo: "Catálogo", descripcion: "Todos los productos", ruta: "/catalogo", icono: "grid-outline", palabras: ["catalogo", "productos", "tienda", "consolas", "videojuegos", "juegos", "accesorios", "comprar"] },

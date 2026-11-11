@@ -50,6 +50,9 @@
  *   app/reset-password.tsx por email. El mensaje de éxito es siempre igual,
  *   exista o no una cuenta con ese email (para no dejar comprobar por aquí
  *   qué emails están registrados).
+ * - Sin sesión, debajo del subtítulo, la ventaja de tener cuenta (dueño, 2026-11-11): «Con tu cuenta, Blue te avisa
+ *   de bajadas de precio y artículos nuevos» (#perfil-ventaja-avisos). Los avisos son solo con cuenta
+ *   (components/Campanita.tsx), que deja aquí la pantalla a la que volver (VOLVER_TRAS_ACCESO_KEY).
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase usado para todo el login/registro.
@@ -1139,6 +1142,15 @@ export default function PerfilScreen() {
                         ? "Accede con tu email y contraseña, o crea una cuenta nueva en un minuto."
                         : "Has iniciado sesión correctamente."}
                     </Text>
+                    {/* La ventaja de tener cuenta (dueño, 2026-11-11): los avisos de Blue de bajadas y novedades. */}
+                    {sessionRole === "guest" ? (
+                      <View nativeID="perfil-ventaja-avisos" style={{ flexDirection: "row", alignItems: "center", gap: 8, maxWidth: 460 }}>
+                        <Ionicons name="notifications-outline" size={18} color={COLORS.accent} />
+                        <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19, flexShrink: 1 }}>
+                          Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos
+                        </Text>
+                      </View>
+                    ) : null}
                 </View>
 
                 {msg ? <InfoMessage text={msg} tone="error" /> : null}
