@@ -3,7 +3,19 @@
  *
  * Qué hace: pago con tarjeta de los pedidos de la tienda con Stripe Checkout (la página de pago segura de Stripe). El
  * cliente escribe su tarjeta en la página de Stripe: la tienda nunca ve ni guarda los datos de la tarjeta. Desde el
- * 2026-11-06 también Klarna (pagar a plazos), en la misma página; en pantalla se llama «pago online».
+ * 2026-11-06 también Klarna (pagar a plazos) y desde el 2026-11-11 Bizum (dueño: «añade Bizum de Stripe»), en la misma
+ * página; en pantalla se llama «pago online».
+ *
+ * Formas de pago de la página de Stripe (metodosOnline y tiposDePago, comunes a pedidos y reparaciones): siempre tarjeta
+ * (con Apple Pay y Link); Klarna solo si la política de privacidad ya nombra a Klarna y Bizum solo si ya nombra a Bizum
+ * (migración 20261111150000_privacidad_bizum_stripe: primero la privacidad), en índices seguidos (card, klarna, bizum).
+ * Bizum lo tiene que activar el dueño en su panel de Stripe (Stripe verifica su DNI/NIE); mientras no esté activo, Stripe
+ * rechaza la sesión que lo pide: entonces se reintenta UNA vez sin Bizum (el pago con tarjeta nunca se rompe), se avisa
+ * en la consola sin datos personales y esa instancia deja de ofrecer Bizum durante una hora (BIZUM_PAUSA_MS). Bizum
+ * confirma al momento, como la tarjeta: «pagado» sigue siendo complete + paid preguntado a Stripe (sesionCobrada).
+ * Con qué se pagó de verdad (card, klarna o bizum) se lee de la sesión de Stripe pidiéndola con su pago y su forma de
+ * pago desplegados (expand payment_intent.payment_method, solo lectura) y se guarda en pedidos.pago_metodo y
+ * service_requests.pago_metodo / etiqueta_pago_metodo; si esas columnas aún no existen, el pago se apunta igual sin él.
  *
  * Por qué así (dueño, 2026-11-05: «clave puesta y empieza Stripe»):
  * - El importe sale de la base de datos (pedidos.total_eur: artículos + envío, calculados al guardar el pedido), nunca
@@ -20,7 +32,7 @@
  *
  * Peticiones:
  * - GET /api/pago (con «Authorization: Bearer <sesión>» si la hay) → { ok, disponible, modo: "prueba" | "real" | null,
- *   klarna } (klarna: si la página de pago también ofrece Klarna).
+ *   klarna, bizum } (klarna / bizum: si la página de pago también ofrece Klarna / Bizum).
  * - POST { accion: "crear", numero, clave? } → { ok, url } (la página de Stripe) o { ok, pagado: true } si ya está
  *   pagado. El pedido tiene que ser de quien llama: de su cuenta (sesión) o con la clave de la compra, que solo tiene el
  *   navegador que lo hizo (pedidos.clave_unica). Si no, 404 (no se dice si existe).
@@ -50,7 +62,8 @@
  * - EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR: leer el pedido y apuntar el pago.
  *
  * Conectado con: app/checkout.tsx («Pagar con tarjeta» y la vuelta de Stripe), app/admin/pedidos.tsx (pagados con
- * tarjeta), app/admin/analytics.tsx (pago_tarjeta y pago_tarjeta_ok), pruebas/pago-api.mjs; reparación por envío:
+ * tarjeta), app/admin/analytics.tsx (pago_tarjeta y pago_tarjeta_ok; recuento por forma de pago de pago_metodo),
+ * pruebas/pago-api.mjs; reparación por envío:
  * app/(tabs)/perfil.tsx («Pagar la etiqueta», «Pagar y enviármelo», «Devuélvemelo»), app/admin/services.tsx.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -92,8 +105,13 @@ type SesionStripe = {
   livemode?: boolean;
   client_reference_id?: string | null;
   metadata?: Record<string, string> | null;
-  payment_intent?: string | { id?: string } | null;
+  payment_intent?: string | { id?: string; payment_method?: string | { type?: string } | null } | null;
 };
+
+// Con qué se pagó (lo dice Stripe) y qué formas de pago se ofrecen además de la tarjeta.
+type Metodo = "card" | "klarna" | "bizum";
+const METODOS: readonly string[] = ["card", "klarna", "bizum"];
+type MetodosOnline = { klarna: boolean; bizum: boolean };
 
 class Rechazo extends Error {
   http: number;
@@ -274,8 +292,9 @@ async function llamarStripe(
   return { http: r.status, datos };
 }
 
+// La sesión se pide con su pago y la forma de pago desplegados (solo lectura) para saber si fue tarjeta, Klarna o Bizum.
 async function sesionDeStripe(clave: string, id: string): Promise<SesionStripe | null> {
-  const r = await llamarStripe(clave, "GET", `/checkout/sessions/${encodeURIComponent(id)}`);
+  const r = await llamarStripe(clave, "GET", `/checkout/sessions/${encodeURIComponent(id)}?expand[]=payment_intent.payment_method`);
   if (r.http === 404) return null;
   if (r.http !== 200 || !r.datos || typeof r.datos.id !== "string") {
     console.error("pago: Stripe no devolvió la sesión", r.http, r.datos?.error?.code ?? "");
@@ -309,11 +328,62 @@ async function pagoDisponible(supabase: SupabaseClient, modo: Modo, uid: string 
   return JSON.stringify(data?.sections ?? "").includes("Stripe");
 }
 
-// Klarna (pagar a plazos, dueño 2026-11-06) solo cuando la política de privacidad ya lo nombra: si el cliente lo elige,
-// sus datos los trata Klarna (migración 20261106150000_politicas_klarna_envios). Primero la privacidad.
-async function klarnaDisponible(supabase: SupabaseClient): Promise<boolean> {
+// Klarna (pagar a plazos, dueño 2026-11-06) y Bizum (dueño 2026-11-11) solo cuando la política de privacidad ya los
+// nombra: si el cliente los elige, sus datos los tratan Klarna o Bizum y su banco (migraciones
+// 20261106150000_politicas_klarna_envios y 20261111150000_privacidad_bizum_stripe). Primero la privacidad. Una sola
+// lectura de la política para las dos.
+const BIZUM_PAUSA_MS = 60 * 60 * 1000;
+let bizumRechazadoHasta = 0;
+
+async function metodosOnline(supabase: SupabaseClient): Promise<MetodosOnline> {
   const { data } = await supabase.from("policy_pages").select("sections").eq("slug", "privacidad").maybeSingle<{ sections: unknown }>();
-  return JSON.stringify(data?.sections ?? "").includes("Klarna");
+  const texto = JSON.stringify(data?.sections ?? "");
+  const klarna = texto.includes("Klarna");
+  // Bizum, además, solo si Stripe no lo ha rechazado hace poco en esta instancia (el dueño aún no lo ha activado).
+  const bizum = texto.includes("Bizum") && Date.now() >= bizumRechazadoHasta;
+  return { klarna, bizum };
+}
+
+// Las formas de pago de la sesión, en índices seguidos: tarjeta siempre; después Klarna y Bizum si tocan.
+function tiposDePago(m: MetodosOnline): Record<string, string> {
+  const tipos: string[] = ["card"];
+  if (m.klarna) tipos.push("klarna");
+  if (m.bizum) tipos.push("bizum");
+  return Object.fromEntries(tipos.map((t, i) => [`payment_method_types[${i}]`, t]));
+}
+
+// ¿Stripe ha rechazado la sesión por Bizum (no está activado en la cuenta)? Por el campo del error o por su mensaje.
+function rechazoPorBizum(datos: any): boolean {
+  const e = datos?.error;
+  if (!e) return false;
+  return /payment_method_types/.test(String(e.param ?? "")) || /bizum/i.test(String(e.message ?? ""));
+}
+
+// Abre la página de pago de Stripe. Si pide Bizum y Stripe lo rechaza, se reintenta UNA vez sin Bizum (con otra clave de
+// idempotencia, porque los datos cambian) y esta instancia deja de ofrecerlo un rato: la tarjeta nunca se rompe.
+// La clave de idempotencia lleva las formas de pago (-k Klarna, -b Bizum): si cambian dentro del mismo minuto, son datos
+// distintos y Stripe no debe devolver la sesión de antes.
+async function abrirSesionStripe(clave: string, campos: Record<string, string>, m: MetodosOnline, idempotencia: string) {
+  const sufijo = (x: MetodosOnline) => `${x.klarna ? "-k" : ""}${x.bizum ? "-b" : ""}`;
+  const r = await llamarStripe(clave, "POST", "/checkout/sessions", { ...campos, ...tiposDePago(m) }, `${idempotencia}${sufijo(m)}`);
+  if (r.http === 200 || !m.bizum || !rechazoPorBizum(r.datos)) return r;
+  console.warn("pago: Stripe no acepta Bizum en esta cuenta (¿sin activar en el panel de Stripe?); se abre el pago sin Bizum", r.http, r.datos?.error?.code ?? "");
+  const pausa = Number(process.env.BIZUM_PAUSA_MS);
+  bizumRechazadoHasta = Date.now() + (Number.isFinite(pausa) && pausa >= 0 ? pausa : BIZUM_PAUSA_MS);
+  return llamarStripe(clave, "POST", "/checkout/sessions", { ...campos, ...tiposDePago({ ...m, bizum: false }) }, `${idempotencia}${sufijo({ ...m, bizum: false })}-sinbizum`);
+}
+
+// Con qué se pagó de verdad, según Stripe (la forma de pago del cobro). null si no se sabe.
+function metodoDeLaSesion(s: SesionStripe): Metodo | null {
+  const pi = s.payment_intent;
+  const pm = pi && typeof pi === "object" ? pi.payment_method : null;
+  const tipo = pm && typeof pm === "object" ? String(pm.type ?? "") : "";
+  return METODOS.includes(tipo) ? (tipo as Metodo) : null;
+}
+
+// Sin la columna del método (migración 20261111150000 sin aplicar), se apunta igual sin él.
+function faltaColumnaMetodo(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === "42703" || error.code === "PGRST204") && /pago_metodo/.test(String(error.message ?? ""));
 }
 
 async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" | "numero" | "pago_estado" | "pago_sesion">, s: SesionStripe, modo: Modo) {
@@ -322,19 +392,24 @@ async function marcarPagado(supabase: SupabaseClient, p: Pick<FilaPedido, "id" |
     return;
   }
   const referencia = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
-  const { error } = await supabase
-    .from("pedidos")
-    .update({
-      pago_estado: "pagado",
-      pago_modo: modo,
-      pago_sesion: s.id,
-      pago_referencia: referencia,
-      pagado_eur: Number(s.amount_total ?? 0) / 100,
-      pagado_en: new Date().toISOString(),
-    })
-    .eq("id", p.id)
-    // Si a la vez llegan la vuelta del navegador y el aviso de Stripe, solo apunta el primero.
-    .or("pago_estado.is.null,pago_estado.neq.pagado");
+  const metodo = metodoDeLaSesion(s);
+  const datos: Record<string, unknown> = {
+    pago_estado: "pagado",
+    pago_modo: modo,
+    pago_sesion: s.id,
+    pago_referencia: referencia,
+    pagado_eur: Number(s.amount_total ?? 0) / 100,
+    pagado_en: new Date().toISOString(),
+  };
+  const apuntar = (d: Record<string, unknown>) =>
+    supabase
+      .from("pedidos")
+      .update(d)
+      .eq("id", p.id)
+      // Si a la vez llegan la vuelta del navegador y el aviso de Stripe, solo apunta el primero.
+      .or("pago_estado.is.null,pago_estado.neq.pagado");
+  let { error } = await apuntar(metodo ? { ...datos, pago_metodo: metodo } : datos);
+  if (metodo && faltaColumnaMetodo(error)) ({ error } = await apuntar(datos));
   if (error) {
     console.error("pago: no se pudo apuntar el pago del pedido", p.numero, error.code ?? "");
     throw new Rechazo(500, "no se pudo apuntar el pago");
@@ -387,15 +462,13 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
   // cambian dentro del minuto. Caduca a los 30-31 minutos (el mínimo de Stripe).
   const minuto = Math.floor(Date.now() / 60_000);
   const origen = origenDe(req);
-  const conKlarna = await klarnaDisponible(supabase);
+  // Tarjeta (con Apple Pay y Link) y, si la privacidad ya los nombra, Klarna (a plazos, 2026-11-06) y Bizum (2026-11-11),
+  // en tiposDePago. Confirman al momento, como la tarjeta: «pagado» sigue siendo complete + paid preguntado a Stripe.
+  const metodos = await metodosOnline(supabase);
   const campos: Record<string, string> = {
     mode: "payment",
     locale: "es",
     submit_type: "pay",
-    // Tarjeta (con Apple Pay y Link) y, si la privacidad ya lo nombra, Klarna, que permite pagar a plazos (dueño,
-    // 2026-11-06). Klarna confirma al momento, como la tarjeta: «pagado» sigue siendo complete + paid preguntado a Stripe.
-    "payment_method_types[0]": "card",
-    ...(conKlarna ? { "payment_method_types[1]": "klarna" } : {}),
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "eur",
     "line_items[0][price_data][unit_amount]": String(centimos),
@@ -410,7 +483,7 @@ async function crearPago(supabase: SupabaseClient, clave: string, modo: Modo, re
     cancel_url: `${origen}/checkout?pago=cancelado&pedido=${p.numero}`,
     expires_at: String((minuto + 31) * 60),
   };
-  const r = await llamarStripe(clave, "POST", "/checkout/sessions", campos, `vz-pago-${p.id}-${centimos}-${minuto}`);
+  const r = await abrirSesionStripe(clave, campos, metodos, `vz-pago-${p.id}-${centimos}-${minuto}`);
   if (r.http !== 200 || typeof r.datos?.id !== "string" || typeof r.datos?.url !== "string") {
     console.error("pago: Stripe no abrió el pago", r.http, r.datos?.error?.code ?? "", String(r.datos?.error?.message ?? "").slice(0, 200));
     throw new Rechazo(502, "no se pudo abrir el pago");
@@ -483,14 +556,26 @@ async function leerSolicitud(supabase: SupabaseClient, id: string): Promise<Fila
 }
 
 async function marcarSolicitudPagada(supabase: SupabaseClient, f: FilaSolicitud, concepto: ConceptoSolicitud, s: SesionStripe, modo: Modo) {
+  // pago_modo sigue siendo «tarjeta» (o «prueba») para todo lo que se paga en la página de Stripe (sus valores no cambian);
+  // con qué se pagó de verdad (tarjeta, Klarna o Bizum) va aparte, en pago_metodo / etiqueta_pago_metodo.
   const forma = modo === "real" ? "tarjeta" : "prueba";
   const ahora = new Date().toISOString();
-  const q =
+  const metodo = metodoDeLaSesion(s);
+  const apuntar = (conMetodo: boolean) =>
     concepto === "etiqueta"
-      ? supabase.from("service_requests").update({ etiqueta_pagada_en: ahora, etiqueta_pago_modo: forma, stripe_sesion: s.id }).eq("id", f.id).is("etiqueta_pagada_en", null)
+      ? supabase
+          .from("service_requests")
+          .update({ etiqueta_pagada_en: ahora, etiqueta_pago_modo: forma, stripe_sesion: s.id, ...(conMetodo ? { etiqueta_pago_metodo: metodo } : {}) })
+          .eq("id", f.id)
+          .is("etiqueta_pagada_en", null)
       : // pagado_eur lo pone el disparador de la base de datos (el presupuesto o la vuelta).
-        supabase.from("service_requests").update({ pago_estado: "pagado", pago_modo: forma, pagado_en: ahora, stripe_sesion: s.id }).eq("id", f.id).or("pago_estado.is.null,pago_estado.neq.pagado");
-  const { error } = await q;
+        supabase
+          .from("service_requests")
+          .update({ pago_estado: "pagado", pago_modo: forma, pagado_en: ahora, stripe_sesion: s.id, ...(conMetodo ? { pago_metodo: metodo } : {}) })
+          .eq("id", f.id)
+          .or("pago_estado.is.null,pago_estado.neq.pagado");
+  let { error } = await apuntar(!!metodo);
+  if (metodo && faltaColumnaMetodo(error)) ({ error } = await apuntar(false));
   if (error) {
     console.error("pago: no se pudo apuntar el pago de la solicitud", f.codigo_seguimiento ?? "", concepto, error.code ?? "");
     throw new Rechazo(500, "no se pudo apuntar el pago");
@@ -527,7 +612,7 @@ async function crearPagoSolicitud(supabase: SupabaseClient, clave: string, modo:
 
   const minuto = Math.floor(Date.now() / 60_000);
   const origen = origenDe(req);
-  const conKlarna = await klarnaDisponible(supabase);
+  const metodos = await metodosOnline(supabase);
   const codigo = f.codigo_seguimiento ?? "";
   const nombre =
     concepto === "etiqueta"
@@ -539,8 +624,6 @@ async function crearPagoSolicitud(supabase: SupabaseClient, clave: string, modo:
     mode: "payment",
     locale: "es",
     submit_type: "pay",
-    "payment_method_types[0]": "card",
-    ...(conKlarna ? { "payment_method_types[1]": "klarna" } : {}),
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "eur",
     "line_items[0][price_data][unit_amount]": String(centimos),
@@ -556,7 +639,7 @@ async function crearPagoSolicitud(supabase: SupabaseClient, clave: string, modo:
     cancel_url: `${origen}/perfil?tab=seguimientos&pago=cancelado`,
     expires_at: String((minuto + 31) * 60),
   };
-  const r = await llamarStripe(clave, "POST", "/checkout/sessions", campos, `vz-rep-${f.id}-${concepto}-${centimos}-${minuto}`);
+  const r = await abrirSesionStripe(clave, campos, metodos, `vz-rep-${f.id}-${concepto}-${centimos}-${minuto}`);
   if (r.http !== 200 || typeof r.datos?.id !== "string" || typeof r.datos?.url !== "string") {
     console.error("pago: Stripe no abrió el pago de la solicitud", r.http, r.datos?.error?.code ?? "");
     throw new Rechazo(502, "no se pudo abrir el pago");
@@ -696,8 +779,8 @@ export default async function handler(req: any, res: any) {
       // La sesión solo hace falta con la clave de prueba (para saber si es el administrador).
       const uid = modo === "prueba" ? await usuarioDeLaPeticion(supabase, req) : null;
       const disponible = await pagoDisponible(supabase, modo, uid);
-      const klarna = disponible && (await klarnaDisponible(supabase));
-      responder(res, 200, { ok: true, disponible, modo: disponible ? modo : null, klarna });
+      const m = disponible ? await metodosOnline(supabase) : { klarna: false, bizum: false };
+      responder(res, 200, { ok: true, disponible, modo: disponible ? modo : null, klarna: m.klarna, bizum: m.bizum });
       return;
     }
     if (req.method !== "POST") throw new Rechazo(405, "método no permitido");

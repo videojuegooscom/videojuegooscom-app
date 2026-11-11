@@ -54,6 +54,10 @@
  *   20261111130000, si los ajustes ya traen garantia_meses): el embudo sigue con pagadas → enviadas, más «sin
  *   arreglo: compradas / devueltas» y «garantías abiertas» (recuentos, sin datos de nadie), y las sesiones de
  *   pago con tarjeta, avisos de pago, «Te lo compramos», «Devuélvemelo» y garantías pedidas.
+ * - api/pago.ts → «Pagos online por forma de pago» (#analitica-pago-metodos, migración 20261111150000, Bizum de
+ *   Stripe 2026-11-11): cuántos pedidos y cuántas reparaciones/etiquetas se pagaron con tarjeta, Bizum o Klarna según
+ *   Stripe (recuentos de pedidos.pago_metodo y service_requests.pago_metodo / etiqueta_pago_metodo, solo números,
+ *   sin datos de nadie). Sin la migración, no sale.
  * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
@@ -234,6 +238,10 @@ const CONVERSION_EVENTS = [
   { key: "pago_tarjeta_ok", label: "Pagado online" },
 ] as const;
 
+// Formas de pago online que dice Stripe (pedidos.pago_metodo y service_requests.pago_metodo / etiqueta_pago_metodo).
+const METODOS_PAGO = ["card", "bizum", "klarna"] as const;
+type MetodoPago = (typeof METODOS_PAGO)[number];
+
 type ConversionKey = (typeof CONVERSION_EVENTS)[number]["key"];
 type ConversionDay = { day: string } & Record<ConversionKey, number>;
 
@@ -408,6 +416,45 @@ export default function AdminAnalytics() {
   // Parte 2 (migración 20261111130000): reparaciones pagadas y enviadas, sin arreglo (compradas / devueltas) y garantías
   // abiertas. null = aún no está (o no se pudo contar).
   const [embudoEnvio2, setEmbudoEnvio2] = useState<{ cobradas: number; enviadas: number; sinArreglo: number; compradas: number; devueltas: number; garantias: number } | null>(null);
+  // Pagos online por forma de pago (tarjeta, Bizum, Klarna; lo dice Stripe, migración 20261111150000): recuentos de la
+  // base de datos, solo números. null = la migración aún no está (o no se pudo contar).
+  const [pagosPorMetodo, setPagosPorMetodo] = useState<{ pedidos: Record<MetodoPago, number>; reparaciones: Record<MetodoPago, number> } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const contar = (tabla: "pedidos" | "service_requests", columna: string, metodo: MetodoPago) =>
+          supabase.from(tabla).select("id", { count: "exact", head: true }).eq(columna, metodo);
+        // Primero una (sin la migración falla una sola vez) y, si existe, las demás.
+        const primera = await contar("pedidos", "pago_metodo", "card");
+        if (primera.error) {
+          if (vivo) setPagosPorMetodo(null);
+          return;
+        }
+        const r = await Promise.all(
+          METODOS_PAGO.flatMap((m, i) => [
+            i === 0 ? Promise.resolve(primera) : contar("pedidos", "pago_metodo", m),
+            contar("service_requests", "pago_metodo", m),
+            contar("service_requests", "etiqueta_pago_metodo", m),
+          ])
+        );
+        if (!vivo) return;
+        if (r.some((x) => x.error)) return setPagosPorMetodo(null);
+        const pedidos = { card: 0, bizum: 0, klarna: 0 } as Record<MetodoPago, number>;
+        const reparaciones = { card: 0, bizum: 0, klarna: 0 } as Record<MetodoPago, number>;
+        METODOS_PAGO.forEach((m, i) => {
+          pedidos[m] = r[i * 3].count ?? 0;
+          reparaciones[m] = (r[i * 3 + 1].count ?? 0) + (r[i * 3 + 2].count ?? 0);
+        });
+        setPagosPorMetodo({ pedidos, reparaciones });
+      } catch {
+        // sin conexión: sin el recuento
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
   useEffect(() => {
     let vivo = true;
     type Cuenta = { count: number | null; error: unknown };
@@ -1310,6 +1357,28 @@ export default function AdminAnalytics() {
                       «Me gusta»: abren su pestaña de Perfil {coreFunnel.meGustaPestana} sesiones · dan «me gusta» a un servicio {coreFunnel.meGustaServicio}
                     </Text>
                   </View>
+                  {/* Pagos online por forma de pago (lo dice Stripe; migración 20261111150000): solo números, sin datos de nadie. */}
+                  {pagosPorMetodo ? (
+                    <View
+                      nativeID="analitica-pago-metodos"
+                      style={{
+                        borderRadius: 14,
+                        backgroundColor: COLORS.accent2,
+                        padding: 10,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Ionicons name="card-outline" size={15} color={COLORS.accentDark} />
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                        Pagos online por forma de pago (desde que se guarda, todos los tiempos): tarjeta {pagosPorMetodo.pedidos.card + pagosPorMetodo.reparaciones.card} · Bizum{" "}
+                        {pagosPorMetodo.pedidos.bizum + pagosPorMetodo.reparaciones.bizum} · Klarna {pagosPorMetodo.pedidos.klarna + pagosPorMetodo.reparaciones.klarna} (pedidos:{" "}
+                        {pagosPorMetodo.pedidos.card}/{pagosPorMetodo.pedidos.bizum}/{pagosPorMetodo.pedidos.klarna} · reparaciones y etiquetas: {pagosPorMetodo.reparaciones.card}/
+                        {pagosPorMetodo.reparaciones.bizum}/{pagosPorMetodo.reparaciones.klarna})
+                      </Text>
+                    </View>
+                  ) : null}
                   {/* Facturas (las emite VeoAura y llegan por api/escaparate-veoaura.ts): descargas desde «Mis pedidos». */}
                   <View
                     nativeID="analitica-facturas"

@@ -28,7 +28,9 @@
  *   con tarjeta (cuánto y cuándo, con su enlace a Stripe y si fue de prueba) o si el pago se empezó sin terminar;
  *   recuento arriba y filtros «Pagados con tarjeta» y «Pago sin terminar». Lo apunta solo el servidor tras
  *   preguntárselo a Stripe. Si un pedido pagado se cancela o cambia de total, lo avisa (devolver desde Stripe). Sin la
- *   migración, no se enseña.
+ *   migración, no se enseña. Desde el 2026-11-11 (Bizum de Stripe, migración 20261111150000) cada pagado dice con qué se
+ *   pagó («Pagado online con tarjeta / Bizum / Klarna», lo dice Stripe) y el recuento de arriba los cuenta por forma de
+ *   pago; sin esa columna, todo sale como antes.
  * - Botones «Devolver el pago» y «Cancelar pedido» (dueño, 2026-11-06), con un segundo toque para confirmar. Devolver
  *   llama a api/pago.ts (solo el administrador; Stripe devuelve el pago entero una sola vez) y se ve «Devuelto · importe
  *   · fecha» (migración 20261106100000; sin ella no se ofrece). Un cancelado pagado sin devolver sigue en «En curso».
@@ -87,10 +89,15 @@ type Pedido = {
   pago_referencia?: string | null;
   pagado_eur?: number | string | null;
   pagado_en?: string | null;
+  // Con qué se pagó online, según Stripe (migración 20261111150000; puede no existir aún).
+  pago_metodo?: "card" | "klarna" | "bizum" | null;
   // Devolución (migración 20261106100000; puede no existir aún).
   devuelto_eur?: number | string | null;
   devuelto_en?: string | null;
 };
+
+// Nombre de la forma de pago online (tarjeta, Bizum o Klarna), si Stripe la dijo.
+const METODO_PAGO: Record<string, string> = { card: "tarjeta", bizum: "Bizum", klarna: "Klarna" };
 
 // Enlace al pago en el panel de Stripe (los de prueba van a su apartado de prueba).
 function enlaceStripe(p: Pedido): string | null {
@@ -228,16 +235,20 @@ export default function PedidosAdmin() {
     const consulta = (columnas: string) => supabase.from("pedidos").select(columnas).order("created_at", { ascending: false }).limit(200);
     // Cada grupo de columnas nuevas puede no existir aún (su migración sin aplicar): se quita el que falte y se repite.
     const DEVOLUCION = ",devuelto_eur,devuelto_en";
+    // Con qué se pagó online, según Stripe (migración 20261111150000): card, klarna o bizum.
+    const METODO = ",pago_metodo";
+    let conMetodo = true;
     let conDevolucion = true;
     let conPago = true;
     let conEnvio = true;
     let conNumeros = true;
     const columnas = () =>
-      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}`;
+      `${base}${conNumeros ? NUMEROS : ""}${conEnvio ? ENVIO : ""}${conPago ? PAGO : ""}${conPago && conDevolucion ? DEVOLUCION : ""}${conPago && conMetodo ? METODO : ""}`;
     let res: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await consulta(columnas());
-    for (let vuelta = 0; vuelta < 4 && res.error; vuelta++) {
+    for (let vuelta = 0; vuelta < 5 && res.error; vuelta++) {
       const msg = String(res.error.message ?? "");
-      if (conDevolucion && /devuelto_eur|devuelto_en/.test(msg)) conDevolucion = false;
+      if (conMetodo && /pago_metodo/.test(msg)) conMetodo = false;
+      else if (conDevolucion && /devuelto_eur|devuelto_en/.test(msg)) conDevolucion = false;
       else if (conPago && /pago_estado|pago_modo|pago_referencia|pagado_eur|pagado_en/.test(msg)) conPago = false;
       else if (conEnvio && /productos_eur|envio_eur|zona_envio|envio_manual/.test(msg)) conEnvio = false;
       else if (conNumeros && (res.error.code === "42703" || /codigo_seguimiento|id_veoaura|vinculado_en/.test(msg))) conNumeros = false;
@@ -355,6 +366,12 @@ export default function PedidosAdmin() {
       porDevolver: pagados.filter(
         (p) => !p.devuelto_en && (p.estado === "cancelado" || Math.round(Number(p.pagado_eur ?? 0) * 100) > Math.round(Number(p.total_eur) * 100))
       ).length,
+      // Por forma de pago (lo dice Stripe; los anteriores a pago_metodo no cuentan aquí).
+      porMetodo: {
+        card: pagados.filter((p) => p.pago_metodo === "card").length,
+        bizum: pagados.filter((p) => p.pago_metodo === "bizum").length,
+        klarna: pagados.filter((p) => p.pago_metodo === "klarna").length,
+      },
     };
   }, [pedidos]);
 
@@ -551,8 +568,12 @@ export default function PedidosAdmin() {
           ) : null}
           {pagoOk && !loading ? (
             <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-              Pago online (Stripe: tarjeta o Klarna) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
-              {resumenPago.dePrueba}) · empezados sin terminar: {resumenPago.sinTerminar}
+              Pago online (Stripe: tarjeta, Bizum o Klarna) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
+              {resumenPago.dePrueba})
+              {resumenPago.porMetodo.card + resumenPago.porMetodo.bizum + resumenPago.porMetodo.klarna
+                ? ` · con tarjeta: ${resumenPago.porMetodo.card}, Bizum: ${resumenPago.porMetodo.bizum}, Klarna: ${resumenPago.porMetodo.klarna}`
+                : ""}{" "}
+              · empezados sin terminar: {resumenPago.sinTerminar}
               {resumenPago.devueltos ? ` · devueltos: ${resumenPago.devueltos} (de verdad: ${fmtEUR(resumenPago.devueltoReal)})` : ""}
               {resumenPago.porDevolver ? ` · por devolver: ${resumenPago.porDevolver}` : ""}
             </Text>
@@ -668,7 +689,7 @@ export default function PedidosAdmin() {
                       <Ionicons name={p.pago_estado === "pagado" ? "card" : "card-outline"} size={16} color={p.pago_estado === "pagado" ? "#15803D" : COLORS.muted} />
                       <Text style={{ color: p.pago_estado === "pagado" ? "#15803D" : COLORS.muted, fontWeight: "800", textAlign: "center" }}>
                         {p.pago_estado === "pagado"
-                          ? `Pagado online · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
+                          ? `Pagado online${p.pago_metodo && METODO_PAGO[p.pago_metodo] ? ` con ${METODO_PAGO[p.pago_metodo]}` : ""} · ${fmtEUR(Number(p.pagado_eur ?? 0))}${p.pagado_en ? ` · ${fmtFecha(p.pagado_en)}` : ""}${p.pago_modo === "prueba" ? " · de prueba (sin cobro real)" : ""}`
                           : "Pago online empezado, sin terminar"}
                       </Text>
                     </View>

@@ -3495,8 +3495,9 @@ const PASOS_GUIA: PasoGuia[] = [
     icono: "receipt-outline",
     titulo: "Cómo se compra",
     seccion: "cesta",
-    // Verificado en app/checkout.tsx: se elige envío o entrega en mano, se paga online (tarjeta o Klarna) o se confirma
-    // sin pagar, y se habla por el chat.
+    // Verificado en app/checkout.tsx: se elige envío o entrega en mano, se paga online (tarjeta y, si la página de pago
+    // los ofrece, Bizum o Klarna) o se confirma sin pagar, y se habla por el chat. El texto no nombra formas de pago a
+    // propósito: así nunca promete Bizum o Klarna cuando no están.
     texto: "Reservas, pagas online o confirmas y te hablamos.",
     ruta: "/cesta",
     demo: "como-se-compra",
@@ -4069,7 +4070,8 @@ const CAPACIDADES_BLUE: ItemIcono[] = [
   { icono: "megaphone-outline", texto: "Noticias" },
 ];
 // Los pasos de una compra (app/checkout.tsx): se añade y se reserva, se elige envío o entrega en mano, se paga online
-// (tarjeta o Klarna, desde el 2026-11-06) o se confirma sin pagar, y la tienda habla con la persona por el chat.
+// (tarjeta y, si la página de pago los ofrece, Klarna desde el 2026-11-06 y Bizum desde el 2026-11-11) o se confirma
+// sin pagar, y la tienda habla con la persona por el chat.
 const PASOS_DE_COMPRA: ItemIcono[] = [
   { icono: "bag-add-outline", texto: "Añadir" },
   { icono: "time-outline", texto: "Reserva" },

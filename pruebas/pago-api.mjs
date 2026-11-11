@@ -19,8 +19,12 @@
  *      un aviso de un pago que no es de la tienda se da por recibido (200).
  *  P9) Límite por IP: 429.
  *  P11) Klarna (pagar a plazos) solo cuando la privacidad ya lo nombra: antes, solo tarjeta; después, tarjeta y Klarna.
- *  CONTROL) Sin la comprobación de Klarna en la privacidad, sin la de administrador, sin la de «paid», sin la de la firma o sin la del dueño del pedido,
- *      las pruebas lo detectan.
+ *  P12) Bizum de Stripe (2026-11-11): sin Bizum en la privacidad, la sesión no lo lleva; con él, card, klarna y bizum en
+ *      ese orden; pagado con Bizum se apunta igual (complete + paid) y con pago_metodo «bizum» (la tarjeta, «card»); si
+ *      Stripe rechaza Bizum (sin activar en la cuenta), se reintenta UNA vez sin él y el pago se abre, y la tienda deja de
+ *      prometerlo; sin la columna pago_metodo, el pago se apunta igual.
+ *  CONTROL) Sin la comprobación de Klarna o de Bizum en la privacidad, sin el reintento sin Bizum, sin la de
+ *      administrador, sin la de «paid», sin la de la firma o sin la del dueño del pedido, las pruebas lo detectan.
  *
  * Uso: node pruebas/pago-api.mjs
  * Sale con código 1 si algo falla.
@@ -78,10 +82,12 @@ let pedidos;
 let politica;
 let sinColumnas;
 let limitePermitido;
+let stripeSinBizum;
+let sinColumnaMetodo;
 const stripeSesiones = new Map();
 const idempotencia = new Map();
 const devoluciones = new Map();
-const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0, devoluciones: [] };
+const registro = { stripePost: 0, crearSesion: [], expiradas: [], patch: 0, devoluciones: [], rechazosBizum: 0 };
 
 function reiniciar() {
   pedidos = [
@@ -96,6 +102,9 @@ function reiniciar() {
   politica = [{ heading: "Con quién compartimos tus datos", body: "Supabase, Vercel y OpenAI." }];
   sinColumnas = false;
   limitePermitido = true;
+  stripeSinBizum = false;
+  sinColumnaMetodo = false;
+  registro.rechazosBizum = 0;
   stripeSesiones.clear();
   idempotencia.clear();
   devoluciones.clear();
@@ -139,6 +148,8 @@ function supabaseFalso(url, metodo, cabeceras, cuerpo) {
     );
     if (metodo === "GET") return objeto ? json(filas[0] ?? null) : json(filas.slice(0, Number(url.searchParams.get("limit") ?? 1000)));
     if (metodo === "PATCH") {
+      // Sin la columna pago_metodo (migración 20261111150000 sin aplicar), como PostgREST.
+      if (sinColumnaMetodo && cuerpo && "pago_metodo" in cuerpo) return json({ code: "PGRST204", message: "Could not find the 'pago_metodo' column of 'pedidos' in the schema cache" }, 400);
       registro.patch++;
       // Como PostgREST: el filtro «or=(pago_estado.is.null,pago_estado.neq.pagado)».
       const or = url.searchParams.get("or") ?? "";
@@ -174,6 +185,11 @@ function stripeFalso(url, metodo, cabeceras, cuerpoTexto) {
     const k = cabeceras.get("idempotency-key");
     if (k && idempotencia.has(k)) return json(stripeSesiones.get(idempotencia.get(k)));
     const c = Object.fromEntries(new URLSearchParams(cuerpoTexto));
+    // Como Stripe con Bizum sin activar en la cuenta: rechaza la sesión que lo pide.
+    if (stripeSinBizum && Object.entries(c).some(([campo, v]) => campo.startsWith("payment_method_types[") && v === "bizum")) {
+      registro.rechazosBizum++;
+      return json({ error: { type: "invalid_request_error", code: "parameter_invalid_empty", param: "payment_method_types", message: "The payment method type provided: bizum is invalid. Please ensure the provided type is activated in your dashboard." } }, 400);
+    }
     const id = `cs_${real ? "live" : "test"}_${randomBytes(12).toString("hex")}`;
     const s = {
       id,
@@ -202,7 +218,14 @@ function stripeFalso(url, metodo, cabeceras, cuerpoTexto) {
     registro.expiradas.push(s.id);
     return json(s);
   }
-  if (metodo === "GET") return json(s);
+  // Con «expand[]=payment_intent.payment_method», como Stripe: el pago y su forma de pago desplegados.
+  if (metodo === "GET") {
+    const desplegar = url.searchParams.getAll("expand[]").includes("payment_intent.payment_method");
+    if (desplegar && typeof s.payment_intent === "string") {
+      return json({ ...s, payment_intent: { id: s.payment_intent, object: "payment_intent", payment_method: { id: "pm_prueba", object: "payment_method", type: s.metodoReal ?? "card" } } });
+    }
+    return json(s);
+  }
   return json({ error: { code: "unknown" } }, 400);
 }
 
@@ -367,6 +390,36 @@ async function bateria(manejador) {
   pedido(102).user_id = ADMIN;
   r.creaConKlarna = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 102 } });
   r.sesionKlarna = registro.crearSesion[registro.crearSesion.length - 1];
+
+  // P12 Bizum de Stripe: solo cuando la privacidad ya lo nombra; card, klarna y bizum en orden; si Stripe lo rechaza (sin
+  // activar en la cuenta), se reintenta una vez sin Bizum y el pago se abre; y se guarda con qué se pagó.
+  r.metodoPagado101 = pedido(101).pago_metodo;
+  r.getSinBizum = await pedir(manejador, "GET", { token: "token-admin" });
+  politica[0].body += " Si eliges pagar con Bizum, Bizum y tu banco tratan los datos que des.";
+  r.getConBizum = await pedir(manejador, "GET", { token: "token-admin" });
+  r.creaConBizum = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 103, clave: CLAVE_ANON } });
+  r.sesionBizum = registro.crearSesion[registro.crearSesion.length - 1];
+  // Bizum pagado: se apunta como cualquier pago (complete + paid preguntado a Stripe) y con su forma de pago.
+  const id103b = pedido(103).pago_sesion;
+  pagarEnStripe(id103b, "pi_3Bizum789");
+  stripeSesiones.get(id103b).metodoReal = "bizum";
+  r.confirmaBizum = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: id103b } });
+  r.fila103Bizum = { ...pedido(103) };
+  // Stripe rechaza Bizum: el pago se abre igual, sin Bizum, y esta instancia deja de ofrecerlo un rato.
+  stripeSinBizum = true;
+  pedido(102).total_eur = 60;
+  const antesRechazo = registro.crearSesion.length;
+  r.creaRechazo = await pedir(manejador, "POST", { token: "token-admin", cuerpo: { accion: "crear", numero: 102 } });
+  r.sesionesTrasRechazo = registro.crearSesion.length - antesRechazo;
+  r.sesionRechazo = registro.crearSesion[registro.crearSesion.length - 1];
+  r.rechazosBizum = registro.rechazosBizum;
+  r.getTrasRechazo = await pedir(manejador, "GET", { token: "token-admin" });
+  // Sin la columna pago_metodo (migración sin aplicar): el pago se apunta igual, sin el método.
+  sinColumnaMetodo = true;
+  const id102 = pedido(102).pago_sesion;
+  pagarEnStripe(id102, "pi_3SinColumna1");
+  r.confirmaSinColumna = await pedir(manejador, "POST", { cuerpo: { accion: "confirmar", sesion: id102 } });
+  r.fila102SinColumna = { ...pedido(102) };
   return r;
 }
 
@@ -425,6 +478,23 @@ try {
   ok(r.getConKlarna.cuerpo?.klarna === true && r.creaConKlarna.codigo === 200 && k["payment_method_types[0]"] === "card" && k["payment_method_types[1]"] === "klarna" && k["payment_method_types[2]"] === undefined, `P11: con Klarna en la privacidad, tarjeta y Klarna, nada más (${r.creaConKlarna.codigo} ${k["payment_method_types[1]"]})`);
   ok(k["line_items[0][price_data][unit_amount]"] === "5000" && k["metadata[numero]"] === "102", "P11: con Klarna, el importe sigue siendo el total guardado y la sesión lleva el pedido");
 
+  ok(r.getSinBizum.cuerpo?.bizum === false && k["payment_method_types[2]"] === undefined && !Object.values(c).includes("bizum"), `P12: sin Bizum en la privacidad, la página de pago no lo lleva (${JSON.stringify(r.getSinBizum.cuerpo)})`);
+  const b = r.sesionBizum?.campos ?? {};
+  ok(
+    r.getConBizum.cuerpo?.bizum === true && r.creaConBizum.codigo === 200 && b["payment_method_types[0]"] === "card" && b["payment_method_types[1]"] === "klarna" && b["payment_method_types[2]"] === "bizum" && b["payment_method_types[3]"] === undefined,
+    `P12: con Bizum en la privacidad, tarjeta, Klarna y Bizum, en orden (${r.creaConBizum.codigo} ${[0, 1, 2, 3].map((i) => b[`payment_method_types[${i}]`]).join(",")})`
+  );
+  ok(b["line_items[0][price_data][unit_amount]"] === "3050" && b["line_items[0][price_data][currency]"] === "eur" && b["metadata[numero]"] === "103", "P12: con Bizum, en euros y con el total guardado del pedido");
+  ok(r.confirmaBizum.cuerpo?.pagado === true && r.fila103Bizum.pago_estado === "pagado" && r.fila103Bizum.pago_metodo === "bizum" && r.fila103Bizum.pago_referencia === "pi_3Bizum789" && r.fila103Bizum.pagado_eur === 30.5, `P12: pagado con Bizum, se apunta como pagado y con su forma de pago (${r.fila103Bizum.pago_metodo})`);
+  ok(r.metodoPagado101 === "card", `P12: un pago con tarjeta queda apuntado como «card» (${r.metodoPagado101})`);
+  const s = r.sesionRechazo?.campos ?? {};
+  ok(
+    r.creaRechazo.codigo === 200 && /^https:\/\/checkout\.stripe\.com\//.test(r.creaRechazo.cuerpo?.url ?? "") && r.rechazosBizum === 1 && r.sesionesTrasRechazo === 1 && s["payment_method_types[0]"] === "card" && s["payment_method_types[1]"] === "klarna" && !Object.values(s).includes("bizum") && /-sinbizum$/.test(r.sesionRechazo?.clave ?? ""),
+    `P12: si Stripe rechaza Bizum, se reintenta UNA vez sin él y el pago se abre (${r.creaRechazo.codigo} ${r.creaRechazo.cuerpo?.error ?? ""}; rechazos ${r.rechazosBizum})`
+  );
+  ok(r.getTrasRechazo.cuerpo?.bizum === false && r.getTrasRechazo.cuerpo?.klarna === true, `P12: tras el rechazo, la tienda deja de prometer Bizum (${JSON.stringify(r.getTrasRechazo.cuerpo)})`);
+  ok(r.confirmaSinColumna.cuerpo?.pagado === true && r.fila102SinColumna.pago_estado === "pagado" && r.fila102SinColumna.pago_metodo == null, `P12: sin la columna del método (migración sin aplicar), el pago se apunta igual (${r.fila102SinColumna.pago_estado})`);
+
   // CONTROL: cada defensa quitada en una copia de la función; la batería tiene que notarlo.
   const fuente = readFileSync("api/pago.ts", "utf8");
   const carpeta = mkdtempSync(join(tmpdir(), "vz-pago-"));
@@ -437,6 +507,8 @@ try {
     ["dueño", "if (!p || !suyo) throw", "if (!p) throw", (m) => m.ajeno.codigo === 200, "se abre el pago del pedido de otra persona (P3)"],
     ["devolver", 'if (!(await esAdministrador(supabase, await usuarioDeLaPeticion(supabase, req)))) throw', "if (false) throw", (m) => m.devolverCliente.codigo === 200, "un cliente devuelve un pago (P10)"],
     ["klarna", '.includes("Klarna");', ".includes(\"\");", (m) => m.getSinKlarna.cuerpo?.klarna === true, "Klarna sale sin estar en la privacidad (P11)"],
+    ["bizum", '.includes("Bizum")', '.includes("")', (m) => m.getSinBizum.cuerpo?.bizum === true, "Bizum sale sin estar en la privacidad (P12)"],
+    ["reintento sin Bizum", "if (r.http === 200 || !m.bizum || !rechazoPorBizum(r.datos)) return r;", "return r;", (m) => m.creaRechazo.codigo !== 200, "si Stripe rechaza Bizum, el pago no se abre (P12)"],
   ];
   for (const [nombre, buscar, poner, detecta, texto] of mutaciones) {
     const roto = fuente.replace(buscar, poner);
