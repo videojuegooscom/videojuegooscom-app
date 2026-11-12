@@ -11,10 +11,12 @@
  * su foto de portada desde "service_media", con la MISMA tarjeta y rejilla
  * que el Catálogo e Inicio (TarjetaProducto, RejillaTarjetas y columnasLista
  * de components/CategoryProductsShelf.tsx: en el móvil, 2 columnas) y un
- * buscador simple por título/descripción. Al tocar una tarjeta lleva a
- * app/servicio/[id].tsx.
+ * buscador simple por título/descripción (letra de 16 px, CAMPO.letra de
+ * constants/theme.ts, para que el iPhone no haga zoom). Al tocar una tarjeta
+ * lleva a app/servicio/[id].tsx.
  *
  * Conectado con:
+ * - constants/theme.ts → CAMPO (letra de los campos).
  * - sql/services.sql, sql/service_media.sql → tablas que lee esta pantalla.
  * - app/servicio/[id].tsx → ficha de cada servicio.
  * - app/(tabs)/index.tsx → la categoría "Reparación/Limpieza" navega aquí.
@@ -41,6 +43,7 @@ import CargaMarca from "../components/marca/CargaMarca";
 import CabeceraMarca from "../components/CabeceraMarca";
 import { useRecarga } from "../components/TirarParaActualizar";
 import { trackEvent } from "../lib/analytics";
+import { CAMPO } from "../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -332,7 +335,8 @@ export default function ServiciosScreen() {
                 onChangeText={setSearch}
                 placeholder="Buscar un servicio…"
                 placeholderTextColor={COLORS.muted2}
-                style={{ flex: 1, fontSize: 15, color: COLORS.text }}
+                // 16 px (CAMPO.letra): con menos, Safari del iPhone hace zoom al tocar el buscador.
+                style={{ flex: 1, fontSize: CAMPO.letra, color: COLORS.text }}
               />
             </View>
           </View>

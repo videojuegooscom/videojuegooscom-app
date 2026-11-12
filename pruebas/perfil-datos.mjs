@@ -248,7 +248,14 @@
  *    con 6 botones de etapa de 44 px separados 8 px y se repliegan, la línea de tiempo de «Actividad» por día y con
  *    iconos, ninguna letra < 12 px, nada se sale ni se corta, y en el ordenador centrada y de 760 px como mucho.
  *    Las secciones E, PT, ME y M abren la pestaña que les toca (Pedidos, Reparaciones, Actividad) y despliegan los pedidos.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC]
+ *  - TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12, constants/theme.ts), a 360 y 390 px: la barra
+ *    inferior con los nombres de 12 px o más en una línea (el activo en el azul de texto #0A78B4, su icono en el de marca);
+ *    en «Mis seguimientos», las etiquetas de la barra de etapas (5 y 6) sin letra < 12 px, sin palabras partidas, sin
+ *    montarse ni salirse; ningún texto < 13 px salvo esas etiquetas y las de los filtros; ningún texto azul de marca de
+ *    menos de 17 px; pestañas Mi cuenta / Mis seguimientos / Me gusta y «Preguntar por esto» de 44 px; y los 3 campos que
+ *    hacían zoom en el iPhone a 16 px (buscador de Servicios, campos de «Mi perfil» y, en el código, el de la respuesta
+ *    de Blue en components/Campanita.tsx).
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -11044,8 +11051,187 @@ async function seccionFC() {
   }
 }
 
+// ===== TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12; constants/theme.ts): barra inferior,
+// «Mis seguimientos» (barra de etapas, pestañas, enlaces, azul de texto) y los 3 campos que hacían zoom en el iPhone =====
+async function seccionTM() {
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  const idDe = (n) => `7a000000-0000-4000-8000-0000000000${n}`;
+  const pedido = (n, extra) => ({
+    id: idDe(n), numero: n, created_at: "2026-11-08T10:00:00Z", estado: "enviado", entrega: "envio", total_eur: 59.9, user_id: CLIENTE.id,
+    codigo_seguimiento: `VZ-TAMA-NO${n % 10}A`, vinculado_en: null, pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null,
+    devuelto_eur: null, devuelto_en: null, ...extra,
+  });
+  const estado = {
+    filas: PERFIL,
+    guardados: [],
+    numeros: {
+      // Las dos barras de pedido (la de envío y la de «Listo para recoger», la etiqueta más larga) y la de reparación (6).
+      pedidos: [pedido(71, {}), pedido(72, { estado: "preparado", entrega: "recogida" })],
+      items: [{ pedido_id: idDe(71), titulo: "Mando DualSense", product_id: null }],
+      reparaciones: [
+        { id: idDe("c1"), created_at: "2026-11-07T10:00:00Z", service_id: null, service_title: "Limpieza PS5", status: "nuevo", seguimiento: "diagnostico", seguimiento_nota: null, seguimiento_actualizado: null, codigo_seguimiento: "VZ-TAMA-REPA", customer_user_id: CLIENTE.id },
+      ],
+    },
+  };
+  // Todo lo que se mide en la página: barra inferior, etiquetas de la barra de etapas, letra mínima de «Mis seguimientos»,
+  // texto azul de marca pequeño, pestañas del perfil y «Preguntar por esto».
+  const medir = (p) =>
+    p.evaluate(() => {
+      const ICONOS = /ionicons/i;
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const lineasDe = (el) => {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        return { caja: r.getBoundingClientRect(), lineas: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size };
+      };
+      // Barra inferior: el nombre de cada pestaña.
+      const barra = [...document.querySelectorAll('[data-testid^="pestana-"]')].map((b) => {
+        const et = [...b.querySelectorAll("*")].find((e) => propio(e) && !ICONOS.test(getComputedStyle(e).fontFamily));
+        const ic = [...b.querySelectorAll("*")].find((e) => propio(e) && ICONOS.test(getComputedStyle(e).fontFamily));
+        const l = et ? lineasDe(et) : null;
+        return {
+          id: b.getAttribute("data-testid"),
+          activa: b.getAttribute("aria-selected") === "true",
+          texto: et ? propio(et) : "",
+          fs: et ? parseFloat(getComputedStyle(et).fontSize) : 0,
+          lineas: l?.lineas ?? 0,
+          cortado: !!et && et.scrollWidth > et.clientWidth + 1,
+          color: et ? getComputedStyle(et).color : "",
+          colorIcono: ic ? getComputedStyle(ic).color : "",
+        };
+      });
+      // Etiquetas de la barra de etapas.
+      const etiquetas = [...document.querySelectorAll('[id^="linea-etiqueta-"]')].map((t) => {
+        const { caja, lineas } = lineasDe(t);
+        const texto = t.innerText.replace(/\s+/g, " ").trim();
+        return { texto, fs: parseFloat(getComputedStyle(t).fontSize), izq: caja.left, der: caja.right, arriba: caja.top, abajo: caja.bottom, lineas, palabras: texto.split(" ").length };
+      });
+      const montadas = [];
+      for (let a = 0; a < etiquetas.length; a++)
+        for (let b = a + 1; b < etiquetas.length; b++) {
+          const x = etiquetas[a];
+          const y = etiquetas[b];
+          if (x.izq < y.der - 1 && y.izq < x.der - 1 && x.arriba < y.abajo - 1 && y.arriba < x.abajo - 1) montadas.push(`${x.texto}/${y.texto}`);
+        }
+      // Letra mínima y texto azul de marca pequeño dentro de «Mis seguimientos» (sin el pie ni las tarjetas de productos).
+      const zona = document.querySelector("#perfil-pestanas")?.parentElement?.parentElement ?? document.body;
+      const pequenos = [];
+      const azulMarca = [];
+      for (const el of zona.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !el.getBoundingClientRect().width) continue;
+        const cs = getComputedStyle(el);
+        if (ICONOS.test(cs.fontFamily) || el.closest("footer, [role='link']")) continue;
+        const fs = parseFloat(cs.fontSize);
+        const esEtiqueta = /^linea-etiqueta-/.test(el.id) || !!el.closest("#seguimiento-filtros");
+        if (fs < 13 && !(esEtiqueta && fs >= 12)) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+        if (cs.color === "rgb(30, 167, 232)" && fs < 17) azulMarca.push(`${t.slice(0, 30)} ${fs}`);
+      }
+      const alto = (sel) => [...document.querySelectorAll(sel)].map((e) => Math.round(e.getBoundingClientRect().height));
+      const preguntar = [...document.querySelectorAll("[role='button']")].filter((b) => b.innerText.trim() === "Preguntar por esto").map((b) => Math.round(b.getBoundingClientRect().height));
+      return {
+        barra,
+        etiquetas: etiquetas.map((e) => `${e.texto} ${e.fs}`),
+        pequenasEtapa: etiquetas.filter((e) => e.fs < 12).map((e) => e.texto),
+        partidas: etiquetas.filter((e) => e.lineas > e.palabras).map((e) => e.texto),
+        montadas,
+        fuera: etiquetas.filter((e) => e.izq < 0 || e.der > window.innerWidth).map((e) => e.texto),
+        pequenos: pequenos.slice(0, 6),
+        azulMarca: azulMarca.slice(0, 6),
+        pestanas: alto('#perfil-pestanas [role="tab"]'),
+        preguntar,
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        v: window.innerWidth,
+      };
+    });
+
+  for (const ancho of [360, 390]) {
+    const ctx = await contexto(navegador, CLIENTE, "user", { ...estado, numeros: { ...estado.numeros } }, { viewport: { width: ancho, height: ancho === 360 ? 780 : 844 } });
+    const p = await pagina(ctx, "/perfil?tab=seguimientos");
+    await p.locator('[id^="linea-etiqueta-6-"]').first().waitFor({ timeout: 40000 }).catch(() => {});
+    await p.waitForTimeout(800);
+    const m = await medir(p);
+    // Barra inferior: 5 nombres de 12 px o más (13 = TAMANOS.minimo), en una línea y sin cortar.
+    ok(
+      m.barra.length === 5 && m.barra.every((b) => b.fs >= 12 && b.lineas === 1 && !b.cortado),
+      `TM (${ancho}): la barra inferior con los 5 nombres de 12 px o más, en una línea y sin cortar (${m.barra.map((b) => `${b.texto} ${b.fs}px ${b.lineas}l`).join(", ")})`
+    );
+    const activa = m.barra.find((b) => b.activa);
+    ok(
+      activa?.color === "rgb(10, 120, 180)" && activa?.colorIcono === "rgb(30, 167, 232)" && m.barra.filter((b) => !b.activa).every((b) => b.color === "rgba(11, 33, 56, 0.72)"),
+      `TM (${ancho}): el nombre activo en el azul de texto, su icono en el de marca y los demás en el gris 0.72 (${activa?.texto}: ${activa?.color} / ${activa?.colorIcono})`
+    );
+    // Barra de etapas: 5 + 5 (dos pedidos) + 6 (reparación) etiquetas, ninguna < 12 px, sin partir palabras ni montarse.
+    ok(
+      m.etiquetas.length === 16 && !m.pequenasEtapa.length && !m.partidas.length && !m.montadas.length && !m.fuera.length,
+      `TM (${ancho}): las etiquetas de la barra de etapas, de 12 px o más, sin palabras partidas, sin montarse ni salirse (${m.etiquetas.length}: ${JSON.stringify({ pequenas: m.pequenasEtapa, partidas: m.partidas, montadas: m.montadas, fuera: m.fuera })})`
+    );
+    ok(!m.pequenos.length, `TM (${ancho}): en «Mis seguimientos» ningún texto de menos de 13 px (salvo las etiquetas de 12) (${m.pequenos.join(" | ") || "ninguno"})`);
+    ok(!m.azulMarca.length, `TM (${ancho}): ningún texto azul de marca (#1EA7E8) de menos de 17 px: va en #0A78B4 (${m.azulMarca.join(" | ") || "ninguno"})`);
+    ok(m.pestanas.length === 3 && m.pestanas.every((h) => h >= 44), `TM (${ancho}): pestañas Mi cuenta / Mis seguimientos / Me gusta de 44 px (${m.pestanas.join(", ")})`);
+    ok(m.preguntar.length === 3 && m.preguntar.every((h) => h >= 44), `TM (${ancho}): «Preguntar por esto» de 44 px (${m.preguntar.join(", ")})`);
+    ok(m.ancho <= m.v + 1, `TM (${ancho}): nada se sale por los lados (${m.ancho}/${m.v})`);
+    await capturar(p, `TM1-${ancho}-mis-seguimientos`);
+    await p.locator('[id^="linea-etiqueta-6-"]').first().scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `TM2-${ancho}-barra-reparacion`);
+    ok(p.errores.length === 0, `TM (${ancho}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // Los campos que hacían zoom en el iPhone: 16 px.
+  {
+    // Perfil a medias (sin fecha de nacimiento): la tarjeta sale abierta, con «Zaragoza» y su ✓ en media fila.
+    const aMedias = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: null }];
+    const ctx = await contexto(navegador, CLIENTE, "user", { filas: aMedias, guardados: [] }, { viewport: { width: 360, height: 780 } });
+    const s = await pagina(ctx, "/servicios");
+    await s.getByPlaceholder("Buscar un servicio…").waitFor({ timeout: 30000 }).catch(() => {});
+    const buscador = await s.getByPlaceholder("Buscar un servicio…").evaluate((e) => parseFloat(getComputedStyle(e).fontSize)).catch(() => 0);
+    ok(buscador === 16, `TM: el buscador de Servicios a 16 px (${buscador})`);
+    const p = await pagina(ctx, "/perfil");
+    await p.locator("#perfil-datos input").first().waitFor({ timeout: 30000 }).catch(() => {});
+    const campos = await p.evaluate(() => [...document.querySelectorAll("#perfil-datos input")].filter((e) => e.type !== "file" && e.type !== "hidden").map((e) => parseFloat(getComputedStyle(e).fontSize)));
+    ok(campos.length >= 3 && campos.every((f) => f >= 16), `TM: los campos de «Mi perfil» a 16 px (${campos.join(", ")})`);
+    // País y Provincia: el desplegable nativo (el que se toca) a 16 px y lo que se ve, entero (a 360 px salía «Provin…»).
+    const selectores = await p.evaluate(() =>
+      ["País", "Provincia"].map((n) => {
+        const s = document.querySelector(`#perfil-datos select[aria-label="${n}"]`);
+        // El texto que se ve: el del recuadro del desplegable (sin el icono ni el ✓, que son de la fuente de iconos).
+        // El recuadro: el antepasado más cercano con texto que solo contiene este desplegable.
+        let caja = s?.parentElement ?? null;
+        while (caja && !caja.innerText.trim() && caja.querySelectorAll("select").length === 1) caja = caja.parentElement;
+        if (caja && caja.querySelectorAll("select").length > 1) caja = null;
+        const t = caja ? [...caja.querySelectorAll("div")].find((d) => d.childNodes.length === 1 && d.childNodes[0].nodeType === 3 && d.textContent.trim() && !/ionicons/i.test(getComputedStyle(d).fontFamily)) : null;
+        // Cortado con «…»: el texto entero (medido aparte, sin cortar) es más ancho que su caja.
+        let entero = 0;
+        if (t) {
+          const copia = t.cloneNode(true);
+          copia.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;width:auto;max-width:none;font:${getComputedStyle(t).font};letter-spacing:${getComputedStyle(t).letterSpacing}`;
+          document.body.appendChild(copia);
+          entero = copia.getBoundingClientRect().width;
+          copia.remove();
+        }
+        return { n, fs: s ? parseFloat(getComputedStyle(s).fontSize) : 0, texto: t?.textContent.trim() ?? "", entero: Math.round(entero), caja: t ? Math.round(t.clientWidth) : 0, cortado: !!t && (t.scrollWidth > t.clientWidth + 1 || entero > t.clientWidth + 1) };
+      })
+    );
+    ok(selectores.every((s) => s.fs >= 16 && s.texto.length > 0 && !s.cortado), `TM: los desplegables País y Provincia a 16 px y su texto entero (${JSON.stringify(selectores)})`);
+    await capturar(p, "TM3-360-mi-perfil-campos");
+    ok(s.errores.length === 0 && p.errores.length === 0, `TM: Servicios y Mi perfil sin errores de JavaScript (${s.errores[0] ?? p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+  // El de la respuesta de Blue (components/Campanita.tsx) solo sale con un tema de conocimiento pendiente: se mira en el
+  // código que su campo use CAMPO.letra y que CAMPO.letra sea 16.
+  {
+    const leer = (r) => readFileSync(new URL(`../${r}`, import.meta.url), "utf8");
+    const campanita = leer("components/Campanita.tsx");
+    const tema = leer("constants/theme.ts");
+    const campo = /placeholder="Escribe la respuesta real de la tienda"[\s\S]{0,700}?\/>/.exec(campanita)?.[0] ?? "";
+    ok(/fontSize: CAMPO\.letra/.test(campo) && /CAMPO = \{\s*letra: 16,/.test(tema), "TM: el campo de la respuesta de Blue (Campanita) usa CAMPO.letra, que es 16 px");
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "TM") await seccionTM();
   if (SOLO === "FC") await seccionFC();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
@@ -12085,6 +12271,7 @@ try {
   await seccionRE3();
   await seccionAC();
   await seccionFC();
+  await seccionTM();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

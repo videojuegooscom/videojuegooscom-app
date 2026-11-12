@@ -9,7 +9,9 @@
  *   no se cambia aquí), país y provincia o región, fecha de nacimiento y edad (se calcula; mínimo 14 años) y «Guardar
  *   perfil» / «Deshacer». Al final, abierta o plegada, los botones de la cuenta («Cerrar sesión» y, al administrador,
  *   «Panel de control»), que le pasa la pantalla en `cuenta`. Campos compactos, redondeados y centrados con ✓ verde cuando
- *   están bien; desplegables con ⌃⌄ (los nativos del móvil, invisibles encima del campo).
+ *   están bien; desplegables con ⌃⌄ (los nativos del móvil, invisibles encima del campo). Letra de los campos: 16 px
+ *   (CAMPO.letra de constants/theme.ts), para que el iPhone no haga zoom al escribir; las cajas tienen los márgenes
+ *   justos para que, a 360 px, «Provincia» o «Zaragoza» quepan enteras en media fila.
  *   «Dirección de envío» (opcional, solo en Mi cuenta, dueño 2026-11-02, «como en Amazon»): código postal (5 cifras en
  *   España; la provincia se reconoce por sus dos primeras cifras, se pone sola si faltaba y se avisa si no es la del
  *   perfil) y localidad, dirección (calle o avenida y número de portal, o «s/n») y piso/puerta/letra. Si se empieza, tiene
@@ -36,7 +38,7 @@
  * Conectado con: app/(tabs)/perfil.tsx, app/_layout.tsx, app/(tabs)/chat-global.tsx, components/Resenas.tsx,
  * components/Campanita.tsx, app/checkout.tsx, app/admin/cliente/[userId].tsx y app/admin/categories.tsx (RecortarFoto).
  * Usa lib/supabase.ts (tabla perfiles_cliente, función perfiles_publicos, almacén «avatares»), lib/analytics.ts,
- * lib/admin/products.utils.ts, components/SmartImage.tsx y components/marca/CargaMarca.tsx.
+ * lib/admin/products.utils.ts, components/SmartImage.tsx, components/marca/CargaMarca.tsx y constants/theme.ts (CAMPO).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -48,6 +50,7 @@ import { trackEvent } from "../lib/analytics";
 import { pickMediaFilesWeb, reducirImagenWeb } from "../lib/admin/products.utils";
 import CargaMarca from "./marca/CargaMarca";
 import SmartImage from "./SmartImage";
+import { CAMPO } from "../constants/theme";
 
 const P = {
   text: "#0B2138",
@@ -371,17 +374,19 @@ function CajaPerfil({
         backgroundColor: "#FFFFFF",
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: 10,
-        gap: 4,
+        // Márgenes y columnas de los iconos justos (antes 10 / 22 / 4): con la letra de 16 px, en media fila a 360 px
+        // «Provincia» o «Zaragoza» caben enteras entre el ✓ y las flechas.
+        paddingHorizontal: 8,
+        gap: 2,
         position: "relative",
       }}
     >
-      <View style={{ width: 22, alignItems: "center" }}>
+      <View style={{ width: 20, alignItems: "center" }}>
         {fija ? <Ionicons name="lock-closed" size={16} color={P.muted} /> : valido ? <Ionicons name="checkmark" size={20} color={P.ok} /> : null}
       </View>
       <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>{children}</View>
       {sinHuecoDerecho && !desplegable ? null : (
-        <View style={{ width: 22, alignItems: "center" }}>{desplegable ? <Ionicons name="chevron-expand" size={18} color={P.text} /> : null}</View>
+        <View style={{ width: 18, alignItems: "center" }}>{desplegable ? <Ionicons name="chevron-expand" size={18} color={P.text} /> : null}</View>
       )}
       {encima}
     </View>
@@ -405,7 +410,8 @@ const ESTILO_NATIVO_INVISIBLE = {
   fontSize: 16,
 };
 
-const ESTILO_TEXTO_PERFIL = { textAlign: "center" as const, fontSize: 15.5, fontWeight: "800" as const, color: P.text };
+// 16 px (CAMPO.letra de constants/theme.ts): con menos, Safari del iPhone hace zoom al escribir en los campos.
+const ESTILO_TEXTO_PERFIL = { textAlign: "center" as const, fontSize: CAMPO.letra, fontWeight: "800" as const, color: P.text };
 
 // Foto redonda (o silueta si no hay).
 function Foto({ uri, lado, alt }: { uri: string; lado: number; alt: string }) {
