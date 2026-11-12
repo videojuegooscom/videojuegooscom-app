@@ -6,7 +6,8 @@
  * navegador nunca lee directamente. Aquí se comprueba quién pregunta y se da un enlace firmado de 60 s para bajarlo.
  *
  * Petición: GET /api/factura?pedido=<uuid del pedido> con «Authorization: Bearer <sesión>».
- * - 200 { ok: true, url, numero_factura }: url es un enlace firmado de 60 s que descarga el PDF (como archivo).
+ * - 200 { ok: true, url, numero_factura }: url es un enlace firmado de 60 s que descarga el PDF (como archivo); con
+ *   «&ver=1», el enlace lo abre en el navegador para verlo («Ver factura» de la ficha del cliente en Administración).
  * - 400 pedido no válido · 401 sin sesión · 404 no hay factura todavía (o el pedido no es de quien llama: no se dice
  *   si existe) · 409 «La factura está llegando, prueba en unos minutos» (la fila existe y el PDF aún no) · 429 demasiadas
  *   peticiones · 503 sin configurar o sin la migración 20261110100000.
@@ -296,9 +297,11 @@ export default async function handler(req: any, res: any) {
     if (!factura) throw new Rechazo(404, "no hay factura todavía");
     if (!factura.pdf_path) throw new Rechazo(409, "La factura está llegando, prueba en unos minutos");
 
+    // «&ver=1»: el enlace abre el PDF en el navegador para verlo (ficha del cliente en Administración) en vez de bajarlo.
+    const verEnPantalla = parametro(req, "ver") === "1";
     const { data: firmado, error: errFirma } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(factura.pdf_path, SEGUNDOS_ENLACE, { download: nombreArchivo(factura.numero_factura) });
+      .createSignedUrl(factura.pdf_path, SEGUNDOS_ENLACE, verEnPantalla ? undefined : { download: nombreArchivo(factura.numero_factura) });
     if (errFirma || !firmado?.signedUrl) throw new Rechazo(502, "no se pudo preparar la descarga");
     responder(res, 200, { ok: true, url: firmado.signedUrl, numero_factura: factura.numero_factura });
   } catch (e: unknown) {
