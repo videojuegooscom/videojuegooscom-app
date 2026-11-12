@@ -89,6 +89,13 @@
  *   las manda VeoAura (api/escaparate-veoaura.ts, evento «venta_tienda») y salen como un pedido más, «Compra en tienda
  *   VZ-… · total · fecha», con la forma de pago, «Entregado» y «Descargar factura», sin barra de envío. Al abrir «Mis
  *   seguimientos» se pide a api/factura.ts («unir_compras_tienda») que una a la cuenta las que llegaron con su correo.
+ * - Tamaños y colores (auditoría móvil y lección del 2026-11-12, constants/theme.ts): toda la letra sale de TAMANOS (13 px
+ *   como mínimo; 12 solo «SESIÓN ACTUAL», las etiquetas de la barra de etapas y las de los filtros cuando son cinco), lo
+ *   que se toca mide 44 px (pestañas Mi cuenta / Mis seguimientos / Me gusta, «Preguntar por esto», enlaces), los campos
+ *   16 px de letra, el gris de texto rgba(11,33,56,0.72) y el TEXTO azul pequeño en #0A78B4 (accentTexto); el azul de
+ *   marca #1EA7E8 sigue en botones, iconos, puntos y rayas. La barra de etapas de 5 o 6 pasos alterna sus etiquetas
+ *   arriba y abajo para que a 360 px no se parta ninguna palabra; la de 9 sigue compacta («Paso N de M»).
+ * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -124,6 +131,7 @@ import { medirCuentaCreada, trackEvent } from "../../lib/analytics";
 import { LIKED_PRODUCTS_KEY, LIKED_SERVICES_KEY, meGustaLocales, misMeGustaServidor } from "../../lib/interaccion";
 import { abrirDescarga } from "../../lib/openExternalLink";
 import { avisoContrasenaCorta, CONTRASENA_MINIMA, mensajeAuthEnEspanol, pedirEnlaceContrasena, supabase } from "../../lib/supabase";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // Ficha a la que volver tras iniciar sesión o registrarse (la deja «Comprar ya» de la ficha).
 const VOLVER_TRAS_ACCESO_KEY = "videojuegoszaragoza:volver_tras_acceso";
@@ -137,10 +145,13 @@ const COLORS = {
   // siguen distinguiendo por el espaciado, no por un tono de fondo distinto.
   cardSoft: "#FFFFFF",
   border: "#E3EAF2",
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  mutedSoft: "rgba(11,33,56,0.62)",
-  accent: "#1EA7E8",
+  text: COLORES_TEXTO.texto,
+  // Gris de texto: el más claro permitido (constants/theme.ts; antes 0.62).
+  muted: COLORES_TEXTO.secundario,
+  mutedSoft: COLORES_TEXTO.secundario,
+  // Azul de marca (botones, iconos, fondos) y azul de texto (enlaces y texto azul de menos de 17 px).
+  accent: COLORES_TEXTO.azulMarca,
+  accentTexto: COLORES_TEXTO.azulTexto,
   danger: "#B91C1C",
   success: "#15803D",
 };
@@ -347,7 +358,7 @@ function Input({
           backgroundColor: "#F8FBFE",
           // 16px mínimo: por debajo, el móvil hace zoom automático al
           // tocar la casilla (ver components/ProductChatThread.tsx).
-          fontSize: 16,
+          fontSize: CAMPO.letra,
         }}
       />
 
@@ -1054,12 +1065,12 @@ export default function PerfilScreen() {
         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, opacity: pressed ? 0.7 : 1 })}
       >
         <Ionicons name="bulb-outline" size={19} color={COLORS.accent} />
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>Mejoras en la tienda</Text>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Mejoras en la tienda</Text>
         <Ionicons name="chevron-forward" size={16} color={COLORS.accent} />
       </Pressable>
       <MejorasModal visible={mejorasAbierta} onClose={() => setMejorasAbierta(false)} origen="perfil" />
       {sessionRole === "admin" ? (
-        <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", lineHeight: 17, textAlign: "center" }}>
+        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 17, textAlign: "center" }}>
           Esta cuenta tiene acceso al panel de administración.
         </Text>
       ) : null}
@@ -1174,7 +1185,7 @@ export default function PerfilScreen() {
                     {sessionRole === "guest" ? (
                       <View nativeID="perfil-ventaja-avisos" style={{ flexDirection: "row", alignItems: "center", gap: 8, maxWidth: 460 }}>
                         <Ionicons name="notifications-outline" size={18} color={COLORS.accent} />
-                        <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: 13.5, lineHeight: 19, flexShrink: 1 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19, flexShrink: 1 }}>
                           Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos
                         </Text>
                       </View>
@@ -1271,10 +1282,12 @@ export default function PerfilScreen() {
                             hitSlop={6}
                             style={({ pressed }) => ({
                               alignSelf: "center",
+                              minHeight: TACTIL.minimo,
+                              justifyContent: "center",
                               opacity: isSubmitting || isResettingPassword ? 0.5 : pressed ? 0.6 : 1,
                             })}
                           >
-                            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13 }}>
+                            <Text style={{ color: COLORS.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                               {isResettingPassword ? "Enviando enlace..." : "¿Olvidaste tu contraseña?"}
                             </Text>
                           </Pressable>
@@ -1377,7 +1390,7 @@ export default function PerfilScreen() {
                             />
                             {/* Mientras escribe una contraseña corta: cuántos caracteres le faltan (el botón se activa al llegar). */}
                             {avisoContrasenaCorta(pass) ? (
-                              <Text nativeID="registro-contrasena-aviso" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+                              <Text nativeID="registro-contrasena-aviso" style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                                 {avisoContrasenaCorta(pass)}
                               </Text>
                             ) : null}
@@ -1406,9 +1419,9 @@ export default function PerfilScreen() {
                         opacity: pressed ? 0.7 : 1,
                       })}
                     >
-                      <Text style={{ color: COLORS.muted, fontSize: 13.5, textAlign: "center", lineHeight: 20 }}>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 20 }}>
                         ¿Quién está detrás de la tienda?{" "}
-                        <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Conoce a Daniel Gutiérrez y al equipo →</Text>
+                        <Text style={{ color: COLORS.accentTexto, fontWeight: "900" }}>Conoce a Daniel Gutiérrez y al equipo →</Text>
                       </Text>
                     </Pressable>
                   </>
@@ -1416,7 +1429,7 @@ export default function PerfilScreen() {
                   <View style={{ gap: 12 }}>
                     <View style={{ gap: 8, alignItems: "center" }}>
                       <Text
-                        style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800", textAlign: "center" }}
+                        style={{ color: COLORS.muted, fontSize: TAMANOS.legal, fontWeight: "800", textAlign: "center" }}
                       >
                         SESIÓN ACTUAL
                       </Text>
@@ -1463,16 +1476,23 @@ export default function PerfilScreen() {
 // sale el campo.
 // ============================================================================
 
+// Colores de «Mis seguimientos» (constants/theme.ts, lección del 2026-11-12): el gris de texto no baja de 0.72
+// (muted); mutedSoft solo para el texto de ejemplo de los campos y los iconos de relleno. Azul: accent / accentDark son
+// el azul de marca (puntos y línea de la barra, iconos, botones y fondos); accentTexto es el TEXTO azul pequeño (todos los
+// de esta pestaña miden menos de 17 px), en el azul más oscuro #0A78B4.
 const SEG = {
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
+  text: COLORES_TEXTO.texto,
+  muted: COLORES_TEXTO.secundario,
   mutedSoft: "rgba(11,33,56,0.45)",
   line: "#E3EAF2",
-  accent: "#1EA7E8",
-  accentDark: "#1EA7E8",
+  accent: COLORES_TEXTO.azulMarca,
+  accentDark: COLORES_TEXTO.azulMarca,
+  accentTexto: COLORES_TEXTO.azulTexto,
   danger: "#DC2626",
   ok: "#15803D",
 };
+// Letra de «Mis seguimientos» (TAMANOS de constants/theme.ts): 13 px lo secundario, 15 lo normal y 20 los títulos; 12
+// solo las etiquetas de la barra de etapas (y las de los filtros cuando son cinco).
 
 // Selector de pestañas centrado con subrayado azul en la activa.
 function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: PerfilTab) => void }) {
@@ -1494,9 +1514,10 @@ function PerfilTabs({ value, onChange }: { value: PerfilTab; onChange: (t: Perfi
             role="tab"
             aria-selected={active}
             hitSlop={6}
-            style={({ pressed }) => ({ alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+            // 44 px de alto (TACTIL.minimo; antes 26): el texto y su subrayado, centrados en la zona que se toca.
+            style={({ pressed }) => ({ minHeight: TACTIL.minimo, alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
           >
-            <Text style={{ color: active ? SEG.text : SEG.muted, fontWeight: "900", fontSize: 15 }}>{t.label}</Text>
+            <Text style={{ color: active ? SEG.text : SEG.muted, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{t.label}</Text>
             <View
               style={{
                 height: 3,
@@ -1618,7 +1639,7 @@ function CompraEnTienda({ p }: { p: PedidoSeg }) {
   return (
     <View nativeID={`seguimiento-tienda-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
       <Ionicons name="storefront-outline" size={16} color={SEG.ok} />
-      <Text style={{ color: SEG.ok, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>
+      <Text style={{ color: SEG.ok, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center", flexShrink: 1 }}>
         {/* «Compra en tienda» ya va en el título del pedido. */}
         {`Pagado${forma ? ` ${forma}` : ""} · Entregado`}
       </Text>
@@ -1661,7 +1682,7 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
     return (
       <View nativeID={`seguimiento-factura-espera-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
         <Ionicons name="document-text-outline" size={16} color={SEG.muted} />
-        <Text style={{ color: SEG.muted, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>{texto}</Text>
+        <Text style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center", flexShrink: 1 }}>{texto}</Text>
       </View>
     );
   }
@@ -1704,10 +1725,10 @@ function FacturaDelPedido({ p, facturasOk }: { p: PedidoSeg; facturasOk: boolean
         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || estado === "pidiendo" ? 0.6 : 1 })}
       >
         {estado === "pidiendo" ? <ActivityIndicator size="small" color={SEG.accent} /> : <Ionicons name="download-outline" size={16} color={SEG.accentDark} />}
-        <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>Descargar factura {numero}</Text>
+        <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>Descargar factura {numero}</Text>
       </Pressable>
       {aviso ? (
-        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center", maxWidth: 360 }}>
           {aviso}
         </Text>
       ) : null}
@@ -1725,7 +1746,7 @@ function PagoDelPedido({ p }: { p: PedidoSeg }) {
   return (
     <View nativeID={`seguimiento-pago-${p.numero ?? p.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
       <Ionicons name={devuelto ? "return-down-back-outline" : "card"} size={16} color={devuelto ? SEG.muted : SEG.ok} />
-      <Text style={{ color: devuelto ? SEG.muted : SEG.ok, fontWeight: "800", fontSize: 13.5, textAlign: "center", flexShrink: 1 }}>
+      <Text style={{ color: devuelto ? SEG.muted : SEG.ok, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center", flexShrink: 1 }}>
         {devuelto
           ? `Pago devuelto · ${segEuros(Number(p.devuelto_eur))} · ${segFecha(p.devuelto_en ?? null)}`
           : `Pagado online${con} · ${segEuros(Number(p.pagado_eur))} · ${segFecha(p.pagado_en ?? null)}`}
@@ -1842,8 +1863,10 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
         hitSlop={6}
         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
       >
-        <Ionicons name="add-circle-outline" size={18} color={SEG.accentDark} />
-        <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>¿Te hemos dado un número de seguimiento?</Text>
+        {/* El icono va DENTRO del texto: si a 360 px no cabe en una línea, sigue pegado a la primera palabra. */}
+        <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+          <Ionicons name="add-circle-outline" size={18} color={SEG.accentDark} style={{ verticalAlign: "middle" }} /> ¿Te hemos dado un número de seguimiento?
+        </Text>
       </Pressable>
     );
   }
@@ -1862,10 +1885,11 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
         hitSlop={6}
         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
       >
-        <Ionicons name="close-circle-outline" size={18} color={SEG.accentDark} />
-        <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5, textAlign: "center" }}>¿Te hemos dado un número de seguimiento?</Text>
+        <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 20, textAlign: "center", flexShrink: 1 }}>
+          <Ionicons name="close-circle-outline" size={18} color={SEG.accentDark} style={{ verticalAlign: "middle" }} /> ¿Te hemos dado un número de seguimiento?
+        </Text>
       </Pressable>
-      <Text style={{ color: SEG.muted, fontSize: 13.5, textAlign: "center" }}>Escríbelo aquí: vale para un pedido o una reparación.</Text>
+      <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Escríbelo aquí: vale para un pedido o una reparación.</Text>
       <View style={{ flexDirection: "row", gap: 8, width: "100%" }}>
         <TextInput
           value={codigo}
@@ -1882,12 +1906,12 @@ function AnadirNumeroSeguimiento({ onAnadido }: { onAnadido: () => void }) {
           style={{
             flex: 1,
             minWidth: 0,
-            minHeight: 48,
+            minHeight: CAMPO.alto,
             borderWidth: 1,
             borderColor: SEG.line,
             borderRadius: 14,
             paddingHorizontal: 14,
-            fontSize: 16,
+            fontSize: CAMPO.letra,
             fontWeight: "800",
             letterSpacing: 1,
             color: SEG.text,
@@ -1966,7 +1990,8 @@ function FiltrosPedidos({
       {opciones.map((o) => {
         const elegido = o.f === actual;
         const n = pedidos.filter((p) => pasaFiltroPedido(p, o.f)).length;
-        const color = elegido ? SEG.accentDark : SEG.muted;
+        // Número y nombre del elegido en el azul de texto (texto pequeño); el icono y la raya, en el de marca.
+        const color = elegido ? SEG.accentTexto : SEG.muted;
         return (
           <Pressable
             key={o.f}
@@ -1987,6 +2012,8 @@ function FiltrosPedidos({
               flexShrink: 0,
               flexBasis: "auto",
               paddingHorizontal: 3,
+              // 44 px de ancho como mínimo («Todos» medía 40).
+              minWidth: TACTIL.minimo,
               minHeight: 52,
               alignItems: "center",
               justifyContent: "center",
@@ -1999,11 +2026,11 @@ function FiltrosPedidos({
           >
             {/* Arriba el icono con su número; debajo el nombre (así «Cancelados» cabe a 360-390 px). */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Ionicons name={o.icono} size={19} color={color} />
-              <Text style={{ color, fontWeight: "900", fontSize: 13 }}>{n}</Text>
+              <Ionicons name={o.icono} size={19} color={elegido ? SEG.accent : SEG.muted} />
+              <Text style={{ color, fontWeight: "900", fontSize: TAMANOS.minimo }}>{n}</Text>
             </View>
-            {/* Con cinco filtros, la letra algo más pequeña para que «Completados» y «Cancelados» quepan a 360 px. */}
-            <Text numberOfLines={1} style={{ color, fontWeight: elegido ? "900" : "800", fontSize: opciones.length > 4 ? 11.5 : 12.5, textAlign: "center" }}>
+            {/* Nombre de 13 px; con cinco filtros, 12 (tamaño de etiqueta) para que «Completados» y «Cancelados» quepan a 360 px. */}
+            <Text numberOfLines={1} style={{ color, fontWeight: elegido ? "900" : "800", fontSize: opciones.length > 4 ? TAMANOS.legal : TAMANOS.minimo, textAlign: "center" }}>
               {o.texto}
             </Text>
           </Pressable>
@@ -2036,7 +2063,7 @@ function DatosDelSeguimiento({ entrega, codigo }: { entrega: string | null; codi
   const partes = [entrega, codigo ? `Nº de seguimiento ${codigo}` : null].filter(Boolean);
   if (!partes.length) return null;
   return (
-    <Text style={{ color: SEG.mutedSoft, fontSize: 12, fontWeight: "800", letterSpacing: 0.3, textAlign: "center" }}>{partes.join(" · ")}</Text>
+    <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, fontWeight: "800", letterSpacing: 0.3, textAlign: "center" }}>{partes.join(" · ")}</Text>
   );
 }
 
@@ -2071,7 +2098,7 @@ function LineaIcono({ id, icono, color, children }: { id?: string; icono: React.
   return (
     <View nativeID={id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, maxWidth: 460 }}>
       <Ionicons name={icono} size={16} color={color ?? SEG.muted} />
-      <Text style={{ color: color ?? SEG.text, fontWeight: "800", fontSize: 13.5, lineHeight: 19, textAlign: "center", flexShrink: 1 }}>{children}</Text>
+      <Text style={{ color: color ?? SEG.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center", flexShrink: 1 }}>{children}</Text>
     </View>
   );
 }
@@ -2189,7 +2216,7 @@ function EnvioDeLaReparacion({
               style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed || descargando ? 0.6 : 1 })}
             >
               {descargando ? <ActivityIndicator size="small" color={SEG.accent} /> : <Ionicons name="download-outline" size={18} color={SEG.accentDark} />}
-              <Text style={{ color: SEG.accentDark, fontWeight: "900", fontSize: 14 }}>Descargar etiqueta</Text>
+              <Text style={{ color: SEG.accentTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>Descargar etiqueta</Text>
             </Pressable>
           ) : null}
           {!terminado && ["solicitado", "etiqueta", "en_camino"].includes(r.seguimiento) ? (
@@ -2204,20 +2231,20 @@ function EnvioDeLaReparacion({
                 style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
               >
                 <Ionicons name="cube-outline" size={17} color={SEG.accentDark} />
-                <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>Cómo embalarlo y a dónde enviarlo</Text>
+                <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>Cómo embalarlo y a dónde enviarlo</Text>
                 <Ionicons name={embalajeAbierto ? "chevron-up" : "chevron-down"} size={16} color={SEG.accentDark} />
               </Pressable>
               {embalajeAbierto ? (
                 <View nativeID={`seguimiento-embalaje-${r.id}`} style={{ gap: 6, alignSelf: "stretch" }}>
                   {PASOS_EMBALAJE.map((t, i) => (
-                    <Text key={i} style={{ color: SEG.text, fontSize: 13.5, lineHeight: 19 }}>
+                    <Text key={i} style={{ color: SEG.text, fontSize: TAMANOS.minimo, lineHeight: 19 }}>
                       {i + 1}. {t}
                     </Text>
                   ))}
                   {ajustes?.direccion_taller ? (
                     <View nativeID={`seguimiento-taller-${r.id}`} style={{ gap: 2, alignItems: "center", paddingTop: 4 }}>
-                      <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>ENVÍALO A</Text>
-                      <Text selectable style={{ color: SEG.text, fontWeight: "800", fontSize: 14, lineHeight: 20, textAlign: "center" }}>
+                      <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, fontWeight: "800" }}>ENVÍALO A</Text>
+                      <Text selectable style={{ color: SEG.text, fontWeight: "800", fontSize: TAMANOS.cuerpo, lineHeight: 20, textAlign: "center" }}>
                         {ajustes.direccion_taller}
                       </Text>
                     </View>
@@ -2225,7 +2252,8 @@ function EnvioDeLaReparacion({
                   <Text
                     accessibilityRole="link"
                     onPress={() => router.push("/politicas/reparacion-envio")}
-                    style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13, textAlign: "center", textDecorationLine: "underline" }}
+                    // 44 px de zona táctil: 20 de línea + 12 arriba y abajo.
+                    style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 20, paddingVertical: 12, textAlign: "center", textDecorationLine: "underline" }}
                   >
                     Condiciones de reparación por envío
                   </Text>
@@ -2238,7 +2266,7 @@ function EnvioDeLaReparacion({
 
       {fotos.length ? (
         <View nativeID={`seguimiento-fotos-${r.id}`} style={{ alignItems: "center", gap: 6 }}>
-          <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>ASÍ NOS LLEGÓ</Text>
+          <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, fontWeight: "800" }}>ASÍ NOS LLEGÓ</Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
             {fotos.map((f, i) => (
               <Pressable
@@ -2270,7 +2298,7 @@ function EnvioDeLaReparacion({
             {r.seguimiento === "presupuesto" ? (
               <>
                 {confirmando ? (
-                  <Text nativeID={`seguimiento-presupuesto-confirmar-texto-${r.id}`} style={{ color: SEG.text, fontSize: 13.5, lineHeight: 19, textAlign: "center", maxWidth: 360 }}>
+                  <Text nativeID={`seguimiento-presupuesto-confirmar-texto-${r.id}`} style={{ color: SEG.text, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center", maxWidth: 360 }}>
                     Al aceptarlo empezamos la reparación por {segEuros(Number(r.presupuesto_eur))}.
                   </Text>
                 ) : null}
@@ -2300,7 +2328,7 @@ function EnvioDeLaReparacion({
                     hitSlop={6}
                     style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
                   >
-                    <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>Ahora no</Text>
+                    <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>Ahora no</Text>
                   </Pressable>
                 ) : null}
               </>
@@ -2310,7 +2338,7 @@ function EnvioDeLaReparacion({
       ) : null}
 
       {aviso ? (
-        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center", maxWidth: 360 }}>
           {aviso}
         </Text>
       ) : null}
@@ -2365,7 +2393,7 @@ function BotonTexto({ id, icono, texto, onPress, disabled }: { id: string; icono
       style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4, opacity: pressed || disabled ? 0.6 : 1 })}
     >
       <Ionicons name={icono} size={17} color={SEG.accentDark} />
-      <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>{texto}</Text>
+      <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>{texto}</Text>
     </Pressable>
   );
 }
@@ -2486,7 +2514,7 @@ function PagoDeLaSolicitud({
             style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
           >
             <Ionicons name="phone-portrait-outline" size={17} color={SEG.accentDark} />
-            <Text style={{ color: SEG.accentDark, fontWeight: "800", fontSize: 13.5 }}>
+            <Text style={{ color: SEG.accentTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>
               {manual.bizum && manual.iban ? "Pagar por Bizum o transferencia" : manual.bizum ? "Pagar por Bizum" : "Pagar por transferencia"}
             </Text>
             <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={16} color={SEG.accentDark} />
@@ -2494,24 +2522,24 @@ function PagoDeLaSolicitud({
           {abierto ? (
             <View nativeID={`seguimiento-pago-manual-${id}`} style={{ alignItems: "center", gap: 4, alignSelf: "stretch" }}>
               {manual.bizum ? (
-                <Text selectable style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                <Text selectable style={{ color: SEG.text, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                   <Text style={{ fontWeight: "800" }}>Bizum: </Text>
                   {manual.bizum}
                 </Text>
               ) : null}
               {manual.iban ? (
-                <Text selectable style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                <Text selectable style={{ color: SEG.text, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                   <Text style={{ fontWeight: "800" }}>IBAN: </Text>
                   {manual.iban}
                 </Text>
               ) : null}
               {manual.titular ? (
-                <Text selectable style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+                <Text selectable style={{ color: SEG.text, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                   <Text style={{ fontWeight: "800" }}>Titular: </Text>
                   {manual.titular}
                 </Text>
               ) : null}
-              <Text selectable nativeID={`seguimiento-pago-concepto-${id}`} style={{ color: SEG.text, fontSize: 13.5, textAlign: "center" }}>
+              <Text selectable nativeID={`seguimiento-pago-concepto-${id}`} style={{ color: SEG.text, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 <Text style={{ fontWeight: "800" }}>Concepto: </Text>
                 {r.codigo_seguimiento ?? "tu número de seguimiento"}
               </Text>
@@ -2526,7 +2554,7 @@ function PagoDeLaSolicitud({
         </LineaIcono>
       ) : null}
       {aviso ? (
-        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center", maxWidth: 360 }}>
           {aviso}
         </Text>
       ) : null}
@@ -2715,7 +2743,7 @@ function CobrosDeLaReparacion({
         ) : garantia.puede ? (
           pidiendoGarantia ? (
             <View style={{ alignItems: "center", gap: 2 }}>
-              <Text nativeID={`seguimiento-garantia-confirmar-${r.id}`} style={{ color: SEG.text, fontSize: 13.5, lineHeight: 19, textAlign: "center", maxWidth: 360 }}>
+              <Text nativeID={`seguimiento-garantia-confirmar-${r.id}`} style={{ color: SEG.text, fontSize: TAMANOS.minimo, lineHeight: 19, textAlign: "center", maxWidth: 360 }}>
                 {porEnvio ? "Lo volvemos a revisar gratis, también la etiqueta de Correos." : "Lo volvemos a revisar gratis."}
               </Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 16 }}>
@@ -2735,7 +2763,7 @@ function CobrosDeLaReparacion({
     <View nativeID={`seguimiento-cobros-${r.id}`} style={{ width: "100%", maxWidth: 460, gap: 10, alignItems: "center" }}>
       {bloques}
       {aviso ? (
-        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: 12.5, textAlign: "center", maxWidth: 360 }}>
+        <Text accessibilityRole="alert" style={{ color: SEG.muted, fontSize: TAMANOS.minimo, textAlign: "center", maxWidth: 360 }}>
           {aviso}
         </Text>
       ) : null}
@@ -2778,7 +2806,7 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
             </React.Fragment>
           ))}
         </View>
-        <Text style={{ color: SEG.danger, fontWeight: "900", fontSize: 13 }}>Cancelado</Text>
+        <Text style={{ color: SEG.danger, fontWeight: "900", fontSize: TAMANOS.minimo }}>Cancelado</Text>
       </View>
     );
   }
@@ -2807,10 +2835,10 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
             </React.Fragment>
           ))}
         </View>
-        <Text nativeID="linea-actual" style={{ color: SEG.accent, fontWeight: "900", fontSize: 14.5, textAlign: "center" }}>
+        <Text nativeID="linea-actual" style={{ color: SEG.accentTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>
           {actual >= 0 ? etiquetas[actual] : antes ?? "Solicitada"}
         </Text>
-        <Text nativeID="linea-paso" style={{ color: SEG.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+        <Text nativeID="linea-paso" style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
           {actual >= 0 ? `Paso ${actual + 1} de ${n}` : `${n} pasos`}
           {siguiente ? ` · Después: ${siguiente}` : ""}
         </Text>
@@ -2818,7 +2846,9 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
     );
   }
 
-  const alternar = etiquetas.length > 5;
+  // Con 12 px, cinco etiquetas en su columna ya no caben a 360 px («Confirmado», «Preparando»): de cinco etapas en
+  // adelante (pedidos y reparaciones) se alternan arriba y abajo, cada una con el ancho de dos columnas.
+  const alternar = etiquetas.length > 4;
   return (
     <View style={{ width: "100%", maxWidth: 460, gap: 8, paddingVertical: 4 }}>
       {alternar ? filaEtiquetas(0) : null}
@@ -2846,15 +2876,17 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
     </View>
   );
 
-  // Etiquetas bajo (o sobre) los puntos, cada una centrada en su punto. Con seis etapas (reparaciones) se alternan:
+  // Etiquetas bajo (o sobre) los puntos, cada una centrada en su punto. Con cinco o seis etapas (pedidos y reparaciones) se alternan:
   // las pares encima de la barra y las impares debajo, y cada una tiene el ancho de DOS columnas, así «Diagnóstico» o
   // «Lista para recoger» no se parten a media palabra ni se montan sobre la de al lado (dueño, 2026-11-10).
   function filaEtiquetas(paridad: 0 | 1 | null) {
+    // 12 px (TAMANOS.legal, tamaño de etiqueta; antes 10,5): la actual en el azul de texto, las pasadas en negro y las
+    // que faltan en el gris de texto.
     const estilo = (i: number) => ({
       textAlign: "center" as const,
-      fontSize: 10.5,
-      lineHeight: 13,
-      color: i === actual ? SEG.accent : i < actual ? SEG.text : SEG.mutedSoft,
+      fontSize: TAMANOS.legal,
+      lineHeight: 15,
+      color: i === actual ? SEG.accentTexto : i < actual ? SEG.text : SEG.muted,
       fontWeight: (i === actual ? "900" : "700") as "900" | "700",
     });
     if (paridad === null) {
@@ -2875,7 +2907,7 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
     const ultima = etiquetas.length - 1;
     return (
       <View style={{ paddingHorizontal: 23 }}>
-        <View nativeID={`linea-etiquetas-${etiquetas.length}-${paridad === 0 ? "arriba" : "abajo"}`} style={{ height: 26, position: "relative" }}>
+        <View nativeID={`linea-etiquetas-${etiquetas.length}-${paridad === 0 ? "arriba" : "abajo"}`} style={{ height: 30, position: "relative" }}>
           {etiquetas.map((t, i) =>
             i % 2 === paridad ? (
               <Text
@@ -2904,8 +2936,14 @@ function LineaProgreso({ etiquetas, actual, cancelado, antes }: { etiquetas: str
 
 function PreguntarBoton({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={6} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: 4 })}>
-      <Text style={{ color: SEG.accentDark, fontWeight: "900", fontSize: 13.5 }}>Preguntar por esto</Text>
+    // 44 px de alto (TACTIL.minimo; antes 23) para el dedo.
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      hitSlop={6}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 4 })}
+    >
+      <Text style={{ color: SEG.accentTexto, fontWeight: "900", fontSize: TAMANOS.minimo }}>Preguntar por esto</Text>
     </Pressable>
   );
 }
@@ -2929,6 +2967,8 @@ function SegVacio({
         onPress={() => router.push(destino)}
         style={({ pressed }) => ({
           borderRadius: 999,
+          minHeight: TACTIL.minimo,
+          justifyContent: "center",
           paddingVertical: 12,
           paddingHorizontal: 22,
           backgroundColor: SEG.accentDark,
@@ -2942,7 +2982,7 @@ function SegVacio({
 }
 
 function SegTitulo({ children }: { children: React.ReactNode }) {
-  return <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 19, textAlign: "center" }}>{children}</Text>;
+  return <Text style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.titulo3, textAlign: "center" }}>{children}</Text>;
 }
 
 function SegSeparador() {
@@ -3428,7 +3468,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
             <>
             <FiltrosPedidos pedidos={pedidos} facturasOk={facturasOk} actual={filtroPedidos} onCambiar={setFiltroPedidos} />
             {pedidos.filter((p) => pasaFiltroPedido(p, filtroPedidos)).length === 0 ? (
-              <Text nativeID="seguimiento-filtro-vacio" style={{ color: SEG.muted, fontSize: 14, textAlign: "center", lineHeight: 20, maxWidth: 420 }}>
+              <Text nativeID="seguimiento-filtro-vacio" style={{ color: SEG.muted, fontSize: TAMANOS.cuerpo, textAlign: "center", lineHeight: 20, maxWidth: 420 }}>
                 {TEXTO_FILTRO_VACIO[filtroPedidos]}
               </Text>
             ) : null}
@@ -3436,7 +3476,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
               <View key={p.id} nativeID={`seguimiento-pedido-${p.numero ?? p.id}`} style={{ gap: 10, alignItems: "center", width: "100%" }}>
                 {i > 0 ? <SegSeparador /> : null}
                 {/* La referencia del pedido (VZ-XXXX-XXXX), como una empresa: nunca el número interno (dueño, 2026-11-11). */}
-                <Text nativeID={`mis-pedidos-titulo-${p.numero ?? p.id}`} style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, textAlign: "center" }}>
+                <Text nativeID={`mis-pedidos-titulo-${p.numero ?? p.id}`} style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>
                   {p.origen === "tienda_fisica" ? "Compra en tienda" : "Pedido"}
                   {p.codigo_seguimiento ? ` ${p.codigo_seguimiento}` : ""}
                   {p.total_eur != null ? ` · ${segEuros(p.total_eur)}` : ""}
@@ -3445,7 +3485,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12, maxWidth: 460, alignSelf: "center" }}>
                   <MiniaturaSeguimiento nativeID={`seguimiento-mini-${p.numero ?? p.id}`} foto={p.foto} icono="cube-outline" alt={p.items[0] ?? "Artículo del pedido"} />
                   {p.items.length ? (
-                    <Text style={{ color: SEG.text, fontSize: 14.5, lineHeight: 20, flexShrink: 1 }}>{p.items.join(" · ")}</Text>
+                    <Text style={{ color: SEG.text, fontSize: TAMANOS.cuerpo, lineHeight: 20, flexShrink: 1 }}>{p.items.join(" · ")}</Text>
                   ) : null}
                 </View>
                 {p.origen === "tienda_fisica" ? (
@@ -3491,7 +3531,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
               {i > 0 ? <SegSeparador /> : null}
               <View style={{ flexDirection: "row", alignItems: "center", gap: 12, maxWidth: 460, alignSelf: "center" }}>
                 <MiniaturaSeguimiento nativeID={`seguimiento-mini-rep-${r.id}`} foto={r.foto} icono="construct-outline" alt={r.service_title} />
-                <Text style={{ color: SEG.text, fontWeight: "900", fontSize: 15.5, lineHeight: 21, flexShrink: 1 }}>
+                <Text style={{ color: SEG.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21, flexShrink: 1 }}>
                   {r.service_title} · {segFecha(r.created_at)}
                 </Text>
               </View>
@@ -3524,7 +3564,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
               ) : null}
               {r.seguimiento_nota ? (
                 <View style={{ alignItems: "center", gap: 2, maxWidth: 460 }}>
-                  <Text style={{ color: SEG.mutedSoft, fontSize: 11.5, fontWeight: "800" }}>
+                  <Text style={{ color: SEG.muted, fontSize: TAMANOS.minimo, fontWeight: "800" }}>
                     NOTA DEL TALLER{r.seguimiento_actualizado ? ` · ${segFecha(r.seguimiento_actualizado)}` : ""}
                   </Text>
                   <Text style={{ color: SEG.text, textAlign: "center", lineHeight: 20 }}>{r.seguimiento_nota}</Text>
@@ -3533,7 +3573,7 @@ function SeguimientosSeccion({ filtroInicial }: { filtroInicial?: FiltroPedidos 
               {/* Terminado: se pide su valoración (una vez); con ella, sus estrellas. */}
               {r.seguimiento === "entregado" && valoradas !== null ? (
                 valoradas[r.id] ? (
-                  <Text nativeID={`valorado-${r.id}`} style={{ color: SEG.muted, fontWeight: "800", fontSize: 13 }}>
+                  <Text nativeID={`valorado-${r.id}`} style={{ color: SEG.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                     Tu valoración: <Text style={{ color: "#F5A524" }}>{"★".repeat(valoradas[r.id])}</Text>
                   </Text>
                 ) : (

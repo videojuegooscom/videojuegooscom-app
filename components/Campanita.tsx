@@ -134,6 +134,7 @@
  * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
  * - lib/interaccion.ts → «me gusta» de la cuenta (bajadas de precio); app/(tabs)/perfil.tsx → registro y vuelta
  *   (VOLVER_TRAS_ACCESO_KEY); app/admin/analytics.tsx → #analitica-blue-avisos-cuenta.
+ * - constants/theme.ts → CAMPO.letra (16 px) en los campos de texto, para que el iPhone no haga zoom.
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
@@ -165,6 +166,7 @@ import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
 import { MejorasModal } from "./ReviewModal";
+import { CAMPO } from "../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -3093,6 +3095,8 @@ export default function Campanita() {
                 padding: 12,
                 textAlign: "center",
                 color: COLORS.text,
+                // 16 px (CAMPO.letra de constants/theme.ts): con menos, Safari del iPhone hace zoom al escribir.
+                fontSize: CAMPO.letra,
                 backgroundColor: "#F6FAFD",
               }}
             />

@@ -11,8 +11,12 @@
  *   iconos a tamaño fijo TAB_ICON_SIZE y etiqueta más pequeña) para dejar
  *   más hueco visible al contenido con scroll de cada pantalla, pero con
  *   aire suficiente para que el nombre de cada pestaña no se recorte en
- *   móvil. Se lee bien: icono de 22, nombre de 11 px, gris con más
- *   contraste y una línea azul fina encima de la sección activa. Altura algo mayor fuera de iOS
+ *   móvil. Se lee bien: icono de 22, nombre de 13 px (TAMANOS.minimo de
+ *   constants/theme.ts; cabe en una línea a 360 px con las 5 pestañas), gris
+ *   rgba(11,33,56,0.72) en las no activas y una línea azul fina encima de la
+ *   sección activa. Regla del azul (dueño, 2026-11-12): el icono y la línea
+ *   activos siguen en el azul de marca #1EA7E8; el NOMBRE activo, que es texto
+ *   de 13 px, va en el azul de texto #0A78B4. Altura algo mayor fuera de iOS
  *   (donde antes iba muy justa) y el icono desplazado hacia arriba
  *   (paddingTop menor) para dejarle más hueco debajo a la etiqueta. Si se
  *   cambia aquí, conviene revisar SEARCH_LAYOUT.mobileTabBarHeight /
@@ -46,6 +50,7 @@
  * - lib/loadingBus.ts → useCargando() para saber cuándo brillar y
  *   pulseLoading() al recargar una pestaña.
  * - components/lineapensadoraefectosiri.tsx → BrilloIconoSeccion (halo).
+ * - constants/theme.ts → TAMANOS, COLORES_TEXTO y colorTextoAzul.
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Platform } from "react-native";
@@ -60,6 +65,7 @@ import {
 } from "../../lib/tabBar";
 import { pulseLoading, useCargando } from "../../lib/loadingBus";
 import { BrilloIconoSeccion } from "../../components/lineapensadoraefectosiri";
+import { colorTextoAzul, COLORES_TEXTO, TAMANOS } from "../../constants/theme";
 
 const TAB_ICON_SIZE = 22;
 
@@ -184,7 +190,7 @@ function IconoPestana({
         }}
       />
       <BrilloIconoSeccion brillando={focused && cargando}>
-        <Ionicons name={nombre} size={TAB_ICON_SIZE} color={color} />
+        <Ionicons name={nombre} size={TAB_ICON_SIZE} color={focused ? COLORS.accent : color} />
       </BrilloIconoSeccion>
     </Animated.View>
   );
@@ -194,10 +200,13 @@ const COLORS = {
   bg: "#FFFFFF",
   card: "#FFFFFF",
   border: "#E3EAF2",
-  text: "#0B2138",
+  text: COLORES_TEXTO.texto,
   // Más contraste en las secciones no activas: antes 0.55 se leía mal al sol.
-  muted: "rgba(11,33,56,0.72)",
-  accent: "#1EA7E8",
+  muted: COLORES_TEXTO.secundario,
+  // Azul de marca: la línea de la sección activa y su icono siguen en #1EA7E8.
+  accent: COLORES_TEXTO.azulMarca,
+  // Nombre de la sección activa: texto azul de 13 px → azul de texto (regla del azul de constants/theme.ts).
+  accentTexto: colorTextoAzul(TAMANOS.minimo),
 };
 
 export default function TabsLayout() {
@@ -219,7 +228,9 @@ export default function TabsLayout() {
           backgroundColor: COLORS.bg,
         },
         tabBarShowLabel: true,
-        tabBarActiveTintColor: COLORS.accent,
+        // El tinte activo es el del NOMBRE (texto pequeño → azul de texto); el icono activo
+        // sigue en el azul de marca (IconoPestana lo pinta con COLORS.accent).
+        tabBarActiveTintColor: COLORS.accentTexto,
         tabBarInactiveTintColor: COLORS.muted,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
@@ -237,12 +248,12 @@ export default function TabsLayout() {
         tabBarItemStyle: {
           paddingVertical: 1,
         },
-        // Nombre de la sección algo más grande (antes 10 px) y con su alto justo: la barra
-        // tiene la altura contada (padding 4 + icono 28 + nombre 13 + padding 10) y si el
-        // nombre pide más, el navegador lo recorta por abajo.
+        // Nombre de la sección a 13 px (TAMANOS.minimo; antes 11, y antes aún 10) con su alto
+        // justo: los botones miden 62 px (lib/tabBar.ts) y caben icono 28 + nombre 16. «Blue IA»,
+        // el más largo, cabe en una línea a 360 px con las 5 pestañas (72 px cada una).
         tabBarLabelStyle: {
-          fontSize: 11,
-          lineHeight: 13,
+          fontSize: TAMANOS.minimo,
+          lineHeight: 16,
           fontWeight: "800",
         },
       }}
