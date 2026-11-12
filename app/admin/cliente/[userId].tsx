@@ -8,19 +8,40 @@
  * cualquier otra cosa (intercambios, garantías, acuerdos puntuales) que no
  * encaje en ninguna tabla concreta.
  *
- * Pedidos (dueño, 2026-11-11): cada uno con su referencia «Pedido VZ-XXXX-XXXX» (la que ve el cliente) de título y el
+ * Diseño (dueño, 2026-11-12): ancho máximo 760 px centrado, legible a 360 px y en ordenador.
+ * - Cabecera tipo tarjeta (#ficha-cabecera): foto o iniciales, nombre, @usuario · edad · provincia, el correo y, en gris,
+ *   «Cliente desde <mes año> · Última conexión hace X» (#ficha-ultima-conexion). Debajo, etiquetas con icono (sin
+ *   burbuja): «Perfil completo» o lo que falta, «App instalada» y «Silenciado en el Foro». No sabemos si confirmó el correo
+ *   (no llega a la ficha), así que esa etiqueta no sale.
+ * - Cuatro cifras en fila (#ficha-cifras): gastado (pedidos no cancelados, menos lo devuelto), pedidos, reparaciones y
+ *   ventas a la tienda.
+ * - Acciones rápidas (#ficha-acciones, icono + texto, 44 px): «Escribir por el chat» (Administración → Chat si tiene alguna
+ *   conversación; el chat lo empieza el cliente desde un producto), «Copiar correo», «Ver en Pedidos» (Pedidos no admite
+ *   filtro por URL: solo abre la pantalla) y «Añadir nota» (pestaña Notas con el cuadro listo para escribir).
+ * - Pestañas deslizables (#ficha-pestanas): Resumen · Pedidos · Reparaciones · Ventas · Actividad · Notas, con su número;
+ *   la elegida queda en la URL (?tab=pedidos) para volver a ella, y deslizando el dedo se pasa a la siguiente (en bucle).
+ *   - Resumen: la nota interna fijada (fondo amarillo suave), los 3 últimos movimientos, los datos del perfil (edad sin
+ *     fecha de nacimiento, dirección de envío) y los dispositivos.
+ *   - Pedidos: filas compactas (miniatura del artículo si la hay, referencia VZ-, importe, etapa con color, factura y «Ver
+ *     factura»); al tocar uno se despliega (nº interno, artículos, entrega, pago con tarjeta y los botones de etapa de 44 px
+ *     separados 8 px) y se vuelve a plegar. Debajo, «Pagos e intentos de compra» y «Compras a la tienda».
+ *   - Reparaciones: igual, plegables, con su seguimiento y nota del taller. Ventas: lo que nos ha querido vender.
+ *   - Actividad (#ficha-actividad): línea de tiempo por día con un icono por tipo (registro, pedido, pago, factura,
+ *     reparación y sus etapas, venta a la tienda, compra, intento de compra, primera conexión desde un dispositivo, Foro e
+ *     ideas de mejora); debajo, la moderación del Foro y sus ideas de mejora.
+ *
+ * Pedidos (dueño, 2026-11-11): cada uno con su referencia «VZ-XXXX-XXXX» (la que ve el cliente) de título y el
  * número interno en pequeño; en la actividad de compra, también la referencia del pedido si está en la ficha.
  * Factura (dueño, 2026-11-12): cada pedido con factura de VeoAura enseña su número y «Ver factura», que abre el PDF en
  * una pestaña nueva (api/factura.ts con «ver=1», enlace firmado de 60 s) para revisar cómo ha quedado.
- * Dispositivos (dueño, 2026-11-12): bajo el correo, «Última conexión: hace 2 h (12/11/2026 12:49)», y la tarjeta
- * «Dispositivos» con cada uno (tipo y navegador, «App instalada», primera y última vez, inicios de sesión), de la tabla
- * cliente_dispositivos (migración 20261112120000; la escribe lib/supabase.ts → registrarDispositivo). Sin IP ni ubicación.
- * Sin la migración, no sale nada de esto.
+ * Dispositivos (dueño, 2026-11-12): «Última conexión» en la cabecera y la sección «Dispositivos» con cada uno (tipo y
+ * navegador, «App instalada», primera y última vez, inicios de sesión), de la tabla cliente_dispositivos (migración
+ * 20261112120000; la escribe lib/supabase.ts → registrarDispositivo). Sin IP ni ubicación. Sin la migración, no sale nada.
  *
  * Cómo funciona:
  * - user_id, email y fecha de alta llegan como parámetros de navegación
  *   desde app/admin/users.tsx (ya los tenía cargados de
- *   admin_list_users_with_stats, así que no hace falta pedirlos otra vez).
+ *   admin_list_users_with_stats, así que no hace falta pedirlos otra vez); «tab» es la pestaña abierta.
  * - Compras: product_sales donde buyer_user_id = este cliente. Servicio ya
  *   guarda una "foto fija" del producto (product_title/product_image), así
  *   que se ve igual aunque el producto se haya editado o borrado después.
@@ -35,9 +56,10 @@
  *   los ve en «Mis seguimientos»). Desde aquí se cambia la etapa con un toque
  *   (Pendiente → Confirmado → Preparado → Enviado / Listo para recoger →
  *   Entregado, o Cancelado), igual que en Administración → Pedidos, y se avisa
- *   a api/escaparate-retorno.ts por si lleva artículos de VeoAura.
+ *   a api/escaparate-retorno.ts por si lleva artículos de VeoAura. La miniatura sale de la primera foto del producto
+ *   (products.images) si el artículo sigue enlazado a uno.
  * - Pagos e intentos de compra (dueño, 2026-11-06): cada pedido enseña su pago con tarjeta (pagado, devuelto o
- *   empezado sin terminar, y si fue de prueba), y la tarjeta «Pagos e intentos de compra» cuenta sus pagos y, de los
+ *   empezado sin terminar, y si fue de prueba), y «Pagos e intentos de compra» cuenta sus pagos y, de los
  *   últimos 90 días, lo que hizo en la cesta y al pagar según la analítica propia (añadido a la cesta, «Comprar ya»,
  *   entró a pagar, pedido hecho, abrió el pago con tarjeta, pagó): solo existe si aceptó la analítica, como dice la
  *   política de privacidad. Si algo no se puede leer, la ficha sale igual sin ello.
@@ -47,11 +69,12 @@
  *   y «nota del taller», como en Administración → Servicios → Solicitudes):
  *   al guardarlo, el cliente lo ve en Perfil → «Mis seguimientos» y Blue le
  *   avisa. Así no hace falta ir de pantalla en pantalla.
+ * - Chat: solo se mira si tiene alguna conversación (product_chats.customer_user_id), para «Escribir por el chat».
  * - Foro (ForoCliente): si está silenciado y hasta cuándo («Quitar silencio»), o silenciarlo 1, 3 o 7 días, y su
  *   historial de moderación (mensajes y comentarios eliminados, silencios), de las tablas foro_silencios y
- *   foro_moderacion. Sin esa migración la tarjeta no sale.
+ *   foro_moderacion. Sin esa migración no sale.
  * - Ideas de mejora (MejorasCliente): lo que ha mandado desde «Mejoras en la tienda» (tabla mejoras_tienda), con la
- *   fecha, desde dónde y «Marcar como leída». Sin la migración o sin ideas, la tarjeta no sale.
+ *   fecha, desde dónde y «Marcar como leída». Sin la migración o sin ideas, no sale.
  * - Notas internas: tabla customer_notes (una fila por cliente, clave
  *   primaria customer_user_id). Es un cuadro de texto libre pensado para
  *   todo lo que NO tiene una tabla propia: intercambios, garantías dadas de
@@ -62,13 +85,16 @@
  * Conectado con:
  * - app/admin/users.tsx → navega aquí al tocar una fila de la lista.
  * - app/admin/_layout.tsx → registra esta ruta ("cliente/[userId]").
+ * - app/admin/chats.tsx y app/admin/pedidos.tsx → a donde llevan las acciones rápidas.
+ * - lib/admin/products.components.tsx → useGestoPestanas (deslizar para cambiar de pestaña, como en Servicios).
+ * - pruebas/perfil-datos.mjs → secciones E, DV, PT, ME, M y FC (este diseño).
  * - Migración de Supabase (no hay ya un .sql local por cada cambio, ver
  *   sql/README.md): customer_notes, sell_requests.customer_user_id,
  *   service_requests.customer_user_id.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Image,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -87,11 +113,13 @@ import SmartImage from "../../../components/SmartImage";
 import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
 import { datosDeFila, direccionEnUnaLinea } from "../../../components/PerfilPublico";
 import { openExternalLink } from "../../../lib/openExternalLink";
+import { useGestoPestanas } from "../../../lib/admin/products.components";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
 const CIERRE_TECLADO: "none" | "on-drag" = Platform.OS === "web" ? "none" : "on-drag";
 
+// Tamaños (auditoría 2026-11-12): mínimo 13 px, cuerpo 15, destacados 17, títulos 20/24; grises no más claros que 0,72.
 const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
@@ -99,22 +127,21 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: "rgba(11,33,56,0.72)",
   accent: "#1EA7E8",
-  // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
-  accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
-  accentBorder: "#BEE6FA",
   success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
   warn: "#92660B",
-  warnBg: "rgba(245,158,11,0.14)",
-  warnBorder: "rgba(245,158,11,0.30)",
   danger: "#B91C1C",
   dangerBg: "#FFE4E6",
+  // Nota fijada: amarillo muy suave.
+  notaBg: "#FFF9E0",
+  notaBorde: "#F5E3A3",
 };
+
+type IconName = React.ComponentProps<typeof Ionicons>["name"];
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type PurchaseRow = {
   id: string;
@@ -153,14 +180,16 @@ type PedidoFicha = {
   numero: number | null;
   // Referencia del pedido (VZ-XXXX-XXXX): la que ve el cliente; el número interno va en pequeño (dueño, 2026-11-11).
   codigo_seguimiento?: string | null;
-  // Factura de VeoAura de este pedido (pedido_facturas): número y si ya tiene PDF para «Ver factura».
-  factura?: { numero: string | null; pdf: boolean } | null;
+  // Factura de VeoAura de este pedido (pedido_facturas): número, fecha y si ya tiene PDF para «Ver factura».
+  factura?: { numero: string | null; pdf: boolean; fecha: string | null } | null;
   created_at: string;
   estado: EstadoPedido;
   entrega: "envio" | "recogida" | null;
   total_eur: number | null;
   user_id: string | null;
-  pedido_items: { id: string; titulo: string; precio_eur: number | null }[] | null;
+  pedido_items: { id: string; titulo: string; precio_eur: number | null; product_id?: string | null }[] | null;
+  // Primera foto del primer artículo que sigue enlazado a un producto (products.images).
+  miniatura?: string | null;
   // Pago con tarjeta (consulta aparte: migraciones 20261105120000 y 20261106100000).
   pago_estado?: string | null;
   pago_modo?: string | null;
@@ -193,11 +222,26 @@ function etiquetaEstadoPedido(e: EstadoPedido, entrega: PedidoFicha["entrega"]) 
   return { pendiente: "Pendiente", confirmado: "Confirmado", preparado: "Preparado", entregado: "Entregado", cancelado: "Cancelado" }[e];
 }
 
+// Color de cada etapa: pendiente en ámbar, en curso con el azul de marca, entregado en verde y cancelado en rojo.
+const TONO_ESTADO: Record<EstadoPedido, "warn" | "curso" | "success" | "danger"> = {
+  pendiente: "warn",
+  confirmado: "curso",
+  preparado: "curso",
+  enviado: "curso",
+  entregado: "success",
+  cancelado: "danger",
+};
+
 // 155,00€ · 1.299,00€
 function eur(n: number | null) {
   if (n == null || !Number.isFinite(Number(n))) return "";
   const [ent, dec] = Math.abs(Number(n)).toFixed(2).split(".");
   return `${Number(n) < 0 ? "-" : ""}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${dec}€`;
+}
+
+// Para las cifras de la cabecera: sin céntimos (1.299 €).
+function eurCorto(n: number) {
+  return `${Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} €`;
 }
 
 const SEGUIMIENTO_LABEL: Record<string, string> = {
@@ -221,6 +265,53 @@ const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "warn" | "
 // Un dispositivo desde el que entra el cliente (tabla cliente_dispositivos: solo tipo y navegador, sin IP ni ubicación).
 type DispositivoFicha = { dispositivo: string; app_instalada: boolean; primera_vez: string; ultima_vez: string; inicios: number };
 
+// Pestañas de la ficha (en la URL como ?tab=…).
+type Pestana = "resumen" | "pedidos" | "reparaciones" | "ventas" | "actividad" | "notas";
+const PESTANAS: Pestana[] = ["resumen", "pedidos", "reparaciones", "ventas", "actividad", "notas"];
+const NOMBRE_PESTANA: Record<Pestana, string> = {
+  resumen: "Resumen",
+  pedidos: "Pedidos",
+  reparaciones: "Reparaciones",
+  ventas: "Ventas",
+  actividad: "Actividad",
+  notas: "Notas",
+};
+
+// Un movimiento de la línea de tiempo («Actividad» y los 3 últimos del Resumen).
+type TipoMovimiento =
+  | "registro"
+  | "pedido"
+  | "pago"
+  | "devolucion"
+  | "factura"
+  | "reparacion"
+  | "etapa"
+  | "venta"
+  | "compra"
+  | "intento"
+  | "dispositivo"
+  | "foro"
+  | "idea";
+type Movimiento = { key: string; fecha: string; tipo: TipoMovimiento; titulo: string; detalle?: string; soloDia?: boolean; destino?: Pestana; icono?: IconName };
+const ICONO_MOVIMIENTO: Record<TipoMovimiento, { icono: IconName; color: string }> = {
+  registro: { icono: "person-add-outline", color: COLORS.accent },
+  pedido: { icono: "receipt-outline", color: COLORS.accent },
+  pago: { icono: "card-outline", color: COLORS.success },
+  devolucion: { icono: "return-down-back-outline", color: COLORS.danger },
+  factura: { icono: "document-text-outline", color: COLORS.accent },
+  reparacion: { icono: "construct-outline", color: COLORS.accent },
+  etapa: { icono: "git-commit-outline", color: COLORS.accent },
+  venta: { icono: "pricetag-outline", color: COLORS.accent },
+  compra: { icono: "bag-check-outline", color: COLORS.success },
+  intento: { icono: "cart-outline", color: COLORS.muted },
+  dispositivo: { icono: "phone-portrait-outline", color: COLORS.accent },
+  foro: { icono: "chatbubbles-outline", color: COLORS.warn },
+  idea: { icono: "bulb-outline", color: COLORS.warn },
+};
+
+type FilaModeracion = { id: string; created_at: string; accion: string; detalle: string | null };
+type MejoraFicha = { id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean };
+
 // 12/11/2026 12:49 (hora de Madrid)
 function fmtFechaHora(iso: string) {
   const d = new Date(iso);
@@ -230,8 +321,28 @@ function fmtFechaHora(iso: string) {
   return `${f} ${h}`;
 }
 
+function fmtHora(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" });
+}
+
+// «octubre 2026»
+function fmtMesAnio(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", month: "long", year: "numeric" }).replace(" de ", " ");
+}
+
+// Día en Madrid (2026-11-12), para agrupar la línea de tiempo.
+function claveDia(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-CA", { timeZone: "Europe/Madrid" });
+}
+
 // Icono según el tipo: móvil o tableta, o un ordenador.
-function iconoDispositivo(nombre: string): React.ComponentProps<typeof Ionicons>["name"] {
+function iconoDispositivo(nombre: string): IconName {
   if (/^(iPhone|Android)\b/.test(nombre)) return "phone-portrait-outline";
   if (/^(iPad|Tablet)/.test(nombre)) return "tablet-portrait-outline";
   return "laptop-outline";
@@ -243,51 +354,53 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "short", year: "numeric" });
 }
 
-function StatusPill({ status }: { status: string }) {
-  const meta = STATUS_LABEL[status] ?? { label: status, tone: "neutral" as const };
-  const palette = {
-    neutral: { bg: COLORS.cardSoft, border: COLORS.border, text: COLORS.text },
-    warn: { bg: COLORS.warnBg, border: COLORS.warnBorder, text: COLORS.warn },
-    success: { bg: COLORS.successBg, border: COLORS.successBorder, text: COLORS.success },
-    danger: { bg: COLORS.dangerBg, border: "#FDA4AF", text: COLORS.danger },
-  }[meta.tone];
+// Iniciales para cuando no hay foto: «Dani García» → «DG»; si no hay nombre, la primera letra del correo.
+function iniciales(nombre: string, email: string) {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  const letras = partes.length ? partes.slice(0, 2).map((p) => p[0]) : [email.trim()[0] ?? "?"];
+  return letras.join("").toUpperCase();
+}
 
+// Estado con su color: un punto y el texto (sin cápsula).
+function Estado({ texto, tono }: { texto: string; tono: "neutral" | "warn" | "curso" | "success" | "danger" }) {
+  const color = { neutral: COLORS.muted, warn: COLORS.warn, curso: COLORS.accent, success: COLORS.success, danger: COLORS.danger }[tono];
   return (
-    <View
-      style={{
-        borderRadius: 999,
-        paddingVertical: 4,
-        paddingHorizontal: 9,
-        backgroundColor: palette.bg,
-        borderWidth: 1,
-        borderColor: palette.border,
-        alignSelf: "flex-start",
-      }}
-    >
-      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 11 }}>{meta.label}</Text>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+      <Text numberOfLines={1} style={{ color: tono === "curso" || tono === "neutral" ? COLORS.text : color, fontWeight: "800", fontSize: 13, flexShrink: 1 }}>
+        {texto}
+      </Text>
     </View>
   );
 }
 
-function SectionCard({
+function StatusPill({ status }: { status: string }) {
+  const meta = STATUS_LABEL[status] ?? { label: status, tone: "neutral" as const };
+  return <Estado texto={meta.label} tono={meta.tone} />;
+}
+
+// Una sección de la ficha: icono y título (sin recuadro alrededor), con su número a la derecha si lo tiene.
+function Seccion({
   icon,
   title,
   count,
+  nativeID,
   children,
 }: {
-  icon: React.ComponentProps<typeof Ionicons>["name"];
+  icon: IconName;
   title: string;
   // Número (o texto corto) que sale a la derecha del título; sin él no sale nada.
   count?: number | string;
+  nativeID?: string;
   children: React.ReactNode;
 }) {
   return (
-    <View style={{ borderRadius: 18, backgroundColor: COLORS.card, padding: 14, gap: 10 }}>
+    <View nativeID={nativeID} style={{ gap: 10 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         {/* Solo el icono, sin burbuja (dueño, 2026-11-04). */}
-        <Ionicons name={icon} size={20} color={COLORS.accentDark} />
-        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>{title}</Text>
-        {count !== undefined ? <Text style={{ color: COLORS.muted2, fontSize: 12, fontWeight: "700" }}>{count}</Text> : null}
+        <Ionicons name={icon} size={20} color={COLORS.accent} />
+        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 17 }}>{title}</Text>
+        {count !== undefined ? <Text style={{ color: COLORS.muted, fontSize: 13, fontWeight: "800" }}>{count}</Text> : null}
       </View>
       {children}
     </View>
@@ -295,19 +408,129 @@ function SectionCard({
 }
 
 function EmptyRow({ text }: { text: string }) {
+  return <Text style={{ color: COLORS.muted, fontSize: 15, paddingVertical: 6, lineHeight: 21 }}>{text}</Text>;
+}
+
+// Un botón de texto con icono (sin burbuja), de 44 px, con el azul de marca.
+function BotonTexto({
+  icon,
+  texto,
+  onPress,
+  nativeID,
+  disabled,
+  apagado,
+  accessibilityLabel,
+}: {
+  icon: IconName;
+  texto: string;
+  onPress: () => void;
+  nativeID?: string;
+  disabled?: boolean;
+  // Se puede tocar (explica por qué no hace nada), pero se ve en gris.
+  apagado?: boolean;
+  accessibilityLabel?: string;
+}) {
+  const color = apagado ? COLORS.muted : COLORS.accent;
   return (
-    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontStyle: "italic", paddingVertical: 4, textAlign: "center" }}>
-      {text}
-    </Text>
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? texto}
+      style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, opacity: disabled ? 0.5 : pressed ? 0.7 : 1 })}
+    >
+      <Ionicons name={icon} size={20} color={color} />
+      <Text style={{ color: apagado ? COLORS.muted : COLORS.text, fontWeight: "800", fontSize: 15, flexShrink: 1 }}>{texto}</Text>
+    </Pressable>
+  );
+}
+
+// Línea de tiempo: con `porDia`, agrupada por día (Actividad); sin él, una lista corta con la fecha en cada fila (Resumen).
+function LineaTiempo({ movimientos, porDia, onIr }: { movimientos: Movimiento[]; porDia?: boolean; onIr: (p: Pestana) => void }) {
+  const grupos: { dia: string; items: Movimiento[] }[] = [];
+  for (const m of movimientos) {
+    const dia = porDia ? claveDia(m.fecha) : "";
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.dia === dia) ultimo.items.push(m);
+    else grupos.push({ dia, items: [m] });
+  }
+  return (
+    <View style={{ gap: porDia ? 18 : 0 }}>
+      {grupos.map((g) => (
+        <View key={g.dia || "lista"} style={{ gap: 0 }}>
+          {porDia ? (
+            <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13, letterSpacing: 0.3, paddingBottom: 6 }}>
+              {fmtDate(g.items[0].fecha).toUpperCase()}
+            </Text>
+          ) : null}
+          {g.items.map((m, i) => {
+            const meta = ICONO_MOVIMIENTO[m.tipo];
+            const ultimo = i === g.items.length - 1;
+            const cuando = porDia ? (m.soloDia ? "" : fmtHora(m.fecha)) : m.soloDia ? fmtDate(m.fecha) : `${fmtDate(m.fecha)} · ${fmtHora(m.fecha)}`;
+            const fila = (
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ width: 24, alignItems: "center" }}>
+                  <View style={{ paddingTop: 2 }}>
+                    <Ionicons name={m.icono ?? meta.icono} size={20} color={meta.color} />
+                  </View>
+                  {!ultimo ? <View style={{ flex: 1, width: 2, borderRadius: 1, backgroundColor: COLORS.border, marginTop: 4 }} /> : null}
+                </View>
+                <View style={{ flex: 1, minWidth: 0, paddingBottom: ultimo ? 0 : 14, gap: 2 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15, lineHeight: 21 }}>{m.titulo}</Text>
+                  {m.detalle || cuando ? (
+                    <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                      {[cuando, m.detalle].filter(Boolean).join(" · ")}
+                    </Text>
+                  ) : null}
+                </View>
+                {m.destino ? <Ionicons name="chevron-forward" size={18} color={COLORS.muted} style={{ marginTop: 2 }} /> : null}
+              </View>
+            );
+            return m.destino ? (
+              <Pressable
+                key={m.key}
+                onPress={() => onIr(m.destino as Pestana)}
+                accessibilityRole="button"
+                accessibilityLabel={`${m.titulo}: ver en ${NOMBRE_PESTANA[m.destino]}`}
+                style={({ pressed }) => ({ minHeight: 44, opacity: pressed ? 0.7 : 1 })}
+              >
+                {fila}
+              </Pressable>
+            ) : (
+              <View key={m.key} style={{ minHeight: 44 }}>
+                {fila}
+              </View>
+            );
+          })}
+        </View>
+      ))}
+    </View>
   );
 }
 
 export default function ClienteFicha() {
-  const params = useLocalSearchParams<{ userId: string; email?: string; createdAt?: string }>();
+  const params = useLocalSearchParams<{ userId: string; email?: string; createdAt?: string; tab?: string }>();
   const userId = String(params.userId ?? "").trim();
   const email = typeof params.email === "string" ? params.email : "";
   const createdAt = typeof params.createdAt === "string" ? params.createdAt : "";
   const insets = useSafeAreaInsets();
+
+  // Pestaña abierta: la de la URL (?tab=) para volver a ella; si no, «Resumen».
+  const tabUrl = PESTANAS.includes(params.tab as Pestana) ? (params.tab as Pestana) : "resumen";
+  const [tab, setTab] = useState<Pestana>(tabUrl);
+  useEffect(() => {
+    setTab(tabUrl);
+  }, [tabUrl]);
+  const scrollRef = useRef<ScrollView>(null);
+  const pestanasY = useRef(0);
+  const notasRef = useRef<TextInput>(null);
+  const cambiarTab = useCallback((t: Pestana, subir?: boolean) => {
+    setTab(t);
+    router.setParams({ tab: t } as never);
+    if (subir) scrollRef.current?.scrollTo({ y: Math.max(0, pestanasY.current - 8), animated: true });
+  }, []);
+  const gesto = useGestoPestanas(PESTANAS, tab, (t) => cambiarTab(t));
 
   const [loading, setLoading] = useState(true);
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
@@ -317,6 +540,16 @@ export default function ClienteFicha() {
   const [seguimientoDisponible, setSeguimientoDisponible] = useState(false);
   // Pedidos de la tienda; null = la tabla aún no existe o no se ha podido leer.
   const [pedidos, setPedidos] = useState<PedidoFicha[] | null>(null);
+  // Pedidos y reparaciones desplegados (se pliegan al volver a tocarlos).
+  const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
+  const alternar = useCallback((id: string) => {
+    setAbiertos((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
   // Intentos de compra (analítica propia); null = no se han podido leer.
   const [eventosCompra, setEventosCompra] = useState<EventoCompra[] | null>(null);
   // Perfil que el cliente escribe en Mi cuenta (tabla perfiles_cliente). null = no lo ha rellenado o la tabla aún no existe.
@@ -334,12 +567,25 @@ export default function ClienteFicha() {
 
   // Dispositivos desde los que entra y su última conexión (tabla cliente_dispositivos). null = la tabla aún no existe.
   const [dispositivos, setDispositivos] = useState<DispositivoFicha[] | null>(null);
+  // ¿Tiene alguna conversación por el chat? null = no se sabe.
+  const [tieneChat, setTieneChat] = useState<boolean | null>(null);
+  // Foro e ideas de mejora (los cargan ForoCliente y MejorasCliente; aquí, para la línea de tiempo y las etiquetas).
+  const [foro, setForo] = useState<{ historial: FilaModeracion[]; silencio: { hasta: string } | null }>({ historial: [], silencio: null });
+  const [mejoras, setMejoras] = useState<MejoraFicha[]>([]);
 
   const [notes, setNotes] = useState("");
+  // La nota tal como está guardada (la que sale fijada en el Resumen).
+  const [notaGuardada, setNotaGuardada] = useState("");
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [notesUpdatedAt, setNotesUpdatedAt] = useState<string | null>(null);
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesSaved, setNotesSaved] = useState(false);
+  const [notesError, setNotesError] = useState(false);
+
+  // Aviso de las acciones rápidas («Correo copiado», «sin chat»…).
+  const [avisoAccion, setAvisoAccion] = useState<{ ok: boolean; texto: string } | null>(null);
+  // Cuántos movimientos se ven en «Actividad» (de 30 en 30; «Ver menos» vuelve a 30).
+  const [limiteActividad, setLimiteActividad] = useState(30);
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -348,7 +594,7 @@ export default function ClienteFicha() {
     }
     setLoading(true);
     try {
-      const [salesRes, sellRes, serviceRes, notesRes] = await Promise.all([
+      const [salesRes, sellRes, serviceRes, notesRes, chatRes] = await Promise.all([
         supabase
           .from("product_sales")
           .select("id,created_at,product_title,product_condition,product_image,source")
@@ -369,10 +615,12 @@ export default function ClienteFicha() {
           .select("notes,updated_at")
           .eq("customer_user_id", userId)
           .maybeSingle<{ notes: string; updated_at: string }>(),
+        supabase.from("product_chats").select("id").eq("customer_user_id", userId).limit(1),
       ]);
 
       setPurchases((salesRes.data ?? []) as PurchaseRow[]);
       setSellRequests((sellRes.data ?? []) as SellRequestRow[]);
+      setTieneChat(chatRes.error ? null : (chatRes.data ?? []).length > 0);
       // Etapa de seguimiento: consulta aparte para no romper si falta la migración
       let servicios = (serviceRes.data ?? []) as ServiceRequestRow[];
       let conSeguimiento = false;
@@ -400,7 +648,7 @@ export default function ClienteFicha() {
       setSeguimientoDisponible(conSeguimiento);
 
       // Pedidos: con su cuenta y, aparte, los hechos sin sesión con su mismo correo.
-      const COLUMNAS_PEDIDO = "id,numero,codigo_seguimiento,created_at,estado,entrega,total_eur,user_id,pedido_items(id,titulo,precio_eur)";
+      const COLUMNAS_PEDIDO = "id,numero,codigo_seguimiento,created_at,estado,entrega,total_eur,user_id,pedido_items(id,titulo,precio_eur,product_id)";
       const [conCuenta, sinSesion] = await Promise.all([
         supabase.from("pedidos").select(COLUMNAS_PEDIDO).eq("user_id", userId).order("created_at", { ascending: false }).limit(100),
         email
@@ -419,8 +667,8 @@ export default function ClienteFicha() {
       } else {
         let todos = [...((conCuenta.data ?? []) as unknown as PedidoFicha[]), ...((sinSesion.error ? [] : sinSesion.data ?? []) as unknown as PedidoFicha[])];
         todos.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-        // Su pago con tarjeta (aparte: si las columnas aún no existen, la ficha sale igual sin él).
         if (todos.length) {
+          // Su pago con tarjeta (aparte: si las columnas aún no existen, la ficha sale igual sin él).
           const pagoRes = await supabase
             .from("pedidos")
             .select("id,pago_estado,pago_modo,pagado_eur,pagado_en,devuelto_eur,devuelto_en")
@@ -429,18 +677,30 @@ export default function ClienteFicha() {
             const porId = new Map(((pagoRes.data ?? []) as unknown as (Partial<PedidoFicha> & { id: string })[]).map((x) => [x.id, x]));
             todos = todos.map((p) => ({ ...p, ...porId.get(p.id) }));
           }
-          // Su factura de VeoAura (número y si ya tiene PDF), para «Ver factura». Sin la tabla, la ficha sale igual.
+          // Su factura de VeoAura (número, fecha y si ya tiene PDF), para «Ver factura». Sin la tabla, la ficha sale igual.
           const facRes = await supabase
             .from("pedido_facturas")
             .select("pedido_id,numero_factura,pdf_path,fecha")
             .in("pedido_id", todos.map((p) => p.id))
             .order("fecha", { ascending: false });
           if (!facRes.error) {
-            const porPedido = new Map<string, { numero: string | null; pdf: boolean }>();
-            for (const f of (facRes.data ?? []) as { pedido_id: string; numero_factura: string | null; pdf_path: string | null }[]) {
-              if (!porPedido.has(f.pedido_id)) porPedido.set(f.pedido_id, { numero: f.numero_factura, pdf: !!f.pdf_path });
+            const porPedido = new Map<string, { numero: string | null; pdf: boolean; fecha: string | null }>();
+            for (const f of (facRes.data ?? []) as { pedido_id: string; numero_factura: string | null; pdf_path: string | null; fecha: string | null }[]) {
+              if (!porPedido.has(f.pedido_id)) porPedido.set(f.pedido_id, { numero: f.numero_factura, pdf: !!f.pdf_path, fecha: f.fecha ?? null });
             }
             todos = todos.map((p) => ({ ...p, factura: porPedido.get(p.id) ?? null }));
+          }
+          // Miniatura: la primera foto del producto de cada pedido (si el artículo sigue enlazado a uno).
+          const prodIds = [...new Set(todos.flatMap((p) => (p.pedido_items ?? []).map((it) => String(it.product_id ?? ""))).filter((x) => UUID.test(x)))];
+          if (prodIds.length) {
+            const fotosRes = await supabase.from("products").select("id,images").in("id", prodIds);
+            if (!fotosRes.error) {
+              const foto = new Map(((fotosRes.data ?? []) as { id: string; images?: unknown }[]).map((x) => [x.id, Array.isArray(x.images) ? String(x.images[0] ?? "") : ""]));
+              todos = todos.map((p) => ({
+                ...p,
+                miniatura: (p.pedido_items ?? []).map((it) => foto.get(String(it.product_id ?? "")) ?? "").find(Boolean) || null,
+              }));
+            }
           }
         }
         setPedidos(todos);
@@ -458,7 +718,6 @@ export default function ClienteFicha() {
         .limit(500);
       let eventos = evRes.error ? null : ((evRes.data ?? []) as EventoCompra[]);
       // El nombre de cada artículo que añadió a la cesta o compró con «Comprar ya».
-      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const ids = [...new Set((eventos ?? []).slice(0, 8).map((e) => String(e.metadata?.productId ?? "")).filter((x) => UUID.test(x)))];
       if (eventos && ids.length) {
         const prodRes = await supabase.from("products").select("id,title").in("id", ids);
@@ -467,10 +726,11 @@ export default function ClienteFicha() {
       }
       setEventosCompra(eventos);
       setNotes(notesRes.data?.notes ?? "");
+      setNotaGuardada(notesRes.data?.notes ?? "");
       setNotesUpdatedAt(notesRes.data?.updated_at ?? null);
       setNotesLoaded(true);
 
-      // Perfil (consulta aparte: si la migración aún no está aplicada, la ficha funciona igual sin esta tarjeta).
+      // Perfil (consulta aparte: si la migración aún no está aplicada, la ficha funciona igual sin esta parte).
       type FilaPerfil = {
         nombre: string | null;
         usuario: string | null;
@@ -528,6 +788,7 @@ export default function ClienteFicha() {
     if (!userId || savingNotes) return;
     setSavingNotes(true);
     setNotesSaved(false);
+    setNotesError(false);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const adminId = sessionData.session?.user?.id ?? null;
@@ -539,15 +800,132 @@ export default function ClienteFicha() {
       });
       if (error) throw error;
 
+      setNotaGuardada(notes);
       setNotesUpdatedAt(new Date().toISOString());
       setNotesSaved(true);
       setTimeout(() => setNotesSaved(false), 2200);
     } catch (e) {
       console.error("Error guardando la nota del cliente:", e);
+      setNotesError(true);
     } finally {
       setSavingNotes(false);
     }
   }
+
+  // --- Acciones rápidas ----------------------------------------------------------------------------------------------
+  function avisar(ok: boolean, texto: string) {
+    setAvisoAccion({ ok, texto });
+    setTimeout(() => setAvisoAccion((a) => (a?.texto === texto ? null : a)), 3000);
+  }
+  async function copiarCorreo() {
+    if (!email) return;
+    try {
+      if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(email);
+        avisar(true, "Correo copiado ✓");
+      } else {
+        avisar(false, `Correo: ${email}`);
+      }
+    } catch {
+      avisar(false, `No se ha podido copiar: ${email}`);
+    }
+  }
+  function escribirPorChat() {
+    if (tieneChat) router.push("/admin/chats");
+    else avisar(false, "Aún no ha abierto ningún chat: lo empieza el cliente desde un producto o una venta.");
+  }
+  function anadirNota() {
+    cambiarTab("notas", true);
+    setTimeout(() => notasRef.current?.focus(), 350);
+  }
+
+  // --- Datos derivados ---------------------------------------------------------------------------------------------
+  const nombre = perfil?.nombre || "";
+  const titulo = nombre || (email ? email.split("@")[0] : "Cliente");
+  const ultimaConexion = dispositivos && dispositivos[0] ? dispositivos[0].ultima_vez : null;
+  const appInstalada = !!dispositivos?.some((d) => d.app_instalada);
+  // Estado del perfil obligatorio («Completa tu perfil»): la foto no cuenta.
+  const faltan = perfil
+    ? [
+        !perfil.usuario ? "usuario" : "",
+        !perfil.nombre ? "nombre" : "",
+        !perfil.pais ? "país" : "",
+        !perfil.provincia ? "provincia" : "",
+        perfil.edad === null ? "edad" : "",
+      ].filter(Boolean)
+    : null;
+  const gastado = (pedidos ?? []).filter((p) => p.estado !== "cancelado").reduce((a, p) => a + Number(p.total_eur ?? 0) - Number(p.devuelto_eur ?? 0), 0);
+
+  const movimientos = useMemo<Movimiento[]>(() => {
+    const lista: Movimiento[] = [];
+    if (createdAt) lista.push({ key: "registro", fecha: createdAt, tipo: "registro", titulo: "Se registró en la tienda" });
+    for (const p of pedidos ?? []) {
+      const ref = p.codigo_seguimiento ? `Pedido ${p.codigo_seguimiento}` : `Pedido nº ${p.numero ?? "—"}`;
+      const items = (p.pedido_items ?? []).map((it) => it.titulo).join(", ");
+      lista.push({ key: `p-${p.id}`, fecha: p.created_at, tipo: "pedido", titulo: `${ref} · ${eur(p.total_eur)}`, detalle: items || undefined, destino: "pedidos" });
+      if (p.pago_estado === "pagado" && p.pagado_en) {
+        lista.push({ key: `pg-${p.id}`, fecha: p.pagado_en, tipo: "pago", titulo: `Pagó online ${eur(Number(p.pagado_eur))}${p.pago_modo === "prueba" ? " (de prueba)" : ""}`, detalle: ref, destino: "pedidos" });
+      }
+      if (p.devuelto_en) lista.push({ key: `dv-${p.id}`, fecha: p.devuelto_en, tipo: "devolucion", titulo: `Devolución de ${eur(Number(p.devuelto_eur))}`, detalle: ref, destino: "pedidos" });
+      if (p.factura?.fecha) {
+        // La factura solo trae el día: si es el mismo del pedido, va justo después de él (no a medianoche, antes que el pedido).
+        const soloDia = /^\d{4}-\d{2}-\d{2}$/.test(p.factura.fecha);
+        const fecha = soloDia
+          ? claveDia(p.created_at) === p.factura.fecha
+            ? new Date(new Date(p.created_at).getTime() + 1000).toISOString()
+            : `${p.factura.fecha}T12:00:00Z`
+          : p.factura.fecha;
+        lista.push({ key: `f-${p.id}`, fecha, tipo: "factura", titulo: `Factura ${p.factura.numero ?? ""}`.trim(), detalle: ref, soloDia, destino: "pedidos" });
+      }
+    }
+    for (const s of serviceRequests) {
+      lista.push({ key: `r-${s.id}`, fecha: s.created_at, tipo: "reparacion", titulo: `Pidió una reparación: ${s.service_title}`, detalle: s.ciudad || undefined, destino: "reparaciones" });
+      if (s.seguimiento_actualizado) {
+        lista.push({
+          key: `re-${s.id}`,
+          fecha: s.seguimiento_actualizado,
+          tipo: "etapa",
+          titulo: `Reparación: ${SEGUIMIENTO_LABEL[s.seguimiento ?? ""] ?? s.seguimiento ?? "seguimiento"}`,
+          detalle: [s.service_title, s.seguimiento_nota].filter(Boolean).join(" · "),
+          destino: "reparaciones",
+        });
+      }
+    }
+    for (const v of sellRequests) {
+      lista.push({ key: `v-${v.id}`, fecha: v.created_at, tipo: "venta", titulo: `Nos quiso vender: ${v.articulo}`, detalle: [v.precio_estimado, v.ciudad].filter(Boolean).join(" · ") || undefined, destino: "ventas" });
+    }
+    for (const c of purchases) {
+      lista.push({ key: `c-${c.id}`, fecha: c.created_at, tipo: "compra", titulo: `Le vendimos: ${c.product_title || "Producto"}`, detalle: c.source === "comprar_ya" ? "Comprar ya" : "Marcado a mano", destino: "pedidos" });
+    }
+    (eventosCompra ?? []).slice(0, 30).forEach((e, i) => {
+      const etiqueta = EVENTOS_COMPRA.find((x) => x.key === e.event_name)?.label ?? e.event_name;
+      const ref = e.metadata?.numero ? (pedidos ?? []).find((x) => x.numero === e.metadata?.numero)?.codigo_seguimiento ?? `nº ${e.metadata.numero}` : "";
+      lista.push({ key: `e-${i}-${e.created_at}`, fecha: e.created_at, tipo: "intento", titulo: etiqueta, detalle: [e.titulo, ref ? `pedido ${ref}` : ""].filter(Boolean).join(" · ") || undefined });
+    });
+    for (const d of dispositivos ?? []) {
+      lista.push({ key: `d-${d.dispositivo}`, fecha: d.primera_vez, tipo: "dispositivo", titulo: `Primera conexión desde ${d.dispositivo}`, icono: iconoDispositivo(d.dispositivo), destino: "resumen" });
+    }
+    for (const h of foro.historial) {
+      lista.push({ key: `fo-${h.id}`, fecha: h.created_at, tipo: "foro", titulo: `Foro: ${ACCION_MODERACION[h.accion] ?? h.accion}`, detalle: h.detalle ?? undefined, icono: h.accion === "silenciado" ? "volume-mute-outline" : undefined, destino: "actividad" });
+    }
+    for (const m of mejoras) {
+      lista.push({ key: `m-${m.id}`, fecha: m.created_at, tipo: "idea", titulo: "Mandó una idea de mejora", detalle: m.texto.length > 90 ? `${m.texto.slice(0, 90)}…` : m.texto });
+    }
+    return lista.filter((m) => !Number.isNaN(new Date(m.fecha).getTime())).sort((a, b) => (new Date(a.fecha).getTime() < new Date(b.fecha).getTime() ? 1 : -1));
+  }, [createdAt, pedidos, serviceRequests, sellRequests, purchases, eventosCompra, dispositivos, foro.historial, mejoras]);
+
+  const cuenta: Partial<Record<Pestana, number>> = {
+    pedidos: pedidos?.length ?? 0,
+    reparaciones: serviceRequests.length,
+    ventas: sellRequests.length,
+  };
+
+  const cifras = [
+    { key: "gastado", valor: pedidos ? eurCorto(gastado) : "—", etiqueta: "Gastado" },
+    { key: "pedidos", valor: pedidos ? String(pedidos.length) : "—", etiqueta: "Pedidos" },
+    { key: "reparaciones", valor: String(serviceRequests.length), etiqueta: "Reparaciones" },
+    { key: "ventas", valor: String(sellRequests.length), etiqueta: "Ventas" },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -555,18 +933,18 @@ export default function ClienteFicha() {
       {/* Antes iba dentro de SafeAreaView (solo hace algo en iOS nativo): ahora la cabecera y
           el final del scroll suman la zona segura real (también en el iPhone desde la web). */}
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-        {/* Cabecera fija y compacta (volver + título centrado), igual en todo el panel. */}
+        {/* Barra fija y compacta (volver + título centrado), igual en todo el panel. */}
         <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: 10 + insets.top,
-            paddingBottom: 10,
+            paddingTop: 8 + insets.top,
+            paddingBottom: 8,
             borderBottomWidth: 1,
             borderBottomColor: COLORS.border,
             backgroundColor: COLORS.bg2,
           }}
         >
-          <View style={{ width: "100%", maxWidth: 720, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+          <View style={{ width: "100%", maxWidth: 760, alignSelf: "center", minHeight: 44, justifyContent: "center" }}>
             <Pressable
               onPress={() => (router.canGoBack() ? router.back() : router.replace("/admin/users"))}
               accessibilityRole="button"
@@ -579,7 +957,7 @@ export default function ClienteFicha() {
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: 40,
+                width: 44,
                 alignItems: "center",
                 justifyContent: "center",
                 opacity: pressed ? 0.7 : 1,
@@ -587,25 +965,9 @@ export default function ClienteFicha() {
             >
               <Ionicons name="chevron-back" size={24} color={COLORS.text} />
             </Pressable>
-
-            <View style={{ paddingHorizontal: 44, alignItems: "center" }}>
-              <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
-                {email || "Ficha de cliente"}
-              </Text>
-              {createdAt ? (
-                <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>
-                  Cliente desde {fmtDate(createdAt)}
-                </Text>
-              ) : null}
-              {dispositivos && dispositivos[0] ? (
-                <View nativeID="ficha-ultima-conexion" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, maxWidth: "100%" }}>
-                  <Ionicons name="time-outline" size={13} color={COLORS.muted} />
-                  <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", flexShrink: 1 }}>
-                    Última conexión: {haceCuanto(dispositivos[0].ultima_vez)} ({fmtFechaHora(dispositivos[0].ultima_vez)})
-                  </Text>
-                </View>
-              ) : null}
-            </View>
+            <Text numberOfLines={1} style={{ paddingHorizontal: 48, color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>
+              Ficha del cliente
+            </Text>
           </View>
         </View>
 
@@ -615,358 +977,517 @@ export default function ClienteFicha() {
           </View>
         ) : (
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={CIERRE_TECLADO}
-          >
-            <View style={{ width: "100%", maxWidth: 720, gap: 16 }}>
-              <SectionCard icon="id-card-outline" title="Perfil">
-                {perfil ? (
-                  <View style={{ gap: 6 }}>
-                    {perfil.foto ? (
-                      <View style={{ alignItems: "center", paddingBottom: 4 }}>
-                        <View style={{ width: 88, height: 88, borderRadius: 44, overflow: "hidden", backgroundColor: COLORS.bg2 }}>
-                          <SmartImage uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" style={{ width: "100%", height: "100%" }} />
-                        </View>
-                      </View>
-                    ) : null}
-                    {(() => {
-                      // Estado del perfil obligatorio («Completa tu perfil»): la foto no cuenta.
-                      const faltan = [
-                        !perfil.usuario ? "usuario" : "",
-                        !perfil.nombre ? "nombre" : "",
-                        !perfil.pais ? "país" : "",
-                        !perfil.provincia ? "provincia" : "",
-                        perfil.edad === null ? "edad" : "",
-                      ].filter(Boolean);
-                      return (
-                        <Text style={{ color: faltan.length ? COLORS.danger : COLORS.success, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
-                          {faltan.length ? `Faltan: ${faltan.join(", ")}` : "Perfil completo"}
-                          {perfil.actualizado ? ` · actualizado ${new Date(perfil.actualizado).toLocaleDateString("es-ES", { timeZone: "Europe/Madrid" })}` : ""}
+            <ScrollView
+              ref={scrollRef}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={CIERRE_TECLADO}
+            >
+              <View style={{ width: "100%", maxWidth: 760, gap: 16 }}>
+                {/* 1) Cabecera tipo tarjeta: quién es, desde cuándo y cuándo entró por última vez; y sus 4 cifras. */}
+                <View nativeID="ficha-cabecera" style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: 16, gap: 14 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                    <View style={{ width: 72, height: 72, borderRadius: 36, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
+                      {perfil?.foto ? (
+                        <SmartImage uri={perfil.foto} alt="Foto de perfil del cliente" contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                      ) : (
+                        <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 24 }}>{iniciales(nombre, email)}</Text>
+                      )}
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Text nativeID="ficha-nombre" numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 24, lineHeight: 29 }}>
+                        {titulo}
+                      </Text>
+                      {perfil && (perfil.usuario || perfil.edad !== null || perfil.provincia) ? (
+                        <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 15, lineHeight: 21 }}>
+                          {[perfil.usuario ? `@${perfil.usuario}` : "", perfil.edad !== null ? `${perfil.edad} años` : "", perfil.provincia].filter(Boolean).join(" · ")}
                         </Text>
-                      );
-                    })()}
+                      ) : null}
+                      {email ? (
+                        <Text selectable numberOfLines={1} style={{ color: COLORS.text, fontSize: 15, lineHeight: 21 }}>
+                          {email}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+
+                  {createdAt || ultimaConexion ? (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 6 }}>
+                      {createdAt ? <Text style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700" }}>Cliente desde {fmtMesAnio(createdAt)}</Text> : null}
+                      {createdAt && ultimaConexion ? <Text style={{ color: COLORS.muted, fontSize: 13 }}>·</Text> : null}
+                      {ultimaConexion ? (
+                        <Text nativeID="ficha-ultima-conexion" accessibilityLabel={`Última conexión ${haceCuanto(ultimaConexion)}, el ${fmtFechaHora(ultimaConexion)}`} style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700" }}>
+                          Última conexión {haceCuanto(ultimaConexion)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {/* Etiquetas con su icono, sin cápsula. */}
+                  <View nativeID="ficha-etiquetas" style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 16, rowGap: 6 }}>
                     {[
-                      ["Nombre", perfil.nombre],
-                      ["Usuario", perfil.usuario ? `@${perfil.usuario}` : ""],
-                      ["País", perfil.pais],
-                      ["Provincia", perfil.provincia],
-                      ["Edad", perfil.edad !== null ? `${perfil.edad} años` : ""],
-                      // Dirección de envío (opcional) de Mi perfil: la que rellena sus pedidos.
-                      ...(perfil.direccion !== null ? [["Dirección de envío", perfil.direccion]] : []),
-                    ].map(([etiqueta, valor]) => (
-                      <View key={etiqueta} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                        <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12.5 }}>{etiqueta}</Text>
-                        <Text style={{ color: valor ? COLORS.text : COLORS.muted2, fontWeight: "800", fontSize: 13.5, flexShrink: 1, textAlign: "right" }}>
-                          {valor || "—"}
-                        </Text>
+                      faltan === null
+                        ? { icon: "person-outline" as IconName, texto: "Sin perfil", color: COLORS.muted }
+                        : faltan.length
+                          ? { icon: "alert-circle-outline" as IconName, texto: "Perfil a medias", color: COLORS.danger }
+                          : { icon: "checkmark-circle-outline" as IconName, texto: "Perfil completo", color: COLORS.success },
+                      ...(appInstalada ? [{ icon: "phone-portrait-outline" as IconName, texto: "App instalada", color: COLORS.accent }] : []),
+                      ...(foro.silencio ? [{ icon: "volume-mute-outline" as IconName, texto: "Silenciado en el Foro", color: COLORS.danger }] : []),
+                    ].map((e) => (
+                      <View key={e.texto} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                        <Ionicons name={e.icon} size={16} color={e.color} />
+                        <Text style={{ color: e.color === COLORS.accent ? COLORS.text : e.color, fontWeight: "800", fontSize: 13 }}>{e.texto}</Text>
                       </View>
                     ))}
                   </View>
-                ) : (
-                  <EmptyRow text="Todavía no ha rellenado su perfil." />
-                )}
-              </SectionCard>
 
-              {/* Dispositivos desde los que entra (dueño, 2026-11-12): tipo y navegador, si usa la app instalada, primera y
-                  última vez e inicios de sesión, del más reciente al más antiguo. Sin la migración, la tarjeta no sale. */}
-              {dispositivos !== null ? (
-                <View nativeID="ficha-dispositivos">
-                  <SectionCard icon="phone-portrait-outline" title="Dispositivos" count={dispositivos.length}>
-                    {dispositivos.length === 0 ? (
-                      <EmptyRow text="Aún no hay conexiones registradas (se registran desde el 12/11/2026)." />
-                    ) : (
-                      <View style={{ gap: 8 }}>
-                        {dispositivos.map((d) => (
-                          <View
-                            key={d.dispositivo}
-                            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10 }}
-                          >
-                            <Ionicons name={iconoDispositivo(d.dispositivo)} size={20} color={COLORS.accentDark} style={{ marginTop: 1 }} />
-                            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                                {d.dispositivo}
-                                {d.app_instalada ? <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12 }}> · App instalada</Text> : null}
-                              </Text>
-                              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
-                                Última vez: {haceCuanto(d.ultima_vez)} ({fmtFechaHora(d.ultima_vez)})
-                              </Text>
-                              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
-                                Primera vez: {fmtFechaHora(d.primera_vez)} · {d.inicios === 1 ? "1 inicio de sesión" : `${d.inicios} inicios de sesión`}
-                              </Text>
-                            </View>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </SectionCard>
-                </View>
-              ) : null}
-
-              {pedidos !== null ? (
-                <View nativeID="ficha-pedidos">
-                  <SectionCard icon="receipt-outline" title="Pedidos" count={pedidos.length}>
-                    {pedidos.length === 0 ? (
-                      <EmptyRow text="No ha hecho ningún pedido en la tienda." />
-                    ) : (
-                      <View style={{ gap: 8 }}>
-                        {pedidos.map((p) => (
-                          <PedidoEtapas
-                            key={p.id}
-                            pedido={p}
-                            onCambiado={(estado) => setPedidos((prev) => (prev ?? []).map((x) => (x.id === p.id ? { ...x, estado } : x)))}
-                          />
-                        ))}
-                      </View>
-                    )}
-                  </SectionCard>
-                </View>
-              ) : null}
-
-              {/* Pagos con tarjeta e intentos de compra (dueño, 2026-11-06): lo que ha pagado y devuelto, y lo que ha hecho
-                  en la cesta y al pagar según la analítica propia (solo si la aceptó). */}
-              <View nativeID="ficha-compras">
-                <SectionCard icon="card-outline" title="Pagos e intentos de compra">
-                  {(() => {
-                    const pagados = (pedidos ?? []).filter((p) => p.pago_estado === "pagado");
-                    const devueltos = pagados.filter((p) => !!p.devuelto_en);
-                    const sinTerminar = (pedidos ?? []).filter((p) => p.pago_estado === "iniciado").length;
-                    const cuenta = (k: string) => (eventosCompra ?? []).filter((e) => e.event_name === k).length;
-                    const recientes = (eventosCompra ?? []).slice(0, 8);
-                    return (
-                      <View style={{ gap: 8 }}>
-                        <Text nativeID="ficha-compras-pagos" style={{ color: COLORS.text, fontSize: 12.5, fontWeight: "800", lineHeight: 18 }}>
-                          Pagos online: {pagados.length} ({eur(pagados.filter((p) => p.pago_modo === "real").reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0))} de
-                          verdad{pagados.some((p) => p.pago_modo === "prueba") ? `; ${pagados.filter((p) => p.pago_modo === "prueba").length} de prueba` : ""}) · devueltos:{" "}
-                          {devueltos.length} · empezados sin terminar: {sinTerminar}
-                        </Text>
-                        {eventosCompra === null ? (
-                          <EmptyRow text="No se ha podido leer su actividad de compra." />
-                        ) : (
-                          <>
-                            <Text nativeID="ficha-compras-intentos" style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", lineHeight: 18 }}>
-                              Últimos 90 días · {EVENTOS_COMPRA.map((e) => `${e.label}: ${cuenta(e.key)}`).join(" · ")}
-                            </Text>
-                            {recientes.length === 0 ? (
-                              <EmptyRow text="Sin actividad de compra registrada (o no aceptó la analítica)." />
-                            ) : (
-                              <View style={{ gap: 4 }}>
-                                {recientes.map((e, i) => (
-                                  <Text key={`${e.created_at}-${i}`} style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
-                                    {fmtDate(e.created_at)} · {EVENTOS_COMPRA.find((x) => x.key === e.event_name)?.label ?? e.event_name}
-                                    {e.titulo ? ` · ${e.titulo}` : ""}
-                                    {e.metadata?.numero
-                                      ? (() => {
-                                          // La analítica guarda el número interno: se enseña la referencia de ese pedido si está en la ficha.
-                                          const ref = (pedidos ?? []).find((x) => x.numero === e.metadata?.numero)?.codigo_seguimiento;
-                                          return ref ? ` · pedido ${ref}` : ` · pedido nº ${e.metadata.numero}`;
-                                        })()
-                                      : ""}
-                                  </Text>
-                                ))}
-                              </View>
-                            )}
-                          </>
-                        )}
-                      </View>
-                    );
-                  })()}
-                </SectionCard>
-              </View>
-
-              <SectionCard icon="bag-check-outline" title="Compras a la tienda" count={purchases.length}>
-                {purchases.length === 0 ? (
-                  <EmptyRow text="Todavía no le hemos vendido nada." />
-                ) : (
-                  <View style={{ gap: 8 }}>
-                    {purchases.map((p) => (
+                  {/* 2) Cuatro cifras clave en fila (número grande, etiqueta pequeña). Cada columna mide lo que su texto y se
+                      reparte el resto: así «Reparaciones» cabe entera a 360 px (con cuatro columnas iguales se cortaba). */}
+                  <View nativeID="ficha-cifras" style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 }}>
+                    {cifras.map((c, i) => (
                       <View
-                        key={p.id}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 10,
-                          borderRadius: 12,
-                          backgroundColor: COLORS.cardSoft,
-                          padding: 10,
-                        }}
+                        key={c.key}
+                        nativeID={`ficha-cifra-${c.key}`}
+                        style={{ flexGrow: 1, flexShrink: 1, flexBasis: "auto", alignItems: "center", gap: 2, borderLeftWidth: i ? 1 : 0, borderLeftColor: COLORS.border, paddingHorizontal: 4 }}
                       >
-                        {p.product_image ? (
-                          <Image
-                            source={{ uri: p.product_image }}
-                            style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: COLORS.card }}
-                          />
-                        ) : (
-                          <View
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 10,
-                              backgroundColor: COLORS.card,
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <Ionicons name="cube-outline" size={16} color={COLORS.muted} />
-                          </View>
-                        )}
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                            {p.product_title || "Producto"}
-                          </Text>
-                          <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 11.5 }}>
-                            {p.product_condition ? `${p.product_condition} · ` : ""}
-                            {p.source === "comprar_ya" ? "Comprar ya" : "Marcado a mano"}
-                          </Text>
-                        </View>
-                        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{fmtDate(p.created_at)}</Text>
+                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: c.valor.length > 7 ? 17 : 20 }}>
+                          {c.valor}
+                        </Text>
+                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>
+                          {c.etiqueta}
+                        </Text>
                       </View>
                     ))}
                   </View>
-                )}
-              </SectionCard>
-
-              <SectionCard icon="pricetag-outline" title="Ventas a la tienda" count={sellRequests.length}>
-                {sellRequests.length === 0 ? (
-                  <EmptyRow text="No nos ha intentado vender nada (con sesión iniciada)." />
-                ) : (
-                  <View style={{ gap: 8 }}>
-                    {sellRequests.map((s) => (
-                      <View key={s.id} style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 4 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                            {s.articulo}
-                          </Text>
-                          <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{fmtDate(s.created_at)}</Text>
-                        </View>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <StatusPill status={s.status} />
-                          <Text style={{ color: COLORS.muted, fontSize: 11.5 }}>
-                            {s.precio_estimado} · {s.ciudad}
-                          </Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </SectionCard>
-
-              <SectionCard icon="construct-outline" title="Servicio de reparación" count={serviceRequests.length}>
-                {serviceRequests.length === 0 ? (
-                  <EmptyRow text="No ha contratado ningún servicio (con sesión iniciada)." />
-                ) : (
-                  <View style={{ gap: 8 }}>
-                    {serviceRequests.map((s) => (
-                      <View key={s.id} style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 4 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
-                            {s.service_title}
-                          </Text>
-                          <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{fmtDate(s.created_at)}</Text>
-                        </View>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <StatusPill status={s.status} />
-                          <Text style={{ color: COLORS.muted, fontSize: 11.5 }}>{s.ciudad}</Text>
-                          {s.seguimiento ? (
-                            <Text
-                              style={{
-                                color: s.seguimiento === "cancelado" ? COLORS.danger : COLORS.accentDark,
-                                fontSize: 11.5,
-                                fontWeight: "800",
-                              }}
-                            >
-                              · {SEGUIMIENTO_LABEL[s.seguimiento] ?? s.seguimiento}
-                            </Text>
-                          ) : null}
-                        </View>
-                        {seguimientoDisponible ? (
-                          <SeguimientoReparacion
-                            solicitud={s}
-                            onGuardado={(cambio) =>
-                              setServiceRequests((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...cambio } : x)))
-                            }
-                          />
-                        ) : null}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </SectionCard>
-
-              <ForoCliente userId={userId} />
-
-              <MejorasCliente userId={userId} />
-
-              <View style={{ borderRadius: 18, backgroundColor: COLORS.card, padding: 14, gap: 10 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <Ionicons name="document-text-outline" size={20} color={COLORS.accentDark} />
-                  <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14.5 }}>
-                    Notas internas
-                  </Text>
                 </View>
 
-                <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
-                  Para todo lo que no encaja arriba: intercambios, garantías, acuerdos concretos con
-                  este cliente… Solo la ve el equipo de la tienda.
-                </Text>
-
-                <TextInput
-                  value={notes}
-                  onChangeText={setNotes}
-                  editable={notesLoaded}
-                  multiline
-                  placeholder="Escribe aquí cualquier detalle útil sobre este cliente…"
-                  placeholderTextColor="rgba(11,33,56,0.40)"
-                  style={{
-                    minHeight: 110,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    borderRadius: 14,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    color: COLORS.text,
-                    backgroundColor: COLORS.cardSoft,
-                    // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
-                    // se queda ampliada y "descuadrada".
-                    fontSize: 16,
-                    textAlignVertical: "top",
-                  }}
-                />
-
-                <View style={{ alignItems: "center", gap: 8 }}>
-                  <Pressable
-                    onPress={handleSaveNotes}
-                    disabled={savingNotes || !notesLoaded}
-                    accessibilityRole="button"
-                    style={({ pressed }) => ({
-                      opacity: savingNotes || !notesLoaded ? 0.6 : pressed ? 0.88 : 1,
-                      borderRadius: 999,
-                      paddingVertical: 11,
-                      paddingHorizontal: 22,
-                      backgroundColor: COLORS.accentDark,
-                    })}
-                  >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14, textAlign: "center" }}>
-                      {savingNotes ? "Guardando…" : "Guardar nota"}
-                    </Text>
-                  </Pressable>
-
-                  {notesSaved ? (
-                    <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
-                      Guardado ✓
-                    </Text>
-                  ) : notesUpdatedAt ? (
-                    <Text style={{ color: COLORS.muted2, fontSize: 11.5, textAlign: "center" }}>
-                      Última actualización: {fmtDate(notesUpdatedAt)}
+                {/* 3) Acciones rápidas: icono + texto, 44 px; dos por fila en el móvil y las cuatro en el ordenador. */}
+                <View style={{ gap: 4 }}>
+                  <View nativeID="ficha-acciones" style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 8, paddingHorizontal: 4 }}>
+                    {[
+                      { id: "chat", icon: "chatbubble-ellipses-outline" as IconName, texto: "Escribir por el chat", onPress: escribirPorChat, apagado: tieneChat === false },
+                      { id: "copiar", icon: "copy-outline" as IconName, texto: "Copiar correo", onPress: copiarCorreo, disabled: !email },
+                      { id: "pedidos", icon: "receipt-outline" as IconName, texto: "Ver en Pedidos", onPress: () => router.push("/admin/pedidos") },
+                      { id: "nota", icon: "create-outline" as IconName, texto: "Añadir nota", onPress: anadirNota },
+                    ].map((a) => (
+                      <View key={a.id} style={{ flexGrow: 1, flexBasis: 150, minWidth: 0 }}>
+                        <BotonTexto nativeID={`ficha-accion-${a.id}`} icon={a.icon} texto={a.texto} onPress={a.onPress} disabled={a.disabled} apagado={a.apagado} />
+                      </View>
+                    ))}
+                  </View>
+                  {avisoAccion ? (
+                    <Text nativeID="ficha-aviso-accion" accessibilityRole="alert" style={{ color: avisoAccion.ok ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: 13, paddingHorizontal: 4 }}>
+                      {avisoAccion.texto}
                     </Text>
                   ) : null}
                 </View>
+
+                {/* 4) Pestañas deslizables (con su número), recordadas en la URL (?tab=). */}
+                <View onLayout={(e) => (pestanasY.current = e.nativeEvent.layout.y)} style={{ borderBottomWidth: 1, borderBottomColor: COLORS.border, marginHorizontal: -16 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 22, flexGrow: 1, justifyContent: "center" }}>
+                    <View nativeID="ficha-pestanas" role="tablist" style={{ flexDirection: "row", gap: 22 }}>
+                      {PESTANAS.map((t) => {
+                        const activa = tab === t;
+                        const n = cuenta[t];
+                        return (
+                          <Pressable
+                            key={t}
+                            nativeID={`ficha-pestana-${t}`}
+                            onPress={() => cambiarTab(t)}
+                            role="tab"
+                            aria-selected={activa}
+                            accessibilityLabel={n ? `${NOMBRE_PESTANA[t]} (${n})` : NOMBRE_PESTANA[t]}
+                            style={({ pressed }) => ({ minHeight: 48, justifyContent: "flex-end", opacity: pressed ? 0.7 : 1 })}
+                          >
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingBottom: 9 }}>
+                              <Text style={{ color: activa ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: 15 }}>{NOMBRE_PESTANA[t]}</Text>
+                              {n ? <Text style={{ color: activa ? COLORS.accent : COLORS.muted, fontWeight: "900", fontSize: 13 }}>{n}</Text> : null}
+                            </View>
+                            <View style={{ height: 3, borderRadius: 2, backgroundColor: activa ? COLORS.accent : "transparent" }} />
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+
+                {/* Deslizar el dedo a un lado u otro sobre el contenido cambia de pestaña, en bucle (useGestoPestanas). */}
+                <Animated.View
+                  ref={gesto.ref}
+                  nativeID={`ficha-contenido-${tab}`}
+                  {...gesto.panHandlers}
+                  style={{ gap: 24, transform: [{ translateX: gesto.desliz }] }}
+                >
+                  {tab === "resumen" ? (
+                    <>
+                      {/* La nota interna, fijada arriba (fondo amarillo muy suave). */}
+                      {notaGuardada.trim() ? (
+                        <Pressable
+                          nativeID="ficha-nota-fijada"
+                          onPress={() => cambiarTab("notas")}
+                          accessibilityRole="button"
+                          accessibilityLabel="Nota interna fijada: abrir en Notas"
+                          style={({ pressed }) => ({ borderRadius: 16, backgroundColor: COLORS.notaBg, borderWidth: 1, borderColor: COLORS.notaBorde, padding: 14, gap: 6, opacity: pressed ? 0.85 : 1 })}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <Ionicons name="pin-outline" size={18} color={COLORS.warn} />
+                            <Text style={{ flex: 1, color: COLORS.warn, fontWeight: "900", fontSize: 13, letterSpacing: 0.3 }}>NOTA INTERNA</Text>
+                            {notesUpdatedAt ? <Text style={{ color: COLORS.muted, fontSize: 13 }}>{fmtDate(notesUpdatedAt)}</Text> : null}
+                          </View>
+                          <Text numberOfLines={6} style={{ color: COLORS.text, fontSize: 15, lineHeight: 21 }}>
+                            {notaGuardada.trim()}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+
+                      <Seccion nativeID="ficha-ultimos" icon="time-outline" title="Últimos movimientos">
+                        {movimientos.length ? (
+                          <>
+                            <LineaTiempo movimientos={movimientos.slice(0, 3)} onIr={(t) => cambiarTab(t)} />
+                            {movimientos.length > 3 ? (
+                              <BotonTexto icon="list-outline" texto="Ver toda la actividad" onPress={() => cambiarTab("actividad")} />
+                            ) : null}
+                          </>
+                        ) : (
+                          <EmptyRow text="Todavía no hay movimientos." />
+                        )}
+                      </Seccion>
+
+                      <Seccion nativeID="ficha-perfil" icon="id-card-outline" title="Datos del perfil">
+                        {perfil ? (
+                          <View style={{ gap: 0 }}>
+                            <Text style={{ color: faltan?.length ? COLORS.danger : COLORS.success, fontWeight: "800", fontSize: 13, paddingBottom: 4 }}>
+                              {faltan?.length ? `Faltan: ${faltan.join(", ")}` : "Perfil completo"}
+                              {perfil.actualizado ? ` · actualizado ${new Date(perfil.actualizado).toLocaleDateString("es-ES", { timeZone: "Europe/Madrid" })}` : ""}
+                            </Text>
+                            {[
+                              ["Nombre", perfil.nombre],
+                              ["Usuario", perfil.usuario ? `@${perfil.usuario}` : ""],
+                              ["País", perfil.pais],
+                              ["Provincia", perfil.provincia],
+                              ["Edad", perfil.edad !== null ? `${perfil.edad} años` : ""],
+                              // Dirección de envío (opcional) de Mi perfil: la que rellena sus pedidos.
+                              ...(perfil.direccion !== null ? [["Dirección de envío", perfil.direccion]] : []),
+                            ].map(([etiqueta, valor]) => (
+                              <View
+                                key={etiqueta}
+                                style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: COLORS.border }}
+                              >
+                                <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 15 }}>{etiqueta}</Text>
+                                <Text style={{ color: valor ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 15, flexShrink: 1, textAlign: "right" }}>{valor || "—"}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <EmptyRow text="Todavía no ha rellenado su perfil." />
+                        )}
+                      </Seccion>
+
+                      {/* Dispositivos desde los que entra (dueño, 2026-11-12): tipo y navegador, si usa la app instalada, primera y
+                          última vez e inicios de sesión, del más reciente al más antiguo. Sin la migración, no sale. */}
+                      {dispositivos !== null ? (
+                        <Seccion nativeID="ficha-dispositivos" icon="phone-portrait-outline" title="Dispositivos" count={dispositivos.length}>
+                          {dispositivos.length === 0 ? (
+                            <EmptyRow text="Aún no hay conexiones registradas (se registran desde el 12/11/2026)." />
+                          ) : (
+                            <View>
+                              {dispositivos.map((d, i) => (
+                                <View
+                                  key={d.dispositivo}
+                                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}
+                                >
+                                  <Ionicons name={iconoDispositivo(d.dispositivo)} size={22} color={COLORS.accent} style={{ marginTop: 1 }} />
+                                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                                      {d.dispositivo}
+                                      {d.app_instalada ? <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 13 }}> · App instalada</Text> : null}
+                                    </Text>
+                                    <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                                      Última vez: {haceCuanto(d.ultima_vez)} ({fmtFechaHora(d.ultima_vez)})
+                                    </Text>
+                                    <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                                      Primera vez: {fmtFechaHora(d.primera_vez)} · {d.inicios === 1 ? "1 inicio de sesión" : `${d.inicios} inicios de sesión`}
+                                    </Text>
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+                        </Seccion>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {tab === "pedidos" ? (
+                    <>
+                      <Seccion nativeID="ficha-pedidos" icon="receipt-outline" title="Pedidos" count={pedidos?.length}>
+                        {pedidos === null ? (
+                          <EmptyRow text="No se han podido leer sus pedidos." />
+                        ) : pedidos.length === 0 ? (
+                          <EmptyRow text="No ha hecho ningún pedido en la tienda." />
+                        ) : (
+                          <View>
+                            {pedidos.map((p, i) => (
+                              <PedidoFila
+                                key={p.id}
+                                pedido={p}
+                                primero={i === 0}
+                                abierto={abiertos.has(p.id)}
+                                onAlternar={() => alternar(p.id)}
+                                onCambiado={(estado) => setPedidos((prev) => (prev ?? []).map((x) => (x.id === p.id ? { ...x, estado } : x)))}
+                              />
+                            ))}
+                          </View>
+                        )}
+                      </Seccion>
+
+                      {/* Pagos con tarjeta e intentos de compra (dueño, 2026-11-06): lo que ha pagado y devuelto, y lo que ha hecho
+                          en la cesta y al pagar según la analítica propia (solo si la aceptó). */}
+                      <Seccion nativeID="ficha-compras" icon="card-outline" title="Pagos e intentos de compra">
+                        {(() => {
+                          const pagados = (pedidos ?? []).filter((p) => p.pago_estado === "pagado");
+                          const devueltos = pagados.filter((p) => !!p.devuelto_en);
+                          const sinTerminar = (pedidos ?? []).filter((p) => p.pago_estado === "iniciado").length;
+                          const cuantos = (k: string) => (eventosCompra ?? []).filter((e) => e.event_name === k).length;
+                          const recientes = (eventosCompra ?? []).slice(0, 8);
+                          return (
+                            <View style={{ gap: 8 }}>
+                              <Text nativeID="ficha-compras-pagos" style={{ color: COLORS.text, fontSize: 15, fontWeight: "800", lineHeight: 21 }}>
+                                Pagos online: {pagados.length} ({eur(pagados.filter((p) => p.pago_modo === "real").reduce((a, p) => a + Number(p.pagado_eur ?? 0), 0))} de
+                                verdad{pagados.some((p) => p.pago_modo === "prueba") ? `; ${pagados.filter((p) => p.pago_modo === "prueba").length} de prueba` : ""}) · devueltos:{" "}
+                                {devueltos.length} · empezados sin terminar: {sinTerminar}
+                              </Text>
+                              {eventosCompra === null ? (
+                                <EmptyRow text="No se ha podido leer su actividad de compra." />
+                              ) : (
+                                <>
+                                  <Text nativeID="ficha-compras-intentos" style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700", lineHeight: 19 }}>
+                                    Últimos 90 días · {EVENTOS_COMPRA.map((e) => `${e.label}: ${cuantos(e.key)}`).join(" · ")}
+                                  </Text>
+                                  {recientes.length === 0 ? (
+                                    <EmptyRow text="Sin actividad de compra registrada (o no aceptó la analítica)." />
+                                  ) : (
+                                    <View style={{ gap: 4 }}>
+                                      {recientes.map((e, i) => (
+                                        <Text key={`${e.created_at}-${i}`} style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19 }}>
+                                          {fmtDate(e.created_at)} · {EVENTOS_COMPRA.find((x) => x.key === e.event_name)?.label ?? e.event_name}
+                                          {e.titulo ? ` · ${e.titulo}` : ""}
+                                          {e.metadata?.numero
+                                            ? (() => {
+                                                // La analítica guarda el número interno: se enseña la referencia de ese pedido si está en la ficha.
+                                                const ref = (pedidos ?? []).find((x) => x.numero === e.metadata?.numero)?.codigo_seguimiento;
+                                                return ref ? ` · pedido ${ref}` : ` · pedido nº ${e.metadata.numero}`;
+                                              })()
+                                            : ""}
+                                        </Text>
+                                      ))}
+                                    </View>
+                                  )}
+                                </>
+                              )}
+                            </View>
+                          );
+                        })()}
+                      </Seccion>
+
+                      <Seccion nativeID="ficha-compras-tienda" icon="bag-check-outline" title="Compras a la tienda" count={purchases.length}>
+                        {purchases.length === 0 ? (
+                          <EmptyRow text="Todavía no le hemos vendido nada (marcado a mano o con «Comprar ya»)." />
+                        ) : (
+                          <View>
+                            {purchases.map((p, i) => (
+                              <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+                                <Miniatura uri={p.product_image} alt={p.product_title || "Producto"} icono="cube-outline" />
+                                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                                  <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                                    {p.product_title || "Producto"}
+                                  </Text>
+                                  <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 13 }}>
+                                    {p.product_condition ? `${p.product_condition} · ` : ""}
+                                    {p.source === "comprar_ya" ? "Comprar ya" : "Marcado a mano"} · {fmtDate(p.created_at)}
+                                  </Text>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </Seccion>
+                    </>
+                  ) : null}
+
+                  {tab === "reparaciones" ? (
+                    <Seccion nativeID="ficha-reparaciones" icon="construct-outline" title="Servicio de reparación" count={serviceRequests.length}>
+                      {serviceRequests.length === 0 ? (
+                        <EmptyRow text="No ha contratado ningún servicio (con sesión iniciada)." />
+                      ) : (
+                        <View>
+                          {serviceRequests.map((s, i) => {
+                            const abierto = abiertos.has(s.id);
+                            return (
+                              <View key={s.id} nativeID={`ficha-reparacion-${s.id}`} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border, paddingBottom: abierto ? 12 : 0 }}>
+                                <Pressable
+                                  onPress={() => alternar(s.id)}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ expanded: abierto }}
+                                  accessibilityLabel={`${s.service_title}: ${abierto ? "plegar" : "desplegar"}`}
+                                  style={({ pressed }) => ({ minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, opacity: pressed ? 0.75 : 1 })}
+                                >
+                                  <Miniatura icono="construct-outline" />
+                                  <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                                      {s.service_title}
+                                    </Text>
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                      {s.seguimiento ? (
+                                        <Estado
+                                          texto={SEGUIMIENTO_LABEL[s.seguimiento] ?? s.seguimiento}
+                                          tono={s.seguimiento === "cancelado" ? "danger" : s.seguimiento === "entregado" ? "success" : "curso"}
+                                        />
+                                      ) : (
+                                        <StatusPill status={s.status} />
+                                      )}
+                                      <Text style={{ color: COLORS.muted, fontSize: 13 }}>{fmtDate(s.created_at)}</Text>
+                                    </View>
+                                  </View>
+                                  <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={20} color={COLORS.muted} />
+                                </Pressable>
+                                {abierto ? (
+                                  <View style={{ borderRadius: 16, backgroundColor: COLORS.cardSoft, padding: 12, gap: 10 }}>
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                      <Text style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700" }}>Solicitud:</Text>
+                                      <StatusPill status={s.status} />
+                                      {s.ciudad ? <Text style={{ color: COLORS.muted, fontSize: 13 }}>· {s.ciudad}</Text> : null}
+                                    </View>
+                                    {seguimientoDisponible ? (
+                                      <SeguimientoReparacion
+                                        solicitud={s}
+                                        onGuardado={(cambio) => setServiceRequests((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...cambio } : x)))}
+                                      />
+                                    ) : null}
+                                    <BotonTexto icon="chevron-up" texto="Plegar" onPress={() => alternar(s.id)} accessibilityLabel={`Plegar ${s.service_title}`} />
+                                  </View>
+                                ) : null}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </Seccion>
+                  ) : null}
+
+                  {tab === "ventas" ? (
+                    <Seccion nativeID="ficha-ventas" icon="pricetag-outline" title="Ventas a la tienda" count={sellRequests.length}>
+                      {sellRequests.length === 0 ? (
+                        <EmptyRow text="No nos ha intentado vender nada (con sesión iniciada)." />
+                      ) : (
+                        <View>
+                          {sellRequests.map((s, i) => (
+                            <View key={s.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+                              <Miniatura icono="pricetag-outline" />
+                              <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                                <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                                  {s.articulo}
+                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                  <StatusPill status={s.status} />
+                                  <Text style={{ color: COLORS.muted, fontSize: 13, flexShrink: 1 }}>
+                                    {[s.precio_estimado, s.ciudad, fmtDate(s.created_at)].filter(Boolean).join(" · ")}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </Seccion>
+                  ) : null}
+
+                  {tab === "actividad" ? (
+                    <Seccion nativeID="ficha-actividad" icon="pulse-outline" title="Actividad" count={movimientos.length || undefined}>
+                      {movimientos.length ? (
+                        <>
+                          <LineaTiempo movimientos={movimientos.slice(0, limiteActividad)} porDia onIr={(t) => cambiarTab(t, true)} />
+                          {movimientos.length > limiteActividad ? (
+                            <BotonTexto icon="chevron-down" texto={`Ver más (${movimientos.length - limiteActividad})`} onPress={() => setLimiteActividad((n) => n + 30)} />
+                          ) : limiteActividad > 30 ? (
+                            <BotonTexto icon="chevron-up" texto="Ver menos" onPress={() => setLimiteActividad(30)} />
+                          ) : null}
+                        </>
+                      ) : (
+                        <EmptyRow text="Todavía no hay movimientos." />
+                      )}
+                    </Seccion>
+                  ) : null}
+
+                  {/* Siempre montados (cargan lo suyo para la línea de tiempo y la etiqueta del Foro); solo se ven en Actividad. */}
+                  <ForoCliente userId={userId} visible={tab === "actividad"} onDatos={setForo} />
+                  <MejorasCliente userId={userId} visible={tab === "actividad"} onDatos={setMejoras} />
+
+                  {tab === "notas" ? (
+                    <Seccion nativeID="ficha-notas" icon="document-text-outline" title="Notas internas">
+                      <Text style={{ color: COLORS.muted, fontSize: 15, lineHeight: 21 }}>
+                        Para todo lo que no encaja en otra parte: intercambios, garantías, acuerdos concretos con este cliente… Solo la ve el
+                        equipo de la tienda y sale fijada en el Resumen.
+                      </Text>
+                      <TextInput
+                        ref={notasRef}
+                        nativeID="ficha-notas-texto"
+                        value={notes}
+                        onChangeText={setNotes}
+                        editable={notesLoaded}
+                        multiline
+                        accessibilityLabel="Notas internas del cliente"
+                        placeholder="Escribe aquí cualquier detalle útil sobre este cliente…"
+                        placeholderTextColor="rgba(11,33,56,0.55)"
+                        style={{
+                          minHeight: 140,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          borderRadius: 14,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          color: COLORS.text,
+                          backgroundColor: COLORS.notaBg,
+                          // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
+                          // se queda ampliada y "descuadrada".
+                          fontSize: 16,
+                          lineHeight: 22,
+                          textAlignVertical: "top",
+                        }}
+                      />
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <Pressable
+                          onPress={handleSaveNotes}
+                          disabled={savingNotes || !notesLoaded || notes === notaGuardada}
+                          accessibilityRole="button"
+                          style={({ pressed }) => ({
+                            minHeight: 44,
+                            justifyContent: "center",
+                            opacity: savingNotes || !notesLoaded || notes === notaGuardada ? 0.5 : pressed ? 0.88 : 1,
+                            borderRadius: 999,
+                            paddingHorizontal: 22,
+                            backgroundColor: COLORS.accent,
+                          })}
+                        >
+                          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15, textAlign: "center" }}>{savingNotes ? "Guardando…" : "Guardar nota"}</Text>
+                        </Pressable>
+                        {notesSaved ? (
+                          <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 13 }}>Guardado ✓</Text>
+                        ) : notesError ? (
+                          <Text accessibilityRole="alert" style={{ color: COLORS.danger, fontWeight: "800", fontSize: 13 }}>
+                            No se ha podido guardar. Inténtalo de nuevo.
+                          </Text>
+                        ) : notesUpdatedAt ? (
+                          <Text style={{ color: COLORS.muted, fontSize: 13 }}>Última actualización: {fmtDate(notesUpdatedAt)}</Text>
+                        ) : null}
+                      </View>
+                    </Seccion>
+                  ) : null}
+                </Animated.View>
               </View>
-            </View>
-          </ScrollView>
+            </ScrollView>
           </KeyboardAvoidingView>
         )}
       </View>
@@ -974,9 +1495,19 @@ export default function ClienteFicha() {
   );
 }
 
+// Miniatura de 44 px: la foto si la hay; si no, un icono sobre fondo suave.
+function Miniatura({ uri, alt, icono }: { uri?: string | null; alt?: string; icono: IconName }) {
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: 12, overflow: "hidden", backgroundColor: COLORS.card, alignItems: "center", justifyContent: "center" }}>
+      {uri ? <SmartImage uri={uri} alt={alt ?? ""} contentFit="cover" style={{ width: "100%", height: "100%" }} /> : <Ionicons name={icono} size={20} color={COLORS.muted} />}
+    </View>
+  );
+}
+
 // --- Foro: silencio e historial de moderación de este cliente --------------------------------------------------------
 // Tablas foro_silencios y foro_moderacion (supabase/migrations/20261031110000_foro_silencios_y_moderacion.sql). Si aún no
-// existen, esta tarjeta no sale. Silenciar aquí es lo mismo que desde el Foro (lo hace cumplir la base de datos).
+// existen, no sale. Silenciar aquí es lo mismo que desde el Foro (lo hace cumplir la base de datos). Pasa su historial y
+// su silencio a la ficha (línea de tiempo y etiqueta «Silenciado en el Foro»).
 
 const ACCION_MODERACION: Record<string, string> = {
   mensaje_eliminado: "Mensaje del Foro eliminado",
@@ -991,12 +1522,22 @@ function fechaHora(iso: string) {
   return d.toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function ForoCliente({ userId }: { userId: string }) {
+function ForoCliente({
+  userId,
+  visible,
+  onDatos,
+}: {
+  userId: string;
+  visible: boolean;
+  onDatos: (d: { historial: FilaModeracion[]; silencio: { hasta: string } | null }) => void;
+}) {
   const [disponible, setDisponible] = useState(false);
   const [silencio, setSilencio] = useState<{ hasta: string; motivo: string | null } | null>(null);
-  const [historial, setHistorial] = useState<{ id: string; created_at: string; accion: string; detalle: string | null }[]>([]);
+  const [historial, setHistorial] = useState<FilaModeracion[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const onDatosRef = useRef(onDatos);
+  onDatosRef.current = onDatos;
 
   const cargar = useCallback(async () => {
     const [sil, mod] = await Promise.all([
@@ -1007,9 +1548,12 @@ function ForoCliente({ userId }: { userId: string }) {
       setDisponible(false);
       return;
     }
+    const activo = sil.data && new Date(sil.data.hasta).getTime() > Date.now() ? sil.data : null;
+    const filas = (mod.data ?? []) as FilaModeracion[];
     setDisponible(true);
-    setSilencio(sil.data && new Date(sil.data.hasta).getTime() > Date.now() ? sil.data : null);
-    setHistorial((mod.data ?? []) as { id: string; created_at: string; accion: string; detalle: string | null }[]);
+    setSilencio(activo);
+    setHistorial(filas);
+    onDatosRef.current({ historial: filas, silencio: activo });
   }, [userId]);
 
   useEffect(() => {
@@ -1036,67 +1580,66 @@ function ForoCliente({ userId }: { userId: string }) {
     cargar();
   }
 
-  if (!disponible) return null;
+  if (!disponible || !visible) return null;
 
   return (
-    <View nativeID="ficha-foro">
-      <SectionCard icon="chatbubbles-outline" title="Foro" count={historial.length ? `${historial.length} en el registro` : undefined}>
-        {silencio ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <Text style={{ flex: 1, minWidth: 180, color: COLORS.danger, fontWeight: "800", fontSize: 13 }}>
-              Silenciado hasta el {fechaHora(silencio.hasta)}
-              {silencio.motivo ? ` · ${silencio.motivo}` : ""}
-            </Text>
-            <EtapaChip etiqueta="Quitar silencio" activa={false} disabled={guardando} onPress={() => silenciar(null)} />
-          </View>
-        ) : (
-          <View style={{ gap: 6 }}>
-            <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Puede escribir en el Foro. Silenciar (no podrá escribir ni comentar):</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-              {[1, 3, 7].map((d) => (
-                <EtapaChip key={d} etiqueta={d === 1 ? "1 día" : `${d} días`} activa={false} disabled={guardando} onPress={() => silenciar(d)} />
-              ))}
-            </View>
-          </View>
-        )}
-        {aviso ? (
-          <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
-            {aviso.texto}
+    <Seccion nativeID="ficha-foro" icon="chatbubbles-outline" title="Foro" count={historial.length ? `${historial.length} en el registro` : undefined}>
+      {silencio ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <Text style={{ flex: 1, minWidth: 180, color: COLORS.danger, fontWeight: "800", fontSize: 15 }}>
+            Silenciado hasta el {fechaHora(silencio.hasta)}
+            {silencio.motivo ? ` · ${silencio.motivo}` : ""}
           </Text>
-        ) : null}
-        {historial.length ? (
-          <View style={{ gap: 6 }}>
-            <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 11.5 }}>HISTORIAL DE MODERACIÓN</Text>
-            {historial.map((h) => (
-              <View key={h.id} style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 2 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
-                  {ACCION_MODERACION[h.accion] ?? h.accion} · <Text style={{ color: COLORS.muted2, fontWeight: "700" }}>{fechaHora(h.created_at)}</Text>
-                </Text>
-                {h.detalle ? (
-                  <Text numberOfLines={3} style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
-                    {h.detalle}
-                  </Text>
-                ) : null}
-              </View>
+          <EtapaChip etiqueta="Quitar silencio" activa={false} disabled={guardando} onPress={() => silenciar(null)} />
+        </View>
+      ) : (
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: COLORS.muted, fontSize: 15, lineHeight: 21 }}>Puede escribir en el Foro. Silenciar (no podrá escribir ni comentar):</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {[1, 3, 7].map((d) => (
+              <EtapaChip key={d} etiqueta={d === 1 ? "1 día" : `${d} días`} activa={false} disabled={guardando} onPress={() => silenciar(d)} />
             ))}
           </View>
-        ) : (
-          <EmptyRow text="Sin nada en el registro de moderación." />
-        )}
-      </SectionCard>
-    </View>
+        </View>
+      )}
+      {aviso ? (
+        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 13 }}>
+          {aviso.texto}
+        </Text>
+      ) : null}
+      {historial.length ? (
+        <View style={{ gap: 0 }}>
+          <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13, letterSpacing: 0.3, paddingBottom: 4 }}>HISTORIAL DE MODERACIÓN</Text>
+          {historial.map((h, i) => (
+            <View key={h.id} style={{ paddingVertical: 9, gap: 2, borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 15 }}>
+                {ACCION_MODERACION[h.accion] ?? h.accion} · <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>{fechaHora(h.created_at)}</Text>
+              </Text>
+              {h.detalle ? (
+                <Text numberOfLines={3} style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19 }}>
+                  {h.detalle}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : (
+        <EmptyRow text="Sin nada en el registro de moderación." />
+      )}
+    </Seccion>
   );
 }
 
 // --- Ideas de mejora de este cliente ---------------------------------------------------------------------------------
 // Lo que ha mandado desde «Mejoras en la tienda» (tabla mejoras_tienda, migración 20261101200000_mejoras_tienda.sql),
-// con desde dónde y si ya está leída. Si la tabla aún no existe o no ha mandado ninguna, la tarjeta no sale.
+// con desde dónde y si ya está leída. Si la tabla aún no existe o no ha mandado ninguna, no sale. Pasa la lista a la
+// ficha para la línea de tiempo.
 
-type MejoraFicha = { id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean };
-
-function MejorasCliente({ userId }: { userId: string }) {
+function MejorasCliente({ userId, visible, onDatos }: { userId: string; visible: boolean; onDatos: (m: MejoraFicha[]) => void }) {
   const [mejoras, setMejoras] = useState<MejoraFicha[]>([]);
   const [marcando, setMarcando] = useState<string | null>(null);
+  const onDatosRef = useRef(onDatos);
+  onDatosRef.current = onDatos;
 
   useEffect(() => {
     if (!userId) return;
@@ -1109,15 +1652,15 @@ function MejorasCliente({ userId }: { userId: string }) {
       .limit(20)
       .then(({ data, error }) => {
         if (!vivo || error) return;
-        setMejoras(
-          ((data ?? []) as Record<string, unknown>[]).map((r) => ({
-            id: String(r.id ?? ""),
-            created_at: String(r.created_at ?? ""),
-            texto: String(r.texto ?? ""),
-            origen: (["blue", "pie", "perfil"].includes(String(r.origen)) ? r.origen : "blue") as OrigenMejora,
-            leida: r.leida === true,
-          }))
-        );
+        const lista = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+          id: String(r.id ?? ""),
+          created_at: String(r.created_at ?? ""),
+          texto: String(r.texto ?? ""),
+          origen: (["blue", "pie", "perfil"].includes(String(r.origen)) ? r.origen : "blue") as OrigenMejora,
+          leida: r.leida === true,
+        }));
+        setMejoras(lista);
+        onDatosRef.current(lista);
       });
     return () => {
       vivo = false;
@@ -1131,26 +1674,24 @@ function MejorasCliente({ userId }: { userId: string }) {
     if (!error && Array.isArray(data) && data.length) setMejoras((l) => l.map((m) => (m.id === id ? { ...m, leida: true } : m)));
   }
 
-  if (!mejoras.length) return null;
+  if (!mejoras.length || !visible) return null;
   const sinLeer = mejoras.filter((m) => !m.leida).length;
 
   return (
-    <View nativeID="ficha-mejoras">
-      <SectionCard icon="bulb-outline" title="Ideas de mejora" count={sinLeer ? `${sinLeer} sin leer` : mejoras.length}>
-        {mejoras.map((m) => (
-          <View key={m.id} style={{ borderRadius: 12, backgroundColor: m.leida ? COLORS.cardSoft : COLORS.accent2, padding: 10, gap: 6 }}>
-            <Text style={{ color: COLORS.text, fontWeight: m.leida ? "600" : "800", fontSize: 13.5, lineHeight: 19 }}>{m.texto}</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <Text style={{ flex: 1, minWidth: 160, color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
-                {fechaHora(m.created_at)} · desde {ORIGENES_MEJORA[m.origen]}
-                {m.leida ? " · leída" : ""}
-              </Text>
-              {!m.leida ? <EtapaChip etiqueta="Marcar como leída" activa={false} disabled={marcando === m.id} onPress={() => marcar(m.id)} /> : null}
-            </View>
+    <Seccion nativeID="ficha-mejoras" icon="bulb-outline" title="Ideas de mejora" count={sinLeer ? `${sinLeer} sin leer` : mejoras.length}>
+      {mejoras.map((m) => (
+        <View key={m.id} style={{ borderRadius: 14, backgroundColor: m.leida ? COLORS.cardSoft : COLORS.accent2, padding: 12, gap: 6 }}>
+          <Text style={{ color: COLORS.text, fontWeight: m.leida ? "600" : "800", fontSize: 15, lineHeight: 21 }}>{m.texto}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <Text style={{ flex: 1, minWidth: 160, color: COLORS.muted, fontWeight: "700", fontSize: 13 }}>
+              {fechaHora(m.created_at)} · desde {ORIGENES_MEJORA[m.origen]}
+              {m.leida ? " · leída" : ""}
+            </Text>
+            {!m.leida ? <EtapaChip etiqueta="Marcar como leída" activa={false} disabled={marcando === m.id} onPress={() => marcar(m.id)} /> : null}
           </View>
-        ))}
-      </SectionCard>
-    </View>
+        </View>
+      ))}
+    </Seccion>
   );
 }
 
@@ -1162,12 +1703,15 @@ function EtapaChip({
   activa,
   peligro,
   disabled,
+  ancho,
   onPress,
 }: {
   etiqueta: string;
   activa: boolean;
   peligro?: boolean;
   disabled?: boolean;
+  // En la rejilla de etapas: crece para llenar la fila (2 por fila en el móvil, 3 en el ordenador).
+  ancho?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -1179,23 +1723,38 @@ function EtapaChip({
       style={({ pressed }) => ({
         minHeight: 44,
         justifyContent: "center",
-        paddingHorizontal: 12,
+        alignItems: "center",
+        paddingHorizontal: 14,
         borderRadius: 999,
-        borderWidth: 1,
+        borderWidth: activa ? 2 : 1,
         borderColor: activa ? (peligro ? COLORS.danger : COLORS.accent) : COLORS.border,
         backgroundColor: activa ? (peligro ? COLORS.dangerBg : COLORS.accent2) : "#FFFFFF",
         opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+        ...(ancho ? { flexGrow: 1, flexBasis: "30%", minWidth: 130 } : null),
       })}
     >
-      <Text style={{ color: activa ? (peligro ? COLORS.danger : COLORS.accentDark) : COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+      <Text style={{ color: activa ? (peligro ? COLORS.danger : COLORS.text) : COLORS.text, fontWeight: activa ? "900" : "700", fontSize: 15, textAlign: "center" }}>
         {etiqueta}
       </Text>
     </Pressable>
   );
 }
 
-// Un pedido con sus etapas: un toque cambia la etapa (como en Administración → Pedidos).
-function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado: (estado: EstadoPedido) => void }) {
+// Un pedido en una fila compacta (miniatura, referencia, importe, etapa y factura). Al tocarlo se despliega con sus
+// detalles y los botones de etapa (como en Administración → Pedidos); al volver a tocarlo (o «Plegar»), se pliega.
+function PedidoFila({
+  pedido,
+  primero,
+  abierto,
+  onAlternar,
+  onCambiado,
+}: {
+  pedido: PedidoFicha;
+  primero: boolean;
+  abierto: boolean;
+  onAlternar: () => void;
+  onCambiado: (estado: EstadoPedido) => void;
+}) {
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
@@ -1237,50 +1796,39 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
   }
 
   const items = pedido.pedido_items ?? [];
+  const ref = pedido.codigo_seguimiento ? pedido.codigo_seguimiento : `Pedido nº ${pedido.numero ?? "—"}`;
+  const clave = pedido.numero ?? pedido.id;
   return (
-    <View style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 6 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text numberOfLines={1} selectable style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
-          {pedido.codigo_seguimiento ? `Pedido ${pedido.codigo_seguimiento}` : `Pedido nº ${pedido.numero ?? "—"}`}
-          {pedido.total_eur != null ? ` · ${eur(pedido.total_eur)}` : ""}
-        </Text>
-        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{fmtDate(pedido.created_at)}</Text>
-      </View>
-      {pedido.codigo_seguimiento && pedido.numero != null ? (
-        <Text nativeID={`ficha-pedido-interno-${pedido.numero}`} style={{ color: COLORS.muted2, fontSize: 11, fontWeight: "700" }}>
-          Nº interno {pedido.numero}
-        </Text>
-      ) : null}
-      {items.length ? (
-        <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>{items.map((it) => it.titulo).join(" · ")}</Text>
-      ) : null}
-      <Text style={{ color: COLORS.muted2, fontSize: 11.5, fontWeight: "700" }}>
-        {pedido.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
-        {pedido.user_id ? "" : " · Hecho sin sesión (con su correo): no lo ve en «Mis seguimientos»"}
-      </Text>
-      {/* Pago con tarjeta (Stripe): pagado, devuelto o empezado sin terminar. Texto con su icono, sin burbuja. */}
-      {pedido.pago_estado ? (
-        <View nativeID={`ficha-pago-${pedido.numero ?? pedido.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <Ionicons
-            name={pedido.devuelto_en ? "return-down-back-outline" : pedido.pago_estado === "pagado" ? "card" : "card-outline"}
-            size={15}
-            color={pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted}
-          />
-          <Text style={{ flexShrink: 1, color: pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted, fontSize: 12, fontWeight: "800" }}>
-            {pedido.pago_estado !== "pagado"
-              ? "Pago online empezado, sin terminar"
-              : pedido.devuelto_en
-                ? `Pagado online ${eur(Number(pedido.pagado_eur))} y devuelto ${eur(Number(pedido.devuelto_eur))} el ${fmtDate(pedido.devuelto_en)}`
-                : `Pagado online · ${eur(Number(pedido.pagado_eur))} · ${pedido.pagado_en ? fmtDate(pedido.pagado_en) : ""}`}
-            {pedido.pago_modo === "prueba" ? " (de prueba)" : ""}
+    <View nativeID={`ficha-pedido-${clave}`} style={{ borderTopWidth: primero ? 0 : 1, borderTopColor: COLORS.border, paddingBottom: abierto || pedido.factura ? 10 : 0 }}>
+      <Pressable
+        nativeID={`ficha-pedido-abrir-${clave}`}
+        onPress={onAlternar}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: abierto }}
+        accessibilityLabel={`Pedido ${ref}: ${abierto ? "plegar" : "desplegar"}`}
+        style={({ pressed }) => ({ minHeight: 60, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, opacity: pressed ? 0.75 : 1 })}
+      >
+        <Miniatura uri={pedido.miniatura} alt={items[0]?.titulo ?? "Pedido"} icono="receipt-outline" />
+        <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+          <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
+            {pedido.codigo_seguimiento ? `Pedido ${pedido.codigo_seguimiento}` : ref}
           </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Estado texto={etiquetaEstadoPedido(pedido.estado, pedido.entrega)} tono={TONO_ESTADO[pedido.estado]} />
+            <Text style={{ color: COLORS.muted, fontSize: 13 }}>{fmtDate(pedido.created_at)}</Text>
+          </View>
         </View>
-      ) : null}
+        <View style={{ alignItems: "flex-end", gap: 2 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>{pedido.total_eur != null ? eur(pedido.total_eur) : ""}</Text>
+          <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={20} color={COLORS.muted} />
+        </View>
+      </Pressable>
+
       {/* Factura de VeoAura: «Ver factura» la abre en una pestaña nueva para revisar cómo ha quedado. Texto con su icono. */}
       {pedido.factura ? (
-        <View nativeID={`ficha-factura-${pedido.numero ?? pedido.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <Ionicons name="document-text-outline" size={15} color={COLORS.muted} />
-          <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800" }}>
+        <View nativeID={`ficha-factura-${clave}`} style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingLeft: 56 }}>
+          <Ionicons name="document-text-outline" size={16} color={COLORS.muted} />
+          <Text style={{ color: COLORS.muted, fontSize: 13, fontWeight: "800", flexShrink: 1 }}>
             Factura {pedido.factura.numero ?? ""}
             {pedido.factura.pdf ? "" : " · PDF pendiente"}
           </Text>
@@ -1290,28 +1838,80 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
               accessibilityLabel={`Ver la factura ${pedido.factura.numero ?? ""}`}
               onPress={verFactura}
               disabled={abriendoFactura}
-              style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4, opacity: abriendoFactura ? 0.5 : 1 }}
+              style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, opacity: abriendoFactura ? 0.5 : pressed ? 0.7 : 1 })}
             >
-              <Ionicons name="eye-outline" size={15} color={COLORS.accent} />
-              <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12.5 }}>Ver factura</Text>
+              <Ionicons name="eye-outline" size={18} color={COLORS.accent} />
+              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15 }}>Ver factura</Text>
             </Pressable>
           ) : null}
         </View>
       ) : null}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {ESTADOS_PEDIDO.map((e) => (
-          <EtapaChip
-            key={e}
-            etiqueta={etiquetaEstadoPedido(e, pedido.entrega)}
-            activa={pedido.estado === e}
-            peligro={e === "cancelado"}
-            disabled={guardando}
-            onPress={() => cambiar(e)}
-          />
-        ))}
-      </View>
-      {aviso ? (
-        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+
+      {abierto ? (
+        <View nativeID={`ficha-pedido-detalle-${clave}`} style={{ borderRadius: 16, backgroundColor: COLORS.cardSoft, padding: 12, gap: 10, marginTop: pedido.factura ? 4 : 0 }}>
+          {pedido.codigo_seguimiento && pedido.numero != null ? (
+            <Text nativeID={`ficha-pedido-interno-${pedido.numero}`} style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700" }}>
+              Nº interno {pedido.numero}
+            </Text>
+          ) : null}
+          {items.length ? (
+            <View style={{ gap: 4 }}>
+              {items.map((it) => (
+                <View key={it.id} style={{ flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
+                  <Text style={{ flex: 1, color: COLORS.text, fontSize: 15, lineHeight: 21 }}>{it.titulo}</Text>
+                  {it.precio_eur != null ? <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: "700" }}>{eur(it.precio_eur)}</Text> : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
+          <Text style={{ color: COLORS.muted, fontSize: 13, fontWeight: "700", lineHeight: 19 }}>
+            {pedido.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
+            {pedido.user_id ? "" : " · Hecho sin sesión (con su correo): no lo ve en «Mis seguimientos»"}
+          </Text>
+          {/* Pago con tarjeta (Stripe): pagado, devuelto o empezado sin terminar. Texto con su icono, sin burbuja. */}
+          {pedido.pago_estado ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons
+                name={pedido.devuelto_en ? "return-down-back-outline" : pedido.pago_estado === "pagado" ? "card" : "card-outline"}
+                size={16}
+                color={pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted}
+              />
+              <Text
+                nativeID={`ficha-pago-${clave}`}
+                style={{ flexShrink: 1, color: pedido.pago_estado === "pagado" && !pedido.devuelto_en ? COLORS.success : COLORS.muted, fontSize: 13, fontWeight: "800" }}
+              >
+                {pedido.pago_estado !== "pagado"
+                  ? "Pago online empezado, sin terminar"
+                  : pedido.devuelto_en
+                    ? `Pagado online ${eur(Number(pedido.pagado_eur))} y devuelto ${eur(Number(pedido.devuelto_eur))} el ${fmtDate(pedido.devuelto_en)}`
+                    : `Pagado online · ${eur(Number(pedido.pagado_eur))} · ${pedido.pagado_en ? fmtDate(pedido.pagado_en) : ""}`}
+                {pedido.pago_modo === "prueba" ? " (de prueba)" : ""}
+              </Text>
+            </View>
+          ) : null}
+          <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13, letterSpacing: 0.3, paddingTop: 2 }}>ETAPA DEL PEDIDO</Text>
+          <View nativeID={`ficha-pedido-etapas-${clave}`} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {ESTADOS_PEDIDO.map((e) => (
+              <EtapaChip
+                key={e}
+                ancho
+                etiqueta={etiquetaEstadoPedido(e, pedido.entrega)}
+                activa={pedido.estado === e}
+                peligro={e === "cancelado"}
+                disabled={guardando}
+                onPress={() => cambiar(e)}
+              />
+            ))}
+          </View>
+          {aviso ? (
+            <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 13 }}>
+              {aviso.texto}
+            </Text>
+          ) : null}
+          <BotonTexto icon="chevron-up" texto="Plegar" onPress={onAlternar} accessibilityLabel={`Plegar el pedido ${ref}`} />
+        </View>
+      ) : aviso ? (
+        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 13, paddingLeft: 56 }}>
           {aviso.texto}
         </Text>
       ) : null}
@@ -1354,15 +1954,16 @@ function SeguimientoReparacion({
   }
 
   return (
-    <View style={{ gap: 6, paddingTop: 4 }}>
-      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 11.5 }}>
+    <View style={{ gap: 10 }}>
+      <Text style={{ color: COLORS.muted, fontWeight: "900", fontSize: 13, letterSpacing: 0.3 }}>
         SEGUIMIENTO PARA EL CLIENTE
         {solicitud.seguimiento_actualizado ? ` · ${fmtDate(solicitud.seguimiento_actualizado)}` : ""}
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {SEGUIMIENTO_ETAPAS.map((e) => (
           <EtapaChip
             key={e}
+            ancho
             etiqueta={SEGUIMIENTO_LABEL[e]}
             activa={etapa === e}
             peligro={e === "cancelado"}
@@ -1381,7 +1982,7 @@ function SeguimientoReparacion({
           setAviso(null);
         }}
         placeholder="Nota del taller para el cliente (opcional)"
-        placeholderTextColor="rgba(11,33,56,0.40)"
+        placeholderTextColor="rgba(11,33,56,0.55)"
         accessibilityLabel="Nota del taller para el cliente"
         maxLength={500}
         style={{
@@ -1397,7 +1998,7 @@ function SeguimientoReparacion({
           fontSize: 16,
         }}
       />
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <Pressable
           onPress={guardar}
           disabled={!cambiado || guardando}
@@ -1405,16 +2006,16 @@ function SeguimientoReparacion({
           style={({ pressed }) => ({
             minHeight: 44,
             justifyContent: "center",
-            paddingHorizontal: 18,
+            paddingHorizontal: 20,
             borderRadius: 999,
-            backgroundColor: COLORS.accentDark,
+            backgroundColor: COLORS.accent,
             opacity: !cambiado || guardando ? 0.5 : pressed ? 0.88 : 1,
           })}
         >
-          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13.5 }}>{guardando ? "Guardando…" : "Guardar seguimiento"}</Text>
+          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{guardando ? "Guardando…" : "Guardar seguimiento"}</Text>
         </Pressable>
         {aviso ? (
-          <Text accessibilityRole="alert" style={{ flexShrink: 1, color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+          <Text accessibilityRole="alert" style={{ flexShrink: 1, color: aviso.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 13 }}>
             {aviso.texto}
           </Text>
         ) : null}
