@@ -236,10 +236,19 @@
  *  - DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000): con sesión, la tienda apunta «iPhone ·
  *    Safari» (solo ese nombre: sin el identificador completo, IP ni ubicación) y no lo repite antes de 15 minutos (ni al
  *    recargar ni al volver a la pestaña); pasados, lo pone al día sin sumar inicios; sin la tabla, una sola petición y sin
- *    errores. La ficha del cliente: «Última conexión: hace 2 h (fecha y hora)» y «Dispositivos» (los suyos, por última
- *    vez, «App instalada», primera vez, inicios), el aviso sin conexiones y nada sin la tabla; Usuarios («Última conexión»
- *    en cada fila, orden y «Activos 7 días») y Analítica (dos recuentos sin el administrador), a 390 px.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV]
+ *    errores. La ficha del cliente: «Cliente desde … · Última conexión hace 2 h» (la fecha y hora para el lector de
+ *    pantalla), «App instalada» y «Dispositivos» (los suyos, por última vez, «App instalada», primera vez, inicios), el
+ *    aviso sin conexiones y nada sin la tabla; Usuarios («Última conexión» en cada fila, orden y «Activos 7 días») y
+ *    Analítica (dos recuentos sin el administrador), a 390 px.
+ *  - FC) Ficha del cliente rediseñada (2026-11-12), a 390, 360 y 1280 px: cabecera tipo tarjeta (iniciales, nombre,
+ *    @usuario · edad · provincia, correo, «Cliente desde … · Última conexión hace X», etiquetas), 4 cifras en fila,
+ *    acciones rápidas de 44 px (chat con y sin conversación, copiar correo, «Añadir nota» con el cuadro listo), pestañas con
+ *    su número que cambian y se recuerdan en ?tab= (también al recargar), la nota fijada en amarillo en el Resumen, los 3
+ *    últimos movimientos, pedidos compactos (miniatura con foto falsa, etapa con color, «Ver factura») que se despliegan
+ *    con 6 botones de etapa de 44 px separados 8 px y se repliegan, la línea de tiempo de «Actividad» por día y con
+ *    iconos, ninguna letra < 12 px, nada se sale ni se corta, y en el ordenador centrada y de 760 px como mucho.
+ *    Las secciones E, PT, ME y M abren la pestaña que les toca (Pedidos, Reparaciones, Actividad) y despliegan los pedidos.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1234,7 +1243,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     }
     // Lecturas vacías de todo lo demás que pide la tienda con esta sesión (nada de la base de datos real).
     if (metodo === "GET" || metodo === "HEAD") {
-      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
+      if (/\/rest\/v1\/(pedidos|pedido_items|service_requests|sell_requests|store_reviews|product_sales|customer_notes|product_chats|avisos_busqueda|preferencias_usuario|chat_message_reactions|services|service_media|seguimiento_intentos|blue_ia_conversaciones|blue_ia_mensajes|blue_conocimiento)$/.test(url.pathname)) {
         return json([], 200, { "content-range": "*/0" });
       }
       return r.continue();
@@ -4505,6 +4514,8 @@ async function seccionME() {
     await capturar(p, "ME4-admin-ideas");
     await p.locator("#mejora-m2").getByRole("link").first().click();
     await p.waitForURL(/\/admin\/cliente\//, { timeout: 15000 }).catch(() => {});
+    // Las ideas de mejora están en la pestaña «Actividad» de la ficha.
+    await p.locator("#ficha-pestana-actividad").click({ timeout: 30000 }).catch(() => {});
     await p.locator("#ficha-mejoras").waitFor({ timeout: 20000 }).catch(() => {});
     const ficha = (await p.locator("#ficha-mejoras").innerText().catch(() => "")).replace(/\n+/g, " | ");
     ok(new URL(p.url()).pathname === `/admin/cliente/${CLIENTE.id}` && /Ideas de mejora/.test(ficha) && /Que Blue avise/.test(ficha) && /Más fotos de cada consola/.test(ficha), `ME: el nombre lleva a la ficha del cliente, que enseña sus ideas (${ficha.slice(0, 80)})`);
@@ -8721,8 +8732,10 @@ async function seccionPT() {
       tablas: { products: [{ id: P1, title: "Gafas VR ps5 sin caja" }] },
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+    // Pestaña «Pedidos» desde la URL (?tab=pedidos) y cada pedido desplegado (el pago va dentro del pedido).
+    const p = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&tab=pedidos`);
     await p.locator("#ficha-compras-pagos").waitFor({ timeout: 30000 }).catch(() => {});
+    for (const n of [51, 52, 53, 54]) await p.locator(`#ficha-pedido-abrir-${n}`).click().catch(() => {});
     await p.waitForTimeout(500);
     ok((estado.pagoFichaPedido ?? 0) >= 1, "PT: la ficha pide el pago de sus pedidos aparte (sin la migración saldría igual)");
     ok(/^Pagado online · 240,00€ · /.test(await texto(p, "#ficha-pago-51")), `PT: cada pedido enseña su pago (${await texto(p, "#ficha-pago-51")})`);
@@ -10726,7 +10739,10 @@ async function seccionDV() {
     const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z`);
     await f.locator("#ficha-dispositivos").waitFor({ timeout: 40000 }).catch(() => {});
     const cab = limpio(await f.locator("#ficha-ultima-conexion").innerText().catch(() => ""));
-    ok(/^Última conexión: hace 2 h \(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}\)$/.test(cab), `DV: la cabecera de la ficha dice «Última conexión: hace 2 h (dd/mm/aaaa hh:mm)» (${cab})`);
+    const etiquetaCab = (await f.locator("#ficha-ultima-conexion").getAttribute("aria-label").catch(() => "")) ?? "";
+    ok(/^Última conexión hace 2 h$/.test(cab) && /el \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(etiquetaCab), `DV: la cabecera de la ficha dice «Última conexión hace 2 h» (con la fecha y hora para el lector de pantalla) (${cab} | ${etiquetaCab})`);
+    const desde = limpio(await f.locator("#ficha-cabecera").innerText().catch(() => ""));
+    ok(/Cliente desde septiembre 2026 · Última conexión hace 2 h/.test(desde) && /App instalada/.test(desde), `DV: debajo, «Cliente desde septiembre 2026 · Última conexión hace 2 h» y la etiqueta «App instalada» (${desde.slice(0, 160)})`);
     const td = limpio(await f.locator("#ficha-dispositivos").innerText().catch(() => ""));
     const orden = ["iPhone · Safari", "Windows · Chrome", "Mac · Safari"].map((n) => td.indexOf(n));
     ok(/^Dispositivos 3/.test(td) && orden.every((i) => i >= 0) && orden[0] < orden[1] && orden[1] < orden[2] && !/Android/.test(td), `DV: «Dispositivos» enseña los 3 suyos (no los de otra persona), del más reciente al más antiguo (${td.slice(0, 120)})`);
@@ -10782,7 +10798,7 @@ async function seccionDV() {
     const estado = { guardados: [], dispositivos: { filas: [] }, dispositivosSinTabla: sinTabla };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
     const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
-    await f.getByText("Compras a la tienda").waitFor({ timeout: 40000 }).catch(() => {});
+    await f.locator("#ficha-perfil").waitFor({ timeout: 40000 }).catch(() => {});
     const td = limpio(await f.locator("#ficha-dispositivos").innerText().catch(() => ""));
     const cab = await f.locator("#ficha-ultima-conexion").count();
     if (sinTabla) ok(td === "" && cab === 0 && f.errores.length === 0, `DV: sin la tabla, la ficha sale igual sin «Dispositivos» ni «Última conexión» y sin errores (${f.errores[0] ?? "ok"})`);
@@ -10795,8 +10811,242 @@ async function seccionDV() {
   }
 }
 
+// ===== FC) Ficha del cliente con el diseño nuevo (dueño, 2026-11-12): cabecera tipo tarjeta con «Cliente desde … ·
+// Última conexión hace X» y etiquetas, 4 cifras en fila, acciones rápidas (chat, copiar correo, Pedidos, añadir nota),
+// pestañas que cambian y se recuerdan en la URL (?tab=), nota fijada en el Resumen, pedidos compactos que se despliegan y
+// repliegan con botones de etapa de 44 px separados 8 px, «Ver factura», la línea de tiempo de «Actividad», ninguna letra
+// de menos de 12 px y nada que se salga a 360 y 390 px; en el ordenador, centrada y de 760 px como mucho. Sin fotos reales.
+async function seccionFC() {
+  const PUA = /[-]/g; // las letras de la fuente de iconos
+  const limpio = (s) => String(s ?? "").replace(PUA, "").replace(/\s+/g, " ").trim();
+  const P1 = "f1000000-0000-4000-8000-000000000001";
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const pedido = (n, extra) => ({
+    id: `0fc00000-0000-4000-8000-0000000000${n}`, numero: n, codigo_seguimiento: `VZ-FC00-00${n}`, entrega: "envio", user_id: CLIENTE.id, email: CLIENTE.email,
+    pago_estado: null, pago_modo: null, pagado_eur: null, pagado_en: null, devuelto_eur: null, devuelto_en: null, ...extra,
+  });
+  const estadoBase = (conChat) => ({
+    guardados: [],
+    filas: [{ user_id: CLIENTE.id, nombre: "Dani García", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2000-05-02", foto_url: null, updated_at: "2026-11-01T10:00:00Z" }],
+    dispositivos: {
+      filas: [
+        { id: "d1", user_id: CLIENTE.id, dispositivo: "iPhone · Safari", app_instalada: true, primera_vez: "2026-09-20T18:30:00Z", ultima_vez: hace(120), inicios: 4 },
+        { id: "d2", user_id: CLIENTE.id, dispositivo: "Windows · Chrome", app_instalada: false, primera_vez: "2026-10-05T09:00:00Z", ultima_vez: hace(3 * 24 * 60), inicios: 1 },
+      ],
+    },
+    pedidosFicha: [
+      pedido(61, { created_at: "2026-11-10T10:00:00Z", estado: "confirmado", total_eur: 1299, pedido_items: [{ id: "i61", titulo: "PlayStation 5 Pro", precio_eur: 1299, product_id: P1 }], pago_estado: "pagado", pago_modo: "real", pagado_eur: 1299, pagado_en: "2026-11-10T10:05:00Z" }),
+      pedido(62, { created_at: "2026-11-11T09:00:00Z", estado: "cancelado", entrega: "recogida", total_eur: 30, pedido_items: [{ id: "i62", titulo: "Mando DualSense", precio_eur: 30 }] }),
+    ],
+    facturas: [{ id: "fe000000-0000-4000-8000-000000000061", pedido_id: "0fc00000-0000-4000-8000-000000000061", numero_factura: "VJZ-2026-000061", fecha: "2026-11-10", total_eur: 1299, pdf_path: "0fc00000-0000-4000-8000-000000000061/f.pdf", recibida_en: "2026-11-10T11:00:00Z" }],
+    serviciosFicha: [
+      { id: "s1000000-0000-4000-8000-0000000000f1", created_at: "2026-10-28T10:00:00Z", service_title: "Reparación de mando", status: "contactado", ciudad: "Zaragoza", seguimiento: "reparando", seguimiento_nota: "Cambiamos el joystick", seguimiento_actualizado: "2026-11-02T12:00:00Z" },
+    ],
+    eventos: [],
+    tablas: {
+      // Foto falsa (pruebas/sin-fotos-reales.mjs sustituye todo /storage/v1/object/…): nada llega a Supabase.
+      products: [{ id: P1, title: "PlayStation 5 Pro", images: ["https://fotos.ejemplo.invalid/storage/v1/object/public/product-media/ps5-pro.png"] }],
+      customer_notes: [{ notes: "Le prometimos un año de garantía en el mando.", updated_at: "2026-11-09T10:00:00Z" }],
+      sell_requests: [{ id: "v1", created_at: "2026-10-15T10:00:00Z", articulo: "Nintendo Switch OLED", precio_estimado: "180 €", status: "revisado", ciudad: "Zaragoza" }],
+      product_sales: [],
+      product_chats: conChat ? [{ id: "c0000000-0000-4000-8000-0000000000c1" }] : [],
+    },
+  });
+  const ruta = (extra = "") => `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z${extra}`;
+  // La letra más pequeña de la ficha (sin la fuente de iconos) y lo que se sale por los lados (la fila de pestañas se
+  // desliza, así que no cuenta); también las cifras cortadas con «…».
+  const medir = (p) =>
+    p.evaluate(() => {
+      const v = window.innerWidth;
+      const zona = [...document.querySelectorAll("#ficha-cabecera *, #ficha-acciones *, #ficha-pestanas *, [id^='ficha-contenido-'] *")];
+      let min = 99;
+      let cual = "";
+      for (const el of zona) {
+        const t = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent).join("");
+        if (!t || !el.getBoundingClientRect().width) continue;
+        const s = parseFloat(getComputedStyle(el).fontSize);
+        if (s < min) {
+          min = s;
+          cual = t.slice(0, 40);
+        }
+      }
+      const fuera = [...document.querySelectorAll("#ficha-cabecera *, #ficha-acciones *, [id^='ficha-contenido-'] *")]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && (r.right > v + 1 || r.left < -1);
+        })
+        .slice(0, 3)
+        .map((el) => (el.innerText || el.tagName).slice(0, 30));
+      const cortadas = [...document.querySelectorAll("#ficha-cifras *")]
+        .filter((el) => [...el.childNodes].some((n) => n.nodeType === 3) && el.scrollWidth > el.clientWidth + 1)
+        .map((el) => el.innerText);
+      return { min, cual, fuera, cortadas, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v };
+    });
+  const vistas = [
+    ["390", {}],
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ];
+  for (const [nombre, vista] of vistas) {
+    const movil = nombre !== "1280";
+    const estado = estadoBase(nombre === "390");
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE }).catch(() => {});
+    const f = await pagina(ctx, ruta());
+    await f.locator("#ficha-cabecera").waitFor({ timeout: 40000 }).catch(() => {});
+    await f.locator("#ficha-ultima-conexion").waitFor({ timeout: 20000 }).catch(() => {});
+    const medidas = [];
+
+    // FC1) Cabecera: foto o iniciales, nombre, @usuario · edad · provincia, correo, «Cliente desde … · Última conexión
+    // hace X» y las etiquetas.
+    const cab = limpio(await f.locator("#ficha-cabecera").innerText().catch(() => ""));
+    const edad = edadHoy("2000-05-02");
+    ok(/^DG Dani García @dani · \d+ años · Zaragoza cliente@example\.com/.test(cab) && cab.includes(`${edad} años`), `FC (${nombre}): la cabecera enseña iniciales, nombre, @usuario · edad · provincia y el correo (${cab.slice(0, 90)})`);
+    ok(/Cliente desde septiembre 2026 · Última conexión hace 2 h/.test(cab), `FC (${nombre}): debajo, «Cliente desde septiembre 2026 · Última conexión hace 2 h» (${(cab.match(/Cliente desde.{0,50}/) ?? [""])[0]})`);
+    const etiquetas = limpio(await f.locator("#ficha-etiquetas").innerText().catch(() => ""));
+    ok(etiquetas === "Perfil completo App instalada", `FC (${nombre}): etiquetas «Perfil completo» y «App instalada» (${etiquetas})`);
+    ok(!/2000-05-02|02\/05\/2000/.test(await f.evaluate(() => document.body.innerText)), `FC (${nombre}): la edad, nunca la fecha de nacimiento`);
+
+    // FC2) Las 4 cifras en una fila: gastado (sin el pedido cancelado), pedidos, reparaciones y ventas.
+    const cifras = limpio(await f.locator("#ficha-cifras").innerText().catch(() => ""));
+    const filaCifras = await f.evaluate(() => [...document.querySelectorAll("[id^='ficha-cifra-']")].map((el) => Math.round(el.getBoundingClientRect().top)));
+    ok(cifras === "1.299 € Gastado 2 Pedidos 1 Reparaciones 1 Ventas" && filaCifras.length === 4 && new Set(filaCifras).size === 1, `FC (${nombre}): 4 cifras en una fila (${cifras}; alturas ${filaCifras.join(",")})`);
+
+    // FC3) Acciones rápidas: icono + texto, 44 px o más.
+    const acciones = await f.evaluate(() => [...document.querySelectorAll("#ficha-acciones [role='button']")].map((b) => [b.innerText.replace(/[-]/g, "").trim(), Math.round(b.getBoundingClientRect().height)]));
+    ok(acciones.map((a) => a[0]).join(" | ") === "Escribir por el chat | Copiar correo | Ver en Pedidos | Añadir nota" && acciones.every((a) => a[1] >= 44), `FC (${nombre}): acciones rápidas de 44 px (${acciones.map((a) => `${a[0]} ${a[1]}`).join(", ")})`);
+    await f.locator("#ficha-accion-copiar").click();
+    await f.locator("#ficha-aviso-accion").waitFor({ timeout: 5000 }).catch(() => {});
+    const copiado = await f.evaluate(() => navigator.clipboard.readText().catch(() => "")).catch(() => "");
+    ok(copiado === CLIENTE.email && /Correo copiado/.test(await f.locator("#ficha-aviso-accion").innerText().catch(() => "")), `FC (${nombre}): «Copiar correo» lo copia y lo dice (${copiado || "nada"})`);
+
+    // FC4) Resumen: la nota interna fijada arriba (amarillo suave), los 3 últimos movimientos y los dispositivos.
+    const nota = await f.evaluate(() => {
+      const n = document.getElementById("ficha-nota-fijada");
+      const u = document.getElementById("ficha-ultimos");
+      return n ? { texto: n.innerText, fondo: getComputedStyle(n).backgroundColor, antes: !!u && n.getBoundingClientRect().top < u.getBoundingClientRect().top } : null;
+    });
+    ok(!!nota && /Le prometimos un año de garantía/.test(nota.texto) && nota.fondo === "rgb(255, 249, 224)" && nota.antes, `FC (${nombre}): la nota interna sale fijada arriba del Resumen, en amarillo suave (${JSON.stringify(nota)?.slice(0, 120)})`);
+    const ultimos = limpio(await f.locator("#ficha-ultimos").innerText().catch(() => ""));
+    const nUltimos = await f.evaluate(() => document.querySelectorAll("#ficha-ultimos [role='button'][aria-label*=': ver en ']").length);
+    ok(/^Últimos movimientos Pedido VZ-FC00-0062 · 30,00€ .*Pagó online 1\.299,00€ .*Factura VJZ-2026-000061 10 nov 2026 · Pedido VZ-FC00-0061 Ver toda la actividad$/.test(ultimos) && nUltimos === 3, `FC (${nombre}): los 3 últimos movimientos, del más nuevo al más viejo (${ultimos.slice(0, 160)})`);
+    ok((await f.locator("#ficha-dispositivos").count()) === 1, `FC (${nombre}): y los dispositivos en el Resumen`);
+    medidas.push(["resumen", await medir(f)]);
+    if (movil || nombre === "1280") await capturar(f, `FC1-${nombre}-cabecera-resumen`);
+
+    // FC5) Pestañas: cambian, se recuerdan en la URL (?tab=pedidos) y al recargar sigue en la misma.
+    const pestanas = await f.evaluate(() => [...document.querySelectorAll("#ficha-pestanas [role='tab']")].map((t) => t.innerText.replace(/\s+/g, " ").trim()));
+    ok(pestanas.join(" | ") === "Resumen | Pedidos 2 | Reparaciones 1 | Ventas 1 | Actividad | Notas", `FC (${nombre}): las 6 pestañas con su número (${pestanas.join(" | ")})`);
+    await f.locator("#ficha-pestana-pedidos").click();
+    await f.locator("#ficha-pedidos").waitFor({ timeout: 10000 }).catch(() => {});
+    await f.waitForTimeout(300);
+    const url1 = new URL(f.url());
+    ok(url1.searchParams.get("tab") === "pedidos" && (await f.locator("#ficha-pestana-pedidos").getAttribute("aria-selected")) === "true" && (await f.locator("#ficha-perfil").count()) === 0, `FC (${nombre}): «Pedidos» cambia de pestaña y queda en la URL (${url1.search})`);
+    await f.reload({ waitUntil: "load" });
+    await f.locator("#ficha-pedidos").waitFor({ timeout: 40000 }).catch(() => {});
+    ok((await f.locator("#ficha-pedidos").count()) === 1 && (await f.locator("#ficha-pestana-pedidos").getAttribute("aria-selected")) === "true", `FC (${nombre}): al recargar vuelve a «Pedidos»`);
+
+    // FC6) Pedidos: fila compacta (miniatura, referencia, importe, etapa con color, factura con «Ver factura»), plegada.
+    const fila = limpio(await f.locator("#ficha-pedido-61").innerText().catch(() => ""));
+    const mini = await f.locator('#ficha-pedido-61 img[alt="PlayStation 5 Pro"]').count();
+    const colorEtapa = await f.evaluate(() => {
+      const fila = document.getElementById("ficha-pedido-62");
+      const t = [...(fila?.querySelectorAll("div, span") ?? [])].find((x) => x.childNodes.length === 1 && x.textContent === "Cancelado");
+      return t ? getComputedStyle(t).color : "";
+    });
+    ok(/^Pedido VZ-FC00-0061 Confirmado \d{2} nov\.? 2026 1\.299,00€ Factura VJZ-2026-000061 Ver factura$/.test(fila) && mini === 1, `FC (${nombre}): fila compacta con miniatura, referencia, etapa, importe y «Ver factura» (${fila}; miniatura ${mini})`);
+    ok(colorEtapa === "rgb(185, 28, 28)" && (await f.locator("#ficha-pedido-detalle-61").count()) === 0, `FC (${nombre}): la etapa con su color (cancelado en rojo: ${colorEtapa}) y el pedido plegado`);
+    const paginasAntes = ctx.pages().length;
+    estado.facturasPedidas = [];
+    await f.getByRole("button", { name: "Ver la factura VJZ-2026-000061" }).click();
+    for (let i = 0; i < 20 && !estado.facturasPedidas.length; i++) await f.waitForTimeout(200);
+    await f.waitForTimeout(400);
+    ok(estado.facturasPedidas[0]?.pedido === "0fc00000-0000-4000-8000-000000000061" && estado.facturasPedidas[0]?.ver === true && ctx.pages().length > paginasAntes, `FC (${nombre}): «Ver factura» la abre en otra pestaña (${JSON.stringify(estado.facturasPedidas[0] ?? null).slice(0, 100)})`);
+    for (const extra of ctx.pages().slice(paginasAntes)) await extra.close().catch(() => {});
+
+    // FC7) Al tocarlo se despliega con los botones de etapa (44 px o más, separados 8 px o más) y se vuelve a plegar.
+    await f.locator("#ficha-pedido-abrir-61").click();
+    await f.locator("#ficha-pedido-detalle-61").waitFor({ timeout: 5000 }).catch(() => {});
+    const etapas = await f.evaluate(() =>
+      [...document.querySelectorAll("#ficha-pedido-etapas-61 [role='button']")].map((b) => {
+        const r = b.getBoundingClientRect();
+        return { t: b.innerText.trim(), x: r.left, y: r.top, d: r.right, a: r.bottom, h: r.height };
+      })
+    );
+    let separacion = 99;
+    for (const a of etapas) for (const b of etapas) if (a !== b) separacion = Math.min(separacion, Math.max(b.x - a.d, a.x - b.d, b.y - a.a, a.y - b.a));
+    ok(etapas.length === 6 && etapas.every((e) => e.h >= 44) && separacion >= 7.5, `FC (${nombre}): desplegado, 6 botones de etapa de 44 px o más separados ${Math.round(separacion)} px (${etapas.map((e) => `${e.t} ${Math.round(e.h)}`).join(", ")})`);
+    const detalle = limpio(await f.locator("#ficha-pedido-detalle-61").innerText().catch(() => ""));
+    ok(/Nº interno 61/.test(detalle) && /PlayStation 5 Pro 1\.299,00€/.test(detalle) && /Envío a domicilio/.test(detalle) && /Pagado online · 1\.299,00€/.test(detalle), `FC (${nombre}): con el nº interno, los artículos, la entrega y el pago (${detalle.slice(0, 120)})`);
+    medidas.push(["pedido abierto", await medir(f)]);
+    await f.locator("#ficha-pedido-61").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(f, `FC2-${nombre}-pedido-desplegado`);
+    await f.locator("#ficha-pedido-abrir-61").click();
+    await f.waitForTimeout(200);
+    const plegadoToque = (await f.locator("#ficha-pedido-detalle-61").count()) === 0;
+    await f.locator("#ficha-pedido-abrir-61").click();
+    await f.getByRole("button", { name: "Plegar el pedido VZ-FC00-0061" }).click();
+    await f.waitForTimeout(200);
+    ok(plegadoToque && (await f.locator("#ficha-pedido-detalle-61").count()) === 0, `FC (${nombre}): se vuelve a plegar al tocarlo otra vez y con «Plegar»`);
+
+    // FC8) Actividad: la línea de tiempo por día con un icono por tipo, del más nuevo al más viejo.
+    await f.locator("#ficha-pestana-actividad").click();
+    await f.locator("#ficha-actividad").waitFor({ timeout: 10000 }).catch(() => {});
+    const act = limpio(await f.locator("#ficha-actividad").innerText().catch(() => ""));
+    const orden = ["Pedido VZ-FC00-0062 · 30,00€", "Pagó online 1.299,00€", "Factura VJZ-2026-000061", "Pedido VZ-FC00-0061 · 1.299,00€", "Reparación: En reparación", "Pidió una reparación: Reparación de mando", "Nos quiso vender: Nintendo Switch OLED", "Primera conexión desde Windows · Chrome", "Primera conexión desde iPhone · Safari", "Se registró en la tienda"].map((t) => act.indexOf(t));
+    const dias = (act.match(/\b\d{2} [A-ZÁÉÍÓÚ]{3,4}\.? 2026\b/g) ?? []).length;
+    const iconos = await f.evaluate(() => [...document.querySelectorAll("#ficha-actividad *")].filter((el) => /[-]/.test(el.textContent ?? "") && el.children.length === 0).length);
+    ok(orden.every((i, k) => i >= 0 && (k === 0 || i > orden[k - 1])) && /Pagó online 1\.299,00€/.test(act), `FC (${nombre}): «Actividad» enseña registro, pedidos, pago, factura, reparación y su etapa, venta y conexiones nuevas, en orden (${orden.join(",")})`);
+    ok(dias >= 7 && iconos >= 10, `FC (${nombre}): agrupada por día (${dias} días) y con un icono en cada movimiento (${iconos})`);
+    ok(new URL(f.url()).searchParams.get("tab") === "actividad", `FC (${nombre}): y queda en la URL (?tab=actividad)`);
+    medidas.push(["actividad", await medir(f)]);
+    await capturar(f, `FC3-${nombre}-actividad`);
+
+    // FC9) «Añadir nota» lleva a Notas con el cuadro listo para escribir.
+    await f.locator("#ficha-accion-nota").click();
+    await f.waitForTimeout(700);
+    const enfocado = await f.evaluate(() => document.activeElement?.id ?? "");
+    ok(new URL(f.url()).searchParams.get("tab") === "notas" && enfocado === "ficha-notas-texto", `FC (${nombre}): «Añadir nota» abre «Notas» con el cuadro listo (${enfocado || "sin foco"})`);
+    medidas.push(["notas", await medir(f)]);
+
+    // FC10) Letras y anchos: nada de menos de 12 px (la ficha usa 13 como mínimo) y nada se sale; en el ordenador, la ficha
+    // centrada y de 760 px como mucho.
+    const min = Math.min(...medidas.map(([, m]) => m.min));
+    const peor = medidas.find(([, m]) => m.min === min);
+    ok(min >= 12, `FC (${nombre}): ninguna letra de menos de 12 px (la más pequeña: ${min} px, «${peor?.[1].cual}» en ${peor?.[0]})`);
+    const fuera = medidas.filter(([, m]) => m.ancho > m.v + 1 || m.fuera.length || m.cortadas.length);
+    ok(fuera.length === 0, `FC (${nombre}): nada se sale ni se corta (${fuera.map(([d, m]) => `${d}: ${m.ancho}/${m.v} ${m.fuera.join(";")} ${m.cortadas.join(";")}`).join(" | ") || "nada"})`);
+    if (!movil) {
+      const caja = await f.evaluate(() => {
+        const r = document.getElementById("ficha-cabecera").getBoundingClientRect();
+        return { ancho: Math.round(r.width), izq: Math.round(r.left), der: Math.round(window.innerWidth - r.right) };
+      });
+      ok(caja.ancho <= 760 && Math.abs(caja.izq - caja.der) <= 2, `FC (${nombre}): en el ordenador, centrada y de 760 px como mucho (${JSON.stringify(caja)})`);
+      const filaAcciones = await f.evaluate(() => new Set([...document.querySelectorAll("#ficha-acciones [role='button']")].map((b) => Math.round(b.getBoundingClientRect().top))).size);
+      ok(filaAcciones === 1, `FC (${nombre}): y las 4 acciones en una sola fila (${filaAcciones} filas)`);
+      await f.locator("#ficha-pestana-pedidos").click();
+      await f.waitForTimeout(300);
+      await capturar(f, `FC4-${nombre}-pedidos`);
+    }
+
+    // FC11) «Escribir por el chat»: con conversación, lleva a Administración → Chat; sin ella, explica por qué no.
+    if (nombre === "390") {
+      await f.locator("#ficha-accion-chat").click();
+      await f.waitForURL(/\/admin\/chats/, { timeout: 15000 }).catch(() => {});
+      ok(/\/admin\/chats/.test(new URL(f.url()).pathname), `FC (${nombre}): «Escribir por el chat» abre el chat de Administración (${new URL(f.url()).pathname})`);
+    } else {
+      await f.locator("#ficha-accion-chat").click();
+      await f.locator("#ficha-aviso-accion").waitFor({ timeout: 5000 }).catch(() => {});
+      ok(/Aún no ha abierto ningún chat/.test(await f.locator("#ficha-aviso-accion").innerText().catch(() => "")) && /\/admin\/cliente\//.test(new URL(f.url()).pathname), `FC (${nombre}): sin chat, lo explica y no se va de la ficha`);
+    }
+    ok(f.errores.length === 0, `FC (${nombre}): sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "FC") await seccionFC();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
@@ -11495,8 +11745,8 @@ try {
     ok((await p.locator("#admin-silenciados").count()) === 0, "M: y desaparece de la lista");
     ok(p.errores.length === 0, `M: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
 
-    // Ficha del cliente: su Foro (historial y silenciar desde aquí).
-    const f = await pagina(ctx, `/admin/cliente/${U[0].user_id}?email=dani%40example.com&createdAt=2026-10-01T10%3A00%3A00Z`);
+    // Ficha del cliente: su Foro (historial y silenciar desde aquí), en la pestaña «Actividad».
+    const f = await pagina(ctx, `/admin/cliente/${U[0].user_id}?email=dani%40example.com&createdAt=2026-10-01T10%3A00%3A00Z&tab=actividad`);
     await f.locator("#ficha-foro").waitFor({ timeout: 40000 }).catch(() => {});
     const tf = (await f.locator("#ficha-foro").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/Puede escribir en el Foro/.test(tf) && /Mensaje del Foro eliminado/.test(tf) && /compra aquí barato/.test(tf), `M: la ficha enseña su historial de moderación (${tf.slice(0, 140)})`);
@@ -11688,7 +11938,7 @@ try {
     // Ficha del cliente (con la factura de VeoAura del pedido nº 12, para «Ver factura»).
     estado.facturas = [{ id: "fe000000-0000-4000-8000-000000000012", pedido_id: "p1000000-0000-4000-8000-000000000001", numero_factura: "VJZ-2026-000012", fecha: "2026-11-11", total_eur: 155, pdf_path: "p1000000-0000-4000-8000-000000000001/f1.pdf", recibida_en: "2026-11-11T10:00:00Z" }];
     const f = await pagina(ctx, `/admin/cliente/${U[0].user_id}?email=dani%40example.com&createdAt=2026-10-01T10%3A00%3A00Z`);
-    await f.getByText("Compras a la tienda").waitFor({ timeout: 40000 });
+    await f.locator("#ficha-perfil").waitFor({ timeout: 40000 });
     const tf = (await f.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
     ok(/Perfil/.test(tf) && /Nombre\s*Dani/.test(tf) && /Usuario\s*@dani/.test(tf) && /País\s*España/.test(tf) && /Provincia\s*Zaragoza/.test(tf), "E: la ficha del cliente enseña su perfil (nombre, usuario, país y provincia)");
     ok(new RegExp(`Edad\\s*${edades[0]} años`).test(tf) && !/2003/.test(tf), "E: y su edad, sin enseñar la fecha de nacimiento");
@@ -11700,10 +11950,14 @@ try {
     f.on("request", (r) => {
       if (r.url().includes("/api/escaparate-retorno") && r.method() === "POST") avisosVeoAura += 1;
     });
+    // Pestaña «Pedidos»: filas compactas; al tocarlas se despliegan con el detalle y las etapas.
+    await f.locator("#ficha-pestana-pedidos").click();
     const fp = f.locator("#ficha-pedidos");
     await fp.waitFor({ timeout: 10000 }).catch(() => {});
+    await f.locator("#ficha-pedido-abrir-12").click();
+    await f.locator("#ficha-pedido-abrir-15").click();
     const tp = (await fp.innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Pedido VZ-FCH2-PD12 · 155,00€/.test(tp) && /Nº interno 12/.test(tp) && /PlayStation 5/.test(tp), `E: la ficha enseña sus pedidos con su referencia (el número interno en pequeño), importe y artículos (${tp.slice(0, 90)})`);
+    ok(/Pedido VZ-FCH2-PD12/.test(tp) && /155,00€/.test(tp) && /Nº interno 12/.test(tp) && /PlayStation 5/.test(tp), `E: la ficha enseña sus pedidos con su referencia (el número interno en pequeño), importe y artículos (${tp.slice(0, 90)})`);
     ok(/Pedido VZ-FCH2-PD15/.test(tp) && /Hecho sin sesión/.test(tp), "E: también el que hizo sin sesión con su correo (avisando de que no lo ve en «Mis seguimientos»)");
     ok(!/PD20|Nº interno 20/.test(tp), "E: y no los de otras personas");
     ok(/Factura VJZ-2026-000012/.test(tp), `E: el pedido enseña su factura de VeoAura (${(tp.match(/Factura[^·]{0,30}/) ?? [""])[0]})`);
@@ -11728,6 +11982,9 @@ try {
     await f.waitForTimeout(500);
     ok(avisosVeoAura === 1, `E: y avisa al puente de VeoAura, como en Pedidos (${avisosVeoAura})`);
 
+    // Pestaña «Reparaciones»: la reparación se despliega con su seguimiento.
+    await f.locator("#ficha-pestana-reparaciones").click();
+    await f.getByRole("button", { name: "Reparación de mando: desplegar" }).click();
     await f.getByRole("button", { name: "En reparación", exact: true }).click();
     await f.getByLabel("Nota del taller para el cliente").fill("Cambiamos el joystick izquierdo");
     await f.getByRole("button", { name: "Guardar seguimiento" }).click();
@@ -11827,6 +12084,7 @@ try {
   await seccionRE2();
   await seccionRE3();
   await seccionAC();
+  await seccionFC();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
