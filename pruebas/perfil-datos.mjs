@@ -612,7 +612,7 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
     // sin PDF, 409; sin factura, 404. Se apunta el pedido pedido y la sesión con que se pide.
     if (url.pathname === "/api/factura" && estado.facturas) {
       const pedido = url.searchParams.get("pedido") ?? "";
-      estado.facturasPedidas = [...(estado.facturasPedidas ?? []), { pedido, auth: peticion.headers()["authorization"] ?? "" }];
+      estado.facturasPedidas = [...(estado.facturasPedidas ?? []), { pedido, auth: peticion.headers()["authorization"] ?? "", ver: url.searchParams.get("ver") === "1" }];
       const f = estado.facturas.find((x) => x.pedido_id === pedido);
       if (!f) return json({ ok: false, error: "no hay factura todavía" }, 404);
       if (!f.pdf_path) return json({ ok: false, error: "La factura está llegando, prueba en unos minutos" }, 409);
@@ -11472,7 +11472,8 @@ try {
     const ancho = await p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), p: window.innerWidth }));
     ok(ancho.a <= ancho.p + 1, `E: la página no se ensancha (${ancho.a}/${ancho.p})`);
 
-    // Ficha del cliente.
+    // Ficha del cliente (con la factura de VeoAura del pedido nº 12, para «Ver factura»).
+    estado.facturas = [{ id: "fe000000-0000-4000-8000-000000000012", pedido_id: "p1000000-0000-4000-8000-000000000001", numero_factura: "VJZ-2026-000012", fecha: "2026-11-11", total_eur: 155, pdf_path: "p1000000-0000-4000-8000-000000000001/f1.pdf", recibida_en: "2026-11-11T10:00:00Z" }];
     const f = await pagina(ctx, `/admin/cliente/${U[0].user_id}?email=dani%40example.com&createdAt=2026-10-01T10%3A00%3A00Z`);
     await f.getByText("Compras a la tienda").waitFor({ timeout: 40000 });
     const tf = (await f.evaluate(() => document.body.innerText)).replace(/\n/g, " ");
@@ -11492,6 +11493,17 @@ try {
     ok(/Pedido VZ-FCH2-PD12 · 155,00€/.test(tp) && /Nº interno 12/.test(tp) && /PlayStation 5/.test(tp), `E: la ficha enseña sus pedidos con su referencia (el número interno en pequeño), importe y artículos (${tp.slice(0, 90)})`);
     ok(/Pedido VZ-FCH2-PD15/.test(tp) && /Hecho sin sesión/.test(tp), "E: también el que hizo sin sesión con su correo (avisando de que no lo ve en «Mis seguimientos»)");
     ok(!/PD20|Nº interno 20/.test(tp), "E: y no los de otras personas");
+    ok(/Factura VJZ-2026-000012/.test(tp), `E: el pedido enseña su factura de VeoAura (${(tp.match(/Factura[^·]{0,30}/) ?? [""])[0]})`);
+    const paginasAntes = ctx.pages().length;
+    await fp.getByRole("button", { name: "Ver la factura VJZ-2026-000012" }).click();
+    for (let i = 0; i < 20 && !(estado.facturasPedidas ?? []).length; i++) await f.waitForTimeout(200);
+    const vista = (estado.facturasPedidas ?? [])[0];
+    ok(vista?.pedido === "p1000000-0000-4000-8000-000000000001" && vista?.ver === true && /^Bearer /.test(vista?.auth ?? ""), `E: «Ver factura» pide esa factura para verla (ver=1) con la sesión del administrador (${JSON.stringify(vista ?? null).slice(0, 120)})`);
+    await f.waitForTimeout(500);
+    ok(ctx.pages().length > paginasAntes, "E: y la abre en una pestaña nueva, sin salir de la ficha");
+    for (const extra of ctx.pages().slice(paginasAntes)) await extra.close().catch(() => {});
+    estado.facturas = undefined;
+    estado.facturasPedidas = [];
     ok((await fp.getByRole("button", { name: "Listo para recoger", exact: true }).count()) === 1, "E: con entrega en mano, la etapa se llama «Listo para recoger» (como la ve el cliente)");
     const altos = await fp.getByRole("button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().height)));
     ok(altos.length >= 12 && altos.every((h) => h >= 44), `E: los botones de etapa se tocan bien, de 44 px o más (${[...new Set(altos)].join(", ")})`);

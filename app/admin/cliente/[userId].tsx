@@ -10,6 +10,8 @@
  *
  * Pedidos (dueño, 2026-11-11): cada uno con su referencia «Pedido VZ-XXXX-XXXX» (la que ve el cliente) de título y el
  * número interno en pequeño; en la actividad de compra, también la referencia del pedido si está en la ficha.
+ * Factura (dueño, 2026-11-12): cada pedido con factura de VeoAura enseña su número y «Ver factura», que abre el PDF en
+ * una pestaña nueva (api/factura.ts con «ver=1», enlace firmado de 60 s) para revisar cómo ha quedado.
  *
  * Cómo funciona:
  * - user_id, email y fecha de alta llegan como parámetros de navegación
@@ -80,6 +82,7 @@ import CargaMarca from "../../../components/marca/CargaMarca";
 import SmartImage from "../../../components/SmartImage";
 import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
 import { datosDeFila, direccionEnUnaLinea } from "../../../components/PerfilPublico";
+import { openExternalLink } from "../../../lib/openExternalLink";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar el cuadro de notas (se cerraba solo): solo se usa en nativo.
@@ -146,6 +149,8 @@ type PedidoFicha = {
   numero: number | null;
   // Referencia del pedido (VZ-XXXX-XXXX): la que ve el cliente; el número interno va en pequeño (dueño, 2026-11-11).
   codigo_seguimiento?: string | null;
+  // Factura de VeoAura de este pedido (pedido_facturas): número y si ya tiene PDF para «Ver factura».
+  factura?: { numero: string | null; pdf: boolean } | null;
   created_at: string;
   estado: EstadoPedido;
   entrega: "envio" | "recogida" | null;
@@ -397,6 +402,19 @@ export default function ClienteFicha() {
           if (!pagoRes.error) {
             const porId = new Map(((pagoRes.data ?? []) as unknown as (Partial<PedidoFicha> & { id: string })[]).map((x) => [x.id, x]));
             todos = todos.map((p) => ({ ...p, ...porId.get(p.id) }));
+          }
+          // Su factura de VeoAura (número y si ya tiene PDF), para «Ver factura». Sin la tabla, la ficha sale igual.
+          const facRes = await supabase
+            .from("pedido_facturas")
+            .select("pedido_id,numero_factura,pdf_path,fecha")
+            .in("pedido_id", todos.map((p) => p.id))
+            .order("fecha", { ascending: false });
+          if (!facRes.error) {
+            const porPedido = new Map<string, { numero: string | null; pdf: boolean }>();
+            for (const f of (facRes.data ?? []) as { pedido_id: string; numero_factura: string | null; pdf_path: string | null }[]) {
+              if (!porPedido.has(f.pedido_id)) porPedido.set(f.pedido_id, { numero: f.numero_factura, pdf: !!f.pdf_path });
+            }
+            todos = todos.map((p) => ({ ...p, factura: porPedido.get(p.id) ?? null }));
           }
         }
         setPedidos(todos);
@@ -1122,6 +1140,24 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
     if (Platform.OS === "web") fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => {});
   }
 
+  // «Ver factura»: la misma API que «Descargar» (api/factura.ts) con «ver=1», que la abre en el navegador.
+  const [abriendoFactura, setAbriendoFactura] = useState(false);
+  async function verFactura() {
+    setAbriendoFactura(true);
+    setAviso(null);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const r = await fetch(`/api/factura?pedido=${encodeURIComponent(pedido.id)}&ver=1`, { headers: { Authorization: `Bearer ${s.session?.access_token ?? ""}` } });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
+      if (r.ok && d?.ok && d.url) openExternalLink(d.url);
+      else setAviso({ ok: false, texto: r.status === 409 ? "El PDF aún está llegando de VeoAura: prueba en unos minutos." : `No se pudo abrir la factura: ${d?.error ?? "sin respuesta del servidor"}.` });
+    } catch {
+      setAviso({ ok: false, texto: "No se pudo abrir la factura: sin conexión." });
+    } finally {
+      setAbriendoFactura(false);
+    }
+  }
+
   const items = pedido.pedido_items ?? [];
   return (
     <View style={{ borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10, gap: 6 }}>
@@ -1160,6 +1196,28 @@ function PedidoEtapas({ pedido, onCambiado }: { pedido: PedidoFicha; onCambiado:
                 : `Pagado online · ${eur(Number(pedido.pagado_eur))} · ${pedido.pagado_en ? fmtDate(pedido.pagado_en) : ""}`}
             {pedido.pago_modo === "prueba" ? " (de prueba)" : ""}
           </Text>
+        </View>
+      ) : null}
+      {/* Factura de VeoAura: «Ver factura» la abre en una pestaña nueva para revisar cómo ha quedado. Texto con su icono. */}
+      {pedido.factura ? (
+        <View nativeID={`ficha-factura-${pedido.numero ?? pedido.id}`} style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <Ionicons name="document-text-outline" size={15} color={COLORS.muted} />
+          <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "800" }}>
+            Factura {pedido.factura.numero ?? ""}
+            {pedido.factura.pdf ? "" : " · PDF pendiente"}
+          </Text>
+          {pedido.factura.pdf ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Ver la factura ${pedido.factura.numero ?? ""}`}
+              onPress={verFactura}
+              disabled={abriendoFactura}
+              style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4, opacity: abriendoFactura ? 0.5 : 1 }}
+            >
+              <Ionicons name="eye-outline" size={15} color={COLORS.accent} />
+              <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12.5 }}>Ver factura</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
