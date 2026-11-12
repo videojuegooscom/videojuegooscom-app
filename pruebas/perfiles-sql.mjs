@@ -98,6 +98,11 @@
  *    servidor a la cuenta con ese correo la ve su dueño; nadie la cambia desde el navegador; las reglas de pedidos y las
  *    funciones no cambian; la privacidad lo dice una vez y sin «tienda física»; se aplica dos veces (con su «prueba de la
  *    prueba»: sin «aún no lo dice», la frase se repite).
+ *  - Dispositivos y última conexión (20261112120000_cliente_dispositivos.sql): cada cliente crea, pone al día y lee SOLO sus
+ *    filas; otro cliente, un visitante y el administrador no crean ni cambian las de nadie; el administrador las lee
+ *    todas; nadie borra; las fechas y cada inicio (+1 exacto) los pone la base de datos; sin IP ni ubicación; largo, vacío,
+ *    repetido y tope de 30; se van con la cuenta; la privacidad lo dice una vez; se aplica dos veces (con sus «pruebas de
+ *    las pruebas»: con la regla abierta otro cliente las ve; sin el disparador, 999 inicios).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2825,6 +2830,116 @@ try {
     const sePaga = await como(cQ3, "authenticated", U1, `update public.service_requests set pago_estado = 'pagado', pago_modo = 'bizum' where id = '${idQ3}'`, { confirmar: true });
     ok(sePaga.ok && sePaga.cuantas === 1, `(control) sin el candado del cliente, el cliente se marca pagado: la prueba SÍ lo detecta (${sePaga.cuantas ?? sePaga.mensaje})`);
     await cQ3.end();
+  }
+
+  // Dispositivos y última conexión (20261112120000_cliente_dispositivos.sql): cada cliente crea, cambia y lee SOLO lo suyo,
+  // otro cliente y un visitante nada, el administrador lo lee todo (sin cambiarlo); las fechas y los inicios los pone la
+  // base de datos; sin borrar; tope de 30; se va con la cuenta; la privacidad lo dice una vez. Con sus pruebas de las pruebas.
+  {
+    const DISP = readFileSync("supabase/migrations/20261112120000_cliente_dispositivos.sql", "utf8");
+    const ESQUEMA_D = `
+      create table public.policy_pages (slug text primary key, title text, sections jsonb not null default '[]'::jsonb, updated_at timestamptz);
+      insert into public.policy_pages (slug, title, sections) values
+        ('privacidad', 'Privacidad', '[{"heading":"Responsable del tratamiento","body":"Texto R."},{"heading":"Qué datos tratamos","body":"Texto A."},{"heading":"Tus derechos","body":"Texto C."}]'::jsonb);`;
+    const cD = await nuevaBase("vz_aislada_dispositivos", ESQUEMA_D + DISP);
+    let repetidaD = true;
+    try {
+      await cD.query(DISP);
+    } catch (e) {
+      repetidaD = false;
+      console.log(String(e.message));
+    }
+    const politicasD = (await cD.query("select string_agg(policyname || ':' || cmd || ':' || roles::text, ',' order by policyname) as p from pg_policies where tablename = 'cliente_dispositivos'")).rows[0].p;
+    const disparadoresD = Number((await cD.query("select count(*) as n from pg_trigger where tgrelid = 'public.cliente_dispositivos'::regclass and not tgisinternal")).rows[0].n);
+    const definerD = Number((await cD.query("select count(*) as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef")).rows[0].n);
+    const rlsD = (await cD.query("select relrowsecurity from pg_class where oid = 'public.cliente_dispositivos'::regclass")).rows[0].relrowsecurity;
+    ok(
+      repetidaD && rlsD === true && disparadoresD === 1 && definerD === 1 &&
+        politicasD === "cliente_dispositivos_insert_propia:INSERT:{authenticated},cliente_dispositivos_select:SELECT:{authenticated},cliente_dispositivos_update_propia:UPDATE:{authenticated}",
+      `Dispositivos: se aplica dos veces; RLS activada, 3 reglas solo con sesión, un disparador y ninguna función con permisos especiales nueva (${politicasD}; ${disparadoresD}; ${definerD})`
+    );
+    const columnasD = (await cD.query("select string_agg(column_name, ',' order by column_name) as c from information_schema.columns where table_schema = 'public' and table_name = 'cliente_dispositivos'")).rows[0].c;
+    ok(columnasD === "app_instalada,dispositivo,id,inicios,primera_vez,ultima_vez,user_id", `Dispositivos: solo tipo/navegador, app instalada, fechas e inicios; sin IP, ubicación ni identificador del navegador (${columnasD})`);
+
+    // El cliente crea su fila: las fechas y el primer inicio los pone la base de datos aunque mande otros.
+    const creaU1 = await como(cD, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo, app_instalada, primera_vez, ultima_vez, inicios) values ('${U1}', 'iPhone · Safari', true, '2000-01-01', '2000-01-01', 99) returning inicios, primera_vez, ultima_vez`, { confirmar: true });
+    const f1 = creaU1.filas?.[0] ?? {};
+    ok(creaU1.ok && f1.inicios === 1 && new Date(f1.primera_vez).getFullYear() >= 2026 && new Date(f1.ultima_vez).getFullYear() >= 2026, `Dispositivos: el cliente crea SU fila con 1 inicio y las fechas de la base de datos (${JSON.stringify(f1 ?? creaU1.mensaje)})`);
+    const ajenaD = await como(cD, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U2}', 'Windows · Chrome')`);
+    const adminCreaD = await como(cD, "authenticated", ADMIN, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U1}', 'Mac · Safari')`);
+    const anonCreaD = await como(cD, "anon", null, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U1}', 'Mac · Safari')`);
+    ok(!ajenaD.ok && ajenaD.codigo === "42501" && !adminCreaD.ok && adminCreaD.codigo === "42501" && !anonCreaD.ok, `Dispositivos: nadie crea filas a nombre de otra persona (ni el administrador ni un visitante) (${ajenaD.codigo}, ${adminCreaD.codigo}, ${anonCreaD.codigo})`);
+    await como(cD, "authenticated", U2, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U2}', 'Android · Chrome')`, { confirmar: true });
+    await como(cD, "authenticated", ADMIN, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${ADMIN}', 'Windows · Edge')`, { confirmar: true });
+
+    // Lecturas: cada uno lo suyo; el administrador todo; un visitante nada.
+    const leeU1D = await como(cD, "authenticated", U1, "select user_id, dispositivo from public.cliente_dispositivos");
+    const leeU2D = await como(cD, "authenticated", U2, "select user_id from public.cliente_dispositivos");
+    const leeAnonD = await como(cD, "anon", null, "select user_id from public.cliente_dispositivos");
+    const leeAdminD = await como(cD, "authenticated", ADMIN, "select count(*)::int as n from public.cliente_dispositivos");
+    ok(leeU1D.ok && leeU1D.filas.length === 1 && leeU1D.filas[0].user_id === U1 && leeU2D.ok && leeU2D.filas.length === 1 && leeU2D.filas[0].user_id === U2, `Dispositivos: cada cliente ve SOLO su fila (${leeU1D.filas?.length}, ${leeU2D.filas?.length})`);
+    ok(leeAnonD.ok ? leeAnonD.filas.length === 0 : leeAnonD.codigo === "42501", `Dispositivos: un visitante no ve nada (${leeAnonD.filas?.length ?? leeAnonD.codigo})`);
+    ok(leeAdminD.ok && leeAdminD.filas[0].n === 3, `Dispositivos: el administrador lee todas (${leeAdminD.filas?.[0]?.n ?? leeAdminD.mensaje})`);
+
+    // Poner al día: «inicios» distinto del guardado = un inicio más (nunca el número que mande); sin él, igual; lo demás fijo.
+    const inicioD = await como(cD, "authenticated", U1, `update public.cliente_dispositivos set inicios = 0, app_instalada = false where user_id = '${U1}' and dispositivo = 'iPhone · Safari' returning inicios, app_instalada`, { confirmar: true });
+    const sinInicioD = await como(cD, "authenticated", U1, `update public.cliente_dispositivos set ultima_vez = '2000-01-01' where user_id = '${U1}' returning inicios, ultima_vez`, { confirmar: true });
+    const saltoD = await como(cD, "authenticated", U1, `update public.cliente_dispositivos set inicios = 500 where user_id = '${U1}' returning inicios`, { confirmar: true });
+    const trampaD = await como(cD, "authenticated", U1, `update public.cliente_dispositivos set user_id = '${U2}', dispositivo = 'Otro · Navegador', primera_vez = '2000-01-01' where user_id = '${U1}' returning user_id, dispositivo, primera_vez`, { confirmar: true });
+    const fT = trampaD.filas?.[0] ?? {};
+    ok(
+      inicioD.ok && inicioD.filas[0].inicios === 2 && inicioD.filas[0].app_instalada === true && sinInicioD.ok && sinInicioD.filas[0].inicios === 2 && new Date(sinInicioD.filas[0].ultima_vez).getFullYear() >= 2026 && saltoD.ok && saltoD.filas[0].inicios === 3,
+      `Dispositivos: un inicio suma exactamente 1 (también si manda 500), sin inicio no cambia, la última vez es la de la base de datos y «App instalada» se queda (${inicioD.filas?.[0]?.inicios}, ${sinInicioD.filas?.[0]?.inicios}, ${saltoD.filas?.[0]?.inicios})`
+    );
+    ok(trampaD.ok && fT.user_id === U1 && fT.dispositivo === "iPhone · Safari" && new Date(fT.primera_vez).getFullYear() >= 2026, `Dispositivos: el cliente no cambia de quién es la fila, su dispositivo ni la primera vez (${JSON.stringify(fT)})`);
+    const otroCambiaD = await como(cD, "authenticated", U2, `update public.cliente_dispositivos set inicios = 0 where user_id = '${U1}'`, { confirmar: true });
+    const adminCambiaD = await como(cD, "authenticated", ADMIN, `update public.cliente_dispositivos set inicios = 0 where user_id = '${U1}'`, { confirmar: true });
+    const borraU1D = await como(cD, "authenticated", U1, "delete from public.cliente_dispositivos", { confirmar: true });
+    const borraAdminD = await como(cD, "authenticated", ADMIN, "delete from public.cliente_dispositivos", { confirmar: true });
+    const quedanD = (await cD.query("select count(*)::int as n, max(inicios) filter (where user_id = $1)::int as i from public.cliente_dispositivos", [U1])).rows[0];
+    ok(otroCambiaD.ok && otroCambiaD.cuantas === 0 && adminCambiaD.ok && adminCambiaD.cuantas === 0 && borraU1D.ok && borraU1D.cuantas === 0 && borraAdminD.ok && borraAdminD.cuantas === 0 && quedanD.n === 3 && quedanD.i === 3,
+      `Dispositivos: otro cliente y el administrador no cambian la fila de nadie y nadie borra desde el navegador (${otroCambiaD.cuantas}, ${adminCambiaD.cuantas}, ${borraU1D.cuantas}, ${borraAdminD.cuantas}; quedan ${quedanD.n})`);
+
+    // Reglas de los datos: largo, vacío, el mismo dispositivo dos veces y el tope de 30 por cliente.
+    const rarosD = [];
+    for (const d of ["x".repeat(61), " ", "iPhone · Safari"]) {
+      const r = await como(cD, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U1}', '${d}')`);
+      rarosD.push(r.ok ? "entra" : r.codigo);
+    }
+    ok(rarosD.join(",") === "23514,23514,23505", `Dispositivos: más de 60 letras, vacío o el mismo dispositivo dos veces no entran (${rarosD.join(", ")})`);
+    const topeD = await como(cD, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo) select '${U1}', 'Navegador ' || g from generate_series(1, 29) g`, { confirmar: true });
+    const treintaYUno = await como(cD, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U1}', 'Uno más')`);
+    ok(topeD.ok && !treintaYUno.ok && treintaYUno.codigo === "P0001", `Dispositivos: como mucho 30 por cliente (el 31.º no entra: ${treintaYUno.codigo ?? "entra"})`);
+
+    // Privacidad: la frase una vez (aplicada dos veces), al final de «Qué datos tratamos»; lo demás igual.
+    const privD = (await cD.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const tratamos = privD.find((s) => s.heading === "Qué datos tratamos")?.body ?? "";
+    ok(
+      (tratamos.match(/tipo de dispositivo y el navegador con el que entras/g) ?? []).length === 1 && tratamos.startsWith("Texto A. Para la seguridad de tu cuenta") && /sin tu IP ni tu ubicación/.test(tratamos) && /Solo lo ve el equipo de la tienda/.test(tratamos) &&
+        privD.map((s) => s.heading).join("|") === "Responsable del tratamiento|Qué datos tratamos|Tus derechos" && privD[0].body === "Texto R." && privD[2].body === "Texto C.",
+      `Dispositivos: la privacidad lo explica una sola vez y lo demás queda igual (${tratamos.slice(0, 80)}…)`
+    );
+
+    // Al borrar la cuenta se van sus dispositivos (y los de los demás se quedan).
+    await cD.query(`delete from auth.users where id = '${U2}'`);
+    const trasBorrar = (await cD.query("select count(*) filter (where user_id = $1)::int as u2, count(*)::int as n from public.cliente_dispositivos", [U2])).rows[0];
+    ok(trasBorrar.u2 === 0 && trasBorrar.n === 31, `Dispositivos: al borrar la cuenta se van sus dispositivos (${JSON.stringify(trasBorrar)})`);
+    await cD.end();
+
+    // PRUEBAS DE LAS PRUEBAS: (a) con la regla de lectura abierta a cualquiera con sesión, otro cliente vería los de U1;
+    // (b) sin el disparador, el cliente pondría el número de inicios que quisiera.
+    const abierta = DISP.replace("using (user_id = (select auth.uid()) or (select public.is_admin()))", "using (auth.uid() is not null)");
+    const sinDisparador = DISP.replace(/if not exists \(select 1 from pg_trigger where tgname = 'cliente_dispositivos_normalizar'[\s\S]*?end if;/, "");
+    ok(abierta !== DISP && sinDisparador !== DISP, "(control) se han podido romper la regla y quitar el disparador en las copias de prueba");
+    const cD2 = await nuevaBase("vz_aislada_dispositivos_abierta", ESQUEMA_D + abierta);
+    await como(cD2, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo) values ('${U1}', 'iPhone · Safari')`, { confirmar: true });
+    const espia = await como(cD2, "authenticated", U2, "select user_id from public.cliente_dispositivos");
+    ok(espia.ok && espia.filas.length === 1, `(control) con la regla abierta, otro cliente ve los dispositivos de U1: la prueba SÍ lo detecta (${espia.filas?.length ?? espia.mensaje})`);
+    await cD2.end();
+    const cD3 = await nuevaBase("vz_aislada_dispositivos_sin_disparador", ESQUEMA_D + sinDisparador);
+    const inflado = await como(cD3, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo, inicios) values ('${U1}', 'iPhone · Safari', 999) returning inicios`, { confirmar: true });
+    ok(inflado.ok && inflado.filas[0].inicios === 999, `(control) sin el disparador, el cliente se pone 999 inicios: la prueba SÍ lo detecta (${inflado.filas?.[0]?.inicios ?? inflado.mensaje})`);
+    await cD3.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -63,7 +63,9 @@
  *   Supabase, la lista de usuarios registrados no suele ser tan grande).
  * - Orden: por fecha de alta (más recientes primero, por defecto) o por
  *   participación total (suma de los tres contadores), para ver primero a
- *   quien más interactúa con la tienda.
+ *   quien más interactúa con la tienda; o por «Última conexión» (2026-11-12: la más reciente de sus dispositivos, tabla
+ *   cliente_dispositivos, que cada fila enseña como «Última conexión: hace 2 h»), y el chip «Activos 7 días (N)» deja
+ *   solo a quien se ha conectado esa semana. Sin la migración 20261112120000 no sale nada de esto.
  * - PERFILES (seguimiento de «Mi perfil», lo que cada cliente rellena en Mi cuenta, obligatorio
  *   al iniciar sesión: foto opcional, nombre, usuario, país, provincia y edad): se leen de
  *   perfiles_cliente (el administrador las ve todas, por su política; migración
@@ -109,7 +111,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CONTRASENA_MINIMA, supabase } from "../../lib/supabase";
+import { CONTRASENA_MINIMA, haceCuanto, supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/SmartImage";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
@@ -233,7 +235,10 @@ type UsoContrasena = {
 // Una idea de «Mejoras en la tienda» (tabla mejoras_tienda, migración 20261101200000_mejoras_tienda.sql).
 type MejoraRow = { id: string; user_id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean; leida_en: string | null };
 
-type SortMode = "recent" | "participation";
+type SortMode = "recent" | "participation" | "conexion";
+
+// «Activos en los últimos 7 días» (por su última conexión, tabla cliente_dispositivos).
+const ACTIVO_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Tramos de edad para contar y filtrar.
 const TRAMOS_EDAD: { id: string; label: string; min: number; max: number }[] = [
@@ -422,6 +427,9 @@ export default function AdminUsers() {
 
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("recent");
+  // Última conexión de cada cliente (la más reciente de sus dispositivos). null = la tabla aún no existe.
+  const [ultimaConexion, setUltimaConexion] = useState<Record<string, string> | null>(null);
+  const [soloActivos, setSoloActivos] = useState(false);
 
   // Perfiles de los clientes (nombre, usuario, país, provincia y edad) y filtros. `perfilesOk` = la tabla existe
   // (si la migración aún no está aplicada, esta parte no se enseña y el resto de la pantalla funciona igual).
@@ -666,6 +674,18 @@ export default function AdminUsers() {
         setPerfilesOk(true);
       }
 
+      // Última conexión (migración 20261112120000): sin la tabla, no sale y lo demás funciona igual.
+      const conexRes = await supabase.from("cliente_dispositivos").select("user_id,ultima_vez").order("ultima_vez", { ascending: false }).limit(5000);
+      if (conexRes.error) {
+        setUltimaConexion(null);
+      } else {
+        const ultimas: Record<string, string> = {};
+        for (const f of (conexRes.data ?? []) as { user_id: string; ultima_vez: string }[]) {
+          if (!ultimas[f.user_id] || f.ultima_vez > ultimas[f.user_id]) ultimas[f.user_id] = f.ultima_vez;
+        }
+        setUltimaConexion(ultimas);
+      }
+
       if (usersRes.error) throw usersRes.error;
       if (sellRes.error) throw sellRes.error;
       if (serviceRes.error) throw serviceRes.error;
@@ -785,8 +805,10 @@ export default function AdminUsers() {
   const visibleUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     const tramo = TRAMOS_EDAD.find((t) => t.id === filtroTramo) ?? null;
+    const ahora = Date.now();
     const filtered = users.filter((u) => {
       const p = perfiles[u.user_id];
+      if (soloActivos && !(ultimaConexion?.[u.user_id] && ahora - new Date(ultimaConexion[u.user_id]).getTime() <= ACTIVO_MS)) return false;
       if (filtroProvincia && p?.provincia !== filtroProvincia) return false;
       if (filtroPais && p?.pais !== filtroPais) return false;
       if (filtroEstado === "completo" && !perfilCompleto(p)) return false;
@@ -804,11 +826,18 @@ export default function AdminUsers() {
 
     const sorted = [...filtered].sort((a, b) => {
       if (sortMode === "participation") return totalParticipation(b) - totalParticipation(a);
+      if (sortMode === "conexion") return (ultimaConexion?.[b.user_id] ?? "").localeCompare(ultimaConexion?.[a.user_id] ?? "");
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
     return sorted;
-  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo, filtroEstado]);
+  }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo, filtroEstado, soloActivos, ultimaConexion]);
+
+  // Cuántos se han conectado en los últimos 7 días (para el chip que filtra).
+  const activos7 = useMemo(() => {
+    const ahora = Date.now();
+    return users.filter((u) => ultimaConexion?.[u.user_id] && ahora - new Date(ultimaConexion[u.user_id]).getTime() <= ACTIVO_MS).length;
+  }, [users, ultimaConexion]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -1275,6 +1304,12 @@ export default function AdminUsers() {
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
                 <ChipButton label="Más recientes" active={sortMode === "recent"} onPress={() => setSortMode("recent")} isMobile={isMobile} />
                 <ChipButton label="Más participación" active={sortMode === "participation"} onPress={() => setSortMode("participation")} isMobile={isMobile} />
+                {ultimaConexion ? (
+                  <>
+                    <ChipButton label="Última conexión" active={sortMode === "conexion"} onPress={() => setSortMode("conexion")} isMobile={isMobile} />
+                    <ChipButton label={`Activos 7 días (${activos7})`} active={soloActivos} onPress={() => setSoloActivos((v) => !v)} isMobile={isMobile} />
+                  </>
+                ) : null}
               </View>
 
               <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
@@ -1388,6 +1423,9 @@ export default function AdminUsers() {
 
                     <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
                       Alta: {fmtDate(u.created_at)}
+                      {ultimaConexion
+                        ? ` · Última conexión: ${ultimaConexion[u.user_id] ? haceCuanto(ultimaConexion[u.user_id]) : "sin registrar"}`
+                        : ""}
                     </Text>
 
                     {perfilesOk ? (

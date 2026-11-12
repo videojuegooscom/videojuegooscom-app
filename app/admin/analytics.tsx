@@ -34,6 +34,9 @@
  * - "Categorías más vistas" / "Productos más vistos": mismos datos de
  *   analytics_funnel, filtrando los step_label que empiezan por "Categoría "
  *   o "Producto " (con nombre concreto detrás), ordenados por sesiones.
+ * - «Clientes conectados en los últimos 7 días» y «con la app instalada» (2026-11-12, #analitica-conectados): dos
+ *   recuentos de personas distintas de la tabla cliente_dispositivos (sin el administrador ni datos de nadie); sin la
+ *   migración 20261112120000 no sale.
  * - Vercel: este proyecto no tiene activado Vercel Web Analytics (se
  *   comprobó con el MCP de Vercel), así que estos datos son 100% propios,
  *   con el detalle de recorrido que Vercel no podría dar aunque estuviera
@@ -696,6 +699,33 @@ export default function AdminAnalytics() {
         if (vivo) setCuentasAvisosNovedades(error ? null : count ?? 0);
       } catch {
         if (vivo) setCuentasAvisosNovedades(null);
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Clientes conectados en los últimos 7 días y cuántos con la app instalada (tabla cliente_dispositivos, migración
+  // 20261112120000): solo dos recuentos de personas distintas, sin la cuenta del administrador. null = aún no existe.
+  const [conectados7, setConectados7] = useState<{ clientes: number; app: number } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        const yo = s.session?.user?.id ?? "";
+        const desde = new Date(Date.now() - 7 * 86400000).toISOString();
+        const { data, error } = await supabase.from("cliente_dispositivos").select("user_id,app_instalada").gte("ultima_vez", desde).limit(10000);
+        if (!vivo) return;
+        if (error) return setConectados7(null);
+        const filas = ((data ?? []) as { user_id: string; app_instalada: boolean }[]).filter((f) => f.user_id !== yo);
+        setConectados7({
+          clientes: new Set(filas.map((f) => f.user_id)).size,
+          app: new Set(filas.filter((f) => f.app_instalada).map((f) => f.user_id)).size,
+        });
+      } catch {
+        if (vivo) setConectados7(null);
       }
     })();
     return () => {
@@ -1434,6 +1464,25 @@ export default function AdminAnalytics() {
                       <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
                         Ventas en tienda (de VeoAura) frente a online, sin cancelados: en tienda {ventasCanal.tienda.n} ({fmtEurCanal(ventasCanal.tienda.eur)}) · online{" "}
                         {ventasCanal.online.n} ({fmtEurCanal(ventasCanal.online.eur)})
+                      </Text>
+                    </View>
+                  ) : null}
+                  {/* Clientes conectados (tabla cliente_dispositivos): solo recuentos, sin datos de nadie. */}
+                  {conectados7 ? (
+                    <View
+                      nativeID="analitica-conectados"
+                      style={{
+                        borderRadius: 14,
+                        backgroundColor: COLORS.accent2,
+                        padding: 10,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Ionicons name="phone-portrait-outline" size={15} color={COLORS.accentDark} />
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                        Clientes conectados en los últimos 7 días: {conectados7.clientes} · con la app instalada: {conectados7.app}
                       </Text>
                     </View>
                   ) : null}

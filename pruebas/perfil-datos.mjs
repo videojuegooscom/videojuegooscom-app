@@ -233,7 +233,13 @@
  *    (cuántas, importe, unidas, pendientes), «En tienda · pagado …», «Unida a la cuenta del cliente» o «Pendiente de que
  *    se registre <correo>», el filtro «En tienda» y sin envío, cancelar, WhatsApp ni teléfono; sin la migración, nada de
  *    eso y sin errores; Analítica, tienda frente a online (recuento e importe, sin datos de nadie).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC]
+ *  - DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000): con sesión, la tienda apunta «iPhone ·
+ *    Safari» (solo ese nombre: sin el identificador completo, IP ni ubicación) y no lo repite antes de 15 minutos (ni al
+ *    recargar ni al volver a la pestaña); pasados, lo pone al día sin sumar inicios; sin la tabla, una sola petición y sin
+ *    errores. La ficha del cliente: «Última conexión: hace 2 h (fecha y hora)» y «Dispositivos» (los suyos, por última
+ *    vez, «App instalada», primera vez, inicios), el aviso sin conexiones y nada sin la tabla; Usuarios («Última conexión»
+ *    en cada fila, orden y «Activos 7 días») y Analítica (dos recuentos sin el administrador), a 390 px.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -341,7 +347,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       localStorage.setItem("videojuegoos.analytics.consent", acepta ? "accepted" : "declined");
       const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
       const exp = Math.floor(Date.now() / 1000) + 3600;
-      const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: u.id, role: "authenticated", exp, aud: "authenticated", email: u.email })}.firma`;
+      // session_id (sección DV): solo si la prueba lo da, como el de Supabase (nuevo en cada inicio de sesión).
+      const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: u.id, role: "authenticated", exp, aud: "authenticated", email: u.email, ...(u.session_id ? { session_id: u.session_id } : {}) })}.firma`;
       localStorage.setItem("videojuegoos.supabase.auth", JSON.stringify({ access_token: jwt, refresh_token: "r", expires_at: exp, expires_in: 3600, token_type: "bearer", user: u }));
     } catch {
       // sin almacenamiento
@@ -1060,6 +1067,36 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
         return json({ ...usuario, user_metadata: { ...usuario.user_metadata, ...(estado.cuenta.data ?? {}) } });
       }
       return json(usuario);
+    }
+    // Dispositivos y última conexión (sección DV), como la base de datos: cada cliente solo los suyos y el administrador
+    // todos; se apunta cada petición (lo que manda la tienda). Sin `estado.dispositivos`, la tabla está vacía (y nada llega
+    // a la base de datos real); con `dispositivosSinTabla`, aún no existe (PGRST205).
+    if (url.pathname.endsWith("/rest/v1/cliente_dispositivos")) {
+      const d = estado.dispositivos ?? { filas: [] };
+      const cuerpo = peticion.postData() ? JSON.parse(peticion.postData()) : null;
+      d.peticiones = [...(d.peticiones ?? []), { metodo, busqueda: decodeURIComponent(url.search), cuerpo, auth: peticion.headers()["authorization"] ?? "" }];
+      if (estado.dispositivosSinTabla) return json({ code: "PGRST205", message: "Could not find the table 'public.cliente_dispositivos' in the schema cache" }, 404);
+      const eq = (c) => (url.searchParams.get(c) ?? "").replace(/^eq\./, "");
+      const suyas = (f) => rol === "admin" || f.user_id === usuario.id;
+      if (metodo === "PATCH") {
+        const filas = d.filas.filter((f) => suyas(f) && f.user_id === usuario.id && f.user_id === eq("user_id") && f.dispositivo === eq("dispositivo"));
+        for (const f of filas) {
+          f.ultima_vez = new Date().toISOString();
+          f.app_instalada = f.app_instalada || !!cuerpo?.app_instalada;
+          if (cuerpo && "inicios" in cuerpo && cuerpo.inicios !== f.inicios) f.inicios += 1;
+        }
+        return json(filas.map((f) => ({ id: f.id })));
+      }
+      if (metodo === "POST") {
+        const ahora = new Date().toISOString();
+        d.filas.push({ id: `d${d.filas.length + 1}`, ...cuerpo, primera_vez: ahora, ultima_vez: ahora, inicios: 1 });
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      const desde = (url.searchParams.get("ultima_vez") ?? "").replace(/^gte\./, "");
+      const filas = d.filas
+        .filter((f) => suyas(f) && (!eq("user_id") || f.user_id === eq("user_id")) && (!desde || f.ultima_vez >= desde))
+        .sort((a, b) => (a.ultima_vez < b.ultima_vez ? 1 : -1));
+      return json(filas);
     }
     // Usuarios nuevos del Panel de control (sección S): se cuentan con HEAD y la fecha «gt», como la base de datos.
     if (url.pathname.endsWith("/rest/v1/profiles") && metodo === "HEAD" && estado.novedades) {
@@ -10583,6 +10620,181 @@ async function seccionAC() {
   }
 }
 
+// ===== DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000) ==================================
+async function seccionDV() {
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+  const CLAVE = `videojuegoszaragoza:dispositivo_visto:${CLIENTE.id}`;
+  // Sin los iconos (letras de uso privado de la fuente de iconos) ni espacios de más.
+  const limpio = (s) => String(s ?? "").replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const esperar = async (p, cond) => {
+    for (let i = 0; i < 40 && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const escrituras = (d) => (d.peticiones ?? []).filter((x) => x.metodo === "PATCH" || x.metodo === "POST");
+
+  // DV1) La tienda, con sesión: apunta este dispositivo una vez (nombre corto, sin el identificador completo) y no lo
+  // repite antes de 15 minutos, ni al recargar ni al volver a la pestaña (Supabase repite «SIGNED_IN» cada vez); pasados,
+  // lo pone al día sin sumar un inicio; con un inicio de sesión nuevo (otro session_id), suma exactamente uno.
+  {
+    const estado = { guardados: [], dispositivos: { filas: [] } };
+    const ctx = await contexto(navegador, { ...CLIENTE, session_id: "sesion-aaaa" }, "user", estado, { userAgent: IPHONE });
+    const p = await pagina(ctx, "/");
+    await esperar(p, () => escrituras(estado.dispositivos).length >= 2);
+    await p.waitForTimeout(800);
+    const [puesta, alta, ...sobran] = escrituras(estado.dispositivos);
+    ok(puesta?.metodo === "PATCH" && /user_id=eq\.11111111/.test(puesta.busqueda) && /dispositivo=eq\.iPhone[+ ]·[+ ]Safari/.test(puesta.busqueda) && /^Bearer /.test(puesta.auth),
+      `DV: con sesión, al abrir la tienda busca su fila de «iPhone · Safari» con la sesión del cliente (${JSON.stringify(puesta ?? null).slice(0, 160)})`);
+    ok(alta?.metodo === "POST" && alta.cuerpo?.user_id === CLIENTE.id && alta.cuerpo?.dispositivo === "iPhone · Safari" && alta.cuerpo?.app_instalada === false && sobran.length === 0 && estado.dispositivos.filas[0]?.inicios === 1,
+      `DV: como aún no lo tenía, lo crea una sola vez con 1 inicio (su cuenta, «iPhone · Safari», sin la app instalada) (${JSON.stringify(alta?.cuerpo ?? null)}; ${sobran.length} de más)`);
+    const todo = JSON.stringify(estado.dispositivos.peticiones);
+    ok(!/Mozilla|AppleWebKit|15E148|"ip"|ubicaci|sesion-aaaa/i.test(todo) && Object.keys(alta?.cuerpo ?? {}).sort().join(",") === "app_instalada,dispositivo,user_id", `DV: solo manda el nombre corto, sin el identificador completo del navegador, IP, ubicación ni la sesión (${Object.keys(alta?.cuerpo ?? {}).join(",")})`);
+    const antes = escrituras(estado.dispositivos).length;
+    await p.reload({ waitUntil: "load" });
+    await p.waitForTimeout(2500);
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await p.waitForTimeout(1200);
+    ok(escrituras(estado.dispositivos).length === antes, `DV: al recargar y al volver a la pestaña antes de 15 minutos no lo vuelve a mandar (${escrituras(estado.dispositivos).length - antes} de más)`);
+    await p.evaluate((k) => localStorage.setItem(k, String(Date.now() - 16 * 60_000)), CLAVE);
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await esperar(p, () => escrituras(estado.dispositivos).length > antes);
+    await p.waitForTimeout(600);
+    const nuevas = escrituras(estado.dispositivos).slice(antes);
+    ok(nuevas.length === 1 && nuevas[0].metodo === "PATCH" && !("inicios" in (nuevas[0].cuerpo ?? {})) && estado.dispositivos.filas.length === 1 && estado.dispositivos.filas[0].inicios === 1,
+      `DV: pasados 15 minutos, al volver a la tienda lo pone al día una vez (sin crear otra fila ni sumar inicios) (${nuevas.map((x) => x.metodo).join(",")})`);
+    // Inicia sesión otra vez (la sesión de Supabase es otra): suma un inicio enseguida, sin esperar los 15 minutos.
+    await ctx.addInitScript(() => {
+      try {
+        const clave = "videojuegoos.supabase.auth";
+        const s = JSON.parse(localStorage.getItem(clave) ?? "{}");
+        const [cab, cuerpo, firma] = String(s.access_token ?? "").split(".");
+        const datos = JSON.parse(atob(cuerpo.replace(/-/g, "+").replace(/_/g, "/")));
+        const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+        localStorage.setItem(clave, JSON.stringify({ ...s, access_token: `${cab}.${b64({ ...datos, session_id: "sesion-bbbb" })}.${firma}` }));
+      } catch {
+        // sin almacenamiento
+      }
+    });
+    const antes2 = escrituras(estado.dispositivos).length;
+    await p.reload({ waitUntil: "load" });
+    await esperar(p, () => escrituras(estado.dispositivos).length > antes2);
+    await p.waitForTimeout(1500);
+    const tras = escrituras(estado.dispositivos).slice(antes2);
+    ok(tras.length === 1 && tras[0].metodo === "PATCH" && "inicios" in (tras[0].cuerpo ?? {}) && estado.dispositivos.filas[0].inicios === 2,
+      `DV: al iniciar sesión otra vez suma exactamente un inicio (${tras.map((x) => JSON.stringify(x.cuerpo)).join(" | ")}; inicios ${estado.dispositivos.filas[0]?.inicios})`);
+    const antes3 = escrituras(estado.dispositivos).length;
+    await p.reload({ waitUntil: "load" });
+    await p.waitForTimeout(2500);
+    ok(escrituras(estado.dispositivos).length === antes3 && estado.dispositivos.filas[0].inicios === 2, "DV: y al recargar con esa misma sesión no lo vuelve a contar");
+    ok(p.errores.length === 0, `DV: la tienda sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // DV2) Sin la migración: una sola petición (la tabla no existe), no lo vuelve a intentar y sin errores.
+  {
+    const estado = { guardados: [], dispositivos: { filas: [] }, dispositivosSinTabla: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, { userAgent: IPHONE });
+    const p = await pagina(ctx, "/");
+    await esperar(p, () => (estado.dispositivos.peticiones ?? []).length >= 1);
+    await p.waitForTimeout(800);
+    await p.evaluate((k) => localStorage.setItem(k, "0"), CLAVE);
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await p.waitForTimeout(1200);
+    ok((estado.dispositivos.peticiones ?? []).length === 1 && p.errores.length === 0, `DV: sin la tabla, lo intenta una vez, no insiste y no hay errores (${(estado.dispositivos.peticiones ?? []).length}; ${p.errores[0] ?? "sin errores"})`);
+    await ctx.close();
+  }
+
+  // DV3) Administración: la ficha del cliente («Última conexión» y «Dispositivos»), Usuarios y Analítica.
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const OTRO = "u2000000-0000-4000-8000-000000000002";
+  const FILAS = [
+    { id: "d1", user_id: CLIENTE.id, dispositivo: "Windows · Chrome", app_instalada: false, primera_vez: "2026-10-01T09:00:00Z", ultima_vez: hace(3 * 24 * 60), inicios: 1 },
+    { id: "d2", user_id: CLIENTE.id, dispositivo: "iPhone · Safari", app_instalada: true, primera_vez: "2026-09-15T18:30:00Z", ultima_vez: hace(120), inicios: 3 },
+    { id: "d3", user_id: CLIENTE.id, dispositivo: "Mac · Safari", app_instalada: false, primera_vez: "2026-08-01T10:00:00Z", ultima_vez: hace(40 * 24 * 60), inicios: 2 },
+    { id: "d4", user_id: OTRO, dispositivo: "Android · Chrome", app_instalada: false, primera_vez: "2026-10-20T10:00:00Z", ultima_vez: hace(10 * 24 * 60), inicios: 1 },
+    { id: "d5", user_id: ADMIN.id, dispositivo: "Linux · Chrome", app_instalada: true, primera_vez: "2026-10-20T10:00:00Z", ultima_vez: hace(5), inicios: 9 },
+  ];
+  {
+    const estado = {
+      guardados: [],
+      dispositivos: { filas: FILAS.map((f) => ({ ...f })) },
+      usuarios: [
+        { user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-09-15T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+        { user_id: OTRO, email: "ana@example.com", role: "user", created_at: "2026-10-20T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+      ],
+      embudo: [{ step_label: "Inicio", sessions: 10 }],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z`);
+    await f.locator("#ficha-dispositivos").waitFor({ timeout: 40000 }).catch(() => {});
+    const cab = limpio(await f.locator("#ficha-ultima-conexion").innerText().catch(() => ""));
+    ok(/^Última conexión: hace 2 h \(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}\)$/.test(cab), `DV: la cabecera de la ficha dice «Última conexión: hace 2 h (dd/mm/aaaa hh:mm)» (${cab})`);
+    const td = limpio(await f.locator("#ficha-dispositivos").innerText().catch(() => ""));
+    const orden = ["iPhone · Safari", "Windows · Chrome", "Mac · Safari"].map((n) => td.indexOf(n));
+    ok(/^Dispositivos 3/.test(td) && orden.every((i) => i >= 0) && orden[0] < orden[1] && orden[1] < orden[2] && !/Android/.test(td), `DV: «Dispositivos» enseña los 3 suyos (no los de otra persona), del más reciente al más antiguo (${td.slice(0, 120)})`);
+    ok(/iPhone · Safari · App instalada/.test(td) && (td.match(/App instalada/g) ?? []).length === 1, "DV: «App instalada» solo en el que la usa");
+    ok(/Última vez: hace 2 h/.test(td) && /Última vez: hace 3 días/.test(td) && /Primera vez: 15\/09\/2026 \d{2}:\d{2} · 3 inicios de sesión/.test(td) && /1 inicio de sesión/.test(td) && /2 inicios de sesión/.test(td),
+      `DV: cada uno con su última vez, su primera vez y sus inicios de sesión (${td.slice(0, 200)})`);
+    const geo = await f.evaluate(() => {
+      const c = document.getElementById("ficha-dispositivos")?.getBoundingClientRect();
+      return { ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), vista: window.innerWidth, tarjeta: c ? Math.round(c.right) : 0 };
+    });
+    ok(geo.ancho <= geo.vista + 1 && geo.tarjeta <= geo.vista, `DV: a 390 px nada se sale (${JSON.stringify(geo)})`);
+    ok(f.errores.length === 0, `DV: la ficha sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+    await capturar(f, "DV1-ficha-cabecera");
+    await f.locator("#ficha-dispositivos").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(f, "DV2-ficha-dispositivos");
+    ok(escrituras(estado.dispositivos).every((x) => x.cuerpo?.user_id !== CLIENTE.id) && estado.dispositivos.filas.filter((x) => x.user_id === CLIENTE.id).length === 3, "DV: abrir la ficha no cambia los dispositivos del cliente");
+
+    // Usuarios: «Última conexión» en cada fila, el orden y «Activos 7 días».
+    const u = await pagina(ctx, "/admin/users");
+    await u.getByText("Ver ficha del cliente").first().waitFor({ timeout: 40000 }).catch(() => {});
+    const tu = limpio(await u.evaluate(() => document.body.innerText));
+    ok(/cliente@example\.com.{0,80}Última conexión: hace 2 h/.test(tu) && /ana@example\.com.{0,80}Última conexión: hace 10 días/.test(tu), `DV: Usuarios enseña la última conexión en cada fila (${(tu.match(/Alta:[^·]*· Última conexión: [^A-Z]*/g) ?? []).join(" | ")})`);
+    ok((await u.getByText("Activos 7 días (1)", { exact: true }).count()) === 1 && (await u.getByText("Última conexión", { exact: true }).count()) === 1, "DV: el chip «Activos 7 días (1)» y el orden «Última conexión»");
+    await u.getByText("Activos 7 días (1)", { exact: true }).click();
+    await u.waitForTimeout(400);
+    const activos = await u.evaluate(() => document.body.innerText);
+    ok(activos.includes("cliente@example.com") && !activos.includes("ana@example.com"), "DV: «Activos 7 días» deja solo a quien se ha conectado esa semana");
+    await u.getByText("Activos 7 días (1)", { exact: true }).click();
+    await u.getByText("Última conexión", { exact: true }).click();
+    await u.waitForTimeout(400);
+    const ordenU = await u.evaluate(() => [document.body.innerText.indexOf("cliente@example.com"), document.body.innerText.indexOf("ana@example.com")]);
+    ok(ordenU[0] >= 0 && ordenU[1] > ordenU[0], `DV: ordenar por «Última conexión» pone primero al más reciente (${ordenU.join(" < ")})`);
+    const anchoU = await u.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+    ok(anchoU.a <= anchoU.v + 1 && u.errores.length === 0, `DV: Usuarios cabe en el móvil y sin errores (${anchoU.a}/${anchoU.v}; ${u.errores[0] ?? "sin errores"})`);
+    await u.getByText("Activos 7 días (1)", { exact: true }).scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(u, "DV3-usuarios");
+
+    // Analítica: dos recuentos (sin el administrador): conectados en 7 días y con la app instalada.
+    const a = await pagina(ctx, "/admin/analytics");
+    await a.locator("#analitica-conectados").waitFor({ timeout: 40000 }).catch(() => {});
+    const ta = limpio(await a.locator("#analitica-conectados").innerText().catch(() => ""));
+    ok(ta === "Clientes conectados en los últimos 7 días: 1 · con la app instalada: 1", `DV: Analítica cuenta los clientes conectados en 7 días y con la app instalada, sin el administrador (${ta})`);
+    const pedida = (estado.dispositivos.peticiones ?? []).filter((x) => x.metodo === "GET" && /ultima_vez=gte\./.test(x.busqueda));
+    ok(pedida.length >= 1 && pedida.every((x) => /select=user_id,app_instalada/.test(x.busqueda)), `DV: Analítica solo pide quién y si tiene la app (${pedida.map((x) => x.busqueda.slice(0, 70)).join(" | ")})`);
+    await a.locator("#analitica-conectados").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(a, "DV4-analitica");
+    ok(a.errores.length === 0, `DV: Analítica sin errores (${a.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // DV4) Sin conexiones registradas: el aviso; sin la tabla: ni la tarjeta ni la línea, y la ficha sale igual.
+  for (const sinTabla of [false, true]) {
+    const estado = { guardados: [], dispositivos: { filas: [] }, dispositivosSinTabla: sinTabla };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+    await f.getByText("Compras a la tienda").waitFor({ timeout: 40000 }).catch(() => {});
+    const td = limpio(await f.locator("#ficha-dispositivos").innerText().catch(() => ""));
+    const cab = await f.locator("#ficha-ultima-conexion").count();
+    if (sinTabla) ok(td === "" && cab === 0 && f.errores.length === 0, `DV: sin la tabla, la ficha sale igual sin «Dispositivos» ni «Última conexión» y sin errores (${f.errores[0] ?? "ok"})`);
+    else {
+      ok(/Aún no hay conexiones registradas \(se registran desde el 12\/11\/2026\)\./.test(td) && cab === 0, `DV: sin conexiones, «Aún no hay conexiones registradas (se registran desde el 12/11/2026)» (${td})`);
+      await f.locator("#ficha-dispositivos").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(f, "DV5-ficha-sin-conexiones");
+    }
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "AC") await seccionAC();
@@ -10634,6 +10846,7 @@ try {
   if (SOLO === "RE2") await seccionRE2();
   if (SOLO === "RE3") await seccionRE3();
   if (SOLO === "VT") await seccionVT();
+  if (SOLO === "DV") await seccionDV();
   // Toda la batería (salvo si se pidió solo una sección). El bloque no se ha vuelto a sangrar para no mover todo el archivo.
   todas: {
   if (SOLO) break todas;

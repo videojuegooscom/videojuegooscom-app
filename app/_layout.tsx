@@ -23,6 +23,10 @@
  * Actualización automática (solo web): al volver a una tienda que estaba en segundo plano, si ya hay
  * una versión nueva publicada, se recarga sola (reglas y límites en el comentario de ACTUALIZAR_*).
  *
+ * Dispositivos (2026-11-12): con sesión, al abrir la tienda, al volver a ella (como mucho cada 15 min) y al iniciar
+ * sesión, apunta el tipo de dispositivo y navegador y la hora (lib/supabase.ts → registrarDispositivo, tabla
+ * cliente_dispositivos); lo ve Administración en la ficha del cliente, Usuarios y Analítica.
+ *
  * Conectado con:
  * - components/BrandLoadingScreen.tsx → pantalla de carga inicial.
  * - components/Campanita.tsx → campanita flotante de notificaciones, se
@@ -53,7 +57,7 @@
  * - app/admin/_layout.tsx → todas las rutas /admin.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, View, type ViewStyle } from "react-native";
+import { AppState, Platform, View, type ViewStyle } from "react-native";
 import { Stack, router, usePathname } from "expo-router";
 import Head from "expo-router/head";
 import { useFonts } from "expo-font";
@@ -67,6 +71,7 @@ import { PerfilObligatorio } from "../components/PerfilPublico";
 import SiteHead from "../components/SiteHead";
 import TirarParaActualizar from "../components/TirarParaActualizar";
 import { medirLlegadaDesdeRedes, trackEvent } from "../lib/analytics";
+import { registrarDispositivo, supabase } from "../lib/supabase";
 
 // Máximo que se espera a la fuente de iconos antes de mostrar la tienda igualmente.
 const BOOT_FONT_TIMEOUT_MS = 1500;
@@ -147,6 +152,30 @@ export default function RootLayout() {
   // ¿Llega de Instagram o TikTok? Se mira una vez al abrir la tienda (lib/analytics.ts).
   useEffect(() => {
     if (Platform.OS === "web") medirLlegadaDesdeRedes();
+  }, []);
+
+  // Dispositivos y última conexión (lib/supabase.ts → registrarDispositivo): con sesión, al abrir la tienda y al volver a
+  // ella (como mucho cada 15 min); al iniciar sesión de verdad (sesión nueva en este dispositivo), además, suma un inicio.
+  useEffect(() => {
+    let actual: { uid: string; token: string } | null = null;
+    const { data } = supabase.auth.onAuthStateChange((_evento, sesion) => {
+      actual = sesion?.user?.id ? { uid: sesion.user.id, token: sesion.access_token } : null;
+      const ahora = actual;
+      // Fuera del aviso de Supabase (no se puede consultar la base de datos dentro de él).
+      if (ahora) setTimeout(() => void registrarDispositivo(ahora.uid, ahora.token), 0);
+    });
+    const alVolver = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (actual) void registrarDispositivo(actual.uid, actual.token);
+    };
+    let sub: { remove: () => void } | null = null;
+    if (Platform.OS === "web" && typeof document !== "undefined") document.addEventListener("visibilitychange", alVolver);
+    else sub = AppState.addEventListener("change", (s) => s === "active" && alVolver());
+    return () => {
+      data.subscription.unsubscribe();
+      if (Platform.OS === "web" && typeof document !== "undefined") document.removeEventListener("visibilitychange", alVolver);
+      sub?.remove();
+    };
   }, []);
 
   useEffect(() => {

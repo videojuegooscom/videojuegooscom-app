@@ -12,6 +12,10 @@
  * número interno en pequeño; en la actividad de compra, también la referencia del pedido si está en la ficha.
  * Factura (dueño, 2026-11-12): cada pedido con factura de VeoAura enseña su número y «Ver factura», que abre el PDF en
  * una pestaña nueva (api/factura.ts con «ver=1», enlace firmado de 60 s) para revisar cómo ha quedado.
+ * Dispositivos (dueño, 2026-11-12): bajo el correo, «Última conexión: hace 2 h (12/11/2026 12:49)», y la tarjeta
+ * «Dispositivos» con cada uno (tipo y navegador, «App instalada», primera y última vez, inicios de sesión), de la tabla
+ * cliente_dispositivos (migración 20261112120000; la escribe lib/supabase.ts → registrarDispositivo). Sin IP ni ubicación.
+ * Sin la migración, no sale nada de esto.
  *
  * Cómo funciona:
  * - user_id, email y fecha de alta llegan como parámetros de navegación
@@ -77,7 +81,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { supabase } from "../../../lib/supabase";
+import { haceCuanto, supabase } from "../../../lib/supabase";
 import CargaMarca from "../../../components/marca/CargaMarca";
 import SmartImage from "../../../components/SmartImage";
 import { ORIGENES_MEJORA, type OrigenMejora } from "../../../components/ReviewModal";
@@ -214,6 +218,25 @@ const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "warn" | "
   descartado: { label: "Descartado", tone: "danger" },
 };
 
+// Un dispositivo desde el que entra el cliente (tabla cliente_dispositivos: solo tipo y navegador, sin IP ni ubicación).
+type DispositivoFicha = { dispositivo: string; app_instalada: boolean; primera_vez: string; ultima_vez: string; inicios: number };
+
+// 12/11/2026 12:49 (hora de Madrid)
+function fmtFechaHora(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const f = d.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", year: "numeric" });
+  const h = d.toLocaleTimeString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" });
+  return `${f} ${h}`;
+}
+
+// Icono según el tipo: móvil o tableta, o un ordenador.
+function iconoDispositivo(nombre: string): React.ComponentProps<typeof Ionicons>["name"] {
+  if (/^(iPhone|Android)\b/.test(nombre)) return "phone-portrait-outline";
+  if (/^(iPad|Tablet)/.test(nombre)) return "tablet-portrait-outline";
+  return "laptop-outline";
+}
+
 function fmtDate(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
@@ -308,6 +331,9 @@ export default function ClienteFicha() {
     // Dirección de envío de Mi perfil en una línea (vacía si no la ha puesto); null = sin las columnas todavía.
     direccion: string | null;
   } | null>(null);
+
+  // Dispositivos desde los que entra y su última conexión (tabla cliente_dispositivos). null = la tabla aún no existe.
+  const [dispositivos, setDispositivos] = useState<DispositivoFicha[] | null>(null);
 
   const [notes, setNotes] = useState("");
   const [notesLoaded, setNotesLoaded] = useState(false);
@@ -478,6 +504,15 @@ export default function ClienteFicha() {
       } else {
         setPerfil(null);
       }
+
+      // Dispositivos (consulta aparte: sin la migración 20261112120000, la ficha sale igual sin ellos).
+      const dispRes = await supabase
+        .from("cliente_dispositivos")
+        .select("dispositivo,app_instalada,primera_vez,ultima_vez,inicios")
+        .eq("user_id", userId)
+        .order("ultima_vez", { ascending: false })
+        .limit(30);
+      setDispositivos(dispRes.error ? null : ((dispRes.data ?? []) as DispositivoFicha[]));
     } catch (e) {
       console.error("Error cargando la ficha del cliente:", e);
     } finally {
@@ -562,6 +597,14 @@ export default function ClienteFicha() {
                   Cliente desde {fmtDate(createdAt)}
                 </Text>
               ) : null}
+              {dispositivos && dispositivos[0] ? (
+                <View nativeID="ficha-ultima-conexion" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, maxWidth: "100%" }}>
+                  <Ionicons name="time-outline" size={13} color={COLORS.muted} />
+                  <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", flexShrink: 1 }}>
+                    Última conexión: {haceCuanto(dispositivos[0].ultima_vez)} ({fmtFechaHora(dispositivos[0].ultima_vez)})
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
         </View>
@@ -627,6 +670,41 @@ export default function ClienteFicha() {
                   <EmptyRow text="Todavía no ha rellenado su perfil." />
                 )}
               </SectionCard>
+
+              {/* Dispositivos desde los que entra (dueño, 2026-11-12): tipo y navegador, si usa la app instalada, primera y
+                  última vez e inicios de sesión, del más reciente al más antiguo. Sin la migración, la tarjeta no sale. */}
+              {dispositivos !== null ? (
+                <View nativeID="ficha-dispositivos">
+                  <SectionCard icon="phone-portrait-outline" title="Dispositivos" count={dispositivos.length}>
+                    {dispositivos.length === 0 ? (
+                      <EmptyRow text="Aún no hay conexiones registradas (se registran desde el 12/11/2026)." />
+                    ) : (
+                      <View style={{ gap: 8 }}>
+                        {dispositivos.map((d) => (
+                          <View
+                            key={d.dispositivo}
+                            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 12, backgroundColor: COLORS.cardSoft, padding: 10 }}
+                          >
+                            <Ionicons name={iconoDispositivo(d.dispositivo)} size={20} color={COLORS.accentDark} style={{ marginTop: 1 }} />
+                            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                              <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13 }}>
+                                {d.dispositivo}
+                                {d.app_instalada ? <Text style={{ color: COLORS.success, fontWeight: "800", fontSize: 12 }}> · App instalada</Text> : null}
+                              </Text>
+                              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
+                                Última vez: {haceCuanto(d.ultima_vez)} ({fmtFechaHora(d.ultima_vez)})
+                              </Text>
+                              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
+                                Primera vez: {fmtFechaHora(d.primera_vez)} · {d.inicios === 1 ? "1 inicio de sesión" : `${d.inicios} inicios de sesión`}
+                              </Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </SectionCard>
+                </View>
+              ) : null}
 
               {pedidos !== null ? (
                 <View nativeID="ficha-pedidos">
