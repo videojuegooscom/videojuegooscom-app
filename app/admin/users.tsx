@@ -1,12 +1,42 @@
 // app/admin/users.tsx
 /**
  * Qué hace: pantalla de administración "Usuarios y participación". Lista los
- * usuarios registrados en la app (con su email y fecha de alta) y cuánto
- * participan: mensajes en el Foro, chats de producto que han iniciado y
- * reseñas que han escrito. También muestra, aparte, el volumen total de
- * solicitudes de venta y de servicio (esos formularios no exigen sesión
- * iniciada, así que no se pueden atribuir a un usuario registrado concreto)
- * y la valoración media de la tienda.
+ * usuarios registrados en la app (con su email, perfil, fecha de alta y última
+ * conexión) y cuánto participan: mensajes en el Foro, chats de producto que han
+ * iniciado y reseñas que han escrito; además, las ideas de mejora que mandan,
+ * la seguridad de las cuentas (contraseñas, inicio de sesión) y la moderación
+ * del Foro.
+ *
+ * DISEÑO (dueño, 2026-11-12: «que se vea profesional, intuitivo, práctico»; el
+ * mismo de la ficha del cliente, app/admin/cliente/[userId].tsx, y los tamaños
+ * comunes de constants/theme.ts: letra mínima 13, cuerpo 15, táctiles de 44 px):
+ * 1) Arriba, el buscador (16 px, sin zoom en el iPhone) y una fila de cifras
+ *    clave (registrados, activos 7 días, perfil completo, con la app instalada
+ *    si existe el dato y valoración media). Tocar una cifra filtra la lista o
+ *    abre su pestaña.
+ * 2) Pestañas deslizables recordadas en la URL (?tab=clientes|participacion|
+ *    ideas|seguridad): Clientes (con su número) · Participación · Ideas de
+ *    mejora (con las sin leer) · Seguridad (con un punto rojo si algo requiere
+ *    atención). Escribir en el buscador lleva a «Clientes».
+ * 3) Clientes: filtros en una fila deslizable (Activos 7 días, Perfil completo,
+ *    Faltan datos, Con foto, Con dirección y los desplegables Provincia, Edad y
+ *    País, que se vuelven a plegar al elegir o al tocarlos otra vez), cuántos
+ *    salen, «Quitar filtros» y el orden (desplegable: alta más reciente, más
+ *    participación o última conexión). Cada fila: foto o iniciales, nombre,
+ *    @usuario · provincia (país) · edad · CP, correo, alta y «Última conexión
+ *    hace…», etiquetas (Perfil completo / Faltan… / App / Con dirección) y su
+ *    participación en una línea; al tocarla, su ficha.
+ * 4) Participación: tarjetas con la cifra grande (Foro, chats de producto,
+ *    valoración media, reseñas en 30 días, solicitudes de venta y de servicio,
+ *    «Mis seguimientos» y números de seguimiento) y «Perfiles de clientes»
+ *    (contadores que filtran y el uso de «Completa tu perfil», la foto y la
+ *    dirección en 30 días).
+ * 5) Ideas de mejora: bandeja tipo correo, primero las sin leer, con quién la
+ *    manda (enlace a su ficha), cuándo y desde dónde, y «Marcar leída» de 44 px.
+ * 6) Seguridad: recuperar contraseña (con el aviso rojo solo si Supabase frena
+ *    correos), contraseñas cortas, inicio de sesión, moderación del Foro y
+ *    silenciados con «Quitar silencio».
+ * En el ordenador, todo centrado y de 960 px como mucho; las cifras en una fila.
  *
  * Cómo funciona:
  * - La lista de usuarios con sus contadores sale de UNA sola llamada RPC,
@@ -19,23 +49,19 @@
  *   persona autenticada la use para sacar la lista de emails.
  * - "Solicitudes de venta" y "Solicitudes de servicio" son recuentos aparte
  *   (sell_requests / service_requests): el formulario se puede enviar sin
- *   haber iniciado sesión, así que el total de aquí arriba incluye también
- *   las anónimas. Las que SÍ se enviaron con sesión iniciada quedan
- *   atribuidas a esa persona (customer_user_id) y aparecen dentro de su
- *   ficha de cliente (app/admin/cliente/[userId].tsx).
+ *   haber iniciado sesión, así que el total incluye también las anónimas. Las
+ *   que SÍ se enviaron con sesión iniciada quedan atribuidas a esa persona
+ *   (customer_user_id) y aparecen dentro de su ficha de cliente.
  * - "Valoración media" sale de store_reviews (rating 1-5, visible a
- *   cualquiera igual que las reseñas de Inicio). Debajo, «Reseñas (30 días)»:
- *   las publicadas, cuántas usan las ideas sugeridas o un emoji propuesto y la
- *   idea más usada (analítica propia «resena_publicada»,
- *   components/ReviewModal.tsx).
- * - «Ideas de mejora» (arriba): lo que mandan los clientes desde «Mejoras en la
+ *   cualquiera igual que las reseñas de Inicio). «Reseñas (30 días)»: las
+ *   publicadas, cuántas usan las ideas sugeridas o un emoji propuesto y la
+ *   idea más usada (analítica propia «resena_publicada», components/ReviewModal.tsx).
+ * - «Ideas de mejora»: lo que mandan los clientes desde «Mejoras en la
  *   tienda» (Blue, el pie de página o Mi cuenta; tabla mejoras_tienda, migración
- *   20261101200000_mejoras_tienda.sql). Primero las sin leer, con quién la manda
- *   (nombre/usuario o correo, enlace a su ficha), la fecha y desde dónde; el
- *   botón de 44 px la marca como leída (o sin leer). Contadores que filtran
- *   (sin leer, todas, por sitio) y, de 30 días, las enviadas y cuántas veces se
- *   abrió la cajita y desde dónde (analítica propia «mejora_abierta»). Sin la
- *   migración, una línea dice que falta aplicarla.
+ *   20261101200000_mejoras_tienda.sql). Contadores que filtran (sin leer, todas,
+ *   por sitio) y, de 30 días, las enviadas y cuántas veces se abrió la cajita y
+ *   desde dónde (analítica propia «mejora_abierta»). Sin la migración, una línea
+ *   dice que falta aplicarla.
  * - «Recuperar contraseña (30 días)»: enlaces pedidos, abiertos, contraseñas
  *   cambiadas, enlaces que no sirvieron (en otro navegador, caducados) y los
  *   que no se pudieron pedir; si Supabase frena correos por su límite, un
@@ -58,31 +84,32 @@
  *   cuenta con la analítica propia (lib/analytics.ts no le registra).
  * - "«Mis seguimientos» (30 días)": personas distintas que abrieron esa
  *   pestaña de Perfil y cuántas lo hicieron deslizando (analítica propia
- *   seguimientos_abiertos, solo de quien aceptó la analítica).
- * - Buscador: filtra la lista ya cargada por email (no vuelve a pedir nada a
- *   Supabase, la lista de usuarios registrados no suele ser tan grande).
- * - Orden: por fecha de alta (más recientes primero, por defecto) o por
- *   participación total (suma de los tres contadores), para ver primero a
- *   quien más interactúa con la tienda; o por «Última conexión» (2026-11-12: la más reciente de sus dispositivos, tabla
- *   cliente_dispositivos, que cada fila enseña como «Última conexión: hace 2 h»), y el chip «Activos 7 días (N)» deja
- *   solo a quien se ha conectado esa semana. Sin la migración 20261112120000 no sale nada de esto.
+ *   seguimientos_abiertos, solo de quien aceptó la analítica); y los números de
+ *   seguimiento añadidos a una cuenta y los intentos fallidos (tabla seguimiento_intentos).
+ * - Buscador: filtra la lista ya cargada por email, nombre, usuario, provincia,
+ *   país, código postal o localidad (no vuelve a pedir nada a Supabase).
+ * - Orden: por fecha de alta (más recientes primero, por defecto), por
+ *   participación total (suma de los tres contadores) o por «Última conexión»
+ *   (2026-11-12: la más reciente de sus dispositivos, tabla cliente_dispositivos,
+ *   que cada fila enseña como «Última conexión hace 2 h»); «Activos 7 días» deja
+ *   solo a los clientes que se han conectado esa semana y «App» sale a quien entra
+ *   con la app instalada (app_instalada); las cifras de activos y de la app no
+ *   cuentan a los administradores (como Analítica: su visita al panel no cuenta).
+ *   Sin la migración 20261112120000 no sale nada de esto.
  * - PERFILES (seguimiento de «Mi perfil», lo que cada cliente rellena en Mi cuenta, obligatorio
  *   al iniciar sesión: foto opcional, nombre, usuario, país, provincia y edad): se leen de
  *   perfiles_cliente (el administrador las ve todas, por su política; migración
- *   20261030150000_perfiles_cliente_completo.sql). Salen contadores (con perfil, completos,
- *   clientes con datos pendientes, con foto, edad media, provincias), chips por estado (completo,
- *   faltan datos, con foto), tramo de edad, provincia y país que a la vez FILTRAN la lista, y
- *   cuántos vieron, completaron o abandonaron «Completa tu perfil» en los últimos 30 días
- *   (analítica propia: perfil_obligatorio_visto / perfil_guardado / perfil_obligatorio_salir,
- *   solo de quien no rechazó la analítica), y cuántos encuadraron su foto o dejaron el recorte a
- *   medias (perfil_foto_encuadrada / perfil_foto_cancelada). Cada fila lleva la foto, el resumen y qué le falta;
- *   el buscador también encuentra por nombre, usuario, provincia o país (y código postal o localidad). DIRECCIÓN DE
- *   ENVÍO (opcional, Mi perfil): contador «Con dirección», chip que filtra, «CP 50410 Cuarte…» en el resumen de cada
+ *   20261030150000_perfiles_cliente_completo.sql). Contadores (con perfil, completos,
+ *   clientes con datos pendientes, con foto, edad media, provincias), filtros por estado,
+ *   tramo de edad, provincia y país, y cuántos vieron, completaron o abandonaron «Completa tu
+ *   perfil» en los últimos 30 días (analítica propia: perfil_obligatorio_visto / perfil_guardado /
+ *   perfil_obligatorio_salir, solo de quien no rechazó la analítica), y cuántos encuadraron su foto
+ *   o dejaron el recorte a medias (perfil_foto_encuadrada / perfil_foto_cancelada). DIRECCIÓN DE
+ *   ENVÍO (opcional, Mi perfil): contador «Con dirección», filtro, «CP 50410 Cuarte…» en cada
  *   fila y, de 30 días, quién la guarda y quién paga con ella ya rellenada (perfil_direccion_guardada /
  *   pago_direccion_perfil); sin las columnas (migración 20261102120000) no sale nada de esto. Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
- *
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
  *   (app/admin/cliente/[userId].tsx), que junta compras, ventas a la tienda,
  *   servicios de reparación y un cuadro de notas internas para ese usuario.
@@ -91,10 +118,12 @@
  *
  * Conectado con:
  * - lib/supabase.ts → cliente para la RPC y las consultas de recuento.
+ * - constants/theme.ts → TAMANOS, TACTIL, CAMPO, COLORES_TEXTO y colorTextoAzul.
  * - sql (migración) admin_list_users_with_stats → función que agrega todo.
  * - app/admin/index.tsx → tarjeta "Usuarios y participación" que lleva aquí.
  * - app/admin/cliente/[userId].tsx → ficha de cliente a la que lleva cada fila.
  * - app/admin/_layout.tsx → registra esta ruta ("users") en el Stack.
+ * - pruebas/perfil-datos.mjs → secciones UP (este diseño), E, F, M, ME, CO, DI, SE, C8, P, RE y DV.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -108,33 +137,32 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CONTRASENA_MINIMA, haceCuanto, supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import SmartImage from "../../components/SmartImage";
 import { ORIGENES_MEJORA, SUGERENCIAS_RESENA, type OrigenMejora } from "../../components/ReviewModal";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS, colorTextoAzul } from "../../constants/theme";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+type Ancho = number | `${number}%`;
 
+// Mismos colores que la ficha del cliente; grises nunca más claros que 0,72 y el azul de texto (#0A78B4) en la letra
+// azul de menos de 17 px (el de marca, en iconos, bordes y fondos).
 const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
   card: "#F6FAFD",
-  cardSoft: "#F8FBFE",
   border: "#E3EAF2",
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
-  accent: "#1EA7E8",
-  // Azul oscuro de la tienda (el mismo del botón "Comprar"/"Confirmar pedido").
-  accentDark: "#1EA7E8",
+  text: COLORES_TEXTO.texto,
+  muted: COLORES_TEXTO.secundario,
+  accent: COLORES_TEXTO.azulMarca,
+  accentText: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
   danger: "#B91C1C",
   dangerBg: "#FFE4E6",
   dangerBorder: "#FDA4AF",
@@ -236,6 +264,24 @@ type UsoContrasena = {
 type MejoraRow = { id: string; user_id: string; created_at: string; texto: string; origen: OrigenMejora; leida: boolean; leida_en: string | null };
 
 type SortMode = "recent" | "participation" | "conexion";
+const ORDENES: { id: SortMode; label: string }[] = [
+  { id: "recent", label: "Alta más reciente" },
+  { id: "participation", label: "Más participación" },
+  { id: "conexion", label: "Última conexión" },
+];
+
+// Pestañas (en la URL como ?tab=…).
+type Pestana = "clientes" | "participacion" | "ideas" | "seguridad";
+const PESTANAS: Pestana[] = ["clientes", "participacion", "ideas", "seguridad"];
+const NOMBRE_PESTANA: Record<Pestana, string> = {
+  clientes: "Clientes",
+  participacion: "Participación",
+  ideas: "Ideas de mejora",
+  seguridad: "Seguridad",
+};
+
+// Desplegables de la fila de filtros (y el del orden); solo uno abierto a la vez.
+type Desplegable = "provincia" | "edad" | "pais" | "orden" | null;
 
 // «Activos en los últimos 7 días» (por su última conexión, tabla cliente_dispositivos).
 const ACTIVO_MS = 7 * 24 * 60 * 60 * 1000;
@@ -277,14 +323,14 @@ function faltaDelPerfil(p: PerfilRow | undefined): string[] {
   ].filter(Boolean);
 }
 
-// «Dani · @dani · Zaragoza (España) · 22 años», o «Perfil sin completar».
+// Debajo del nombre: «@dani · Zaragoza (España) · 22 años · CP 50410 Cuarte», o «Perfil sin completar».
 function resumenDePerfil(p: PerfilRow | undefined): string {
   if (!p) return "Perfil sin completar";
   const edad = edadDe(p.fecha_nacimiento);
   const lugar = p.provincia && p.pais ? `${p.provincia} (${p.pais})` : p.provincia || p.pais;
   // Con dirección de envío, su código postal y localidad (para ver de un vistazo quién está en la zona de reparto).
   const envio = conDireccionDeEnvio(p) ? `CP ${[p.codigo_postal, p.localidad].filter(Boolean).join(" ")}` : "";
-  const partes = [p.nombre, p.usuario ? `@${p.usuario}` : "", lugar, edad !== null ? `${edad} años` : "", envio].filter(Boolean);
+  const partes = [p.usuario ? `@${p.usuario}` : "", lugar, edad !== null ? `${edad} años` : "", envio].filter(Boolean);
   return partes.length ? partes.join(" · ") : "Perfil sin completar";
 }
 
@@ -293,6 +339,13 @@ function contarPor(valores: string[]): { valor: string; n: number }[] {
   const mapa = new Map<string, number>();
   for (const v of valores) if (v) mapa.set(v, (mapa.get(v) ?? 0) + 1);
   return [...mapa.entries()].map(([valor, n]) => ({ valor, n })).sort((a, b) => b.n - a.n || a.valor.localeCompare(b.valor, "es"));
+}
+
+// Iniciales para cuando no hay foto: «Dani García» → «DG»; si no hay nombre, la primera letra del correo.
+function iniciales(nombre: string, email: string) {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  const letras = partes.length ? partes.slice(0, 2).map((p) => p[0]) : [email.trim()[0] ?? "?"];
+  return letras.join("").toUpperCase();
 }
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
@@ -321,88 +374,239 @@ function totalParticipation(u: UserRow) {
   return u.chat_messages_count + u.product_chats_count + u.store_reviews_count;
 }
 
-function StatCard({
-  label,
-  value,
-  icon,
-  isMobile,
-}: {
-  label: string;
-  value: string;
-  icon?: IoniconName;
-  isMobile?: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: isMobile ? "48.5%" : "23.5%",
-        borderRadius: 16,
-        backgroundColor: COLORS.cardSoft,
-        padding: isMobile ? 12 : 14,
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
-        {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, flexShrink: 1 }} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 18 : 20, marginTop: 6, textAlign: "center" }}>
-        {value}
-      </Text>
-    </View>
-  );
+const esAdmin = (u: UserRow) => (u.role ?? "").toLowerCase() === "admin";
+
+// Cliente (no administrador) conectado en los últimos 7 días.
+function esActivo(u: UserRow, ultimaConexion: Record<string, string> | null, ahora = Date.now()) {
+  const ultima = ultimaConexion?.[u.user_id];
+  return !esAdmin(u) && !!ultima && ahora - new Date(ultima).getTime() <= ACTIVO_MS;
 }
 
-function ChipButton({
-  label,
+const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+
+// Una cifra: el número grande y su etiqueta debajo (como las de la ficha del cliente). Si se puede tocar, filtra la
+// lista o lleva a su pestaña; `activa` = su filtro está puesto.
+function Cifra({
+  valor,
+  etiqueta,
+  nativeID,
   onPress,
-  active,
-  isMobile,
+  activa,
+  icono,
+  ancho,
+  fondo = COLORS.card,
+  grande,
 }: {
-  label: string;
-  onPress: () => void;
-  active?: boolean;
-  isMobile?: boolean;
+  valor: string;
+  etiqueta: string;
+  nativeID?: string;
+  onPress?: () => void;
+  activa?: boolean;
+  icono?: IoniconName;
+  ancho: Ancho;
+  fondo?: string;
+  grande?: boolean;
 }) {
+  const contenido = (
+    <>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+        {icono ? <Ionicons name={icono} size={grande ? 20 : 18} color={COLORS.accent} /> : null}
+        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: grande ? TAMANOS.titulo2 : TAMANOS.titulo3, flexShrink: 1 }}>
+          {valor}
+        </Text>
+      </View>
+      <Text
+        numberOfLines={2}
+        style={{
+          color: activa ? COLORS.accentText : COLORS.muted,
+          fontWeight: activa ? "900" : "700",
+          fontSize: TAMANOS.minimo,
+          lineHeight: 17,
+          textAlign: "center",
+        }}
+      >
+        {etiqueta}
+      </Text>
+    </>
+  );
+  const estilo = {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: ancho,
+    minWidth: 0,
+    minHeight: 72,
+    borderRadius: 16,
+    backgroundColor: activa ? COLORS.accent2 : fondo,
+    borderWidth: 1,
+    borderColor: activa ? COLORS.accentBorder : fondo === COLORS.card ? COLORS.card : COLORS.border,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 2,
+  };
+  if (!onPress) {
+    return (
+      <View nativeID={nativeID} style={estilo}>
+        {contenido}
+      </View>
+    );
+  }
   return (
     <Pressable
+      nativeID={nativeID}
       onPress={onPress}
-      style={({ pressed }) => ({
-        borderRadius: 999,
-        paddingVertical: 9,
-        paddingHorizontal: 12,
-        borderWidth: 1,
-        borderColor: active ? COLORS.accentBorder : COLORS.border,
-        backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
-        opacity: pressed ? 0.88 : 1,
-      })}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!activa }}
+      accessibilityLabel={`${valor} ${etiqueta}`}
+      style={({ pressed }) => ({ ...estilo, opacity: pressed ? 0.8 : 1 })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 12.5 : 13 }}>{label}</Text>
+      {contenido}
     </Pressable>
   );
 }
 
-function MetricPill({ icon, label, value }: { icon: IoniconName; label: string; value: number }) {
+// Varias cifras en fila (en el móvil, de 2 o 3 por fila según cuántas sean).
+function FilaCifras({ children, nativeID }: { children: React.ReactNode; nativeID?: string }) {
   return (
-    <View
-      style={{
+    <View nativeID={nativeID} style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
+      {children}
+    </View>
+  );
+}
+
+// Ancho de cada cifra: en el ordenador todas en una fila; en el móvil, de 3 en 3 (con 3, 5 o 6) o de 2 en 2.
+function anchoCifra(n: number, isMobile: boolean): Ancho {
+  if (!isMobile) return 0;
+  return n === 3 || n === 5 || n === 6 ? "30%" : "45%";
+}
+
+// Un filtro (o un desplegable, con su flecha). 44 px de alto.
+function Chip({
+  label,
+  onPress,
+  activo,
+  abierto,
+  desplegable,
+  nativeID,
+}: {
+  label: string;
+  onPress: () => void;
+  activo?: boolean;
+  abierto?: boolean;
+  desplegable?: boolean;
+  nativeID?: string;
+}) {
+  return (
+    <Pressable
+      nativeID={nativeID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!activo, expanded: desplegable ? !!abierto : undefined }}
+      style={({ pressed }) => ({
+        minHeight: TACTIL.minimo,
         flexDirection: "row",
         alignItems: "center",
-        gap: 6,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
+        gap: 4,
+        paddingHorizontal: 14,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: "#F6FAFD",
-      }}
+        borderColor: activo || abierto ? COLORS.accent : COLORS.border,
+        backgroundColor: activo ? COLORS.accent2 : COLORS.bg,
+        opacity: pressed ? 0.85 : 1,
+      })}
     >
-      <Ionicons name={icon} size={13} color={COLORS.accentDark} />
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
-        {value} {label}
-      </Text>
+      <Text style={{ color: COLORS.text, fontWeight: activo ? "900" : "800", fontSize: TAMANOS.minimo }}>{label}</Text>
+      {desplegable ? <Ionicons name={abierto ? "chevron-up" : "chevron-down"} size={16} color={COLORS.text} /> : null}
+    </Pressable>
+  );
+}
+
+// Una sección: icono y título (sin recuadro), con un texto corto a la derecha (p. ej. «30 días»).
+function Seccion({ icon, title, extra, nativeID, children }: { icon: IoniconName; title: string; extra?: string; nativeID?: string; children: React.ReactNode }) {
+  return (
+    <View nativeID={nativeID} style={{ gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        {/* Solo el icono, sin burbuja (dueño, 2026-11-04). */}
+        <Ionicons name={icon} size={20} color={COLORS.accent} />
+        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado }}>{title}</Text>
+        {extra ? <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "800" }}>{extra}</Text> : null}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// Una tarjeta de Participación: título con su icono, la cifra grande y el detalle debajo. En el móvil (`fila`), a todo
+// lo ancho: el título a la izquierda, la cifra a la derecha y el detalle debajo (en dos columnas no cabían).
+function Tarjeta({
+  nativeID,
+  icono,
+  titulo,
+  valor,
+  detalle,
+  ancho,
+  fila,
+}: {
+  nativeID?: string;
+  icono: IoniconName;
+  titulo: string;
+  valor: string;
+  detalle?: string;
+  ancho: Ancho;
+  fila?: boolean;
+}) {
+  if (fila) {
+    return (
+      <View nativeID={nativeID} style={{ width: "100%", borderRadius: 20, backgroundColor: COLORS.card, paddingVertical: 12, paddingHorizontal: 16, gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Ionicons name={icono} size={20} color={COLORS.accent} />
+          <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 20 }}>{titulo}</Text>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.titulo2, lineHeight: 30 }}>{valor}</Text>
+        </View>
+        {detalle ? <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18, paddingLeft: 30 }}>{detalle}</Text> : null}
+      </View>
+    );
+  }
+  return (
+    <View nativeID={nativeID} style={{ flexGrow: 1, flexShrink: 1, flexBasis: ancho, minWidth: 0, borderRadius: 20, backgroundColor: COLORS.card, padding: 16, gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name={icono} size={20} color={COLORS.accent} />
+        <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 20 }}>{titulo}</Text>
+      </View>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.titulo1, lineHeight: 34 }}>{valor}</Text>
+      {detalle ? <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{detalle}</Text> : null}
+    </View>
+  );
+}
+
+// «no se pudieron pedir 1» → «No se pudieron pedir 1» (las líneas de detalle empiezan en mayúscula).
+const mayuscula = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+// Un recuadro de Seguridad (fondo suave), con sus cifras y sus líneas de detalle.
+function Recuadro({ nativeID, children }: { nativeID?: string; children: React.ReactNode }) {
+  return (
+    <View nativeID={nativeID} style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: 16, gap: 12 }}>
+      {children}
+    </View>
+  );
+}
+
+// Línea de detalle (13 px, gris permitido).
+function Detalle({ children, nativeID, color }: { children: React.ReactNode; nativeID?: string; color?: string }) {
+  return (
+    <Text nativeID={nativeID} style={{ color: color ?? COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+      {children}
+    </Text>
+  );
+}
+
+// Una etiqueta pequeña de la fila: icono y texto con su color, sin cápsula.
+function Etiqueta({ icon, texto, color }: { icon: IoniconName; texto: string; color: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+      <Ionicons name={icon} size={15} color={color === COLORS.text ? COLORS.accent : color} />
+      <Text style={{ color, fontWeight: "800", fontSize: TAMANOS.minimo, flexShrink: 1 }}>{texto}</Text>
     </View>
   );
 }
@@ -411,8 +615,19 @@ export default function AdminUsers() {
   const { width } = useWindowDimensions();
   const widthSafe = width && width > 0 ? width : 1024;
   const isMobile = widthSafe < 700;
-  const pagePadding = isMobile ? 12 : 16;
   const insets = useSafeAreaInsets();
+
+  // Pestaña abierta: la de la URL (?tab=) para volver a ella; si no, «Clientes».
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const tabUrl = PESTANAS.includes(params.tab as Pestana) ? (params.tab as Pestana) : "clientes";
+  const [tab, setTab] = useState<Pestana>(tabUrl);
+  useEffect(() => {
+    setTab(tabUrl);
+  }, [tabUrl]);
+  const cambiarTab = useCallback((t: Pestana) => {
+    setTab(t);
+    router.setParams({ tab: t } as never);
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [screenErr, setScreenErr] = useState<string | null>(null);
@@ -429,7 +644,10 @@ export default function AdminUsers() {
   const [sortMode, setSortMode] = useState<SortMode>("recent");
   // Última conexión de cada cliente (la más reciente de sus dispositivos). null = la tabla aún no existe.
   const [ultimaConexion, setUltimaConexion] = useState<Record<string, string> | null>(null);
+  // Quién entra con la app instalada en alguno de sus dispositivos.
+  const [conApp, setConApp] = useState<Set<string>>(() => new Set());
   const [soloActivos, setSoloActivos] = useState(false);
+  const [desplegado, setDesplegado] = useState<Desplegable>(null);
 
   // Perfiles de los clientes (nombre, usuario, país, provincia y edad) y filtros. `perfilesOk` = la tabla existe
   // (si la migración aún no está aplicada, esta parte no se enseña y el resto de la pantalla funciona igual).
@@ -674,16 +892,24 @@ export default function AdminUsers() {
         setPerfilesOk(true);
       }
 
-      // Última conexión (migración 20261112120000): sin la tabla, no sale y lo demás funciona igual.
-      const conexRes = await supabase.from("cliente_dispositivos").select("user_id,ultima_vez").order("ultima_vez", { ascending: false }).limit(5000);
+      // Última conexión y app instalada (migración 20261112120000): sin la tabla, no sale y lo demás funciona igual.
+      const conexRes = await supabase
+        .from("cliente_dispositivos")
+        .select("user_id,ultima_vez,app_instalada")
+        .order("ultima_vez", { ascending: false })
+        .limit(5000);
       if (conexRes.error) {
         setUltimaConexion(null);
+        setConApp(new Set());
       } else {
         const ultimas: Record<string, string> = {};
-        for (const f of (conexRes.data ?? []) as { user_id: string; ultima_vez: string }[]) {
+        const app = new Set<string>();
+        for (const f of (conexRes.data ?? []) as { user_id: string; ultima_vez: string; app_instalada?: boolean | null }[]) {
           if (!ultimas[f.user_id] || f.ultima_vez > ultimas[f.user_id]) ultimas[f.user_id] = f.ultima_vez;
+          if (f.app_instalada === true) app.add(f.user_id);
         }
         setUltimaConexion(ultimas);
+        setConApp(app);
       }
 
       if (usersRes.error) throw usersRes.error;
@@ -751,8 +977,12 @@ export default function AdminUsers() {
       porOrigen,
     };
   }, [mejoras]);
+  // Primero las sin leer (bandeja tipo correo) y, dentro, de la más nueva a la más vieja.
   const mejorasVisibles = useMemo(
-    () => (mejoras ?? []).filter((m) => (filtroMejoras === "todas" || !m.leida) && (!filtroOrigen || m.origen === filtroOrigen)),
+    () =>
+      (mejoras ?? [])
+        .filter((m) => (filtroMejoras === "todas" || !m.leida) && (!filtroOrigen || m.origen === filtroOrigen))
+        .sort((a, b) => Number(a.leida) - Number(b.leida) || b.created_at.localeCompare(a.created_at)),
     [mejoras, filtroMejoras, filtroOrigen]
   );
 
@@ -770,11 +1000,17 @@ export default function AdminUsers() {
     }
   }, []);
 
-  const stats = useMemo(() => {
-    const total = users.length;
-    const admins = users.filter((u) => (u.role ?? "").toLowerCase() === "admin").length;
-    const active = users.filter((u) => totalParticipation(u) > 0).length;
-    return { total, admins, active };
+  // Participación total de los clientes (suma de los contadores de cada uno) y cuántas personas participan.
+  const participacion = useMemo(() => {
+    const suma = (k: keyof Pick<UserRow, "chat_messages_count" | "product_chats_count" | "store_reviews_count">) => users.reduce((a, u) => a + u[k], 0);
+    const quienes = (k: keyof Pick<UserRow, "chat_messages_count" | "product_chats_count" | "store_reviews_count">) => users.filter((u) => u[k] > 0).length;
+    return {
+      foro: suma("chat_messages_count"),
+      foroPersonas: quienes("chat_messages_count"),
+      chats: suma("product_chats_count"),
+      chatsPersonas: quienes("product_chats_count"),
+      conActividad: users.filter((u) => totalParticipation(u) > 0).length,
+    };
   }, [users]);
 
   // Contadores del perfil (solo de las cuentas que hay ahora en la lista).
@@ -800,7 +1036,15 @@ export default function AdminUsers() {
     return { conAlgo, completos, pendientes, conFoto, conDireccion, porProvincia, porPais, porTramo, media };
   }, [users, perfiles]);
 
-  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado;
+  const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado || soloActivos;
+  const quitarFiltros = useCallback(() => {
+    setFiltroProvincia(null);
+    setFiltroPais(null);
+    setFiltroTramo(null);
+    setFiltroEstado(null);
+    setSoloActivos(false);
+    setDesplegado(null);
+  }, []);
 
   const visibleUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -808,7 +1052,7 @@ export default function AdminUsers() {
     const ahora = Date.now();
     const filtered = users.filter((u) => {
       const p = perfiles[u.user_id];
-      if (soloActivos && !(ultimaConexion?.[u.user_id] && ahora - new Date(ultimaConexion[u.user_id]).getTime() <= ACTIVO_MS)) return false;
+      if (soloActivos && !esActivo(u, ultimaConexion, ahora)) return false;
       if (filtroProvincia && p?.provincia !== filtroProvincia) return false;
       if (filtroPais && p?.pais !== filtroPais) return false;
       if (filtroEstado === "completo" && !perfilCompleto(p)) return false;
@@ -833,30 +1077,662 @@ export default function AdminUsers() {
     return sorted;
   }, [users, perfiles, search, sortMode, filtroProvincia, filtroPais, filtroTramo, filtroEstado, soloActivos, ultimaConexion]);
 
-  // Cuántos se han conectado en los últimos 7 días (para el chip que filtra).
-  const activos7 = useMemo(() => {
-    const ahora = Date.now();
-    return users.filter((u) => ultimaConexion?.[u.user_id] && ahora - new Date(ultimaConexion[u.user_id]).getTime() <= ACTIVO_MS).length;
-  }, [users, ultimaConexion]);
+  // Cuántos clientes se han conectado en los últimos 7 días y cuántos usan la app instalada (para las cifras y el
+  // filtro). Sin los administradores, como en Analítica: su propia visita al panel no cuenta.
+  const activos7 = useMemo(
+    () => users.filter((u) => esActivo(u, ultimaConexion)).length,
+    [users, ultimaConexion]
+  );
+  const nConApp = useMemo(() => users.filter((u) => !esAdmin(u) && conApp.has(u.user_id)).length, [users, conApp]);
+
+  // Seguridad: algo requiere atención (Supabase frena los correos de recuperar la contraseña).
+  const atencionSeguridad = (usoContrasena?.limite ?? 0) > 0;
+
+  // Ir a «Clientes» con un filtro puesto (desde las cifras y los contadores de Participación).
+  const filtrarPor = useCallback(
+    (estado: EstadoPerfil | "activos") => {
+      setDesplegado(null);
+      if (estado === "activos") setSoloActivos((v) => (tab === "clientes" ? !v : true));
+      else setFiltroEstado((v) => (tab === "clientes" && v === estado ? null : estado));
+      cambiarTab("clientes");
+    },
+    [tab, cambiarTab]
+  );
+
+  const irAFicha = (u: { user_id: string; email?: string | null; created_at?: string }) =>
+    router.push({
+      pathname: "/admin/cliente/[userId]",
+      params: { userId: u.user_id, email: u.email ?? "", createdAt: u.created_at ?? "" },
+    } as any);
+
+  const valoracion = avgRating != null ? avgRating.toFixed(1).replace(".", ",") : "—";
+
+  // 1) Cifras clave de arriba (la de la app solo si existe el dato).
+  const cifras: { key: string; valor: string; etiqueta: string; icono?: IoniconName; onPress?: () => void; activa?: boolean }[] = [
+    { key: "registrados", valor: String(users.length), etiqueta: "Registrados", onPress: () => cambiarTab("clientes") },
+    ...(ultimaConexion
+      ? [{ key: "activos", valor: String(activos7), etiqueta: "Activos 7 días", onPress: () => filtrarPor("activos"), activa: soloActivos }]
+      : []),
+    ...(perfilesOk
+      ? [{ key: "completos", valor: String(resumenPerfiles.completos), etiqueta: "Perfil completo", onPress: () => filtrarPor("completo"), activa: filtroEstado === "completo" }]
+      : []),
+    ...(ultimaConexion ? [{ key: "app", valor: String(nConApp), etiqueta: "Con la app" }] : []),
+    { key: "valoracion", valor: valoracion, etiqueta: "Valoración", icono: "star" as IoniconName, onPress: () => cambiarTab("participacion") },
+  ];
+
+  const nombreDe = (userId: string, email?: string | null) => {
+    const p = perfiles[userId];
+    return p?.nombre || p?.usuario ? [p?.nombre, p?.usuario ? `@${p.usuario}` : ""].filter(Boolean).join(" · ") : email ?? "Cliente";
+  };
+
+  // ---------- Pestaña «Clientes» ----------
+  const opcionesFiltro =
+    desplegado === "provincia"
+      ? resumenPerfiles.porProvincia.slice(0, 20).map((p) => ({ id: p.valor, label: `${p.valor} (${p.n})`, activo: filtroProvincia === p.valor, elegir: () => setFiltroProvincia((v) => (v === p.valor ? null : p.valor)) }))
+      : desplegado === "edad"
+        ? resumenPerfiles.porTramo.map((t) => ({ id: t.id, label: `${t.label} (${t.n})`, activo: filtroTramo === t.id, elegir: () => setFiltroTramo((v) => (v === t.id ? null : t.id)) }))
+        : desplegado === "pais"
+          ? resumenPerfiles.porPais.slice(0, 12).map((p) => ({ id: p.valor, label: `${p.valor} (${p.n})`, activo: filtroPais === p.valor, elegir: () => setFiltroPais((v) => (v === p.valor ? null : p.valor)) }))
+          : [];
+  const tramoElegido = TRAMOS_EDAD.find((t) => t.id === filtroTramo);
+  const ordenActual = ORDENES.find((o) => o.id === sortMode) ?? ORDENES[0];
+  const conFiltros = !!ultimaConexion || perfilesOk;
+
+  const contenidoClientes = (
+    <View nativeID="usuarios-contenido-clientes" style={{ gap: 12 }}>
+      {conFiltros ? (
+        <View style={{ marginHorizontal: -16 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
+            <View nativeID="usuarios-filtros" style={{ flexDirection: "row", gap: TACTIL.separacion }}>
+              {ultimaConexion ? <Chip label={`Activos 7 días (${activos7})`} activo={soloActivos} onPress={() => setSoloActivos((v) => !v)} /> : null}
+              {perfilesOk ? (
+                <>
+                  {(
+                    [
+                      ["completo", `Perfil completo (${resumenPerfiles.completos})`],
+                      ["pendiente", `Faltan datos (${resumenPerfiles.pendientes})`],
+                      ["foto", `Con foto (${resumenPerfiles.conFoto})`],
+                      ...(direccionColumnas ? ([["direccion", `Con dirección (${resumenPerfiles.conDireccion})`]] as [EstadoPerfil, string][]) : []),
+                    ] as [EstadoPerfil, string][]
+                  ).map(([id, label]) => (
+                    <Chip key={id} nativeID={`usuarios-filtro-${id}`} label={label} activo={filtroEstado === id} onPress={() => setFiltroEstado((v) => (v === id ? null : id))} />
+                  ))}
+                  {resumenPerfiles.porProvincia.length ? (
+                    <Chip
+                      nativeID="usuarios-filtro-provincia"
+                      label={filtroProvincia ?? "Provincia"}
+                      activo={!!filtroProvincia}
+                      desplegable
+                      abierto={desplegado === "provincia"}
+                      onPress={() => setDesplegado((d) => (d === "provincia" ? null : "provincia"))}
+                    />
+                  ) : null}
+                  {resumenPerfiles.conAlgo ? (
+                    <Chip
+                      nativeID="usuarios-filtro-edad"
+                      label={tramoElegido ? tramoElegido.label : "Edad"}
+                      activo={!!tramoElegido}
+                      desplegable
+                      abierto={desplegado === "edad"}
+                      onPress={() => setDesplegado((d) => (d === "edad" ? null : "edad"))}
+                    />
+                  ) : null}
+                  {resumenPerfiles.porPais.length > 1 ? (
+                    <Chip
+                      nativeID="usuarios-filtro-pais"
+                      label={filtroPais ?? "País"}
+                      activo={!!filtroPais}
+                      desplegable
+                      abierto={desplegado === "pais"}
+                      onPress={() => setDesplegado((d) => (d === "pais" ? null : "pais"))}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {/* Lo que se despliega de Provincia, Edad o País: al elegir una opción se vuelve a plegar. */}
+      {opcionesFiltro.length ? (
+        <View nativeID="usuarios-filtro-opciones" style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion, borderRadius: 16, backgroundColor: COLORS.card, padding: 12 }}>
+          {opcionesFiltro.map((o) => (
+            <Chip
+              key={o.id}
+              label={o.label}
+              activo={o.activo}
+              onPress={() => {
+                o.elegir();
+                setDesplegado(null);
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {/* Cuántos salen, «Quitar filtros» y el orden (desplegable). */}
+      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 12, rowGap: TACTIL.separacion }}>
+        <Text nativeID="usuarios-total" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+          {visibleUsers.length === users.length ? plural(users.length, "cliente", "clientes") : `${visibleUsers.length} de ${plural(users.length, "cliente", "clientes")}`}
+        </Text>
+        {hayFiltros ? (
+          <Pressable
+            nativeID="usuarios-quitar-filtros"
+            onPress={quitarFiltros}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Ionicons name="close-circle-outline" size={18} color={COLORS.accent} />
+            <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>Quitar filtros</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          nativeID="usuarios-orden"
+          onPress={() => setDesplegado((d) => (d === "orden" ? null : "orden"))}
+          accessibilityRole="button"
+          accessibilityLabel={`Ordenar: ${ordenActual.label}`}
+          accessibilityState={{ expanded: desplegado === "orden" }}
+          style={({ pressed }) => ({ marginLeft: "auto", minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+        >
+          <Ionicons name="swap-vertical" size={18} color={COLORS.accent} />
+          <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{ordenActual.label}</Text>
+          <Ionicons name={desplegado === "orden" ? "chevron-up" : "chevron-down"} size={16} color={COLORS.text} />
+        </Pressable>
+      </View>
+      {/* El orden, desplegado como los filtros: al elegir uno se vuelve a plegar. */}
+      {desplegado === "orden" ? (
+        <View
+          nativeID="usuarios-orden-menu"
+          style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end", gap: TACTIL.separacion, borderRadius: 16, backgroundColor: COLORS.card, padding: 12 }}
+        >
+          {ORDENES.filter((o) => o.id !== "conexion" || ultimaConexion).map((o) => (
+            <Chip
+              key={o.id}
+              label={o.label}
+              activo={sortMode === o.id}
+              onPress={() => {
+                setSortMode(o.id);
+                setDesplegado(null);
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {visibleUsers.length === 0 ? (
+        <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
+          <Ionicons name="people-outline" size={24} color={COLORS.muted} />
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>No hay usuarios que coincidan.</Text>
+          <Text style={{ color: COLORS.muted, fontSize: TAMANOS.cuerpo, lineHeight: 21, textAlign: "center" }}>
+            Prueba a borrar el buscador o a quitar los filtros.
+          </Text>
+        </View>
+      ) : (
+        <View nativeID="usuarios-lista">
+          {visibleUsers.map((u, i) => {
+            const isAdmin = (u.role ?? "").toLowerCase() === "admin";
+            const p = perfiles[u.user_id];
+            const nombre = p?.nombre || "";
+            const titulo = nombre || p?.usuario || u.email || "Sin email";
+            const completo = perfilCompleto(p);
+            const conexion = ultimaConexion ? (ultimaConexion[u.user_id] ? `Última conexión ${haceCuanto(ultimaConexion[u.user_id])}` : "Última conexión sin registrar") : "";
+            const meta = [`Alta ${fmtDate(u.created_at)}`, completo && p?.updated_at ? `Perfil actualizado ${fmtDate(p.updated_at)}` : "", conexion].filter(Boolean).join(" · ");
+            const datosParticipacion: [IoniconName, number, string, string][] = [
+              ["chatbubbles-outline", u.chat_messages_count, "en el Foro", "mensajes en el Foro"],
+              ["chatbubble-ellipses-outline", u.product_chats_count, u.product_chats_count === 1 ? "chat" : "chats", "chats de producto"],
+              ["star-outline", u.store_reviews_count, u.store_reviews_count === 1 ? "reseña" : "reseñas", "reseñas"],
+            ];
+            return (
+              <Pressable
+                key={u.user_id}
+                nativeID={`usuario-${u.user_id}`}
+                onPress={() => irAFicha(u)}
+                accessibilityRole="button"
+                accessibilityLabel={`Ver ficha del cliente ${titulo}`}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  gap: 12,
+                  paddingVertical: 14,
+                  borderTopWidth: i ? 1 : 0,
+                  borderTopColor: COLORS.border,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <View style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: COLORS.accent2, alignItems: "center", justifyContent: "center" }}>
+                  {p?.foto_url ? (
+                    <SmartImage uri={p.foto_url} alt={`Foto de ${p.nombre || u.email || "cliente"}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                  ) : (
+                    <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{iniciales(nombre, u.email ?? "")}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 8 }}>
+                    <Text numberOfLines={1} style={{ flexShrink: 1, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+                      {titulo}
+                    </Text>
+                    {isAdmin ? <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>Administrador</Text> : null}
+                  </View>
+                  {perfilesOk ? (
+                    <Text style={{ color: p ? COLORS.text : COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{resumenDePerfil(p)}</Text>
+                  ) : null}
+                  {titulo !== u.email && u.email ? (
+                    <Text numberOfLines={1} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                      {u.email}
+                    </Text>
+                  ) : null}
+                  <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>{meta}</Text>
+                  {/* Etiquetas (perfil, app, dirección) y participación, en una línea que baja si no cabe. */}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 4, marginTop: 2 }}>
+                    {perfilesOk && !isAdmin ? (
+                      completo ? (
+                        <Etiqueta icon="checkmark-circle-outline" texto="Perfil completo" color={COLORS.success} />
+                      ) : (
+                        <Etiqueta icon="alert-circle-outline" texto={p ? `Faltan: ${faltaDelPerfil(p).join(", ")}` : "Aún no ha completado su perfil"} color={COLORS.danger} />
+                      )
+                    ) : null}
+                    {conApp.has(u.user_id) ? <Etiqueta icon="phone-portrait-outline" texto="App" color={COLORS.text} /> : null}
+                    {direccionColumnas && conDireccionDeEnvio(p) ? <Etiqueta icon="home-outline" texto="Con dirección" color={COLORS.text} /> : null}
+                    <View
+                      accessibilityLabel={datosParticipacion.map(([, n, , largo]) => `${n} ${largo}`).join(", ")}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 12, marginLeft: isMobile ? 0 : "auto" }}
+                    >
+                      {datosParticipacion.map(([icono, n, corto]) => (
+                        <View key={icono} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <Ionicons name={icono} size={15} color={n ? COLORS.accent : COLORS.muted} />
+                          <Text style={{ color: n ? COLORS.text : COLORS.muted, fontWeight: n ? "900" : "700", fontSize: TAMANOS.minimo }}>
+                            {n} {corto}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.muted} style={{ marginTop: 12 }} />
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+
+  // ---------- Pestaña «Participación» ----------
+  const anchoTarjeta: Ancho = isMobile ? "45%" : "30%";
+  const contenidoParticipacion = (
+    <View nativeID="usuarios-contenido-participacion" style={{ gap: 24 }}>
+      <Seccion icon="pulse-outline" title="Actividad" extra={`${plural(participacion.conActividad, "cliente participa", "clientes participan")}`}>
+        <View nativeID="usuarios-participacion" style={{ flexDirection: "row", flexWrap: "wrap", gap: isMobile ? TACTIL.separacion : 12 }}>
+          <Tarjeta icono="chatbubbles-outline" titulo="Foro" valor={String(participacion.foro)} detalle={`mensajes de ${plural(participacion.foroPersonas, "persona", "personas")}`} ancho={anchoTarjeta} fila={isMobile} />
+          <Tarjeta icono="chatbubble-ellipses-outline" titulo="Chats de producto" valor={String(participacion.chats)} detalle={`iniciados por ${plural(participacion.chatsPersonas, "persona", "personas")}`} ancho={anchoTarjeta} fila={isMobile} />
+          <Tarjeta
+            nativeID="usuarios-valoracion"
+            icono="star-outline"
+            titulo="Valoración media"
+            valor={avgRating != null ? `${valoracion} / 5` : "—"}
+            detalle={avgRating != null ? `de ${plural(reviewsCount, "reseña", "reseñas")}` : "sin reseñas todavía"}
+            ancho={anchoTarjeta} fila={isMobile}
+          />
+          {usoResenas ? (
+            <Tarjeta
+              nativeID="usuarios-resenas-uso"
+              icono="create-outline"
+              titulo="Reseñas (30 días)"
+              valor={String(usoResenas.publicadas)}
+              detalle={`publicadas · con ideas sugeridas: ${usoResenas.conIdeas} · con emoji: ${usoResenas.conEmoji}${usoResenas.ideaMasUsada ? ` · la idea más usada: «${usoResenas.ideaMasUsada}»` : ""}`}
+              ancho={anchoTarjeta} fila={isMobile}
+            />
+          ) : null}
+          <Tarjeta icono="pricetags-outline" titulo="Solicitudes de venta" valor={String(sellRequestsCount)} detalle="en total, también sin sesión" ancho={anchoTarjeta} fila={isMobile} />
+          <Tarjeta icono="construct-outline" titulo="Solicitudes de servicio" valor={String(serviceRequestsCount)} detalle="en total, también sin sesión" ancho={anchoTarjeta} fila={isMobile} />
+          {usoSeguimientos ? (
+            <Tarjeta
+              nativeID="admin-uso-seguimientos"
+              icono="locate-outline"
+              titulo="«Mis seguimientos» (30 días)"
+              valor={String(usoSeguimientos.personas)}
+              detalle={`lo abrieron · deslizando ${usoSeguimientos.deslizando}`}
+              ancho={anchoTarjeta} fila={isMobile}
+            />
+          ) : null}
+          {numerosSeguimiento ? (
+            <Tarjeta
+              nativeID="admin-numeros-seguimiento"
+              icono="barcode-outline"
+              titulo="Números de seguimiento (30 días)"
+              valor={String(numerosSeguimiento.anadidos)}
+              detalle={`añadidos a una cuenta (por ${plural(numerosSeguimiento.personas, "persona", "personas")}) · intentos fallidos ${numerosSeguimiento.fallidos}`}
+              ancho={anchoTarjeta} fila={isMobile}
+            />
+          ) : null}
+        </View>
+        <Detalle>
+          Las solicitudes de venta y de servicio no piden iniciar sesión, así que el total incluye también las anónimas. Las enviadas con
+          sesión iniciada aparecen en la ficha de su cliente.
+        </Detalle>
+      </Seccion>
+
+      {/* Seguimiento de los perfiles (lo que cada cliente escribe en Mi cuenta → Tu perfil). Los contadores también
+          sirven de filtro: tocar uno lleva a «Clientes» con ese filtro puesto. */}
+      {perfilesOk ? (
+        <Seccion nativeID="admin-perfiles" icon="id-card-outline" title="Perfiles de clientes">
+          <FilaCifras>
+            {(() => {
+              const lista: { key: string; valor: string; etiqueta: string; filtro?: EstadoPerfil }[] = [
+                { key: "con-perfil", valor: `${resumenPerfiles.conAlgo} de ${users.length}`, etiqueta: "Con perfil" },
+                { key: "completo", valor: String(resumenPerfiles.completos), etiqueta: "Perfil completo", filtro: "completo" },
+                { key: "pendiente", valor: String(resumenPerfiles.pendientes), etiqueta: "Faltan datos", filtro: "pendiente" },
+                { key: "foto", valor: String(resumenPerfiles.conFoto), etiqueta: "Con foto", filtro: "foto" },
+                { key: "edad", valor: resumenPerfiles.media != null ? `${Math.round(resumenPerfiles.media)} años` : "—", etiqueta: "Edad media" },
+                { key: "provincias", valor: String(resumenPerfiles.porProvincia.length), etiqueta: "Provincias" },
+                ...(direccionColumnas ? [{ key: "direccion", valor: String(resumenPerfiles.conDireccion), etiqueta: "Con dirección", filtro: "direccion" as EstadoPerfil }] : []),
+              ];
+              const ancho: Ancho = isMobile ? (lista.length % 3 === 0 ? "30%" : "45%") : lista.length > 6 ? "20%" : "30%";
+              return lista.map((c) => (
+                <Cifra key={c.key} nativeID={`usuarios-perfil-${c.key}`} valor={c.valor} etiqueta={c.etiqueta} ancho={ancho} onPress={c.filtro ? () => filtrarPor(c.filtro!) : undefined} />
+              ));
+            })()}
+          </FilaCifras>
+          {resumenPerfiles.conAlgo === 0 ? (
+            <Detalle>Todavía nadie ha rellenado su perfil. Cuando lo hagan, aquí verás de dónde son y qué edad tienen.</Detalle>
+          ) : null}
+          {embudoPerfil ? (
+            <View style={{ gap: 4 }}>
+              {/* «Completa tu perfil» (obligatorio al iniciar sesión): analítica propia de los últimos 30 días. */}
+              <Detalle nativeID="admin-perfiles-embudo">
+                «Completa tu perfil» (30 días): la vieron {embudoPerfil.vistos} · la completaron {embudoPerfil.completados} · cerraron sesión{" "}
+                {embudoPerfil.salieron}
+              </Detalle>
+              {/* Foto de perfil: quién la encuadra y la usa, y quién deja el recorte a medias (30 días). */}
+              <Detalle nativeID="admin-perfiles-fotos">
+                Foto de perfil (30 días): la encuadraron {embudoPerfil.fotosEncuadradas} · dejaron el recorte {embudoPerfil.fotosCanceladas}
+              </Detalle>
+              {/* Dirección de envío: quién la guarda y quién paga con ella ya rellenada (30 días, personas distintas). */}
+              {direccionColumnas ? (
+                <Detalle nativeID="admin-perfiles-direccion">
+                  Dirección de envío (30 días): la guardaron {embudoPerfil.direccionGuardada} · pagaron con ella ya rellenada{" "}
+                  {embudoPerfil.pagoConDireccion}
+                </Detalle>
+              ) : null}
+            </View>
+          ) : null}
+        </Seccion>
+      ) : null}
+    </View>
+  );
+
+  // ---------- Pestaña «Ideas de mejora» ----------
+  const contenidoIdeas = (
+    <View nativeID="usuarios-contenido-ideas" style={{ gap: 12 }}>
+      {/* «Mejoras en la tienda»: las ideas que mandan los clientes (desde Blue, el pie de página o Mi cuenta). Primero
+          las que no se han leído; los contadores también filtran. Tocar el nombre lleva a la ficha del cliente. */}
+      {mejoras === null ? (
+        <Text nativeID="admin-mejoras" style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>
+          Ideas de mejora: falta aplicar en Supabase la migración 20261101200000_mejoras_tienda.sql. Hasta entonces, la cajita
+          de la tienda dice que muy pronto se podrán enviar.
+        </Text>
+      ) : (
+        <View nativeID="admin-mejoras" style={{ gap: 12 }}>
+          <Seccion icon="bulb-outline" title={`Ideas de mejora${resumenMejoras.sinLeer ? ` · ${resumenMejoras.sinLeer} sin leer` : ""}`}>
+            <Detalle nativeID="admin-mejoras-uso">
+              Últimos 30 días: {plural(resumenMejoras.enviadas30, "idea enviada", "ideas enviadas")}
+              {usoMejoras
+                ? ` · abrieron la cajita ${usoMejoras.abiertas} ${usoMejoras.abiertas === 1 ? "vez" : "veces"} (${plural(usoMejoras.personas, "persona", "personas")}): Blue ${usoMejoras.porOrigen.blue} · pie de página ${usoMejoras.porOrigen.pie} · Mi cuenta ${usoMejoras.porOrigen.perfil}`
+                : ""}
+            </Detalle>
+          </Seccion>
+          <View style={{ marginHorizontal: -16 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
+              <View nativeID="usuarios-ideas-filtros" style={{ flexDirection: "row", gap: TACTIL.separacion }}>
+                <Chip label={`Sin leer (${resumenMejoras.sinLeer})`} activo={filtroMejoras === "sin-leer"} onPress={() => setFiltroMejoras("sin-leer")} />
+                <Chip label={`Todas (${resumenMejoras.total})`} activo={filtroMejoras === "todas"} onPress={() => setFiltroMejoras("todas")} />
+                {(Object.keys(ORIGENES_MEJORA) as OrigenMejora[]).map((o) => (
+                  <Chip key={o} label={`${ORIGENES_MEJORA[o]} (${resumenMejoras.porOrigen[o]})`} activo={filtroOrigen === o} onPress={() => setFiltroOrigen((v) => (v === o ? null : o))} />
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+          {mejorasVisibles.length === 0 ? (
+            <View style={{ alignItems: "center", gap: 6, paddingVertical: 20 }}>
+              <Ionicons name="mail-open-outline" size={24} color={COLORS.muted} />
+              <Text style={{ color: COLORS.muted, fontSize: TAMANOS.cuerpo, textAlign: "center", lineHeight: 21 }}>
+                {resumenMejoras.total === 0
+                  ? "Todavía nadie ha mandado ideas. Se envían desde Blue, el pie de página y Mi cuenta."
+                  : "No hay ideas con este filtro: estás al día."}
+              </Text>
+            </View>
+          ) : (
+            <View nativeID="usuarios-ideas-bandeja" style={{ borderRadius: 20, backgroundColor: COLORS.card, paddingHorizontal: 16 }}>
+              {mejorasVisibles.slice(0, 60).map((m, i) => {
+                const u = users.find((x) => x.user_id === m.user_id);
+                const quien = nombreDe(m.user_id, u?.email);
+                return (
+                  <View key={m.id} nativeID={`mejora-${m.id}`} style={{ flexDirection: "row", gap: 10, paddingVertical: 12, borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+                    {/* Punto azul = sin leer (como en el correo). */}
+                    <View style={{ width: 8, height: 8, borderRadius: 4, marginTop: 8, backgroundColor: m.leida ? "transparent" : COLORS.accent }} />
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Text style={{ color: COLORS.text, fontSize: TAMANOS.cuerpo, lineHeight: 21, fontWeight: m.leida ? "600" : "800" }}>{m.texto}</Text>
+                      {/* Quién, cuándo y desde dónde; debajo, las dos acciones (ficha y leída) en una fila de 44 px. */}
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 18 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900" }}>{quien}</Text> · {fmtDate(m.created_at)} · desde {ORIGENES_MEJORA[m.origen]}
+                      </Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 20, rowGap: TACTIL.separacion }}>
+                        <Pressable
+                          onPress={() => irAFicha({ user_id: m.user_id, email: u?.email, created_at: u?.created_at })}
+                          accessibilityRole="link"
+                          accessibilityLabel={`Ver la ficha de ${quien}`}
+                          style={({ pressed }) => ({ minHeight: TACTIL.minimo, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
+                        >
+                          <Ionicons name="person-circle-outline" size={20} color={COLORS.accent} />
+                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Ver ficha</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => marcarMejora(m.id, !m.leida)}
+                          disabled={marcandoMejora === m.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={m.leida ? "Marcar como no leída" : "Marcar como leída"}
+                          style={({ pressed }) => ({
+                            marginLeft: "auto",
+                            minHeight: TACTIL.minimo,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 6,
+                            opacity: marcandoMejora === m.id ? 0.5 : pressed ? 0.6 : 1,
+                          })}
+                        >
+                          {/* Solo el icono y el texto, sin burbuja (dueño, 2026-11-04). */}
+                          <Ionicons name={m.leida ? "mail-unread-outline" : "checkmark-done"} size={20} color={COLORS.accent} />
+                          <Text style={{ color: m.leida ? COLORS.text : COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>
+                            {m.leida ? "Marcar sin leer" : "Marcar leída"}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+
+  // ---------- Pestaña «Seguridad» ----------
+  const anchoSeg = (n: number): Ancho => (isMobile ? (n === 3 ? "30%" : "45%") : 0);
+  const contenidoSeguridad = (
+    <View nativeID="usuarios-contenido-seguridad" style={{ gap: 24 }}>
+      {!usoContrasena && !usoSeguridad && !moderacion && comentariosEliminados === null ? (
+        <Detalle>Todavía no hay datos de seguridad: salen con la analítica propia y el registro de moderación del Foro.</Detalle>
+      ) : null}
+
+      {/* «¿Olvidaste tu contraseña?»: si los enlaces se piden, llegan a abrirse y terminan en una contraseña nueva, y por
+          qué fallan (analítica propia, 30 días). Si Supabase frena los correos, el aviso rojo de lo que hace falta. */}
+      {usoContrasena ? (
+        <Seccion icon="key-outline" title="Recuperar contraseña" extra="30 días">
+          <Recuadro nativeID="admin-contrasenas">
+            {usoContrasena.limite ? (
+              <View
+                nativeID="admin-contrasenas-aviso"
+                accessibilityRole="alert"
+                style={{ flexDirection: "row", gap: 10, borderRadius: 14, borderWidth: 1, borderColor: COLORS.dangerBorder, backgroundColor: COLORS.dangerBg, padding: 12 }}
+              >
+                <Ionicons name="alert-circle" size={20} color={COLORS.danger} />
+                <Text style={{ flex: 1, color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 19 }}>
+                  Supabase ha frenado {plural(usoContrasena.limite, "correo", "correos")} por su límite de envíos: hace falta el correo propio (SMTP)
+                  en Supabase → Authentication → Emails.
+                </Text>
+              </View>
+            ) : null}
+            <FilaCifras>
+              <Cifra valor={String(usoContrasena.pedidos)} etiqueta="Enlaces pedidos" fondo={COLORS.bg} ancho={anchoSeg(3)} />
+              <Cifra valor={String(usoContrasena.abiertos)} etiqueta="Abiertos" fondo={COLORS.bg} ancho={anchoSeg(3)} />
+              <Cifra valor={String(usoContrasena.cambiadas)} etiqueta="Contraseñas cambiadas" fondo={COLORS.bg} ancho={anchoSeg(3)} />
+            </FilaCifras>
+            {usoContrasena.noSirvieron || usoContrasena.errores ? (
+              <Detalle>
+                {mayuscula(
+                  [
+                    usoContrasena.noSirvieron
+                      ? `enlaces que no sirvieron ${usoContrasena.noSirvieron} (en otro navegador ${usoContrasena.otroNavegador}, caducados o ya usados ${usoContrasena.caducados})`
+                      : "",
+                    usoContrasena.errores ? `no se pudieron pedir ${usoContrasena.errores}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                )}
+              </Detalle>
+            ) : null}
+            {/* Mínimo de 8 caracteres para las contraseñas nuevas: cuántas veces se pidió una más larga y dónde. */}
+            <Detalle nativeID="admin-contrasenas-cortas">
+              Contraseñas de al menos {CONTRASENA_MINIMA} caracteres (30 días): se pidió una más larga {usoContrasena.cortas}{" "}
+              {usoContrasena.cortas === 1 ? "vez" : "veces"}
+              {usoContrasena.cortas
+                ? ` (al crear la cuenta ${usoContrasena.cortasRegistro} · al recuperarla ${usoContrasena.cortasRecuperar} · en Mi perfil ${usoContrasena.cortasPerfil})`
+                : ""}
+            </Detalle>
+          </Recuadro>
+        </Seccion>
+      ) : null}
+
+      {/* Mi perfil → «Inicio de sesión y seguridad»: cambios de correo (pedidos y terminados) y de contraseña (30 días). */}
+      {usoSeguridad ? (
+        <Seccion icon="shield-checkmark-outline" title="Inicio de sesión y seguridad" extra="30 días">
+          <Recuadro nativeID="admin-seguridad">
+            <FilaCifras>
+              <Cifra valor={String(usoSeguridad.correoPedidos)} etiqueta="Cambios de correo pedidos" fondo={COLORS.bg} ancho={anchoSeg(3)} />
+              <Cifra valor={String(usoSeguridad.correoCambiados)} etiqueta="Terminados" fondo={COLORS.bg} ancho={anchoSeg(3)} />
+              <Cifra valor={String(usoSeguridad.contrasenas)} etiqueta="Contraseñas cambiadas desde Mi perfil" fondo={COLORS.bg} ancho={anchoSeg(3)} />
+            </FilaCifras>
+            {usoSeguridad.contrasenaErrores || usoSeguridad.correoErrores ? (
+              <Detalle>
+                {mayuscula(
+                  [
+                    usoSeguridad.contrasenaErrores ? `intentos fallidos ${usoSeguridad.contrasenaErrores} (contraseña actual equivocada ${usoSeguridad.actualMal})` : "",
+                    usoSeguridad.correoErrores ? `cambios de correo que no se pudieron pedir ${usoSeguridad.correoErrores}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                )}
+              </Detalle>
+            ) : null}
+          </Recuadro>
+        </Seccion>
+      ) : null}
+
+      {/* Moderación del Foro: lo que eliminan o silencian los administradores (tocando un mensaje en el Foro). Con el
+          registro de moderación, cuenta los últimos 30 días; sin él, solo los comentarios ocultos. */}
+      {moderacion || comentariosEliminados !== null ? (
+        <Seccion icon="chatbubbles-outline" title="Moderación del Foro" extra={moderacion ? "30 días" : undefined}>
+          <Recuadro nativeID="admin-foro-moderacion">
+            {moderacion ? (
+              <FilaCifras>
+                <Cifra valor={String(moderacion.mensajes)} etiqueta="Mensajes eliminados" fondo={COLORS.bg} ancho={anchoSeg(4)} />
+                <Cifra valor={String(moderacion.comentarios)} etiqueta="Comentarios eliminados" fondo={COLORS.bg} ancho={anchoSeg(4)} />
+                <Cifra valor={String(moderacion.silencios)} etiqueta="Silencios" fondo={COLORS.bg} ancho={anchoSeg(4)} />
+                <Cifra valor={String(silenciados?.length ?? 0)} etiqueta="Silenciados ahora" fondo={COLORS.bg} ancho={anchoSeg(4)} />
+              </FilaCifras>
+            ) : (
+              <FilaCifras>
+                <Cifra valor={String(comentariosEliminados ?? 0)} etiqueta="Comentarios de noticias eliminados" fondo={COLORS.bg} ancho={isMobile ? "100%" : 0} />
+              </FilaCifras>
+            )}
+            {moderacion && normasLeidas !== null ? <Detalle>Leyeron las normas desde el aviso: {normasLeidas}</Detalle> : null}
+          </Recuadro>
+          {/* Las Normas del Foro (las que enlaza el aviso de silencio) se editan en Políticas, como las demás. */}
+          <Pressable
+            onPress={() => router.push("/admin/policies")}
+            accessibilityRole="link"
+            accessibilityLabel="Ver o editar las Normas del Foro"
+            style={({ pressed }) => ({ minHeight: TACTIL.minimo, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Ionicons name="document-text-outline" size={20} color={COLORS.accent} />
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>Ver o editar las Normas del Foro</Text>
+          </Pressable>
+        </Seccion>
+      ) : null}
+
+      {/* Quién está silenciado ahora en el Foro, hasta cuándo y por qué, con «Quitar silencio». */}
+      {silenciados && silenciados.length ? (
+        <Seccion nativeID="admin-silenciados" icon="volume-mute-outline" title="Silenciados en el Foro" extra={String(silenciados.length)}>
+          <View style={{ borderRadius: 20, backgroundColor: COLORS.card, paddingHorizontal: 16 }}>
+            {silenciados.map((s, i) => {
+              const u = users.find((x) => x.user_id === s.user_id);
+              const p = perfiles[s.user_id];
+              const quien = p?.usuario ? `@${p.usuario}` : u?.email ?? "Cliente";
+              return (
+                <View key={s.user_id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: COLORS.border }}>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>
+                      {quien}
+                    </Text>
+                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                      Hasta el {new Date(s.hasta).toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      {s.motivo ? ` · ${s.motivo}` : ""}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => quitarSilencio(s.user_id)}
+                    disabled={quitandoSilencio === s.user_id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Quitar el silencio de ${quien}`}
+                    style={({ pressed }) => ({
+                      minHeight: TACTIL.minimo,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      opacity: quitandoSilencio === s.user_id ? 0.5 : pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Ionicons name="volume-high-outline" size={20} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>Quitar silencio</Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        </Seccion>
+      ) : null}
+    </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Cabecera fija y compacta (volver al panel + título centrado). Contadores, buscador y
-          orden van dentro del scroll: fijos arriba ocupaban media pantalla del móvil y la lista
-          de usuarios apenas tenía sitio para desplazarse. */}
+      {/* Barra fija y compacta (volver + título centrado), igual en todo el panel. */}
       <View
         style={{
           backgroundColor: COLORS.bg2,
           borderBottomWidth: 1,
           borderBottomColor: COLORS.border,
-          paddingHorizontal: pagePadding,
-          paddingTop: (isMobile ? 10 : 12) + insets.top,
-          paddingBottom: isMobile ? 10 : 12,
+          paddingHorizontal: 16,
+          paddingTop: 8 + insets.top,
+          paddingBottom: 8,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 960, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -869,7 +1745,7 @@ export default function AdminUsers() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: 44,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -877,15 +1753,7 @@ export default function AdminUsers() {
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: isMobile ? 19 : 22,
-              fontWeight: "900",
-              textAlign: "center",
-              paddingHorizontal: 44,
-            }}
-          >
+          <Text numberOfLines={1} style={{ paddingHorizontal: 48, color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.destacado, textAlign: "center" }}>
             Usuarios y participación
           </Text>
         </View>
@@ -899,582 +1767,114 @@ export default function AdminUsers() {
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ padding: pagePadding, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48 + insets.bottom, alignItems: "center" }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={CIERRE_TECLADO}
           >
-          <View style={{ width: "100%", maxWidth: 1040, gap: 16 }}>
-            <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-              Quién está registrado y cuánto participa: foro, chats de producto y reseñas.
-            </Text>
-
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
-              <StatCard label="Registrados" value={String(stats.total)} icon="people-outline" isMobile={isMobile} />
-              <StatCard label="Con actividad" value={String(stats.active)} icon="flame-outline" isMobile={isMobile} />
-              <StatCard label="Solicitudes venta" value={String(sellRequestsCount)} icon="pricetags-outline" isMobile={isMobile} />
-              <StatCard label="Solicitudes servicio" value={String(serviceRequestsCount)} icon="construct-outline" isMobile={isMobile} />
-            </View>
-
-            {/* «Mejoras en la tienda»: las ideas que mandan los clientes (desde Blue, el pie de página o Mi cuenta). Primero
-                las que no se han leído; los contadores también filtran. Tocar el nombre lleva a la ficha del cliente. */}
-            {mejoras === null ? (
-              <Text nativeID="admin-mejoras" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                Ideas de mejora: falta aplicar en Supabase la migración 20261101200000_mejoras_tienda.sql. Hasta entonces, la cajita
-                de la tienda dice que muy pronto se podrán enviar.
-              </Text>
-            ) : (
-              <View nativeID="admin-mejoras" style={{ gap: 10 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  Ideas de mejora{resumenMejoras.sinLeer ? ` · ${resumenMejoras.sinLeer} sin leer` : ""}
-                </Text>
-                <Text nativeID="admin-mejoras-uso" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                  Últimos 30 días: {resumenMejoras.enviadas30} {resumenMejoras.enviadas30 === 1 ? "idea enviada" : "ideas enviadas"}
-                  {usoMejoras
-                    ? ` · abrieron la cajita ${usoMejoras.abiertas} ${usoMejoras.abiertas === 1 ? "vez" : "veces"} (${usoMejoras.personas} ${
-                        usoMejoras.personas === 1 ? "persona" : "personas"
-                      }): Blue ${usoMejoras.porOrigen.blue} · pie de página ${usoMejoras.porOrigen.pie} · Mi cuenta ${usoMejoras.porOrigen.perfil}`
-                    : ""}
-                </Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                  <ChipButton label={`Sin leer (${resumenMejoras.sinLeer})`} active={filtroMejoras === "sin-leer"} onPress={() => setFiltroMejoras("sin-leer")} isMobile={isMobile} />
-                  <ChipButton label={`Todas (${resumenMejoras.total})`} active={filtroMejoras === "todas"} onPress={() => setFiltroMejoras("todas")} isMobile={isMobile} />
-                  {(Object.keys(ORIGENES_MEJORA) as OrigenMejora[]).map((o) => (
-                    <ChipButton
-                      key={o}
-                      label={`${ORIGENES_MEJORA[o]} (${resumenMejoras.porOrigen[o]})`}
-                      active={filtroOrigen === o}
-                      onPress={() => setFiltroOrigen((v) => (v === o ? null : o))}
-                      isMobile={isMobile}
-                    />
-                  ))}
-                </View>
-                {mejorasVisibles.length === 0 ? (
-                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-                    {resumenMejoras.total === 0
-                      ? "Todavía nadie ha mandado ideas. Se envían desde Blue, el pie de página y Mi cuenta."
-                      : "No hay ideas con este filtro: estás al día."}
-                  </Text>
-                ) : (
-                  mejorasVisibles.slice(0, 60).map((m) => {
-                    const p = perfiles[m.user_id];
-                    const u = users.find((x) => x.user_id === m.user_id);
-                    const quien = p?.nombre || p?.usuario ? [p?.nombre, p?.usuario ? `@${p.usuario}` : ""].filter(Boolean).join(" · ") : u?.email ?? "Cliente";
-                    return (
-                      <View
-                        key={m.id}
-                        nativeID={`mejora-${m.id}`}
-                        style={{
-                          flexDirection: "row",
-                          gap: 10,
-                          alignItems: "flex-start",
-                          borderRadius: 16,
-                          borderWidth: 1,
-                          borderColor: m.leida ? COLORS.border : COLORS.accentBorder,
-                          backgroundColor: m.leida ? COLORS.card : COLORS.accent2,
-                          padding: 12,
-                        }}
-                      >
-                        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                          <Text style={{ color: COLORS.text, fontSize: 14, lineHeight: 20, fontWeight: m.leida ? "600" : "800" }}>{m.texto}</Text>
-                          <Pressable
-                            onPress={() =>
-                              router.push({
-                                pathname: "/admin/cliente/[userId]",
-                                params: { userId: m.user_id, email: u?.email ?? "", createdAt: u?.created_at ?? "" },
-                              } as any)
-                            }
-                            accessibilityRole="link"
-                            accessibilityLabel={`Ver la ficha de ${quien}`}
-                            style={({ pressed }) => ({ minHeight: 32, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
-                          >
-                            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
-                              <Text style={{ color: COLORS.text, fontWeight: "900", textDecorationLine: "underline" }}>{quien}</Text> · {fmtDate(m.created_at)} · desde{" "}
-                              {ORIGENES_MEJORA[m.origen]}
-                            </Text>
-                          </Pressable>
-                        </View>
-                        <Pressable
-                          onPress={() => marcarMejora(m.id, !m.leida)}
-                          disabled={marcandoMejora === m.id}
-                          accessibilityRole="button"
-                          accessibilityLabel={m.leida ? "Marcar como no leída" : "Marcar como leída"}
-                          {...({ title: m.leida ? "Marcar como no leída" : "Marcar como leída" } as object)}
-                          style={({ pressed }) => ({
-                            width: 44,
-                            height: 44,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            opacity: marcandoMejora === m.id ? 0.5 : pressed ? 0.6 : 1,
-                          })}
-                        >
-                          {/* Solo el icono, sin burbuja (dueño, 2026-11-04). */}
-                          <Ionicons name={m.leida ? "mail-unread-outline" : "checkmark-done"} size={24} color={m.leida ? COLORS.text : COLORS.accent} />
-                        </Pressable>
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-            )}
-
-            {/* Moderación del Foro: lo que eliminan o silencian los administradores (tocando un mensaje en el Foro). Con el
-                registro de moderación, cuenta los últimos 30 días; sin él, solo los comentarios ocultos. */}
-            {moderacion ? (
-              <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                Moderación del Foro (30 días) · mensajes eliminados: {moderacion.mensajes} · comentarios eliminados: {moderacion.comentarios} ·
-                silencios: {moderacion.silencios} · silenciados ahora: {silenciados?.length ?? 0}
-                {normasLeidas !== null ? ` · leyeron las normas desde el aviso: ${normasLeidas}` : ""}
-              </Text>
-            ) : comentariosEliminados !== null ? (
-              <Text nativeID="admin-foro-moderacion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                Moderación del Foro · comentarios de noticias eliminados: {comentariosEliminados}
-              </Text>
-            ) : null}
-            {/* Las Normas del Foro (las que enlaza el aviso de silencio) se editan en Políticas, como las demás. */}
-            <Pressable
-              onPress={() => router.push("/admin/policies")}
-              accessibilityRole="link"
-              accessibilityLabel="Ver o editar las Normas del Foro"
-              style={({ pressed }) => ({ minHeight: 44, alignSelf: "center", justifyContent: "center", paddingHorizontal: 12, opacity: pressed ? 0.7 : 1 })}
-            >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5, textDecorationLine: "underline" }}>
-                Ver o editar las Normas del Foro
-              </Text>
-            </Pressable>
-
-            {/* Quién está silenciado ahora en el Foro, hasta cuándo y por qué, con «Quitar silencio». */}
-            {silenciados && silenciados.length ? (
-              <View nativeID="admin-silenciados" style={{ gap: 8 }}>
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>Silenciados en el Foro</Text>
-                {silenciados.map((s) => {
-                  const u = users.find((x) => x.user_id === s.user_id);
-                  const p = perfiles[s.user_id];
-                  const quien = p?.usuario ? `@${p.usuario}` : u?.email ?? "Cliente";
-                  return (
-                    <View
-                      key={s.user_id}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: COLORS.card, padding: 10 }}
-                    >
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5 }}>
-                          {quien}
-                        </Text>
-                        <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17 }}>
-                          Hasta el {new Date(s.hasta).toLocaleString("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                          {s.motivo ? ` · ${s.motivo}` : ""}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => quitarSilencio(s.user_id)}
-                        disabled={quitandoSilencio === s.user_id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Quitar el silencio de ${quien}`}
-                        style={({ pressed }) => ({
-                          minHeight: 44,
-                          justifyContent: "center",
-                          paddingHorizontal: 14,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: "#FFFFFF",
-                          opacity: quitandoSilencio === s.user_id ? 0.5 : pressed ? 0.85 : 1,
-                        })}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5 }}>Quitar silencio</Text>
-                      </Pressable>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-
-            {/* Números de seguimiento (los que da la tienda, p. ej. desde VeoAura): cuántos se añaden a una cuenta y cuántos
-                intentos fallan (30 días, datos de la base de datos). Cada número sale en Pedidos y en Servicios. */}
-            {numerosSeguimiento ? (
-              <Text nativeID="admin-numeros-seguimiento" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                Números de seguimiento (30 días): añadidos a una cuenta {numerosSeguimiento.anadidos} (por {numerosSeguimiento.personas}{" "}
-                {numerosSeguimiento.personas === 1 ? "persona" : "personas"}) · intentos fallidos {numerosSeguimiento.fallidos}
-              </Text>
-            ) : null}
-
-            {/* «¿Olvidaste tu contraseña?»: si los enlaces se piden, llegan a abrirse y terminan en una contraseña nueva, y por
-                qué fallan (analítica propia, 30 días). Si Supabase frena los correos, se avisa de lo que hace falta. */}
-            {usoContrasena ? (
-              <View nativeID="admin-contrasenas" style={{ gap: 4 }}>
-                <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                  Recuperar contraseña (30 días): enlaces pedidos {usoContrasena.pedidos} · abiertos {usoContrasena.abiertos} · contraseñas
-                  cambiadas {usoContrasena.cambiadas}
-                  {usoContrasena.noSirvieron
-                    ? ` · enlaces que no sirvieron ${usoContrasena.noSirvieron} (en otro navegador ${usoContrasena.otroNavegador}, caducados o ya usados ${usoContrasena.caducados})`
-                    : ""}
-                  {usoContrasena.errores ? ` · no se pudieron pedir ${usoContrasena.errores}` : ""}
-                </Text>
-                {usoContrasena.limite ? (
-                  <Text nativeID="admin-contrasenas-aviso" style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                    Supabase ha frenado {usoContrasena.limite} {usoContrasena.limite === 1 ? "correo" : "correos"} por su límite de envíos: hace falta
-                    el correo propio (SMTP) en Supabase → Authentication → Emails.
-                  </Text>
-                ) : null}
-                {/* Mínimo de 8 caracteres para las contraseñas nuevas: cuántas veces se pidió una más larga y dónde. */}
-                <Text nativeID="admin-contrasenas-cortas" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                  Contraseñas de al menos {CONTRASENA_MINIMA} caracteres (30 días): se pidió una más larga {usoContrasena.cortas}{" "}
-                  {usoContrasena.cortas === 1 ? "vez" : "veces"}
-                  {usoContrasena.cortas
-                    ? ` (al crear la cuenta ${usoContrasena.cortasRegistro} · al recuperarla ${usoContrasena.cortasRecuperar} · en Mi perfil ${usoContrasena.cortasPerfil})`
-                    : ""}
-                </Text>
-              </View>
-            ) : null}
-
-            {/* Mi perfil → «Inicio de sesión y seguridad»: cambios de correo (pedidos y terminados) y de contraseña (30 días). */}
-            {usoSeguridad ? (
-              <Text nativeID="admin-seguridad" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                Inicio de sesión y seguridad (30 días): cambios de correo pedidos {usoSeguridad.correoPedidos} · terminados {usoSeguridad.correoCambiados}
-                {usoSeguridad.correoErrores ? ` · no se pudieron pedir ${usoSeguridad.correoErrores}` : ""} · contraseñas cambiadas desde Mi perfil{" "}
-                {usoSeguridad.contrasenas}
-                {usoSeguridad.contrasenaErrores ? ` · intentos fallidos ${usoSeguridad.contrasenaErrores} (contraseña actual equivocada ${usoSeguridad.actualMal})` : ""}
-              </Text>
-            ) : null}
-
-            {/* Perfil → «Mis seguimientos»: quién lo abre (analítica propia, 30 días) y cuántos deslizando la pestaña. */}
-            {usoSeguimientos ? (
-              <Text nativeID="admin-uso-seguimientos" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                «Mis seguimientos» (30 días): lo abrieron {usoSeguimientos.personas} · deslizando {usoSeguimientos.deslizando}
-              </Text>
-            ) : null}
-
-            {/* Seguimiento de los perfiles (lo que cada cliente escribe en Mi cuenta → Tu perfil). Los contadores también
-                sirven de filtro: tocar uno filtra la lista de abajo y volver a tocarlo lo quita. */}
-            {perfilesOk ? (
-              <View style={{ gap: 12 }} nativeID="admin-perfiles">
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>Perfiles de clientes</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "space-between" }}>
-                  <StatCard label="Con perfil" value={`${resumenPerfiles.conAlgo} de ${stats.total}`} icon="id-card-outline" isMobile={isMobile} />
-                  <StatCard label="Perfil completo" value={String(resumenPerfiles.completos)} icon="checkmark-done-outline" isMobile={isMobile} />
-                  <StatCard label="Faltan datos" value={String(resumenPerfiles.pendientes)} icon="alert-circle-outline" isMobile={isMobile} />
-                  <StatCard label="Con foto" value={String(resumenPerfiles.conFoto)} icon="camera-outline" isMobile={isMobile} />
-                  <StatCard
-                    label="Edad media"
-                    value={resumenPerfiles.media != null ? `${Math.round(resumenPerfiles.media)} años` : "—"}
-                    icon="calendar-outline"
-                    isMobile={isMobile}
-                  />
-                  <StatCard label="Provincias" value={String(resumenPerfiles.porProvincia.length)} icon="location-outline" isMobile={isMobile} />
-                  {direccionColumnas ? (
-                    <StatCard label="Con dirección" value={String(resumenPerfiles.conDireccion)} icon="home-outline" isMobile={isMobile} />
-                  ) : null}
-                </View>
-
-                {/* «Completa tu perfil» (obligatorio al iniciar sesión): analítica propia de los últimos 30 días. */}
-                {embudoPerfil ? (
-                  <Text nativeID="admin-perfiles-embudo" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                    «Completa tu perfil» (30 días): la vieron {embudoPerfil.vistos} · la completaron {embudoPerfil.completados} · cerraron sesión{" "}
-                    {embudoPerfil.salieron}
-                  </Text>
-                ) : null}
-                {/* Foto de perfil: quién la encuadra y la usa, y quién deja el recorte a medias (30 días). */}
-                {embudoPerfil ? (
-                  <Text nativeID="admin-perfiles-fotos" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                    Foto de perfil (30 días): la encuadraron {embudoPerfil.fotosEncuadradas} · dejaron el recorte {embudoPerfil.fotosCanceladas}
-                  </Text>
-                ) : null}
-                {/* Dirección de envío: quién la guarda y quién paga con ella ya rellenada (30 días, personas distintas). */}
-                {embudoPerfil && direccionColumnas ? (
-                  <Text nativeID="admin-perfiles-direccion" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
-                    Dirección de envío (30 días): la guardaron {embudoPerfil.direccionGuardada} · pagaron con ella ya rellenada{" "}
-                    {embudoPerfil.pagoConDireccion}
-                  </Text>
-                ) : null}
-
-                <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>ESTADO</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                  {(
-                    [
-                      ["completo", `Completo (${resumenPerfiles.completos})`],
-                      ["pendiente", `Faltan datos (${resumenPerfiles.pendientes})`],
-                      ["foto", `Con foto (${resumenPerfiles.conFoto})`],
-                      ...(direccionColumnas ? ([["direccion", `Con dirección (${resumenPerfiles.conDireccion})`]] as [EstadoPerfil, string][]) : []),
-                    ] as [EstadoPerfil, string][]
-                  ).map(([id, label]) => (
-                    <ChipButton
-                      key={id}
-                      label={label}
-                      active={filtroEstado === id}
-                      onPress={() => setFiltroEstado((v) => (v === id ? null : id))}
-                      isMobile={isMobile}
-                    />
-                  ))}
-                </View>
-
-                {resumenPerfiles.conAlgo === 0 ? (
-                  <Text style={{ color: COLORS.muted, textAlign: "center", lineHeight: 20 }}>
-                    Todavía nadie ha rellenado su perfil. Cuando lo hagan, aquí verás de dónde son y qué edad tienen.
-                  </Text>
-                ) : (
-                  <>
-                    <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>EDAD</Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                      {resumenPerfiles.porTramo.map((t) => (
-                        <ChipButton
-                          key={t.id}
-                          label={`${t.label} (${t.n})`}
-                          active={filtroTramo === t.id}
-                          onPress={() => setFiltroTramo((v) => (v === t.id ? null : t.id))}
-                          isMobile={isMobile}
-                        />
-                      ))}
-                    </View>
-
-                    {resumenPerfiles.porProvincia.length > 0 ? (
-                      <>
-                        <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>PROVINCIA</Text>
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                          {resumenPerfiles.porProvincia.slice(0, 10).map((p) => (
-                            <ChipButton
-                              key={p.valor}
-                              label={`${p.valor} (${p.n})`}
-                              active={filtroProvincia === p.valor}
-                              onPress={() => setFiltroProvincia((v) => (v === p.valor ? null : p.valor))}
-                              isMobile={isMobile}
-                            />
-                          ))}
-                        </View>
-                      </>
-                    ) : null}
-
-                    {resumenPerfiles.porPais.length > 1 ? (
-                      <>
-                        <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>PAÍS</Text>
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                          {resumenPerfiles.porPais.slice(0, 8).map((p) => (
-                            <ChipButton
-                              key={p.valor}
-                              label={`${p.valor} (${p.n})`}
-                              active={filtroPais === p.valor}
-                              onPress={() => setFiltroPais((v) => (v === p.valor ? null : p.valor))}
-                              isMobile={isMobile}
-                            />
-                          ))}
-                        </View>
-                      </>
-                    ) : null}
-
-                  </>
-                )}
-
-                {hayFiltros ? (
-                  <View style={{ alignItems: "center" }}>
-                    <ChipButton
-                      label="Quitar filtros"
-                      onPress={() => {
-                        setFiltroProvincia(null);
-                        setFiltroPais(null);
-                        setFiltroTramo(null);
-                        setFiltroEstado(null);
-                      }}
-                      isMobile={isMobile}
-                    />
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-
-            <View style={{ gap: 10 }}>
-              <TextInput
-                value={search}
-                onChangeText={setSearch}
-                placeholder={perfilesOk ? "Buscar por email, nombre, usuario o provincia…" : "Buscar por email…"}
-                placeholderTextColor="rgba(11,33,56,0.40)"
-                autoCapitalize="none"
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 12,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  color: COLORS.text,
-                  backgroundColor: "#F8FBFE",
-                  // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
-                  // se queda ampliada y "descuadrada".
-                  fontSize: 16,
-                }}
-              />
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                <ChipButton label="Más recientes" active={sortMode === "recent"} onPress={() => setSortMode("recent")} isMobile={isMobile} />
-                <ChipButton label="Más participación" active={sortMode === "participation"} onPress={() => setSortMode("participation")} isMobile={isMobile} />
-                {ultimaConexion ? (
-                  <>
-                    <ChipButton label="Última conexión" active={sortMode === "conexion"} onPress={() => setSortMode("conexion")} isMobile={isMobile} />
-                    <ChipButton label={`Activos 7 días (${activos7})`} active={soloActivos} onPress={() => setSoloActivos((v) => !v)} isMobile={isMobile} />
-                  </>
-                ) : null}
-              </View>
-
-              <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
-                Valoración media de la tienda:{" "}
-                {avgRating != null ? `${avgRating.toFixed(1)} / 5 (${reviewsCount} reseñas)` : "sin reseñas todavía"}
-              </Text>
-              {usoResenas ? (
-                <Text nativeID="usuarios-resenas-uso" style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center", lineHeight: 17 }}>
-                  Reseñas (30 días): {usoResenas.publicadas} publicadas · con ideas sugeridas: {usoResenas.conIdeas} · con emoji:{" "}
-                  {usoResenas.conEmoji}
-                  {usoResenas.ideaMasUsada ? ` · la idea más usada: «${usoResenas.ideaMasUsada}»` : ""}
-                </Text>
-              ) : null}
-            </View>
-
-            {!!screenErr && (
+            <View style={{ width: "100%", maxWidth: 960, gap: 16 }}>
+              {/* 1) Buscador (16 px: con menos, Safari del iPhone hace zoom al escribir). */}
               <View
                 style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  minHeight: CAMPO.alto,
                   borderRadius: 14,
-                  backgroundColor: COLORS.dangerBg,
-                  padding: 10,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.card,
+                  paddingLeft: 14,
                 }}
               >
-                <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>
-                  {screenErr}
-                </Text>
-              </View>
-            )}
-
-            {visibleUsers.length === 0 ? (
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 24, paddingHorizontal: 12 }}>
-                <Ionicons name="people-outline" size={24} color={COLORS.muted2} />
-                <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
-                  No hay usuarios que coincidan.
-                </Text>
-                <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                  Prueba a borrar el buscador o comprueba que haya usuarios registrados.
-                </Text>
-              </View>
-            ) : (
-              visibleUsers.map((u) => {
-                const isAdmin = (u.role ?? "").toLowerCase() === "admin";
-                return (
+                <Ionicons name="search" size={20} color={COLORS.accent} />
+                <TextInput
+                  nativeID="usuarios-buscador"
+                  value={search}
+                  onChangeText={(v) => {
+                    setSearch(v);
+                    if (tab !== "clientes") cambiarTab("clientes");
+                  }}
+                  // Corto para que quepa entero a 360 px (también busca por @usuario, país, CP y localidad).
+                  placeholder={perfilesOk ? "Nombre, email o provincia…" : "Buscar por email…"}
+                  placeholderTextColor={COLORS.muted}
+                  accessibilityLabel="Buscar clientes"
+                  autoCapitalize="none"
+                  style={{ flex: 1, minWidth: 0, minHeight: CAMPO.alto, paddingHorizontal: 10, color: COLORS.text, fontSize: CAMPO.letra }}
+                />
+                {search ? (
                   <Pressable
-                    key={u.user_id}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/admin/cliente/[userId]",
-                        params: { userId: u.user_id, email: u.email ?? "", createdAt: u.created_at },
-                      } as any)
-                    }
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.92 : 1,
-                      borderRadius: 20,
-                      backgroundColor: COLORS.card,
-                      padding: isMobile ? 12 : 14,
-                      gap: 10,
-                    })}
+                    onPress={() => setSearch("")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Borrar la búsqueda"
+                    style={({ pressed }) => ({ width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
                   >
-                    <View
-                      style={{
-                        flexDirection: isMobile ? "column" : "row",
-                        justifyContent: "space-between",
-                        alignItems: isMobile ? "flex-start" : "center",
-                        gap: 8,
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 }}>
-                        <View
-                          style={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: 17,
-                            overflow: "hidden",
-                            backgroundColor: COLORS.accent2,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          {perfiles[u.user_id]?.foto_url ? (
-                            <SmartImage
-                              uri={perfiles[u.user_id].foto_url}
-                              alt={`Foto de ${perfiles[u.user_id].nombre || u.email || "cliente"}`}
-                              contentFit="cover"
-                              style={{ width: "100%", height: "100%" }}
-                            />
-                          ) : (
-                            <Ionicons name="person-outline" size={16} color={COLORS.accentDark} />
-                          )}
-                        </View>
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }} numberOfLines={1}>
-                          {u.email ?? "Sin email"}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          paddingVertical: 5,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: isAdmin ? COLORS.accentBorder : COLORS.border,
-                          backgroundColor: isAdmin ? COLORS.accent2 : "#F6FAFD",
-                        }}
-                      >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11.5 }}>
-                          {isAdmin ? "Administrador" : "Cliente"}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700" }}>
-                      Alta: {fmtDate(u.created_at)}
-                      {ultimaConexion
-                        ? ` · Última conexión: ${ultimaConexion[u.user_id] ? haceCuanto(ultimaConexion[u.user_id]) : "sin registrar"}`
-                        : ""}
-                    </Text>
-
-                    {perfilesOk ? (
-                      <>
-                        <Text style={{ color: perfiles[u.user_id] ? COLORS.text : COLORS.muted2, fontSize: 13, fontWeight: "800", lineHeight: 18 }}>
-                          {resumenDePerfil(perfiles[u.user_id])}
-                        </Text>
-                        {/* Estado del perfil obligatorio, como texto de color (sin recuadro). */}
-                        {!isAdmin ? (
-                          perfilCompleto(perfiles[u.user_id]) ? (
-                            <Text style={{ color: COLORS.success, fontSize: 12, fontWeight: "800" }}>
-                              Perfil completo{perfiles[u.user_id]?.updated_at ? ` · actualizado ${fmtDate(perfiles[u.user_id].updated_at)}` : ""}
-                            </Text>
-                          ) : (
-                            <Text style={{ color: COLORS.danger, fontSize: 12, fontWeight: "800" }}>
-                              {perfiles[u.user_id] ? `Faltan: ${faltaDelPerfil(perfiles[u.user_id]).join(", ")}` : "Aún no ha completado su perfil"}
-                            </Text>
-                          )
-                        ) : null}
-                      </>
-                    ) : null}
-
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      <MetricPill icon="chatbubbles-outline" label="mensajes en el foro" value={u.chat_messages_count} />
-                      <MetricPill icon="chatbubble-ellipses-outline" label="chats de producto" value={u.product_chats_count} />
-                      <MetricPill icon="star-outline" label="reseñas" value={u.store_reviews_count} />
-                    </View>
-
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
-                      <Text style={{ color: COLORS.accentDark, fontWeight: "800", fontSize: 12 }}>
-                        Ver ficha del cliente
-                      </Text>
-                      <Ionicons name="chevron-forward" size={14} color={COLORS.accentDark} />
-                    </View>
+                    <Ionicons name="close-circle" size={20} color={COLORS.muted} />
                   </Pressable>
-                );
-              })
-            )}
+                ) : null}
+              </View>
 
-            {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
-            <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
-              <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
-                Las solicitudes de venta y de servicio no piden iniciar sesión, así que el total de
-                arriba incluye también las anónimas. Solo las enviadas CON sesión iniciada aparecen
-                dentro de la ficha del cliente correspondiente (toca una fila para verla).
-              </Text>
+              {/* 2) Cifras clave en fila (número grande, etiqueta debajo); tocarlas filtra o abre su pestaña. */}
+              <FilaCifras nativeID="usuarios-cifras">
+                {cifras.map((c) => (
+                  <Cifra
+                    key={c.key}
+                    nativeID={`usuarios-cifra-${c.key}`}
+                    valor={c.valor}
+                    etiqueta={c.etiqueta}
+                    icono={c.icono}
+                    onPress={c.onPress}
+                    activa={c.activa}
+                    ancho={anchoCifra(cifras.length, isMobile)}
+                    grande={!isMobile}
+                  />
+                ))}
+              </FilaCifras>
+
+              {!!screenErr && (
+                <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 12 }}>
+                  <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.cuerpo, lineHeight: 21, textAlign: "center" }}>{screenErr}</Text>
+                </View>
+              )}
+
+              {/* 3) Pestañas deslizables (con su número), recordadas en la URL (?tab=). */}
+              <View style={{ borderBottomWidth: 1, borderBottomColor: COLORS.border, marginHorizontal: -16 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, flexGrow: 1, justifyContent: isMobile ? "flex-start" : "center" }}>
+                  <View nativeID="usuarios-pestanas" role="tablist" style={{ flexDirection: "row", gap: 22 }}>
+                    {PESTANAS.map((t) => {
+                      const activa = tab === t;
+                      const n = t === "clientes" ? users.length : t === "ideas" ? resumenMejoras.sinLeer : 0;
+                      const aviso = t === "seguridad" && atencionSeguridad;
+                      return (
+                        <Pressable
+                          key={t}
+                          nativeID={`usuarios-pestana-${t}`}
+                          onPress={() => {
+                            setDesplegado(null);
+                            cambiarTab(t);
+                          }}
+                          role="tab"
+                          aria-selected={activa}
+                          accessibilityLabel={`${NOMBRE_PESTANA[t]}${n ? ` (${n}${t === "ideas" ? " sin leer" : ""})` : ""}${aviso ? " (requiere atención)" : ""}`}
+                          style={({ pressed }) => ({ minHeight: 48, justifyContent: "flex-end", opacity: pressed ? 0.7 : 1 })}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingBottom: 9 }}>
+                            <Text style={{ color: activa ? COLORS.text : COLORS.muted, fontWeight: "900", fontSize: TAMANOS.cuerpo }}>{NOMBRE_PESTANA[t]}</Text>
+                            {n ? <Text style={{ color: activa || t === "ideas" ? colorTextoAzul(TAMANOS.minimo) : COLORS.muted, fontWeight: "900", fontSize: TAMANOS.minimo }}>{n}</Text> : null}
+                            {aviso ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger }} /> : null}
+                          </View>
+                          <View style={{ height: 3, borderRadius: 2, backgroundColor: activa ? COLORS.accent : "transparent" }} />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {tab === "clientes" ? contenidoClientes : null}
+              {tab === "participacion" ? contenidoParticipacion : null}
+              {tab === "ideas" ? contenidoIdeas : null}
+              {tab === "seguridad" ? contenidoSeguridad : null}
             </View>
-          </View>
           </ScrollView>
         </KeyboardAvoidingView>
       )}
