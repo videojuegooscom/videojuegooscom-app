@@ -42,8 +42,18 @@
  *   servicio (services.envio_peso_kg, con su caja) y, si no lo tiene, el
  *   peso por defecto de los ajustes (lib/envio.ts pesoAparatoReparacion), la
  *   misma regla que la base de datos.
+ * - Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): los campos y
+ *   desplegables vienen de «Vender ahora» (16 px y 48 de alto, CAMPO); en
+ *   las filas de dos, etiquetas arriba y recuadros alineados abajo. La nota
+ *   de privacidad sigue en letra legal (12) pero toda ella es la zona
+ *   táctil del enlace (44 px, TACTIL). En el móvil la página reserva abajo
+ *   una franja para el botón flotante de volver (FRANJA_BOTON_ATRAS): ya no
+ *   tapa ningún campo (antes, «Dirección»). Texto azul pequeño en #0A78B4.
  *
  * Conectado con:
+ * - constants/theme.ts → TAMANOS, TACTIL y COLORES_TEXTO.
+ * - components/BotonAtrasAlcance.tsx → BotonAtrasFlotante (el botón de volver).
+ * - pruebas/perfil-datos.mjs (secciones CS y TM2) → lo comprueban.
  * - sql/service_requests.sql, supabase/migrations/20261108230000_servicios_opciones.sql y
  *   supabase/migrations/20261111100000_reparacion_envio.sql; lib/envio.ts (tarifas y etiqueta);
  *   app/politicas/[slug].tsx (/politicas/reparacion-envio).
@@ -55,6 +65,7 @@ import { Animated, Modal, Pressable, ScrollView, Text, TextInput, View, useWindo
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { supabase } from "../lib/supabase";
 import { trackEvent } from "../lib/analytics";
 import {
@@ -79,10 +90,12 @@ const COLORS = {
   card: "#F6FAFD",
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.62)",
+  text: COLORES_TEXTO.texto,
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  // Texto azul de menos de 17 px (enlaces, la opción elegida, «Volver al servicio»).
+  accentText: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   accentDark: "#1EA7E8",
@@ -97,6 +110,10 @@ const COLORS = {
 const modalColumnStyle = { width: "100%", maxWidth: 560, alignSelf: "center" } as const;
 // Hueco al final de la página para que el botón azul de volver (52 px, a 16 del borde) no tape «Enviar solicitud».
 const HUECO_BOTON_ATRAS = 96;
+// Móvil (grupo 2 de tamaños, 2026-11-12): el formulario ocupa todo el ancho y el botón flotante tapaba el campo que
+// pasara por debajo (p. ej. «Dirección»). Se reserva abajo una franja fija para él (16 + 52 + 12 px): lo que se
+// desplaza termina encima de la franja y ningún campo queda nunca debajo del botón.
+const FRANJA_BOTON_ATRAS = 80;
 
 // --- Opciones de un servicio (services.modalidades) ---------------------------------------------------------------
 // foto (dueño, 2026-11-09): la foto del servicio que sale al elegir esta opción (dirección pública de una de sus fotos
@@ -238,7 +255,8 @@ function TextField({
   // Las mismas piezas que «Vender ahora» (dueño, 2026-11-09: «que siga nuestro diseño de página»): etiqueta centrada,
   // recuadro con el texto centrado y, al completarlo, más suave y con su check verde.
   return (
-    <View style={{ gap: 8, flex }} onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}>
+    // space-between: en una fila de dos, las etiquetas empiezan a la misma altura y los recuadros quedan alineados abajo.
+    <View style={{ gap: 8, flex, justifyContent: "space-between" }} onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}>
       <VLabel>{label}</VLabel>
       <FieldInput
         ref={inputRef}
@@ -282,7 +300,7 @@ function ChipGroup<T extends string>({
   return (
     <View
       nativeID={nativeID}
-      style={{ gap: 8, flex, ...(marcado ? { borderRadius: 16, outlineWidth: 1, outlineStyle: "solid", outlineColor: COLORS.accent } : null) } as any}
+      style={{ gap: 8, flex, justifyContent: "space-between", ...(marcado ? { borderRadius: 16, outlineWidth: 1, outlineStyle: "solid", outlineColor: COLORS.accent } : null) } as any}
       onLayout={onLayoutY ? (e) => onLayoutY(e.nativeEvent.layout.y) : undefined}
     >
       <VLabel>{label}</VLabel>
@@ -626,7 +644,7 @@ export default function ContratarServicioModal({
                   nativeID="contratar-resumen-opcion"
                   style={{ borderRadius: 999, backgroundColor: COLORS.accent2, paddingHorizontal: 10, paddingVertical: 4 }}
                 >
-                  <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13.5 }}>{opcionElegida.nombre}</Text>
+                  <Text style={{ color: COLORS.accentText, fontWeight: "800", fontSize: 13.5 }}>{opcionElegida.nombre}</Text>
                 </View>
               ) : null}
               {precioResumen != null ? (
@@ -645,7 +663,10 @@ export default function ContratarServicioModal({
   // formulario en cada pulsación y los campos no pierdan el foco.
   const envolver = (hijos: React.ReactNode) =>
     comoPagina ? (
-      <View nativeID="contratar-pagina" style={{ flex: 1, backgroundColor: COLORS.bg, paddingTop: insets.top }}>
+      <View
+        nativeID="contratar-pagina"
+        style={{ flex: 1, backgroundColor: COLORS.bg, paddingTop: insets.top, paddingBottom: isMobile ? FRANJA_BOTON_ATRAS + insets.bottom : 0 }}
+      >
         {hijos}
         <BotonAtrasFlotante onPress={handleClose} />
       </View>
@@ -674,7 +695,11 @@ export default function ContratarServicioModal({
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, flex: 1 }} numberOfLines={1}>
                 {sent ? "Solicitud enviada" : `Contratar: ${etiqueta}`}
               </Text>
-              <Pressable onPress={handleClose} accessibilityLabel="Cerrar" style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 4 })}>
+              <Pressable
+                onPress={handleClose}
+                accessibilityLabel="Cerrar"
+                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, width: TACTIL.minimo, height: TACTIL.minimo, margin: -10, alignItems: "center", justifyContent: "center" })}
+              >
                 <Ionicons name="close" size={22} color={COLORS.text} />
               </Pressable>
             </View>
@@ -683,6 +708,10 @@ export default function ContratarServicioModal({
         </View>
       </Modal>
     );
+
+  // Aire al final de lo que se desplaza: en el móvil ya hay franja para el botón de volver; en pantallas anchas, el hueco
+  // de siempre para que no tape «Enviar solicitud».
+  const huecoFinal = !comoPagina ? 0 : isMobile ? 16 : HUECO_BOTON_ATRAS + insets.bottom;
 
   // Contenido: en la página, en una columna centrada de 560 px con más aire; en la ventana, como hasta ahora.
   const columna = {
@@ -698,7 +727,7 @@ export default function ContratarServicioModal({
     <IsMobileContext.Provider value={isMobile}>
     {envolver(
           sent ? (
-            <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? HUECO_BOTON_ATRAS + insets.bottom : 0 }}>
+            <ScrollView contentContainerStyle={{ alignItems: "center", paddingBottom: huecoFinal }}>
             <View style={columna}>
             {cabeceraPagina}
             <View nativeID="contratar-enviada" style={{ padding: comoPagina ? 8 : 24, paddingTop: comoPagina ? 24 : 24, alignItems: "center", gap: 12 }}>
@@ -746,6 +775,8 @@ export default function ContratarServicioModal({
                   <View
                     style={{
                       marginTop: 4,
+                      minHeight: TACTIL.minimo,
+                      justifyContent: "center",
                       borderRadius: 999,
                       paddingVertical: 12,
                       paddingHorizontal: 24,
@@ -756,7 +787,7 @@ export default function ContratarServicioModal({
                   </View>
                 </AnimatedPressable>
               ) : (
-                <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
+                <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                   Inicia sesión para seguir tu reparación en Perfil → Mis seguimientos
                 </Text>
               )}
@@ -768,13 +799,15 @@ export default function ContratarServicioModal({
                   accessibilityRole="button"
                   style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingHorizontal: 16, opacity: pressed ? 0.7 : 1 })}
                 >
-                  <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15 }}>{textoCerrar}</Text>
+                  <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: 15 }}>{textoCerrar}</Text>
                 </Pressable>
               ) : (
                 <AnimatedPressable nativeID="contratar-cerrar" onPress={handleClose}>
                   <View
                     style={{
                       marginTop: 4,
+                      minHeight: TACTIL.minimo,
+                      justifyContent: "center",
                       borderRadius: 999,
                       paddingVertical: 12,
                       paddingHorizontal: 24,
@@ -791,7 +824,7 @@ export default function ContratarServicioModal({
           ) : (
             <ScrollView
               ref={scrollRef}
-              contentContainerStyle={{ alignItems: "center", paddingBottom: comoPagina ? HUECO_BOTON_ATRAS + insets.bottom : 0 }}
+              contentContainerStyle={{ alignItems: "center", paddingBottom: huecoFinal }}
               keyboardShouldPersistTaps="handled"
             >
               <View style={columna}>
@@ -810,7 +843,7 @@ export default function ContratarServicioModal({
 
               {/* En rejilla, como «Vender ahora»: lo corto de dos en dos y lo largo a lo ancho. */}
               <View
-                style={{ flexDirection: "row", gap: 12, alignItems: "flex-end" }}
+                style={{ flexDirection: "row", gap: 12, alignItems: "stretch" }}
                 onLayout={(e) => {
                   posiciones.current.fila = e.nativeEvent.layout.y;
                 }}
@@ -872,7 +905,7 @@ export default function ContratarServicioModal({
               )}
 
               <View
-                style={{ flexDirection: "row", gap: 12, alignItems: "flex-end" }}
+                style={{ flexDirection: "row", gap: 12, alignItems: "stretch" }}
                 onLayout={(e) => {
                   posiciones.current.fila2 = e.nativeEvent.layout.y;
                 }}
@@ -924,12 +957,12 @@ export default function ContratarServicioModal({
                   }}
                 >
                   <View
-                    style={{ flexDirection: "row", gap: 12, alignItems: "flex-end" }}
+                    style={{ flexDirection: "row", gap: 12, alignItems: "stretch" }}
                     onLayout={(e) => {
                       posiciones.current.fila3 = e.nativeEvent.layout.y;
                     }}
                   >
-                    <View style={{ flex: 1, gap: 8 }}>
+                    <View style={{ flex: 1, gap: 8, justifyContent: "flex-end" }}>
                       <SelectorIOS
                         nativeID="contratar-aparatos"
                         label="¿Cuántos aparatos?"
@@ -974,7 +1007,7 @@ export default function ContratarServicioModal({
                         Precio orientativo: desde {fmtEURServicio(precioBase * aparatos)}
                         {aparatos > 1 ? ` (${aparatos} × ${fmtEURServicio(precioBase)})` : ""}
                       </Text>
-                      <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 17, textAlign: "center" }}>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                         El precio final te lo confirmamos tras el diagnóstico. La vuelta va incluida.
                       </Text>
                     </View>
@@ -1007,7 +1040,7 @@ export default function ContratarServicioModal({
                         nativeID="contratar-condiciones-enlace"
                         accessibilityRole="link"
                         onPress={() => router.push("/politicas/reparacion-envio")}
-                        style={{ color: COLORS.accent, fontWeight: "800", textDecorationLine: "underline" }}
+                        style={{ color: COLORS.accentText, fontWeight: "800", textDecorationLine: "underline" }}
                       >
                         condiciones de reparación por envío
                       </Text>
@@ -1034,12 +1067,12 @@ export default function ContratarServicioModal({
 
               {!!error && (
                 <View style={{ borderRadius: 12, borderWidth: 1, borderColor: COLORS.dangerBorder, backgroundColor: COLORS.dangerBg, padding: 10 }}>
-                  <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5 }}>{error}</Text>
+                  <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: TAMANOS.minimo }}>{error}</Text>
                 </View>
               )}
 
               {!userId ? (
-                <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12.5, lineHeight: 18 }}>
+                <Text style={{ color: COLORS.muted2, textAlign: "center", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                   Inicia sesión para seguir tu reparación en Perfil → Mis seguimientos
                 </Text>
               ) : null}
@@ -1072,18 +1105,22 @@ export default function ContratarServicioModal({
                   </Text>
                 </View>
               </AnimatedPressable>
-              {/* Nota legal (dueño, 2026-11-09): para qué usamos los datos y enlace a la política de privacidad. */}
-              <Text nativeID="contratar-privacidad" style={{ color: COLORS.muted2, textAlign: "center", fontSize: 12, lineHeight: 17 }}>
-                Al enviar aceptas que usemos estos datos solo para gestionar tu solicitud, según nuestra{" "}
-                <Text
-                  accessibilityRole="link"
-                  onPress={() => router.push("/politicas/privacidad")}
-                  style={{ color: COLORS.accent, fontWeight: "800", textDecorationLine: "underline" }}
-                >
-                  política de privacidad
+              {/* Nota legal (dueño, 2026-11-09): para qué usamos los datos y enlace a la política de privacidad. Letra legal
+                  (12 px), pero toda la nota es la zona táctil del enlace (44 px de alto como mínimo, TACTIL): el enlace
+                  suelto medía 14 px de alto. */}
+              <Pressable
+                onPress={() => router.push("/politicas/privacidad")}
+                accessibilityLabel="Leer la política de privacidad"
+                style={({ pressed }) => ({ minHeight: TACTIL.minimo, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+              >
+                <Text nativeID="contratar-privacidad" style={{ color: COLORS.muted2, textAlign: "center", fontSize: TAMANOS.legal, lineHeight: 17 }}>
+                  Al enviar aceptas que usemos estos datos solo para gestionar tu solicitud, según nuestra{" "}
+                  <Text accessibilityRole="link" style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "800", textDecorationLine: "underline" }}>
+                    política de privacidad
+                  </Text>
+                  .
                 </Text>
-                .
-              </Text>
+              </Pressable>
               </View>
             </ScrollView>
           )

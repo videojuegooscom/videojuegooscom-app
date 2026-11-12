@@ -16,7 +16,9 @@
  *   RLS de analytics_events ya exige is_admin() para el SELECT).
  * - Rango de fechas: chips rápidos (Hoy/7 días/30 días/90 días/Todo) o un
  *   rango a medida escribiendo dos fechas (AAAA-MM-DD). Por defecto, últimos
- *   30 días. Las fechas se tratan como días completos en hora de España
+ *   30 días. Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): los dos
+ *   campos de fecha y «Aplicar» miden 48 px (CAMPO) y los chips 44 (TACTIL),
+ *   con letra de 13 como mínimo (constants/theme.ts). Las fechas se tratan como días completos en hora de España
  *   (Europe/Madrid, de 00:00 a 00:00 del día siguiente, con horario de
  *   verano). Ojo: la agrupación por día de "Crecimiento de visitantes" la
  *   hace la función SQL analytics_daily_visitors en la zona del servidor.
@@ -86,6 +88,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CAMPO, TACTIL } from "../../constants/theme";
 import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -319,17 +322,20 @@ function ChipButton({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => ({
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         borderRadius: 999,
         paddingVertical: 9,
-        paddingHorizontal: 12,
+        paddingHorizontal: isMobile ? 12 : 14,
         borderWidth: 1,
         borderColor: active ? COLORS.accentBorder : COLORS.border,
         backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 12.5 : 13 }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -1010,7 +1016,7 @@ export default function AdminAnalytics() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -1023,7 +1029,7 @@ export default function AdminAnalytics() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -1083,6 +1089,8 @@ export default function AdminAnalytics() {
                 autoCapitalize="none"
                 style={{
                   flex: 1,
+                  // 48 px de alto (CAMPO, grupo 2 de tamaños): antes 40.
+                  minHeight: CAMPO.alto,
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   borderRadius: 12,
@@ -1092,7 +1100,7 @@ export default function AdminAnalytics() {
                   backgroundColor: "#F8FBFE",
                   // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
                   // se queda ampliada y "descuadrada".
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
                 }}
               />
               <TextInput
@@ -1103,6 +1111,7 @@ export default function AdminAnalytics() {
                 autoCapitalize="none"
                 style={{
                   flex: 1,
+                  minHeight: CAMPO.alto,
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   borderRadius: 12,
@@ -1110,7 +1119,7 @@ export default function AdminAnalytics() {
                   paddingVertical: 10,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
                 }}
               />
               <Pressable
@@ -1118,6 +1127,8 @@ export default function AdminAnalytics() {
                 accessibilityRole="button"
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.9 : 1,
+                  minHeight: CAMPO.alto,
+                  justifyContent: "center",
                   borderRadius: 999,
                   paddingVertical: 11,
                   paddingHorizontal: 18,

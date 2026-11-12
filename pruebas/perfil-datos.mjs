@@ -255,7 +255,13 @@
  *    menos de 17 px; pestañas Mi cuenta / Mis seguimientos / Me gusta y «Preguntar por esto» de 44 px; y los 3 campos que
  *    hacían zoom en el iPhone a 16 px (buscador de Servicios, campos de «Mi perfil» y, en el código, el de la respuesta
  *    de Blue en components/Campanita.tsx).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM]
+ *  - TM2) Tamaños comunes, grupo 2 (2026-11-12), a 360, 390 y 1280 px: el Foro (Noticias y Foro con un mensaje abierto)
+ *    sin textos < 13 px y con todo lo que se toca de 44 × 44 px o más; en «Contratar servicio» y «Vender», los campos a
+ *    16 px y 44 px de alto o más, los desplegables «Elegir» de 44 px, la nota de privacidad tocable en 44 px y la casilla
+ *    «mayor de 18» con 44 px de zona táctil; en las filas de dos columnas de «Vender», etiquetas a la misma altura y
+ *    recuadros alineados abajo; el botón «Volver» de Contratar no tapa ningún campo en ningún punto del desplazamiento;
+ *    nada se sale por los lados; y los campos de fecha de Administración → Analítica a 16 px y 48 de alto.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|TM2]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -11229,9 +11235,223 @@ async function seccionTM() {
   }
 }
 
+// ===== TM2) Tamaños comunes, grupo 2: Foro, «Contratar servicio», «Vender» y los campos de fecha de Analítica ==========
+async function seccionTM2() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } } },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", localidad: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  // Letra < 13 px y zonas táctiles < 44 × 44 de lo que se ve (dentro de `zona`, o en toda la página). Se cuentan solo los
+  // táctiles más externos (un Pressable dentro de otro cuenta como uno), como en la auditoría móvil del 2026-11-12.
+  const medirToque = (p, zona = "body") =>
+    p.evaluate((sel) => {
+      const W = window.innerWidth;
+      const raiz = document.querySelector(sel) ?? document.body;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of raiz.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily) || /^[-]+$/.test(t)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < 13) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[role="menuitem"],[tabindex="0"]';
+      const todos = [...raiz.querySelectorAll(SEL)].filter((el) => visible(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...raiz.querySelectorAll("input, textarea, select")]
+        .filter((e) => visible(e) && !["hidden", "checkbox", "radio", "file"].includes(e.type))
+        .map((e) => ({ t: (e.placeholder || e.getAttribute("aria-label") || e.id || e.tagName).slice(0, 30), fs: parseFloat(getComputedStyle(e).fontSize), h: Math.round(e.getBoundingClientRect().height) }));
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    }, zona);
+
+  // TM2a) Foro: Noticias (con los comentarios abiertos) y la pestaña Foro con un mensaje tocado (reacciones a la vista).
+  {
+    const NOTICIA = "abcd1111-0000-4000-8000-0000000000f2";
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      mensajes: [
+        { id: "m1000000-0000-4000-8000-0000000000f2", created_at: "2026-11-12T10:01:00Z", user_id: "22222222-2222-4222-8222-222222222222", username: "x", display_name: "Luis Romero", role: "member", body: "¿Alguien sabe si llegan mandos nuevos?", reply_to_id: null },
+        { id: "m2000000-0000-4000-8000-0000000000f2", created_at: "2026-11-12T10:02:00Z", user_id: CLIENTE.id, username: "ana_g", display_name: "Ana Gómez", role: "member", body: "Mañana, creo", reply_to_id: null },
+      ],
+      noticias: [
+        {
+          id: NOTICIA, fuente: "Vandal", titulo: "Nueva consola portátil anunciada para marzo", imagen_url: null, categoria: "Consolas",
+          resumen: "La marca ha presentado una consola portátil nueva con pantalla más grande y más batería.", puntos_clave: ["Sale en marzo"], datos: [],
+          por_que_importa: null, afecta_a: null, publicada_en: "2026-11-09T07:30:00Z", created_at: "2026-11-09T07:30:00Z", imagenes: [], imagenes_verificadas: false, imagenes_meta: [], me_gusta: 2,
+        },
+      ],
+      comentarios: [{ id: "c1000000-0000-4000-8000-0000000000f2", noticia_id: NOTICIA, user_id: "22222222-2222-4222-8222-222222222222", created_at: "2026-11-10T18:05:00Z", autor: "Luis Romero", texto: "Muy buena noticia" }],
+    };
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      const n = await pagina(ctx, "/chat-global?tab=news");
+      await n.getByText("Nueva consola portátil anunciada para marzo").waitFor({ timeout: 40000 }).catch(() => {});
+      await n.getByRole("button", { name: "Comentarios", exact: true }).first().click({ timeout: 5000 }).catch(() => {});
+      await n.getByText("Muy buena noticia").waitFor({ timeout: 10000 }).catch(() => {});
+      await n.waitForTimeout(600);
+      const mn = await medirToque(n);
+      ok(mn.n >= 8 && !mn.pequenos.length, `TM2 (${nombre}): en Noticias del Foro ningún texto de menos de 13 px (${mn.pequenos.join(" | ") || "ninguno"})`);
+      ok(!mn.chicos.length, `TM2 (${nombre}): en Noticias del Foro todo lo que se toca mide 44 × 44 o más (${mn.n} táctiles; ${mn.chicos.join(" | ") || "ninguno pequeño"})`);
+      ok(mn.campos.every((c) => c.fs >= 16 && c.h >= 44), `TM2 (${nombre}): el campo de comentar a 16 px y 44 px de alto o más (${JSON.stringify(mn.campos)})`);
+      ok(mn.ancho <= mn.v + 1, `TM2 (${nombre}): Noticias no se sale por los lados (${mn.ancho}/${mn.v})`);
+      await capturar(n, `TM2-${nombre}-foro-noticias`);
+      const f = await pagina(ctx, "/chat-global?tab=chat");
+      await f.getByText("¿Alguien sabe si llegan mandos nuevos?").waitFor({ timeout: 40000 }).catch(() => {});
+      await f.getByText("¿Alguien sabe si llegan mandos nuevos?", { exact: true }).click({ timeout: 5000 }).catch(() => {});
+      await f.waitForTimeout(700);
+      const mf = await medirToque(f);
+      ok((await f.getByText("👍").count()) >= 1 && !mf.pequenos.length, `TM2 (${nombre}): en el Foro (con las reacciones abiertas) ningún texto de menos de 13 px (${mf.pequenos.join(" | ") || "ninguno"})`);
+      ok(!mf.chicos.length, `TM2 (${nombre}): en el Foro todo lo que se toca mide 44 × 44 o más, también las reacciones (${mf.n} táctiles; ${mf.chicos.join(" | ") || "ninguno pequeño"})`);
+      ok(mf.campos.every((c) => c.fs >= 16 && c.h >= 44), `TM2 (${nombre}): el campo de escribir del Foro a 16 px y 44 px de alto o más (${JSON.stringify(mf.campos)})`);
+      ok(mf.ancho <= mf.v + 1, `TM2 (${nombre}): el Foro no se sale por los lados (${mf.ancho}/${mf.v})`);
+      await capturar(f, `TM2-${nombre}-foro-mensajes`);
+      ok(n.errores.length === 0 && f.errores.length === 0, `TM2 (${nombre}): el Foro sin errores de JavaScript (${n.errores[0] ?? f.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM2b) «Contratar servicio»: campos, desplegables, la nota de privacidad y el botón flotante «Volver».
+  {
+    const ID = "5e000000-0000-4000-8000-0000000000f2";
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      servicio: { id: ID, title: "Mantenimiento Consola PlayStation 5", description: "Limpieza y cambio de pasta térmica.", price_eur: 45, like_count: 0, modalidades: [{ nombre: "Básica", precio_eur: 45 }, { nombre: "Completa", precio_eur: 70 }] },
+      fotosServicio: [],
+      solicitudesServicio: [],
+    };
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      const p = await pagina(ctx, `/contratar/${ID}`);
+      await p.locator("#contratar-enviar").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const m = await medirToque(p, "#contratar-pagina");
+      ok(
+        m.campos.length >= 5 && m.campos.every((c) => c.fs >= 16 && c.h >= 44),
+        `TM2 (${nombre}): en «Contratar servicio» los campos a 16 px y 44 px de alto o más (${m.campos.map((c) => `${c.t} ${c.fs}px h${c.h}`).join(" · ")})`
+      );
+      ok(!m.chicos.length, `TM2 (${nombre}): en «Contratar servicio» todo lo que se toca mide 44 × 44 o más («Elegir», enviar, privacidad, volver…) (${m.n}; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      const privacidad = await p.evaluate(() => {
+        const z = document.querySelector("#contratar-privacidad")?.closest('[tabindex="0"]');
+        const r = z?.getBoundingClientRect();
+        return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null;
+      });
+      ok(!!privacidad && privacidad.h >= 44 && privacidad.w >= 44, `TM2 (${nombre}): la nota de privacidad se toca en 44 px o más (${JSON.stringify(privacidad)})`);
+      // «Volver» (fijo abajo a la derecha) no tapa ningún campo ni botón en ningún punto del desplazamiento: se recorre la
+      // página de arriba abajo y se mira lo que se ve de cada campo (recortado por la caja que se desplaza).
+      const tapados = await p.evaluate(async () => {
+        const pagina = document.querySelector("#contratar-pagina");
+        const boton = document.querySelector("#contratar-pagina #boton-atras-flotante");
+        if (!pagina || !boton) return ["sin página o sin botón"];
+        const caja = [...pagina.querySelectorAll("*")].find((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY));
+        const max = caja ? caja.scrollHeight - caja.clientHeight : 0;
+        const encontrados = new Set();
+        for (let top = 0; top <= max + 59; top += 60) {
+          if (caja) caja.scrollTop = Math.min(top, max);
+          await new Promise((h) => requestAnimationFrame(() => requestAnimationFrame(h)));
+          const b = boton.getBoundingClientRect();
+          const c = caja ? caja.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+          const cosas = [...pagina.querySelectorAll('input, textarea, select, [tabindex="0"]')].filter((el) => el !== boton && !el.contains(boton) && !boton.contains(el) && !el.contains(caja));
+          for (const el of cosas) {
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            const arriba = Math.max(r.top, c.top), abajo = Math.min(r.bottom, c.bottom);
+            if (abajo - arriba < 2) continue; // no se ve
+            const sx = Math.min(r.right, b.right) - Math.max(r.left, b.left);
+            const sy = Math.min(abajo, b.bottom) - Math.max(arriba, b.top);
+            if (sx > 1 && sy > 1) encontrados.add((el.placeholder || el.innerText || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 30));
+          }
+        }
+        if (caja) caja.scrollTop = 0;
+        return [...encontrados];
+      });
+      ok(!tapados.length, `TM2 (${nombre}): el botón «Volver» no tapa ningún campo ni botón en todo el desplazamiento (${tapados.join(" | ") || "ninguno"})`);
+      ok(m.ancho <= m.v + 1, `TM2 (${nombre}): «Contratar servicio» no se sale por los lados (${m.ancho}/${m.v})`);
+      await p.waitForTimeout(300);
+      await capturar(p, `TM2-${nombre}-contratar`);
+      ok(p.errores.length === 0, `TM2 (${nombre}): «Contratar servicio» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM2c) «Vender»: campos, desplegables «Elegir», la casilla «mayor de 18» y las filas de dos (o tres) columnas alineadas.
+  {
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", { filas: PERFIL, guardados: [] }, vista);
+      const p = await pagina(ctx, "/vender");
+      await p.getByPlaceholder("Tu nombre").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const m = await medirToque(p);
+      ok(
+        m.campos.length >= 5 && m.campos.every((c) => c.fs >= 16 && c.h >= 44),
+        `TM2 (${nombre}): en «Vender» los campos a 16 px y 44 px de alto o más (${m.campos.map((c) => `${c.t} ${c.fs}px h${c.h}`).join(" · ")})`
+      );
+      const datos = await p.evaluate((ancho) => {
+        const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+        const elegir = [...document.querySelectorAll('[tabindex="0"]')].filter((b) => /^Elegir/.test(b.innerText.trim())).map((b) => Math.round(b.getBoundingClientRect().height));
+        const texto = [...document.querySelectorAll("div")].find((d) => propio(d) === "Confirmo que soy mayor de 18 años");
+        const zona = texto?.closest('[tabindex="0"]')?.getBoundingClientRect();
+        // Filas de columnas: la etiqueta (texto propio exacto), su arriba, y el abajo del recuadro (último hijo del campo).
+        const fila = (etiquetas) =>
+          etiquetas.map((e) => {
+            const l = [...document.querySelectorAll("div")].find((d) => propio(d) === e);
+            const campo = l?.parentElement;
+            const caja = campo?.lastElementChild?.getBoundingClientRect();
+            return { e: e.slice(0, 12), arriba: Math.round(l?.getBoundingClientRect().top ?? -1), abajo: Math.round(caja?.bottom ?? -1) };
+          });
+        const filas = ancho >= 700
+          ? [fila(["Nombre", "Apellido", "Género"]), fila(["¿Todo funciona perfectamente?", "¿En qué ciudad te encuentras?", "¿Cuánto estimas recibir por tu artículo?"])]
+          : [fila(["Nombre", "Apellido"]), fila(["Género", "¿En qué ciudad te encuentras?"]), fila(["¿Todo funciona perfectamente?", "¿Cuánto estimas recibir por tu artículo?"])];
+        return { elegir, casilla: zona ? { w: Math.round(zona.width), h: Math.round(zona.height) } : null, filas };
+      }, vista.viewport.width);
+      ok(datos.elegir.length >= 4 && datos.elegir.every((h) => h >= 44), `TM2 (${nombre}): los desplegables «Elegir» de «Vender» miden 44 px o más (${datos.elegir.join(", ")})`);
+      ok(!!datos.casilla && datos.casilla.h >= 44 && datos.casilla.w >= 44, `TM2 (${nombre}): la casilla «mayor de 18» tiene 44 px de zona táctil o más (${JSON.stringify(datos.casilla)})`);
+      const alineadas = datos.filas.every((f) => f.every((c) => c.arriba >= 0 && c.abajo >= 0) && Math.max(...f.map((c) => c.arriba)) - Math.min(...f.map((c) => c.arriba)) <= 2 && Math.max(...f.map((c) => c.abajo)) - Math.min(...f.map((c) => c.abajo)) <= 2);
+      ok(alineadas, `TM2 (${nombre}): en las filas de «Vender» las etiquetas empiezan a la misma altura y los recuadros acaban igual (${JSON.stringify(datos.filas)})`);
+      ok(m.ancho <= m.v + 1, `TM2 (${nombre}): «Vender» no se sale por los lados (${m.ancho}/${m.v})`);
+      await capturar(p, `TM2-${nombre}-vender`);
+      await p.getByText("Confirmo que soy mayor de 18 años").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `TM2-${nombre}-vender-casilla`);
+      ok(p.errores.length === 0, `TM2 (${nombre}): «Vender» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM2d) Administración → Analítica: los dos campos de fecha a 16 px y 48 de alto (antes 40).
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: [], guardados: [] }, { viewport: { width: 390, height: 844 } });
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.getByPlaceholder("Desde (AAAA-MM-DD)").waitFor({ timeout: 40000 }).catch(() => {});
+    const fechas = await p.evaluate(() =>
+      ["Desde (AAAA-MM-DD)", "Hasta (AAAA-MM-DD)"].map((ph) => {
+        const e = document.querySelector(`input[placeholder="${ph}"]`);
+        return e ? { fs: parseFloat(getComputedStyle(e).fontSize), h: Math.round(e.getBoundingClientRect().height) } : null;
+      })
+    );
+    ok(fechas.every((f) => !!f && f.fs >= 16 && f.h >= 48), `TM2: en Analítica los campos de fecha a 16 px y 48 px de alto (${JSON.stringify(fechas)})`);
+    await capturar(p, "TM2-390-analitica-fechas");
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "TM") await seccionTM();
+  if (SOLO === "TM2") await seccionTM2();
   if (SOLO === "FC") await seccionFC();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
@@ -12272,6 +12492,7 @@ try {
   await seccionAC();
   await seccionFC();
   await seccionTM();
+  await seccionTM2();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

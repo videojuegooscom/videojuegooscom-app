@@ -81,8 +81,16 @@
  *   en vez de envolverlas en una función nueva por mensaje en cada render.
  *   Los canales Realtime (mensajes, reacciones y presencia) solo están
  *   abiertos mientras la pestaña está enfocada (useFocusEffect).
+ * - Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): letra mínima 13
+ *   (TAMANOS), todo lo que se toca mide 44 px (TACTIL: «viendo ahora», la
+ *   campanita, «Abrir la noticia», me gusta/comentarios, reacciones…) y los
+ *   campos 16 px y 48 de alto (CAMPO). Grises de texto COLORES_TEXTO.secundario
+ *   y el texto azul pequeño (categorías, enlaces) en COLORS.accentText
+ *   (#0A78B4); el azul de marca sigue en botones, iconos y fondos.
  *
  * Conectado con:
+ * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
+ * - pruebas/perfil-datos.mjs (sección TM2) → comprueba esos tamaños.
  * - lib/supabase.ts → sesión, lectura y envío de mensajes.
  * - sql/chat_messages.sql → crea la tabla, el trigger que rellena el
  *   remitente y las políticas RLS (leer: todo el mundo; escribir: solo
@@ -130,6 +138,7 @@ import CargaMarca from "../../components/marca/CargaMarca";
 import MarcaAnimada from "../../components/marca/MarcaAnimada";
 import { perfilesPublicos, type PerfilForo } from "../../components/PerfilPublico";
 import SmartImage from "../../components/SmartImage";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { trackEvent } from "../../lib/analytics";
 import { markEnd, markStart } from "../../lib/loadingBus";
 import { supabase } from "../../lib/supabase";
@@ -297,7 +306,7 @@ function SilenciarUsuario({
             </Text>
           ) : (
             <>
-              <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
                 No podrá escribir en el Foro ni comentar noticias, y verá un enlace a las Normas del Foro. Sus mensajes siguen ahí
                 (elimínalos aparte si hace falta).
               </Text>
@@ -322,7 +331,7 @@ function SilenciarUsuario({
                         opacity: pressed ? 0.85 : 1,
                       })}
                     >
-                      <Text style={{ color: activo ? "#1EA7E8" : "#0B2138", fontWeight: "900" }}>{d === 1 ? "1 día" : `${d} días`}</Text>
+                      <Text style={{ color: activo ? COLORS.accentText : "#0B2138", fontWeight: "900" }}>{d === 1 ? "1 día" : `${d} días`}</Text>
                     </Pressable>
                   );
                 })}
@@ -336,13 +345,13 @@ function SilenciarUsuario({
                 maxLength={200}
                 style={{
                   alignSelf: "stretch",
-                  minHeight: 44,
+                  minHeight: CAMPO.alto,
                   borderWidth: 1,
                   borderColor: "#E3EAF2",
                   borderRadius: 14,
                   paddingHorizontal: 12,
                   paddingVertical: 10,
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
                   color: "#0B2138",
                 }}
               />
@@ -431,11 +440,11 @@ function ConfirmarEliminar({
             <Text numberOfLines={1} style={{ color: "#0B2138", fontWeight: "900", textAlign: "center" }}>
               {autor}
             </Text>
-            <Text numberOfLines={3} style={{ color: "rgba(11,33,56,0.62)", lineHeight: 20, textAlign: "center" }}>
+            <Text numberOfLines={3} style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
               {texto}
             </Text>
           </View>
-          <Text style={{ color: "rgba(11,33,56,0.62)", fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
+          <Text style={{ color: COLORS.muted, fontWeight: "700", lineHeight: 20, textAlign: "center" }}>
             {que === "mensaje"
               ? "Desaparece del Foro para todos, con sus reacciones. No se puede deshacer."
               : "Desaparece de la noticia para todos."}
@@ -492,10 +501,13 @@ const COLORS = {
   card: "#EAF6FD",
   border: "#E3EAF2",
   borderSoft: "#E3EAF2",
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  soft: "rgba(11,33,56,0.62)",
+  text: COLORES_TEXTO.texto,
+  // Grises de texto: el más claro permitido (constants/theme.ts → COLORES_TEXTO.secundario).
+  muted: COLORES_TEXTO.secundario,
+  soft: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  // Texto azul de menos de 17 px (categorías, enlaces, contadores): azul oscuro legible.
+  accentText: COLORES_TEXTO.azulTexto,
   accentSoft: "#EAF6FD",
   accentBorder: "#BEE6FA",
   bubbleMine: "rgba(0,170,228,0.22)",
@@ -1782,27 +1794,36 @@ export default function ChatGlobalScreen() {
             style={{
               width: "100%",
               maxWidth: 680,
-              minHeight: 30,
+              minHeight: TACTIL.minimo,
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
-              gap: 8,
+              gap: TACTIL.separacion,
             }}
           >
-            {/* Solo el icono, sin burbuja alrededor. */}
+            {/* Solo el icono, sin burbuja alrededor (zona táctil de 44 px). */}
             <Pressable
               onPress={() => setShowInfoModal(true)}
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel="Información del Foro"
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              style={({ pressed }) => ({
+                minWidth: TACTIL.minimo,
+                minHeight: TACTIL.minimo,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.6 : 1,
+              })}
             >
               <Ionicons name="information-circle-outline" size={20} color={COLORS.accent} />
             </Pressable>
 
             <Pressable
               onPress={toggleViewers}
+              accessibilityRole="button"
               style={({ pressed }) => ({
+                minHeight: TACTIL.minimo,
+                justifyContent: "center",
                 opacity: pressed ? 0.9 : 1,
               })}
             >
@@ -1810,8 +1831,8 @@ export default function ChatGlobalScreen() {
                 style={{
                   color: "#15803D",
                   fontWeight: "900",
-                  fontSize: 11,
-                  lineHeight: 14,
+                  fontSize: TAMANOS.minimo,
+                  lineHeight: 18,
                   textAlign: "center",
                 }}
               >
@@ -1830,6 +1851,10 @@ export default function ChatGlobalScreen() {
                 style={({ pressed }) => ({
                   position: "absolute",
                   right: 0,
+                  minWidth: TACTIL.minimo,
+                  minHeight: TACTIL.minimo,
+                  alignItems: "center",
+                  justifyContent: "center",
                   opacity: pressed ? 0.6 : 1,
                 })}
               >
@@ -1857,8 +1882,8 @@ export default function ChatGlobalScreen() {
               // A la izquierda: a la derecha está ahora el selector de pestañas.
               left: 16,
               bottom: 118,
-              width: 40,
-              height: 40,
+              width: TACTIL.minimo,
+              height: TACTIL.minimo,
               borderRadius: 999,
               alignItems: "center",
               justifyContent: "center",
@@ -1964,7 +1989,7 @@ function Tag({
   }[tone];
 
   return (
-    <Text style={{ color, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{text}</Text>
+    <Text style={{ color, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>{text}</Text>
   );
 }
 
@@ -1982,6 +2007,7 @@ function ActionButton({
       onPress={onPress}
       style={({ pressed }) => ({
         opacity: pressed ? 0.92 : 1,
+        minHeight: TACTIL.minimo,
         borderRadius: 14,
         paddingVertical: 12,
         paddingHorizontal: 14,
@@ -2022,6 +2048,8 @@ function HubTabButton({
       delayLongPress={320}
       style={({ pressed }) => ({
         opacity: pressed ? 0.92 : 1,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         borderRadius: 999,
         paddingVertical: 10,
         paddingHorizontal: 14,
@@ -2151,7 +2179,7 @@ const MessageBubble = React.memo(function MessageBubble({
 
   const roleTone =
     item.role === "admin"
-      ? { text: "#1EA7E8", label: "ADMIN" }
+      ? { text: COLORS.accentText, label: "ADMIN" }
       : item.role === "vip"
         ? { text: "#92660B", label: "VIP" }
         : { text: "#0B2138", label: "MIEMBRO" };
@@ -2213,7 +2241,7 @@ const MessageBubble = React.memo(function MessageBubble({
               y, si aún no tiene, el nombre de su cuenta. El rol
               (MIEMBRO/ADMIN) va debajo, como texto sin pastilla.
             */}
-            <Text style={{ color: roleTone.text, fontSize: 10, fontWeight: "900" }}>
+            <Text style={{ color: roleTone.text, fontSize: TAMANOS.minimo, fontWeight: "900" }}>
               {roleTone.label}
             </Text>
           </View>
@@ -2241,12 +2269,12 @@ const MessageBubble = React.memo(function MessageBubble({
                 marginBottom: 2,
               }}
             >
-              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 12 }}>
+              <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                 {replyPreview ? replyPreview.displayName : "Mensaje original"}
               </Text>
               <Text
                 numberOfLines={2}
-                style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}
+                style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, marginTop: 2 }}
               >
                 {replyPreview ? textoSinMarca(replyPreview.text) : "No disponible"}
               </Text>
@@ -2308,8 +2336,8 @@ const MessageBubble = React.memo(function MessageBubble({
           <Text
             style={{
               alignSelf: "flex-end",
-              color: mine ? "rgba(11,33,56,0.45)" : COLORS.soft,
-              fontSize: 11,
+              color: COLORS.soft,
+              fontSize: TAMANOS.minimo,
               marginTop: 2,
             }}
           >
@@ -2323,39 +2351,48 @@ const MessageBubble = React.memo(function MessageBubble({
           style={{
             flexDirection: "row",
             flexWrap: "wrap",
-            gap: 6,
+            gap: TACTIL.separacion,
             alignSelf: mine ? "flex-end" : "flex-start",
           }}
         >
           {reactionEntries.map(([emoji, count]) => {
             const isMine = myReaction === emoji;
+            // Zona táctil de 44 px; la pastilla de dentro conserva su tamaño de siempre.
             return (
               <Pressable
                 key={emoji}
                 onPress={() => onReact(item.id, emoji as ReactionEmoji)}
                 style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  borderRadius: 999,
-                  paddingVertical: 4,
-                  paddingHorizontal: 8,
-                  backgroundColor: isMine ? COLORS.accentSoft : "#F6FAFD",
-                  borderWidth: 1,
-                  borderColor: isMine ? COLORS.accentBorder : "#E3EAF2",
+                  minHeight: TACTIL.minimo,
+                  minWidth: TACTIL.minimo,
+                  justifyContent: "center",
                   opacity: pressed ? 0.85 : 1,
                 })}
               >
-                <Text style={{ fontSize: 13 }}>{emoji}</Text>
-                <Text
+                <View
                   style={{
-                    fontSize: 11,
-                    fontWeight: "900",
-                    color: isMine ? COLORS.text : COLORS.soft,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    borderRadius: 999,
+                    paddingVertical: 4,
+                    paddingHorizontal: 8,
+                    backgroundColor: isMine ? COLORS.accentSoft : "#F6FAFD",
+                    borderWidth: 1,
+                    borderColor: isMine ? COLORS.accentBorder : "#E3EAF2",
                   }}
                 >
-                  {count}
-                </Text>
+                  <Text style={{ fontSize: TAMANOS.minimo }}>{emoji}</Text>
+                  <Text
+                    style={{
+                      fontSize: TAMANOS.minimo,
+                      fontWeight: "900",
+                      color: isMine ? COLORS.text : COLORS.soft,
+                    }}
+                  >
+                    {count}
+                  </Text>
+                </View>
               </Pressable>
             );
           })}
@@ -2370,7 +2407,7 @@ const MessageBubble = React.memo(function MessageBubble({
             flexWrap: "wrap",
             maxWidth: "100%",
             alignItems: "center",
-            gap: 4,
+            gap: TACTIL.separacion,
             alignSelf: mine ? "flex-end" : "flex-start",
             backgroundColor: "#FFFFFF",
             borderRadius: 999,
@@ -2392,8 +2429,8 @@ const MessageBubble = React.memo(function MessageBubble({
                 setPickerOpen(false);
               }}
               style={({ pressed }) => ({
-                width: 32,
-                height: 32,
+                width: TACTIL.minimo,
+                height: TACTIL.minimo,
                 borderRadius: 999,
                 alignItems: "center",
                 justifyContent: "center",
@@ -2415,8 +2452,8 @@ const MessageBubble = React.memo(function MessageBubble({
                 accessibilityLabel="Eliminar mensaje"
                 hitSlop={6}
                 style={({ pressed }) => ({
-                  width: 32,
-                  height: 32,
+                  width: TACTIL.minimo,
+                  height: TACTIL.minimo,
                   borderRadius: 999,
                   alignItems: "center",
                   justifyContent: "center",
@@ -2437,8 +2474,8 @@ const MessageBubble = React.memo(function MessageBubble({
               accessibilityLabel="Silenciar a esta persona"
               hitSlop={6}
               style={({ pressed }) => ({
-                width: 32,
-                height: 32,
+                width: TACTIL.minimo,
+                height: TACTIL.minimo,
                 borderRadius: 999,
                 alignItems: "center",
                 justifyContent: "center",
@@ -2520,8 +2557,8 @@ function ComposerSendButton({
     >
       <Animated.View
         style={{
-          width: 42,
-          height: 42,
+          width: TACTIL.minimo,
+          height: TACTIL.minimo,
           borderRadius: 999,
           alignItems: "center",
           justifyContent: "center",
@@ -2793,8 +2830,8 @@ function BottomBar({
                 shadowOffset: { width: 0, height: 4 },
               }}
             >
-              <Text style={{ color: "#0B2138", fontWeight: "800", fontSize: 12.5, lineHeight: 17, textAlign: "center" }}>
-                <Text style={{ color: COLORS.accent, fontWeight: "900" }}>Blue · </Text>
+              <Text style={{ color: "#0B2138", fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+                <Text style={{ color: COLORS.accentText, fontWeight: "900" }}>Blue · </Text>
                 Mantén pulsada una pestaña para moverla
               </Text>
             </View>
@@ -2850,15 +2887,15 @@ function BottomBar({
       {/* Botón del selector de pestañas: azul de marca y con un aro que late, para que se
           vea que es AQUÍ donde se cambia de pestaña (Blue lo señala la primera vez). */}
       <View
-        style={{ alignSelf: "flex-end", marginRight: 1, marginBottom: 8, width: 40, height: 40, alignItems: "center", justifyContent: "center" }}
+        style={{ alignSelf: "flex-end", marginRight: 1, marginBottom: 8, width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
       >
         <Animated.View
           pointerEvents="none"
           style={{
             position: "absolute",
-            width: 40,
-            height: 40,
-            borderRadius: 20,
+            width: TACTIL.minimo,
+            height: TACTIL.minimo,
+            borderRadius: TACTIL.minimo / 2,
             borderWidth: 2,
             borderColor: COLORS.accent,
             opacity: pulso.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
@@ -2870,9 +2907,9 @@ function BottomBar({
           testID="selector-pestanas"
           accessibilityLabel="Cambiar de pestaña del Foro: Foro, Noticias Gaming, Nuestras Novedades, Torneos y Chat"
           style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
+            width: TACTIL.minimo,
+            height: TACTIL.minimo,
+            borderRadius: TACTIL.minimo / 2,
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: COLORS.accent,
@@ -2922,29 +2959,42 @@ function BottomBar({
             }}
           />
           <View style={{ flex: 1 }}>
-            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12 }}>
+            <Text style={{ color: COLORS.accentText, fontWeight: "800", fontSize: TAMANOS.minimo }}>
               Respondiendo a {replyTarget.displayName || "usuario"}
             </Text>
             <Text
               numberOfLines={1}
-              style={{ color: "rgba(11,33,56,0.6)", fontSize: 12, marginTop: 2 }}
+              style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, marginTop: 2 }}
             >
               {replyTarget.type === "gif" ? "GIF" : textoSinMarca(replyTarget.text)}
             </Text>
           </View>
+          {/* Zona táctil de 44 px; el círculo gris de dentro sigue midiendo 24. */}
           <Pressable
             onPress={onCancelReply}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Cancelar la respuesta"
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: 12,
+              width: TACTIL.minimo,
+              height: TACTIL.minimo,
+              marginVertical: -10,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(11,33,56,0.08)",
             }}
           >
-            <Ionicons name="close" size={15} color={COLORS.text} />
+            <View
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "rgba(11,33,56,0.08)",
+              }}
+            >
+              <Ionicons name="close" size={15} color={COLORS.text} />
+            </View>
           </Pressable>
         </View>
       )}
@@ -2977,7 +3027,7 @@ function BottomBar({
               placeholderTextColor="rgba(11,33,56,0.4)"
               editable={!sending}
               style={{
-                minHeight: 42,
+                minHeight: CAMPO.alto,
                 maxHeight: 96,
                 borderRadius: 14,
                 backgroundColor: "rgba(255,255,255,0.42)",
@@ -2985,7 +3035,7 @@ function BottomBar({
                 // 16px es el mínimo que evita que Safari/iOS haga zoom
                 // automático al enfocar el campo (por debajo de 16px lo
                 // dispara siempre). No bajar de aquí.
-                fontSize: 16,
+                fontSize: CAMPO.letra,
                 paddingHorizontal: 14,
                 paddingVertical: 10,
                 opacity: sending ? 0.6 : 1,
@@ -2995,7 +3045,7 @@ function BottomBar({
           ) : (
             <View
               style={{
-                minHeight: 42,
+                minHeight: CAMPO.alto,
                 borderRadius: 14,
                 backgroundColor: "rgba(255,255,255,0.42)",
                 paddingHorizontal: 14,
@@ -3003,7 +3053,7 @@ function BottomBar({
                 justifyContent: "center",
               }}
             >
-              <Text style={{ color: "rgba(11,33,56,0.4)", fontSize: 16 }}>
+              <Text style={{ color: COLORS.muted, fontSize: CAMPO.letra }}>
                 Escribe un mensaje…
               </Text>
             </View>
@@ -3066,7 +3116,7 @@ function AuthRequiredModal({
             }}
           >
             <Text
-              style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}
+              style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}
             >
               ACCESO NECESARIO
             </Text>
@@ -3110,6 +3160,8 @@ function AuthRequiredModal({
               style={({ pressed }) => ({
                 opacity: pressed ? 0.88 : 1,
                 alignSelf: "center",
+                minHeight: TACTIL.minimo,
+                justifyContent: "center",
                 paddingVertical: 8,
                 paddingHorizontal: 10,
                 marginTop: 2,
@@ -3191,6 +3243,8 @@ function InfoModal({ visible, onClose }: { visible: boolean; onClose: () => void
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   backgroundColor: "#F6FAFD",
+                  minHeight: TACTIL.minimo,
+                  justifyContent: "center",
                   paddingVertical: 9,
                   paddingHorizontal: 16,
                   marginTop: 2,
@@ -3498,26 +3552,44 @@ function PrivateChatsInbox({
             <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
               {row.product_title}
             </Text>
-            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
+            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, marginTop: 2 }}>
               {row.last_message_preview || "Sin mensajes todavía"}
             </Text>
           </View>
 
-          <View style={{ alignItems: "flex-end", gap: 4 }}>
-            <Text style={{ color: COLORS.soft, fontSize: 11 }}>{formatInboxDate(row.last_message_at)}</Text>
+          <View style={{ alignItems: "flex-end", gap: 0 }}>
+            <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo }}>{formatInboxDate(row.last_message_at)}</Text>
+            {/* Zonas táctiles de 44 px; el margen negativo evita que la fila crezca. */}
             {confirmDeleteId === row.id ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
-                  <Text style={{ color: COLORS.soft, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion, marginBottom: -12 }}>
+                <Pressable
+                  onPress={() => setConfirmDeleteId(null)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  style={{ minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, fontWeight: "700" }}>Cancelar</Text>
                 </Pressable>
-                <Pressable onPress={() => handleDeleteChat(row.id)} disabled={deletingId === row.id} hitSlop={6}>
-                  <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
+                <Pressable
+                  onPress={() => handleDeleteChat(row.id)}
+                  disabled={deletingId === row.id}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  style={{ minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ color: "#DC2626", fontSize: TAMANOS.minimo, fontWeight: "900" }}>
                     {deletingId === row.id ? "Borrando…" : "Confirmar"}
                   </Text>
                 </Pressable>
               </View>
             ) : (
-              <Pressable onPress={() => setConfirmDeleteId(row.id)} hitSlop={6}>
+              <Pressable
+                onPress={() => setConfirmDeleteId(row.id)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Borrar esta conversación"
+                style={{ minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, alignItems: "flex-end", justifyContent: "center", marginBottom: -12 }}
+              >
                 <Ionicons name="trash-outline" size={14} color={COLORS.soft} />
               </Pressable>
             )}
@@ -4234,8 +4306,8 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
 
       <Text
         style={{
-          color: AZUL_NOTICIAS,
-          fontSize: 11,
+          color: COLORS.accentText,
+          fontSize: TAMANOS.minimo,
           fontWeight: "900",
           letterSpacing: 1.2,
           textTransform: "uppercase",
@@ -4250,7 +4322,7 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
         {n.titulo}
       </Text>
 
-      {meta ? <Text style={{ color: COLORS.soft, fontSize: 12, textAlign: "center" }}>{meta}</Text> : null}
+      {meta ? <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "center" }}>{meta}</Text> : null}
 
       {/* Resumen completo, siempre visible (sin cortar) */}
       {n.resumen ? (
@@ -4259,8 +4331,14 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
 
       {/* Su página propia (enlace de verdad, también para Google). */}
       <Link href={`/noticias/${n.id}` as Href} asChild>
-        <Pressable nativeID={`abrir-noticia-${n.id}`} accessibilityRole="link" hitSlop={6} style={{ paddingVertical: 2 }}>
-          <Text style={{ color: AZUL_NOTICIAS, fontSize: 12.5, fontWeight: "800", textAlign: "center" }}>Abrir la noticia</Text>
+        <Pressable
+          nativeID={`abrir-noticia-${n.id}`}
+          accessibilityRole="link"
+          hitSlop={6}
+          // Zona táctil de 44 px; el margen negativo mantiene la separación de antes en la tarjeta.
+          style={{ minHeight: TACTIL.minimo, paddingHorizontal: 8, justifyContent: "center", marginVertical: -8 }}
+        >
+          <Text style={{ color: COLORS.accentText, fontSize: TAMANOS.minimo, fontWeight: "800", textAlign: "center" }}>Abrir la noticia</Text>
         </Pressable>
       </Link>
 
@@ -4285,7 +4363,7 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
             </SeccionNoticia>
           ) : null}
 
-          <Text style={{ color: COLORS.soft, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
+          <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 18 }}>
             Redactado a partir del texto del artículo original{origen ? ` (${origen})` : ""}
           </Text>
 
@@ -4346,6 +4424,8 @@ const TarjetaNoticia = React.memo(function TarjetaNoticia({
             accessibilityRole="button"
             style={({ pressed }) => ({
               opacity: pressed ? 0.85 : 1,
+              minHeight: TACTIL.minimo,
+              justifyContent: "center",
               borderRadius: 999,
               paddingVertical: 10,
               paddingHorizontal: 20,
@@ -4883,8 +4963,8 @@ function SeccionNoticia({ titulo, children }: { titulo: string; children: React.
     <View style={{ width: "100%", maxWidth: 560, alignItems: "center", gap: 8 }}>
       <Text
         style={{
-          color: AZUL_NOTICIAS,
-          fontSize: 11,
+          color: COLORS.accentText,
+          fontSize: TAMANOS.minimo,
           fontWeight: "900",
           letterSpacing: 1.2,
           textTransform: "uppercase",
@@ -4945,6 +5025,9 @@ function BotonNoticia({
         borderWidth: 1,
         borderColor: COLORS.accentBorder,
         backgroundColor: activo ? COLORS.accentSoft : "transparent",
+        minHeight: TACTIL.minimo,
+        minWidth: TACTIL.minimo,
+        justifyContent: "center",
         paddingVertical: 8,
         paddingHorizontal: 14,
       })}
@@ -5093,8 +5176,8 @@ function ComentariosNoticia({
     <View style={{ width: "100%", maxWidth: 560, gap: 10, marginTop: 4 }}>
       <Text
         style={{
-          color: AZUL_NOTICIAS,
-          fontSize: 11,
+          color: COLORS.accentText,
+          fontSize: TAMANOS.minimo,
           fontWeight: "900",
           letterSpacing: 1.2,
           textTransform: "uppercase",
@@ -5129,7 +5212,7 @@ function ComentariosNoticia({
                 return (
                   <>
                     <AvatarCircle username={nombre} foto={perfil?.foto || undefined} size={26} />
-                    <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: COLORS.soft, fontSize: 12 }}>
+                    <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: COLORS.soft, fontSize: TAMANOS.minimo }}>
                       <Text style={{ color: COLORS.text, fontWeight: "900" }}>{nombre}</Text>
                       {` · ${haceTiempo(c.created_at)}`}
                     </Text>
@@ -5146,10 +5229,10 @@ function ComentariosNoticia({
                   accessibilityLabel="Eliminar comentario"
                   hitSlop={8}
                   style={({ pressed }) => ({
-                    width: 30,
-                    height: 30,
-                    marginVertical: -6,
-                    borderRadius: 15,
+                    width: TACTIL.minimo,
+                    height: TACTIL.minimo,
+                    marginVertical: -13,
+                    borderRadius: TACTIL.minimo / 2,
                     alignItems: "center",
                     justifyContent: "center",
                     backgroundColor: pressed ? "rgba(220,38,38,0.12)" : "transparent",
@@ -5199,7 +5282,7 @@ function ComentariosNoticia({
               accessibilityLabel="Escribe un comentario"
               style={{
                 flex: 1,
-                minHeight: 44,
+                minHeight: CAMPO.alto,
                 maxHeight: 120,
                 borderRadius: 16,
                 borderWidth: 1,
@@ -5235,7 +5318,7 @@ function ComentariosNoticia({
             </Pressable>
           </View>
           {texto.length > MAX_COMENTARIO - 100 ? (
-            <Text style={{ color: COLORS.soft, fontSize: 11, textAlign: "right" }}>
+            <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, textAlign: "right" }}>
               {`${texto.length}/${MAX_COMENTARIO}`}
             </Text>
           ) : null}
@@ -5250,6 +5333,8 @@ function ComentariosNoticia({
             accessibilityRole="button"
             style={({ pressed }) => ({
               opacity: pressed ? 0.85 : 1,
+              minHeight: TACTIL.minimo,
+              justifyContent: "center",
               borderRadius: 999,
               paddingVertical: 10,
               paddingHorizontal: 20,
@@ -5391,7 +5476,7 @@ function MenuCompartirNoticia({
           <Pressable
             onPress={onCerrar}
             hitSlop={6}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6, paddingHorizontal: 12 })}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, minHeight: TACTIL.minimo, justifyContent: "center", paddingVertical: 6, paddingHorizontal: 12 })}
           >
             <Text style={{ color: COLORS.muted, fontWeight: "800" }}>Cancelar</Text>
           </Pressable>
@@ -5452,7 +5537,7 @@ function OpcionMenu({
       <View style={{ flex: 1 }}>
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>{texto}</Text>
         {detalle ? (
-          <Text style={{ color: COLORS.soft, fontSize: 12, marginTop: 2 }}>{detalle}</Text>
+          <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo, marginTop: 2 }}>{detalle}</Text>
         ) : null}
       </View>
     </Pressable>
@@ -5487,6 +5572,7 @@ function TarjetaNoticiaForo({
         alignItems: "center",
         gap: 6,
         borderRadius: 999,
+        minHeight: TACTIL.minimo,
         paddingVertical: 8,
         paddingHorizontal: 16,
         backgroundColor: AZUL_NOTICIAS,
@@ -5503,7 +5589,7 @@ function TarjetaNoticiaForo({
       <View style={{ gap: 8 }}>
         <Text style={{ color: COLORS.text, lineHeight: 22 }}>{texto || "📰 Noticia"}</Text>
         {noticia === null ? (
-          <Text style={{ color: COLORS.soft, fontSize: 12 }}>Esta noticia ya no está disponible.</Text>
+          <Text style={{ color: COLORS.soft, fontSize: TAMANOS.minimo }}>Esta noticia ya no está disponible.</Text>
         ) : (
           boton
         )}
@@ -5539,8 +5625,8 @@ function TarjetaNoticiaForo({
       <View style={{ padding: 12, gap: 6, alignItems: "center" }}>
         <Text
           style={{
-            color: AZUL_NOTICIAS,
-            fontSize: 10,
+            color: COLORS.accentText,
+            fontSize: TAMANOS.minimo,
             fontWeight: "900",
             letterSpacing: 1.1,
             textTransform: "uppercase",
@@ -5687,6 +5773,7 @@ function AvisosNoticiasModal({
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "flex-start",
+                  minHeight: TACTIL.minimo,
                   gap: 10,
                   opacity: pressed || guardando ? 0.7 : 1,
                 })}
@@ -5700,7 +5787,7 @@ function AvisosNoticiasModal({
                   Acepto recibir ofertas y novedades comerciales de VideojuegosZaragoza.com
                 </Text>
               </Pressable>
-              <Text style={{ color: COLORS.soft, fontSize: 11, marginLeft: 32 }}>
+              <Text style={{ color: COLORS.soft, fontSize: TAMANOS.legal, marginLeft: 32 }}>
                 Puedes retirarlo cuando quieras desde aquí
               </Text>
 
@@ -5714,6 +5801,8 @@ function AvisosNoticiasModal({
                     accessibilityRole="button"
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.85 : 1,
+                      minHeight: TACTIL.minimo,
+                      justifyContent: "center",
                       borderRadius: 999,
                       paddingVertical: 9,
                       paddingHorizontal: 18,
@@ -5738,6 +5827,8 @@ function AvisosNoticiasModal({
             accessibilityRole="button"
             style={({ pressed }) => ({
               opacity: pressed ? 0.9 : 1,
+              minHeight: TACTIL.minimo,
+              justifyContent: "center",
               borderRadius: 999,
               paddingVertical: 10,
               paddingHorizontal: 26,

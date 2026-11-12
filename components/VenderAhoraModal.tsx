@@ -99,8 +99,16 @@
  *   acentos azul claro). El fondo oscuro semitransparente detrás de la
  *   tarjeta se mantiene oscuro a propósito, igual que en el resto de
  *   modales del panel admin.
+ * - Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): campos de texto y
+ *   desplegables «Elegir» a 16 px y 48 px de alto (CAMPO), chips, casilla
+ *   «mayor de 18», «+ Añadir @gmail.com», la X y los botones finales con
+ *   44 px de zona táctil (TACTIL), letra mínima 13 (TAMANOS) y grises
+ *   COLORES_TEXTO.secundario. En las filas de dos columnas las etiquetas
+ *   empiezan a la misma altura y los recuadros quedan alineados abajo.
  *
  * Conectado con:
+ * - constants/theme.ts → TAMANOS, TACTIL, CAMPO y COLORES_TEXTO.
+ * - pruebas/perfil-datos.mjs (sección TM2) → comprueba esos tamaños.
  * - lib/supabase.ts → cliente usado para el INSERT.
  * - app/(tabs)/index.tsx → abre este modal desde el botón "Vender ahora".
  * - app/vender.tsx → la página, con articuloInicial, cambio y problemaInicial (la nota de una reparación
@@ -125,6 +133,7 @@ import {
 import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { supabase } from "../lib/supabase";
 import { leerOrigenVender, marcarOrigenVender, trackEvent } from "../lib/analytics";
 import CabeceraMarca from "./CabeceraMarca";
@@ -140,9 +149,9 @@ const COLORS = {
   card: "#F6FAFD",
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.62)",
+  text: COLORES_TEXTO.texto,
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
@@ -157,7 +166,7 @@ const COLORS = {
 
 // Tamaño mínimo de fuente en los campos de texto: por debajo de 16px los
 // navegadores móviles hacen zoom automático al enfocar el campo.
-const INPUT_FONT_SIZE = 16;
+const INPUT_FONT_SIZE = CAMPO.letra;
 
 // Solo dos formas de contacto: el correo de Gmail y el chat propio de la tienda.
 type MetodoContacto = "gmail" | "chat";
@@ -405,6 +414,8 @@ export function FieldInput({
             borderWidth: 1,
             borderColor: COLORS.border,
             borderRadius: 14,
+            // 48 px de alto (CAMPO): más fácil de tocar y alineado con los desplegables «Elegir».
+            minHeight: CAMPO.alto,
             paddingHorizontal: isMobile ? 11 : 12,
             paddingRight: completed ? (isMobile ? 34 : 38) : isMobile ? 11 : 12,
             paddingVertical: isMobile ? 10 : 12,
@@ -419,7 +430,7 @@ export function FieldInput({
         {...rest}
       />
       {completed && (
-        <View style={{ position: "absolute", right: isMobile ? 10 : 12, top: isMobile ? 10 : 12 }}>
+        <View style={{ position: "absolute", right: isMobile ? 10 : 12, top: (CAMPO.alto - 18) / 2 }}>
           <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
         </View>
       )}
@@ -491,6 +502,7 @@ export function SelectField<T extends string>({
           borderWidth: 1,
           borderColor: completed ? COLORS.border : value ? COLORS.accentBorder : COLORS.border,
           backgroundColor: completed ? COLORS.card : value ? COLORS.accent2 : COLORS.cardSoft,
+          minHeight: CAMPO.alto,
           paddingVertical: isMobile ? 10 : 12,
           paddingHorizontal: isMobile ? 12 : 14,
           opacity: pressed ? 0.9 : 1,
@@ -532,6 +544,8 @@ export function SelectField<T extends string>({
                   }}
                   style={({ pressed }) => ({
                     borderRadius: 14,
+                    minHeight: TACTIL.minimo,
+                    justifyContent: "center",
                     paddingVertical: isMobile ? 10 : 12,
                     paddingHorizontal: 12,
                     alignItems: "center",
@@ -592,12 +606,15 @@ function Checkbox({
   const boxSize = isMobile ? 22 : 24;
   return (
     <View style={{ alignItems: "center" }}>
+      {/* Toda la fila (casilla + texto) es la zona táctil: 44 px de alto como mínimo (TACTIL). */}
       <AnimatedPressable
         onPress={onToggle}
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
           gap: 10,
+          minHeight: TACTIL.minimo,
+          paddingHorizontal: 4,
           opacity: pressed ? 0.85 : 1,
         })}
       >
@@ -1206,11 +1223,12 @@ export default function VenderAhoraModal({
   // Rejilla de campos: filas con columnas iguales que aprovechan el ancho. En el móvil, 2
   // columnas (Nombre | Apellido, Género | ¿Todo funciona?, Ciudad | Precio…); en pantallas
   // anchas, hasta 3 (Nombre | Apellido | Género, ¿Todo funciona? | motivo…). Los textos largos
-  // (artículo, dirección, fotos) ocupan toda la fila. Dentro de cada fila los recuadros quedan
-  // alineados abajo aunque una etiqueta ocupe dos líneas.
+  // (artículo, dirección, fotos) ocupan toda la fila. Dentro de cada fila las etiquetas empiezan
+  // a la misma altura (arriba) y los recuadros, todos de 48 px (CAMPO), quedan alineados abajo
+  // aunque una etiqueta ocupe dos líneas (space-between).
   const tresColumnas = !isMobile;
   const filaStyle = { flexDirection: "row" as const, gap: isMobile ? 12 : 16, alignItems: "stretch" as const };
-  const campoStyle = { flex: 1, minWidth: 0, gap: 6, justifyContent: "flex-end" as const };
+  const campoStyle = { flex: 1, minWidth: 0, gap: 6, justifyContent: "space-between" as const };
   // Dato que depende de un desplegable (número, correo, dirección, disponibilidad): al lado en
   // pantallas anchas; en el móvil, debajo y a todo el ancho para que no salga cortado.
   const campoDatoStyle = tresColumnas ? campoStyle : { width: "100%" as const, gap: 6 };
@@ -1451,6 +1469,7 @@ export default function VenderAhoraModal({
                           flexDirection: "row",
                           alignItems: "center",
                           gap: 8,
+                          minHeight: TACTIL.minimo,
                           borderRadius: 999,
                           paddingVertical: 12,
                           paddingHorizontal: 20,
@@ -1469,6 +1488,8 @@ export default function VenderAhoraModal({
                         containerStyle={{ marginTop: 4 }}
                         style={({ pressed }) => ({
                           opacity: pressed ? 0.9 : 1,
+                          minHeight: TACTIL.minimo,
+                          justifyContent: "center",
                           borderRadius: 999,
                           paddingVertical: 12,
                           paddingHorizontal: 20,
@@ -1483,6 +1504,8 @@ export default function VenderAhoraModal({
                       onPress={handleClose}
                       style={({ pressed }) => ({
                         opacity: pressed ? 0.85 : 1,
+                        minHeight: TACTIL.minimo,
+                        justifyContent: "center",
                         borderRadius: 999,
                         paddingVertical: 10,
                         paddingHorizontal: 18,
@@ -1507,13 +1530,13 @@ export default function VenderAhoraModal({
                           top: isMobile ? 12 : 16,
                           right: isMobile ? 12 : 16,
                           zIndex: 2,
-                          width: 32,
-                          height: 32,
+                          width: TACTIL.minimo,
+                          height: TACTIL.minimo,
                         }}
                         style={({ pressed }) => ({
                           flex: 1,
                           opacity: pressed ? 0.8 : 1,
-                          borderRadius: 16,
+                          borderRadius: TACTIL.minimo / 2,
                           alignItems: "center",
                           justifyContent: "center",
                           backgroundColor: COLORS.card,
@@ -1671,8 +1694,10 @@ export default function VenderAhoraModal({
                               }
                               containerStyle={{ alignSelf: "center" }}
                               style={({ pressed }) => ({
+                                minHeight: TACTIL.minimo,
+                                justifyContent: "center",
                                 paddingVertical: 6,
-                                paddingHorizontal: 10,
+                                paddingHorizontal: 14,
                                 borderRadius: 999,
                                 borderWidth: 1,
                                 borderColor: COLORS.accentBorder,
@@ -1680,7 +1705,7 @@ export default function VenderAhoraModal({
                                 opacity: pressed ? 0.85 : 1,
                               })}
                             >
-                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                                 + Añadir @gmail.com
                               </Text>
                             </AnimatedPressable>
@@ -1884,6 +1909,8 @@ export default function VenderAhoraModal({
                         onPressOut={submitPressOut}
                         disabled={sending || !progress.canSubmit}
                         style={({ pressed }) => ({
+                          minHeight: CAMPO.alto,
+                          justifyContent: "center",
                           paddingVertical: isMobile ? 13 : 14,
                           alignItems: "center",
                           opacity: pressed && progress.canSubmit ? 0.9 : 1,
@@ -1913,7 +1940,7 @@ export default function VenderAhoraModal({
                                 style={{
                                   color: "rgba(255,255,255,0.85)",
                                   fontWeight: "800",
-                                  fontSize: 12,
+                                  fontSize: TAMANOS.minimo,
                                   marginTop: 2,
                                 }}
                               >
