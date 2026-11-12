@@ -255,7 +255,16 @@
  *    menos de 17 px; pestañas Mi cuenta / Mis seguimientos / Me gusta y «Preguntar por esto» de 44 px; y los 3 campos que
  *    hacían zoom en el iPhone a 16 px (buscador de Servicios, campos de «Mi perfil» y, en el código, el de la respuesta
  *    de Blue en components/Campanita.tsx).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM]
+ *  - UP) Administración → «Usuarios y participación» rediseñada (2026-11-12), a 360, 390 y 1280 px: buscador (16 px) que
+ *    lleva a «Clientes», 5 cifras clave (registrados, activos 7 días sin el administrador, perfil completo, con la app,
+ *    valoración) en una fila en el ordenador y que filtran al tocarlas, 4 pestañas con su número recordadas en ?tab=
+ *    (también al recargar) y el punto rojo de «Seguridad» solo si algo requiere atención; filas con foto o iniciales,
+ *    resumen, correo, alta, «Última conexión hace…», etiquetas y participación; filtros (Activos 7 días, Provincia y Edad
+ *    que se despliegan y repliegan), «Quitar filtros» y el orden; Participación en tarjetas; Ideas como bandeja (sin leer
+ *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
+ *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
+ *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1659,10 +1668,11 @@ async function seccionP() {
     await capturar(s, "P4-admin-servicios");
     ok(s.errores.length === 0, `P: Servicios sin errores de JavaScript (${s.errores.length}${s.errores[0] ? ": " + s.errores[0] : ""})`);
 
-    const u = await pagina(ctx, "/admin/users");
+    // (en la pestaña «Participación» de Usuarios, en su tarjeta: título, cifra grande y detalle)
+    const u = await pagina(ctx, "/admin/users?tab=participacion");
     await u.locator("#admin-numeros-seguimiento").waitFor({ timeout: 30000 }).catch(() => {});
-    const lineaU = (await u.locator("#admin-numeros-seguimiento").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Números de seguimiento \(30 días\): añadidos a una cuenta 2 \(por 1 persona\) · intentos fallidos 1/.test(lineaU), `P: Usuarios cuenta los números añadidos y los intentos fallidos (${lineaU})`);
+    const lineaU = (await u.locator("#admin-numeros-seguimiento").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+    ok(/^Números de seguimiento \(30 días\) 2 añadidos a una cuenta \(por 1 persona\) · intentos fallidos 1$/.test(lineaU), `P: Usuarios cuenta los números añadidos y los intentos fallidos (${lineaU})`);
     await ctx.close();
   }
 }
@@ -3309,10 +3319,11 @@ async function seccionRE() {
       eventos: [ev(["envio", "atencion"], 1), ev(["atencion"], 0), ev([], 2), ev([], 0)],
     };
     const ctxAdmin = await contexto(navegador, ADMIN, "admin", admin);
-    const pa = await pagina(ctxAdmin, "/admin/users");
+    // (en la pestaña «Participación» de Usuarios, en su tarjeta: título, cifra grande y detalle)
+    const pa = await pagina(ctxAdmin, "/admin/users?tab=participacion");
     await pa.locator("#usuarios-resenas-uso").waitFor({ timeout: 40000 }).catch(() => {});
-    const t = (await pa.locator("#usuarios-resenas-uso").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Reseñas \(30 días\): 4 publicadas · con ideas sugeridas: 2 · con emoji: 2 · la idea más usada: «Atención de 10»/.test(t), `RE: Administración → Usuarios cuenta las reseñas con ideas y con emoji, y la idea más usada (${t})`);
+    const t = (await pa.locator("#usuarios-resenas-uso").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+    ok(/^Reseñas \(30 días\) 4 publicadas · con ideas sugeridas: 2 · con emoji: 2 · la idea más usada: «Atención de 10»$/.test(t), `RE: Administración → Usuarios cuenta las reseñas con ideas y con emoji, y la idea más usada (${t})`);
     ok(pa.errores.length === 0, `RE: Usuarios sin errores de JavaScript (${pa.errores.length}${pa.errores[0] ? ": " + pa.errores[0] : ""})`);
     await ctxAdmin.close();
   }
@@ -4492,8 +4503,10 @@ async function seccionME() {
       novedades: {},
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    // (las ideas están en la pestaña «Ideas de mejora» de Usuarios, que también dice cuántas sin leer)
+    const p = await pagina(ctx, "/admin/users?tab=ideas");
     await p.locator("#admin-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
+    ok(/Ideas de mejora\s*2/.test(await p.locator("#usuarios-pestana-ideas").innerText().catch(() => "")), "ME: la pestaña «Ideas de mejora» lleva el número de las sin leer");
     const t = (await p.locator("#admin-mejoras").innerText().catch(() => "")).replace(/\n+/g, " | ");
     ok(/Ideas de mejora · 2 sin leer/.test(t), `ME: Usuarios enseña «Ideas de mejora · 2 sin leer» (${t.slice(0, 60)})`);
     ok(/Filtrar por precio/.test(t) && /Que Blue avise/.test(t) && !/Más fotos de cada consola/.test(t), "ME: primero solo las que no se han leído");
@@ -4548,7 +4561,7 @@ async function seccionME() {
   {
     const estado = { guardados: [], filas: perfil, usuarios: [] };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    const p = await pagina(ctx, "/admin/users?tab=ideas");
     await p.locator("#admin-mejoras").waitFor({ timeout: 30000 }).catch(() => {});
     ok(/falta aplicar en Supabase la migración 20261101200000_mejoras_tienda/.test(await p.locator("#admin-mejoras").innerText().catch(() => "")), "ME: sin la migración, Usuarios dice qué falta");
     ok(p.errores.length === 0, `ME: y sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -4743,11 +4756,12 @@ async function seccionCO() {
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    // (en la pestaña «Seguridad» de Usuarios: las cifras y, debajo, el detalle)
+    const p = await pagina(ctx, "/admin/users?tab=seguridad");
     await p.locator("#admin-contrasenas").waitFor({ timeout: 30000 }).catch(() => {});
-    const t = (await p.locator("#admin-contrasenas").innerText().catch(() => "")).replace(/\n+/g, " ");
+    const t = (await p.locator("#admin-contrasenas").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ");
     ok(
-      /enlaces pedidos 3 · abiertos 2 · contraseñas cambiadas 1/.test(t) && /no sirvieron 2 \(en otro navegador 1, caducados o ya usados 1\)/.test(t) && /no se pudieron pedir 1/.test(t),
+      /3 Enlaces pedidos 2 Abiertos 1 Contraseñas cambiadas/.test(t) && /Enlaces que no sirvieron 2 \(en otro navegador 1, caducados o ya usados 1\)/.test(t) && /no se pudieron pedir 1/.test(t),
       `CO: Usuarios cuenta los enlaces pedidos, abiertos, los que no sirvieron y las contraseñas cambiadas (${t.slice(0, 200)})`
     );
     ok(/Supabase ha frenado 1 correo/.test(t) && /SMTP/.test(t), "CO: y avisa si Supabase frena correos por su límite (hace falta el correo propio)");
@@ -4922,11 +4936,14 @@ async function seccionDI() {
       eventos: [ev("perfil_direccion_guardada", CLIENTE.id), ev("perfil_direccion_guardada", OTRO.id), ev("pago_direccion_perfil", CLIENTE.id)],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    // (los contadores de perfiles están en «Participación»; la lista y sus filtros, en «Clientes»)
+    const p = await pagina(ctx, "/admin/users?tab=participacion");
     await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
     const t = (await p.locator("#admin-perfiles").innerText().catch(() => "")).replace(/\n+/g, " | ");
-    ok(/Con dirección \| 1/.test(t), `DI: Usuarios cuenta quién tiene dirección de envío (${(t.match(/Con dirección[^|]*\|[^|]*/) ?? [""])[0]})`);
+    ok(/(^|\| )1 \| Con dirección/.test(t), `DI: Usuarios cuenta quién tiene dirección de envío (${(t.match(/[^|]*\|[^|]*Con dirección/) ?? [""])[0]})`);
     ok(/la guardaron 2 · pagaron con ella ya rellenada 1/.test((await p.locator("#admin-perfiles-direccion").innerText().catch(() => "")).replace(/\n/g, " ")), "DI: y cuántos la guardan y pagan con ella ya rellenada (30 días)");
+    await p.locator("#usuarios-pestana-clientes").click();
+    await p.locator("#usuarios-lista").waitFor({ timeout: 10000 }).catch(() => {});
     const todo = (await p.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
     ok(/CP 50410 Cuarte de Huerva/.test(todo), "DI: cada fila enseña su código postal y localidad (zona de reparto)");
     await p.getByText("Con dirección (1)", { exact: true }).click();
@@ -4950,10 +4967,13 @@ async function seccionDI() {
       usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    const p = await pagina(ctx, "/admin/users?tab=participacion");
     await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
     const t = (await p.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
-    ok(!/Con dirección/.test(t) && p.errores.length === 0, "DI: sin la migración, Usuarios no enseña nada de la dirección y sin errores");
+    await p.locator("#usuarios-pestana-clientes").click();
+    await p.locator("#usuarios-lista").waitFor({ timeout: 10000 }).catch(() => {});
+    const tc = (await p.evaluate(() => document.body.innerText)).replace(/\n+/g, " ");
+    ok(!/Con dirección/.test(t) && !/Con dirección/.test(tc) && p.errores.length === 0, "DI: sin la migración, Usuarios no enseña nada de la dirección (ni en Participación ni en Clientes) y sin errores");
     await ctx.close();
   }
 }
@@ -5146,11 +5166,12 @@ async function seccionSE() {
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    // (en la pestaña «Seguridad» de Usuarios: las cifras y, debajo, los intentos fallidos)
+    const p = await pagina(ctx, "/admin/users?tab=seguridad");
     await p.locator("#admin-seguridad").waitFor({ timeout: 30000 }).catch(() => {});
-    const t = (await p.locator("#admin-seguridad").innerText().catch(() => "")).replace(/\n/g, " ");
+    const t = (await p.locator("#admin-seguridad").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
     ok(
-      /cambios de correo pedidos 2 · terminados 1/.test(t) && /contraseñas cambiadas desde Mi perfil 1/.test(t) && /intentos fallidos 2 \(contraseña actual equivocada 1\)/.test(t),
+      /^2 Cambios de correo pedidos 1 Terminados 1 Contraseñas cambiadas desde Mi perfil/.test(t) && /Intentos fallidos 2 \(contraseña actual equivocada 1\)$/.test(t),
       `SE: Usuarios cuenta los cambios de correo y de contraseña (${t})`
     );
     ok(p.errores.length === 0, `SE: Usuarios sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -8062,7 +8083,7 @@ async function seccionC8() {
       eventos: [ev("registro", 1), ev("registro", 2), ev("recuperar", 3), ev("perfil", 4)],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    const p = await pagina(ctx, "/admin/users?tab=seguridad");
     await p.locator("#admin-contrasenas-cortas").waitFor({ timeout: 30000 }).catch(() => {});
     const t = await texto(p, "#admin-contrasenas-cortas");
     ok(/^Contraseñas de al menos 8 caracteres \(30 días\): se pidió una más larga 4 veces \(al crear la cuenta 2 · al recuperarla 1 · en Mi perfil 1\)$/.test(t), `C8: Usuarios lo cuenta y dice dónde (${t})`);
@@ -10769,16 +10790,20 @@ async function seccionDV() {
 
     // Usuarios: «Última conexión» en cada fila, el orden y «Activos 7 días».
     const u = await pagina(ctx, "/admin/users");
-    await u.getByText("Ver ficha del cliente").first().waitFor({ timeout: 40000 }).catch(() => {});
+    await u.locator("#usuarios-lista").waitFor({ timeout: 40000 }).catch(() => {});
     const tu = limpio(await u.evaluate(() => document.body.innerText));
-    ok(/cliente@example\.com.{0,80}Última conexión: hace 2 h/.test(tu) && /ana@example\.com.{0,80}Última conexión: hace 10 días/.test(tu), `DV: Usuarios enseña la última conexión en cada fila (${(tu.match(/Alta:[^·]*· Última conexión: [^A-Z]*/g) ?? []).join(" | ")})`);
-    ok((await u.getByText("Activos 7 días (1)", { exact: true }).count()) === 1 && (await u.getByText("Última conexión", { exact: true }).count()) === 1, "DV: el chip «Activos 7 días (1)» y el orden «Última conexión»");
+    ok(/cliente@example\.com.{0,80}Última conexión hace 2 h/.test(tu) && /ana@example\.com.{0,80}Última conexión hace 10 días/.test(tu), `DV: Usuarios enseña la última conexión en cada fila (${(tu.match(/Alta [^·]*·[^A-Z]*Última conexión [^A-Z]*/g) ?? []).join(" | ")})`);
+    // El orden está en su desplegable (botón «Alta más reciente» con su flecha).
+    await u.locator("#usuarios-orden").click();
+    ok((await u.getByText("Activos 7 días (1)", { exact: true }).count()) === 1 && (await u.locator("#usuarios-orden-menu").getByText("Última conexión", { exact: true }).count()) === 1, "DV: el chip «Activos 7 días (1)» y el orden «Última conexión»");
+    await u.locator("#usuarios-orden").click();
     await u.getByText("Activos 7 días (1)", { exact: true }).click();
     await u.waitForTimeout(400);
     const activos = await u.evaluate(() => document.body.innerText);
     ok(activos.includes("cliente@example.com") && !activos.includes("ana@example.com"), "DV: «Activos 7 días» deja solo a quien se ha conectado esa semana");
     await u.getByText("Activos 7 días (1)", { exact: true }).click();
-    await u.getByText("Última conexión", { exact: true }).click();
+    await u.locator("#usuarios-orden").click();
+    await u.locator("#usuarios-orden-menu").getByText("Última conexión", { exact: true }).click();
     await u.waitForTimeout(400);
     const ordenU = await u.evaluate(() => [document.body.innerText.indexOf("cliente@example.com"), document.body.innerText.indexOf("ana@example.com")]);
     ok(ordenU[0] >= 0 && ordenU[1] > ordenU[0], `DV: ordenar por «Última conexión» pone primero al más reciente (${ordenU.join(" < ")})`);
@@ -11229,8 +11254,315 @@ async function seccionTM() {
   }
 }
 
+// ===== UP) Administración → «Usuarios y participación» con el diseño nuevo (dueño, 2026-11-12): buscador y cifras
+// clave arriba, pestañas con ?tab= (Clientes · Participación · Ideas de mejora · Seguridad), filas con la última
+// conexión, filtros que se despliegan y repliegan, orden, marcar leída una idea, «Quitar silencio», el aviso rojo solo
+// cuando hace falta, letra ≥ 12 px (13 en la práctica), táctiles de 44 px separados 8 px y nada se sale a 360, 390 y
+// 1280 px (en el ordenador, centrado y de 960 px como mucho) =====
+async function seccionUP() {
+  // Sin las letras de la fuente de iconos (zona de uso privado de Unicode) ni espacios de más.
+  const limpio = (s) => String(s ?? "").replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const ID = (n) => `u${n}000000-0000-4000-8000-00000000000${n}`;
+  const USU = [
+    { user_id: ID(1), email: "dani@example.com", role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 3, product_chats_count: 0, store_reviews_count: 0 },
+    { user_id: ID(2), email: "ana@example.com", role: "user", created_at: "2026-10-02T10:00:00Z", chat_messages_count: 0, product_chats_count: 1, store_reviews_count: 1 },
+    { user_id: ID(3), email: "luis@example.com", role: "user", created_at: "2026-10-03T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+    { user_id: ID(4), email: "sin-perfil@example.com", role: "user", created_at: "2026-10-04T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+    { user_id: ADMIN.id, email: ADMIN.email, role: "admin", created_at: "2026-09-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 },
+  ];
+  const dir = (cp, loc, calle) => ({ codigo_postal: cp, localidad: loc, direccion: calle, piso: "" });
+  const PERF = [
+    // Foto falsa (pruebas/sin-fotos-reales.mjs): nada llega a Supabase.
+    { user_id: ID(1), nombre: "Dani", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2003-08-19", foto_url: "https://fotos.ejemplo.invalid/storage/v1/object/public/avatares/u1/1.jpg", updated_at: "2026-10-30T18:00:00Z", ...dir("50410", "Cuarte de Huerva", "Calle Mayor 5") },
+    { user_id: ID(2), nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02", foto_url: null, updated_at: "2026-10-29T18:00:00Z", ...dir("", "", "") },
+    { user_id: ID(3), nombre: "", usuario: "", pais: "Francia", provincia: "Zaragoza", fecha_nacimiento: null, foto_url: null, updated_at: null, ...dir("", "", "") },
+  ];
+  const ev = (event_name, metadata = {}, i = 0) => ({ event_name, user_id: null, session_id: `s-${event_name}-${i}`, metadata });
+  const estadoBase = (conLimite = true) => ({
+    usuarios: USU,
+    filas: PERF,
+    guardados: [],
+    dispositivos: {
+      filas: [
+        { id: "d1", user_id: ID(1), dispositivo: "iPhone · Safari", app_instalada: true, primera_vez: "2026-10-01T10:00:00Z", ultima_vez: hace(120), inicios: 3 },
+        { id: "d2", user_id: ID(2), dispositivo: "Windows · Chrome", app_instalada: false, primera_vez: "2026-10-02T10:00:00Z", ultima_vez: hace(10 * 24 * 60), inicios: 1 },
+      ],
+    },
+    resenas: [{ rating: 5 }, { rating: 4 }],
+    novedades: { sell_requests: [hace(60)], service_requests: [hace(60), hace(90)] },
+    silencios: [{ user_id: ID(2), hasta: new Date(Date.now() + 2 * 86400000).toISOString(), motivo: "Spam" }],
+    moderacion: [
+      { id: "x1", created_at: hace(60), accion: "mensaje_eliminado", user_id: ID(1), detalle: "spam" },
+      { id: "x2", created_at: hace(60), accion: "comentario_eliminado", user_id: ID(2), detalle: "spam" },
+      { id: "x3", created_at: hace(60), accion: "silenciado", user_id: ID(2), detalle: "Spam" },
+    ],
+    numeros: { pedidos: [], items: [], reparaciones: [], intentos: [{ user_id: ID(1), acierto: true }, { user_id: ID(1), acierto: false }] },
+    mejoras: [
+      { id: "m1", user_id: ID(2), created_at: hace(120), texto: "Filtrar por precio en el catálogo", origen: "pie", leida: false, leida_en: null },
+      { id: "m2", user_id: ID(1), created_at: hace(300), texto: "Que Blue avise de las ofertas de mandos y consolas revisadas", origen: "blue", leida: false, leida_en: null },
+      { id: "m3", user_id: ID(1), created_at: hace(3000), texto: "Más fotos de cada consola", origen: "perfil", leida: true, leida_en: hace(2000) },
+    ],
+    eventos: [
+      ev("resena_publicada", { estrellas: 5, sugerencias: ["envio"], emojis: 1 }),
+      ev("seguimientos_abiertos", { como: "deslizar" }),
+      ev("contrasena_enlace_pedido", { desde: "perfil" }, 1),
+      ev("contrasena_enlace_pedido", { desde: "perfil" }, 2),
+      ev("contrasena_enlace_abierto", { via: "token" }),
+      ev("contrasena_cambiada"),
+      ...(conLimite ? [ev("contrasena_enlace_error", { desde: "perfil", motivo: "limite" })] : []),
+      ev("perfil_correo_cambio_pedido"),
+      ev("mejora_abierta", { origen: "blue" }),
+    ],
+  });
+  // Letra más pequeña, táctiles (alto, ancho y separación) y lo que se sale, dentro de la pantalla (sin Blue). Lo que
+  // está en una fila deslizable (pestañas y filtros) puede salirse por el lado: se desliza.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const v = window.innerWidth;
+      const zona = document.getElementById("usuarios-cifras")?.parentElement;
+      if (!zona) return null;
+      const enFilaDeslizable = (el) => {
+        for (let e = el.parentElement; e && e !== document.body; e = e.parentElement) {
+          const ox = getComputedStyle(e).overflowX;
+          if (ox === "auto" || ox === "scroll") return true;
+        }
+        return false;
+      };
+      let min = 99;
+      let cual = "";
+      for (const el of zona.querySelectorAll("*")) {
+        const t = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent).join("").trim();
+        if (!t || !el.getBoundingClientRect().width) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < min) {
+          min = fs;
+          cual = t.slice(0, 40);
+        }
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"]';
+      const toques = [...zona.querySelectorAll(SEL)]
+        .filter((el) => !el.closest("#blue-flotante"))
+        .map((el) => ({ el, r: el.getBoundingClientRect(), t: (el.getAttribute("aria-label") || el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 30) }))
+        .filter((o) => o.r.width > 0 && o.r.height > 0);
+      const pequenos = toques.filter((o) => o.r.height < 43.5 || o.r.width < 43.5).map((o) => `${o.t} ${Math.round(o.r.width)}×${Math.round(o.r.height)}`);
+      // Separación: entre botones pequeños (de menos de 64 px de alto) que no están uno dentro del otro.
+      const juntos = [];
+      const chicos = toques.filter((o) => o.r.height < 64);
+      for (let i = 0; i < chicos.length; i++)
+        for (let j = i + 1; j < chicos.length; j++) {
+          const a = chicos[i];
+          const b = chicos[j];
+          if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+          const solapV = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+          const solapH = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+          let gap = null;
+          if (solapV > 4) gap = Math.max(b.r.left - a.r.right, a.r.left - b.r.right);
+          else if (solapH > 4) gap = Math.max(b.r.top - a.r.bottom, a.r.top - b.r.bottom);
+          if (gap !== null && gap < 7.5) juntos.push(`${a.t} / ${b.t} ${Math.round(gap)}`);
+        }
+      const fuera = [...zona.querySelectorAll("*")]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && (r.right > v + 1 || r.left < -1) && !enFilaDeslizable(el);
+        })
+        .slice(0, 3)
+        .map((el) => (el.innerText || el.tagName).slice(0, 30));
+      const caja = zona.getBoundingClientRect();
+      return {
+        min,
+        cual,
+        pequenos: pequenos.slice(0, 4),
+        juntos: juntos.slice(0, 4),
+        fuera,
+        ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        v,
+        caja: { ancho: Math.round(caja.width), izq: Math.round(caja.left), der: Math.round(v - caja.right) },
+      };
+    });
+  const vistas = [
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["390", {}],
+    ["1280", { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ];
+  for (const [nombre, vista] of vistas) {
+    const movil = nombre !== "1280";
+    const estado = estadoBase();
+    const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+    const p = await pagina(ctx, "/admin/users");
+    await p.locator("#usuarios-cifras").waitFor({ timeout: 40000 }).catch(() => {});
+    await p.locator(`#usuario-${ID(1)}`).waitFor({ timeout: 20000 }).catch(() => {});
+    const medidas = [];
+    const filas = () => p.evaluate(() => [...document.querySelectorAll('[id^="usuario-"]')].map((e) => e.id.replace("usuario-", "")));
+    const fila = async (n) => limpio(await p.locator(`#usuario-${n === "admin" ? ADMIN.id : ID(n)}`).innerText().catch(() => ""));
+
+    // UP1) Cifras clave arriba: registrados, activos 7 días, perfil completo, con la app y valoración (en el ordenador, en
+    // una fila; en el móvil, en dos como mucho).
+    const cifras = limpio(await p.locator("#usuarios-cifras").innerText().catch(() => ""));
+    const filasCifras = await p.evaluate(() => new Set([...document.querySelectorAll("[id^='usuarios-cifra-']")].map((e) => Math.round(e.getBoundingClientRect().top))).size);
+    ok(cifras === "5 Registrados 1 Activos 7 días 2 Perfil completo 1 Con la app 4,5 Valoración", `UP (${nombre}): las 5 cifras clave (${cifras})`);
+    ok(movil ? filasCifras <= 2 : filasCifras === 1, `UP (${nombre}): ${movil ? "en dos filas como mucho" : "en una sola fila"} (${filasCifras})`);
+
+    // UP2) Pestañas con su número (y el punto rojo de Seguridad, que requiere atención); «Clientes» abierta.
+    const pestanas = await p.evaluate(() => [...document.querySelectorAll("#usuarios-pestanas [role='tab']")].map((t) => `${t.innerText.replace(/\s+/g, " ").trim()}${t.getAttribute("aria-selected") === "true" ? "*" : ""}`));
+    ok(pestanas.join(" | ") === "Clientes 5* | Participación | Ideas de mejora 2 | Seguridad", `UP (${nombre}): 4 pestañas con su número y «Clientes» abierta (${pestanas.join(" | ")})`);
+    ok(/requiere atención/.test((await p.locator("#usuarios-pestana-seguridad").getAttribute("aria-label")) ?? ""), `UP (${nombre}): «Seguridad» avisa de que algo requiere atención`);
+
+    // UP3) Filas: foto o iniciales, nombre, resumen, correo, alta, «Última conexión hace…», etiquetas y participación.
+    const dani = await fila(1);
+    ok(
+      /^Dani @dani · Zaragoza \(España\) · \d+ años · CP 50410 Cuarte de Huerva dani@example\.com Alta 01\/10\/2026 · Perfil actualizado 30\/10\/2026 · Última conexión hace 2 h Perfil completo App Con dirección 3 en el Foro 0 chats 0 reseñas$/.test(dani) &&
+        (await p.locator(`#usuario-${ID(1)} img[alt="Foto de Dani"]`).count()) === 1,
+      `UP (${nombre}): la fila de Dani con su foto, resumen, correo, alta, última conexión, etiquetas y participación (${dani})`
+    );
+    ok(/Última conexión hace 10 días/.test(await fila(2)) && /1 chat 1 reseña/.test(await fila(2)), `UP (${nombre}): la de Ana, «hace 10 días» y su participación (${await fila(2)})`);
+    ok(/^L luis@example\.com Zaragoza \(Francia\)/.test(await fila(3)) && /Faltan: usuario, nombre, edad/.test(await fila(3)), `UP (${nombre}): sin nombre, iniciales del correo y qué le falta (${await fila(3)})`);
+    ok(/Perfil sin completar/.test(await fila(4)) && /Última conexión sin registrar/.test(await fila(4)) && /Aún no ha completado su perfil/.test(await fila(4)), `UP (${nombre}): sin perfil ni conexiones (${await fila(4)})`);
+    ok(/Administrador/.test(await fila("admin")) && !/Faltan|Aún no/.test(await fila("admin")), `UP (${nombre}): el administrador, sin «Faltan…» (${await fila("admin")})`);
+    ok((await filas()).join(",") === [ID(4), ID(3), ID(2), ID(1), ADMIN.id].join(","), `UP (${nombre}): por defecto, del alta más reciente a la más antigua`);
+    medidas.push(["clientes", await medir(p)]);
+    await capturar(p, `UP1-${nombre}-clientes`);
+
+    // UP4) Filtros de la fila deslizable: «Activos 7 días» y los desplegables (que se repliegan al elegir y al volver a tocarlos).
+    const filtros = p.locator("#usuarios-filtros");
+    ok(limpio(await filtros.innerText()) === "Activos 7 días (1) Perfil completo (2) Faltan datos (2) Con foto (1) Con dirección (1) Provincia Edad País", `UP (${nombre}): la fila de filtros (${limpio(await filtros.innerText())})`);
+    await filtros.getByText("Activos 7 días (1)", { exact: true }).click();
+    await p.waitForTimeout(250);
+    ok((await filas()).join(",") === ID(1) && /^1 de 5 clientes/.test(limpio(await p.locator("#usuarios-total").innerText())), `UP (${nombre}): «Activos 7 días» deja solo a Dani y lo dice («1 de 5 clientes»)`);
+    await filtros.getByText("Activos 7 días (1)", { exact: true }).click();
+    await p.locator("#usuarios-filtro-provincia").click();
+    await p.waitForTimeout(250);
+    const opciones = limpio(await p.locator("#usuarios-filtro-opciones").innerText().catch(() => ""));
+    ok(opciones === "Zaragoza (2) Huesca (1)", `UP (${nombre}): «Provincia» se despliega con su recuento (${opciones})`);
+    medidas.push(["provincia desplegada", await medir(p)]);
+    await p.locator("#usuarios-filtro-opciones").getByText("Zaragoza (2)", { exact: true }).click();
+    await p.waitForTimeout(250);
+    ok((await p.locator("#usuarios-filtro-opciones").count()) === 0 && (await filas()).sort().join(",") === [ID(1), ID(3)].sort().join(",") && limpio(await p.locator("#usuarios-filtro-provincia").innerText()) === "Zaragoza", `UP (${nombre}): al elegir «Zaragoza» se repliega, filtra y el chip lo dice`);
+    await p.locator("#usuarios-quitar-filtros").click();
+    await p.waitForTimeout(250);
+    ok((await filas()).length === 5 && (await p.locator("#usuarios-quitar-filtros").count()) === 0, `UP (${nombre}): «Quitar filtros» vuelve a enseñar a todos`);
+    await p.locator("#usuarios-filtro-edad").click();
+    await p.waitForTimeout(200);
+    const abiertaEdad = (await p.locator("#usuarios-filtro-opciones").count()) === 1;
+    await p.locator("#usuarios-filtro-edad").click();
+    await p.waitForTimeout(200);
+    ok(abiertaEdad && (await p.locator("#usuarios-filtro-opciones").count()) === 0, `UP (${nombre}): «Edad» se despliega y se vuelve a plegar al tocarla otra vez`);
+
+    // UP5) Orden (desplegable): «Última conexión» pone primero a quien entró hace menos.
+    await p.locator("#usuarios-orden").click();
+    await p.locator("#usuarios-orden-menu").getByText("Última conexión", { exact: true }).click();
+    await p.waitForTimeout(250);
+    const orden = await filas();
+    // (el administrador, que acaba de entrar, «ahora mismo»; luego Dani, hace 2 h, y Ana, hace 10 días)
+    ok(orden.slice(0, 3).join(",") === [ADMIN.id, ID(1), ID(2)].join(",") && (await p.locator("#usuarios-orden-menu").count()) === 0 && /Última conexión/.test(await p.locator("#usuarios-orden").innerText()), `UP (${nombre}): ordenar por «Última conexión» (administrador, Dani, Ana…) y el menú se repliega (${orden.join(",").slice(0, 120)})`);
+
+    // UP6) Tocar la cifra «Perfil completo» filtra la lista.
+    await p.locator("#usuarios-cifra-completos").click();
+    await p.waitForTimeout(250);
+    ok((await filas()).sort().join(",") === [ID(1), ID(2)].sort().join(","), `UP (${nombre}): la cifra «Perfil completo» filtra la lista`);
+    await p.locator("#usuarios-quitar-filtros").click();
+
+    // UP7) Participación: tarjetas con la cifra grande y «Perfiles de clientes»; queda en la URL (?tab=participacion).
+    await p.locator("#usuarios-pestana-participacion").click();
+    await p.locator("#usuarios-participacion").waitFor({ timeout: 10000 }).catch(() => {});
+    const part = limpio(await p.locator("#usuarios-participacion").innerText().catch(() => ""));
+    ok(
+      /Foro 3 mensajes de 1 persona/.test(part) && /Chats de producto 1 iniciados por 1 persona/.test(part) && /Valoración media 4,5 \/ 5 de 2 reseñas/.test(part) &&
+        /Solicitudes de venta 1/.test(part) && /Solicitudes de servicio 2/.test(part) && /«Mis seguimientos» \(30 días\) 1 lo abrieron · deslizando 1/.test(part) && /Números de seguimiento \(30 días\) 1 añadidos a una cuenta/.test(part),
+      `UP (${nombre}): Participación en tarjetas (${part.slice(0, 220)})`
+    );
+    ok(new URL(p.url()).searchParams.get("tab") === "participacion", `UP (${nombre}): y queda en la URL (${new URL(p.url()).search})`);
+    const perf = limpio(await p.locator("#admin-perfiles").innerText().catch(() => ""));
+    ok(/^Perfiles de clientes 3 de 5 Con perfil 2 Perfil completo 2 Faltan datos 1 Con foto \d+ años Edad media 2 Provincias 1 Con dirección/.test(perf), `UP (${nombre}): «Perfiles de clientes» con sus contadores (${perf.slice(0, 140)})`);
+    medidas.push(["participación", await medir(p)]);
+    await capturar(p, `UP2-${nombre}-participacion`);
+    await p.locator("#usuarios-perfil-pendiente").click();
+    await p.waitForTimeout(300);
+    ok(new URL(p.url()).searchParams.get("tab") === "clientes" && (await filas()).sort().join(",") === [ID(3), ID(4)].sort().join(","), `UP (${nombre}): «Faltan datos» lleva a Clientes con ese filtro (sin el administrador)`);
+    await p.locator("#usuarios-quitar-filtros").click();
+
+    // UP8) Ideas de mejora: bandeja, primero las sin leer; se recuerda al recargar; «Marcar leída» de 44 px.
+    await p.locator("#usuarios-pestana-ideas").click();
+    await p.waitForTimeout(300);
+    await p.reload({ waitUntil: "load" });
+    await p.locator("#admin-mejoras").waitFor({ timeout: 40000 }).catch(() => {});
+    ok((await p.locator("#usuarios-pestana-ideas").getAttribute("aria-selected")) === "true", `UP (${nombre}): al recargar sigue en «Ideas de mejora» (?tab=ideas)`);
+    const ideas = () => p.evaluate(() => [...document.querySelectorAll('[id^="mejora-"]')].map((e) => e.id.replace("mejora-", "")));
+    ok((await ideas()).join(",") === "m1,m2", `UP (${nombre}): primero solo las sin leer, de la más nueva a la más vieja (${(await ideas()).join(",")})`);
+    await p.locator("#usuarios-ideas-filtros").getByText("Todas (3)", { exact: true }).click();
+    await p.waitForTimeout(200);
+    ok((await ideas()).join(",") === "m1,m2,m3", `UP (${nombre}): con «Todas», las leídas al final (${(await ideas()).join(",")})`);
+    const ideaM1 = limpio(await p.locator("#mejora-m1").innerText());
+    ok(/^Filtrar por precio en el catálogo Ana · @ana_g · \d{2}\/\d{2}\/2026 · desde Pie de página Ver ficha Marcar leída$/.test(ideaM1), `UP (${nombre}): cada idea dice quién, cuándo y desde dónde (${ideaM1})`);
+    medidas.push(["ideas", await medir(p)]);
+    await capturar(p, `UP3-${nombre}-ideas`);
+    const boton = p.locator("#mejora-m1").getByRole("button", { name: "Marcar como leída" });
+    const caja = await boton.boundingBox();
+    await boton.click();
+    await p.waitForTimeout(500);
+    const marcada = (estado.mejorasMarcadas ?? [])[0];
+    ok(marcada?.id === "m1" && marcada?.cuerpo?.leida === true && (caja?.height ?? 0) >= 44, `UP (${nombre}): «Marcar leída» (${Math.round(caja?.height ?? 0)} px) la marca como leída (${JSON.stringify(marcada ?? null)})`);
+    ok(limpio(await p.locator("#usuarios-pestana-ideas").innerText()) === "Ideas de mejora 1" && /Marcar sin leer/.test(await p.locator("#mejora-m1").innerText()), `UP (${nombre}): y la pestaña baja a 1 sin leer`);
+
+    // UP9) Seguridad: el aviso rojo (Supabase frena correos), las cifras y «Quitar silencio».
+    await p.locator("#usuarios-pestana-seguridad").click();
+    await p.locator("#admin-contrasenas").waitFor({ timeout: 10000 }).catch(() => {});
+    const aviso = await p.evaluate(() => {
+      const a = document.getElementById("admin-contrasenas-aviso");
+      const t = a ? [...a.querySelectorAll("div")].find((d) => /frenado/.test(d.textContent ?? "") && d.children.length === 0) : null;
+      return a ? { texto: a.innerText, color: t ? getComputedStyle(t).color : "" } : null;
+    });
+    ok(!!aviso && /Supabase ha frenado 1 correo/.test(aviso.texto) && aviso.color === "rgb(185, 28, 28)", `UP (${nombre}): aviso rojo de que hace falta el correo propio (${JSON.stringify(aviso)?.slice(0, 120)})`);
+    ok(limpio(await p.locator("#admin-foro-moderacion").innerText()) === "1 Mensajes eliminados 1 Comentarios eliminados 1 Silencios 1 Silenciados ahora Leyeron las normas desde el aviso: 0", `UP (${nombre}): moderación del Foro en cifras (${limpio(await p.locator("#admin-foro-moderacion").innerText())})`);
+    medidas.push(["seguridad", await medir(p)]);
+    await capturar(p, `UP4-${nombre}-seguridad`);
+    await p.getByRole("button", { name: "Quitar el silencio de @ana_g" }).click();
+    await p.waitForTimeout(600);
+    const quita = (estado.silenciosEscritos ?? []).find((s) => s.metodo === "PATCH");
+    ok(quita?.id === ID(2) && (await p.locator("#admin-silenciados").count()) === 0 && /0 Silenciados ahora/.test(limpio(await p.locator("#admin-foro-moderacion").innerText())), `UP (${nombre}): «Quitar silencio» lo termina y sale de la lista (${JSON.stringify(quita?.cuerpo ?? null)})`);
+
+    // UP10) El buscador (16 px y 48 px de alto) lleva a «Clientes» y encuentra por usuario.
+    const campo = await p.locator("#usuarios-buscador").evaluate((e) => ({ fs: parseFloat(getComputedStyle(e).fontSize), h: Math.round(e.getBoundingClientRect().height) }));
+    await p.locator("#usuarios-buscador").fill("ana_g");
+    await p.waitForTimeout(300);
+    ok(campo.fs === 16 && campo.h >= 44 && new URL(p.url()).searchParams.get("tab") === "clientes" && (await filas()).join(",") === ID(2), `UP (${nombre}): el buscador (${campo.fs} px, ${campo.h} px de alto) lleva a Clientes y encuentra «ana_g»`);
+
+    // UP11) Letras, táctiles y anchos en todas las pestañas.
+    const malas = medidas.filter(([, m]) => !m);
+    const min = Math.min(...medidas.map(([, m]) => m?.min ?? 0));
+    const peor = medidas.find(([, m]) => m?.min === min);
+    ok(!malas.length && min >= 12, `UP (${nombre}): ninguna letra de menos de 12 px (la más pequeña: ${min} px, «${peor?.[1]?.cual}» en ${peor?.[0]})`);
+    const toques = medidas.filter(([, m]) => m?.pequenos.length || m?.juntos.length);
+    ok(toques.length === 0, `UP (${nombre}): todo lo que se toca mide 44 px o más y deja 8 px con lo de al lado (${toques.map(([d, m]) => `${d}: ${[...m.pequenos, ...m.juntos].join("; ")}`).join(" | ") || "todo bien"})`);
+    const fuera = medidas.filter(([, m]) => m && (m.ancho > m.v + 1 || m.fuera.length));
+    ok(fuera.length === 0, `UP (${nombre}): nada se sale por los lados (${fuera.map(([d, m]) => `${d}: ${m.ancho}/${m.v} ${m.fuera.join(";")}`).join(" | ") || "nada"})`);
+    if (!movil) {
+      const c = medidas[0][1].caja;
+      ok(c.ancho <= 960 && Math.abs(c.izq - c.der) <= 2, `UP (${nombre}): en el ordenador, centrado y de 960 px como mucho (${JSON.stringify(c)})`);
+    }
+    ok(p.errores.length === 0, `UP (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // UP12) Sin nada que requiera atención: ni el aviso rojo ni el punto en «Seguridad».
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", estadoBase(false));
+    const p = await pagina(ctx, "/admin/users?tab=seguridad");
+    await p.locator("#admin-contrasenas").waitFor({ timeout: 40000 }).catch(() => {});
+    ok(
+      (await p.locator("#admin-contrasenas").count()) === 1 && (await p.locator("#admin-contrasenas-aviso").count()) === 0 && !/requiere atención/.test((await p.locator("#usuarios-pestana-seguridad").getAttribute("aria-label")) ?? ""),
+      "UP: sin correos frenados, ni aviso rojo ni punto en «Seguridad»"
+    );
+    ok(p.errores.length === 0, `UP: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "UP") await seccionUP();
   if (SOLO === "TM") await seccionTM();
   if (SOLO === "FC") await seccionFC();
   if (SOLO === "AC") await seccionAC();
@@ -11915,11 +12247,13 @@ try {
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    // (la moderación está en la pestaña «Seguridad» de Usuarios, en cifras: «Moderación del Foro · 30 días»)
+    const p = await pagina(ctx, "/admin/users?tab=seguridad");
     await p.locator("#admin-foro-moderacion").waitFor({ timeout: 40000 }).catch(() => {});
-    const linea = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Moderación del Foro \(30 días\) · mensajes eliminados: 2 · comentarios eliminados: 1 · silencios: 1 · silenciados ahora: 1/.test(linea), `M: Usuarios cuenta la moderación con el registro de la base de datos (${linea})`);
-    ok(/leyeron las normas desde el aviso: 1/.test(linea), `M: y cuántas personas abrieron las Normas del Foro desde el aviso (${linea})`);
+    const linea = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    const cabecera = (await p.locator("#admin-foro-moderacion").locator("xpath=..").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/^2 Mensajes eliminados 1 Comentarios eliminados 1 Silencios 1 Silenciados ahora/.test(linea) && /Moderación del Foro 30 días/.test(cabecera), `M: Usuarios cuenta la moderación con el registro de la base de datos (30 días) (${linea})`);
+    ok(/Leyeron las normas desde el aviso: 1$/.test(linea), `M: y cuántas personas abrieron las Normas del Foro desde el aviso (${linea})`);
     ok((await p.getByRole("link", { name: "Ver o editar las Normas del Foro" }).count()) === 1, "M: con un acceso para ver o editar las Normas del Foro (Políticas)");
     const lista = (await p.locator("#admin-silenciados").innerText().catch(() => "")).replace(/\n/g, " ");
     ok(/Silenciados en el Foro/.test(lista) && /@ana_g/.test(lista) && /Spam/.test(lista), `M: y la lista de silenciados (quién, hasta cuándo y por qué) (${lista.slice(0, 120)})`);
@@ -12051,37 +12385,58 @@ try {
       ],
     };
     const ctx = await contexto(navegador, ADMIN, "admin", estado);
-    const p = await pagina(ctx, "/admin/users");
+    // Diseño de Usuarios (2026-11-12): los contadores de perfiles en «Participación», la moderación en «Seguridad» y la
+    // lista con sus filtros (estado y los desplegables Provincia, Edad y País) en «Clientes».
+    const p = await pagina(ctx, "/admin/users?tab=participacion");
     await p.locator("#admin-perfiles").waitFor({ timeout: 40000 });
     ok((await p.locator("#perfil-obligatorio").count()) === 0, "E: en el panel de administración no se exige el perfil de cliente");
-    const moderacion = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/Moderación del Foro · comentarios de noticias eliminados: 3/.test(moderacion) && !/mensajes eliminados/.test(moderacion), `E: «Moderación del Foro» cuenta los comentarios eliminados con datos de la base de datos (no con la analítica, que no cuenta al administrador) (${moderacion})`);
-    const uso = (await p.locator("#admin-uso-seguimientos").innerText().catch(() => "")).replace(/\n/g, " ");
-    ok(/«Mis seguimientos» \(30 días\): lo abrieron 2 · deslizando 1/.test(uso), `E: cuántos abren «Mis seguimientos» y cuántos deslizando (personas distintas) (${uso})`);
+    const uso = (await p.locator("#admin-uso-seguimientos").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+    ok(/^«Mis seguimientos» \(30 días\) 2 lo abrieron · deslizando 1$/.test(uso), `E: cuántos abren «Mis seguimientos» y cuántos deslizando (personas distintas) (${uso})`);
     const t = await p.locator("#admin-perfiles").innerText();
+    const plano = t.replace(/\s+/g, " ");
     ok(/Perfiles de clientes/.test(t), "E: Administración → Usuarios enseña «Perfiles de clientes»");
-    ok(/Con perfil\s*3 de 4/.test(t.replace(/\n/g, " ")), "E: «Con perfil: 3 de 4»");
-    ok(/Perfil completo\s*2/.test(t.replace(/\n/g, " ")), "E: «Perfil completo: 2»");
+    ok(/3 de 4 Con perfil/.test(plano), "E: «Con perfil: 3 de 4»");
+    ok(/ 2 Perfil completo/.test(plano), "E: «Perfil completo: 2»");
     const edades = [edadHoy("2003-08-19"), edadHoy("1990-05-02")];
     const media = Math.round((edades[0] + edades[1]) / 2);
-    ok(new RegExp(`Edad media\\s*${media} años`).test(t.replace(/\n/g, " ")), `E: «Edad media: ${media} años»`);
-    ok(/Provincias\s*2/.test(t.replace(/\n/g, " ")), "E: «Provincias: 2»");
-    const tramo = (e) => (e < 18 ? "14–17" : e < 25 ? "18–24" : e < 35 ? "25–34" : e < 45 ? "35–44" : "45 o más");
-    ok(t.includes(`${tramo(edades[0])} (1)`) && t.includes(`${tramo(edades[1])} (1)`), `E: chips de edad con su recuento (${tramo(edades[0])} (1), ${tramo(edades[1])} (1))`);
-    ok(t.includes("Zaragoza (2)") && t.includes("Huesca (1)"), "E: chips de provincia con su recuento («Zaragoza (2)», «Huesca (1)»)");
-    ok(t.includes("España (2)") && t.includes("Francia (1)"), "E: chips de país con su recuento («España (2)», «Francia (1)»)");
-    const lista = await p.evaluate(() => document.body.innerText);
-    ok(lista.includes("Dani · @dani · Zaragoza (España)") && lista.includes(`${edades[0]} años`), "E: cada cliente enseña su resumen («Dani · @dani · Zaragoza (España) · N años»)");
-    ok(lista.includes("Zaragoza (Francia)") || lista.includes("Zaragoza · "), "E: también si el perfil está a medias (provincia y país sin nombre)");
-    ok(lista.includes("Perfil sin completar"), "E: y «Perfil sin completar» para quien no ha escrito nada");
-    const plano = t.replace(/\n/g, " ");
-    ok(/Faltan datos\s*2/.test(plano) && /Con foto\s*1/.test(plano), "E: contadores nuevos: «Faltan datos: 2» (a quienes les sale «Completa tu perfil») y «Con foto: 1»");
+    ok(new RegExp(` ${media} años Edad media`).test(plano), `E: «Edad media: ${media} años»`);
+    ok(/ 2 Provincias/.test(plano), "E: «Provincias: 2»");
+    ok(/ 2 Faltan datos/.test(plano) && / 1 Con foto/.test(plano), "E: contadores nuevos: «Faltan datos: 2» (a quienes les sale «Completa tu perfil») y «Con foto: 1»");
     ok(/«Completa tu perfil» \(30 días\): la vieron 2 · la completaron 1 · cerraron sesión 1/.test(plano), `E: seguimiento de «Completa tu perfil» (personas distintas, 30 días): ${(plano.match(/«Completa tu perfil».{0,80}/) ?? [""])[0]}`);
     ok(/Foto de perfil \(30 días\): la encuadraron 1 · dejaron el recorte 1/.test(plano), `E: seguimiento del recorte de la foto (personas distintas, 30 días): ${(plano.match(/Foto de perfil \(30 días\).{0,50}/) ?? [""])[0]}`);
-    ok(t.includes("Completo (2)") && t.includes("Faltan datos (2)") && t.includes("Con foto (1)"), "E: chips de estado con su recuento");
-    ok(lista.includes("Perfil completo · actualizado 30/10/2026") && lista.includes("Faltan: usuario, nombre, edad") && lista.includes("Aún no ha completado su perfil"), "E: cada fila dice si el perfil está completo (y cuándo se actualizó) o qué le falta");
-    ok((await p.locator('img[alt="Foto de Dani"]').count()) === 1, "E: la fila enseña la foto del cliente que la tiene");
     await capturar(p, "E1-admin-perfiles");
+
+    // Seguridad → «Moderación del Foro»: sin el registro, los comentarios de noticias eliminados (base de datos).
+    await p.locator("#usuarios-pestana-seguridad").click();
+    await p.locator("#admin-foro-moderacion").waitFor({ timeout: 10000 }).catch(() => {});
+    const moderacion = (await p.locator("#admin-foro-moderacion").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    ok(/^3 Comentarios de noticias eliminados$/.test(moderacion) && !/Mensajes eliminados/i.test(moderacion), `E: «Moderación del Foro» cuenta los comentarios eliminados con datos de la base de datos (no con la analítica, que no cuenta al administrador) (${moderacion})`);
+
+    // Clientes: los filtros con su recuento (los de Provincia, Edad y País, al desplegarlos) y el resumen de cada fila.
+    await p.locator("#usuarios-pestana-clientes").click();
+    await p.locator("#usuarios-lista").waitFor({ timeout: 10000 }).catch(() => {});
+    const opcionesDe = async (id) => {
+      await p.locator(`#usuarios-filtro-${id}`).click();
+      const o = await p.locator("#usuarios-filtro-opciones").innerText().catch(() => "");
+      await p.locator(`#usuarios-filtro-${id}`).click();
+      return o;
+    };
+    const tramo = (e) => (e < 18 ? "14–17" : e < 25 ? "18–24" : e < 35 ? "25–34" : e < 45 ? "35–44" : "45 o más");
+    const deEdad = await opcionesDe("edad");
+    ok(deEdad.includes(`${tramo(edades[0])} (1)`) && deEdad.includes(`${tramo(edades[1])} (1)`), `E: chips de edad con su recuento (${tramo(edades[0])} (1), ${tramo(edades[1])} (1))`);
+    const deProvincia = await opcionesDe("provincia");
+    ok(deProvincia.includes("Zaragoza (2)") && deProvincia.includes("Huesca (1)"), "E: chips de provincia con su recuento («Zaragoza (2)», «Huesca (1)»)");
+    const dePais = await opcionesDe("pais");
+    ok(dePais.includes("España (2)") && dePais.includes("Francia (1)"), "E: chips de país con su recuento («España (2)», «Francia (1)»)");
+    const chips = await p.locator("#usuarios-filtros").innerText().catch(() => "");
+    ok(chips.includes("Perfil completo (2)") && chips.includes("Faltan datos (2)") && chips.includes("Con foto (1)"), "E: chips de estado con su recuento");
+    const lista = await p.evaluate(() => document.body.innerText);
+    ok(/Dani\n+@dani · Zaragoza \(España\)/.test(lista) && lista.includes(`${edades[0]} años`), "E: cada cliente enseña su resumen («Dani», debajo «@dani · Zaragoza (España) · N años»)");
+    ok(lista.includes("Zaragoza (Francia)") || lista.includes("Zaragoza · "), "E: también si el perfil está a medias (provincia y país sin nombre)");
+    ok(lista.includes("Perfil sin completar"), "E: y «Perfil sin completar» para quien no ha escrito nada");
+    ok(lista.includes("Perfil completo") && lista.includes("Perfil actualizado 30/10/2026") && lista.includes("Faltan: usuario, nombre, edad") && lista.includes("Aún no ha completado su perfil"), "E: cada fila dice si el perfil está completo (y cuándo se actualizó) o qué le falta");
+    ok((await p.locator('img[alt="Foto de Dani"]').count()) === 1, "E: la fila enseña la foto del cliente que la tiene");
+    await capturar(p, "E1b-admin-clientes");
 
     // Filtrar por estado: «Faltan datos» deja solo a quien aún tiene que completar el perfil.
     await p.getByText("Faltan datos (2)").click();
@@ -12097,7 +12452,8 @@ try {
     await p.getByText("Quitar filtros").click();
     await p.waitForTimeout(300);
 
-    // Filtrar por provincia (los contadores filtran).
+    // Filtrar por provincia (los contadores filtran; se despliegan desde «Provincia»).
+    await p.locator("#usuarios-filtro-provincia").click();
     await p.getByText("Zaragoza (2)").click();
     await p.waitForTimeout(400);
     const filtrada = await p.evaluate(() => document.body.innerText);
@@ -12106,14 +12462,15 @@ try {
     await p.getByText("Quitar filtros").click();
     await p.waitForTimeout(300);
     ok((await p.evaluate(() => document.body.innerText)).includes("ana@example.com"), "E: «Quitar filtros» vuelve a enseñar a todos");
-    // Filtrar por tramo de edad.
+    // Filtrar por tramo de edad (desde «Edad»).
+    await p.locator("#usuarios-filtro-edad").click();
     await p.getByText(`${tramo(edades[1])} (1)`).click();
     await p.waitForTimeout(400);
     const porEdad = await p.evaluate(() => document.body.innerText);
     ok(porEdad.includes("ana@example.com") && !porEdad.includes("dani@example.com"), `E: filtrar por «${tramo(edades[1])}» deja solo a quien está en ese tramo`);
     await p.getByText("Quitar filtros").click();
     // Buscar por nombre/usuario.
-    await p.getByPlaceholder(/Buscar por email, nombre, usuario o provincia/).fill("ana_g");
+    await p.getByPlaceholder(/Nombre, email o provincia/).fill("ana_g");
     await p.waitForTimeout(300);
     const buscada = await p.evaluate(() => document.body.innerText);
     ok(buscada.includes("ana@example.com") && !buscada.includes("dani@example.com"), "E: el buscador encuentra por usuario («ana_g»)");
@@ -12218,6 +12575,10 @@ try {
     await p.getByText("dani@example.com").waitFor({ timeout: 40000 });
     ok((await p.locator("#admin-perfiles").count()) === 0 && !(await p.evaluate(() => document.body.innerText)).includes("Perfil sin completar"), "F: sin la tabla no sale nada de perfiles");
     ok((await p.evaluate(() => document.body.innerText)).includes("ana@example.com"), "F: y la lista de usuarios funciona igual");
+    ok((await p.locator("#usuarios-filtro-completo, #usuarios-filtro-provincia, #usuarios-filtro-edad").count()) === 0 && (await p.locator("#usuarios-cifra-completos").count()) === 0, "F: sin la tabla, ni filtros de perfil ni la cifra «Perfil completo»");
+    await p.locator("#usuarios-pestana-participacion").click();
+    await p.locator("#usuarios-participacion").waitFor({ timeout: 10000 }).catch(() => {});
+    ok((await p.locator("#usuarios-participacion").count()) === 1 && (await p.locator("#admin-perfiles").count()) === 0, "F: y en «Participación» tampoco sale «Perfiles de clientes» (lo demás, sí)");
     ok(p.errores.length === 0, `F: sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
     await ctx.close();
   }
@@ -12272,6 +12633,7 @@ try {
   await seccionAC();
   await seccionFC();
   await seccionTM();
+  await seccionUP();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
