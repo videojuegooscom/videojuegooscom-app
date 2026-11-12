@@ -24,6 +24,9 @@
  * productos ha marcado CADA dispositivo se guarda en AsyncStorage (igual que
  * la cesta), no en Supabase, para no exigir inicio de sesión.
  *
+ * Tamaños (2026-11-12, grupo 3): compartir y «me gusta» sobre la foto tienen 44 × 44 de zona táctil (el círculo
+ * visible sigue en 32) y el contador a 13 px (constants/theme.ts; prueba TM3).
+ *
  * "Compartir": usa la Web Share API del navegador (navigator.share) en
  * móvil/web, con copiar el enlace al portapapeles como alternativa en
  * escritorio; en nativo (iOS/Android) usa el Share de React Native.
@@ -108,6 +111,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import { TAMANOS } from "../../constants/theme";
 import { sinEmojis } from "../../lib/admin/products.utils";
 import { contarVistaProducto, fijarMeGusta } from "../../lib/interaccion";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
@@ -1387,25 +1391,28 @@ export default function ProductoScreen() {
                 <View
                   style={{
                     position: "absolute",
-                    right: 12,
-                    bottom: 12,
+                    right: 4,
+                    bottom: 4,
                     flexDirection: "row",
                     gap: 8,
                   }}
                 >
+                  {/* Zona táctil de 44 × 44 (grupo 3, 2026-11-12); el círculo visible sigue siendo de 32. */}
                   <Pressable
                     onPress={shareProduct}
+                    accessibilityRole="button"
+                    accessibilityLabel="Compartir este producto"
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.85 : 1,
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
+                      width: 44,
+                      height: 44,
                       alignItems: "center",
                       justifyContent: "center",
-                      backgroundColor: "rgba(11,33,56,0.60)",
                     })}
                   >
-                    <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
+                    <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(11,33,56,0.60)" }}>
+                      <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
+                    </View>
                   </Pressable>
 
                   <Pressable
@@ -1415,25 +1422,22 @@ export default function ProductoScreen() {
                     accessibilityLabel={liked ? "Quitar me gusta" : "Dar me gusta"}
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.85 : 1,
-                      minWidth: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      paddingHorizontal: 10,
-                      flexDirection: "row",
+                      minWidth: 44,
+                      height: 44,
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 5,
-                      backgroundColor: "rgba(11,33,56,0.60)",
                     })}
                   >
-                    <Ionicons
-                      name={liked ? "heart" : "heart-outline"}
-                      size={15}
-                      color={liked ? "#FF5A7A" : "#FFFFFF"}
-                    />
-                    <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 11 }}>
-                      {likeCount}
-                    </Text>
+                    <View style={{ minWidth: 32, height: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: "rgba(11,33,56,0.60)" }}>
+                      <Ionicons
+                        name={liked ? "heart" : "heart-outline"}
+                        size={15}
+                        color={liked ? "#FF5A7A" : "#FFFFFF"}
+                      />
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>
+                        {likeCount}
+                      </Text>
+                    </View>
                   </Pressable>
                 </View>
               </View>

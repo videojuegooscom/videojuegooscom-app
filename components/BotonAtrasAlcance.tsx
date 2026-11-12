@@ -11,6 +11,10 @@
  * Blue (que se aparta solo de los botones) se coloca en otro sitio. «Contratar servicio» usa
  * BotonAtrasFlotante con su propia acción y deja hueco abajo para no tapar «Enviar solicitud».
  *
+ * Hueco abajo (2026-11-12, grupo 3): el botón ocupa los últimos 68 px de la pantalla (52 + 16 de margen); las páginas
+ * que lo muestran (Políticas, Noticias y su ficha) terminan con 96 px de relleno para que no tape su último contenido,
+ * y «Contratar servicio» deja su propia franja. Lo comprueba la prueba TM3 de pruebas/perfil-datos.mjs.
+ *
  * Conectado con: app/_layout.tsx (lo monta), components/Campanita.tsx (se aparta de él).
  */
 import React from "react";

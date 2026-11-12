@@ -26,6 +26,12 @@
  *   todas están a 0 € dice «Gratis»; si no, el envío se calcula al finalizar
  *   la compra con el código postal.
  *
+ * Tamaños (2026-11-12, grupo 3): cada artículo es una fila horizontal compacta
+ * (miniatura a la izquierda, título/precio/reserva a la derecha y la papelera
+ * a su lado) para que con 2 artículos el total y «Ir a pagar» se vean sin
+ * bajar; letra mínima 13 y grises a 0,72 (constants/theme.ts). La prueba TM3
+ * de pruebas/perfil-datos.mjs lo comprueba.
+ *
  * Diseño (dueño, 2026-11-04): iconos sueltos, sin burbujas alrededor (quitar
  * es una papelera roja; «Vaciar cesta», «Seguir comprando» y Blue son textos
  * con su icono), la foto entera sobre blanco y el precio en el azul de la
@@ -63,6 +69,7 @@ import {
 } from "../../lib/reservas";
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analytics";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -76,8 +83,8 @@ const COLORS = {
   cardSoft: "#FFFFFF",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  mutedSoft: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
+  mutedSoft: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   gold: "#B8860B",
   danger: "#DC2626",
@@ -203,7 +210,7 @@ function AccionTexto({
       })}
     >
       <Ionicons name={icon} size={18} color={color} />
-      <Text style={{ color, fontWeight: "800", fontSize: 14 }}>{texto}</Text>
+      <Text style={{ color: color === COLORS.accent ? COLORES_TEXTO.azulTexto : color, fontWeight: "800", fontSize: TAMANOS.cuerpo }}>{texto}</Text>
     </Pressable>
   );
 }
@@ -291,7 +298,7 @@ function BotonBlueElegir({ conArticulos }: { conArticulos: boolean }) {
       })}
     >
       <Ionicons name="sparkles" size={20} color={COLORS.accent} />
-      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center", flexShrink: 1 }}>
+      <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center", flexShrink: 1 }}>
         Blue, ayúdame a elegir un artículo
       </Text>
     </Pressable>
@@ -833,78 +840,84 @@ export default function CestaScreen() {
               </View>
             </View>
           ) : (
-            <View style={{ gap: 12 }}>
+            <View style={{ gap: 4 }}>
               {/* Sin título "Tus artículos": el dueño quitó la cabecera de la cesta. */}
               {items.map((it, idx) => (
                 <View
                   key={it.id}
+                  nativeID={`cesta-fila-${it.id}`}
                   style={{
-                    paddingVertical: 16,
-                    gap: 10,
+                    paddingVertical: 12,
+                    gap: 14,
+                    flexDirection: "row",
                     alignItems: "center",
                     borderTopWidth: idx === 0 ? 0 : 1,
                     borderTopColor: COLORS.border,
                   }}
                 >
-                  {/* Miniatura del artículo, misma foto de portada que en el catálogo y la ficha: entera (sin
-                      recortar) sobre blanco y en tamaño pequeño (optimizador de Vercel, no la foto original).
-                      Si no hay foto, un icono a modo de marcador. */}
+                  {/* Miniatura a la izquierda (como en Finalizar compra), misma foto de portada que en el catálogo y la
+                      ficha: entera (sin recortar) sobre blanco y en tamaño pequeño (optimizador de Vercel, no la foto
+                      original). Si no hay foto, un icono a modo de marcador. */}
                   {it.imageUrl ? (
                     <View
                       nativeID={`cesta-foto-${it.id}`}
-                      style={{ width: 104, height: 104, borderRadius: 16, overflow: "hidden", backgroundColor: "#FFFFFF" }}
+                      style={{ width: 88, height: 88, borderRadius: 14, overflow: "hidden", backgroundColor: "#FFFFFF" }}
                     >
                       <SmartImage uri={it.imageUrl} alt={it.title} ancho={104} contentFit="contain" style={{ width: "100%", height: "100%" }} />
                     </View>
                   ) : (
-                    <Ionicons name="image-outline" size={34} color={COLORS.mutedSoft} />
+                    <View style={{ width: 88, height: 88, alignItems: "center", justifyContent: "center" }}>
+                      <Ionicons name="image-outline" size={34} color={COLORS.mutedSoft} />
+                    </View>
                   )}
 
-                  <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "900", textAlign: "center" }}>
-                    {it.title}
-                  </Text>
-
-                  {it.subtitle ? (
-                    <Text style={{ color: COLORS.muted, lineHeight: 20, textAlign: "center" }}>
-                      {it.subtitle}
+                  {/* A la derecha: título, categoría, precio, reserva y «Unidad única». */}
+                  <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.cuerpo, lineHeight: 20, fontWeight: "900" }}>
+                      {it.title}
                     </Text>
-                  ) : null}
 
-                  <Text nativeID={`cesta-precio-${it.id}`} style={{ color: COLORS.accent, fontSize: 17, fontWeight: "900", textAlign: "center" }}>
-                    {fmtEUR(it.priceEUR * it.qty)}
-                  </Text>
+                    {it.subtitle ? (
+                      <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
+                        {it.subtitle}
+                      </Text>
+                    ) : null}
 
-                  {/* Reserva de 15 minutos: al llegar a 0 sale de la cesta. */}
-                  <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
-                    Reservado para ti · {formatoCuentaAtras((it.reservedUntil ?? 0) - now)}
-                  </Text>
+                    <Text nativeID={`cesta-precio-${it.id}`} style={{ color: COLORS.accent, fontSize: TAMANOS.destacado, fontWeight: "900" }}>
+                      {fmtEUR(it.priceEUR * it.qty)}
+                    </Text>
 
-                  {/*
-                    Segunda mano: cada artículo es una unidad única, así que no hay
-                    selector de cantidad; solo se puede quitar.
-                  */}
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+                    {/* Reserva de 15 minutos: al llegar a 0 sale de la cesta. */}
+                    <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+                      Reservado para ti · {formatoCuentaAtras((it.reservedUntil ?? 0) - now)}
+                    </Text>
+
+                    {/*
+                      Segunda mano: cada artículo es una unidad única, así que no hay
+                      selector de cantidad; solo se puede quitar.
+                    */}
+                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                       Unidad única
                     </Text>
-                    {/* Quitar: solo la papelera roja, sin burbuja (44 × 44 para el dedo). */}
-                    <Pressable
-                      nativeID={`cesta-quitar-${it.id}`}
-                      onPress={() => remove(it.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Quitar ${it.title} de la cesta`}
-                      style={({ pressed }) => ({
-                        width: 44,
-                        height: 44,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        opacity: pressed ? 0.6 : 1,
-                        transform: [{ scale: pressed ? 0.92 : 1 }],
-                      })}
-                    >
-                      <Ionicons name="trash-outline" size={22} color="#B91C1C" />
-                    </Pressable>
                   </View>
+
+                  {/* Quitar: solo la papelera roja, sin burbuja (44 × 44 para el dedo), a la derecha de la fila. */}
+                  <Pressable
+                    nativeID={`cesta-quitar-${it.id}`}
+                    onPress={() => remove(it.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Quitar ${it.title} de la cesta`}
+                    style={({ pressed }) => ({
+                      width: TACTIL.minimo,
+                      height: TACTIL.minimo,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: pressed ? 0.6 : 1,
+                      transform: [{ scale: pressed ? 0.92 : 1 }],
+                    })}
+                  >
+                    <Ionicons name="trash-outline" size={22} color="#B91C1C" />
+                  </Pressable>
                 </View>
               ))}
 
@@ -916,11 +929,11 @@ export default function CestaScreen() {
           {items.length > 0 ? (
           <View
             style={{
-              marginTop: sectionGap / 2,
-              paddingTop: sectionGap / 2,
+              marginTop: sectionGap / 3,
+              paddingTop: sectionGap / 3,
               borderTopWidth: 1,
               borderTopColor: COLORS.border,
-              gap: 12,
+              gap: 8,
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 18, textAlign: "center" }}>
@@ -936,7 +949,7 @@ export default function CestaScreen() {
               tono={envioDePago ? "suave" : "gratis"}
             />
             {envioDePago && gratisDesde !== null ? (
-              <Text nativeID="cesta-envio-gratis-desde" style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+              <Text nativeID="cesta-envio-gratis-desde" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                 {subtotal >= gratisDesde
                   ? "Con este importe el envío puede salir gratis: se confirma con tu código postal"
                   : `Envío gratis desde ${fmtEUR(gratisDesde)} (según la zona)`}
@@ -996,7 +1009,8 @@ function Row({
     >
       <Text
         style={{
-          color: "rgba(11,33,56,0.62)",
+          color: COLORES_TEXTO.secundario,
+          fontSize: TAMANOS.cuerpo,
           fontWeight: strong ? "900" : "700",
         }}
       >
@@ -1005,6 +1019,7 @@ function Row({
       <Text
         style={{
           color: tono === "gratis" ? COLORS.success : tono === "suave" ? COLORS.muted : "#0B2138",
+          fontSize: TAMANOS.cuerpo,
           fontWeight: tono === "suave" ? "700" : strong ? "900" : "800",
         }}
       >
