@@ -21,9 +21,14 @@
  * Errores de la cuenta: mensajeAuthEnEspanol() traduce los de Supabase Auth (que llegan en inglés) y motivoErrorAuth()
  * los clasifica para la analítica propia; pedirEnlaceContrasena() pide el enlace de «¿Olvidaste tu contraseña?».
  *
+ * Dispositivos (2026-11-12): registrarDispositivo() apunta en public.cliente_dispositivos desde qué tipo de dispositivo y
+ * navegador entra el cliente con sesión y cuándo (como mucho cada 15 min; al iniciar sesión suma un inicio), sin IP ni
+ * ubicación; nombreDispositivo() y haceCuanto() los usan también Administración → Usuarios y la ficha del cliente.
+ *
  * Conectado con: prácticamente todas las pantallas que leen o escriben
  * datos (app/(tabs)/*.tsx, app/admin/*.tsx, app/producto/[id].tsx,
- * app/catalogo.tsx) importan `supabase` desde aquí. lib/loadingBus.ts +
+ * app/catalogo.tsx) importan `supabase` desde aquí. app/_layout.tsx llama a registrarDispositivo();
+ * app/admin/cliente/[userId].tsx, app/admin/users.tsx y app/admin/analytics.tsx leen esa tabla. lib/loadingBus.ts +
  * components/GlobalLoadingBar.tsx → la barra de carga global.
  */
 import "react-native-url-polyfill/auto";
@@ -46,6 +51,8 @@ const SILENT_URL_PARTS = [
   "analytics_events",
   "increment_product_view",
   "get_unread_chat_count",
+  // cliente_dispositivos: la última conexión del cliente, en segundo plano (registrarDispositivo, abajo).
+  "rest/v1/cliente_dispositivos",
 ];
 
 function isSilentRequest(url: string): boolean {
@@ -218,5 +225,129 @@ export async function pedirEnlaceContrasena(
     return { ok: false, mensaje: mensajeAuthEnEspanol(error, "No se ha podido enviar el enlace. Inténtalo de nuevo en unos minutos."), motivo: motivoErrorAuth(error) };
   } catch (e) {
     return { ok: false, mensaje: mensajeAuthEnEspanol(e, "No se ha podido enviar el enlace. Inténtalo de nuevo en unos minutos."), motivo: motivoErrorAuth(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Dispositivos y última conexión (dueño, 2026-11-12: la ficha del cliente enseña desde qué dispositivos entra y cuándo fue
+// la última vez). Tabla public.cliente_dispositivos (migración 20261112120000_cliente_dispositivos.sql). Solo se guarda el
+// tipo y el navegador legibles («iPhone · Safari»), si usa la app instalada y las fechas: NUNCA la IP, la ubicación ni el
+// identificador completo del navegador (de él solo se saca aquí ese nombre corto, y no sale del dispositivo).
+// Con sesión: al abrir la tienda o volver a ella, como mucho una vez cada 15 min por cuenta y dispositivo (la marca se
+// guarda en AsyncStorage / localStorage); al iniciar sesión (sesión nueva en este dispositivo, ver idDeSesion), siempre,
+// y suma un inicio. Las fechas las pone la base de
+// datos y cada inicio suma exactamente 1 (lo hace su disparador: aquí «inicios: 0» solo significa «un inicio más»).
+// Nunca rompe nada ni deja errores en la consola: si la tabla aún no existe, se deja de intentar hasta recargar.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const DISPOSITIVO_CADA_MS = 15 * 60_000;
+const DISPOSITIVO_CLAVE = "videojuegoszaragoza:dispositivo_visto:";
+const DISPOSITIVO_SESION_CLAVE = "videojuegoszaragoza:dispositivo_sesion:";
+let dispositivosSinTabla = false;
+
+/** Nombre corto y legible del dispositivo («iPhone · Safari», «Android · Chrome», «Windows · Edge»…), máx. 60 letras. */
+export function nombreDispositivo(agente: string, toques = 0): string {
+  const ua = agente || "";
+  let sistema = "Otro";
+  if (/iPhone|iPod/.test(ua)) sistema = "iPhone";
+  else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && toques > 1)) sistema = "iPad";
+  else if (/Android/.test(ua)) sistema = /Mobile/.test(ua) ? "Android" : "Tablet Android";
+  else if (/CrOS/.test(ua)) sistema = "Chromebook";
+  else if (/Windows/.test(ua)) sistema = "Windows";
+  else if (/Macintosh|Mac OS X/.test(ua)) sistema = "Mac";
+  else if (/Linux/.test(ua)) sistema = "Linux";
+  let navegador = "Navegador";
+  if (/Edg(e|A|iOS)?\//.test(ua)) navegador = "Edge";
+  else if (/OPR\/|Opera/.test(ua)) navegador = "Opera";
+  else if (/SamsungBrowser/.test(ua)) navegador = "Samsung Internet";
+  else if (/Firefox\/|FxiOS/.test(ua)) navegador = "Firefox";
+  else if (/Chrome\/|CriOS/.test(ua)) navegador = "Chrome";
+  else if (/Safari\//.test(ua)) navegador = "Safari";
+  return `${sistema} · ${navegador}`.slice(0, 60);
+}
+
+/** «hace 5 min», «hace 2 h», «hace 3 días» (para la última conexión en Administración). */
+export function haceCuanto(iso: string | null | undefined, ahora = Date.now()): string {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  if (!Number.isFinite(t)) return "";
+  const min = Math.max(0, Math.round((ahora - t) / 60_000));
+  if (min < 1) return "ahora mismo";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.round(h / 24);
+  if (d < 31) return d === 1 ? "hace 1 día" : `hace ${d} días`;
+  const m = Math.round(d / 30);
+  return m <= 1 ? "hace 1 mes" : `hace ${m} meses`;
+}
+
+function datosDelDispositivo(): { dispositivo: string; app_instalada: boolean } {
+  if (Platform.OS !== "web" || typeof navigator === "undefined") {
+    return { dispositivo: `${Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android" : "Otro"} · App`, app_instalada: true };
+  }
+  let instalada = false;
+  try {
+    instalada =
+      (typeof window !== "undefined" && !!window.matchMedia?.("(display-mode: standalone)").matches) ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  } catch {
+    // sin matchMedia: navegador normal
+  }
+  return { dispositivo: nombreDispositivo(navigator.userAgent ?? "", Number(navigator.maxTouchPoints ?? 0)), app_instalada: instalada };
+}
+
+// Id de la sesión de Supabase Auth que va dentro del token («session_id»): es nuevo en cada inicio de sesión y no cambia
+// al renovar el token. Supabase repite el aviso «SIGNED_IN» cada vez que se abre la tienda o se vuelve a la pestaña, así
+// que un inicio de sesión de verdad se reconoce porque ese id cambia. Solo se lee el id, no se guarda nada más del token.
+function idDeSesion(token: string | null | undefined): string {
+  try {
+    const parte = String(token ?? "").split(".")[1] ?? "";
+    if (!parte || typeof atob !== "function") return "";
+    const json = atob(parte.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(parte.length / 4) * 4, "="));
+    const id = (JSON.parse(json) as { session_id?: unknown }).session_id;
+    return typeof id === "string" ? id.slice(0, 64) : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Apunta la conexión de este dispositivo (app/_layout.tsx, con el token de la sesión). Si la sesión es nueva en este
+ * dispositivo (acaba de iniciar sesión) no espera los 15 min y suma un inicio. Primero intenta poner al día su fila y, si
+ * aún no la tiene, la crea (empieza con 1 inicio).
+ */
+export function registrarDispositivo(userId: string, token?: string | null): Promise<void> {
+  // De una en una: al abrir la tienda llegan dos avisos seguidos y no deben contar dos veces el mismo inicio.
+  colaDispositivo = colaDispositivo.then(() => registrarAhora(userId, token));
+  return colaDispositivo;
+}
+let colaDispositivo: Promise<void> = Promise.resolve();
+
+async function registrarAhora(userId: string, token?: string | null): Promise<void> {
+  if (!userId || dispositivosSinTabla) return;
+  try {
+    const { dispositivo, app_instalada } = datosDelDispositivo();
+    const clave = `${DISPOSITIVO_CLAVE}${userId}`;
+    const claveSesion = `${DISPOSITIVO_SESION_CLAVE}${userId}`;
+    const sesion = idDeSesion(token);
+    const inicio = !!sesion && (await AsyncStorage.getItem(claveSesion).catch(() => null)) !== sesion;
+    if (!inicio) {
+      const ultima = Number((await AsyncStorage.getItem(clave).catch(() => null)) ?? 0);
+      if (Date.now() - ultima < DISPOSITIVO_CADA_MS) return;
+    }
+    await AsyncStorage.setItem(clave, String(Date.now())).catch(() => {});
+    if (inicio) await AsyncStorage.setItem(claveSesion, sesion).catch(() => {});
+    const cambio: Record<string, unknown> = { app_instalada, ultima_vez: new Date().toISOString() };
+    if (inicio) cambio.inicios = 0;
+    const puesta = await supabase.from("cliente_dispositivos").update(cambio).eq("user_id", userId).eq("dispositivo", dispositivo).select("id");
+    if (puesta.error) {
+      if (/PGRST205|42P01/.test(String(puesta.error.code ?? "")) || /cliente_dispositivos/.test(String(puesta.error.message ?? ""))) dispositivosSinTabla = true;
+      return;
+    }
+    if ((puesta.data ?? []).length > 0) return;
+    // Primera vez en este dispositivo (si a la vez lo crea otra pestaña, la base de datos no lo duplica).
+    await supabase.from("cliente_dispositivos").insert({ user_id: userId, dispositivo, app_instalada });
+  } catch {
+    // Apuntar la conexión nunca debe romper la tienda.
   }
 }
