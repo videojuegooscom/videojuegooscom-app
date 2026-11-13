@@ -15,9 +15,11 @@
  *   (no llega a la ficha), así que esa etiqueta no sale.
  * - Cuatro cifras en fila (#ficha-cifras): gastado (pedidos no cancelados, menos lo devuelto), pedidos, reparaciones y
  *   ventas a la tienda.
- * - Acciones rápidas (#ficha-acciones, icono + texto, 44 px): «Escribir por el chat» (Administración → Chat si tiene alguna
- *   conversación; el chat lo empieza el cliente desde un producto), «Copiar correo», «Ver en Pedidos» (Pedidos no admite
- *   filtro por URL: solo abre la pantalla) y «Añadir nota» (pestaña Notas con el cuadro listo para escribir).
+ * - Acciones rápidas (#ficha-acciones, icono + texto, 44 px): «Escribir por el chat» (siempre activo, dueño 2026-11-13: con
+ *   conversación abre la suya en Administración → Chat con ?chat=<id>; sin ella, el administrador la EMPIEZA, creando la
+ *   conversación general del cliente con su user_id —la política RLS de product_chats ya lo permite—, y abre el hilo; debajo,
+ *   «Conversación empezada por la tienda / por el cliente», #ficha-chat-empezo), «Copiar correo», «Ver en Pedidos» (abre
+ *   Pedidos con ?buscar=<correo>: buscador relleno, solo sus pedidos) y «Añadir nota» (pestaña Notas con el cuadro listo).
  * - Pestañas deslizables (#ficha-pestanas): Resumen · Pedidos · Reparaciones · Ventas · Actividad · Notas, con su número;
  *   la elegida queda en la URL (?tab=pedidos) para volver a ella, y deslizando el dedo se pasa a la siguiente (en bucle).
  *   - Resumen: la nota interna fijada (fondo amarillo suave), los 3 últimos movimientos, los datos del perfil (edad sin
@@ -71,7 +73,8 @@
  *   y «nota del taller», como en Administración → Servicios → Solicitudes):
  *   al guardarlo, el cliente lo ve en Perfil → «Mis seguimientos» y Blue le
  *   avisa. Así no hace falta ir de pantalla en pantalla.
- * - Chat: solo se mira si tiene alguna conversación (product_chats.customer_user_id), para «Escribir por el chat».
+ * - Chat: se busca su conversación más reciente no borrada por el administrador (product_chats.customer_user_id) y el rol del
+ *   primer mensaje (product_chat_messages.sender_role) para saber quién la empezó; «Escribir por el chat» la abre o la crea.
  * - Foro (ForoCliente): si está silenciado y hasta cuándo («Quitar silencio»), o silenciarlo 1, 3 o 7 días, y su
  *   historial de moderación (mensajes y comentarios eliminados, silencios), de las tablas foro_silencios y
  *   foro_moderacion. Sin esa migración no sale.
@@ -571,8 +574,9 @@ export default function ClienteFicha() {
 
   // Dispositivos desde los que entra y su última conexión (tabla cliente_dispositivos). null = la tabla aún no existe.
   const [dispositivos, setDispositivos] = useState<DispositivoFicha[] | null>(null);
-  // ¿Tiene alguna conversación por el chat? null = no se sabe.
-  const [tieneChat, setTieneChat] = useState<boolean | null>(null);
+  // Su conversación más reciente por el chat (no borrada por el administrador) y quién la empezó; null = no tiene o no se sabe.
+  const [chatCliente, setChatCliente] = useState<{ id: string; empezo: "tienda" | "cliente" | null } | null>(null);
+  const [creandoChat, setCreandoChat] = useState(false);
   // Foro e ideas de mejora (los cargan ForoCliente y MejorasCliente; aquí, para la línea de tiempo y las etiquetas).
   const [foro, setForo] = useState<{ historial: FilaModeracion[]; silencio: { hasta: string } | null }>({ historial: [], silencio: null });
   const [mejoras, setMejoras] = useState<MejoraFicha[]>([]);
@@ -621,12 +625,20 @@ export default function ClienteFicha() {
           .select("notes,updated_at")
           .eq("customer_user_id", userId)
           .maybeSingle<{ notes: string; updated_at: string }>(),
-        supabase.from("product_chats").select("id").eq("customer_user_id", userId).limit(1),
+        supabase.from("product_chats").select("id").eq("customer_user_id", userId).is("admin_deleted_at", null).order("last_message_at", { ascending: false }).limit(1),
       ]);
 
       setPurchases((salesRes.data ?? []) as PurchaseRow[]);
       setSellRequests((sellRes.data ?? []) as SellRequestRow[]);
-      setTieneChat(chatRes.error ? null : (chatRes.data ?? []).length > 0);
+      const chatId = chatRes.error ? "" : String((chatRes.data ?? [])[0]?.id ?? "");
+      if (chatId) {
+        // Quién escribió el primer mensaje de esa conversación (si hay mensajes).
+        const primero = await supabase.from("product_chat_messages").select("sender_role").eq("chat_id", chatId).order("created_at", { ascending: true }).limit(1);
+        const rol = primero.error ? null : (primero.data ?? [])[0]?.sender_role;
+        setChatCliente({ id: chatId, empezo: rol === "admin" ? "tienda" : rol === "customer" ? "cliente" : null });
+      } else {
+        setChatCliente(null);
+      }
       // Etapa de seguimiento: consulta aparte para no romper si falta la migración
       let servicios = (serviceRes.data ?? []) as ServiceRequestRow[];
       let conSeguimiento = false;
@@ -852,9 +864,31 @@ export default function ClienteFicha() {
       avisar(false, `No se ha podido copiar: ${tel}`);
     }
   }
-  function escribirPorChat() {
-    if (tieneChat) router.push("/admin/chats");
-    else avisar(false, "Aún no ha abierto ningún chat: lo empieza el cliente desde un producto o una venta.");
+  // Con conversación, abre la suya en Administración → Chat; sin ella, la empieza el administrador (conversación general del
+  // cliente: la política de la base de datos deja al administrador crearla) y abre el hilo para escribirle.
+  async function escribirPorChat() {
+    if (creandoChat) return;
+    if (chatCliente) {
+      router.push({ pathname: "/admin/chats", params: { chat: chatCliente.id } } as never);
+      return;
+    }
+    if (!UUID.test(userId)) return;
+    setCreandoChat(true);
+    try {
+      const { data, error } = await supabase
+        .from("product_chats")
+        .insert({ product_id: null, customer_user_id: userId })
+        .select("id")
+        .single<{ id: string }>();
+      if (error || !data?.id) throw error ?? new Error("sin id");
+      setChatCliente({ id: data.id, empezo: null });
+      router.push({ pathname: "/admin/chats", params: { chat: data.id } } as never);
+    } catch (e) {
+      console.error("Error creando la conversación del cliente:", e);
+      avisar(false, "No se ha podido empezar la conversación. Inténtalo de nuevo.");
+    } finally {
+      setCreandoChat(false);
+    }
   }
   function anadirNota() {
     cambiarTab("notas", true);
@@ -1089,16 +1123,21 @@ export default function ClienteFicha() {
                 <View style={{ gap: 4 }}>
                   <View nativeID="ficha-acciones" style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 8, paddingHorizontal: 4 }}>
                     {[
-                      { id: "chat", icon: "chatbubble-ellipses-outline" as IconName, texto: "Escribir por el chat", onPress: escribirPorChat, apagado: tieneChat === false },
+                      { id: "chat", icon: "chatbubble-ellipses-outline" as IconName, texto: "Escribir por el chat", onPress: escribirPorChat, disabled: creandoChat },
                       { id: "copiar", icon: "copy-outline" as IconName, texto: "Copiar correo", onPress: copiarCorreo, disabled: !email },
-                      { id: "pedidos", icon: "receipt-outline" as IconName, texto: "Ver en Pedidos", onPress: () => router.push("/admin/pedidos") },
+                      { id: "pedidos", icon: "receipt-outline" as IconName, texto: "Ver en Pedidos", onPress: () => router.push(email ? ({ pathname: "/admin/pedidos", params: { buscar: email } } as never) : "/admin/pedidos") },
                       { id: "nota", icon: "create-outline" as IconName, texto: "Añadir nota", onPress: anadirNota },
                     ].map((a) => (
                       <View key={a.id} style={{ flexGrow: 1, flexBasis: 150, minWidth: 0 }}>
-                        <BotonTexto nativeID={`ficha-accion-${a.id}`} icon={a.icon} texto={a.texto} onPress={a.onPress} disabled={a.disabled} apagado={a.apagado} />
+                        <BotonTexto nativeID={`ficha-accion-${a.id}`} icon={a.icon} texto={a.texto} onPress={a.onPress} disabled={a.disabled} />
                       </View>
                     ))}
                   </View>
+                  {chatCliente?.empezo ? (
+                    <Text nativeID="ficha-chat-empezo" style={{ color: COLORS.muted, fontWeight: "700", fontSize: 13, paddingHorizontal: 4 }}>
+                      {chatCliente.empezo === "tienda" ? "Conversación empezada por la tienda" : "Conversación empezada por el cliente"}
+                    </Text>
+                  ) : null}
                   {avisoAccion ? (
                     <Text nativeID="ficha-aviso-accion" accessibilityRole="alert" style={{ color: avisoAccion.ok ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: 13, paddingHorizontal: 4 }}>
                       {avisoAccion.texto}

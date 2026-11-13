@@ -50,8 +50,15 @@
  *   en Supabase (falta ejecutar el script), se cae al nombre sacado del
  *   primer mensaje del cliente y, si tampoco hay, a "Cliente".
  *
+ * - Empezar una conversación (dueño, 2026-11-13): desde la ficha del cliente («Escribir por el chat») el administrador crea la
+ *   conversación general del cliente (la política RLS ya deja al administrador insertar en product_chats; sin migración) y
+ *   llega aquí con ?chat=<id>, que abre el hilo. «la empezó la tienda» sale junto al nombre cuando el primer mensaje es del
+ *   administrador; el cliente ve el mensaje en su chat y Campanita/Blue le avisan (get_unread_chat_count: último mensaje del
+ *   administrador sin leer).
+ *
  * Conectado con:
  * - sql/product_chats.sql → product_chats, product_chat_messages.
+ * - app/admin/cliente/[userId].tsx → «Escribir por el chat» (?chat=).
  * - sql/product_sales.sql → marcar como vendido.
  * - sql/admin_users_by_ids.sql → nombre real del cliente en la lista.
  * - components/ProductChatThread.tsx → el hilo de mensajes en sí.
@@ -64,7 +71,7 @@
  *   desde COLORES_TEXTO.secundario, todo lo que se toca (volver, borrar, confirmar, chips) de 44 px
  *   separado 8 y los campos de 16 px y 48 de alto.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -75,7 +82,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { openExternalLink } from "../../lib/openExternalLink";
@@ -113,7 +120,14 @@ type ChatRow = {
   last_message_at: string;
   last_message_preview: string;
   customer_name: string;
+  // Quién escribió el primer mensaje: «tienda» si el administrador empezó la conversación (desde la ficha del cliente).
+  empezo: "tienda" | "cliente" | null;
 };
+
+// Marca junto al nombre cuando la conversación la empezó la tienda.
+function MarcaEmpezo({ chat }: { chat: ChatRow }) {
+  return chat.empezo === "tienda" ? <Text style={{ color: COLORS.muted, fontWeight: "600" }}> · la empezó la tienda</Text> : null;
+}
 
 type ProductGroup = {
   product_id: string;
@@ -532,6 +546,11 @@ export default function AdminChats() {
   // segundo toque borra de verdad. Solo un id a la vez.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Conversación pedida por la URL (?chat=) y la última que ya se abrió.
+  const { chat: chatUrl } = useLocalSearchParams<{ chat?: string }>();
+  const chatUrlRef = useRef<string>(typeof chatUrl === "string" ? chatUrl : "");
+  chatUrlRef.current = typeof chatUrl === "string" ? chatUrl : "";
+  const abiertaPorUrl = useRef("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -547,7 +566,7 @@ export default function AdminChats() {
 
       if (error) throw error;
 
-      const chatRows = (chats ?? []) as Omit<ChatRow, "customer_name">[];
+      const chatRows = (chats ?? []) as Omit<ChatRow, "customer_name" | "empezo">[];
       if (chatRows.length === 0) {
         setGroups([]);
         setSupportChats([]);
@@ -589,7 +608,6 @@ export default function AdminChats() {
           .from("product_chat_messages")
           .select("chat_id,sender_role,sender_name,created_at")
           .in("chat_id", chatIds)
-          .eq("sender_role", "customer")
           .order("created_at", { ascending: true }),
         supabase.from("product_sales").select("product_id,buyer_user_id").in("product_id", productIds),
         // Nombre REAL del cliente aunque todavía no haya escrito ningún
@@ -622,8 +640,11 @@ export default function AdminChats() {
       // Nombre por chat, sacado del primer mensaje del cliente (solo existe
       // si ya ha escrito algo).
       const nameByChat: Record<string, string> = {};
+      // Quién escribió el primer mensaje de cada conversación (cliente o tienda).
+      const empezoByChat: Record<string, "tienda" | "cliente"> = {};
       for (const row of (firstMsgs ?? []) as any[]) {
-        if (!nameByChat[row.chat_id]) nameByChat[row.chat_id] = row.sender_name || "";
+        if (!empezoByChat[row.chat_id]) empezoByChat[row.chat_id] = row.sender_role === "admin" ? "tienda" : "cliente";
+        if (row.sender_role === "customer" && !nameByChat[row.chat_id]) nameByChat[row.chat_id] = row.sender_name || "";
       }
 
       // Nombre real por cliente (id de auth.users), disponible aunque no
@@ -643,9 +664,11 @@ export default function AdminChats() {
       const byProduct: Record<string, ProductGroup> = {};
       const bySellRequest: Record<string, SellGroup> = {};
       const support: ChatRow[] = [];
+      const todasLasFilas: ChatRow[] = [];
       for (const c of chatRows) {
         const customerName = nameByCustomer[c.customer_user_id] || nameByChat[c.id] || "Cliente";
-        const chatWithName: ChatRow = { ...c, customer_name: customerName };
+        const chatWithName: ChatRow = { ...c, customer_name: customerName, empezo: empezoByChat[c.id] ?? null };
+        todasLasFilas.push(chatWithName);
 
         if (c.product_id) {
           const group =
@@ -693,6 +716,17 @@ export default function AdminChats() {
       setGroups(groupList);
       setSupportChats(support);
       setSellGroups(sellGroupList);
+
+      // ?chat=<id> (desde la ficha del cliente): abre ese hilo, una sola vez.
+      const pedida = chatUrlRef.current;
+      if (pedida && abiertaPorUrl.current !== pedida) {
+        const objetivo = todasLasFilas.find((c) => c.id === pedida);
+        if (objetivo) {
+          abiertaPorUrl.current = pedida;
+          setSelectedChat(objetivo);
+          setSelectedProduct(objetivo.product_id ? groupList.find((g) => g.product_id === objetivo.product_id) ?? null : null);
+        }
+      }
     } catch (e) {
       console.error("Error cargando las conversaciones:", e);
       setGroups([]);
@@ -705,7 +739,7 @@ export default function AdminChats() {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, chatUrl]);
 
   const totalChats = useMemo(
     () =>
@@ -846,6 +880,7 @@ export default function AdminChats() {
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                           {chat.customer_name}
+                          <MarcaEmpezo chat={chat} />
                         </Text>
                         <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                           {chat.last_message_preview || "Sin mensajes"}
@@ -926,6 +961,7 @@ export default function AdminChats() {
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                               {chat.customer_name}
+                          <MarcaEmpezo chat={chat} />
                             </Text>
                             <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                               {chat.last_message_preview || "Sin mensajes"}
@@ -1015,6 +1051,7 @@ export default function AdminChats() {
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                         {chat.customer_name}
+                          <MarcaEmpezo chat={chat} />
                       </Text>
                       <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                         {chat.last_message_preview || "Sin mensajes"}
@@ -1049,6 +1086,11 @@ export default function AdminChats() {
   // y deja libre la zona segura inferior del iPhone para que no la tape la barra de inicio.
   const detail = selectedChat ? (
     <View style={{ flex: 1, minHeight: 0, paddingBottom: insets.bottom, backgroundColor: COLORS.bg }}>
+      {selectedChat.empezo === "tienda" ? (
+        <Text nativeID="chat-empezo-tienda" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", paddingHorizontal: 12, paddingTop: 6 }}>
+          Conversación empezada por la tienda
+        </Text>
+      ) : null}
       <ProductChatThread
         chatId={selectedChat.id}
         bajoCabecera={
