@@ -31,6 +31,9 @@
  *   cotizaciones.tsx e index.tsx → usan AdminHeader, PrimaryButton,
  *   AdminNotice, EmptyState y StatCard para que todas las pestañas del
  *   panel se vean iguales.
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): la flecha de volver de AdminHeader, los
+ *   filtros (FilterPill) y los chips (ChipButton) miden 44 px como mínimo; ningún texto baja de 13 px
+ *   (12 solo en las insignias cortas IMAGEN/VÍDEO) y el texto azul pequeño usa COLORS.accentText.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View } from "react-native";
@@ -38,6 +41,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { COLORS } from "./products.constants";
+import { TACTIL, TAMANOS } from "../../constants/theme";
 import type { LocalPickedMedia, ProductMediaRow, ProductMediaKind } from "./products.types";
 import { smartBackAdminHome } from "./products.utils";
 
@@ -77,7 +81,7 @@ export function AdminHeader({
         paddingBottom: isMobile ? 10 : 12,
       }}
     >
-      <View style={{ width: "100%", maxWidth, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+      <View style={{ width: "100%", maxWidth, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
         <Pressable
           onPress={onBack}
           accessibilityRole="button"
@@ -88,7 +92,7 @@ export function AdminHeader({
             left: 0,
             top: 0,
             bottom: 0,
-            width: 40,
+            width: TACTIL.minimo,
             alignItems: "center",
             justifyContent: "center",
             opacity: pressed ? 0.7 : 1,
@@ -335,8 +339,8 @@ export function StatCard({
       <View style={{ flexDirection: estrecha ? "column" : "row", alignItems: "center", justifyContent: "center", gap: estrecha ? 2 : 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
         <Text
-          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: estrecha ? 11 : 12, textAlign: "center", flexShrink: 1 }}
-          numberOfLines={1}
+          style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center", flexShrink: 1 }}
+          numberOfLines={2}
         >
           {label}
         </Text>
@@ -542,6 +546,8 @@ export function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         paddingVertical: 10,
         paddingHorizontal: 12,
         borderWidth: 1,
@@ -696,6 +702,8 @@ export function FilterPill({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         paddingVertical: 10,
         paddingHorizontal: 12,
         borderWidth: 1,
@@ -793,7 +801,7 @@ export function MediaThumb({
               style={{
                 color: COLORS.text,
                 fontWeight: "900",
-                fontSize: 11,
+                fontSize: TAMANOS.minimo,
               }}
             >
               {kind === "video" ? "Vídeo" : "Sin vista previa"}
@@ -818,7 +826,7 @@ export function MediaThumb({
             style={{
               color: COLORS.text,
               fontWeight: "900",
-              fontSize: 10,
+              fontSize: TAMANOS.legal,
             }}
           >
             {kind === "image" ? "IMAGEN" : kind === "video" ? "VÍDEO" : "MULTIMEDIA"}
@@ -843,7 +851,7 @@ export function MediaThumb({
               style={{
                 color: "#FFFFFF",
                 fontWeight: "900",
-                fontSize: 10,
+                fontSize: TAMANOS.legal,
               }}
             >
               {duration}
@@ -862,10 +870,10 @@ export function MediaThumb({
           numberOfLines={2}
           style={{
             color: COLORS.text,
-            fontSize: 11,
+            fontSize: TAMANOS.minimo,
             fontWeight: "900",
-            lineHeight: 14,
-            minHeight: 28,
+            lineHeight: 16,
+            minHeight: 32,
           }}
         >
           {mediaName}
@@ -874,7 +882,7 @@ export function MediaThumb({
         <Text
           style={{
             color: COLORS.muted2,
-            fontSize: 10,
+            fontSize: TAMANOS.minimo,
             fontWeight: "700",
           }}
         >
@@ -967,7 +975,7 @@ export function BarraSeleccionFotos({
         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, paddingHorizontal: 10, opacity: pressed ? 0.7 : 1 })}
       >
         <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.accent} />
-        <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14 }}>Seleccionar varias</Text>
+        <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: 14 }}>Seleccionar varias</Text>
       </Pressable>
     );
   }
@@ -982,7 +990,7 @@ export function BarraSeleccionFotos({
           accessibilityRole="button"
           style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 12, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
         >
-          <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 14 }}>Todas</Text>
+          <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: 14 }}>Todas</Text>
         </Pressable>
         <Pressable
           nativeID="fotos-quitar"

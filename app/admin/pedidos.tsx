@@ -11,6 +11,11 @@
  * - Los pedidos no se borran: se cancelan.
  * - Si la tabla aún no existe (migración sin aplicar) lo dice en pantalla.
  *
+ * Tamaños del móvil (grupo 4, 2026-11-12): ningún texto de menos de 13 px, grises no más claros que
+ * COLORES_TEXTO.secundario, texto azul pequeño en azulTexto y todo lo que se toca (filtros, botones de
+ * estado, volver, «Escribir al cliente») de 44 px como mínimo y con 8 px entre botones, para no cambiar
+ * el estado de un pedido sin querer (constants/theme.ts; prueba TM4 de pruebas/perfil-datos.mjs).
+ *
  * Conectado con:
  * - app/admin/index.tsx → tarjeta "Pedidos" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("pedidos") en el Stack.
@@ -57,6 +62,7 @@ import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 import { cargarTarifas, fmtKg, type ZonaEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type Estado = "pendiente" | "confirmado" | "preparado" | "enviado" | "entregado" | "cancelado";
 
@@ -145,9 +151,10 @@ const COLORS = {
   bg2: "#F4F9FD",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  accent: "#1EA7E8",
-  accentDark: "#1EA7E8",
+  muted: COLORES_TEXTO.secundario,
+  accent: COLORES_TEXTO.azulMarca,
+  // Texto azul de menos de 17 px (enlaces, precios, filtros): azul oscuro; el de marca queda para iconos y bordes.
+  accentDark: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   danger: "#B91C1C",
   gold: "#B8860B",
@@ -193,7 +200,7 @@ function EtiquetaNumero({
   return (
     // La referencia ya va en el título del pedido: aquí, de dónde viene y si el cliente ya la tiene.
     <View accessibilityLabel={`Referencia ${codigo}`} style={{ alignItems: "center", gap: 2 }}>
-      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+      <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
         {[
           veoaura ? "Ficha de VeoAura" : null,
           enCuenta
@@ -574,7 +581,7 @@ export default function PedidosAdmin() {
           paddingBottom: 10,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 760, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 760, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={() => router.replace("/admin")}
             accessibilityRole="button"
@@ -587,7 +594,7 @@ export default function PedidosAdmin() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -632,19 +639,19 @@ export default function PedidosAdmin() {
           </Text>
           {/* Dueño, 2026-11-03: «Entregado» cuenta como pagado; si el pedido lleva artículos de VeoAura, su ficha de cliente
               (nombre, correo y teléfono) va a VeoAura (api/escaparate-retorno.ts). Se ve en Administración → Escaparate. */}
-          <Text nativeID="pedidos-veoaura-cliente" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+          <Text nativeID="pedidos-veoaura-cliente" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
             Al marcar «Entregado» un pedido con artículos de VeoAura, se envían a VeoAura el nombre, el correo y el teléfono del
             cliente (nunca su dirección).
           </Text>
           {numerosOk && !loading ? (
-            <Text nativeID="pedidos-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            <Text nativeID="pedidos-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
               Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculados}) ·
               añadidos con su número: {resumenNumeros.anadidosConNumero} · sin cuenta: {resumenNumeros.sinVincular} · asignados desde
               el chat: {resumenNumeros.desdeChat}
             </Text>
           ) : null}
           {pagoOk && !loading ? (
-            <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            <Text nativeID="pedidos-pago-tarjeta" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
               Pago online (Stripe: tarjeta, Bizum o Klarna) · pagados: {resumenPago.pagados} (cobrado de verdad: {fmtEUR(resumenPago.cobradoReal)}; de prueba:{" "}
               {resumenPago.dePrueba})
               {resumenPago.porMetodo.card + resumenPago.porMetodo.bizum + resumenPago.porMetodo.klarna
@@ -657,7 +664,7 @@ export default function PedidosAdmin() {
           ) : null}
 
           {ventasOk && !loading ? (
-            <Text nativeID="pedidos-en-tienda" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            <Text nativeID="pedidos-en-tienda" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
               Ventas en tienda (llegan de VeoAura) · {resumenTienda.total} ({fmtEUR(resumenTienda.importe)}) · en la cuenta del cliente:{" "}
               {resumenTienda.unidas} · pendientes de que se registre: {resumenTienda.pendientes}
             </Text>
@@ -671,6 +678,8 @@ export default function PedidosAdmin() {
                   key={c.value}
                   onPress={() => setFiltro(c.value)}
                   style={{
+                    minHeight: TACTIL.minimo,
+                    justifyContent: "center",
                     paddingVertical: 8,
                     paddingHorizontal: 12,
                     borderRadius: 999,
@@ -690,7 +699,7 @@ export default function PedidosAdmin() {
           {/* Facturas (las emite VeoAura): recuento y filtro, que se suma al de arriba. */}
           {facturasOk && !loading ? (
             <View nativeID="pedidos-facturas" style={{ alignItems: "center", gap: 8 }}>
-              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                 Facturas de VeoAura · con factura: {resumenFacturas.con}
                 {resumenFacturas.pdfPendiente ? ` (PDF pendiente: ${resumenFacturas.pdfPendiente})` : ""} · sin factura: {resumenFacturas.sin}
               </Text>
@@ -710,6 +719,8 @@ export default function PedidosAdmin() {
                       nativeID={`pedidos-filtro-factura-${c.value}`}
                       onPress={() => setFiltroFactura(c.value)}
                       style={{
+                        minHeight: TACTIL.minimo,
+                        justifyContent: "center",
                         paddingVertical: 8,
                         paddingHorizontal: 12,
                         borderRadius: 999,
@@ -752,7 +763,7 @@ export default function PedidosAdmin() {
                   {fmtFecha(p.created_at)} · {enTienda(p) ? "Compra en tienda" : p.entrega === "recogida" ? "Entrega en mano" : "Envío a domicilio"}
                 </Text>
                 {p.codigo_seguimiento ? (
-                  <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
+                  <Text nativeID={`pedido-interno-${p.numero}`} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                     Nº interno {p.numero}
                   </Text>
                 ) : null}
@@ -765,7 +776,7 @@ export default function PedidosAdmin() {
                         En tienda · pagado{FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""] ? ` ${FORMA_PAGO_TIENDA[p.venta_forma_pago ?? ""]}` : ""} · entregado
                       </Text>
                     </View>
-                    <Text nativeID={`pedido-tienda-cuenta-${p.numero}`} selectable style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+                    <Text nativeID={`pedido-tienda-cuenta-${p.numero}`} selectable style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                       {p.user_id ? "Unida a la cuenta del cliente" : `Pendiente de que se registre ${p.email}`}
                     </Text>
                   </View>
@@ -781,7 +792,7 @@ export default function PedidosAdmin() {
 
                 {(p.pedido_items ?? []).map((it) => (
                   <Text key={it.id} style={{ color: COLORS.text, textAlign: "center" }}>
-                    {it.titulo} · <Text style={{ color: COLORS.accent, fontWeight: "800" }}>{fmtEUR(it.precio_eur)}</Text>
+                    {it.titulo} · <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>{fmtEUR(it.precio_eur)}</Text>
                   </Text>
                 ))}
 
@@ -804,11 +815,11 @@ export default function PedidosAdmin() {
                         </Text>
                       </View>
                     ) : p.pago_estado === "pagado" && p.estado === "cancelado" ? (
-                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         Cancelado y pagado: devuelve el pago{devolucionOk ? " con el botón de abajo" : " desde Stripe"}.
                       </Text>
                     ) : p.pago_estado === "pagado" && Math.round(Number(p.pagado_eur ?? 0) * 100) !== Math.round(Number(p.total_eur) * 100) ? (
-                      <Text style={{ color: COLORS.gold, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                      <Text style={{ color: COLORS.gold, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         El total ahora es {fmtEUR(p.total_eur)}: la diferencia se arregla desde Stripe o por el chat.
                       </Text>
                     ) : null}
@@ -820,7 +831,7 @@ export default function PedidosAdmin() {
                         style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
                       >
                         <Ionicons name="open-outline" size={16} color={COLORS.accent} />
-                        <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Ver el pago en Stripe</Text>
+                        <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Ver el pago en Stripe</Text>
                       </Pressable>
                     ) : null}
                   </View>
@@ -843,12 +854,12 @@ export default function PedidosAdmin() {
                           style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
                         >
                           <Ionicons name="download-outline" size={16} color={COLORS.accent} />
-                          <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Descargar</Text>
+                          <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Descargar</Text>
                         </Pressable>
                       ) : null}
                     </View>
                     {facturaMsg?.id === p.id ? (
-                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>{facturaMsg.texto}</Text>
+                      <Text style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>{facturaMsg.texto}</Text>
                     ) : null}
                   </View>
                 ) : null}
@@ -903,12 +914,12 @@ export default function PedidosAdmin() {
                           style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
                         >
                           <Ionicons name="refresh-outline" size={18} color={COLORS.accent} />
-                          <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Volver al automático</Text>
+                          <Text style={{ color: COLORS.accentDark, fontWeight: "800" }}>Volver al automático</Text>
                         </Pressable>
                       ) : null}
                     </View>
                     {envioMsg?.id === p.id ? (
-                      <Text nativeID={`pedido-envio-mensaje-${p.numero}`} style={{ color: envioMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                      <Text nativeID={`pedido-envio-mensaje-${p.numero}`} style={{ color: envioMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         {envioMsg.texto}
                       </Text>
                     ) : null}
@@ -932,7 +943,7 @@ export default function PedidosAdmin() {
                 {/* Devolver el pago y cancelar el pedido (dueño, 2026-11-06): texto con su icono, sin burbuja; el primer
                     toque pide confirmar y el segundo lo hace. */}
                 {!enTienda(p) && ((devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en) || (p.estado !== "cancelado" && p.estado !== "entregado")) ? (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18 }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", columnGap: 18, rowGap: TACTIL.separacion }}>
                     {devolucionOk && p.pago_estado === "pagado" && !p.devuelto_en ? (
                       <Pressable
                         nativeID={`pedido-devolver-${p.numero}`}
@@ -964,7 +975,7 @@ export default function PedidosAdmin() {
                   </View>
                 ) : null}
                 {accionMsg?.id === p.id ? (
-                  <Text nativeID={`pedido-accion-mensaje-${p.numero}`} style={{ color: accionMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                  <Text nativeID={`pedido-accion-mensaje-${p.numero}`} style={{ color: accionMsg.tipo === "ok" ? "#15803D" : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                     {accionMsg.texto}
                   </Text>
                 ) : null}
@@ -972,7 +983,7 @@ export default function PedidosAdmin() {
                 {/* Una venta en mano ya está pagada y entregada (la gestiona VeoAura): sin cambiar estado ni WhatsApp. */}
                 {enTienda(p) ? null : (
                 <>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginTop: 4 }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: TACTIL.separacion, marginTop: 4 }}>
                   {ESTADOS.map((e) => {
                     const activo = p.estado === e.value;
                     return (
@@ -981,8 +992,10 @@ export default function PedidosAdmin() {
                         disabled={guardando === p.id}
                         onPress={() => cambiarEstado(p, e.value)}
                         style={{
+                          minHeight: TACTIL.minimo,
+                          justifyContent: "center",
                           paddingVertical: 6,
-                          paddingHorizontal: 10,
+                          paddingHorizontal: 12,
                           borderRadius: 999,
                           borderWidth: 1,
                           borderColor: activo ? (e.value === "cancelado" ? COLORS.danger : COLORS.accent) : COLORS.border,
@@ -994,7 +1007,7 @@ export default function PedidosAdmin() {
                           style={{
                             color: activo ? (e.value === "cancelado" ? COLORS.danger : COLORS.accentDark) : COLORS.muted,
                             fontWeight: "800",
-                            fontSize: 12.5,
+                            fontSize: TAMANOS.minimo,
                           }}
                         >
                           {e.label}
@@ -1009,6 +1022,7 @@ export default function PedidosAdmin() {
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.88 : 1,
                     marginTop: 4,
+                    minHeight: TACTIL.minimo,
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 6,

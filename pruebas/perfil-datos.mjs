@@ -267,7 +267,10 @@
  *    pequeños fuera del azul de marca y la oferta asomando a 360 × 740; el botón «Volver» sin tapar nada al final de
  *    Políticas, Noticias y Contratar; y en las fichas de producto y servicio, compartir y «me gusta» de 44 × 44; nada se
  *    sale por los lados.
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|TM2|TM3]
+ *  - TM4) Tamaños comunes, grupo 4 (2026-11-12), a 360, 390 y 1280 px: en Administración → Pedidos, Productos, Servicios,
+ *    Analítica y el inicio del panel, ningún texto de menos de 13 px, todo lo que se toca de 44 × 44 px o más, los 6 botones
+ *    de estado de cada pedido a 8 px o más unos de otros (y de 44 de alto), y nada se sale por los lados.
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|TM2|TM3|TM4]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -7919,7 +7922,7 @@ async function seccionTE() {
     ok(JSON.stringify(estado.cambiosEnvio?.[1]?.cuerpo) === '{"envio_manual":false}' && /Envío 6,90€ .*· automático/.test(await linea()) && /Pedido VZ-ABCD-EFGH · 106,90€/.test(await todo()), `TE: «Volver al automático» lo devuelve a la tarifa (${await linea()})`);
     ok((await p.locator("#pedido-envio-automatico-101").count()) === 0, "TE: y ya no ofrece volver (ya es automático)");
     const precios = await p.evaluate(() => [...document.querySelectorAll("*")].filter((e) => e.children.length === 0 && /^60,00€$/.test((e.textContent ?? "").trim())).map((e) => getComputedStyle(e).color));
-    ok(precios.length >= 1 && precios.every((c) => c === "rgb(30, 167, 232)"), `TE: los precios de los artículos van en azul (${precios.join(", ")})`);
+    ok(precios.length >= 1 && precios.every((c) => c === "rgb(10, 120, 180)"), `TE: los precios de los artículos (menos de 17 px) van en el azul oscuro de texto, no en el de marca (${precios.join(", ")})`);
     ok(await sinDesbordar(p), "TE: Pedidos no se ensancha");
     await capturar(p, "TE7-pedidos-envio");
     ok(p.errores.length === 0, `TE: Pedidos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -11739,8 +11742,121 @@ async function seccionTM3() {
   }
 }
 
+// ===== TM4) Tamaños comunes, grupo 4: Administración (Pedidos, Productos, Servicios, Analítica e inicio del panel) ==========
+async function seccionTM4() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } } },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const ahora = new Date().toISOString();
+  const PS5 = "c0000000-0000-4000-8000-0000000000a1";
+  const PROD = "p0000000-0000-4000-8000-0000000000d4";
+  const SERV = "5e000000-0000-4000-8000-0000000000d4";
+  const pedido = (numero, extra) => ({
+    id: `d4000000-0000-4000-8000-0000000000${numero}`, numero, created_at: ahora, estado: "pendiente", entrega: "envio", nombre: "Ana Gómez", email: "ana@example.com",
+    telefono: "600111222", direccion: "Calle Mayor 1", codigo_postal: "50001", ciudad: "Zaragoza", notas: null, total_eur: 129.9, productos_eur: 124.9, envio_eur: 5, zona_envio: "peninsula",
+    envio_manual: false, user_id: CLIENTE.id, codigo_seguimiento: `VZ-TM${numero}-AAAA`, id_veoaura: null, vinculado_en: ahora, nota_admin: null,
+    pedido_items: [{ id: `i${numero}`, product_id: PROD, titulo: "Mando DualSense Midnight Black", precio_eur: 124.9 }],
+    pago_estado: "pagado", pago_modo: "real", pago_metodo: "card", pago_referencia: "pi_tm4", pagado_eur: 129.9, pagado_en: ahora, origen: "web", ...extra,
+  });
+  const PANTALLAS = [
+    {
+      etiqueta: "Pedidos", ruta: "/admin/pedidos", espera: "#pedido-titulo-91",
+      estado: () => ({ guardados: [], tarifas: [], pedidosAdmin: [pedido(91, {}), pedido(92, { estado: "enviado", pago_estado: null, pago_modo: null, pago_metodo: null })] }),
+    },
+    {
+      etiqueta: "Productos", ruta: "/admin/products", espera: "#productos-rejilla",
+      estado: () => ({
+        guardados: [], filas: [], categorias: [{ id: PS5, slug: "playstation-5", name: "PlayStation 5", sort_order: 1, is_active: true }],
+        productosAdmin: [1, 2].map((n) => ({
+          id: `${PROD.slice(0, -1)}${n}`, title: `Mando DualSense ${n}`, description: "Revisado.", price_eur: 49.9 + n, status: n === 2 ? "DRAFT" : "PUBLISHED", is_active: true, category_id: PS5,
+          images: [], condition: "USED", reference: null, is_featured_home: false, solo_entrega_mano: n === 2, peso_kg: n === 1 ? 0.5 : null, created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z",
+        })),
+      }),
+    },
+    {
+      etiqueta: "Servicios", ruta: "/admin/services", espera: "text=Servicios",
+      estado: () => ({
+        guardados: [], filas: [], categorias: [],
+        serviciosAdmin: [{ id: SERV, title: "Mantenimiento Playstation 5", description: "Limpieza completa.", price_eur: 45, status: "PUBLISHED", is_active: true, view_count: 3, like_count: 2, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" }],
+        serviciosMedia: [],
+      }),
+    },
+    { etiqueta: "Analítica", ruta: "/admin/analytics", espera: 'input[placeholder="Desde (AAAA-MM-DD)"]', estado: () => ({ guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Producto Nintendo Switch OLED", sessions: 6 }, { step_label: "Ficha: foto ampliada", sessions: 4 }] }) },
+    { etiqueta: "el inicio del panel", ruta: "/admin", espera: 'text=Panel de control', estado: () => ({ filas: [], guardados: [] }) },
+  ];
+  // Letra < 13 px, zonas táctiles < 44 × 44 (solo las más externas), la separación entre los 6 botones de estado de cada pedido
+  // y el ancho de la página.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily) || /^[-]+$/.test(t)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < 13) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      // Botones de estado de un pedido: 6 hermanos con estos nombres; separación mínima entre cada par.
+      const NOMBRES = ["Pendiente", "Confirmado", "Preparado", "Enviado", "Entregado", "Cancelado"];
+      const filas = new Map();
+      for (const el of objetivos) {
+        if (NOMBRES.includes((el.innerText || "").trim()) && el.parentElement) filas.set(el.parentElement, [...(filas.get(el.parentElement) ?? []), el]);
+      }
+      const estados = [...filas.values()].filter((l) => l.length === 6).map((l) => {
+        let gap = 1e9;
+        for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) {
+          const a = l[i].getBoundingClientRect(), b = l[j].getBoundingClientRect();
+          const v = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          const h = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          if (v > 2) gap = Math.min(gap, Math.max(b.left - a.right, a.left - b.right));
+          else if (h > 2) gap = Math.min(gap, Math.max(b.top - a.bottom, a.top - b.bottom));
+        }
+        return { gap: Math.round(gap * 10) / 10, alto: Math.round(Math.min(...l.map((e) => e.getBoundingClientRect().height))) };
+      });
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, estados, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+
+  for (const pant of PANTALLAS) {
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, ADMIN, "admin", pant.estado(), vista);
+      const p = await pagina(ctx, pant.ruta);
+      await p.locator(pant.espera).first().waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(900);
+      const m = await medir(p);
+      ok(m.n >= 3 && !m.pequenos.length, `TM4 (${nombre}): en ${pant.etiqueta} ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+      ok(!m.chicos.length, `TM4 (${nombre}): en ${pant.etiqueta} todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      if (pant.etiqueta === "Pedidos") {
+        // Dos pedidos con sus 6 botones de estado, más la fila de filtros de arriba (mismos nombres): 3 filas.
+        ok(m.estados.length === 3 && m.estados.every((e) => e.gap >= 8 && e.alto >= 44), `TM4 (${nombre}): en Pedidos los 6 botones de estado de cada pedido miden 44 px de alto y están a 8 px o más unos de otros (${JSON.stringify(m.estados)})`);
+      }
+      ok(m.ancho <= m.v + 1, `TM4 (${nombre}): ${pant.etiqueta} no se sale por los lados (${m.ancho}/${m.v})`);
+      await capturar(p, `TM4-${nombre}-${pant.ruta.replace(/\W+/g, "-").replace(/^-|-$/g, "") || "admin"}`);
+      ok(p.errores.length === 0, `TM4 (${nombre}): ${pant.etiqueta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "TM4") await seccionTM4();
   if (SOLO === "TM3") await seccionTM3();
   if (SOLO === "TM") await seccionTM();
   if (SOLO === "TM2") await seccionTM2();
@@ -12786,6 +12902,7 @@ try {
   await seccionTM();
   await seccionTM2();
   await seccionTM3();
+  await seccionTM4();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

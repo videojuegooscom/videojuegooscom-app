@@ -7,6 +7,8 @@
  *
  * Cómo funciona: sin pasar nada, «volver» regresa en el historial y, si no lo hay, va a Inicio.
  * Con `onBack` se usa esa acción. BotonVolver también se exporta por si hace falta solo.
+ * Tamaños del móvil (grupo 4, 2026-11-12): el círculo sigue de 40 px pero la zona táctil mide 44 × 44
+ * (constants/theme.ts → TACTIL), sin cambiar cómo se ve.
  *
  * Conectado con: app/catalogo.tsx, app/servicios.tsx, app/servicio/[id].tsx, app/producto/[id].tsx,
  * app/blog/index.tsx, app/politicas/[slug].tsx, app/checkout.tsx, app/chat/[chatId].tsx y
@@ -16,6 +18,7 @@ import React from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { TACTIL } from "../constants/theme";
 
 const AZUL = "#1EA7E8";
 const MARINO = "#0B2138";
@@ -33,43 +36,55 @@ export function volverAtras() {
 }
 
 export function BotonVolver({ onPress, tamano = 40 }: { onPress?: () => void; tamano?: number }) {
+  const zona = Math.max(tamano, TACTIL.minimo);
   return (
+    // La zona táctil mide 44 × 44 como mínimo (TACTIL.minimo) y es transparente; el círculo azul se ve igual que antes.
     <Pressable
       onPress={onPress ?? volverAtras}
       accessibilityRole="button"
       accessibilityLabel="Volver atrás"
       hitSlop={8}
       style={({ pressed }) => ({
-        width: tamano,
-        height: tamano,
-        borderRadius: tamano / 2,
-        backgroundColor: AZUL,
+        width: zona,
+        height: zona,
         alignItems: "center",
         justifyContent: "center",
         transform: [{ scale: pressed ? 0.92 : 1 }],
-        shadowColor: AZUL,
-        shadowOpacity: 0.38,
-        shadowRadius: 9,
-        shadowOffset: { width: 0, height: 3 },
-        elevation: 4,
         ...(Platform.OS === "web" ? ({ cursor: "pointer", transitionProperty: "transform", transitionDuration: "120ms" } as object) : {}),
       })}
     >
-      {/* Aro fino por dentro: el sello de la tienda. */}
       <View
         pointerEvents="none"
         style={{
-          position: "absolute",
-          top: 3,
-          left: 3,
-          right: 3,
-          bottom: 3,
-          borderRadius: (tamano - 6) / 2,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.5)",
+          width: tamano,
+          height: tamano,
+          borderRadius: tamano / 2,
+          backgroundColor: AZUL,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: AZUL,
+          shadowOpacity: 0.38,
+          shadowRadius: 9,
+          shadowOffset: { width: 0, height: 3 },
+          elevation: 4,
         }}
-      />
-      <Ionicons name="chevron-back" size={Math.round(tamano * 0.55)} color="#FFFFFF" style={{ marginLeft: -1 }} />
+      >
+        {/* Aro fino por dentro: el sello de la tienda. */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 3,
+            left: 3,
+            right: 3,
+            bottom: 3,
+            borderRadius: (tamano - 6) / 2,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.5)",
+          }}
+        />
+        <Ionicons name="chevron-back" size={Math.round(tamano * 0.55)} color="#FFFFFF" style={{ marginLeft: -1 }} />
+      </View>
     </Pressable>
   );
 }
@@ -80,7 +95,8 @@ export default function CabeceraMarca({ onBack, sinVolver }: { onBack?: () => vo
   return (
     <View style={{ width: "100%", height: 44, justifyContent: "center", alignItems: "center" }}>
       {sinVolver ? null : (
-        <View style={{ position: "absolute", left: 0, top: 2 }}>
+        // La zona táctil es 44 × 44 y el círculo de 40 queda donde estaba (2 px de margen a cada lado).
+        <View style={{ position: "absolute", left: -2, top: 0 }}>
           <BotonVolver onPress={onBack} />
         </View>
       )}

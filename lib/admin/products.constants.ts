@@ -13,7 +13,11 @@
  *   componentes visuales compartidos (ChipButton, StatCard, etc.).
  * - app/admin/products/products.utils.ts → importa los límites (MAX_*) y
  *   MEDIA_BUCKET para las funciones de subida de media.
+ * - constants/theme.ts → COLORES_TEXTO: los grises y el azul de texto del panel salen de ahí (grupo 4 de los
+ *   tamaños del móvil, 2026-11-12).
  */
+import { COLORES_TEXTO } from "../../constants/theme";
+
 export const MEDIA_BUCKET = "product-media";
 
 // Límites funcionales
@@ -65,10 +69,13 @@ export const COLORS = {
   border: "#E3EAF2",
 
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  // Grises: el más claro permitido para texto es COLORES_TEXTO.secundario (0,72); muted2 se queda como alias.
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
 
   accent: "#1EA7E8",
+  // Texto azul de menos de 17 px (enlaces, «Todas», «Deshacer»): azul oscuro; accent queda para iconos y bordes.
+  accentText: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
 
