@@ -11,6 +11,9 @@
  * - Los puntos «manual» necesitan un navegador o leer el código: los repasa Claude en sus
  *   sesiones cuando han pasado más de 14 días desde la última revisión.
  *
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario y «volver» de 44 px.
+ *
  * Conectado con: api/auditoria-web.ts, app/admin/index.tsx (tarjeta), app/admin/_layout.tsx.
  */
 import React, { useEffect, useState } from "react";
@@ -20,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -27,7 +31,7 @@ const COLORS = {
   card: "#F6FAFD",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
   ok: "#15803D",
   aviso: "#92660B",
   fallo: "#B91C1C",
@@ -121,14 +125,14 @@ export default function AdminAuditorias() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
             accessibilityLabel="Volver al panel"
             hitSlop={8}
             // zIndex: por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: 40, alignItems: "center", justifyContent: "center" }}
+            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
@@ -169,7 +173,7 @@ export default function AdminAuditorias() {
                 <View key={f.id} style={{ borderRadius: 20, backgroundColor: COLORS.card, padding: isMobile ? 12 : 14, gap: 10 }}>
                   <Pressable onPress={() => setAbierta(abierta === f.id ? null : f.id)} accessibilityRole="button" style={{ gap: 6, alignItems: "center" }}>
                     <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>{fechaMadrid(f.ejecutada_en)}</Text>
-                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+                    <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                       {f.origen === "manual" ? "Hecha a mano" : "Automática"} · {Math.round(f.duracion_ms / 100) / 10} s
                     </Text>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
@@ -179,7 +183,7 @@ export default function AdminAuditorias() {
                       <Text style={{ color: COLORS.muted, fontWeight: "900" }}>{f.manuales} los revisa Claude</Text>
                     </View>
                     <Text style={{ color: COLORS.text, lineHeight: 20, textAlign: "center" }}>{f.resumen}</Text>
-                    <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>Qué se cambió: {f.cambios}</Text>
+                    <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>Qué se cambió: {f.cambios}</Text>
                     <Ionicons name={abierta === f.id ? "chevron-up" : "chevron-down"} size={18} color={COLORS.muted} />
                   </Pressable>
 
@@ -195,7 +199,7 @@ export default function AdminAuditorias() {
                                 {p.n}. {p.nombre}
                               </Text>
                             </View>
-                            <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18, textAlign: "center" }}>
+                            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                               {s.texto}: {p.detalle}
                             </Text>
                           </View>

@@ -60,6 +60,9 @@
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("chats") dentro del Stack
  *   protegido del panel admin.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario, todo lo que se toca (volver, borrar, confirmar, chips) de 44 px
+ *   separado 8 y los campos de 16 px y 48 de alto.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -79,6 +82,7 @@ import { openExternalLink } from "../../lib/openExternalLink";
 import { supabase } from "../../lib/supabase";
 import ProductChatThread, { TITULO_ATENCION_CLIENTE } from "../../components/ProductChatThread";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -87,8 +91,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
   accentDark: "#1EA7E8",
@@ -169,7 +173,7 @@ function Chip({ activo, texto, onPress }: { activo: boolean; texto: string; onPr
       accessibilityRole="button"
       accessibilityState={{ selected: activo }}
       style={({ pressed }) => ({
-        minHeight: 40,
+        minHeight: TACTIL.minimo,
         justifyContent: "center",
         paddingHorizontal: 12,
         borderRadius: 999,
@@ -179,18 +183,18 @@ function Chip({ activo, texto, onPress }: { activo: boolean; texto: string; onPr
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <Text style={{ color: activo ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>{texto}</Text>
+      <Text style={{ color: activo ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>{texto}</Text>
     </Pressable>
   );
 }
 
 const estiloCampo = {
-  minHeight: 44,
+  minHeight: CAMPO.alto,
   borderWidth: 1,
   borderColor: COLORS.border,
   borderRadius: 12,
   paddingHorizontal: 12,
-  fontSize: 16,
+  fontSize: CAMPO.letra,
   color: COLORS.text,
   backgroundColor: "#FFFFFF",
 } as const;
@@ -295,7 +299,7 @@ function AsignarSeguimiento({
         </Pressable>
       ) : (
         <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: 10, paddingVertical: 4 }} keyboardShouldPersistTaps="handled">
-          <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center", lineHeight: 18 }}>
+          <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 18 }}>
             Ya tiene cuenta: lo verá al momento en «Mis seguimientos», con su número, y le avisaremos aquí.
           </Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
@@ -347,7 +351,7 @@ function AsignarSeguimiento({
               style={estiloCampo}
             />
           )}
-          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>ETAPA</Text>
+          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>ETAPA</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
             {ETAPAS_ASIGNAR[tipo].map((e) => (
               <Chip key={e.valor} activo={etapa === e.valor} texto={e.etiqueta(entrega === "recogida")} onPress={() => setEtapa(e.valor)} />
@@ -390,7 +394,7 @@ function AsignarSeguimiento({
         </ScrollView>
       )}
       {aviso ? (
-        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : "#B91C1C", fontWeight: "800", fontSize: 12.5, textAlign: "center", lineHeight: 18 }}>
+        <Text accessibilityRole="alert" style={{ color: aviso.ok ? COLORS.success : "#B91C1C", fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center", lineHeight: 18 }}>
           {aviso.texto}
         </Text>
       ) : null}
@@ -420,7 +424,7 @@ function InvitarRegistro() {
   return (
     <View nativeID="chat-invitar-registro" style={{ borderRadius: 16, backgroundColor: COLORS.card, padding: 12, gap: 8 }}>
       <Text style={{ color: COLORS.text, fontWeight: "900", textAlign: "center" }}>¿Te escriben por WhatsApp o Instagram?</Text>
-      <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
         Mándales esta invitación: cuando creen su cuenta y te escriban aquí, podrás asignarles su seguimiento.
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
@@ -466,6 +470,41 @@ function InvitarRegistro() {
         </Pressable>
       </View>
     </View>
+  );
+}
+
+// Papelera de cada fila de la lista: primer toque pide confirmación («Cancelar» / «Confirmar»), segundo toque borra. Cada
+// botón mide 44 px (se mete en el relleno de la fila para no alargarla) y deja 8 px con el de al lado.
+function BorrarFila({
+  confirmando,
+  borrando,
+  onPedir,
+  onCancelar,
+  onConfirmar,
+}: {
+  confirmando: boolean;
+  borrando: boolean;
+  onPedir: () => void;
+  onCancelar: () => void;
+  onConfirmar: () => void;
+}) {
+  const estiloBoton = { minHeight: TACTIL.minimo, minWidth: TACTIL.minimo, paddingHorizontal: 8, alignItems: "center", justifyContent: "center", marginBottom: -10, marginRight: -6 } as const;
+  if (confirmando) {
+    return (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: TACTIL.separacion }}>
+        <Pressable onPress={onCancelar} accessibilityRole="button" style={estiloBoton}>
+          <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>Cancelar</Text>
+        </Pressable>
+        <Pressable onPress={onConfirmar} disabled={borrando} accessibilityRole="button" style={estiloBoton}>
+          <Text style={{ color: "#DC2626", fontSize: TAMANOS.minimo, fontWeight: "900" }}>{borrando ? "Borrando…" : "Confirmar"}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <Pressable onPress={onPedir} accessibilityRole="button" accessibilityLabel="Borrar la conversación" style={estiloBoton}>
+      <Ionicons name="trash-outline" size={18} color={COLORS.muted} />
+    </Pressable>
   );
 }
 
@@ -779,12 +818,12 @@ export default function AdminChats() {
                 <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
                   {TITULO_ATENCION_CLIENTE}
                 </Text>
-                <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
                   {supportChats.length} {supportChats.length === 1 ? "persona" : "personas"}
                 </Text>
               </View>
 
-              <View style={{ gap: 6 }}>
+              <View style={{ gap: TACTIL.separacion }}>
                 {supportChats.map((chat) => {
                   const active = selectedChat?.id === chat.id;
                   return (
@@ -805,31 +844,22 @@ export default function AdminChats() {
                       })}
                     >
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                        <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                           {chat.customer_name}
                         </Text>
-                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                        <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                           {chat.last_message_preview || "Sin mensajes"}
                         </Text>
                       </View>
                       <View style={{ alignItems: "flex-end", gap: 4 }}>
-                        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
-                        {confirmDeleteId === chat.id ? (
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                            <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
-                              <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
-                            </Pressable>
-                            <Pressable onPress={() => handleDeleteChat(chat)} disabled={deletingId === chat.id} hitSlop={6}>
-                              <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
-                                {deletingId === chat.id ? "Borrando…" : "Confirmar"}
-                              </Text>
-                            </Pressable>
-                          </View>
-                        ) : (
-                          <Pressable onPress={() => setConfirmDeleteId(chat.id)} hitSlop={6}>
-                            <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
-                          </Pressable>
-                        )}
+                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>{formatDate(chat.last_message_at)}</Text>
+                        <BorrarFila
+                          confirmando={confirmDeleteId === chat.id}
+                          borrando={deletingId === chat.id}
+                          onPedir={() => setConfirmDeleteId(chat.id)}
+                          onCancelar={() => setConfirmDeleteId(null)}
+                          onConfirmar={() => handleDeleteChat(chat)}
+                        />
                       </View>
                     </Pressable>
                   );
@@ -863,15 +893,15 @@ export default function AdminChats() {
                 <Text style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
                   Ventas de clientes
                 </Text>
-                <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+                <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
                   {sellGroups.length} {sellGroups.length === 1 ? "solicitud" : "solicitudes"}
                 </Text>
               </View>
 
               <View style={{ gap: 10 }}>
                 {sellGroups.map((group) => (
-                  <View key={group.sell_request_id} style={{ gap: 6 }}>
-                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                  <View key={group.sell_request_id} style={{ gap: TACTIL.separacion }}>
+                    <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                       {group.articulo}
                     </Text>
                     {group.chats.map((chat) => {
@@ -894,39 +924,24 @@ export default function AdminChats() {
                           })}
                         >
                           <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                               {chat.customer_name}
                             </Text>
-                            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                               {chat.last_message_preview || "Sin mensajes"}
                             </Text>
                           </View>
                           <View style={{ alignItems: "flex-end", gap: 4 }}>
-                            <Text style={{ color: COLORS.muted2, fontSize: 11 }}>
+                            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
                               {formatDate(chat.last_message_at)}
                             </Text>
-                            {confirmDeleteId === chat.id ? (
-                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
-                                  <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>
-                                    Cancelar
-                                  </Text>
-                                </Pressable>
-                                <Pressable
-                                  onPress={() => handleDeleteChat(chat)}
-                                  disabled={deletingId === chat.id}
-                                  hitSlop={6}
-                                >
-                                  <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
-                                    {deletingId === chat.id ? "Borrando…" : "Confirmar"}
-                                  </Text>
-                                </Pressable>
-                              </View>
-                            ) : (
-                              <Pressable onPress={() => setConfirmDeleteId(chat.id)} hitSlop={6}>
-                                <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
-                              </Pressable>
-                            )}
+                            <BorrarFila
+                              confirmando={confirmDeleteId === chat.id}
+                              borrando={deletingId === chat.id}
+                              onPedir={() => setConfirmDeleteId(chat.id)}
+                              onCancelar={() => setConfirmDeleteId(null)}
+                              onConfirmar={() => handleDeleteChat(chat)}
+                            />
                           </View>
                         </Pressable>
                       );
@@ -970,12 +985,12 @@ export default function AdminChats() {
               <Text numberOfLines={1} style={{ flex: 1, color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
                 {group.product_title}
               </Text>
-              <Text style={{ color: COLORS.muted2, fontSize: 12 }}>
+              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
                 {group.chats.length} {group.chats.length === 1 ? "persona" : "personas"}
               </Text>
             </View>
 
-            <View style={{ gap: 6 }}>
+            <View style={{ gap: TACTIL.separacion }}>
               {group.chats.map((chat) => {
                 const key = `${chat.product_id}:${chat.customer_user_id}`;
                 const sold = soldKeys.has(key);
@@ -998,10 +1013,10 @@ export default function AdminChats() {
                     })}
                   >
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
+                      <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                         {chat.customer_name}
                       </Text>
-                      <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                      <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                         {chat.last_message_preview || "Sin mensajes"}
                       </Text>
                     </View>
@@ -1009,24 +1024,15 @@ export default function AdminChats() {
                       {sold ? (
                         <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
                       ) : (
-                        <Text style={{ color: COLORS.muted2, fontSize: 11 }}>{formatDate(chat.last_message_at)}</Text>
+                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>{formatDate(chat.last_message_at)}</Text>
                       )}
-                      {confirmDeleteId === chat.id ? (
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                          <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={6}>
-                            <Text style={{ color: COLORS.muted2, fontSize: 10, fontWeight: "700" }}>Cancelar</Text>
-                          </Pressable>
-                          <Pressable onPress={() => handleDeleteChat(chat)} disabled={deletingId === chat.id} hitSlop={6}>
-                            <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "900" }}>
-                              {deletingId === chat.id ? "Borrando…" : "Confirmar"}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      ) : (
-                        <Pressable onPress={() => setConfirmDeleteId(chat.id)} hitSlop={6}>
-                          <Ionicons name="trash-outline" size={14} color={COLORS.muted2} />
-                        </Pressable>
-                      )}
+                      <BorrarFila
+                        confirmando={confirmDeleteId === chat.id}
+                        borrando={deletingId === chat.id}
+                        onPedir={() => setConfirmDeleteId(chat.id)}
+                        onCancelar={() => setConfirmDeleteId(null)}
+                        onConfirmar={() => handleDeleteChat(chat)}
+                      />
                     </View>
                   </Pressable>
                 );
@@ -1077,12 +1083,12 @@ export default function AdminChats() {
                 borderWidth: 1,
                 borderColor: COLORS.successBorder,
                 backgroundColor: COLORS.successBg,
-                paddingVertical: 8,
+                minHeight: TACTIL.minimo,
                 paddingHorizontal: 12,
               }}
             >
               <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
-              <Text style={{ color: COLORS.success, fontWeight: "900", fontSize: 12 }}>Ya vendido</Text>
+              <Text style={{ color: COLORS.success, fontWeight: "900", fontSize: TAMANOS.minimo }}>Ya vendido</Text>
             </View>
           ) : (
             <Pressable
@@ -1091,12 +1097,13 @@ export default function AdminChats() {
               style={({ pressed }) => ({
                 opacity: markingSold ? 0.6 : pressed ? 0.88 : 1,
                 borderRadius: 999,
-                paddingVertical: 8,
+                minHeight: TACTIL.minimo,
+                justifyContent: "center",
                 paddingHorizontal: 12,
                 backgroundColor: COLORS.accentDark,
               })}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>
                 {markingSold ? "Marcando…" : "Marcar como vendido"}
               </Text>
             </Pressable>
@@ -1129,7 +1136,7 @@ export default function AdminChats() {
             backgroundColor: COLORS.bg2,
           }}
         >
-          <View style={{ ...columnStyle, minHeight: 40, justifyContent: "center" }}>
+          <View style={{ ...columnStyle, minHeight: TACTIL.minimo, justifyContent: "center" }}>
             <Pressable
               onPress={() => {
                 if (isMobile && selectedChat) {
@@ -1147,7 +1154,7 @@ export default function AdminChats() {
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: 40,
+                width: TACTIL.minimo,
                 // Por encima del título (que ocupa todo el ancho y va después): si no, el título se quedaba el toque y
                 // «Volver» no respondía en el móvil.
                 zIndex: 1,
@@ -1163,7 +1170,7 @@ export default function AdminChats() {
               <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 19 : 22, textAlign: "center" }}>
                 Chat
               </Text>
-              <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 {totalChats} {totalChats === 1 ? "conversación" : "conversaciones"}
               </Text>
             </View>

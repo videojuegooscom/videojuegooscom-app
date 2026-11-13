@@ -24,6 +24,9 @@
  *   subtítulo, estadísticas, buscador y lista en un único ScrollView (flex 1,
  *   margen final 48 px + zona segura). Antes todo lo de arriba era fijo y en
  *   el móvil dejaba la lista en una franja mínima.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ *   menos de 13 px, grises desde COLORES_TEXTO.secundario, los botones de estado
+ *   de 44 px de alto y los campos de 16 px y 48 de alto.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
@@ -59,6 +62,7 @@ import {
   StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO } from "../../lib/admin/products.utils";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -67,8 +71,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -132,7 +136,8 @@ const inputStyle = {
   paddingVertical: 12,
   color: COLORS.text,
   backgroundColor: "#F8FBFE",
-  fontSize: 16,
+  fontSize: CAMPO.letra,
+  minHeight: CAMPO.alto,
 } as const;
 
 function isMissingTableError(e: any): boolean {
@@ -167,7 +172,8 @@ function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: 10,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         paddingHorizontal: 12,
         borderWidth: 1,
         borderColor,
@@ -489,7 +495,7 @@ export default function Inventario() {
                           <Text style={{ color: COLORS.muted, marginTop: 6, lineHeight: 19 }}>{i.notes}</Text>
                         )}
 
-                        <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 8, lineHeight: 17 }}>
+                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, marginTop: 8, lineHeight: 18 }}>
                           Actualizado: {i.updated_at ? new Date(i.updated_at).toLocaleString("es-ES") : "-"}
                         </Text>
                       </View>
@@ -498,8 +504,9 @@ export default function Inventario() {
                         onPress={() => toggleStatus(i)}
                         style={({ pressed }) => ({
                           opacity: pressed ? 0.85 : 1,
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
+                          minHeight: TACTIL.minimo,
+                          justifyContent: "center",
+                          paddingHorizontal: 12,
                           borderRadius: 999,
                           borderWidth: 1,
                           borderColor: sc.border,
@@ -507,7 +514,7 @@ export default function Inventario() {
                           alignSelf: isMobile ? "flex-start" : "auto",
                         })}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                           {statusLabel(i.status)}
                         </Text>
                       </Pressable>
@@ -624,7 +631,8 @@ export default function Inventario() {
                         onPress={() => setStatus(s)}
                         style={({ pressed }) => ({
                           opacity: pressed ? 0.88 : 1,
-                          paddingVertical: 9,
+                          minHeight: TACTIL.minimo,
+                          justifyContent: "center",
                           paddingHorizontal: 12,
                           borderRadius: 999,
                           borderWidth: active ? 2 : 1,
@@ -632,7 +640,7 @@ export default function Inventario() {
                           backgroundColor: active ? sc.bg : "#F6FAFD",
                         })}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                           {statusLabel(s)}
                         </Text>
                       </Pressable>

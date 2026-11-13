@@ -270,6 +270,10 @@
  *  - TM4) Tamaños comunes, grupo 4 (2026-11-12), a 360, 390 y 1280 px: en Administración → Pedidos, Productos, Servicios,
  *    Analítica y el inicio del panel, ningún texto de menos de 13 px, todo lo que se toca de 44 × 44 px o más, los 6 botones
  *    de estado de cada pedido a 8 px o más unos de otros (y de 44 de alto), y nada se sale por los lados.
+ *  - TM5) Tamaños comunes, grupo 5 (2026-11-13), a 360, 390 y 1280 px: en el resto de Administración (Categorías, Inventario,
+ *    Cotizaciones, Escaparate, Envíos, Políticas, Blog, Chat, Avisos flash, Marca y SEO, Auditorías, Aprendizajes,
+ *    Conocimiento de Blue y Redes sociales), ningún texto de menos de 13 px, todo lo que se toca de 44 × 44 px o más y a
+ *    8 px de lo de al lado, nada se sale por los lados y sin errores de JavaScript.
  *  - UP) Administración → «Usuarios y participación» rediseñada (2026-11-12), a 360, 390 y 1280 px: buscador (16 px) que
  *    lleva a «Clientes», 5 cifras clave (registrados, activos 7 días sin el administrador, perfil completo, con la app,
  *    valoración) en una fila en el ordenador y que filtran al tocarlas, 4 pestañas con su número recordadas en ?tab=
@@ -279,7 +283,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP|TM2|TM3|TM4]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP|TM2|TM3|TM4|TM5]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -12185,8 +12189,225 @@ async function seccionTM4() {
   }
 }
 
+// ===== TM5) Tamaños comunes, grupo 5: el resto de Administración (Categorías, Inventario, Cotizaciones, Escaparate, Envíos,
+// Políticas, Blog, Chat, Avisos flash, Marca y SEO, Auditorías, Aprendizajes, Conocimiento de Blue y Redes sociales) ===========
+async function seccionTM5() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } } },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const ahora = new Date().toISOString();
+  const CHAT = (n) => `c0000000-0000-4000-8000-00000000005${n}`;
+  const cat = (n, slug, name) => ({ id: `c0000000-0000-4000-8000-00000000004${n}`, slug, name, sort_order: n, is_active: n !== 3, image_url: null, imagenes: [], portadas_inicio: [], portada_opacidad: null, created_at: ahora, updated_at: ahora });
+  const red = (platform, label, sort_order, extra = {}) => ({ platform, label, url: "Videojuegoszaragoza", enabled: true, sort_order, seguidores: null, seguidores_actualizado: null, ...extra });
+  const chat = (id, extra, vista) => ({ id, product_id: null, sell_request_id: null, customer_user_id: CLIENTE.id, last_message_at: ahora, last_message_preview: vista, customer_last_read_at: ahora, admin_last_read_at: ahora, ...extra });
+  // Tablas ficticias que no tienen su propio «estado»: lecturas (GET/HEAD) con filas de prueba, sin tocar la base de datos real.
+  const TABLAS = {
+    inventory_items: [
+      { id: "i1", code: "INV-001", title: "PlayStation 4 Slim 500 GB sin mando", status: "TO_REVIEW", notes: "Falta cable de alimentación y revisar el lector.", created_at: ahora, updated_at: ahora },
+      { id: "i2", code: "INV-002", title: "Mando Xbox One blanco", status: "READY_TO_LIST", notes: null, created_at: ahora, updated_at: ahora },
+      { id: "i3", code: "INV-003", title: "Nintendo Switch con joystick roto", status: "IN_REPAIR", notes: "Cambiar joystick izquierdo.", created_at: ahora, updated_at: ahora },
+    ],
+    sell_requests: [
+      { id: "s1", created_at: ahora, updated_at: ahora, nombre: "Pablo", apellido: "Ruiz", articulo: "PlayStation 4 Pro 1 TB con dos mandos", funciona_bien: true, motivo_venta: "Ya no la uso", descripcion_problema: null, ciudad: "Zaragoza", precio_estimado: "180", metodo_contacto: "whatsapp", contacto: "600111222", opcion_venta: "domicilio", direccion: "Calle Mayor 1", disponibilidad: null, mayor_edad: true, genero: "masculino", status: "nuevo" },
+      { id: "s2", created_at: ahora, updated_at: ahora, nombre: "Lucía", apellido: "Marín", articulo: "Nintendo Switch OLED con pantalla rayada", funciona_bien: false, motivo_venta: null, descripcion_problema: "No carga bien", ciudad: "Cuarte de Huerva", precio_estimado: "120", metodo_contacto: "gmail", contacto: "lucia@example.com", opcion_venta: "entrega", direccion: null, disponibilidad: "manana", mayor_edad: true, genero: "femenino", status: "contactado" },
+    ],
+    sell_request_media: [],
+    blog_posts: [
+      { id: "b1", slug: "como-limpiar-una-ps5", title: "Cómo limpiar una PS5 sin abrirla", excerpt: "Pasos sencillos para quitar el polvo.", body: "Texto de la entrada.", status: "PUBLISHED", sort_order: 1, created_at: ahora, updated_at: ahora },
+      { id: "b2", slug: "borrador", title: "Borrador sobre pasta térmica", excerpt: "Cuándo cambiarla.", body: "Texto.", status: "DRAFT", sort_order: 2, created_at: ahora, updated_at: ahora },
+    ],
+    policy_pages: [
+      { id: "pp1", slug: "envios", title: "Envíos", intro: "Cómo enviamos.", sections: [{ heading: "Plazos", body: "De 1 a 2 días." }], is_active: true, sort_order: 0, created_at: ahora, updated_at: ahora },
+      { id: "pp2", slug: "devoluciones", title: "Devoluciones", intro: "Cómo devolver.", sections: [], is_active: false, sort_order: 1, created_at: ahora, updated_at: ahora },
+    ],
+    flash_news: [
+      { id: "f1", message: "Envío gratis en Zaragoza y Cuarte", color_hex: "#1EA7E8", display_seconds: 5, sort_order: 1, is_active: true, created_at: ahora, updated_at: ahora },
+      { id: "f2", message: "Garantía de 12 meses en todo", color_hex: "#0B2138", display_seconds: 6, sort_order: 2, is_active: false, created_at: ahora, updated_at: ahora },
+    ],
+    auditorias_web: [
+      { id: "a1", ejecutada_en: ahora, origen: "automatica", resumen: "Todo en orden salvo un aviso en las fotos.", ok: 20, avisos: 1, fallos: 0, manuales: 2, duracion_ms: 4200, cambios: "Sin cambios desde ayer.", resultado: [{ n: 1, nombre: "La web responde", estado: "ok", detalle: "200 en 0,4 s" }, { n: 2, nombre: "Fotos de portada", estado: "aviso", detalle: "Una categoría sin foto." }, { n: 3, nombre: "Pagos", estado: "manual", detalle: "Lo revisa Claude." }] },
+    ],
+    aprendizajes: [
+      { id: "l1", created_at: ahora, updated_at: ahora, titulo: "Letra mínima de 13 px", categoria: "diseno", regla: "Ningún texto por debajo de 13 px salvo avisos legales.", ejemplo_mal: "fontSize: 11", ejemplo_bien: "fontSize: 13", prioridad: 1, activa: true },
+      { id: "l2", created_at: ahora, updated_at: ahora, titulo: "Una sola PR por petición", categoria: "codigo", regla: "Un commit por bloque.", ejemplo_mal: null, ejemplo_bien: null, prioridad: 2, activa: false },
+    ],
+    blue_conocimiento: [
+      { id: "k1", tema: "Horario de la tienda", respuesta: "Atendemos por mensaje todos los días.", activo: true, created_at: ahora, updated_at: ahora },
+      { id: "k2", tema: "Garantía", respuesta: "Doce meses en consolas revisadas.", activo: false, created_at: ahora, updated_at: ahora },
+    ],
+  };
+  const editar = (p) => p.getByRole("button", { name: /^Editar/ }).first().click({ timeout: 8000 });
+  const PANTALLAS = [
+    {
+      etiqueta: "Categorías", ruta: "/admin/categories", abrir: editar, contenido: "Accesorios",
+      estado: () => ({
+        guardados: [], filas: [],
+        categorias: [
+          { ...cat(1, "playstation-5", "PlayStation 5"), image_url: "https://fotos.ejemplo.invalid/c1.jpg", imagenes: ["https://fotos.ejemplo.invalid/c1.jpg", "https://fotos.ejemplo.invalid/c2.jpg"], portadas_inicio: ["https://fotos.ejemplo.invalid/c1.jpg", "https://fotos.ejemplo.invalid/c2.jpg"] },
+          cat(2, "nintendo-switch", "Nintendo Switch"), cat(3, "accesorios", "Accesorios"),
+        ],
+      }),
+    },
+    { etiqueta: "Inventario", ruta: "/admin/inventario", abrir: editar, contenido: "INV-003" },
+    { etiqueta: "Cotizaciones", ruta: "/admin/cotizaciones", contenido: "Nintendo Switch OLED con pantalla rayada" },
+    {
+      etiqueta: "Escaparate", ruta: "/admin/escaparate", contenido: "Pendiente de avisar",
+      estado: () => ({
+        guardados: [], filas: [],
+        salidas: [{ id: "e1", creado_en: ahora, evento: "pedido", id_veoaura: "VA-1", pedido_id: "d4000000-0000-4000-8000-000000000091", estado: "pendiente", intentos: 0, enviado_en: null, detalle: "Esperando al puente" }],
+        articulosVeo: [{ id: "a1", id_veoaura: "VA-1", title: "Nintendo Switch Lite turquesa", price_eur: 129, is_active: true, vendido_en: null, retirado_en: null, view_count: 12, like_count: 3 }],
+      }),
+    },
+    {
+      etiqueta: "Envíos", ruta: "/admin/envios", contenido: "Nombre que ve el cliente",
+      estado: () => ({
+        guardados: [], filas: [],
+        tarifas: [
+          { zona: "mano", nombre: "Entrega en mano", codigos: null, precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 10, tramos: null },
+          { zona: "local", nombre: "Zaragoza y Cuarte", codigos: "50001-50022, 50410", precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 20, tramos: null },
+          { zona: "peninsula", nombre: "Península", codigos: "*", precio_eur: 13.65, gratis_desde_eur: 100, activa: true, orden: 30, tramos: null },
+        ],
+      }),
+    },
+    { etiqueta: "Políticas", ruta: "/admin/policies", abrir: editar, contenido: "/politicas/devoluciones" },
+    { etiqueta: "Blog", ruta: "/admin/blog", abrir: editar, contenido: "slug: borrador" },
+    {
+      etiqueta: "Chat", ruta: "/admin/chats", contenido: "Os vendo mi PS4",
+      abrir: async (p) => {
+        // Una conversación abierta, con el formulario de «Asignar seguimiento» desplegado y el aviso de borrar a la vista.
+        await p.getByText("Tengo un mando que no carga").first().click({ timeout: 8000 });
+        await p.getByRole("button", { name: "Asignar seguimiento a este cliente" }).click({ timeout: 8000 });
+      },
+      estado: () => ({
+        guardados: [], filas: [], usuarios: [],
+        chats: [chat(CHAT(1), {}, "Tengo un mando que no carga"), chat(CHAT(2), { sell_request_id: "d0000000-0000-4000-8000-000000000001" }, "Os vendo mi PS4")],
+        mensajesChat: [{ id: "mq1", created_at: ahora, chat_id: CHAT(1), sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Ana", body: "Tengo un mando que no carga" }],
+      }),
+    },
+    { etiqueta: "Avisos flash", ruta: "/admin/flash-news", abrir: editar, contenido: "Garantía de 12 meses en todo" },
+    { etiqueta: "Marca y SEO", ruta: "/admin/marca-seo", contenido: "Medidas exactas recomendadas", estado: () => ({ guardados: [], filas: [], ajustes: { id: 1, seo_title: "Videojuegos Zaragoza", social_links_title: "Síguenos" } }) },
+    { etiqueta: "Auditorías", ruta: "/admin/auditorias", contenido: "Todo en orden salvo un aviso en las fotos." },
+    { etiqueta: "Aprendizajes", ruta: "/admin/aprendizajes", abrir: editar, contenido: "Letra mínima de 13 px" },
+    { etiqueta: "Conocimiento de Blue", ruta: "/admin/conocimiento", abrir: editar, contenido: "Doce meses en consolas revisadas." },
+    {
+      etiqueta: "Redes sociales", ruta: "/admin/redes-sociales", contenido: "Vale con el número con prefijo",
+      estado: () => ({
+        guardados: [], filas: [], ajustes: { id: 1, seo_title: "Videojuegos Zaragoza", social_links_title: "Síguenos", resenas_canales: 350, resenas_canales_actualizado: "2026-10-31T10:00:00Z" },
+        redes: [red("instagram", "Instagram", 1, { seguidores: 12560, seguidores_actualizado: "2026-10-30T10:00:00Z" }), red("tiktok", "TikTok", 2, { seguidores: 1234 }), red("whatsapp", "WhatsApp", 3, { url: "627748741" })],
+      }),
+    },
+  ];
+  // Letra < 13 px, zonas táctiles < 44 × 44 (solo las más externas), táctiles a menos de 8 px entre sí, lo que se sale por los
+  // lados fuera de un desplazamiento y el ancho de la página.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily) || /^[-]+$/.test(t)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < 13) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      // Con un formulario abierto (ventana modal), solo lo que está dentro: lo de detrás queda tapado.
+      const modal = document.querySelector('[aria-modal="true"]');
+      // Blue (burbuja y botón flotante) es de todo el panel y se mide aparte (secciones de Blue): aquí no cuenta.
+      const deBlue = (el) => !!el.closest("#blue-flotante, #blue-mensaje") || /Blue/.test(el.getAttribute("aria-label") ?? "");
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !deBlue(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && (!modal || modal.contains(el)));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      // El «+» flotante de las listas (id «…-nuevo/nueva») flota sobre el contenido a propósito.
+      const flotante = (el) => /-nuev[oa]$/.test(el.id);
+      const nombre = (el) => (el.getAttribute("aria-label") || el.innerText || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30);
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: nombre(el) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const juntos = [];
+      for (let i = 0; i < objetivos.length; i++) {
+        for (let j = i + 1; j < objetivos.length; j++) {
+          if (flotante(objetivos[i]) || flotante(objetivos[j])) continue;
+          const a = objetivos[i].getBoundingClientRect(), b = objetivos[j].getBoundingClientRect();
+          const v = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          const h = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          let gap = null;
+          if (v > 2) gap = Math.max(b.left - a.right, a.left - b.right);
+          else if (h > 2) gap = Math.max(b.top - a.bottom, a.top - b.bottom);
+          const caja = (r) => `${Math.round(r.left)},${Math.round(r.top)}-${Math.round(r.right)},${Math.round(r.bottom)}`;
+          if (gap !== null && gap >= -0.5 && gap < 7.5) juntos.push(`${nombre(objetivos[i])} / ${nombre(objetivos[j])} ${Math.round(gap * 10) / 10} (${caja(a)} | ${caja(b)})`);
+        }
+      }
+      const fuera = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        if (!visible(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.right > W + 2 && r.left < W && r.width < W * 3) {
+          let enScroll = false;
+          for (let e = el.parentElement; e; e = e.parentElement) {
+            const ox = getComputedStyle(e).overflowX;
+            if (ox === "auto" || ox === "scroll" || ox === "hidden" || ox === "clip") { enScroll = true; break; }
+          }
+          if (!enScroll) fuera.push(`${(propio(el) || el.tagName).slice(0, 25)} ${Math.round(r.right)}`);
+        }
+      }
+      return { pequenos: pequenos.slice(0, 12), chicos: chicos.slice(0, 12), juntos: juntos.slice(0, 8), fuera: fuera.slice(0, 6), n: objetivos.length, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+
+  for (const pant of PANTALLAS) {
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, ADMIN, "admin", pant.estado ? pant.estado() : { guardados: [], filas: [] }, vista);
+      await ctx.route(/\/rest\/v1\/[a-z_]+(\?.*)?$/, (r) => {
+        const pet = r.request();
+        const url = new URL(pet.url());
+        const tabla = url.pathname.split("/").pop();
+        if (!(tabla in TABLAS) || (pet.method() !== "GET" && pet.method() !== "HEAD")) return r.fallback();
+        const filas = TABLAS[tabla];
+        const cab = { ...CORS, "access-control-expose-headers": "*", "content-range": `0-${Math.max(filas.length - 1, 0)}/${filas.length}` };
+        if (pet.method() === "HEAD") return r.fulfill({ status: 200, contentType: "application/json", headers: cab, body: "" });
+        const cuerpo = /vnd\.pgrst\.object/.test(pet.headers()["accept"] ?? "") ? (filas[0] ?? null) : filas;
+        return r.fulfill({ status: 200, contentType: "application/json", headers: cab, body: JSON.stringify(cuerpo) });
+      });
+      const p = await pagina(ctx, pant.ruta);
+      // Espera a que salgan los datos de prueba (si no, no habría nada que medir).
+      const cargado = await p.getByText(pant.contenido).first().waitFor({ timeout: 40000 }).then(() => true, () => false);
+      await p.waitForTimeout(1200);
+      const m = await medir(p);
+      ok(cargado && m.n >= 2, `TM5 (${nombre}): ${pant.etiqueta} enseña sus datos de prueba («${pant.contenido}») y ${m.n} cosas que se tocan`);
+      ok(!m.pequenos.length, `TM5 (${nombre}): en ${pant.etiqueta} ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+      ok(!m.chicos.length, `TM5 (${nombre}): en ${pant.etiqueta} todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      ok(!m.juntos.length, `TM5 (${nombre}): en ${pant.etiqueta} lo que se toca está a 8 px o más de lo de al lado (${m.juntos.join(" | ") || "ninguno pegado"})`);
+      ok(m.ancho <= m.v + 1 && !m.fuera.length, `TM5 (${nombre}): ${pant.etiqueta} no se sale por los lados (${m.ancho}/${m.v}; ${m.fuera.join(" | ") || "nada fuera"})`);
+      await capturar(p, `TM5-${nombre}-${pant.ruta.replace(/\W+/g, "-").replace(/^-|-$/g, "")}`);
+      // El formulario (o el detalle) que se abre desde esa pantalla: lo mismo, medido otra vez.
+      if (pant.abrir) {
+        await pant.abrir(p).catch((e) => ok(false, `TM5 (${nombre}): ${pant.etiqueta} no se pudo abrir el formulario (${String(e).slice(0, 80)})`));
+        await p.waitForTimeout(1200);
+        const f = await medir(p);
+        ok(!f.pequenos.length, `TM5 (${nombre}): en el formulario de ${pant.etiqueta} ningún texto de menos de 13 px (${f.pequenos.join(" | ") || "ninguno"})`);
+        ok(!f.chicos.length, `TM5 (${nombre}): en el formulario de ${pant.etiqueta} todo lo que se toca mide 44 × 44 o más (${f.n} táctiles; ${f.chicos.join(" | ") || "ninguno pequeño"})`);
+        ok(!f.juntos.length, `TM5 (${nombre}): en el formulario de ${pant.etiqueta} lo que se toca está a 8 px o más de lo de al lado (${f.juntos.join(" | ") || "ninguno pegado"})`);
+        ok(f.ancho <= f.v + 1 && !f.fuera.length, `TM5 (${nombre}): el formulario de ${pant.etiqueta} no se sale por los lados (${f.ancho}/${f.v}; ${f.fuera.join(" | ") || "nada fuera"})`);
+        await capturar(p, `TM5-${nombre}-${pant.ruta.replace(/\W+/g, "-").replace(/^-|-$/g, "")}-formulario`);
+      }
+      ok(p.errores.length === 0, `TM5 (${nombre}): ${pant.etiqueta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "TM5") await seccionTM5();
   if (SOLO === "TM4") await seccionTM4();
   if (SOLO === "TM3") await seccionTM3();
   if (SOLO === "UP") await seccionUP();
@@ -13265,6 +13486,7 @@ try {
   await seccionTM2();
   await seccionTM3();
   await seccionTM4();
+  await seccionTM5();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

@@ -12,6 +12,9 @@
  *   uno se abre el formulario con la pregunta de Blue. La respuesta la escribe siempre el dueño:
  *   la app nunca inventa datos del negocio.
  * - Activar/desactivar y borrar: igual que Noticias Flash (cambio optimista, borrado con aviso).
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px,
+ *   grises desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de
+ *   44 px y los campos de 16 px y 48 de alto.
  *
  * Conectado con:
  * - lib/conocimiento.ts → temas propuestos y guardado.
@@ -39,6 +42,7 @@ import { supabase } from "../../lib/supabase";
 import { IconButton, PieVentana } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { guardarConocimiento, TEMAS_CONOCIMIENTO, type ItemConocimiento } from "../../lib/conocimiento";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -46,9 +50,10 @@ const COLORS = {
   card: "#F6FAFD",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  accentText: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   danger: "#B91C1C",
@@ -164,7 +169,8 @@ export default function AdminConocimiento() {
       accessibilityRole="button"
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: 10,
+        minHeight: CAMPO.alto,
+        justifyContent: "center",
         paddingHorizontal: 14,
         borderWidth: 1,
         borderColor: principal ? COLORS.accent : COLORS.border,
@@ -190,14 +196,14 @@ export default function AdminConocimiento() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
             accessibilityLabel="Volver al panel"
             hitSlop={8}
             // zIndex: por encima del título, que va después y ocupa todo el ancho (si no, se queda el toque).
-            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: 40, alignItems: "center", justifyContent: "center" }}
+            style={{ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
@@ -242,8 +248,9 @@ export default function AdminConocimiento() {
                       onPress={() => abrir(t.tema, "", t.pregunta, false)}
                       style={({ pressed }) => ({
                         borderRadius: 999,
-                        paddingVertical: 9,
-                        paddingHorizontal: 13,
+                        minHeight: TACTIL.minimo,
+                        justifyContent: "center",
+                        paddingHorizontal: 14,
                         borderWidth: 1,
                         borderColor: COLORS.accentBorder,
                         backgroundColor: COLORS.accent2,
@@ -300,7 +307,7 @@ export default function AdminConocimiento() {
                 {editando ? "Editar información" : "Añadir información"}
               </Text>
               {pregunta ? (
-                <Text style={{ color: COLORS.accent, fontWeight: "900", lineHeight: 21, textAlign: "center" }}>Blue pregunta: {pregunta}</Text>
+                <Text style={{ color: COLORS.accentText, fontWeight: "900", lineHeight: 21, textAlign: "center" }}>Blue pregunta: {pregunta}</Text>
               ) : null}
               <TextInput
                 value={tema}
@@ -308,7 +315,7 @@ export default function AdminConocimiento() {
                 editable={!editando && !pregunta}
                 placeholder="Tema (ej.: Horario de atención)"
                 maxLength={80}
-                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, textAlign: "center", color: COLORS.text, backgroundColor: COLORS.card }}
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, textAlign: "center", color: COLORS.text, backgroundColor: COLORS.card, fontSize: CAMPO.letra, minHeight: CAMPO.alto }}
               />
               <TextInput
                 value={respuesta}
@@ -316,9 +323,9 @@ export default function AdminConocimiento() {
                 placeholder="Escribe la respuesta real"
                 multiline
                 maxLength={800}
-                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, minHeight: 110, textAlign: "center", color: COLORS.text, backgroundColor: COLORS.card }}
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, minHeight: 110, textAlign: "center", color: COLORS.text, backgroundColor: COLORS.card, fontSize: CAMPO.letra }}
               />
-              <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>{respuesta.length} / 800</Text>
+              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "center" }}>{respuesta.length} / 800</Text>
               {!!modalErr && <Text style={{ color: COLORS.danger, fontWeight: "800", textAlign: "center" }}>{modalErr}</Text>}
               {/* «Guardar» y, a su derecha, la X para cerrar (dueño, 2026-11-04). */}
               <PieVentana onCerrar={() => setOpen(false)}>

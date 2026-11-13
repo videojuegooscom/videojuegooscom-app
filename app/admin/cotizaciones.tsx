@@ -52,6 +52,9 @@
  * van en líneas de texto (no en "burbujas") y el precio esperado, si el
  * cliente escribió solo un número, se muestra como el resto de precios
  * (150,00€). Componentes comunes en app/admin/products/products.components.tsx.
+ *
+ * Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ * desde COLORES_TEXTO.secundario, botones y filtros de 44 px y el buscador de 16 px y 48 de alto.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -77,6 +80,7 @@ import {
   StatCard,
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, fmtEUR, toPriceSafe } from "../../lib/admin/products.utils";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -85,8 +89,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -212,7 +216,8 @@ function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: 10,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         paddingHorizontal: 12,
         borderWidth: 1,
         borderColor,
@@ -248,8 +253,9 @@ function FilterPill({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
+        paddingHorizontal: 14,
         borderRadius: 999,
         borderWidth: 1,
         borderColor: active ? COLORS.accentBorder : COLORS.border,
@@ -257,7 +263,7 @@ function FilterPill({
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12, textAlign: "center" }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -498,11 +504,12 @@ export default function AdminCotizaciones() {
                 color: COLORS.text,
                 backgroundColor: "#F8FBFE",
                 // 16 px: Safari en iPhone no hace zoom de toda la pantalla al escribir.
-                fontSize: 16,
+                fontSize: CAMPO.letra,
+                minHeight: CAMPO.alto,
               }}
             />
 
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: TACTIL.separacion }}>
               <FilterPill label="Todas" active={statusFilter === "todas"} onPress={() => setStatusFilter("todas")} />
               <FilterPill label="Nuevas" active={statusFilter === "nuevo"} onPress={() => setStatusFilter("nuevo")} />
               <FilterPill label="Revisadas" active={statusFilter === "revisado"} onPress={() => setStatusFilter("revisado")} />
@@ -558,7 +565,7 @@ export default function AdminCotizaciones() {
                         <Text style={{ color: COLORS.muted, fontWeight: "800", marginTop: 2 }}>
                           {r.nombre} {r.apellido}
                         </Text>
-                        <Text style={{ color: COLORS.muted2, fontSize: 12, marginTop: 4 }}>
+                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, marginTop: 4 }}>
                           {r.created_at ? new Date(r.created_at).toLocaleString("es-ES") : "-"}
                         </Text>
                       </View>
@@ -574,7 +581,7 @@ export default function AdminCotizaciones() {
                           alignSelf: isMobile ? "flex-start" : "auto",
                         }}
                       >
-                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                           {STATUS_LABEL[r.status]}
                         </Text>
                       </View>
@@ -634,7 +641,7 @@ export default function AdminCotizaciones() {
                       let imgCount = 0;
                       return (
                         <View style={{ gap: 6 }}>
-                          <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12 }}>
+                          <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                             Fotos y vídeo adjuntos ({media.length})
                           </Text>
                           <View

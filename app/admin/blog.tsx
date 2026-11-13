@@ -16,6 +16,9 @@
  * - El interruptor "Publicado" alterna entre status "PUBLISHED" y "DRAFT"
  *   con un cambio optimista en la lista (se revierte si Supabase falla),
  *   igual que toggleActive() en app/admin/categories.tsx.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ *   menos de 13 px, grises desde COLORES_TEXTO.secundario, todo lo que se toca de
+ *   44 px (también «volver») y los campos de 16 px y 48 de alto.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
@@ -46,6 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { IconButton, PieVentana } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -56,8 +60,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
   accentDark: "#1EA7E8",
@@ -162,7 +166,7 @@ function StatCard({
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text numberOfLines={1} style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>
+        <Text numberOfLines={1} style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>
           {label}
         </Text>
       </View>
@@ -200,7 +204,8 @@ function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: 10,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         paddingHorizontal: 12,
         borderWidth: 1,
         borderColor,
@@ -439,7 +444,7 @@ export default function AdminBlog() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -452,7 +457,7 @@ export default function AdminBlog() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -513,7 +518,8 @@ export default function AdminBlog() {
                 backgroundColor: "#F8FBFE",
                 // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
                 // se queda ampliada y "descuadrada".
-                fontSize: 16,
+                fontSize: CAMPO.letra,
+                minHeight: CAMPO.alto,
               }}
             />
 
@@ -523,7 +529,8 @@ export default function AdminBlog() {
               style={({ pressed }) => ({
                 opacity: pressed ? 0.9 : 1,
                 borderRadius: 999,
-                paddingVertical: 13,
+                minHeight: CAMPO.alto,
+                justifyContent: "center",
                 paddingHorizontal: 20,
                 alignItems: "center",
                 backgroundColor: COLORS.accentDark,
@@ -574,7 +581,7 @@ export default function AdminBlog() {
                       {row.title}
                     </Text>
                     {!!row.excerpt && (
-                      <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 18 }}>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                         {row.excerpt}
                       </Text>
                     )}
@@ -591,7 +598,7 @@ export default function AdminBlog() {
                         backgroundColor: "#F6FAFD",
                       }}
                     >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                         slug: {row.slug}
                       </Text>
                     </View>
@@ -606,7 +613,7 @@ export default function AdminBlog() {
                         backgroundColor: row.status === "PUBLISHED" ? COLORS.successBg : COLORS.warningBg,
                       }}
                     >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                         {row.status === "PUBLISHED" ? "Publicado" : "Borrador"}
                       </Text>
                     </View>
@@ -696,7 +703,8 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
+                  minHeight: CAMPO.alto,
                 }}
               />
 
@@ -717,7 +725,8 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
+                  minHeight: CAMPO.alto,
                 }}
               />
 
@@ -784,7 +793,8 @@ export default function AdminBlog() {
                   paddingVertical: 12,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
+                  minHeight: CAMPO.alto,
                 }}
               />
 
@@ -848,7 +858,8 @@ export default function AdminBlog() {
                       flex: 1,
                       opacity: saving ? 0.6 : pressed ? 0.9 : 1,
                       borderRadius: 999,
-                      paddingVertical: 12,
+                      minHeight: CAMPO.alto,
+                      justifyContent: "center",
                       paddingHorizontal: 18,
                       backgroundColor: COLORS.accentDark,
                     })}

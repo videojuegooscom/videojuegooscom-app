@@ -32,6 +32,8 @@
  *   descripción, icono y og:image en cada pantalla.
  * - app/admin/index.tsx → tarjeta "Marca y SEO" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("marca-seo") en el Stack.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario, todo lo que se toca de 44 px y los campos de 16 px y 48 de alto.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -53,6 +55,7 @@ import { supabase } from "../../lib/supabase";
 import { IconButton } from "../../lib/admin/products.components";
 import SmartImage from "../../components/SmartImage";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, también el que hace el
 // propio navegador al enfocar un campo (el campo se cerraba solo): solo se usa en nativo.
@@ -65,8 +68,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
   accentDark: "#1EA7E8",
@@ -355,7 +358,7 @@ export default function AdminMarcaSeo() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -368,7 +371,7 @@ export default function AdminMarcaSeo() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -473,15 +476,15 @@ export default function AdminMarcaSeo() {
                       gap: 4,
                     }}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                       Medidas exactas recomendadas
                     </Text>
-                    <Text style={{ color: COLORS.text, fontSize: 12.5, lineHeight: 18 }}>
+                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                       Cuadrada, 512 × 512 píxeles (o 1024 × 1024 si tienes calidad de sobra). Formato
                       JPG, PNG o WEBP, con fondo sólido (evita transparencias: en algunos sitios se
                       ven con fondo negro). Peso máximo {MAX_LOGO_SIZE_MB} MB.
                     </Text>
-                    <Text style={{ color: COLORS.muted, fontSize: 11.5, lineHeight: 16, marginTop: 4 }}>
+                    <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, marginTop: 4 }}>
                       Con esa medida se ve bien tanto en el resultado de Google como en la pestaña del
                       navegador. La tarjeta que se ve al pegar el enlace en WhatsApp o Facebook no está
                       cubierta todavía — es un paso aparte, si en algún momento lo quieres.
@@ -493,7 +496,7 @@ export default function AdminMarcaSeo() {
                       style={{
                         color: logoMsg.type === "ok" ? COLORS.success : COLORS.danger,
                         fontWeight: "800",
-                        fontSize: 12.5,
+                        fontSize: TAMANOS.minimo,
                         textAlign: "center",
                       }}
                     >
@@ -508,7 +511,7 @@ export default function AdminMarcaSeo() {
                       accessibilityRole="button"
                       style={({ pressed }) => ({
                         opacity: pressed || uploadingLogo ? 0.75 : 1,
-                        paddingVertical: 10,
+                        minHeight: TACTIL.minimo,
                         paddingHorizontal: 16,
                         borderRadius: 999,
                         backgroundColor: COLORS.accentDark,
@@ -569,10 +572,10 @@ export default function AdminMarcaSeo() {
                 <Text style={{ color: "#1a0dab", fontSize: 16, fontWeight: "600" }} numberOfLines={1}>
                   {seoTitle.trim() || "Título de la tienda"}
                 </Text>
-                <Text style={{ color: "#006621", fontSize: 12.5 }}>
+                <Text style={{ color: "#006621", fontSize: TAMANOS.minimo }}>
                   videojuegoszaragoza.com
                 </Text>
-                <Text style={{ color: "#545454", fontSize: 12.5, lineHeight: 17 }} numberOfLines={2}>
+                <Text style={{ color: "#545454", fontSize: TAMANOS.minimo, lineHeight: 17 }} numberOfLines={2}>
                   {seoDescription.trim() || "La descripción aparecerá aquí, tal y como la vería alguien buscando en Google."}
                 </Text>
               </View>
@@ -597,13 +600,14 @@ export default function AdminMarcaSeo() {
                     backgroundColor: COLORS.cardSoft,
                     // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
                     // se queda ampliada y "descuadrada".
-                    fontSize: 16,
+                    fontSize: CAMPO.letra,
+                    minHeight: CAMPO.alto,
                   }}
                 />
                 <Text
                   style={{
                     color: seoTitle.trim().length > SEO_TITLE_MAX ? COLORS.danger : COLORS.muted2,
-                    fontSize: 11,
+                    fontSize: TAMANOS.minimo,
                     fontWeight: "700",
                   }}
                 >
@@ -639,7 +643,7 @@ export default function AdminMarcaSeo() {
                 <Text
                   style={{
                     color: seoDescription.trim().length > SEO_DESC_MAX ? COLORS.danger : COLORS.muted2,
-                    fontSize: 11,
+                    fontSize: TAMANOS.minimo,
                     fontWeight: "700",
                   }}
                 >
@@ -652,7 +656,7 @@ export default function AdminMarcaSeo() {
                   style={{
                     color: seoMsg.type === "ok" ? COLORS.success : COLORS.danger,
                     fontWeight: "800",
-                    fontSize: 12.5,
+                    fontSize: TAMANOS.minimo,
                     textAlign: "center",
                   }}
                 >
@@ -666,7 +670,7 @@ export default function AdminMarcaSeo() {
                 accessibilityRole="button"
                 style={({ pressed }) => ({
                   opacity: pressed || savingSeo ? 0.75 : 1,
-                  paddingVertical: 12,
+                  minHeight: CAMPO.alto,
                   paddingHorizontal: 20,
                   borderRadius: 999,
                   backgroundColor: COLORS.accentDark,
@@ -689,7 +693,7 @@ export default function AdminMarcaSeo() {
             {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
             <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 Los cambios se aplican al momento, sin esperar a un nuevo despliegue: Google los
                 recogerá la próxima vez que visite la tienda (normalmente, en pocos días).
               </Text>

@@ -72,6 +72,9 @@
  *   las recomiende cuando encaje en la conversación.
  * - app/admin/index.tsx → tarjeta "Redes sociales" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("redes-sociales") en el Stack.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario, todo lo que se toca (también las flechas de orden) de 44 px
+ *   separado 8 y los campos de 16 px y 48 de alto.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -93,6 +96,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
 import { formatearSeguidores } from "../../components/SocialLinks";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
 // scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo y "no dejaba
@@ -137,8 +141,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
   accentDark: "#1EA7E8",
@@ -428,7 +432,7 @@ export default function AdminRedesSociales() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -441,7 +445,7 @@ export default function AdminRedesSociales() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -533,10 +537,11 @@ export default function AdminRedesSociales() {
                   // 16px es el mínimo que evita que Safari/iOS haga zoom
                   // automático al enfocar el campo (mismo motivo que en el
                   // cuadro de Blue IA, ver app/(tabs)/blue-ia.tsx).
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
+                  minHeight: CAMPO.alto,
                 }}
               />
-              <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
+              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                 El texto que aparece encima de los iconos en el pie de página, Perfil y la Cesta.
               </Text>
             </View>
@@ -572,10 +577,11 @@ export default function AdminRedesSociales() {
                   paddingVertical: 10,
                   color: COLORS.text,
                   backgroundColor: COLORS.cardSoft,
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
+                  minHeight: CAMPO.alto,
                 }}
               />
-              <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
+              <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                 {!conResenas
                   ? "Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio no sale."
                   : resenas != null && resenas > 0
@@ -616,14 +622,14 @@ export default function AdminRedesSociales() {
 
                     {/* Orden: sube o baja esta tarjeta respecto a las demás —
                         el número real se recalcula al guardar. */}
-                    <View style={{ flexDirection: "row", gap: 2 }}>
+                    <View style={{ flexDirection: "row", gap: TACTIL.separacion }}>
                       <Pressable
                         onPress={() => moveRow(r.platform, -1)}
                         disabled={index === 0}
                         hitSlop={6}
                         style={({ pressed }) => ({
-                          width: 36,
-                          height: 36,
+                          width: TACTIL.minimo,
+                          height: TACTIL.minimo,
                           alignItems: "center",
                           justifyContent: "center",
                           opacity: index === 0 ? 0.3 : pressed ? 0.6 : 1,
@@ -636,8 +642,8 @@ export default function AdminRedesSociales() {
                         disabled={index === rows.length - 1}
                         hitSlop={6}
                         style={({ pressed }) => ({
-                          width: 36,
-                          height: 36,
+                          width: TACTIL.minimo,
+                          height: TACTIL.minimo,
                           alignItems: "center",
                           justifyContent: "center",
                           opacity: index === rows.length - 1 ? 0.3 : pressed ? 0.6 : 1,
@@ -676,10 +682,11 @@ export default function AdminRedesSociales() {
                       // automático al enfocar el campo — con menos de 16px
                       // el navegador da por hecho que hay que acercar la
                       // imagen para poder escribir cómodo.
-                      fontSize: 16,
+                      fontSize: CAMPO.letra,
+                      minHeight: CAMPO.alto,
                     }}
                   />
-                  <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>{meta.hint}</Text>
+                  <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 18 }}>{meta.hint}</Text>
 
                   {/* TikTok e Instagram: sus seguidores salen junto al logo de Inicio (los escribe Daniel; nunca se inventan). */}
                   {REDES_CON_SEGUIDORES.includes(r.platform) ? (
@@ -707,10 +714,11 @@ export default function AdminRedesSociales() {
                           paddingVertical: 10,
                           color: COLORS.text,
                           backgroundColor: COLORS.cardSoft,
-                          fontSize: 16,
+                          fontSize: CAMPO.letra,
+                          minHeight: CAMPO.alto,
                         }}
                       />
-                      <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 16 }}>
+                      <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 18 }}>
                         {!conSeguidores
                           ? "Se podrá guardar en cuanto se active su parte en la base de datos; mientras, en Inicio sale «Síguenos»."
                           : r.seguidores != null
@@ -723,7 +731,7 @@ export default function AdminRedesSociales() {
                   ) : null}
 
                   {r.enabled && !r.url?.trim() ? (
-                    <Text style={{ color: COLORS.danger, fontSize: 11.5, fontWeight: "800" }}>
+                    <Text style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, fontWeight: "800" }}>
                       Está activada pero no tiene enlace todavía — no aparecerá hasta que lo rellenes.
                     </Text>
                   ) : null}
@@ -736,7 +744,7 @@ export default function AdminRedesSociales() {
                 style={{
                   color: msg.type === "ok" ? COLORS.success : COLORS.danger,
                   fontWeight: "800",
-                  fontSize: 12.5,
+                  fontSize: TAMANOS.minimo,
                   textAlign: "center",
                 }}
               >
@@ -750,7 +758,7 @@ export default function AdminRedesSociales() {
               accessibilityRole="button"
               style={({ pressed }) => ({
                 opacity: pressed || saving ? 0.75 : 1,
-                paddingVertical: 12,
+                minHeight: CAMPO.alto,
                 paddingHorizontal: 20,
                 borderRadius: 999,
                 backgroundColor: COLORS.accentDark,
@@ -772,7 +780,7 @@ export default function AdminRedesSociales() {
             {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
             <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 Los cambios se aplican al momento, sin esperar a un nuevo despliegue: en cuanto
                 guardes, el icono aparece o desaparece en el pie de página, Perfil y la Cesta, y
                 Blue IA ya lo sabe. Puedes activar las 9 redes a la vez sin problema — se reparten
