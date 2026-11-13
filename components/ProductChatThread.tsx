@@ -49,6 +49,8 @@
  *   ningún archivo .sql local — ver sql/README.md).
  * - components/VenderAhoraModal.tsx → crea chats con sell_request_id.
  * - app/chat/[chatId].tsx, app/admin/chats.tsx → lo incrustan.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario, la papelera y los botones de borrar de 44 px y el campo de 16 px y 48.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -66,6 +68,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 
 // Título de las conversaciones sin producto ni venta (chat general con la tienda).
 export const TITULO_ATENCION_CLIENTE = "Atención al cliente";
@@ -144,8 +147,8 @@ const COLORS = {
   card: "#F6FAFD",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -438,7 +441,7 @@ export default function ProductChatThread({
           <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15 }}>
             {headerTitle}
           </Text>
-          <Text numberOfLines={1} style={{ color: COLORS.muted2, fontSize: 12 }}>
+          <Text numberOfLines={1} style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
             Con {customerName}
           </Text>
         </View>
@@ -448,9 +451,9 @@ export default function ProductChatThread({
           hitSlop={8}
           style={({ pressed }) => ({
             opacity: pressed ? 0.7 : 1,
-            width: 34,
-            height: 34,
-            borderRadius: 17,
+            width: TACTIL.minimo,
+            height: TACTIL.minimo,
+            borderRadius: 22,
             alignItems: "center",
             justifyContent: "center",
           })}
@@ -474,7 +477,7 @@ export default function ProductChatThread({
           }}
         >
           <Ionicons name="trash-outline" size={16} color="#B91C1C" />
-          <Text style={{ flex: 1, color: "#7A271A", fontSize: 12.5, lineHeight: 17 }}>
+          <Text style={{ flex: 1, color: "#7A271A", fontSize: TAMANOS.minimo, lineHeight: 18 }}>
             ¿Borrar esta conversación? Se te dejará de mostrar a ti; si el otro lado no la ha
             borrado también, seguirá viéndola.
           </Text>
@@ -483,28 +486,30 @@ export default function ProductChatThread({
             disabled={deleting}
             style={({ pressed }) => ({
               opacity: pressed ? 0.85 : 1,
-              paddingVertical: 6,
-              paddingHorizontal: 10,
+              minHeight: TACTIL.minimo,
+              justifyContent: "center",
+              paddingHorizontal: 12,
               borderRadius: 999,
               backgroundColor: "#FFFFFF",
               borderWidth: 1,
               borderColor: COLORS.border,
             })}
           >
-            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12 }}>Cancelar</Text>
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>Cancelar</Text>
           </Pressable>
           <Pressable
             onPress={handleDeleteChat}
             disabled={deleting}
             style={({ pressed }) => ({
               opacity: deleting ? 0.6 : pressed ? 0.88 : 1,
-              paddingVertical: 6,
-              paddingHorizontal: 10,
+              minHeight: TACTIL.minimo,
+              justifyContent: "center",
+              paddingHorizontal: 12,
               borderRadius: 999,
               backgroundColor: "#DC2626",
             })}
           >
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12 }}>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>
               {deleting ? "Borrando…" : "Borrar"}
             </Text>
           </Pressable>
@@ -543,12 +548,12 @@ export default function ProductChatThread({
                       backgroundColor: mine ? COLORS.bubbleMine : COLORS.bubbleOther,
                     }}
                   >
-                    <Text style={{ color: COLORS.text, fontSize: 14, lineHeight: 20 }}>{m.body}</Text>
+                    <Text style={{ color: COLORS.text, fontSize: TAMANOS.cuerpo, lineHeight: 21 }}>{m.body}</Text>
                   </View>
                   <Text
                     style={{
                       color: COLORS.muted2,
-                      fontSize: 10,
+                      fontSize: TAMANOS.minimo,
                       textAlign: mine ? "right" : "left",
                       marginHorizontal: 4,
                     }}
@@ -596,7 +601,8 @@ export default function ProductChatThread({
             // otras pantallas — es lo que se veía como "toda la app mal
             // encuadrada". Por eso TODOS los TextInput de la tienda deben
             // ir a fontSize 16 o más, nunca menos.
-            fontSize: 16,
+            fontSize: CAMPO.letra,
+            minHeight: CAMPO.alto,
           }}
         />
 

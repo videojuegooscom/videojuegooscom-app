@@ -53,6 +53,9 @@
  *   subtítulo, estadísticas, buscador y lista en un único ScrollView (flex 1,
  *   margen final 48 px + zona segura). Antes todo lo de arriba era fijo y en
  *   el móvil dejaba la lista en una franja mínima.
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ *   menos de 13 px, grises desde COLORES_TEXTO.secundario, texto azul pequeño en
+ *   azulTexto, todo lo que se toca de 44 px y a 8 px de lo de al lado.
  *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
@@ -115,6 +118,7 @@ import {
 } from "../../lib/admin/products.components";
 import { CIERRE_TECLADO, pickMediaFilesWeb, reducirImagenWeb } from "../../lib/admin/products.utils";
 import { MEDIA_BUCKET } from "../../lib/admin/products.constants";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // «−» y «+» de cuánto se ve la foto: de 10 en 10, para que cada toque se note (la barra va de 5 en 5).
 const PASO_BOTON_OPACIDAD = 10;
@@ -128,9 +132,10 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  accentText: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -206,7 +211,8 @@ const inputStyle = {
   paddingVertical: 12,
   color: COLORS.text,
   backgroundColor: "#F8FBFE",
-  fontSize: 16,
+  fontSize: CAMPO.letra,
+  minHeight: CAMPO.alto,
 } as const;
 
 function slugify(input: string) {
@@ -264,7 +270,8 @@ function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
-        paddingVertical: 10,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         paddingHorizontal: 12,
         borderWidth: 1,
         borderColor,
@@ -870,7 +877,7 @@ export default function AdminCategories() {
                     }}
                   >
                     <Ionicons name="images-outline" size={24} color={COLORS.muted2} />
-                    <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12 }}>Sin portada</Text>
+                    <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo }}>Sin portada</Text>
                   </View>
                 )}
 
@@ -878,14 +885,14 @@ export default function AdminCategories() {
                   <Text numberOfLines={2} style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, lineHeight: 19 }}>
                     {c.name}
                   </Text>
-                  <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12, lineHeight: 16 }}>
+                  <Text numberOfLines={2} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 17 }}>
                     {servicios ? "Recuadro de Inicio · lleva a Servicios" : `${c.is_active ? "Visible" : "Oculta"} · ${c.slug} · orden ${c.sort_order}`}
                   </Text>
                   {toquesInicio ? (
                     <Text
                       nativeID={`categoria-toques-${c.slug}`}
                       numberOfLines={2}
-                      style={{ color: COLORS.text, fontWeight: "800", fontSize: 12, lineHeight: 16 }}
+                      style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 17 }}
                     >
                       {(() => {
                         const t = toquesInicio[c.slug] ?? { toques: 0, conPortada: 0 };
@@ -895,14 +902,14 @@ export default function AdminCategories() {
                     </Text>
                   ) : null}
                   {c.id && c.updated_at ? (
-                    <Text style={{ color: COLORS.muted2, fontSize: 11.5, lineHeight: 15 }}>
+                    <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, lineHeight: 17 }}>
                       Actualizada: {new Date(c.updated_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
                     </Text>
                   ) : null}
                 </View>
 
                 {/* Acciones con iconos: visible (no en «Reparación / Limpieza», que está siempre), editar y borrar. */}
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: "auto" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: TACTIL.separacion, marginTop: "auto" }}>
                   {!servicios ? (
                     <Switch
                       value={c.is_active}
@@ -912,7 +919,7 @@ export default function AdminCategories() {
                   ) : (
                     <View />
                   )}
-                  <View style={{ flexDirection: "row", gap: 6 }}>
+                  <View style={{ flexDirection: "row", gap: TACTIL.separacion }}>
                     <IconButton icon="create-outline" label={`Editar ${c.name}`} variant="primary" onPress={() => openEdit(c)} />
                     {!servicios ? (
                       <IconButton icon="trash-outline" label={`Borrar ${c.name}`} variant="danger" onPress={() => askRemove(c)} />
@@ -1038,10 +1045,10 @@ export default function AdminCategories() {
 
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
                     {portadas.map((url, i) => (
+                      <View key={url} style={{ width: isMobile ? 132 : 150, gap: TACTIL.separacion }}>
                       <View
-                        key={url}
                         style={{
-                          width: isMobile ? 132 : 150,
+                          width: "100%",
                           // Con la forma del recuadro de Inicio: la miniatura enseña su encuadre.
                           aspectRatio: PROPORCION_RECUADRO_INICIO,
                           borderRadius: 14,
@@ -1059,57 +1066,6 @@ export default function AdminCategories() {
                           alt={`Portada ${i + 1}${encuadres[i] === PORTADA_ENTERA ? " (entera)" : encuadres[i] ? " (encuadrada para Inicio)" : ""}`}
                           style={{ width: "100%", height: "100%" }}
                         />
-                        {/* «Entera»: en Inicio y dentro de la categoría se ve la foto completa, sin recortar (dueño,
-                            2026-11-07). «Encuadrar» la vuelve a recortar. */}
-                        {supportsEncuadre && encuadres[i] !== PORTADA_ENTERA ? (
-                          <Pressable
-                            nativeID={`categoria-entera-${i}`}
-                            onPress={() => setEncuadres((prev) => prev.map((e, k) => (k === i ? PORTADA_ENTERA : e)))}
-                            disabled={subiendo}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Ver la portada ${i + 1} entera, sin recortar`}
-                            style={({ pressed }) => ({
-                              position: "absolute",
-                              right: 4,
-                              top: 4,
-                              height: 32,
-                              paddingHorizontal: 9,
-                              borderRadius: 16,
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 4,
-                              backgroundColor: "rgba(11,33,56,0.72)",
-                              opacity: pressed ? 0.8 : 1,
-                            })}
-                          >
-                            <Ionicons name="expand-outline" size={15} color="#FFFFFF" />
-                            <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11.5 }}>Entera</Text>
-                          </Pressable>
-                        ) : null}
-                        {supportsEncuadre ? (
-                          <Pressable
-                            onPress={() => setRecorte({ uri: url, remota: true, indice: i })}
-                            disabled={subiendo}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Encuadrar la portada ${i + 1} para Inicio`}
-                            style={({ pressed }) => ({
-                              position: "absolute",
-                              right: 4,
-                              bottom: 4,
-                              height: 32,
-                              paddingHorizontal: 9,
-                              borderRadius: 16,
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 4,
-                              backgroundColor: "rgba(11,33,56,0.72)",
-                              opacity: pressed ? 0.8 : 1,
-                            })}
-                          >
-                            <Ionicons name="crop" size={15} color="#FFFFFF" />
-                            <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11.5 }}>Encuadrar</Text>
-                          </Pressable>
-                        ) : null}
                         {i === 0 && (
                           <Text
                             style={{
@@ -1122,7 +1078,7 @@ export default function AdminCategories() {
                               overflow: "hidden",
                               backgroundColor: "rgba(11,33,56,0.72)",
                               color: "#FFFFFF",
-                              fontSize: 11,
+                              fontSize: TAMANOS.minimo,
                               fontWeight: "800",
                             }}
                           >
@@ -1136,10 +1092,10 @@ export default function AdminCategories() {
                             accessibilityLabel={`Pasar la portada ${i + 1} delante`}
                             style={({ pressed }) => ({
                               position: "absolute",
-                              left: 2,
-                              top: 2,
-                              width: 36,
-                              height: 36,
+                              left: 0,
+                              top: 0,
+                              width: TACTIL.minimo,
+                              height: TACTIL.minimo,
                               alignItems: "center",
                               justifyContent: "center",
                               opacity: pressed ? 0.7 : 1,
@@ -1155,10 +1111,10 @@ export default function AdminCategories() {
                           accessibilityLabel={`Quitar la portada ${i + 1}`}
                           style={({ pressed }) => ({
                             position: "absolute",
-                            right: 2,
-                            top: 2,
-                            width: 36,
-                            height: 36,
+                            right: 0,
+                            top: 0,
+                            width: TACTIL.minimo,
+                            height: TACTIL.minimo,
                             alignItems: "center",
                             justifyContent: "center",
                             opacity: pressed ? 0.7 : 1,
@@ -1166,6 +1122,55 @@ export default function AdminCategories() {
                         >
                           <Ionicons name="close-circle" size={30} color="rgba(11,33,56,0.85)" />
                         </Pressable>
+                      </View>
+                      {/* «Entera»: en Inicio y dentro de la categoría se ve la foto completa, sin recortar (dueño,
+                          2026-11-07). «Encuadrar» la vuelve a recortar. Debajo de la miniatura (grupo 5, 2026-11-13) para
+                          que cada botón mida 44 px de alto sin taparse con las X ni con la foto. */}
+                      {supportsEncuadre && encuadres[i] !== PORTADA_ENTERA ? (
+                        <Pressable
+                          nativeID={`categoria-entera-${i}`}
+                          onPress={() => setEncuadres((prev) => prev.map((e, k) => (k === i ? PORTADA_ENTERA : e)))}
+                          disabled={subiendo}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Ver la portada ${i + 1} entera, sin recortar`}
+                          style={({ pressed }) => ({
+                            minHeight: TACTIL.minimo,
+                            paddingHorizontal: 10,
+                            borderRadius: 999,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 4,
+                            backgroundColor: "rgba(11,33,56,0.72)",
+                            opacity: pressed ? 0.8 : 1,
+                          })}
+                        >
+                          <Ionicons name="expand-outline" size={15} color="#FFFFFF" />
+                          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: TAMANOS.minimo }}>Entera</Text>
+                        </Pressable>
+                      ) : null}
+                      {supportsEncuadre ? (
+                        <Pressable
+                          onPress={() => setRecorte({ uri: url, remota: true, indice: i })}
+                          disabled={subiendo}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Encuadrar la portada ${i + 1} para Inicio`}
+                          style={({ pressed }) => ({
+                            minHeight: TACTIL.minimo,
+                            paddingHorizontal: 10,
+                            borderRadius: 999,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 4,
+                            backgroundColor: "rgba(11,33,56,0.72)",
+                            opacity: pressed ? 0.8 : 1,
+                          })}
+                        >
+                          <Ionicons name="crop" size={15} color="#FFFFFF" />
+                          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: TAMANOS.minimo }}>Encuadrar</Text>
+                        </Pressable>
+                      ) : null}
                       </View>
                     ))}
 
@@ -1193,12 +1198,12 @@ export default function AdminCategories() {
                         {subiendo ? (
                           <>
                             <ActivityIndicator color={COLORS.accent} />
-                            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12 }}>Subiendo…</Text>
+                            <Text style={{ color: COLORS.accentText, fontWeight: "800", fontSize: TAMANOS.minimo }}>Subiendo…</Text>
                           </>
                         ) : (
                           <>
                             <Ionicons name="cloud-upload-outline" size={24} color={COLORS.accent} />
-                            <Text style={{ color: COLORS.accent, fontWeight: "800", fontSize: 12.5 }}>
+                            <Text style={{ color: COLORS.accentText, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                               {portadas.length ? "Añadir foto" : "Subir fotos"}
                             </Text>
                           </>
@@ -1338,7 +1343,7 @@ export default function AdminCategories() {
                     })}
                   >
                     <Ionicons name="copy-outline" size={17} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5 }}>A otras</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>A otras</Text>
                     <Ionicons name={copiarAbierto ? "chevron-up" : "chevron-down"} size={16} color={COLORS.muted} />
                   </Pressable>
                 </View>

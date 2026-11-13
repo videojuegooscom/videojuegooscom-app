@@ -43,6 +43,11 @@
  *   components/VenderAhoraModal.tsx, components/ContratarServicioModal.tsx,
  *   components/SellRequestMedia.tsx y app/admin/analytics.tsx (campos de
  *   fecha y chips) → también los usan.
+ * - Grupo 5 (2026-11-13): el resto de Administración (app/admin/categories.tsx,
+ *   inventario.tsx, cotizaciones.tsx, escaparate.tsx, envios.tsx, policies.tsx,
+ *   blog.tsx, chats.tsx, flash-news.tsx, marca-seo.tsx, auditorias.tsx,
+ *   aprendizajes.tsx, conocimiento.tsx y redes-sociales.tsx) → TAMANOS, TACTIL,
+ *   CAMPO y COLORES_TEXTO; la sección TM5 de pruebas/perfil-datos.mjs las mide.
  * - pruebas/perfil-datos.mjs → comprueba la barra inferior, la línea de
  *   estados, las pestañas del perfil y los campos a 16 px (sección TM) y el
  *   Foro y los formularios de Contratar y Vender (sección TM2).

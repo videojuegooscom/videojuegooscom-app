@@ -13,6 +13,9 @@
  * - Las lecciones no se borran: se desactivan, para conservar el historial.
  * - Un mismo formulario sirve para crear una lección nueva o editar una existente
  *   (botón "Editar" de cada tarjeta).
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de
+ *   menos de 13 px, grises desde COLORES_TEXTO.secundario, texto azul pequeño en
+ *   azulTexto, botones y chips de 44 px separados 8 y campos de 16 px y 48 de alto.
  *
  * Conectado con:
  * - app/admin/index.tsx → tarjeta "Centro De Aprendizajes" que lleva aquí.
@@ -39,6 +42,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { IconButton } from "../../lib/admin/products.components";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 // "on-drag" en web cierra el teclado con CUALQUIER desplazamiento, incluido el que hace
 // scrollFieldIntoView (más abajo) al enfocar un campo: el campo se cerraba solo. Por eso solo
@@ -105,9 +109,10 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  accentText: COLORES_TEXTO.azulTexto,
   // Botón principal: el mismo azul que "Comprar"/"Confirmar pedido" de la tienda.
   accentDark: "#1EA7E8",
   accent2: "#EAF6FD",
@@ -123,7 +128,7 @@ const COLORS = {
 const COLOR_PRIORIDAD: Record<Prioridad, { fg: string; bg: string }> = {
   1: { fg: COLORS.danger, bg: COLORS.dangerBg },
   2: { fg: COLORS.warn, bg: COLORS.warnBg },
-  3: { fg: COLORS.accentDark, bg: COLORS.accent2 },
+  3: { fg: COLORS.accentText, bg: COLORS.accent2 },
 };
 
 const labelCategoria = (c: Categoria) => CATEGORIAS.find((x) => x.value === c)?.label ?? c;
@@ -177,8 +182,9 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       style={({ pressed }) => ({
-        paddingVertical: 7,
-        paddingHorizontal: 12,
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
+        paddingHorizontal: 14,
         borderRadius: 999,
         backgroundColor: active ? COLORS.accent : COLORS.cardSoft,
         borderWidth: 1,
@@ -186,7 +192,7 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <Text style={{ color: active ? "#FFFFFF" : COLORS.text, fontWeight: "800", fontSize: 12.5 }}>{label}</Text>
+      <Text style={{ color: active ? "#FFFFFF" : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>{label}</Text>
     </Pressable>
   );
 }
@@ -200,7 +206,8 @@ const inputStyle = {
   color: COLORS.text,
   backgroundColor: COLORS.cardSoft,
   // 16px: mínimo que evita el zoom automático de Safari/iOS al enfocar.
-  fontSize: 16,
+  fontSize: CAMPO.letra,
+  minHeight: CAMPO.alto,
 } as const;
 
 export default function AdminAprendizajes() {
@@ -332,7 +339,7 @@ export default function AdminAprendizajes() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -345,7 +352,7 @@ export default function AdminAprendizajes() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -397,8 +404,8 @@ export default function AdminAprendizajes() {
               style={inputStyle}
             />
 
-            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>Categoría</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Categoría</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
               {CATEGORIAS.map((c) => (
                 <Chip
                   key={c.value}
@@ -409,8 +416,8 @@ export default function AdminAprendizajes() {
               ))}
             </View>
 
-            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>Prioridad</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Prioridad</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion }}>
               {PRIORIDADES.map((p) => (
                 <Chip
                   key={p.value}
@@ -457,7 +464,7 @@ export default function AdminAprendizajes() {
                 style={{
                   color: msg.type === "ok" ? COLORS.success : COLORS.danger,
                   fontWeight: "800",
-                  fontSize: 12.5,
+                  fontSize: TAMANOS.minimo,
                   textAlign: "center",
                 }}
               >
@@ -473,7 +480,7 @@ export default function AdminAprendizajes() {
                 style={({ pressed }) => ({
                   flex: 1,
                   opacity: pressed || saving ? 0.75 : 1,
-                  paddingVertical: 12,
+                  minHeight: CAMPO.alto,
                   borderRadius: 14,
                   backgroundColor: COLORS.accentDark,
                   alignItems: "center",
@@ -496,7 +503,7 @@ export default function AdminAprendizajes() {
                   accessibilityRole="button"
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.85 : 1,
-                    paddingVertical: 12,
+                    minHeight: CAMPO.alto,
                     paddingHorizontal: 16,
                     borderRadius: 14,
                     backgroundColor: COLORS.cardSoft,
@@ -514,7 +521,7 @@ export default function AdminAprendizajes() {
 
           {/* Filtros. */}
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: TACTIL.separacion, justifyContent: "center" }}>
               <Chip label="Todas" active={filtroCategoria === "todas"} onPress={() => setFiltroCategoria("todas")} />
               {CATEGORIAS.map((c) => (
                 <Chip
@@ -543,7 +550,7 @@ export default function AdminAprendizajes() {
           ) : loadErr ? (
             <View style={{ borderRadius: 14, backgroundColor: COLORS.dangerBg, padding: 12, gap: 8, alignItems: "center" }}>
               <Text style={{ color: COLORS.danger, fontWeight: "800", lineHeight: 20, textAlign: "center" }}>{loadErr}</Text>
-              <Pressable onPress={load} accessibilityRole="button">
+              <Pressable onPress={load} accessibilityRole="button" style={{ minHeight: TACTIL.minimo, paddingHorizontal: 16, justifyContent: "center" }}>
                 <Text style={{ color: COLORS.danger, fontWeight: "900", textDecorationLine: "underline", textAlign: "center" }}>
                   Reintentar
                 </Text>
@@ -582,16 +589,16 @@ export default function AdminAprendizajes() {
                   </View>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                     <View style={{ borderRadius: 999, backgroundColor: colorP.bg, paddingVertical: 3, paddingHorizontal: 9 }}>
-                      <Text style={{ color: colorP.fg, fontWeight: "900", fontSize: 11.5 }}>
+                      <Text style={{ color: colorP.fg, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                         {labelPrioridad(a.prioridad)}
                       </Text>
                     </View>
                     <View style={{ borderRadius: 999, backgroundColor: COLORS.accent2, paddingVertical: 3, paddingHorizontal: 9 }}>
-                      <Text style={{ color: COLORS.accentDark, fontWeight: "900", fontSize: 11.5 }}>
+                      <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                         {labelCategoria(a.categoria)}
                       </Text>
                     </View>
-                    <Text style={{ color: COLORS.muted2, fontSize: 11.5, alignSelf: "center" }}>
+                    <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, alignSelf: "center" }}>
                       Actualizada el {fmtFecha(a.updated_at)}
                     </Text>
                   </View>

@@ -20,6 +20,8 @@
  * - components/Campanita.tsx → al admin le avisa Blue si hay ventas sin confirmar.
  * - supabase/migrations/20261015100000_escaparate_novedades_retorno.sql (escaparate_salida).
  * - api/escaparate-veoaura.ts (evento «factura») y app/admin/pedidos.tsx (donde se descargan las facturas).
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario y todo lo que se toca (volver, enviar, artículos) de 44 px.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StatusBar, Text, View, useWindowDimensions } from "react-native";
@@ -28,14 +30,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
   bg2: "#F4F9FD",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   success: "#15803D",
   danger: "#B91C1C",
@@ -140,7 +143,7 @@ function Titulo({ texto, sub }: { texto: string; sub?: string }) {
   return (
     <View style={{ alignItems: "center", gap: 4, marginTop: 8 }}>
       <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>{texto}</Text>
-      {sub ? <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>{sub}</Text> : null}
+      {sub ? <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>{sub}</Text> : null}
     </View>
   );
 }
@@ -259,7 +262,7 @@ export default function AdminEscaparate() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -272,7 +275,7 @@ export default function AdminEscaparate() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -297,12 +300,12 @@ export default function AdminEscaparate() {
             {sinConfirmar ? ` · ${sinConfirmar} ventas sin confirmar a VeoAura` : ""}
           </Text>
           {/* Clientes compartidos con VeoAura: solo de pedidos entregados (cuentan como pagados), nombre, correo y teléfono. */}
-          <Text nativeID="escaparate-fichas-clientes" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+          <Text nativeID="escaparate-fichas-clientes" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
             Fichas de cliente enviadas a VeoAura: {fichasEnviadas}
             {fichasPorEnviar ? ` · por enviar: ${fichasPorEnviar}` : ""} · solo de pedidos entregados (nombre, correo y teléfono)
           </Text>
           {/* Facturas que emite VeoAura y manda a la tienda (api/escaparate-veoaura.ts, evento «factura»). */}
-          <Text nativeID="escaparate-facturas" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+          <Text nativeID="escaparate-facturas" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
             Facturas recibidas de VeoAura en los últimos mensajes: {facturasRecibidas}
             {facturasConError ? ` · con error: ${facturasConError}` : ""} · se descargan en Pedidos y en «Mis pedidos» del cliente
           </Text>
@@ -316,7 +319,7 @@ export default function AdminEscaparate() {
               flexDirection: "row",
               alignItems: "center",
               gap: 8,
-              paddingVertical: 11,
+              minHeight: TACTIL.minimo,
               paddingHorizontal: 18,
               borderRadius: 999,
               backgroundColor: COLORS.accent,
@@ -352,7 +355,7 @@ export default function AdminEscaparate() {
                       <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>
                         {art?.title ?? "Artículo de VeoAura"}
                       </Text>
-                      <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         {s.evento === "pedido"
                           ? "Pedido"
                           : s.evento === "pedido_anulado"
@@ -360,13 +363,13 @@ export default function AdminEscaparate() {
                             : "Pedido entregado · ficha del cliente (nombre, correo y teléfono)"}
                         {numero ? ` #${numero}` : ""} · {fmtFechaHora(s.creado_en)}
                       </Text>
-                      <Text style={{ color: est.color, fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>
+                      <Text style={{ color: est.color, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         {est.texto}
                         {s.estado === "enviado" && s.enviado_en ? ` · ${fmtFechaHora(s.enviado_en)}` : ""}
                         {s.estado === "error" ? ` · intento ${s.intentos}` : ""}
                       </Text>
                       {s.detalle && s.estado !== "enviado" ? (
-                        <Text style={{ color: COLORS.muted2, fontSize: 12, textAlign: "center" }}>{s.detalle}</Text>
+                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "center" }}>{s.detalle}</Text>
                       ) : null}
                     </Fila>
                   );
@@ -385,13 +388,14 @@ export default function AdminEscaparate() {
                         onPress={() => (a.is_active ? router.push(`/producto/${a.id}` as Href) : undefined)}
                         disabled={!a.is_active}
                         accessibilityRole={a.is_active ? "link" : undefined}
+                        style={a.is_active ? { minHeight: TACTIL.minimo, justifyContent: "center" } : undefined}
                       >
                         <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{a.title}</Text>
                       </Pressable>
-                      <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         {fmtEUR(Number(a.price_eur ?? 0))} · {Number(a.view_count ?? 0)} visitas · {Number(a.like_count ?? 0)} me gusta
                       </Text>
-                      <Text style={{ color: est.color, fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>{est.texto}</Text>
+                      <Text style={{ color: est.color, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>{est.texto}</Text>
                     </Fila>
                   );
                 })
@@ -408,7 +412,7 @@ export default function AdminEscaparate() {
                       <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>
                         {fmtFechaHora(r.recibido_en)} · {r.evento ? (NOMBRE_EVENTO[r.evento] ?? r.evento) : "—"}
                       </Text>
-                      <Text style={{ color: ok ? COLORS.success : COLORS.danger, fontWeight: "900", fontSize: 12.5, textAlign: "center" }}>
+                      <Text style={{ color: ok ? COLORS.success : COLORS.danger, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         {ok ? "Correcto" : `Error${r.http ? ` ${r.http}` : ""}`}
                         {r.detalle ? ` · ${r.detalle}` : ""}
                       </Text>

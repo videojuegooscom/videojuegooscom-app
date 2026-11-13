@@ -17,6 +17,10 @@
  *   el envío puesto a mano y cuántos sin zona.
  * - Sin la migración aplicada, la pantalla lo dice y la tienda sigue con el envío gratis.
  *
+ * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
+ *   desde COLORES_TEXTO.secundario, texto azul pequeño en azulTexto, todo lo que se toca de 44 px y los
+ *   campos de 16 px y 48 de alto.
+ *
  * Conectado con: app/admin/index.tsx (tarjeta «Tarifas de envío»), app/admin/_layout.tsx (ruta), lib/envio.ts.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -38,6 +42,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { calcularEnvio, fmtKg, PESO_SIN_DATO_KG, type Entrega, type TramoEnvio, type ZonaEnvio } from "../../lib/envio";
 
 // "on-drag" en web cierra el teclado con cualquier desplazamiento (también el del navegador al enfocar un campo).
@@ -49,8 +54,9 @@ const COLORS = {
   card: "#F6FAFD",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  accentText: COLORES_TEXTO.azulTexto,
   success: "#15803D",
   danger: "#B91C1C",
   dangerBg: "#FFE4E6",
@@ -342,14 +348,14 @@ export default function AdminEnvios() {
       {...props}
       style={[
         {
-          minHeight: 46,
+          minHeight: CAMPO.alto,
           borderRadius: 12,
           borderWidth: 1,
           borderColor: COLORS.border,
           backgroundColor: "#FFFFFF",
           paddingHorizontal: 12,
           color: COLORS.text,
-          fontSize: 16,
+          fontSize: CAMPO.letra,
           fontWeight: "700",
         },
         props.style,
@@ -372,13 +378,13 @@ export default function AdminEnvios() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 860, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
             accessibilityLabel="Volver al panel"
             hitSlop={8}
-            style={({ pressed }) => ({ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: 40, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+            style={({ pressed }) => ({ position: "absolute", zIndex: 1, left: 0, top: 0, bottom: 0, width: TACTIL.minimo, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.text} />
           </Pressable>
@@ -426,7 +432,7 @@ export default function AdminEnvios() {
                     .map((d) => (
                     <View key={d.icon} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Ionicons name={d.icon} size={16} color={COLORS.accent} />
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13.5 }}>{d.texto}</Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>{d.texto}</Text>
                     </View>
                   ))}
                 </View>
@@ -452,17 +458,17 @@ export default function AdminEnvios() {
                       <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center", flexShrink: 1 }}>{b.nombre || z.zona}</Text>
                     </View>
                     {pedidos !== null ? (
-                      <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                         {pedidos} {pedidos === 1 ? "pedido" : "pedidos"} en los últimos 30 días
                       </Text>
                     ) : null}
 
-                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>Nombre que ve el cliente</Text>
+                    <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Nombre que ve el cliente</Text>
                     {campo({ value: b.nombre, onChangeText: (t) => cambiar(z.zona, "nombre", t), maxLength: 90, accessibilityLabel: `Nombre de ${z.zona}` })}
 
                     {z.zona !== "mano" ? (
                       <>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                           Códigos postales (separados por comas; un rango con guion, 50001-50022; 2 cifras = toda la provincia; * = el resto)
                         </Text>
                         {campo({ value: b.codigos, onChangeText: (t) => cambiar(z.zona, "codigos", t), maxLength: 300, autoCapitalize: "none", accessibilityLabel: `Códigos postales de ${z.zona}` })}
@@ -472,7 +478,7 @@ export default function AdminEnvios() {
                     {/* Tramos por kilos (Correos): si hay, el envío es el del peso del pedido; si no, el precio fijo. */}
                     {conTramos && z.zona !== "mano" ? (
                       <View nativeID={`envio-tramos-${z.zona}`} style={{ gap: 6 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                           {b.tramos.length
                             ? "Precio por kilos (peso del pedido con embalaje): hasta X kg, Y €"
                             : "Precio por kilos: sin tramos, se cobra el precio fijo de abajo"}
@@ -517,14 +523,14 @@ export default function AdminEnvios() {
                           style={({ pressed }) => ({ alignSelf: "center", minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
                         >
                           <Ionicons name="add-circle-outline" size={18} color={COLORS.accent} />
-                          <Text style={{ color: COLORS.accent, fontWeight: "800" }}>Añadir tramo</Text>
+                          <Text style={{ color: COLORS.accentText, fontWeight: "800" }}>Añadir tramo</Text>
                         </Pressable>
                       </View>
                     ) : null}
 
                     <View style={{ flexDirection: "row", gap: 10 }}>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                           {conTramos && z.zona !== "mano" ? "Precio fijo (€), si no hay tramos" : "Precio (€)"}
                         </Text>
                         {campo({
@@ -537,7 +543,7 @@ export default function AdminEnvios() {
                         })}
                       </View>
                       <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>Gratis desde (€)</Text>
+                        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>Gratis desde (€)</Text>
                         {campo({
                           nativeID: `envio-gratis-${z.zona}`,
                           value: b.gratisDesde,
