@@ -43,7 +43,7 @@
  *    exigido 12), nada de la tarjeta cortado con «…» ni fuera de ella.
  * Requisitos: playwright-core y, sin --real, npm run build hecho.
  * Conectado con: la guía de bienvenida de Blue, el buscador, Vender y Perfil en la tienda compilada (dist), la sesión
- *   de lib/supabase.ts (simulada) y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
+ *   de lib/supabase.ts (simulada) y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs la lanza tres veces: «guia-blue», «guia-blue sesion» y «guia-blue envio».
  */
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";

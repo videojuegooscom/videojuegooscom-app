@@ -27,7 +27,9 @@
  * Uso: node pruebas/blue-panel.mjs [carpeta_dist] [carpeta_capturas] [--sesion]
  * Requisitos: playwright-core y npm run build hecho.
  * Conectado con: el panel de Blue en la tienda compilada (dist), la Cesta (clave CART_KEY de app/(tabs)/cesta.tsx),
- *   las reservas de lib/reservas.ts, la sesión de lib/supabase.ts y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
+ *   las reservas de lib/reservas.ts, la sesión de lib/supabase.ts y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs la lanza
+ *   como «blue-panel» (sin sesión) y «blue-panel sesion» (--sesion, con un servicio simulado: el token falso hace que la tienda
+ *   real rechace las lecturas y sin él «Servicios» saldría vacío).
  */
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
@@ -95,6 +97,9 @@ const capturar = (p, nombre) => (SALIDA ? p.screenshot({ path: join(SALIDA, `${n
 
 const USUARIO_FALSO = { id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated", email: "cliente@example.com", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
 
+// Servicio FICTICIO para --sesion (con el token falso la tienda real no devuelve servicios).
+const SERVICIO_FALSO = { id: "00000000-0000-4000-8000-0000000000a1", title: "Servicio de prueba", description: "Descripción de prueba", price_eur: 25, status: "PUBLISHED", is_active: true, sort_order: 1, created_at: "2026-11-01T10:00:00Z", modalidades: [] };
+
 // `carrito`: artículos ya en la cesta, con los minutos que les quedan de reserva (negativo = ya vencida).
 async function contexto(navegador, carrito = null) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: "es-ES" });
@@ -127,6 +132,13 @@ async function contexto(navegador, carrito = null) {
     if (SESION && url.pathname.endsWith("/rest/v1/profiles")) return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: USUARIO_FALSO.id, role: "customer" }) });
     // Mensajes sin leer simulados (es una lectura: la función se llama con POST, pero no escribe nada).
     if (SESION && url.pathname.endsWith("/rpc/get_unread_chat_count")) return r.fulfill({ status: 200, contentType: "application/json", body: "3" });
+    // Con la sesión simulada el token es falso y la tienda real rechaza las lecturas (401): hay que dar servicios simulados
+    // (la lista y la ficha); sin ellos «Servicios» sale vacío y no hay ficha que abrir (no es un fallo de la pantalla).
+    if (SESION &&["GET", "HEAD"].includes(metodo) && /\/rest\/v1\/services$/.test(url.pathname)) {
+      const unico = /vnd\.pgrst\.object/.test(r.request().headers()["accept"] ?? "");
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(unico ? SERVICIO_FALSO : [SERVICIO_FALSO]) });
+    }
+    if (SESION && ["GET", "HEAD"].includes(metodo) && /\/rest\/v1\/service_media$/.test(url.pathname)) return r.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     if (!["GET", "HEAD", "OPTIONS"].includes(metodo)) return r.abort();
     return r.continue();
   });

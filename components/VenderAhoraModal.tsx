@@ -1843,7 +1843,7 @@ export default function VenderAhoraModal({
                       importantForAccessibility="no-hide-descendants"
                       aria-hidden
                       placeholder="Sitio web"
-                      style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0 }}
+                      style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, fontSize: CAMPO.letra }}
                     />
 
                     {!!formErr && (
