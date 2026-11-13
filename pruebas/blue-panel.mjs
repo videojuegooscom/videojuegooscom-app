@@ -7,7 +7,8 @@
  *    Servicios; la de la pantalla actual va resaltada) que enseña SOLO los pasos de esa pantalla y termina con «Terminar».
  *    Si es la pantalla donde estás no te mueves de ella; si es otra (desde 2026-11-04 Blue solo se ve en Inicio, en las
  *    fichas y en el panel) la guía te lleva y al terminar vuelves. No marca la guía de bienvenida como vista; la guía
- *    completa sigue empezando por «Empezar».
+ *    completa sigue empezando por «Empezar». Con --sesion, la de Perfil enseña además «Mis pedidos», «Tus facturas» y «Me
+ *    gusta» (guía completa, 2026-11-13).
  *  - Hay DOS pestañas, «Asistente» y «Noticias y avisos» (antes eran tres: Notificaciones y Noticias por separado).
  *  - «Asistente» tiene UN solo botón para hablar («Hablar con Blue IA o el equipo») que lleva a Blue IA, y ya no están
  *    «Hablar con Blue IA» ni «Hablar con nuestro equipo» por separado. Siguen «Ver la guía», «Vender…».
@@ -242,7 +243,8 @@ try {
     Catálogo: ["Filtros y orden"],
     Artículo: ["Un artículo"],
     Vender: ["Vender mi artículo", "Para salir"],
-    Perfil: SESION ? ["Perfil", "Mis seguimientos"] : ["Perfil"],
+    // (2026-11-13: con sesión, Perfil enseña también Mis pedidos, Tus facturas y Me gusta)
+    Perfil: SESION ? ["Perfil", "Mis seguimientos", "Mis pedidos", "Tus facturas", "Me gusta"] : ["Perfil"],
     Cesta: ["Cesta", "Cómo se compra"],
     Foro: ["Foro", "Las pestañas del Foro", "Reacciona y responde"],
     "Blue IA": ["Blue IA", "Hablar con el equipo"],
