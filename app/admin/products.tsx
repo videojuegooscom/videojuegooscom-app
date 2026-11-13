@@ -34,6 +34,10 @@
  *   textos en azul marino oscuro (COLORS de products.constants.ts).
  *
  * Conectado con:
+ * - api/escaparate-retorno.ts → al guardar un producto (y al terminar sus fotos) se despierta el puente: un producto
+ *   creado a mano, sin id_veoaura, se avisa a VeoAura («producto_tienda») para que lo dé de alta en su Stock y devuelva su id.
+ *   La ficha muestra «Enviado a VeoAura · pendiente / en VeoAura ✓» (tabla escaparate_salida_productos, migración
+ *   20261113130000; sin ella no se muestra nada). Contrato: docs/puente-tienda-productos-a-veoaura.md.
  * - sql/product_sales.sql → tabla e insert de "Marcar vendido".
  * - lib/supabase.ts → cliente de Supabase para todas las operaciones CRUD.
  * - app/admin/products/products.constants.ts → COLORS y límites de subida.
@@ -518,6 +522,16 @@ const ProductListItem = React.memo(function ProductListItem({
             </Text>
           </View>
 
+          {/* Producto creado a mano: aviso a VeoAura para que lo dé de alta en su Stock (api/escaparate-retorno.ts). */}
+          {p.veoaura ? (
+            <Text
+              nativeID={`producto-veoaura-${p.id}`}
+              style={{ color: p.veoaura === "enviado" ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 16 }}
+            >
+              {p.veoaura === "enviado" ? "Enviado a VeoAura · en VeoAura ✓" : "Enviado a VeoAura · pendiente"}
+            </Text>
+          ) : null}
+
           {!!uploadStatus && (
             <View
               style={{
@@ -871,8 +885,19 @@ export default function AdminProducts() {
       }
       const conPeso = !pesosRes.error;
 
+      // Aviso a VeoAura de los productos creados a mano (migración 20261113130000; sin ella, no se muestra nada).
+      const avisosVeoaura = new Map<string, "pendiente" | "enviado">();
+      const avisosRes = await supabase.from("escaparate_salida_productos").select("producto_id,estado").limit(1000);
+      if (!avisosRes.error && Array.isArray(avisosRes.data)) {
+        for (const a of avisosRes.data as { producto_id: string; estado: string }[]) {
+          if (a.estado === "descartado") continue;
+          avisosVeoaura.set(String(a.producto_id), a.estado === "enviado" ? "enviado" : "pendiente");
+        }
+      }
+
       const merged = productsData.map((item) => ({
         ...item,
+        ...(avisosVeoaura.has(item.id) ? { veoaura: avisosVeoaura.get(item.id) } : {}),
         ...(conPeso ? { peso_kg: pesos.get(item.id) ?? null } : {}),
         ...(conSoloMano ? { solo_entrega_mano: soloMano.has(item.id) } : {}),
         media: (mediaByProduct.get(item.id) ?? []).sort(sortMediaRows),
@@ -1221,6 +1246,8 @@ export default function AdminProducts() {
       });
 
       await load();
+      // Ya están las fotos: el producto creado a mano puede avisarse a VeoAura con la ficha completa.
+      despertarPuenteVeoaura();
     } catch (e: any) {
       console.error(
         "Error subiendo fotos/vídeo en segundo plano:",
@@ -1288,6 +1315,19 @@ export default function AdminProducts() {
     }
 
     return `No se ha podido guardar ${contexto}. Inténtalo de nuevo.`;
+  }
+
+  // Un producto creado a mano (sin id_veoaura) se avisa a VeoAura para que lo dé de alta en su Stock (api/escaparate-retorno.ts,
+  // evento «producto_tienda»). La primera llamada lo apunta; la segunda, un poco después (el puente espera a que el producto deje
+  // de cambiar, p. ej. mientras se suben las fotos), lo envía. No se espera ni molesta si falla: el cron diario y abrir
+  // Administración → Escaparate también lo despiertan.
+  function despertarPuenteVeoaura() {
+    if (Platform.OS !== "web") return;
+    const llamar = () => fetch("/api/escaparate-retorno", { method: "POST" }).catch(() => null);
+    llamar();
+    setTimeout(() => {
+      llamar();
+    }, 65_000);
   }
 
   async function save() {
@@ -1450,6 +1490,8 @@ export default function AdminProducts() {
 
       if (hasBackgroundMediaWork) {
         runBackgroundMediaSync(productId, cleanTitle, mediaToUpload, mediaToRemove, uploadStartIndex);
+      } else {
+        despertarPuenteVeoaura();
       }
     } catch (e: any) {
       console.error(

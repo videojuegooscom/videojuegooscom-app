@@ -108,6 +108,10 @@
  *    quita el suyo; otro cliente no lo ve ni lo cambia, un visitante nada, el administrador lo lee y lo cuenta; las políticas
  *    siguen siendo 3; el Foro no lo da; la privacidad lo dice una vez; se aplica dos veces (con sus «pruebas de las
  *    pruebas»: sin la comprobación entra «abc»; con una regla abierta otro cliente lo ve).
+ *  - Avisos de productos a VeoAura (20261113130000_escaparate_salida_productos.sql): tabla nueva y aditiva; solo el
+ *    administrador la lee (un cliente y un visitante, nada) y desde el navegador nadie escribe ni cambia; una fila por
+ *    producto; estado y detalle con su comprobación; no toca escaparate_salida; se aplica dos veces (con su «prueba de la
+ *    prueba»: con una regla abierta un cliente ve los avisos).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -3044,6 +3048,55 @@ try {
     const espiaT = await como(cT3, "authenticated", U2, `select telefono from public.perfiles_cliente where user_id = '${U1}'`);
     ok(espiaT.ok && espiaT.filas.length === 1, `(control) con una regla de lectura abierta, otro cliente ve el teléfono de U1: la prueba SÍ lo detecta (${espiaT.filas?.length ?? espiaT.mensaje})`);
     await cT3.end();
+  }
+
+  // Avisos de productos a VeoAura (20261113130000_escaparate_salida_productos.sql): tabla nueva y aditiva; solo el administrador la
+  // lee, nadie escribe desde el navegador (la clave de servidor sí), un producto tiene una sola fila y los estados y el detalle
+  // tienen su comprobación. No toca escaparate_salida (su comprobación de «evento» queda como estaba). Con su «prueba de la prueba».
+  {
+    const PROD = readFileSync("supabase/migrations/20261113130000_escaparate_salida_productos.sql", "utf8");
+    const ESQUEMA_P = `
+      create table public.escaparate_salida (
+        id uuid primary key default gen_random_uuid(), evento text not null check (evento in ('pedido', 'pedido_anulado', 'pedido_pagado')),
+        id_veoaura uuid not null, pedido_id uuid not null);
+    `;
+    const P1 = "00000000-0000-4000-8000-0000000000c1";
+    const P2 = "00000000-0000-4000-8000-0000000000c2";
+    const cP = await nuevaBase("vz_aislada_productos_veoaura", ESQUEMA_P + PROD);
+    let repetidaP = true;
+    try {
+      await cP.query(PROD);
+    } catch (e) {
+      repetidaP = false;
+      console.log(String(e.message));
+    }
+    const politicasP = (await cP.query("select policyname from pg_policies where schemaname = 'public' and tablename = 'escaparate_salida_productos'")).rows.map((r) => r.policyname);
+    const comprobacionesEvento = Number((await cP.query("select count(*) as n from pg_constraint where conrelid = 'public.escaparate_salida'::regclass and contype = 'c'")).rows[0].n);
+    ok(repetidaP && politicasP.join(",") === "escaparate_salida_productos_admin_select" && comprobacionesEvento === 1, `Productos a VeoAura: se aplica dos veces, con una sola política (solo lectura del administrador) y sin tocar escaparate_salida (${politicasP.join(", ")}; ${comprobacionesEvento})`);
+    await cP.query(`insert into public.escaparate_salida_productos (producto_id, huella) values ('${P1}', 'abc')`);
+    const porDefecto = (await cP.query("select estado, intentos, id_mensaje is not null as mensaje from public.escaparate_salida_productos")).rows[0];
+    ok(porDefecto.estado === "pendiente" && porDefecto.intentos === 0 && porDefecto.mensaje === true, "Productos a VeoAura: una fila nueva nace «pendiente», sin intentos y con su id_mensaje");
+    const repetidoP = await cP.query(`insert into public.escaparate_salida_productos (producto_id, huella) values ('${P1}', 'otra')`).then(() => "entra", (e) => e.code);
+    ok(repetidoP === "23505", `Productos a VeoAura: un producto, una sola fila (${repetidoP})`);
+    const estadoMalo = await cP.query(`insert into public.escaparate_salida_productos (producto_id, huella, estado) values ('${P2}', 'abc', 'raro')`).then(() => "entra", (e) => e.code);
+    const detalleLargo = await cP.query(`insert into public.escaparate_salida_productos (producto_id, huella, detalle) values ('${P2}', 'abc', '${"x".repeat(301)}')`).then(() => "entra", (e) => e.code);
+    ok(estadoMalo === "23514" && detalleLargo === "23514", `Productos a VeoAura: estado y detalle con su comprobación (${estadoMalo}, ${detalleLargo})`);
+    const lee = async (rol, uid) => como(cP, rol, uid, "select producto_id from public.escaparate_salida_productos");
+    const adminP = await lee("authenticated", ADMIN);
+    const clienteP = await lee("authenticated", U1);
+    const visitanteP = await lee("anon", null);
+    ok(adminP.ok && adminP.filas.length === 1 && clienteP.ok && clienteP.filas.length === 0 && visitanteP.ok && visitanteP.filas.length === 0, `Productos a VeoAura: el administrador los lee; un cliente y un visitante, nada (${adminP.filas?.length}, ${clienteP.filas?.length}, ${visitanteP.filas?.length})`);
+    const escribeAdmin = await como(cP, "authenticated", ADMIN, `insert into public.escaparate_salida_productos (producto_id, huella) values ('${P2}', 'abc')`);
+    const cambiaAdmin = await como(cP, "authenticated", ADMIN, "update public.escaparate_salida_productos set estado = 'enviado'", { confirmar: true });
+    ok(!escribeAdmin.ok && escribeAdmin.codigo === "42501" && cambiaAdmin.ok && cambiaAdmin.cuantas === 0, `Productos a VeoAura: desde el navegador nadie escribe ni cambia (${escribeAdmin.codigo}; ${cambiaAdmin.cuantas})`);
+    await cP.end();
+
+    // PRUEBA DE LA PRUEBA: con una regla de lectura abierta, un cliente vería los avisos.
+    const cP2 = await nuevaBase("vz_aislada_productos_veoaura_abierta", ESQUEMA_P + PROD + "create policy abierta_prueba on public.escaparate_salida_productos for select to authenticated using (auth.uid() is not null);");
+    await cP2.query(`insert into public.escaparate_salida_productos (producto_id, huella) values ('${P1}', 'abc')`);
+    const espiaP = await como(cP2, "authenticated", U1, "select producto_id from public.escaparate_salida_productos");
+    ok(espiaP.ok && espiaP.filas.length === 1, `(control) con una regla de lectura abierta, un cliente ve los avisos: la prueba SÍ lo detecta (${espiaP.filas?.length ?? espiaP.mensaje})`);
+    await cP2.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
