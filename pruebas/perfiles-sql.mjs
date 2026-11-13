@@ -103,6 +103,11 @@
  *    todas; nadie borra; las fechas y cada inicio (+1 exacto) los pone la base de datos; sin IP ni ubicación; largo, vacío,
  *    repetido y tope de 30; se van con la cuenta; la privacidad lo dice una vez; se aplica dos veces (con sus «pruebas de
  *    las pruebas»: con la regla abierta otro cliente las ve; sin el disparador, 999 inicios).
+ *  - Teléfono opcional en «Mi perfil» (20261113120000_perfil_telefono.sql): una columna de texto con su comprobación (cifras,
+ *    espacios y un «+» al principio, 6 a 20 caracteres, 6 cifras como mínimo; lo demás, 23514); el cliente guarda, cambia y
+ *    quita el suyo; otro cliente no lo ve ni lo cambia, un visitante nada, el administrador lo lee y lo cuenta; las políticas
+ *    siguen siendo 3; el Foro no lo da; la privacidad lo dice una vez; se aplica dos veces (con sus «pruebas de las
+ *    pruebas»: sin la comprobación entra «abc»; con una regla abierta otro cliente lo ve).
  *
  * Uso: node pruebas/perfiles-sql.mjs [carpeta_temporal]      (por defecto, una carpeta nueva en el directorio temporal)
  * Requisitos: embedded-postgres y pg (instalados en el servidor sin guardarlos en package.json).
@@ -2940,6 +2945,105 @@ try {
     const inflado = await como(cD3, "authenticated", U1, `insert into public.cliente_dispositivos (user_id, dispositivo, inicios) values ('${U1}', 'iPhone · Safari', 999) returning inicios`, { confirmar: true });
     ok(inflado.ok && inflado.filas[0].inicios === 999, `(control) sin el disparador, el cliente se pone 999 inicios: la prueba SÍ lo detecta (${inflado.filas?.[0]?.inicios ?? inflado.mensaje})`);
     await cD3.end();
+  }
+
+  // Teléfono opcional en «Mi perfil» (20261113120000_perfil_telefono.sql): una columna con su comprobación de formato y las
+  // reglas de siempre (el cliente lo suyo, el administrador lee todo, un visitante nada, el Foro no lo da); la privacidad
+  // lo dice una vez. Con sus pruebas de las pruebas.
+  {
+    const TEL = readFileSync("supabase/migrations/20261113120000_perfil_telefono.sql", "utf8");
+    const TITULOS_T = ["Responsable del tratamiento", "Qué datos tratamos", "Tus derechos"];
+    const PRIV_T = JSON.stringify(TITULOS_T.map((heading) => ({ heading, body: `Texto de hoy de «${heading}».` })));
+    const ESQUEMA_T = `
+      create table public.policy_pages (
+        id uuid primary key default gen_random_uuid(), slug text not null unique, title text not null, intro text not null default '',
+        sections jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+      insert into public.policy_pages (slug, title, sections) values ('privacidad', 'Política de privacidad', '${PRIV_T.replace(/'/g, "''")}'::jsonb);
+      create table public.chat_messages (id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid(), body text);
+    `;
+    const cT = await nuevaBase("vz_aislada_telefono", MIGRACION + ESQUEMA_T + PUBLICOS + TEL);
+    let repetidaT = true;
+    try {
+      await cT.query(TEL);
+    } catch (e) {
+      repetidaT = false;
+      console.log(String(e.message));
+    }
+    const columnaT = (await cT.query("select data_type from information_schema.columns where table_schema = 'public' and table_name = 'perfiles_cliente' and column_name = 'telefono'")).rows[0]?.data_type;
+    const checkT = Number((await cT.query("select count(*) as n from pg_constraint where conname = 'perfiles_cliente_telefono_check'")).rows[0].n);
+    const politicasT = (await cT.query("select policyname from pg_policies where schemaname = 'public' and tablename = 'perfiles_cliente' order by 1")).rows.map((r) => r.policyname);
+    ok(repetidaT && columnaT === "text" && checkT === 1, `Teléfono: añade la columna (texto) con su comprobación y se puede aplicar dos veces (${columnaT}; ${checkT})`);
+    ok(politicasT.length === 3, `Teléfono: no toca los permisos (siguen las 3 políticas: ${politicasT.join(", ")})`);
+
+    // El cliente guarda y cambia SU teléfono.
+    const guardarT = await como(cT, "authenticated", U1, `insert into public.perfiles_cliente (user_id, nombre, usuario, pais, provincia, fecha_nacimiento, telefono) values ('${U1}', 'Ana', 'ana_g', 'España', 'Zaragoza', '1990-05-02', '600 123 456')`, { confirmar: true });
+    ok(guardarT.ok, "Teléfono: un cliente guarda su teléfono en su perfil");
+    const cambiarT = await como(cT, "authenticated", U1, "update public.perfiles_cliente set telefono = '+34 600 123 456' where user_id = (select auth.uid())", { confirmar: true });
+    ok(cambiarT.ok && cambiarT.cuantas === 1, "Teléfono: y lo cambia (con prefijo «+»)");
+    const quitarT = await como(cT, "authenticated", U1, "update public.perfiles_cliente set telefono = null where user_id = (select auth.uid()) returning telefono", { confirmar: true });
+    ok(quitarT.ok && quitarT.filas[0].telefono === null, "Teléfono: y lo quita (es opcional)");
+    await cT.query(`update public.perfiles_cliente set telefono = '600123456' where user_id = '${U1}'`);
+
+    // Formato inválido rechazado (error de comprobación 23514).
+    const malosT = [];
+    for (const v of ["12345", "abc123456", "600-123-456", "600123456x", "+34+600123456", "600 123 456 789 012 345 6", "++600123456", "       ", "6 0 0", "(+34) 600123456", "600.123.456"]) {
+      const r = await como(cT, "authenticated", U1, `update public.perfiles_cliente set telefono = '${v}' where user_id = (select auth.uid())`);
+      malosT.push(r.ok ? `entra(${v})` : r.codigo);
+    }
+    ok(malosT.every((x) => x === "23514"), `Teléfono: rechaza formatos inválidos (pocas cifras, letras, guiones, puntos, paréntesis, «+» repetido o de más de 20 caracteres) (${malosT.join(", ")})`);
+    const buenosT = [];
+    for (const v of ["600123456", "+34 600 123 456", "976 123 456", "+44 20 7946 0958", "123456"]) {
+      const r = await como(cT, "authenticated", U1, `update public.perfiles_cliente set telefono = '${v}' where user_id = (select auth.uid())`);
+      buenosT.push(r.ok ? "ok" : `${v}:${r.codigo}`);
+    }
+    ok(buenosT.every((x) => x === "ok"), `Teléfono: admite números de España y del extranjero, con espacios y un «+» al principio (${buenosT.join(", ")})`);
+    await cT.query(`update public.perfiles_cliente set telefono = '600123456' where user_id = '${U1}'`);
+
+    // Lecturas y cambios: cada uno lo suyo; otro cliente y un visitante nada; el administrador lee todo.
+    await cT.query(`insert into public.perfiles_cliente (user_id, nombre, telefono) values ('${U2}', 'Luis', '611222333')`);
+    const otroLeeT = await como(cT, "authenticated", U2, `select telefono from public.perfiles_cliente where user_id = '${U1}'`);
+    ok(otroLeeT.ok && otroLeeT.filas.length === 0, "Teléfono: otro cliente no ve el teléfono de nadie");
+    const propioT = await como(cT, "authenticated", U2, "select telefono from public.perfiles_cliente");
+    ok(propioT.ok && propioT.filas.length === 1 && propioT.filas[0].telefono === "611222333", "Teléfono: cada cliente ve solo el suyo");
+    const otroCambiaT = await como(cT, "authenticated", U2, `update public.perfiles_cliente set telefono = '699999999' where user_id = '${U1}'`, { confirmar: true });
+    ok(otroCambiaT.ok && otroCambiaT.cuantas === 0, `Teléfono: otro cliente no cambia el de nadie (${otroCambiaT.cuantas ?? otroCambiaT.mensaje})`);
+    const anonT = await como(cT, "anon", null, "select telefono from public.perfiles_cliente");
+    ok(!anonT.ok && anonT.codigo === "42501", `Teléfono: un visitante tampoco (${anonT.codigo})`);
+    const adminT = await como(cT, "authenticated", ADMIN, "select user_id, telefono from public.perfiles_cliente order by telefono");
+    ok(adminT.ok && adminT.filas.length === 2 && adminT.filas.map((f) => f.telefono).join(",") === "600123456,611222333", `Teléfono: el administrador los lee (ficha del cliente y Usuarios) (${adminT.filas?.map((f) => f.telefono).join(",") ?? adminT.mensaje})`);
+    const adminContarT = await como(cT, "authenticated", ADMIN, "select count(*)::int as n from public.perfiles_cliente where telefono is not null");
+    ok(adminContarT.ok && adminContarT.filas[0].n === 2, "Teléfono: el administrador cuenta los perfiles con teléfono (Analítica)");
+
+    // El Foro solo enseña usuario y foto: el teléfono nunca sale por la función pública.
+    await cT.query(`insert into public.chat_messages (user_id, body) values ('${U1}', 'hola')`);
+    const foroT = await como(cT, "anon", null, `select * from public.perfiles_publicos(array['${U1}']::uuid[])`);
+    ok(foroT.ok && foroT.filas.length === 1 && Object.keys(foroT.filas[0]).sort().join(",") === "foto_url,user_id,usuario", `Teléfono: el Foro sigue dando solo usuario y foto, nunca el teléfono (${foroT.ok ? Object.keys(foroT.filas[0] ?? {}).join(", ") : foroT.mensaje})`);
+
+    // Privacidad: la frase una vez (aplicada dos veces), al final de «Qué datos tratamos»; lo demás igual.
+    const privT = (await cT.query("select sections from public.policy_pages where slug = 'privacidad'")).rows[0].sections;
+    const tratamosT = privT.find((s) => s.heading === "Qué datos tratamos")?.body ?? "";
+    ok(
+      (tratamosT.match(/tu teléfono\. Es opcional/g) ?? []).length === 1 && tratamosT.startsWith("Texto de hoy de «Qué datos tratamos». En Mi perfil") &&
+        /no lo usamos para publicidad ni te llamamos para la atención al cliente \(la atención es por mensaje\)/.test(tratamosT) &&
+        privT.map((s) => s.heading).join("|") === TITULOS_T.join("|") && privT.filter((s) => s.heading !== "Qué datos tratamos").every((s) => s.body === `Texto de hoy de «${s.heading}».`),
+      `Teléfono: la privacidad lo explica una sola vez (aunque se aplique dos veces) y el resto queda igual`
+    );
+    await cT.end();
+
+    // PRUEBAS DE LAS PRUEBAS: (a) sin la comprobación, entra un teléfono con letras; (b) con la columna sin tocar permisos pero
+    // con una política abierta, otro cliente vería el teléfono de U1.
+    const sinCheckT = TEL.replace(/do \$\$[\s\S]*?end \$\$;/, "");
+    ok(sinCheckT !== TEL, "(control) se ha podido quitar la comprobación del teléfono en la copia de prueba");
+    const cT2 = await nuevaBase("vz_aislada_telefono_sin_check", MIGRACION + ESQUEMA_T + sinCheckT);
+    await cT2.query(`insert into public.perfiles_cliente (user_id, nombre) values ('${U1}', 'Ana')`);
+    ok((await como(cT2, "authenticated", U1, "update public.perfiles_cliente set telefono = 'abc' where user_id = (select auth.uid())")).ok, "(control) sin la comprobación entra un teléfono con letras: la prueba SÍ lo detecta");
+    await cT2.end();
+    const cT3 = await nuevaBase("vz_aislada_telefono_abierta", MIGRACION + ESQUEMA_T + TEL + "create policy abierta_prueba on public.perfiles_cliente for select to authenticated using (auth.uid() is not null);");
+    await cT3.query(`insert into public.perfiles_cliente (user_id, nombre, telefono) values ('${U1}', 'Ana', '600123456')`);
+    const espiaT = await como(cT3, "authenticated", U2, `select telefono from public.perfiles_cliente where user_id = '${U1}'`);
+    ok(espiaT.ok && espiaT.filas.length === 1, `(control) con una regla de lectura abierta, otro cliente ve el teléfono de U1: la prueba SÍ lo detecta (${espiaT.filas?.length ?? espiaT.mensaje})`);
+    await cT3.end();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

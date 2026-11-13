@@ -53,6 +53,10 @@
  * Con sesión iniciada, los campos vacíos se rellenan solos: nombre y correo de la cuenta y la dirección de envío de
  * «Mi perfil» (código postal, localidad, dirección y piso; components/PerfilPublico.tsx), con un aviso «Con la
  * dirección de tu perfil». Se mide con la analítica propia («pago_direccion_perfil», Administración → Usuarios).
+ * El teléfono también sale ya rellenado si lo guardó en «Mi perfil» («Con el teléfono de tu perfil», «pago_telefono_perfil»);
+ * si lo escribe aquí y su perfil no tenía uno, se ofrece «Guardar en mi perfil» (casilla marcada por defecto): al registrarse
+ * el pedido se guarda en su perfil («perfil_telefono_guardado», desde «pago»). Sin la columna (migración
+ * 20261113120000_perfil_telefono.sql) ni sesión, no se ofrece y el pago funciona igual (dueño, 2026-11-13).
  *
  * Envío (dueño, 2026-11-04): se calcula solo con las tarifas de Administración → Tarifas de envío (lib/envio.ts):
  * entrega en mano o, a domicilio, por el código postal y el importe. Al guardar el pedido lo calcula también la base de
@@ -96,7 +100,8 @@ import { calcularEnvio, cargarDatosEnvio, cargarTarifas, fmtKg, hayEnviosDePago,
 import { supabase } from "../lib/supabase";
 import { RESERVA_MINUTOS, reservarProducto } from "../lib/reservas";
 import { trackEvent } from "../lib/analytics";
-import { datosDeFila } from "../components/PerfilPublico";
+import { CAMPO } from "../constants/theme";
+import { datosDeFila, limpiarTelefono } from "../components/PerfilPublico";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -454,6 +459,10 @@ export default function CheckoutScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // Teléfono de «Mi perfil»: ok = hay sesión, fila de perfil y columna (se puede guardar aquí); valor = el que ya tiene.
+  const [perfilTel, setPerfilTel] = useState<{ uid: string; ok: boolean; valor: string }>({ uid: "", ok: false, valor: "" });
+  const [telDesdePerfil, setTelDesdePerfil] = useState(false);
+  const [guardarTel, setGuardarTel] = useState(true);
   const [address1, setAddress1] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [city, setCity] = useState("");
@@ -544,6 +553,8 @@ export default function CheckoutScreen() {
     return lista;
   }, [fullName, email, phone, address1, postalCode, city, entrega, faltaCodigo]);
   const camposMal = campos.filter((c) => !c.ok);
+  // «Guardar en mi perfil»: con sesión, perfil con columna del teléfono y sin teléfono guardado, al escribir uno válido.
+  const ofreceGuardarTel = perfilTel.ok && !perfilTel.valor && isValidPhone(phone) && limpiarTelefono(phone).length >= 6 && limpiarTelefono(phone).length <= 20;
 
   // La tienda no envía a esa zona desde la web: se pide escribir antes (ver el aviso de la entrega).
   const formOk = items.length > 0 && envio.disponible && !bloqueoSoloMano && camposMal.length === 0;
@@ -715,6 +726,13 @@ export default function CheckoutScreen() {
         const nombre = p.nombre || (typeof meta.full_name === "string" ? meta.full_name.trim() : "");
         if (nombre) setFullName((v) => v || nombre);
         if (user.email) setEmail((v) => v || user.email || "");
+        // Teléfono del perfil (opcional): ya escrito; si no tiene, se ofrecerá guardarlo (solo con fila y columna).
+        setPerfilTel({ uid: user.id, ok: !!data && "telefono" in (data as Record<string, unknown>), valor: p.telefono });
+        if (p.telefono) {
+          setPhone((v) => v || p.telefono);
+          setTelDesdePerfil(true);
+          trackEvent("pago_telefono_perfil", "Pago: teléfono del perfil usado", { path: "/checkout" });
+        }
         if (p.direccion && p.codigoPostal) {
           const linea = [p.direccion, p.piso].filter(Boolean).join(", ");
           setAddress1((v) => v || linea);
@@ -903,6 +921,20 @@ export default function CheckoutScreen() {
       } catch {
         // sin número: «No hemos podido guardar tu pedido» (la clave queda guardada para el reintento)
       }
+      // «Guardar en mi perfil»: con el pedido ya registrado, el teléfono escrito aquí pasa a su perfil (si no tenía uno; si
+      // falla, el pedido ya está hecho y no pasa nada).
+      if (numero && ofreceGuardarTel && guardarTel) {
+        try {
+          const nuevoTel = limpiarTelefono(phone);
+          const { error } = await supabase.from("perfiles_cliente").update({ telefono: nuevoTel }).eq("user_id", perfilTel.uid);
+          if (!error) {
+            setPerfilTel((t) => ({ ...t, valor: nuevoTel }));
+            await trackEvent("perfil_telefono_guardado", "Perfil: teléfono guardado", { path: "/checkout", metadata: { nuevo: true, desde: "pago" } });
+          }
+        } catch {
+          // sin guardar en el perfil: el pedido sigue adelante
+        }
+      }
       // Si el pedido lleva artículos de VeoAura, el servidor avisa a VeoAura para que no los
       // venda también en la tienda física (api/escaparate-retorno.ts). No se espera. Se despierta
       // también con un pedido repetido: si la primera respuesta se perdió, nadie lo había hecho, y
@@ -956,7 +988,7 @@ export default function CheckoutScreen() {
       setSubmitting(false);
       enviandoRef.current = false;
     }
-  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta]);
+  }, [items, formOk, fullName, email, phone, entrega, address1, postalCode, city, notes, total, shipping, envio.zona, buildTextoPedido, pagoTarjeta, ofreceGuardarTel, guardarTel, perfilTel.uid]);
 
   // --- Confirmación y «No se ha hecho el pago» (dueño, 2026-11-11: «intuitiva, práctica y profesional») ---------------
   // Siempre dice qué ha pasado (título), con qué pedido (su referencia VZ-…) y qué no se ha cobrado; UNA sola píldora azul
@@ -1346,6 +1378,27 @@ export default function CheckoutScreen() {
                 placeholder="600 000 000"
                 keyboardType="phone-pad"
               />
+              {telDesdePerfil && !ofreceGuardarTel ? (
+                <View nativeID="pago-telefono-perfil" style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Ionicons name="call-outline" size={16} color={COLORS.accent} />
+                  <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 13, textAlign: "center", flexShrink: 1 }}>
+                    Con el teléfono de tu perfil (puedes cambiarlo aquí)
+                  </Text>
+                </View>
+              ) : null}
+              {ofreceGuardarTel ? (
+                <Pressable
+                  nativeID="pago-guardar-telefono"
+                  onPress={() => setGuardarTel((v) => !v)}
+                  accessibilityRole="checkbox"
+                  aria-checked={guardarTel}
+                  accessibilityLabel="Guardar en mi perfil"
+                  style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 })}
+                >
+                  <Ionicons name={guardarTel ? "checkbox" : "square-outline"} size={24} color={guardarTel ? COLORS.accent : COLORS.muted} />
+                  <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 14 }}>Guardar en mi perfil</Text>
+                </Pressable>
+              ) : null}
               {entrega === "envio" ? (
                 <>
                   {desdePerfil ? (
@@ -1660,7 +1713,7 @@ function Field(props: {
           // 16 px: con menos, el iPhone amplía la página al tocar el campo y se descoloca el desplazamiento.
           fontSize: 16,
           fontWeight: "800",
-          minHeight: multiline ? 90 : undefined,
+          minHeight: multiline ? 90 : CAMPO.alto,
           textAlignVertical: multiline ? "top" : "auto",
         }}
       />

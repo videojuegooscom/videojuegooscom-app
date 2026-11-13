@@ -17,6 +17,10 @@
  *   perfil) y localidad, dirección (calle o avenida y número de portal, o «s/n») y piso/puerta/letra. Si se empieza, tiene
  *   que estar entera; nunca impide tener el perfil completo. Rellena el pago (app/checkout.tsx). Columnas codigo_postal,
  *   localidad, direccion y piso (migración 20261102120000_perfiles_direccion.sql); sin ellas no se ofrece.
+ *   «Teléfono (opcional)» (solo en Mi cuenta, dueño 2026-11-13), debajo del correo: teclado de teléfono, 16 px, de 9 a 15
+ *   cifras (espacios y un «+» al principio); nunca impide tener el perfil completo. Rellena el pago (app/checkout.tsx) y se
+ *   ve, con «Copiar», en la ficha del cliente (Administración). Columna telefono (migración 20261113120000_perfil_telefono.sql);
+ *   sin ella no se ofrece y todo lo demás funciona igual. Se mide con perfil_telefono_guardado (analítica propia).
  *   «Inicio de sesión y seguridad» (SeguridadCuenta, con la tarjeta abierta, dueño 2026-11-03): cambiar el correo (enlace
  *   al de antes y al nuevo; se cambia al confirmar los dos y, mientras, sale «Cambio pendiente») y la contraseña (pide la
  *   actual, que se comprueba volviendo a entrar; la nueva dos veces; «Mostrar»; «¿No recuerdas la actual?»). Al volver de
@@ -74,6 +78,8 @@ export type DatosPerfil = {
   localidad: string;
   direccion: string;
   piso: string;
+  // Teléfono (opcional): rellena el pago y avisa de pedidos o reparaciones (migración 20261113120000_perfil_telefono.sql).
+  telefono: string;
 };
 const DATOS_VACIOS: DatosPerfil = {
   usuario: "",
@@ -86,6 +92,7 @@ const DATOS_VACIOS: DatosPerfil = {
   localidad: "",
   direccion: "",
   piso: "",
+  telefono: "",
 };
 const PAIS_ESPANA = "España";
 const EDAD_MINIMA = 14;
@@ -158,6 +165,19 @@ function fechaBonita(fecha: string): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace(/\./g, "");
 }
 
+/** Teléfono tal como se guarda: solo dígitos, espacios y un «+» al principio (lo demás se quita), sin espacios de más. */
+export function limpiarTelefono(t: string): string {
+  const sinRaros = t.replace(/[^0-9+ ]/g, "").replace(/(?!^)\+/g, "");
+  return sinRaros.replace(/ {2,}/g, " ").trim();
+}
+
+/** ¿Vale como teléfono? De 9 a 15 cifras (como pide el pago) y, en total, como mucho 20 caracteres (lo que admite la base de datos). */
+export function telefonoValido(t: string): boolean {
+  const limpio = limpiarTelefono(t);
+  const cifras = limpio.replace(/\D/g, "").length;
+  return cifras >= 9 && cifras <= 15 && limpio.length <= 20 && /^\+?\d[\d ]*$/.test(limpio);
+}
+
 // Lo que no vale de lo escrito (un campo vacío no es un error aquí: eso lo dice «faltan»).
 function erroresPerfil(d: DatosPerfil): Partial<Record<keyof DatosPerfil, string>> {
   const e: Partial<Record<keyof DatosPerfil, string>> = {};
@@ -174,6 +194,8 @@ function erroresPerfil(d: DatosPerfil): Partial<Record<keyof DatosPerfil, string
     if (edad === null || d.fecha < FECHA_MINIMA) e.fecha = "Elige una fecha de nacimiento válida.";
     else if (edad < EDAD_MINIMA) e.fecha = `Para tener cuenta hay que tener ${EDAD_MINIMA} años o más.`;
   }
+  // Teléfono: opcional; si se escribe, que se pueda usar para avisar (9 a 15 cifras).
+  if (d.telefono.trim() && !telefonoValido(d.telefono)) e.telefono = "Revisa el teléfono: de 9 a 15 cifras (por ejemplo, 600 000 000).";
   // Dirección de envío: opcional, pero si se empieza tiene que estar entera (como en Amazon) para servir en un pedido.
   const cp = d.codigoPostal.trim();
   const localidad = d.localidad.trim();
@@ -213,9 +235,9 @@ function faltan(d: DatosPerfil): string[] {
   return lista;
 }
 
-// Fallos de los datos obligatorios (la dirección es opcional: nunca impide tener el perfil completo).
+// Fallos de los datos obligatorios (la dirección y el teléfono son opcionales: nunca impiden tener el perfil completo).
 function erroresObligatorios(d: DatosPerfil): Partial<Record<keyof DatosPerfil, string>> {
-  const { codigoPostal: _cp, localidad: _lo, direccion: _di, piso: _pi, ...resto } = erroresPerfil(d);
+  const { codigoPostal: _cp, localidad: _lo, direccion: _di, piso: _pi, telefono: _te, ...resto } = erroresPerfil(d);
   return resto;
 }
 
@@ -225,7 +247,7 @@ export function perfilCompleto(d: DatosPerfil): boolean {
 
 // --- lectura y avisos compartidos --------------------------------------------------------------------------------
 
-type Lectura = { disponible: false } | { disponible: true; conFoto: boolean; conDireccion: boolean; datos: DatosPerfil | null };
+type Lectura = { disponible: false } | { disponible: true; conFoto: boolean; conDireccion: boolean; conTelefono: boolean; datos: DatosPerfil | null };
 
 /** De una fila de perfiles_cliente (lo que haya) a los datos del formulario. */
 export function datosDeFila(fila: Record<string, unknown>): DatosPerfil {
@@ -240,6 +262,7 @@ export function datosDeFila(fila: Record<string, unknown>): DatosPerfil {
     localidad: textoDe(fila.localidad),
     direccion: textoDe(fila.direccion),
     piso: textoDe(fila.piso),
+    telefono: textoDe(fila.telefono),
   };
 }
 
@@ -252,8 +275,8 @@ async function leerPerfil(uid: string): Promise<Lectura> {
     throw r.error;
   }
   const fila = r.data as Record<string, unknown> | null;
-  if (!fila) return { disponible: true, conFoto: true, conDireccion: true, datos: null };
-  return { disponible: true, conFoto: "foto_url" in fila, conDireccion: "codigo_postal" in fila, datos: datosDeFila(fila) };
+  if (!fila) return { disponible: true, conFoto: true, conDireccion: true, conTelefono: true, datos: null };
+  return { disponible: true, conFoto: "foto_url" in fila, conDireccion: "codigo_postal" in fila, conTelefono: "telefono" in fila, datos: datosDeFila(fila) };
 }
 
 // --- usuario y foto para el Foro ----------------------------------------------------------------------------------
@@ -470,6 +493,8 @@ export default function PerfilPublico({
   const [conFoto, setConFoto] = useState(true);
   // ¿Existen ya las columnas de la dirección? (migración 20261102120000_perfiles_direccion.sql)
   const [conDireccion, setConDireccion] = useState(true);
+  // ¿Existe ya la columna del teléfono? (migración 20261113120000_perfil_telefono.sql)
+  const [conTelefono, setConTelefono] = useState(true);
   const [datos, setDatos] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardado, setGuardado] = useState<DatosPerfil>(DATOS_VACIOS);
   const [guardando, setGuardando] = useState(false);
@@ -492,6 +517,7 @@ export default function PerfilPublico({
         }
         setConFoto(l.conFoto);
         setConDireccion(l.conDireccion);
+        setConTelefono(l.conTelefono);
         if (l.datos) {
           setDatos(l.datos);
           setGuardado(l.datos);
@@ -522,8 +548,20 @@ export default function PerfilPublico({
     return () => fijarMiPerfilAbierto(false);
   }, [obligatorio, estado, abierto]);
 
-  // En «Completa tu perfil» no sale la dirección: sus avisos tampoco.
-  const errores = useMemo(() => (obligatorio || !conDireccion ? erroresObligatorios(datos) : erroresPerfil(datos)), [datos, obligatorio, conDireccion]);
+  // En «Completa tu perfil» no salen la dirección ni el teléfono: sus avisos tampoco.
+  const errores = useMemo(() => {
+    if (obligatorio) return erroresObligatorios(datos);
+    const e = erroresPerfil(datos);
+    // Lo que aún no se puede guardar (columnas sin migrar) no se avisa.
+    if (!conDireccion) {
+      delete e.codigoPostal;
+      delete e.localidad;
+      delete e.direccion;
+      delete e.piso;
+    }
+    if (!conTelefono) delete e.telefono;
+    return e;
+  }, [datos, obligatorio, conDireccion, conTelefono]);
   const primerError = Object.values(errores)[0];
   const pendientes = faltan(datos);
   const completo = pendientes.length === 0 && !primerError;
@@ -617,9 +655,11 @@ export default function PerfilPublico({
       localidad: conDireccion ? datos.localidad.trim() : "",
       direccion: conDireccion ? datos.direccion.trim() : "",
       piso: conDireccion ? datos.piso.trim() : "",
+      telefono: conTelefono ? limpiarTelefono(datos.telefono) : "",
     };
     const direccionAntes = direccionEnUnaLinea(guardado);
-    const fila = (conDir: boolean) => ({
+    const telefonoAntes = guardado.telefono;
+    const fila = (conDir: boolean, conTel: boolean = false) => ({
       user_id: uid,
       nombre: limpio.nombre || null,
       usuario: limpio.usuario || null,
@@ -635,18 +675,27 @@ export default function PerfilPublico({
             piso: limpio.piso || null,
           }
         : {}),
+      ...(conTel ? { telefono: limpio.telefono || null } : {}),
     });
-    // Las columnas de la dirección solo se mandan si hay una que guardar o que borrar: así quien no la usa (p. ej. en
-    // «Completa tu perfil») no pide columnas que quizá aún no existen.
+    // Las columnas de la dirección y la del teléfono solo se mandan si hay algo que guardar o que borrar: así quien no las
+    // usa (p. ej. en «Completa tu perfil») no pide columnas que quizá aún no existen.
     const enviarDireccion = conDireccion && (!!direccionEnUnaLinea(limpio) || !!direccionAntes);
+    const enviarTelefono = conTelefono && (!!limpio.telefono || !!telefonoAntes);
     try {
-      let { error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion), { onConflict: "user_id" });
-      // Aún sin las columnas de la dirección (migración sin aplicar): se guarda lo demás y la dirección deja de ofrecerse.
+      let { error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, enviarTelefono), { onConflict: "user_id" });
+      // Aún sin las columnas de la dirección o del teléfono (migración sin aplicar): se guarda lo demás y deja de ofrecerse.
       let sinDireccion = false;
-      if (error && enviarDireccion && faltaEsquema(error) && /codigo_postal|localidad|direccion|piso/.test(String((error as { message?: string }).message ?? ""))) {
+      let sinTelefono = false;
+      const mensajeError = () => String((error as { message?: string } | null)?.message ?? "");
+      if (error && enviarTelefono && faltaEsquema(error) && /telefono/.test(mensajeError())) {
+        setConTelefono(false);
+        sinTelefono = true;
+        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(enviarDireccion, false), { onConflict: "user_id" }));
+      }
+      if (error && enviarDireccion && faltaEsquema(error) && /codigo_postal|localidad|direccion|piso/.test(mensajeError())) {
         setConDireccion(false);
         sinDireccion = true;
-        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(false), { onConflict: "user_id" }));
+        ({ error } = await supabase.from("perfiles_cliente").upsert(fila(false, enviarTelefono && !sinTelefono), { onConflict: "user_id" }));
       }
       if (sinDireccion) {
         limpio.codigoPostal = "";
@@ -654,6 +703,7 @@ export default function PerfilPublico({
         limpio.direccion = "";
         limpio.piso = "";
       }
+      if (sinTelefono) limpio.telefono = "";
       if (error) {
         const codigo = String((error as { code?: string }).code ?? "");
         setAviso({
@@ -685,8 +735,19 @@ export default function PerfilPublico({
       setDatos(limpio);
       setGuardado(limpio);
       perfilesForo.delete(uid); // el Foro vuelve a pedir su usuario y su foto
-      setAviso({ tipo: "ok", texto: sinDireccion ? "Perfil guardado (la dirección todavía no se puede guardar)." : "Perfil guardado." });
+      setAviso({
+        tipo: "ok",
+        texto: sinDireccion
+          ? "Perfil guardado (la dirección todavía no se puede guardar)."
+          : sinTelefono
+          ? "Perfil guardado (el teléfono todavía no se puede guardar)."
+          : "Perfil guardado.",
+      });
       trackEvent("perfil_guardado", "Perfil: guardado");
+      // Analítica propia: quién añade o cambia su teléfono (nunca el número).
+      if (limpio.telefono && limpio.telefono !== telefonoAntes) {
+        trackEvent("perfil_telefono_guardado", "Perfil: teléfono guardado", { metadata: { nuevo: !telefonoAntes, desde: "perfil" } });
+      }
       // Analítica propia (Administración → Usuarios): quién añade o cambia su dirección de envío (nunca la dirección).
       const direccionAhora = direccionEnUnaLinea(limpio);
       if (direccionAhora && direccionAhora !== direccionAntes) {
@@ -762,6 +823,36 @@ export default function PerfilPublico({
       </Text>
     </CajaPerfil>
   );
+
+  // Teléfono (opcional), a lo ancho debajo del correo: teclado de teléfono y 16 px; solo dígitos, espacios y un «+» al principio.
+  const apartadoTelefono =
+    !obligatorio && conTelefono ? (
+      <View nativeID="perfil-telefono-apartado" style={{ gap: 4 }}>
+        <View style={{ flexDirection: "row" }}>
+          <CajaPerfil valido={!!datos.telefono.trim() && !errores.telefono} enfocado={enfocado === "telefono"} error={!!errores.telefono}>
+            <TextInput
+              nativeID="perfil-telefono"
+              value={datos.telefono}
+              onChangeText={(t) => cambiar("telefono", t.replace(/[^0-9+ ]/g, ""))}
+              onFocus={() => setEnfocado("telefono")}
+              onBlur={() => setEnfocado((e) => (e === "telefono" ? null : e))}
+              placeholder="Teléfono (opcional)"
+              placeholderTextColor={marcador}
+              accessibilityLabel="Teléfono (opcional)"
+              maxLength={20}
+              autoComplete="tel"
+              keyboardType="phone-pad"
+              inputMode="tel"
+              autoCorrect={false}
+              style={[ESTILO_TEXTO_PERFIL, { paddingVertical: 7, ...sinOutline }]}
+            />
+          </CajaPerfil>
+        </View>
+        <Text style={{ color: P.muted, fontWeight: "700", fontSize: 13, textAlign: "center", lineHeight: 18 }}>
+          Solo para avisarte de tus pedidos o reparaciones. No llamamos: la atención es por mensaje.
+        </Text>
+      </View>
+    ) : null;
 
   // Campos de la dirección de envío (como en Amazon: el navegador puede rellenarlos con «autocompletar»).
   const campoDireccion = (
@@ -915,6 +1006,8 @@ export default function PerfilPublico({
           </CajaPerfil>
         </View>
       ) : null}
+
+      {apartadoTelefono}
 
       <View style={{ flexDirection: "row", gap: 10 }}>
         {campoSelector("pais", "País", "País", opcionesPais)}
