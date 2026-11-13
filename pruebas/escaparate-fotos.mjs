@@ -18,6 +18,8 @@
  *  F9) Un enlace no válido entre las 30 primeras se sigue rechazando (400); en la posición 31 se ignora.
  *  F10) Si mientras se copian llega un envío más nuevo del mismo artículo, este no aplica nada.
  *  F11) Un «publicar» sin fotos deja la galería como estaba.
+ *  VE1-VE4) «vendido» y «retirar» (2026-11-13): con el artículo en la tienda responden {ok, encontrado:true, estado} y lo
+ *      dejan no comprable (is_active=false con vendido_en / retirado_en); sin él, 200 {ok, encontrado:false}.
  *  FA1-FA8) Evento «factura» (2026-11-10): con firma buena guarda la fila, responde {ok, id_tienda, numero_pedido} y
  *      después sube el PDF al almacén privado «facturas»; pedido inexistente 404; el mismo id_veoaura no duplica (lo
  *      pone al día); un archivo que no empieza por %PDF o de más de 5 MB no se guarda (queda pendiente); campos malos
@@ -547,6 +549,21 @@ try {
   const id2 = randomUUID();
   const r2 = await enviar(manejador, publicar(id2, enlaces(rango(1, 35), "t1")));
   ok(r2.codigo === 200 && igual(galeria(id2).galeria, rango(1, 30)), `F2: con 35 fotos el mensaje se acepta y se usan las 30 primeras (${r2.codigo}, ${galeria(id2).galeria.length})`);
+
+  // VE) «vendido» y «retirar» dicen si encontraron el artículo (2026-11-13), siempre con 200.
+  const sobre = (evento, idV) => ({ version: 1, evento, id_veoaura: idV, enviado_en: new Date().toISOString() });
+  const ve1 = await enviar(manejador, sobre("vendido", id));
+  ok(ve1.codigo === 200 && ve1.cuerpo?.ok === true && ve1.cuerpo?.encontrado === true && ve1.cuerpo?.estado === "vendido" && ve1.cuerpo?.id_tienda === filaDe(id)?.id, `VE1: «vendido» de un artículo de la tienda → {ok, encontrado:true, estado:"vendido"} (${ve1.codigo} ${JSON.stringify(ve1.cuerpo)})`);
+  ok(filaDe(id)?.is_active === false && !!filaDe(id)?.vendido_en, "VE1: y el artículo queda no comprable (is_active=false) y con vendido_en");
+  const ve2 = await enviar(manejador, sobre("vendido", randomUUID()));
+  ok(ve2.codigo === 200 && ve2.cuerpo?.ok === true && ve2.cuerpo?.encontrado === false && ve2.cuerpo?.estado === undefined, `VE2: «vendido» de algo que no está en la tienda → 200 {ok, encontrado:false} (${ve2.codigo} ${JSON.stringify(ve2.cuerpo)})`);
+  const ve3 = await enviar(manejador, sobre("retirar", id2));
+  ok(ve3.codigo === 200 && ve3.cuerpo?.encontrado === true && ve3.cuerpo?.estado === "retirado" && filaDe(id2)?.is_active === false && !!filaDe(id2)?.retirado_en, `VE3: «retirar» lo oculta sin borrarlo y responde {encontrado:true, estado:"retirado"} (${JSON.stringify(ve3.cuerpo)})`);
+  const ve4 = await enviar(manejador, sobre("retirar", randomUUID()));
+  ok(ve4.codigo === 200 && ve4.cuerpo?.encontrado === false, `VE4: «retirar» de algo que no está → 200 {ok, encontrado:false} (${JSON.stringify(ve4.cuerpo)})`);
+  // Vuelve a la venta para que el resto de la prueba siga como antes.
+  await enviar(manejador, publicar(id, enlaces(rango(1, 30), "t1")));
+  await enviar(manejador, publicar(id2, enlaces(rango(1, 35), "t1")));
 
   // F3) Quitar una (la 5), con enlaces nuevos.
   cuenta.subidas = 0;
