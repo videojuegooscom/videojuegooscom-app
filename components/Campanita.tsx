@@ -3772,6 +3772,8 @@ function medirObjetivo(selectores?: string[]): Caja | null {
 
 const FONDO_GUIA = "rgba(11,33,56,0.58)";
 const MARGEN_ARO = 6;
+// Tiempo mínimo antes de dar por asentado lo señalado en un paso que desplaza la página (último reintento a 2,9 s + desplazamiento suave).
+const ASENTAR_TRAS_REINTENTOS_MS = 3500;
 
 // Rectángulos que oscurecen TODA la pantalla menos los huecos (uno o dos recuadros iluminados): se corta la pantalla en
 // franjas horizontales y, en cada una, se tapa lo que no cae dentro de ningún hueco.
@@ -4512,7 +4514,10 @@ function GuiaBlue({
         const pasado = Date.now() - inicio;
         // (Si lo señalado tarda en aparecer —la ficha carga el artículo— no se da por asentado hasta que aparezca y se quede
         // quieto; el límite de 9 s es solo para no vigilar para siempre un paso sin nada que enmarcar.)
-        const lista = pasado >= 9000 || (pasado >= 900 && quietos >= 2);
+        // (Y no antes de que terminen los reintentos de «traer» —el último a los 2,9 s, más lo que tarda el desplazamiento suave—:
+        // si lo señalado aparece tarde y se queda quieto un momento antes de que la guía lo suba, daba por asentado un sitio por
+        // el que luego no se quedaba, la tarjeta saltaba hacia arriba y volvía —«Siguiente» se movía unos 164 px—.)
+        const lista = pasado >= 9000 || (pasado >= ASENTAR_TRAS_REINTENTOS_MS && quietos >= 2);
         if (lista !== asentadaAhora) {
           asentadaAhora = lista;
           // Al asentarse, el recuadro se pone ya donde ha quedado (sin esperar a la siguiente medida periódica).

@@ -41,8 +41,8 @@
  *
  * Requisitos de las de navegador: playwright-core (devDependency) y un Chromium sin pantalla.
  * Conectado con: las pruebas de su CATALOGO (abajo) y las migraciones que exigen, tsc, `npm run lint`, `npm run build`
- *   (con --compilar) y la tienda compilada dist. No lanza actualizacion-automatica, asignar-seguimiento, blue-panel,
- *   buscador-inicio, guia-blue, perfil-datos ni perfiles-sql.
+ *   (con --compilar) y la tienda compilada dist. Lanza blue-panel y guia-blue (sin sesión, con --sesion y la guía con --envio).
+ *   No lanza actualizacion-automatica, asignar-seguimiento, buscador-inicio, perfil-datos ni perfiles-sql.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -122,6 +122,13 @@ const CATALOGO = [
   { nombre: "blue-ia-abuso", grupo: "sql", archivo: P("blue-ia-abuso"), args: (c) => [c.servidor] },
   { nombre: "interaccion-api", grupo: "sql", archivo: P("interaccion-api"), args: (c) => [c.servidor] },
   { nombre: "blue-regresion", grupo: "navegador", archivo: P("blue-regresion"), args: (c) => [c.dist, join(c.salida, "capturas-blue")] },
+  // Guía y panel de Blue (2026-11-13): sin sesión, con sesión simulada y (la guía) con la reparación por envío activa.
+  { nombre: "blue-panel", grupo: "navegador", archivo: P("blue-panel"), args: (c) => [c.dist] },
+  { nombre: "blue-panel sesion", grupo: "navegador", archivo: P("blue-panel"), args: (c) => [c.dist, "--sesion"] },
+  // (cada pasada de guia-blue dura entre 6 y 15 minutos: tiempo máximo propio de 40 min, en vez del general de 15)
+  { nombre: "guia-blue", grupo: "navegador", archivo: P("guia-blue"), args: (c) => [c.dist], minutos: 40 },
+  { nombre: "guia-blue sesion", grupo: "navegador", archivo: P("guia-blue"), args: (c) => [c.dist, "--sesion"], minutos: 40 },
+  { nombre: "guia-blue envio", grupo: "navegador", archivo: P("guia-blue"), args: (c) => [c.dist, "--envio"], minutos: 40 },
   { nombre: "pedido-idempotente", grupo: "navegador", archivo: P("pedido-idempotente"), args: (c) => [c.dist] },
   { nombre: "interaccion-cliente", grupo: "navegador", archivo: P("interaccion-cliente"), args: (c) => [c.dist] },
   { nombre: "desliza-para-actualizar", grupo: "navegador", archivo: P("desliza-para-actualizar"), args: (c) => [c.dist] },
@@ -253,7 +260,7 @@ function lanzar(p, ctx) {
   const t0 = Date.now();
   return new Promise((ok) => {
     let texto = "";
-    const hijo = spawn(programa, args, { cwd: RAIZ, env: { ...process.env, ...ctx.entorno }, timeout: OPC.minutos * 60_000 });
+    const hijo = spawn(programa, args, { cwd: RAIZ, env: { ...process.env, ...ctx.entorno }, timeout: Math.max(OPC.minutos, p.minutos ?? 0) * 60_000 });
     const recoger = (d) => { texto += d; flujo.write(d); };
     hijo.stdout.on("data", recoger);
     hijo.stderr.on("data", recoger);
@@ -270,7 +277,7 @@ function veredicto(p, r) {
   const comprobaciones = lineas.filter((l) => /^OK\b/.test(l)).length;
   const avisos = lineas.filter((l) => /^AVISO\b/.test(l)).length;
   const ultima = lineas.at(-1) ?? "";
-  if (r.senal) return { ok: false, motivo: `cortada por el límite de tiempo (${OPC.minutos} min)`, comprobaciones, avisos };
+  if (r.senal) return { ok: false, motivo: `cortada por el límite de tiempo (${Math.max(OPC.minutos, p.minutos ?? 0)} min)`, comprobaciones, avisos };
   if (p.control) {
     const detectada = r.codigo === 0 && r.texto.includes(p.esperaTexto);
     return { ok: detectada, motivo: detectada ? "detecta la corrección quitada" : `NO detectó la corrección quitada (código ${r.codigo})`, comprobaciones, avisos };

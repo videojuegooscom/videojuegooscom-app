@@ -158,6 +158,9 @@
  *  - VA) Ficha de clientes para VeoAura: Escaparate cuenta las fichas enviadas y por enviar sin mezclarlas con las
  *    ventas sin confirmar; Pedidos avisa de qué se manda al marcar «Entregado».
  *
+ *  - CAMPOS16) Todo input/textarea visible (cliente sin y con sesión, y las pantallas de Administración, con lo que se abre
+ *    con un toque) tiene letra computada de 16 px o más (sin zoom en iPhone); lista los que fallen con su selector.
+ *    Se lanza con SOLO = CAMPOS16 y en la pasada completa.
  *  - FS) Ficha de servicio con el formato de la de producto (galería, visor con zoom, botones iguales, pestañas,
  *    «Volver atrás», sin bloques de más) y su uso en Administración → Analítica, en el móvil y en el ordenador.
  *
@@ -12405,8 +12408,92 @@ async function seccionTM5() {
   }
 }
 
+// ===== CAMPOS16) Todo recuadro donde sale el teclado (input, textarea, contenteditable) lleva letra de 16 px o más (con menos,
+// Safari del iPhone hace zoom al tocarlo; constants/theme.ts: CAMPO.letra). Recorre cliente (sin y con sesión) y Administración,
+// con los formularios que se pueden abrir con un toque. Lista los que fallen con su selector. ===================================
+async function seccionCAMPOS16() {
+  const ahora = new Date().toISOString();
+  const medirCampos = (p) =>
+    p.evaluate(() => {
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      };
+      const selector = (el) => {
+        const partes = [];
+        for (let e = el; e && e !== document.body && partes.length < 4; e = e.parentElement) {
+          partes.unshift(`${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ""}${e.getAttribute("data-testid") ? `[${e.getAttribute("data-testid")}]` : ""}`);
+        }
+        const nombre = el.getAttribute("placeholder") || el.getAttribute("aria-label") || el.getAttribute("name") || "";
+        return `${partes.join(" > ")}${nombre ? ` «${nombre.slice(0, 40)}»` : ""}`;
+      };
+      const campos = [...document.querySelectorAll('input,textarea,[contenteditable="true"],[contenteditable=""]')].filter(
+        (el) => !["checkbox", "radio", "file", "range", "hidden", "button", "submit", "image", "color"].includes(el.type) && visible(el)
+      );
+      const bajos = campos.map((el) => ({ s: selector(el), fs: parseFloat(getComputedStyle(el).fontSize) })).filter((c) => c.fs < 16).map((c) => `${c.s} ${c.fs}px`);
+      return { n: campos.length, bajos: bajos.slice(0, 10) };
+    });
+  const tocar = async (p, nombre, ms = 6000) => { await p.getByText(nombre).first().click({ timeout: ms }).catch(() => {}); await p.waitForTimeout(500); };
+  const botones = async (p, re) => { await p.getByRole("button", { name: re }).first().click({ timeout: 4000 }).catch(() => {}); await p.waitForTimeout(500); };
+  const SERVICIO = "d0000000-0000-4000-8000-0000000000a1";
+  const cliente = [
+    { e: "Inicio y buscador", ruta: "/", abrir: async (p) => { await p.getByPlaceholder(/Buscar|buscar/).first().click({ timeout: 4000 }).catch(() => {}); } },
+    { e: "Catálogo", ruta: "/catalogo" },
+    { e: "Ficha de artículo", ruta: "/producto/b7c1d2e3-0000-4000-8000-0000000000aa" },
+    { e: "Servicios", ruta: "/servicios" },
+    { e: "Contratar", ruta: `/servicio/${SERVICIO}`, abrir: (p) => botones(p, /Contratar|Solicitar|Reservar/i) },
+    { e: "Contratar (pantalla)", ruta: `/contratar/${SERVICIO}` },
+    { e: "Vender", ruta: "/vender" },
+    { e: "Cesta", ruta: "/cesta" },
+    { e: "Finalizar compra", ruta: "/checkout" },
+    { e: "Perfil", ruta: "/perfil" },
+    { e: "Perfil con Mi perfil", ruta: "/perfil", abrir: async (p) => { await tocar(p, "Mi perfil"); await botones(p, /Editar|Completar/i); }, conSesion: true },
+    { e: "Foro", ruta: "/chat-global" },
+    { e: "Blue IA", ruta: "/blue-ia" },
+    { e: "Panel de Blue", ruta: "/", abrir: async (p) => { await p.locator("#blue-flotante").first().click({ timeout: 6000 }).catch(() => {}); await p.waitForTimeout(800); } },
+    { e: "Noticias", ruta: "/noticias" },
+    { e: "Noticia con comentarios", ruta: "/noticias/n0000000-0000-4000-8000-000000000001" },
+    { e: "Restablecer contraseña", ruta: "/reset-password" },
+    { e: "Acceso", ruta: "/login" },
+  ];
+  const admin = ["products", "services", "categories", "inventario", "cotizaciones", "escaparate", "envios", "policies", "blog", "chats", "flash-news", "marca-seo", "aprendizajes", "conocimiento", "redes-sociales", "pedidos", "analytics", "users", "auditorias", "escaparate"]
+    .map((r) => ({ e: `Admin ${r}`, ruta: `/admin/${r}`, abrir: async (p) => { await botones(p, /^(Nuevo|Nueva|Añadir|Editar|Crear)/i); await p.locator('[id$="-nuevo"],[id$="-nueva"]').first().click({ timeout: 3000 }).catch(() => {}); await p.waitForTimeout(500); } }));
+  const todas = [
+    ...cliente.map((c) => ({ ...c, usuario: null })),
+    ...cliente.map((c) => ({ ...c, e: `${c.e} (con sesión)`, usuario: CLIENTE })),
+    ...admin.map((c) => ({ ...c, usuario: ADMIN })),
+  ];
+  for (const pant of todas) {
+    const vistas = pant.usuario === ADMIN ? [{ nombre: "390", vista: {} }, { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } }] : [{ nombre: "390", vista: {} }];
+    for (const { nombre, vista } of vistas) {
+      const estado = { guardados: [], filas: [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Huesca", fecha_nacimiento: "1990-05-02" }], chats: [], mensajesChat: [], usuarios: [] };
+      let ctx;
+      if (pant.usuario) ctx = await contexto(navegador, pant.usuario, pant.usuario === ADMIN ? "admin" : "user", estado, vista);
+      else {
+        ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "es-ES", ...vista });
+        await ctx.addInitScript(() => { try { localStorage.setItem("videojuegoszaragoza:guia_vista", "1"); localStorage.setItem("videojuegoos.analytics.consent", "declined"); } catch { /* sin almacenamiento */ } });
+        await ctx.route("**/*", (r) => (/^https?:\/\/127\.0\.0\.1/.test(r.request().url()) ? r.continue() : r.abort()));
+      }
+      const p = await pagina(ctx, pant.ruta).catch(() => null);
+      if (!p) { ok(false, `CAMPOS16 (${nombre}): ${pant.e} no se pudo abrir`); await ctx.close(); continue; }
+      await p.waitForTimeout(2500);
+      const a = await medirCampos(p);
+      ok(!a.bajos.length, `CAMPOS16 (${nombre}): ${pant.e}: ${a.n} campos, todos de 16 px o más (${a.bajos.join(" | ") || "ninguno por debajo"})`);
+      if (pant.abrir) {
+        await pant.abrir(p).catch(() => {});
+        await p.waitForTimeout(800);
+        const b = await medirCampos(p);
+        ok(!b.bajos.length, `CAMPOS16 (${nombre}): ${pant.e} con lo abierto: ${b.n} campos, todos de 16 px o más (${b.bajos.join(" | ") || "ninguno por debajo"})`);
+      }
+      await ctx.close();
+    }
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "CAMPOS16") await seccionCAMPOS16();
   if (SOLO === "TM5") await seccionTM5();
   if (SOLO === "TM4") await seccionTM4();
   if (SOLO === "TM3") await seccionTM3();
@@ -13487,6 +13574,7 @@ try {
   await seccionTM3();
   await seccionTM4();
   await seccionTM5();
+  await seccionCAMPOS16();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);
