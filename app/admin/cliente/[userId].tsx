@@ -34,6 +34,8 @@
  * número interno en pequeño; en la actividad de compra, también la referencia del pedido si está en la ficha.
  * Factura (dueño, 2026-11-12): cada pedido con factura de VeoAura enseña su número y «Ver factura», que abre el PDF en
  * una pestaña nueva (api/factura.ts con «ver=1», enlace firmado de 60 s) para revisar cómo ha quedado.
+ * Teléfono (dueño, 2026-11-13): en «Datos del perfil», el teléfono opcional de Mi perfil (#ficha-perfil-telefono) con «Copiar»
+ * (#ficha-copiar-telefono, 44 px; «Copiado» un momento); sin la columna (migración 20261113120000) no sale la fila.
  * Dispositivos (dueño, 2026-11-12): «Última conexión» en la cabecera y la sección «Dispositivos» con cada uno (tipo y
  * navegador, «App instalada», primera y última vez, inicios de sesión), de la tabla cliente_dispositivos (migración
  * 20261112120000; la escribe lib/supabase.ts → registrarDispositivo). Sin IP ni ubicación. Sin la migración, no sale nada.
@@ -563,6 +565,8 @@ export default function ClienteFicha() {
     actualizado: string;
     // Dirección de envío de Mi perfil en una línea (vacía si no la ha puesto); null = sin las columnas todavía.
     direccion: string | null;
+    // Teléfono (opcional) de Mi perfil (vacío si no lo ha puesto); null = sin la columna todavía.
+    telefono: string | null;
   } | null>(null);
 
   // Dispositivos desde los que entra y su última conexión (tabla cliente_dispositivos). null = la tabla aún no existe.
@@ -584,6 +588,8 @@ export default function ClienteFicha() {
 
   // Aviso de las acciones rápidas («Correo copiado», «sin chat»…).
   const [avisoAccion, setAvisoAccion] = useState<{ ok: boolean; texto: string } | null>(null);
+  // «Copiar» del teléfono del perfil: dice «Copiado ✓» un momento en el propio botón.
+  const [telCopiado, setTelCopiado] = useState(false);
   // Cuántos movimientos se ven en «Actividad» (de 30 en 30; «Ver menos» vuelve a 30).
   const [limiteActividad, setLimiteActividad] = useState(30);
 
@@ -760,6 +766,7 @@ export default function ClienteFicha() {
           foto: (p.foto_url ?? "").trim(),
           actualizado: (p.updated_at ?? "").trim(),
           direccion: "codigo_postal" in p ? direccionEnUnaLinea(datosDeFila(p)) : null,
+          telefono: "telefono" in p ? datosDeFila(p).telefono : null,
         });
       } else {
         setPerfil(null);
@@ -828,6 +835,21 @@ export default function ClienteFicha() {
       }
     } catch {
       avisar(false, `No se ha podido copiar: ${email}`);
+    }
+  }
+  async function copiarTelefono() {
+    const tel = perfil?.telefono ?? "";
+    if (!tel) return;
+    try {
+      if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(tel);
+        setTelCopiado(true);
+        setTimeout(() => setTelCopiado(false), 2200);
+      } else {
+        avisar(false, `Teléfono: ${tel}`);
+      }
+    } catch {
+      avisar(false, `No se ha podido copiar: ${tel}`);
     }
   }
   function escribirPorChat() {
@@ -1170,13 +1192,42 @@ export default function ClienteFicha() {
                               ["Edad", perfil.edad !== null ? `${perfil.edad} años` : ""],
                               // Dirección de envío (opcional) de Mi perfil: la que rellena sus pedidos.
                               ...(perfil.direccion !== null ? [["Dirección de envío", perfil.direccion]] : []),
+                              // Teléfono (opcional) de Mi perfil, con «Copiar».
+                              ...(perfil.telefono !== null ? [["Teléfono", perfil.telefono]] : []),
                             ].map(([etiqueta, valor]) => (
                               <View
                                 key={etiqueta}
-                                style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: COLORS.border }}
+                                nativeID={etiqueta === "Teléfono" ? "ficha-perfil-telefono" : undefined}
+                                style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: COLORS.border }}
                               >
                                 <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 15 }}>{etiqueta}</Text>
-                                <Text style={{ color: valor ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 15, flexShrink: 1, textAlign: "right" }}>{valor || "—"}</Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, flexShrink: 1 }}>
+                                  <Text style={{ color: valor ? COLORS.text : COLORS.muted, fontWeight: "800", fontSize: 15, flexShrink: 1, textAlign: "right" }}>{valor || "—"}</Text>
+                                  {etiqueta === "Teléfono" && valor ? (
+                                    <Pressable
+                                      nativeID="ficha-copiar-telefono"
+                                      onPress={copiarTelefono}
+                                      accessibilityRole="button"
+                                      accessibilityLabel="Copiar teléfono"
+                                      style={({ pressed }) => ({
+                                        minHeight: 44,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 999,
+                                        borderWidth: 1,
+                                        borderColor: COLORS.border,
+                                        backgroundColor: COLORS.card,
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: 5,
+                                        opacity: pressed ? 0.75 : 1,
+                                      })}
+                                    >
+                                      <Ionicons name={telCopiado ? "checkmark" : "copy-outline"} size={16} color={telCopiado ? COLORS.success : COLORS.accent} />
+                                      <Text style={{ color: telCopiado ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: 14 }}>{telCopiado ? "Copiado" : "Copiar"}</Text>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
                               </View>
                             ))}
                           </View>

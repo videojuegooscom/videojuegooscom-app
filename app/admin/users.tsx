@@ -107,7 +107,10 @@
  *   o dejaron el recorte a medias (perfil_foto_encuadrada / perfil_foto_cancelada). DIRECCIÓN DE
  *   ENVÍO (opcional, Mi perfil): contador «Con dirección», filtro, «CP 50410 Cuarte…» en cada
  *   fila y, de 30 días, quién la guarda y quién paga con ella ya rellenada (perfil_direccion_guardada /
- *   pago_direccion_perfil); sin las columnas (migración 20261102120000) no sale nada de esto. Si la tabla aún no existe
+ *   pago_direccion_perfil); sin las columnas (migración 20261102120000) no sale nada de esto. TELÉFONO (opcional, Mi perfil,
+ *   dueño 2026-11-13): contador y chip «Con teléfono» que filtra, etiqueta «Con teléfono» en cada fila (nunca el número en el
+ *   listado) y, de 30 días, quién lo guarda y quién paga con él ya rellenado (perfil_telefono_guardado /
+ *   pago_telefono_perfil); sin la columna (migración 20261113120000) no sale nada de esto. Si la tabla aún no existe
  *   esta parte no se enseña y el resto funciona igual. La edad sale de la fecha de nacimiento
  *   (no se enseña la fecha). Lee hasta 5.000 perfiles.
  * - Cada fila es pulsable: lleva a la "ficha de cliente"
@@ -193,13 +196,17 @@ type PerfilRow = {
   localidad: string;
   direccion: string;
   piso: string;
+  // Teléfono (opcional; migración 20261113120000_perfil_telefono.sql).
+  telefono: string;
 };
 
 // Filtro por estado del perfil.
-type EstadoPerfil = "completo" | "pendiente" | "foto" | "direccion";
+type EstadoPerfil = "completo" | "pendiente" | "foto" | "direccion" | "telefono";
 
 // Tiene una dirección de envío entera (la que rellena el pago).
 const conDireccionDeEnvio = (p: PerfilRow | undefined) => !!p && !!p.direccion && !!p.codigo_postal;
+// Tiene teléfono guardado en su perfil.
+const conTelefonoDePerfil = (p: PerfilRow | undefined) => !!p && !!p.telefono;
 
 // Lo que mide la analítica propia de «Completa tu perfil» (components/PerfilPublico.tsx).
 const EVENTOS_PERFIL = [
@@ -211,6 +218,9 @@ const EVENTOS_PERFIL = [
   // Dirección de envío: quién la guarda en Mi perfil y quién paga con ella ya rellenada (app/checkout.tsx).
   "perfil_direccion_guardada",
   "pago_direccion_perfil",
+  // Teléfono: quién lo guarda (en Mi perfil o al comprar) y quién paga con el del perfil ya rellenado (nunca el número).
+  "perfil_telefono_guardado",
+  "pago_telefono_perfil",
 ] as const;
 
 // Perfil → «Mis seguimientos» (app/(tabs)/perfil.tsx): quién lo abre y si lo hace deslizando o tocando la pestaña.
@@ -655,6 +665,8 @@ export default function AdminUsers() {
   const [perfilesOk, setPerfilesOk] = useState(false);
   // ¿Existen ya las columnas de la dirección de envío? (se sabe por las filas; sin ellas no se enseña nada de la dirección)
   const [direccionColumnas, setDireccionColumnas] = useState(false);
+  // ¿Existe ya la columna del teléfono? (también se sabe por las filas)
+  const [telefonoColumna, setTelefonoColumna] = useState(false);
   const [filtroProvincia, setFiltroProvincia] = useState<string | null>(null);
   const [filtroPais, setFiltroPais] = useState<string | null>(null);
   const [filtroTramo, setFiltroTramo] = useState<string | null>(null);
@@ -668,6 +680,8 @@ export default function AdminUsers() {
     fotosCanceladas: number;
     direccionGuardada: number;
     pagoConDireccion: number;
+    telefonoGuardado: number;
+    pagoConTelefono: number;
   } | null>(null);
   // Moderación del Foro: comentarios de noticias eliminados (ocultos, contados en la base de datos). null = no se ha podido
   // leer. (Los mensajes del Foro eliminados se borran: no quedan en ninguna tabla que contar.)
@@ -860,6 +874,8 @@ export default function AdminUsers() {
           fotosCanceladas: personas("perfil_foto_cancelada"),
           direccionGuardada: personas("perfil_direccion_guardada"),
           pagoConDireccion: personas("pago_direccion_perfil"),
+          telefonoGuardado: personas("perfil_telefono_guardado"),
+          pagoConTelefono: personas("pago_telefono_perfil"),
         });
       }
 
@@ -869,6 +885,7 @@ export default function AdminUsers() {
       } else {
         const mapa: Record<string, PerfilRow> = {};
         setDireccionColumnas(((perfilesRes.data ?? []) as Record<string, unknown>[]).some((r) => "codigo_postal" in r));
+        setTelefonoColumna(((perfilesRes.data ?? []) as Record<string, unknown>[]).some((r) => "telefono" in r));
         for (const r of (perfilesRes.data ?? []) as Record<string, unknown>[]) {
           const id = String(r.user_id ?? "");
           if (!id) continue;
@@ -886,6 +903,7 @@ export default function AdminUsers() {
             localidad: t(r.localidad),
             direccion: t(r.direccion),
             piso: t(r.piso),
+            telefono: t(r.telefono),
           };
         }
         setPerfiles(mapa);
@@ -1033,7 +1051,8 @@ export default function AdminUsers() {
     const pendientes = users.filter((u) => (u.role ?? "").toLowerCase() !== "admin" && !perfilCompleto(perfiles[u.user_id])).length;
     const conFoto = delosUsuarios.filter((p) => !!p.foto_url).length;
     const conDireccion = delosUsuarios.filter((p) => conDireccionDeEnvio(p)).length;
-    return { conAlgo, completos, pendientes, conFoto, conDireccion, porProvincia, porPais, porTramo, media };
+    const conTelefono = delosUsuarios.filter((p) => conTelefonoDePerfil(p)).length;
+    return { conAlgo, completos, pendientes, conFoto, conDireccion, conTelefono, porProvincia, porPais, porTramo, media };
   }, [users, perfiles]);
 
   const hayFiltros = !!filtroProvincia || !!filtroPais || !!filtroTramo || !!filtroEstado || soloActivos;
@@ -1059,6 +1078,7 @@ export default function AdminUsers() {
       if (filtroEstado === "pendiente" && ((u.role ?? "").toLowerCase() === "admin" || perfilCompleto(p))) return false;
       if (filtroEstado === "foto" && !p?.foto_url) return false;
       if (filtroEstado === "direccion" && !conDireccionDeEnvio(p)) return false;
+      if (filtroEstado === "telefono" && !conTelefonoDePerfil(p)) return false;
       if (tramo) {
         const e = p ? edadDe(p.fecha_nacimiento) : null;
         if (e === null || e < tramo.min || e > tramo.max) return false;
@@ -1153,6 +1173,7 @@ export default function AdminUsers() {
                       ["pendiente", `Faltan datos (${resumenPerfiles.pendientes})`],
                       ["foto", `Con foto (${resumenPerfiles.conFoto})`],
                       ...(direccionColumnas ? ([["direccion", `Con dirección (${resumenPerfiles.conDireccion})`]] as [EstadoPerfil, string][]) : []),
+                      ...(telefonoColumna ? ([["telefono", `Con teléfono (${resumenPerfiles.conTelefono})`]] as [EstadoPerfil, string][]) : []),
                     ] as [EstadoPerfil, string][]
                   ).map(([id, label]) => (
                     <Chip key={id} nativeID={`usuarios-filtro-${id}`} label={label} activo={filtroEstado === id} onPress={() => setFiltroEstado((v) => (v === id ? null : id))} />
@@ -1334,6 +1355,7 @@ export default function AdminUsers() {
                     ) : null}
                     {conApp.has(u.user_id) ? <Etiqueta icon="phone-portrait-outline" texto="App" color={COLORS.text} /> : null}
                     {direccionColumnas && conDireccionDeEnvio(p) ? <Etiqueta icon="home-outline" texto="Con dirección" color={COLORS.text} /> : null}
+                    {telefonoColumna && conTelefonoDePerfil(p) ? <Etiqueta icon="call-outline" texto="Con teléfono" color={COLORS.text} /> : null}
                     <View
                       accessibilityLabel={datosParticipacion.map(([, n, , largo]) => `${n} ${largo}`).join(", ")}
                       style={{ flexDirection: "row", alignItems: "center", gap: 12, marginLeft: isMobile ? 0 : "auto" }}
@@ -1427,6 +1449,7 @@ export default function AdminUsers() {
                 { key: "edad", valor: resumenPerfiles.media != null ? `${Math.round(resumenPerfiles.media)} años` : "—", etiqueta: "Edad media" },
                 { key: "provincias", valor: String(resumenPerfiles.porProvincia.length), etiqueta: "Provincias" },
                 ...(direccionColumnas ? [{ key: "direccion", valor: String(resumenPerfiles.conDireccion), etiqueta: "Con dirección", filtro: "direccion" as EstadoPerfil }] : []),
+                ...(telefonoColumna ? [{ key: "telefono", valor: String(resumenPerfiles.conTelefono), etiqueta: "Con teléfono", filtro: "telefono" as EstadoPerfil }] : []),
               ];
               const ancho: Ancho = isMobile ? (lista.length % 3 === 0 ? "30%" : "45%") : lista.length > 6 ? "20%" : "30%";
               return lista.map((c) => (
@@ -1453,6 +1476,13 @@ export default function AdminUsers() {
                 <Detalle nativeID="admin-perfiles-direccion">
                   Dirección de envío (30 días): la guardaron {embudoPerfil.direccionGuardada} · pagaron con ella ya rellenada{" "}
                   {embudoPerfil.pagoConDireccion}
+                </Detalle>
+              ) : null}
+              {/* Teléfono: quién lo guarda (en Mi perfil o al comprar) y quién paga con el del perfil ya rellenado (30 días). */}
+              {telefonoColumna ? (
+                <Detalle nativeID="admin-perfiles-telefono">
+                  Teléfono (30 días): lo guardaron {embudoPerfil.telefonoGuardado} · pagaron con el de su perfil ya rellenado{" "}
+                  {embudoPerfil.pagoConTelefono}
                 </Detalle>
               ) : null}
             </View>

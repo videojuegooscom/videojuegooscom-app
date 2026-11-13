@@ -236,6 +236,12 @@
  *    (cuántas, importe, unidas, pendientes), «En tienda · pagado …», «Unida a la cuenta del cliente» o «Pendiente de que
  *    se registre <correo>», el filtro «En tienda» y sin envío, cancelar, WhatsApp ni teléfono; sin la migración, nada de
  *    eso y sin errores; Analítica, tienda frente a online (recuento e importe, sin datos de nadie).
+ *  - TEL) Teléfono opcional en «Mi perfil» (2026-11-13, migración 20261113120000_perfil_telefono.sql): el campo «Teléfono
+ *    (opcional)» (teclado de teléfono, 16 px, 48 px de alto, solo cifras/espacios/«+», aviso amable, nunca obligatorio, no sale
+ *    en «Completa tu perfil»); «Finalizar compra» lo trae ya escrito (sin «Falta: teléfono») o, si no lo tenía, ofrece
+ *    «Guardar en mi perfil» (marcada; solo cambia la columna del teléfono); la ficha del cliente lo enseña con «Copiar»,
+ *    Usuarios filtra «Con teléfono», Analítica cuenta perfiles y eventos (sin números); sin la columna todo funciona sin
+ *    errores; a 360, 390 y 1280 px sin desbordes. Usa PATCH y HEAD de perfiles_cliente en la base de datos simulada.
  *  - DV) Dispositivos y última conexión (2026-11-12, migración 20261112120000): con sesión, la tienda apunta «iPhone ·
  *    Safari» (solo ese nombre: sin el identificador completo, IP ni ubicación) y no lo repite antes de 15 minutos (ni al
  *    recargar ni al volver a la pestaña); pasados, lo pone al día sin sumar inicios; sin la tabla, una sola petición y sin
@@ -286,7 +292,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP|TM2|TM3|TM4|TM5]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP|TM2|TM3|TM4|TM5|TEL]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -1164,11 +1170,35 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           estado.direccion400 = (estado.direccion400 ?? 0) + 1;
           return json({ code: "PGRST204", message: "Could not find the 'codigo_postal' column of 'perfiles_cliente' in the schema cache" }, 400);
         }
+        // Sin la migración del teléfono (sección TEL): esa columna no existe, como la base de datos.
+        if (estado.sinColumnaTelefono && "telefono" in cuerpo) {
+          estado.telefono400 = (estado.telefono400 ?? 0) + 1;
+          return json({ code: "PGRST204", message: "Could not find the 'telefono' column of 'perfiles_cliente' in the schema cache" }, 400);
+        }
         estado.guardados.push({ cuerpo, url: peticion.url(), prefer: peticion.headers()["prefer"] ?? "" });
         if (estado.respuestaGuardar) return json(estado.respuestaGuardar.cuerpo, estado.respuestaGuardar.status);
         // Como la base de datos: queda guardado (lo vuelve a leer «Completa tu perfil»).
         estado.filas = [...(estado.filas ?? []).filter((f) => f.user_id && f.user_id !== cuerpo.user_id), cuerpo];
         return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      // Cambiar solo una columna de la fila de la persona (sección TEL: «Guardar en mi perfil» al pagar).
+      if (metodo === "PATCH") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        if (estado.sinColumnaTelefono && "telefono" in cuerpo) {
+          estado.telefono400 = (estado.telefono400 ?? 0) + 1;
+          return json({ code: "PGRST204", message: "Could not find the 'telefono' column of 'perfiles_cliente' in the schema cache" }, 400);
+        }
+        const quien = (url.searchParams.get("user_id") ?? "").replace(/^eq\./, "");
+        estado.actualizados = [...(estado.actualizados ?? []), { cuerpo, quien }];
+        estado.filas = (estado.filas ?? []).map((f) => (f.user_id === quien ? { ...f, ...cuerpo } : f));
+        return r.fulfill({ status: 204, headers: CORS, body: "" });
+      }
+      // Recuento de Analítica (sección TEL): solo el número de perfiles con teléfono, sin filas.
+      if (metodo === "HEAD") {
+        estado.consultaPerfilesHead = decodeURIComponent(url.search);
+        if (estado.sinColumnaTelefono && /telefono/.test(estado.consultaPerfilesHead)) return json({ code: "42703", message: "column perfiles_cliente.telefono does not exist" }, 400);
+        const n = (estado.filas ?? []).filter((f) => f.telefono != null && f.user_id !== (url.searchParams.get("user_id") ?? "").replace(/^neq\./, "")).length;
+        return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
       }
       if (estado.sinTabla) return json({ code: "PGRST205", message: "Could not find the table 'public.perfiles_cliente' in the schema cache" }, 404);
       // Como la base de datos: con «user_id=eq.<id>» solo la fila de esa persona.
@@ -10866,6 +10896,420 @@ async function seccionDV() {
   }
 }
 
+// ===== TEL) Teléfono opcional en «Mi perfil» (dueño, 2026-11-13, migración 20261113120000): el campo en Mi perfil (teclado
+// de teléfono, 16 px, validación amable, nunca obligatorio), sale ya relleno en «Finalizar compra» (el botón deja de decir
+// «Falta: teléfono») y, si no lo tenía, «Guardar en mi perfil» desde el pago; la ficha del cliente lo enseña con «Copiar»,
+// Usuarios filtra «Con teléfono» y Analítica cuenta los perfiles y los eventos; sin la columna todo funciona sin errores;
+// a 360, 390 y 1280 px sin desbordes. Sesión y datos simulados, sin fotos reales. ===========================================
+async function seccionTEL() {
+  const base = { user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "1990-05-02", foto_url: null };
+  const conDir = { codigo_postal: "50410", localidad: "Cuarte de Huerva", direccion: "Calle Mayor 5", piso: "3º B" };
+  const sinDir = { codigo_postal: null, localidad: null, direccion: null, piso: null };
+  const A1 = "00000000-0000-4000-8000-0000000000e1";
+  const CESTA = [{ id: A1, title: "PlayStation 5 Slim", subtitle: "Consolas", priceEUR: 100, qty: 1, imageUrl: null }];
+  const conCesta = (ctx) =>
+    ctx.addInitScript((articulos) => {
+      try {
+        if (!sessionStorage.getItem("vz-prueba-cesta")) {
+          sessionStorage.setItem("vz-prueba-cesta", "1");
+          localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
+        }
+      } catch {
+        // sin almacenamiento
+      }
+    }, CESTA);
+  const ESCRITORIO = { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 };
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: {} },
+    { nombre: "1280", vista: ESCRITORIO },
+  ];
+  const evento = (estado, nombre) => (estado.eventosEnviados ?? []).filter((e) => e.event_name === nombre);
+  const esperar = async (p, cond, veces = 30) => {
+    for (let i = 0; i < veces && !cond(); i++) await p.waitForTimeout(250);
+  };
+  const abrirPerfil = async (p) => {
+    await p.locator("#perfil-cabecera").waitFor({ timeout: 30000 }).catch(() => {});
+    if ((await p.locator("#perfil-cabecera").getAttribute("aria-expanded").catch(() => "true")) !== "true") await p.locator("#perfil-cabecera").click();
+    await p.waitForTimeout(400);
+  };
+  const guardar = (p) => p.getByRole("button", { name: "Guardar perfil" });
+  const sinDesborde = (p) => p.evaluate(() => ({ a: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  const textoPagina = async (p) => (await p.evaluate(() => document.body.innerText)).replace(/\s+/g, " ");
+  const irA = (p, sel) => p.locator(sel).scrollIntoViewIfNeeded().catch(() => {});
+  const aDomicilio = (p) => p.getByRole("radio", { name: /Envío a domicilio/ }).click({ timeout: 30000 }).catch(() => {});
+
+  // TEL1) Mi perfil: el campo, con su teclado, su letra de 16 px, su validación amable y el guardado (y su analítica).
+  {
+    const estado = { filas: [{ ...base, ...sinDir, telefono: null }], guardados: [], aceptaAnalitica: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-telefono").waitFor({ timeout: 15000 }).catch(() => {});
+    const campo = await p.evaluate(() => {
+      const e = document.getElementById("perfil-telefono");
+      const caja = e?.parentElement?.parentElement?.getBoundingClientRect();
+      return e ? { ph: e.getAttribute("placeholder"), modo: e.getAttribute("inputmode"), tipo: e.type, auto: e.getAttribute("autocomplete"), letra: parseFloat(getComputedStyle(e).fontSize), alto: Math.round(caja?.height ?? 0) } : null;
+    });
+    ok(campo?.ph === "Teléfono (opcional)" && campo?.modo === "tel" && campo?.auto === "tel", `TEL: «Mi perfil» tiene «Teléfono (opcional)» con teclado de teléfono y autocompletado (${JSON.stringify(campo)})`);
+    ok((campo?.letra ?? 0) >= 16 && (campo?.alto ?? 0) >= 48, `TEL: con letra de 16 px y caja de 48 px o más (${campo?.letra} px, ${campo?.alto} px)`);
+    const txt = await p.evaluate(() => (document.getElementById("perfil-telefono-apartado")?.innerText ?? "").replace(/\s+/g, " "));
+    ok(/Solo para avisarte de tus pedidos o reparaciones\. No llamamos: la atención es por mensaje\./.test(txt), `TEL: dice para qué sirve y que no se llama (${txt})`);
+    const menor = await p.evaluate(() => [...document.querySelectorAll("#perfil-telefono-apartado *")].filter((e) => e.children.length === 0 && (e.textContent ?? "").trim()).map((e) => parseFloat(getComputedStyle(e).fontSize)).filter((f) => f < 13).length);
+    ok(menor === 0, "TEL: ninguna letra del apartado por debajo de 13 px");
+    // Está debajo del correo y antes del país: en la sección de contacto.
+    const orden = await p.evaluate(() => {
+      const y = (id) => document.getElementById(id)?.getBoundingClientRect().top ?? -1;
+      return { correo: y("perfil-correo"), tel: y("perfil-telefono-apartado") };
+    });
+    ok(orden.correo >= 0 && orden.tel > orden.correo, `TEL: va debajo del correo de la cuenta (${Math.round(orden.correo)} < ${Math.round(orden.tel)})`);
+    // Validación amable y solo caracteres de teléfono.
+    await p.locator("#perfil-telefono").fill("600 11a2 33b");
+    ok((await p.locator("#perfil-telefono").inputValue()) === "600 112 33", "TEL: solo entran cifras, espacios y «+» (las letras se quitan)");
+    ok(/Revisa el teléfono: de 9 a 15 cifras/.test(await textoPagina(p)) && (await guardar(p).getAttribute("aria-disabled")) === "true", "TEL: con pocas cifras avisa con amabilidad y no deja guardar");
+    await p.locator("#perfil-telefono").fill("");
+    ok(!/Revisa el teléfono/.test(await textoPagina(p)), "TEL: vacío no es un error (es opcional)");
+    await p.locator("#perfil-telefono").fill("600  111 222");
+    await irA(p, "#perfil-telefono-apartado");
+    await capturar(p, "TEL1-perfil-390");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 0);
+    const cuerpo = estado.guardados[0]?.cuerpo ?? {};
+    ok(cuerpo.telefono === "600 111 222" && !("codigo_postal" in cuerpo), `TEL: al guardar se manda el teléfono limpio y sin espacios dobles (${JSON.stringify(cuerpo.telefono)})`);
+    await p.getByText("Perfil guardado.").first().waitFor({ timeout: 8000 }).catch(() => {});
+    ok((await p.getByText("Perfil guardado.").count()) >= 1, "TEL: y dice «Perfil guardado.»");
+    await esperar(p, () => evento(estado, "perfil_telefono_guardado").length > 0);
+    const ev = evento(estado, "perfil_telefono_guardado")[0];
+    ok(ev?.step_label === "Perfil: teléfono guardado" && ev?.metadata?.nuevo === true && !/600 ?111/.test(JSON.stringify(estado.eventosEnviados ?? [])), `TEL: la analítica propia cuenta «Perfil: teléfono guardado» sin el número (${JSON.stringify(ev?.metadata ?? null)})`);
+    // Quitarlo: vacío se guarda como «sin dato».
+    await abrirPerfil(p);
+    await p.locator("#perfil-telefono").fill("");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 1);
+    ok(estado.guardados[1]?.cuerpo?.telefono === null, "TEL: vaciarlo lo quita (se guarda como «sin teléfono»)");
+    ok(p.errores.length === 0, `TEL: Mi perfil sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // TEL1b) Mi perfil a 360, 390 y 1280 px: sin desbordes y con el campo a 16 px; capturas.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = { filas: [{ ...base, ...conDir, telefono: "+34 600 123 456" }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-telefono").waitFor({ timeout: 15000 }).catch(() => {});
+    ok((await p.locator("#perfil-telefono").inputValue()) === "+34 600 123 456", `TEL (${nombre}): el teléfono guardado sale en su campo`);
+    const m = await p.evaluate(() => {
+      const e = document.getElementById("perfil-telefono");
+      return e ? { cabe: e.scrollWidth <= e.clientWidth + 1, letra: parseFloat(getComputedStyle(e).fontSize), alto: Math.round(e.parentElement.parentElement.getBoundingClientRect().height) } : null;
+    });
+    ok(!!m?.cabe && m.letra >= 16 && m.alto >= 48, `TEL (${nombre}): se lee entero, a ${m?.letra} px y de ${m?.alto} px de alto`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `TEL (${nombre}): Mi cuenta no se ensancha (${d.a}/${d.v})`);
+    await irA(p, "#perfil-telefono-apartado");
+    await capturar(p, `TEL-perfil-${nombre}`);
+    ok(p.errores.length === 0, `TEL (${nombre}): sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // TEL2) «Completa tu perfil» no pide ni enseña el teléfono (es opcional).
+  {
+    const estado = { filas: [{ ...base, provincia: null, ...sinDir, telefono: null }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/");
+    await p.locator("#perfil-obligatorio").waitFor({ timeout: 30000 }).catch(() => {});
+    ok((await p.locator("#perfil-obligatorio").count()) === 1 && (await p.locator("#perfil-telefono").count()) === 0, "TEL: «Completa tu perfil» no enseña el teléfono");
+    await ctx.close();
+  }
+
+  // TEL2b) Un teléfono mal puesto no impide tener el perfil completo (aunque no deja guardar con el fallo a la vista).
+  {
+    const estado = { filas: [{ ...base, ...sinDir, telefono: "12" }], guardados: [] };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.waitForTimeout(500);
+    ok(!/Faltan datos/.test(await textoPagina(p)), "TEL: con un teléfono raro el perfil sigue «Completo» (el teléfono nunca es obligatorio)");
+    await ctx.close();
+  }
+
+  // TEL3) Finalizar compra con teléfono en el perfil: sale relleno y el botón deja de decir «Falta: teléfono».
+  {
+    const estado = { filas: [{ ...base, ...conDir, telefono: "600 123 456" }], guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.locator("#pago-telefono-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    ok((await p.locator('#pago-campo-telefono input').inputValue()) === "600 123 456", "TEL: el teléfono del perfil sale ya escrito en «Finalizar compra»");
+    ok(/Con el teléfono de tu perfil/.test(await p.locator("#pago-telefono-perfil").innerText().catch(() => "")), "TEL: y avisa de que viene del perfil (se puede cambiar aquí)");
+    ok((await p.locator("#pago-guardar-telefono").count()) === 0, "TEL: sin ofrecer «Guardar en mi perfil» (ya lo tiene)");
+    const falta = await p.locator("#pago-falta").innerText().catch(() => "");
+    ok(!/teléfono/i.test(falta) && (await p.locator("#pago-confirmar-boton").getAttribute("aria-disabled")) !== "true", `TEL: el botón ya no dice «Falta: teléfono» y deja continuar (${falta || "sin aviso"})`);
+    await esperar(p, () => evento(estado, "pago_telefono_perfil").length > 0);
+    ok(evento(estado, "pago_telefono_perfil").length === 1 && evento(estado, "pago_telefono_perfil")[0].step_label === "Pago: teléfono del perfil usado" && !/600 ?123/.test(JSON.stringify(estado.eventosEnviados ?? [])), "TEL: la analítica propia cuenta «Pago: teléfono del perfil usado» (sin el número)");
+    await p.locator('#pago-campo-telefono').scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "TEL3-pago-con-telefono-390");
+    await p.locator("#pago-confirmar-boton").click();
+    await esperar(p, () => (estado.pedidosCreados ?? []).length > 0);
+    ok(estado.pedidosCreados?.[0]?.p_datos?.telefono === "600 123 456" && !(estado.actualizados ?? []).length, `TEL: el pedido lleva el teléfono y no se toca el perfil (${estado.pedidosCreados?.[0]?.p_datos?.telefono ?? "sin pedido"}; ${(estado.actualizados ?? []).length} cambios)`);
+    ok(p.errores.length === 0, `TEL: el pago sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // TEL3b) Finalizar compra a 360, 390 y 1280 px con el teléfono del perfil y con la casilla (sin teléfono): sin desbordes.
+  for (const { nombre, vista } of VISTAS) {
+    const estado = { filas: [{ ...base, ...conDir, telefono: "600 123 456" }], guardados: [], productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.locator("#pago-telefono-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(300);
+    const m = await p.evaluate(() => {
+      const e = document.querySelector("#pago-campo-telefono input");
+      return e ? { letra: parseFloat(getComputedStyle(e).fontSize), alto: Math.round(e.getBoundingClientRect().height) } : null;
+    });
+    ok((m?.letra ?? 0) >= 16 && (m?.alto ?? 0) >= 48, `TEL (${nombre}): en «Finalizar compra» el campo del teléfono es de ${m?.letra} px y ${m?.alto} px de alto`);
+    const d = await sinDesborde(p);
+    ok(d.a <= d.v + 1, `TEL (${nombre}): «Finalizar compra» no se ensancha (${d.a}/${d.v})`);
+    await p.locator("#pago-campo-telefono").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, `TEL-pago-${nombre}`);
+    await ctx.close();
+  }
+
+  // TEL4) Sin teléfono en el perfil: «Falta: teléfono»; al escribirlo se ofrece «Guardar en mi perfil» (marcada) y se guarda.
+  {
+    const estado = { filas: [{ ...base, ...conDir, telefono: null }], guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.locator("#pago-direccion-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(400);
+    const falta = (await p.locator("#pago-falta").innerText().catch(() => "")).replace(/[^\wáéíóúñ: ]/gi, "").trim();
+    ok(/Falta: teléfono/.test(falta) && (await p.locator("#pago-telefono-perfil").count()) === 0 && (await p.locator("#pago-guardar-telefono").count()) === 0, `TEL: sin teléfono en el perfil, dice «Falta: teléfono» y aún no ofrece guardarlo (${falta})`);
+    ok(evento(estado, "pago_telefono_perfil").length === 0, "TEL: y no cuenta «teléfono del perfil usado»");
+    await p.getByPlaceholder("600 000 000").fill("600 111 222");
+    await p.locator("#pago-guardar-telefono").waitFor({ timeout: 8000 }).catch(() => {});
+    const casilla = await p.evaluate(() => {
+      const e = document.getElementById("pago-guardar-telefono");
+      const r = e?.getBoundingClientRect();
+      return e ? { texto: e.innerText.replace(/[-]/g, "").replace(/\s+/g, " ").trim(), marcada: e.getAttribute("aria-checked"), alto: Math.round(r.height) } : null;
+    });
+    ok(casilla?.texto === "Guardar en mi perfil" && casilla.marcada === "true" && casilla.alto >= 44, `TEL: al escribirlo ofrece «Guardar en mi perfil», marcada por defecto y táctil (${JSON.stringify(casilla)})`);
+    await p.locator("#pago-guardar-telefono").scrollIntoViewIfNeeded().catch(() => {});
+    await capturar(p, "TEL4-pago-guardar-390");
+    await p.locator("#pago-confirmar-boton").click();
+    await esperar(p, () => (estado.actualizados ?? []).length > 0 && (estado.pedidosCreados ?? []).length > 0);
+    const cambio = estado.actualizados?.[0];
+    ok(estado.pedidosCreados?.[0]?.p_datos?.telefono === "600 111 222" && cambio?.cuerpo?.telefono === "600 111 222" && cambio?.quien === CLIENTE.id && Object.keys(cambio?.cuerpo ?? {}).join(",") === "telefono", `TEL: al comprar guarda SOLO el teléfono en SU perfil (${JSON.stringify(cambio ?? null)})`);
+    await esperar(p, () => evento(estado, "perfil_telefono_guardado").length > 0);
+    const ev = evento(estado, "perfil_telefono_guardado")[0];
+    ok(ev?.metadata?.desde === "pago" && ev?.metadata?.nuevo === true && !/600 ?111/.test(JSON.stringify(estado.eventosEnviados ?? [])), `TEL: la analítica cuenta «Perfil: teléfono guardado» desde el pago (${JSON.stringify(ev?.metadata ?? null)})`);
+    ok(p.errores.length === 0, `TEL: sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // TEL4b) Con la casilla desmarcada no se guarda nada en el perfil, pero el pedido lleva el teléfono.
+  {
+    const estado = { filas: [{ ...base, ...conDir, telefono: null }], guardados: [], aceptaAnalitica: true, productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.locator("#pago-direccion-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("600 000 000").fill("600 111 222");
+    await p.locator("#pago-guardar-telefono").click({ timeout: 8000 });
+    ok((await p.locator("#pago-guardar-telefono").getAttribute("aria-checked")) === "false", "TEL: la casilla se puede desmarcar");
+    await p.locator("#pago-confirmar-boton").click();
+    await esperar(p, () => (estado.pedidosCreados ?? []).length > 0);
+    await p.waitForTimeout(600);
+    ok(estado.pedidosCreados?.[0]?.p_datos?.telefono === "600 111 222" && !(estado.actualizados ?? []).length && !evento(estado, "perfil_telefono_guardado").length, "TEL: desmarcada, el pedido lleva el teléfono pero el perfil no cambia ni se cuenta nada");
+    await ctx.close();
+  }
+
+  // TEL4c) Sin sesión: el teléfono se escribe como siempre, sin casilla.
+  {
+    const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "es-ES" });
+    await ctx.addInitScript(() => { try { localStorage.setItem("videojuegoszaragoza:guia_vista", "1"); localStorage.setItem("videojuegoos.analytics.consent", "declined"); } catch { /* sin almacenamiento */ } });
+    await ctx.route("**/*", (r) => (/^https?:\/\/127\.0\.0\.1/.test(r.request().url()) ? r.continue() : r.abort()));
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/checkout");
+    await aDomicilio(p);
+    await p.getByPlaceholder("600 000 000").waitFor({ timeout: 30000 }).catch(() => {});
+    await p.getByPlaceholder("600 000 000").fill("600 111 222");
+    await p.waitForTimeout(400);
+    ok((await p.locator("#pago-guardar-telefono").count()) === 0 && (await p.locator("#pago-telefono-perfil").count()) === 0, "TEL: sin sesión no hay «Guardar en mi perfil» ni aviso del perfil");
+    await ctx.close();
+  }
+
+  // TEL5) Sin la columna (migración sin aplicar): nada del teléfono en Mi perfil ni en el pago, y todo funciona sin errores.
+  {
+    const estado = { filas: [{ ...base, ...conDir }], guardados: [], sinColumnaTelefono: true, productosVacios: true, tarifas: [], pedidoNumero: 101 };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    await conCesta(ctx);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.waitForTimeout(600);
+    ok((await p.locator("#perfil-telefono").count()) === 0, "TEL: sin la columna no se ofrece el teléfono en Mi perfil");
+    await p.locator('#perfil-datos [aria-label="Nombre"]').first().fill("Ana María");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 0);
+    ok(estado.guardados.length === 1 && !("telefono" in (estado.guardados[0]?.cuerpo ?? {})) && !estado.telefono400, `TEL: y se guarda lo demás sin pedir la columna (${estado.telefono400 ?? 0} peticiones fallidas)`);
+    const q = await pagina(ctx, "/checkout");
+    await aDomicilio(q);
+    await q.getByPlaceholder("600 000 000").waitFor({ timeout: 30000 }).catch(() => {});
+    await q.getByPlaceholder("600 000 000").fill("600 111 222");
+    await q.waitForTimeout(500);
+    ok((await q.locator("#pago-guardar-telefono").count()) === 0, "TEL: en el pago tampoco ofrece guardarlo");
+    await q.locator("#pago-confirmar-boton").click();
+    await esperar(q, () => (estado.pedidosCreados ?? []).length > 0);
+    ok(estado.pedidosCreados?.[0]?.p_datos?.telefono === "600 111 222" && !estado.telefono400 && !(estado.actualizados ?? []).length, "TEL: el pedido se hace igual (sin peticiones fallidas)");
+    ok(p.errores.length === 0 && q.errores.length === 0, `TEL: sin errores de JavaScript (${p.errores[0] ?? q.errores[0] ?? "ninguno"})`);
+    await ctx.close();
+  }
+
+  // TEL5b) Sin fila y sin la columna: guarda lo demás, lo dice y deja de ofrecer el teléfono.
+  {
+    const estado = { filas: [], guardados: [], sinColumnaTelefono: true };
+    const ctx = await contexto(navegador, CLIENTE, "user", estado);
+    const p = await pagina(ctx, "/perfil");
+    await abrirPerfil(p);
+    await p.locator("#perfil-telefono").waitFor({ timeout: 15000 }).catch(() => {});
+    await p.locator("#perfil-telefono").fill("600 111 222");
+    await guardar(p).click();
+    await esperar(p, () => estado.guardados.length > 0);
+    await p.waitForTimeout(500);
+    const t = (await p.evaluate(() => document.getElementById("perfil-datos")?.innerText ?? "")).replace(/\s+/g, " ");
+    ok(estado.telefono400 === 1 && estado.guardados.length === 1 && !("telefono" in (estado.guardados[0]?.cuerpo ?? {})) && /el teléfono todavía no se puede guardar/.test(t), `TEL: sin fila y sin la columna, guarda lo demás y lo dice (${estado.telefono400 ?? 0} intento fallido, ${estado.guardados.length} guardado)`);
+    ok((await p.locator("#perfil-telefono").count()) === 0 && p.errores.length === 0, "TEL: y deja de ofrecer el teléfono, sin errores de JavaScript");
+    await ctx.close();
+  }
+
+  // TEL6) Administración: la ficha del cliente (con «Copiar»), Usuarios («Con teléfono») y Analítica (cuántos y eventos).
+  {
+    const OTRO = { ...CLIENTE, id: "33333333-3333-4333-8333-333333333333", email: "otro@example.com" };
+    const TERCERO = { ...CLIENTE, id: "44444444-4444-4444-8444-444444444444", email: "tercero@example.com" };
+    const ev = (event_name, user_id) => ({ event_name, user_id, session_id: `s-${user_id}`, metadata: {} });
+    const fila = (id, nombre, usuario, extra) => ({ ...base, user_id: id, nombre, usuario, updated_at: "2026-11-13T10:00:00Z", ...sinDir, ...extra });
+    const usuario = (u) => ({ user_id: u.id, email: u.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 });
+    const montar = () => ({
+      guardados: [],
+      filas: [fila(CLIENTE.id, "Ana", "ana_g", { telefono: "600 123 456" }), fila(OTRO.id, "Otro", "otro", { telefono: "611 222 333" }), fila(TERCERO.id, "Tercero", "tercero", { telefono: null })],
+      usuarios: [usuario(CLIENTE), usuario(OTRO), usuario(TERCERO)],
+      eventos: [ev("perfil_telefono_guardado", CLIENTE.id), ev("perfil_telefono_guardado", OTRO.id), ev("pago_telefono_perfil", CLIENTE.id)],
+      embudo: [{ step_label: "Inicio", sessions: 20 }, { step_label: "Perfil: teléfono guardado", sessions: 3 }, { step_label: "Pago: teléfono del perfil usado", sessions: 2 }],
+    });
+
+    // Usuarios (a 360, 390 y 1280).
+    for (const { nombre, vista } of VISTAS) {
+      const estado = montar();
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const p = await pagina(ctx, "/admin/users?tab=participacion");
+      await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
+      const t = (await p.locator("#admin-perfiles").innerText().catch(() => "")).replace(/\n+/g, " | ");
+      ok(/(^|\| )2 \| Con teléfono/.test(t), `TEL (${nombre}): Usuarios cuenta quién tiene teléfono (${(t.match(/[^|]*\|[^|]*Con teléfono/) ?? [""])[0]})`);
+      ok(/lo guardaron 2 · pagaron con el de su perfil ya rellenado 1/.test((await p.locator("#admin-perfiles-telefono").innerText().catch(() => "")).replace(/\n/g, " ")), `TEL (${nombre}): y cuántos lo guardan y pagan con él ya rellenado (30 días)`);
+      await p.locator("#usuarios-pestana-clientes").click();
+      await p.locator("#usuarios-lista").waitFor({ timeout: 10000 }).catch(() => {});
+      const todo = await textoPagina(p);
+      ok(/Con teléfono/.test(todo) && !/600 123 456|611 222 333/.test(todo), `TEL (${nombre}): cada fila dice «Con teléfono» sin enseñar el número`);
+      await p.getByText("Con teléfono (2)", { exact: true }).click();
+      await p.waitForTimeout(400);
+      const filtrado = await textoPagina(p);
+      ok(filtrado.includes(CLIENTE.email) && filtrado.includes(OTRO.email) && !filtrado.includes(TERCERO.email), `TEL (${nombre}): el chip «Con teléfono» filtra la lista`);
+      const d = await sinDesborde(p);
+      ok(d.a <= d.v + 1 && p.errores.length === 0, `TEL (${nombre}): Usuarios no se ensancha y sin errores (${d.a}/${d.v}; ${p.errores[0] ?? "sin errores"})`);
+      await capturar(p, `TEL-usuarios-${nombre}`);
+      await ctx.close();
+    }
+
+    // Ficha del cliente con «Copiar» (a 360, 390 y 1280).
+    for (const { nombre, vista } of VISTAS) {
+      const estado = montar();
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE }).catch(() => {});
+      const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+      await f.locator("#ficha-perfil-telefono").waitFor({ timeout: 30000 }).catch(() => {});
+      const fila1 = (await f.locator("#ficha-perfil-telefono").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+      ok(/^Teléfono 600 123 456 Copiar$/.test(fila1), `TEL (${nombre}): la ficha enseña «Teléfono 600 123 456» con «Copiar» (${fila1})`);
+      const boton = await f.locator("#ficha-copiar-telefono").boundingBox().catch(() => null);
+      ok((boton?.height ?? 0) >= 44, `TEL (${nombre}): «Copiar» mide 44 px o más (${Math.round(boton?.height ?? 0)})`);
+      await f.locator("#ficha-copiar-telefono").scrollIntoViewIfNeeded().catch(() => {});
+      await f.locator("#ficha-copiar-telefono").click();
+      await f.waitForTimeout(400);
+      const copiado = await f.evaluate(() => navigator.clipboard.readText().catch(() => "sin permiso"));
+      const etiqueta = (await f.locator("#ficha-copiar-telefono").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+      ok(copiado === "600 123 456" && etiqueta === "Copiado", `TEL (${nombre}): «Copiar» deja el teléfono en el portapapeles y dice «Copiado» (${copiado}; ${etiqueta})`);
+      const d = await sinDesborde(f);
+      ok(d.a <= d.v + 1 && f.errores.length === 0, `TEL (${nombre}): la ficha no se ensancha y sin errores (${d.a}/${d.v}; ${f.errores[0] ?? "sin errores"})`);
+      await f.locator("#ficha-perfil").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(f, `TEL-ficha-${nombre}`);
+      await ctx.close();
+    }
+
+    // Una ficha sin teléfono: «—» y sin «Copiar».
+    {
+      const estado = montar();
+      const ctx = await contexto(navegador, ADMIN, "admin", estado);
+      const f = await pagina(ctx, `/admin/cliente/${TERCERO.id}?email=${encodeURIComponent(TERCERO.email)}`);
+      await f.locator("#ficha-perfil-telefono").waitFor({ timeout: 30000 }).catch(() => {});
+      const fila0 = (await f.locator("#ficha-perfil-telefono").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      ok(/^Teléfono —$/.test(fila0) && (await f.locator("#ficha-copiar-telefono").count()) === 0, `TEL: sin teléfono, la ficha dice «—» y no ofrece «Copiar» (${fila0})`);
+      await ctx.close();
+    }
+
+    // Analítica: solo el número de perfiles (sin filas) y los dos eventos.
+    {
+      // (sin «eventos»: en Analítica esa lista son eventos con fecha, no los de Usuarios)
+      const estado = { ...montar(), eventos: [] };
+      const ctx = await contexto(navegador, ADMIN, "admin", estado);
+      const p = await pagina(ctx, "/admin/analytics");
+      await p.locator("#analitica-telefono-perfil").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const t = (await p.locator("#analitica-telefono-perfil").innerText().catch(() => "")).replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+      ok(/perfiles con teléfono 2 · «Perfil: teléfono guardado» 3 · «Pago: teléfono del perfil usado» 2 \(sesiones\)/.test(t), `TEL: Analítica cuenta los perfiles con teléfono y los dos eventos (${t || "no sale"})`);
+      ok(/telefono=not\.is\.null/.test(estado.consultaPerfilesHead ?? "") && new RegExp(`user_id=neq\\.${ADMIN.id}`).test(estado.consultaPerfilesHead ?? "") && !/600 ?123|611 ?222/.test(JSON.stringify(estado.consultaPerfilesHead ?? "")), `TEL: solo cuenta (sin filas ni teléfonos) y sin la cuenta del administrador (${estado.consultaPerfilesHead ?? "sin consulta"})`);
+      await p.locator("#analitica-telefono-perfil").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, "TEL-analitica-390");
+      const d = await sinDesborde(p);
+      ok(d.a <= d.v + 1 && p.errores.length === 0, `TEL: Analítica no se ensancha y sin errores (${d.a}/${d.v}; ${p.errores[0] ?? "sin errores"})`);
+      await ctx.close();
+    }
+  }
+
+  // TEL7) Administración sin la columna: nada del teléfono y sin errores.
+  {
+    const estado = {
+      guardados: [],
+      sinColumnaTelefono: true,
+      embudo: [{ step_label: "Inicio", sessions: 20 }],
+      filas: [{ ...base, ...conDir, updated_at: "2026-11-13T10:00:00Z" }],
+      usuarios: [{ user_id: CLIENTE.id, email: CLIENTE.email, role: "user", created_at: "2026-10-01T10:00:00Z", chat_messages_count: 0, product_chats_count: 0, store_reviews_count: 0 }],
+    };
+    const ctx = await contexto(navegador, ADMIN, "admin", estado);
+    const p = await pagina(ctx, "/admin/users?tab=participacion");
+    await p.locator("#admin-perfiles").waitFor({ timeout: 30000 }).catch(() => {});
+    const t = await textoPagina(p);
+    await p.locator("#usuarios-pestana-clientes").click();
+    await p.locator("#usuarios-lista").waitFor({ timeout: 10000 }).catch(() => {});
+    const tc = await textoPagina(p);
+    ok(!/Con teléfono/.test(t) && !/Con teléfono/.test(tc) && p.errores.length === 0, "TEL: sin la columna, Usuarios no enseña nada del teléfono (ni en Participación ni en Clientes) y sin errores");
+    const f = await pagina(ctx, `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}`);
+    await f.locator("#ficha-perfil").waitFor({ timeout: 30000 }).catch(() => {});
+    await f.waitForTimeout(500);
+    ok((await f.locator("#ficha-perfil-telefono").count()) === 0 && f.errores.length === 0, `TEL: y la ficha sale sin la fila «Teléfono» y sin errores (${f.errores[0] ?? "ninguno"})`);
+    const a = await pagina(ctx, "/admin/analytics");
+    await a.locator("#analitica-telefono-perfil").waitFor({ timeout: 40000 }).catch(() => {});
+    await a.waitForTimeout(600);
+    const ta = (await a.locator("#analitica-telefono-perfil").innerText().catch(() => "")).replace(/\s+/g, " ");
+    ok(/perfiles con teléfono sin datos/.test(ta), `TEL: Analítica dice «sin datos» en lugar de un número inventado (${ta})`);
+    await ctx.close();
+  }
+}
+
 // ===== FC) Ficha del cliente con el diseño nuevo (dueño, 2026-11-12): cabecera tipo tarjeta con «Cliente desde … ·
 // Última conexión hace X» y etiquetas, 4 cifras en fila, acciones rápidas (chat, copiar correo, Pedidos, añadir nota),
 // pestañas que cambian y se recuerdan en la URL (?tab=), nota fijada en el Resumen, pedidos compactos que se despliegan y
@@ -12494,6 +12938,7 @@ async function seccionCAMPOS16() {
 const navegador = await lanzarNavegador(ok);
 try {
   if (SOLO === "CAMPOS16") await seccionCAMPOS16();
+  if (SOLO === "TEL") await seccionTEL();
   if (SOLO === "TM5") await seccionTM5();
   if (SOLO === "TM4") await seccionTM4();
   if (SOLO === "TM3") await seccionTM3();
@@ -13574,6 +14019,7 @@ try {
   await seccionTM3();
   await seccionTM4();
   await seccionTM5();
+  await seccionTEL();
   await seccionCAMPOS16();
   }
 } catch (e) {

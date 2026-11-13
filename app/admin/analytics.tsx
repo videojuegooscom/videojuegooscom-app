@@ -39,6 +39,9 @@
  * - «Clientes conectados en los últimos 7 días» y «con la app instalada» (2026-11-12, #analitica-conectados): dos
  *   recuentos de personas distintas de la tabla cliente_dispositivos (sin el administrador ni datos de nadie); sin la
  *   migración 20261112120000 no sale.
+ * - «Teléfono en Mi perfil» (2026-11-13, #analitica-telefono-perfil): cuántos perfiles tienen teléfono (solo el número, sin
+ *   el administrador ni ningún teléfono) y los eventos propios «Perfil: teléfono guardado» y «Pago: teléfono del perfil
+ *   usado» (sesiones); sin la columna (migración 20261113120000) pone «sin datos».
  * - Vercel: este proyecto no tiene activado Vercel Web Analytics (se
  *   comprobó con el MCP de Vercel), así que estos datos son 100% propios,
  *   con el detalle de recorrido que Vercel no podría dar aunque estuviera
@@ -714,6 +717,27 @@ export default function AdminAnalytics() {
     };
   }, []);
 
+  // Perfiles con teléfono (dueño, 2026-11-13): solo el número (HEAD, sin filas ni teléfonos) y sin la cuenta del
+  // administrador. null = la columna aún no existe (migración 20261113120000_perfil_telefono.sql).
+  const [perfilesConTelefono, setPerfilesConTelefono] = useState<number | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        let consulta = supabase.from("perfiles_cliente").select("user_id", { count: "exact", head: true }).not("telefono", "is", null);
+        if (s.session?.user?.id) consulta = consulta.neq("user_id", s.session.user.id);
+        const { count, error } = await consulta;
+        if (vivo) setPerfilesConTelefono(error ? null : count ?? 0);
+      } catch {
+        if (vivo) setPerfilesConTelefono(null);
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   // Clientes conectados en los últimos 7 días y cuántos con la app instalada (tabla cliente_dispositivos, migración
   // 20261112120000): solo dos recuentos de personas distintas, sin la cuenta del administrador. null = aún no existe.
   const [conectados7, setConectados7] = useState<{ clientes: number; app: number } | null>(null);
@@ -856,6 +880,9 @@ export default function AdminAnalytics() {
       // «Mis seguimientos» en el móvil (2026-11-10): el campo del número va plegado; cuántos lo abren y cuántos lo añaden.
       numeroAbierto: findExact("Perfil: abre «añadir número de seguimiento»"),
       numeroAnadido: findExact("Perfil: número de seguimiento añadido"),
+      // Teléfono opcional de Mi perfil (2026-11-13): quién lo guarda y quién paga con el del perfil ya rellenado.
+      telefonoGuardado: findExact("Perfil: teléfono guardado"),
+      telefonoPago: findExact("Pago: teléfono del perfil usado"),
       // Filtros de «Mis pedidos» (2026-11-10): cuántas sesiones usan cada uno.
       filtrosPedidos: funnel
         .filter((f) => f.step_label.startsWith("Perfil: filtro de pedidos · "))
@@ -1499,6 +1526,24 @@ export default function AdminAnalytics() {
                       </Text>
                     </View>
                   ) : null}
+                  {/* Teléfono de Mi perfil (opcional): cuántos perfiles lo tienen (solo el número) y los eventos propios. */}
+                  <View
+                    nativeID="analitica-telefono-perfil"
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: COLORS.accent2,
+                      padding: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Ionicons name="call-outline" size={15} color={COLORS.accentDark} />
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
+                      Teléfono en «Mi perfil» (opcional): perfiles con teléfono {perfilesConTelefono ?? "sin datos"} · «Perfil: teléfono guardado»{" "}
+                      {coreFunnel.telefonoGuardado} · «Pago: teléfono del perfil usado» {coreFunnel.telefonoPago} (sesiones)
+                    </Text>
+                  </View>
                   {/* Facturas (las emite VeoAura y llegan por api/escaparate-veoaura.ts): descargas desde «Mis pedidos». */}
                   <View
                     nativeID="analitica-facturas"
