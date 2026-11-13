@@ -16,8 +16,12 @@
  * estado, volver, «Escribir al cliente») de 44 px como mínimo y con 8 px entre botones, para no cambiar
  * el estado de un pedido sin querer (constants/theme.ts; prueba TM4 de pruebas/perfil-datos.mjs).
  *
+ * Desde la ficha del cliente (dueño, 2026-11-13): «Ver en Pedidos» abre esta pantalla con ?buscar=<correo> y el
+ * buscador sale ya relleno con ese correo (solo sus pedidos); el botón de borrar lo vacía.
+ *
  * Conectado con:
  * - app/admin/index.tsx → tarjeta "Pedidos" que lleva aquí.
+ * - app/admin/cliente/[userId].tsx → «Ver en Pedidos» (parámetro ?buscar=).
  * - app/admin/_layout.tsx → registra esta ruta ("pedidos") en el Stack.
  * - app/checkout.tsx → crea los pedidos con la función crear_pedido.
  * - api/escaparate-retorno.ts → al cambiar el estado se le avisa, por si el pedido lleva
@@ -55,7 +59,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StatusBar, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { abrirDescarga, openExternalLink } from "../../lib/openExternalLink";
@@ -248,7 +252,13 @@ export default function PedidosAdmin() {
   const [filtroFactura, setFiltroFactura] = useState<"todas" | "con" | "sin">("todas");
   const [facturaMsg, setFacturaMsg] = useState<{ id: string; texto: string } | null>(null);
   // Buscador: referencia VZ-…, número interno, nombre, correo o teléfono (dueño, 2026-11-11).
-  const [busqueda, setBusqueda] = useState("");
+  // Desde la ficha del cliente («Ver en Pedidos») llega ?buscar=<correo>: el buscador sale relleno (y se puede borrar).
+  const { buscar } = useLocalSearchParams<{ buscar?: string }>();
+  const buscarUrl = typeof buscar === "string" ? buscar.slice(0, 200) : "";
+  const [busqueda, setBusqueda] = useState(buscarUrl);
+  useEffect(() => {
+    if (buscarUrl) setBusqueda(buscarUrl);
+  }, [buscarUrl]);
 
   const cargar = useCallback(async () => {
     setLoading(true);

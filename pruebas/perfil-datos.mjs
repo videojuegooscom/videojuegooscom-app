@@ -257,6 +257,11 @@
  *    con 6 botones de etapa de 44 px separados 8 px y se repliegan, la línea de tiempo de «Actividad» por día y con
  *    iconos, ninguna letra < 12 px, nada se sale ni se corta, y en el ordenador centrada y de 760 px como mucho.
  *    Las secciones E, PT, ME y M abren la pestaña que les toca (Pedidos, Reparaciones, Actividad) y despliegan los pedidos.
+ *  - FCH) Ficha del cliente, chat y Pedidos (2026-11-13, mejora 2), a 390, 360 y 1280 px: sin conversación «Escribir por el
+ *    chat» no sale en gris, crea la conversación general con el user_id del cliente (petición simulada) y lleva al hilo
+ *    (?chat=), donde se envía un mensaje; con conversación previa abre esa y no crea otra; la ficha y Chat dicen quién la
+ *    empezó (tienda o cliente); «Ver en Pedidos» abre Pedidos con ?buscar=<correo>, buscador relleno, solo sus pedidos, y
+ *    el botón de borrar lo limpia.
  *  - TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12, constants/theme.ts), a 360 y 390 px: la barra
  *    inferior con los nombres de 12 px o más en una línea (el activo en el azul de texto #0A78B4, su icono en el de marca);
  *    en «Mis seguimientos», las etiquetas de la barra de etapas (5 y 6) sin letra < 12 px, sin palabras partidas, sin
@@ -292,7 +297,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP|TM2|TM3|TM4|TM5|TEL]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|FCH|TM|UP|TM2|TM3|TM4|TM5|TEL]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -596,6 +601,40 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
       estado.consultasOlvidados = [...(estado.consultasOlvidados ?? []), `${url.pathname.split("/").pop()}?${decodeURIComponent(url.search.slice(1))}`];
       return json([], 200, { "content-range": `*/${n}`, "access-control-expose-headers": "*" });
     }
+    // Ficha del cliente → «Escribir por el chat» (sección FCH): conversaciones y mensajes ficticios de verdad filtrados
+    // (por cliente, por id, por varios chats), y la creación de la conversación que haría el administrador (se apunta lo mandado).
+    if (estado.fch && url.pathname.endsWith("/rest/v1/product_chats")) {
+      const f = estado.fch;
+      const objeto = /vnd\.pgrst\.object/.test(peticion.headers()["accept"] ?? "");
+      if (metodo === "POST") {
+        const cuerpo = JSON.parse(peticion.postData() ?? "{}");
+        f.creadas = [...(f.creadas ?? []), cuerpo];
+        const ahoraIso = new Date().toISOString();
+        const fila = { id: "c0000000-0000-4000-8000-0000000000f9", created_at: ahoraIso, product_id: null, sell_request_id: null, last_message_at: ahoraIso, last_message_preview: "", last_sender_role: "customer", admin_deleted_at: null, customer_deleted_at: null, ...cuerpo };
+        f.chats = [...f.chats, fila];
+        return objeto ? json(fila, 201) : json([fila], 201);
+      }
+      if (metodo === "GET") {
+        const cli = (url.searchParams.get("customer_user_id") ?? "").replace(/^eq\./, "");
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        const filas = f.chats.filter((c) => (!cli || c.customer_user_id === cli) && (!id || c.id === id) && !c.admin_deleted_at);
+        return objeto ? json(filas[0] ?? null) : json(filas);
+      }
+    }
+    if (estado.fch && url.pathname.endsWith("/rest/v1/product_chat_messages")) {
+      const f = estado.fch;
+      if (metodo === "POST") {
+        f.mensajesEnviados = [...(f.mensajesEnviados ?? []), JSON.parse(peticion.postData() ?? "{}")];
+        return r.fulfill({ status: 201, headers: CORS, body: "" });
+      }
+      if (metodo === "GET") {
+        const c = url.searchParams.get("chat_id") ?? "";
+        const ids = c.startsWith("in.(") ? c.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")) : [c.replace(/^eq\./, "")];
+        const filas = f.mensajes.filter((m) => ids.includes(m.chat_id)).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+        const limite = Number(url.searchParams.get("limit") ?? 0);
+        return json(limite ? filas.slice(0, limite) : filas);
+      }
+    }
     // Administración → Chat (sección Q): conversaciones y mensajes ficticios; «Asignar seguimiento» (api) simulado.
     if (estado.chats && url.pathname.endsWith("/rest/v1/product_chats") && metodo === "GET") {
       const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
@@ -771,7 +810,8 @@ async function contexto(navegador, usuario, rol, estado, vista = {}) {
           const correo = (url.searchParams.get("email") ?? "").replace(/^ilike\./, "").replace(/\\(.)/g, "$1").toLowerCase();
           return json(estado.pedidosFicha.filter((p) => !p.user_id && p.email.toLowerCase() === correo));
         }
-        return json([]);
+        // Administración → Pedidos en la misma prueba (sección FCH): sigue al manejador de pedidosAdmin.
+        if (!estado.pedidosAdmin) return json([]);
       }
     }
     // Ritmo de la analítica (sección AT): sin `ritmo`, la tabla aún no existe (migración de los topes sin pegar).
@@ -11348,7 +11388,11 @@ async function seccionFC() {
       customer_notes: [{ notes: "Le prometimos un año de garantía en el mando.", updated_at: "2026-11-09T10:00:00Z" }],
       sell_requests: [{ id: "v1", created_at: "2026-10-15T10:00:00Z", articulo: "Nintendo Switch OLED", precio_estimado: "180 €", status: "revisado", ciudad: "Zaragoza" }],
       product_sales: [],
-      product_chats: conChat ? [{ id: "c0000000-0000-4000-8000-0000000000c1" }] : [],
+    },
+    // Su conversación (si la tiene), empezada por él; la ficha mira su primer mensaje para decir quién la empezó.
+    fch: {
+      chats: conChat ? [{ id: "c0000000-0000-4000-8000-0000000000c1", customer_user_id: CLIENTE.id, product_id: null, sell_request_id: null, last_message_at: hace(30), last_message_preview: "Hola", admin_deleted_at: null }] : [],
+      mensajes: conChat ? [{ id: "m1", created_at: hace(30), chat_id: "c0000000-0000-4000-8000-0000000000c1", sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Dani", body: "Hola" }] : [],
     },
   });
   const ruta = (extra = "") => `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z${extra}`;
@@ -11528,20 +11572,155 @@ async function seccionFC() {
       await capturar(f, `FC4-${nombre}-pedidos`);
     }
 
-    // FC11) «Escribir por el chat»: con conversación, lleva a Administración → Chat; sin ella, explica por qué no.
+    // FC11) «Escribir por el chat»: con conversación, lleva a Administración → Chat con su hilo (el detalle, en la sección
+    // FCH); sin ella ya no se queda en gris: lo empieza el administrador.
     if (nombre === "390") {
       await f.locator("#ficha-accion-chat").click();
       await f.waitForURL(/\/admin\/chats/, { timeout: 15000 }).catch(() => {});
       ok(/\/admin\/chats/.test(new URL(f.url()).pathname), `FC (${nombre}): «Escribir por el chat» abre el chat de Administración (${new URL(f.url()).pathname})`);
     } else {
-      await f.locator("#ficha-accion-chat").click();
-      await f.locator("#ficha-aviso-accion").waitFor({ timeout: 5000 }).catch(() => {});
-      ok(/Aún no ha abierto ningún chat/.test(await f.locator("#ficha-aviso-accion").innerText().catch(() => "")) && /\/admin\/cliente\//.test(new URL(f.url()).pathname), `FC (${nombre}): sin chat, lo explica y no se va de la ficha`);
+      ok((await f.locator("#ficha-accion-chat").getAttribute("aria-disabled")) !== "true" && !/Aún no ha abierto/.test(await f.evaluate(() => document.body.innerText)), `FC (${nombre}): sin conversación, «Escribir por el chat» sigue activo (la empieza el administrador)`);
     }
     ok(f.errores.length === 0, `FC (${nombre}): sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
     await ctx.close();
   }
 }
+
+// ===== FCH) Ficha del cliente, acciones del chat y de Pedidos (dueño, 2026-11-13, mejora 2): «Escribir por el chat» ya no
+// sale en gris sin conversación (el administrador la EMPIEZA con el user_id del cliente y lleva al hilo; con conversación
+// previa abre esa), la ficha y Chat dicen quién la empezó, y «Ver en Pedidos» abre Pedidos con el buscador relleno con el
+// correo (solo sus pedidos; se puede borrar). A 390, 360 y 1280 px. Sin fotos reales.
+async function seccionFCH() {
+  const limpio = (s) => String(s ?? "").replace(/[-]/g, "").replace(/\s+/g, " ").trim();
+  const hace = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const CHAT_PREVIO = "c0000000-0000-4000-8000-0000000000c1";
+  const CHAT_NUEVO = "c0000000-0000-4000-8000-0000000000f9";
+  const ruta = `/admin/cliente/${CLIENTE.id}?email=${encodeURIComponent(CLIENTE.email)}&createdAt=2026-09-15T10%3A00%3A00Z`;
+  const pedido = (n, extra) => ({
+    id: `0fc00000-0000-4000-8000-0000000000${n}`, numero: n, codigo_seguimiento: `VZ-FCH0-00${n}`, created_at: hace(60 * n), estado: "pendiente", entrega: "recogida",
+    nombre: "Dani García", email: CLIENTE.email, telefono: "600111222", direccion: null, codigo_postal: null, ciudad: null, notas: null, total_eur: 50, productos_eur: 50, envio_eur: 0,
+    zona_envio: "mano", envio_manual: false, user_id: CLIENTE.id, id_veoaura: null, vinculado_en: null, nota_admin: null, pedido_items: [], pago_estado: null, pago_modo: null,
+    pago_referencia: null, pagado_eur: null, pagado_en: null, devuelto_eur: null, devuelto_en: null, ...extra,
+  });
+  const estadoBase = (chats, mensajes) => {
+    const suyos = [pedido(71, {}), pedido(72, { estado: "confirmado" })];
+    return {
+      guardados: [],
+      tarifas: [],
+      filas: [{ user_id: CLIENTE.id, nombre: "Dani García", usuario: "dani", pais: "España", provincia: "Zaragoza", fecha_nacimiento: "2000-05-02", foto_url: null, updated_at: "2026-11-01T10:00:00Z" }],
+      pedidosFicha: suyos,
+      // Pedidos de Administración: los suyos y uno de otra persona (no debe salir con su correo en el buscador).
+      pedidosAdmin: [...suyos, pedido(73, { nombre: "Ana López", email: "ana@example.com", user_id: null, codigo_seguimiento: "VZ-OTRA-0073" })],
+      dispositivos: { filas: [] },
+      tablas: { products: [], customer_notes: [], sell_requests: [], product_sales: [] },
+      fch: { chats, mensajes },
+    };
+  };
+  const previo = (empieza) => ({ id: CHAT_PREVIO, customer_user_id: CLIENTE.id, product_id: null, sell_request_id: null, last_message_at: hace(20), last_message_preview: empieza === "tienda" ? "Hola Dani, te escribimos de la tienda" : "Hola, una pregunta", admin_deleted_at: null });
+  const mensajes = (empieza) =>
+    empieza === "tienda"
+      ? [
+          { id: "m1", created_at: hace(30), chat_id: CHAT_PREVIO, sender_user_id: ADMIN.id, sender_role: "admin", sender_name: "Tienda", body: "Hola Dani, te escribimos de la tienda" },
+          { id: "m2", created_at: hace(20), chat_id: CHAT_PREVIO, sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Dani", body: "Gracias, os leo" },
+        ]
+      : [{ id: "m1", created_at: hace(30), chat_id: CHAT_PREVIO, sender_user_id: CLIENTE.id, sender_role: "customer", sender_name: "Dani", body: "Hola, una pregunta" }];
+  const abrirFicha = async (ctx) => {
+    const f = await pagina(ctx, ruta);
+    await f.locator("#ficha-cabecera").waitFor({ timeout: 40000 }).catch(() => {});
+    await f.locator("#ficha-accion-chat").waitFor({ timeout: 20000 }).catch(() => {});
+    await f.waitForTimeout(600);
+    return f;
+  };
+  const vistas = [
+    ["390", {}],
+    ["360", { viewport: { width: 360, height: 780 } }],
+    ["1280", { viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false }],
+  ];
+  for (const [nombre, vista] of vistas) {
+    // FCH1) Sin conversación: el botón está activo, crea la del cliente y lleva a su hilo, donde se puede escribir.
+    {
+      const estado = estadoBase([], []);
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const f = await abrirFicha(ctx);
+      const colores = await f.evaluate(() => {
+        const color = (id) => getComputedStyle([...document.querySelectorAll(`#${id} *`)].find((e) => e.childNodes[0]?.nodeType === 3 && e.textContent.trim())).color;
+        return [color("ficha-accion-chat"), color("ficha-accion-pedidos")];
+      });
+      ok(colores[0] === colores[1] && (await f.locator("#ficha-accion-chat").isEnabled()), `FCH (${nombre}): sin conversación, «Escribir por el chat» no sale en gris y se puede tocar (${colores.join(" / ")})`);
+      await f.locator("#ficha-accion-chat").click();
+      await f.waitForURL(/\/admin\/chats/, { timeout: 15000 }).catch(() => {});
+      const creada = estado.fch.creadas?.[0];
+      ok(estado.fch.creadas?.length === 1 && creada?.customer_user_id === CLIENTE.id && creada?.product_id === null && Object.keys(creada).sort().join(",") === "customer_user_id,product_id", `FCH (${nombre}): crea UNA conversación general con el user_id del cliente (${JSON.stringify(creada ?? null)})`);
+      ok(new URL(f.url()).pathname === "/admin/chats" && new URL(f.url()).searchParams.get("chat") === CHAT_NUEVO, `FCH (${nombre}): y lleva a Administración → Chat con su hilo (${f.url().replace(BASE, "")})`);
+      const caja = f.getByPlaceholder("Escribe un mensaje…");
+      await caja.waitFor({ timeout: 20000 }).catch(() => {});
+      ok(await caja.isVisible().catch(() => false), `FCH (${nombre}): el hilo está abierto con la caja para escribir`);
+      await caja.fill("Hola Dani, te escribo desde la tienda");
+      await caja.locator("xpath=following-sibling::*[1]").click().catch(() => {});
+      for (let i = 0; i < 20 && !(estado.fch.mensajesEnviados ?? []).length; i++) await f.waitForTimeout(150);
+      ok(estado.fch.mensajesEnviados?.[0]?.chat_id === CHAT_NUEVO && estado.fch.mensajesEnviados?.[0]?.body === "Hola Dani, te escribo desde la tienda", `FCH (${nombre}): el mensaje va a esa conversación (${JSON.stringify(estado.fch.mensajesEnviados?.[0] ?? null)})`);
+      if (nombre !== "360") await capturar(f, `FCH1-${nombre}-chat-nuevo`);
+      ok(f.errores.length === 0, `FCH (${nombre}): sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+
+    // FCH2) Con conversación previa empezada por la tienda: la abre (no crea otra) y la ficha y Chat dicen quién la empezó.
+    {
+      const estado = estadoBase([previo("tienda")], mensajes("tienda"));
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const f = await abrirFicha(ctx);
+      ok(/Conversación empezada por la tienda/.test(await texto0(f, "#ficha-chat-empezo")), `FCH (${nombre}): la ficha dice «Conversación empezada por la tienda» (${await texto0(f, "#ficha-chat-empezo")})`);
+      if (nombre === "390") await capturar(f, `FCH2-${nombre}-ficha-chat`);
+      await f.locator("#ficha-accion-chat").click();
+      await f.waitForURL(/\/admin\/chats/, { timeout: 15000 }).catch(() => {});
+      ok(!(estado.fch.creadas ?? []).length && new URL(f.url()).searchParams.get("chat") === CHAT_PREVIO, `FCH (${nombre}): con conversación previa abre esa y no crea otra (${f.url().replace(BASE, "")}; creadas ${(estado.fch.creadas ?? []).length})`);
+      await f.getByText("Gracias, os leo").first().waitFor({ timeout: 20000 }).catch(() => {});
+      ok(await f.getByText("Hola Dani, te escribimos de la tienda").first().isVisible().catch(() => false), `FCH (${nombre}): su hilo está abierto con los mensajes`);
+      ok(/la empezó la tienda|Conversación empezada por la tienda/.test(await f.evaluate(() => document.body.innerText)), `FCH (${nombre}): Chat también dice que la empezó la tienda`);
+      if (nombre !== "360") await capturar(f, `FCH3-${nombre}-chat-previo`);
+      ok(f.errores.length === 0, `FCH (${nombre}): sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+
+    // FCH3) Empezada por el cliente: la ficha lo dice así y Chat no pone «la empezó la tienda».
+    if (nombre === "390") {
+      const estado = estadoBase([previo("cliente")], mensajes("cliente"));
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const f = await abrirFicha(ctx);
+      ok(/Conversación empezada por el cliente/.test(await texto0(f, "#ficha-chat-empezo")), `FCH (${nombre}): empezada por el cliente, la ficha lo dice (${await texto0(f, "#ficha-chat-empezo")})`);
+      await f.locator("#ficha-accion-chat").click();
+      await f.waitForURL(/\/admin\/chats/, { timeout: 15000 }).catch(() => {});
+      await f.getByText("Hola, una pregunta").first().waitFor({ timeout: 20000 }).catch(() => {});
+      ok(!/la empezó la tienda|empezada por la tienda/.test(await f.evaluate(() => document.body.innerText)), `FCH (${nombre}): y Chat no dice que la empezara la tienda`);
+      await ctx.close();
+    }
+
+    // FCH4) «Ver en Pedidos»: buscador relleno con el correo, solo sus pedidos, y se puede borrar.
+    {
+      const estado = estadoBase([], []);
+      const ctx = await contexto(navegador, ADMIN, "admin", estado, vista);
+      const f = await abrirFicha(ctx);
+      await f.locator("#ficha-accion-pedidos").click();
+      await f.waitForURL(/\/admin\/pedidos/, { timeout: 15000 }).catch(() => {});
+      const u = new URL(f.url());
+      ok(u.pathname === "/admin/pedidos" && u.searchParams.get("buscar") === CLIENTE.email, `FCH (${nombre}): «Ver en Pedidos» abre Pedidos con ?buscar=<correo> (${f.url().replace(BASE, "")})`);
+      await f.locator("#pedidos-recuento").waitFor({ timeout: 30000 }).catch(() => {});
+      await f.getByText(/VZ-FCH0-0071/).first().waitFor({ timeout: 30000 }).catch(() => {});
+      const valor = await f.locator("#pedidos-buscar").inputValue().catch(() => "");
+      const cuerpo = limpio(await f.evaluate(() => document.body.innerText));
+      ok(valor === CLIENTE.email && /2 pedidos encontrados/.test(cuerpo), `FCH (${nombre}): el buscador sale relleno con el correo (${valor}) y dice «2 pedidos encontrados»`);
+      ok(/VZ-FCH0-0071/.test(cuerpo) && /VZ-FCH0-0072/.test(cuerpo) && !/VZ-OTRA-0073/.test(cuerpo), `FCH (${nombre}): se ven solo sus dos pedidos, no el de otra persona (${["VZ-FCH0-0071", "VZ-FCH0-0072", "VZ-OTRA-0073"].map((r) => cuerpo.includes(r)).join(",")})`);
+      await capturar(f, `FCH4-${nombre}-pedidos-del-cliente`);
+      await f.getByRole("button", { name: "Borrar la búsqueda" }).click();
+      await f.waitForTimeout(400);
+      const despues = limpio(await f.evaluate(() => document.body.innerText));
+      ok((await f.locator("#pedidos-buscar").inputValue()) === "" && !/pedidos? encontrados?/.test(despues) && /VZ-OTRA-0073/.test(despues), `FCH (${nombre}): el buscador se limpia y vuelven a verse todos los pedidos (${(await f.locator("#pedidos-buscar").inputValue()) || "vacío"}; ${despues.slice(0, 80)}…; ${["VZ-FCH0-0071", "VZ-FCH0-0072", "VZ-OTRA-0073"].map((r) => despues.includes(r)).join(",")})`);
+      ok(f.errores.length === 0, `FCH (${nombre}): sin errores de JavaScript (${f.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+}
+const texto0 = async (p, sel) => (await p.locator(sel).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
 
 // ===== TM) Tamaños comunes, grupo 1 (auditoría móvil y lección del 2026-11-12; constants/theme.ts): barra inferior,
 // «Mis seguimientos» (barra de etapas, pestañas, enlaces, azul de texto) y los 3 campos que hacían zoom en el iPhone =====
@@ -12946,6 +13125,7 @@ try {
   if (SOLO === "TM") await seccionTM();
   if (SOLO === "TM2") await seccionTM2();
   if (SOLO === "FC") await seccionFC();
+  if (SOLO === "FCH") await seccionFCH();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
   if (SOLO === "P") await seccionP();
@@ -14013,6 +14193,7 @@ try {
   await seccionRE3();
   await seccionAC();
   await seccionFC();
+  await seccionFCH();
   await seccionTM();
   await seccionUP();
   await seccionTM2();
