@@ -30,6 +30,17 @@
  *   --sesion               con una sesión iniciada SIMULADA (cliente falso, sin tocar la base de datos): sale el paso
  *                          «Mis seguimientos», no sale «Tu cuenta» y el último botón es «Terminar»
  *   --sin-extra            solo el recorrido principal (sin atrás, deslizar, saltar ni primera visita)
+ *   --envio                la reparación por envío SIMULADA como activa (reparacion_envio_ajustes.activo): sale el paso
+ *                          «Reparación por envío» en el recorrido principal (por defecto se simula inactiva y no sale)
+ * Guía completa al día (2026-11-13), además de lo anterior:
+ *  - Con --sesion (pedidos simulados): «Mis pedidos» (recuadro en los filtros), «Tus facturas» (recuadro en «Facturas», plazos
+ *    y botón «Ver mis facturas» que lleva a /perfil?tab=seguimientos&filtro=facturas) y «Me gusta» (la mano en su pestaña).
+ *  - Siempre, al final: la reparación por envío activa (simulada) enseña «Reparación por envío» y la inactiva no la nombra; la
+ *    cesta con artículos señala «Ir a pagar» y «Cómo se compra» nombra tarjeta, Bizum y Klarna (/api/pago simulado) y, sin ellas
+ *    en el servidor, no las promete; y el paso «Un artículo» deja «Siguiente» en su sitio 3 veces seguidas (mientras la ficha
+ *    se desplaza y después).
+ *  - En CADA paso: ningún texto de la tarjeta, de «Estás aquí» ni de los nombres de secciones con menos de 13 px (mínimo
+ *    exigido 12), nada de la tarjeta cortado con «…» ni fuera de ella.
  * Requisitos: playwright-core y, sin --real, npm run build hecho.
  * Conectado con: la guía de bienvenida de Blue, el buscador, Vender y Perfil en la tienda compilada (dist), la sesión
  *   de lib/supabase.ts (simulada) y pruebas/sin-fotos-reales.mjs. pruebas/todas.mjs NO la lanza.
@@ -55,6 +66,7 @@ const MOVIL = !ESCRITORIO && VW < 700; // en el móvil «Siguiente» debe quedar
 const REDUCIR = !!opciones["movimiento-reducido"];
 const EXTRA = !opciones["sin-extra"];
 const SESION = !!opciones.sesion;
+const ENVIO = !!opciones.envio;
 if (SESION && REAL) {
   console.error("FALLO --sesion es una sesión falsa: no se puede usar con --real");
   process.exit(1);
@@ -130,11 +142,24 @@ const capturar = (p, nombre) => (SALIDA ? p.screenshot({ path: join(SALIDA, `${n
 // conGuiaVista: false = visitante nuevo (la guía aún no se le ha ofrecido nunca).
 const USUARIO_FALSO = { id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated", email: "cliente@example.com", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
 
-async function contexto(navegador, { conGuiaVista = true, conSesion = SESION } = {}) {
+// Una cesta con dos artículos (misma forma que guarda la Cesta, clave videojuegoos_cart_v1) y la pasarela simulada.
+const GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAACAkQBADs=";
+const CESTA_LLENA = [
+  { id: "00000000-0000-4000-8000-0000000000e1", title: "Consola de prueba uno", subtitle: "Consola · Nuevo", priceEUR: 300, qty: 1, imageUrl: GIF },
+  { id: "00000000-0000-4000-8000-0000000000e2", title: "Mando de prueba dos", subtitle: "Accesorios", priceEUR: 50, qty: 1, imageUrl: GIF },
+];
+const PEDIDOS_FALSOS = [
+  { id: "00000000-0000-4000-8000-0000000000f1", numero: 9001, created_at: "2026-11-10T10:00:00Z", estado: "pendiente", entrega: "envio", total_eur: 350 },
+  { id: "00000000-0000-4000-8000-0000000000f2", numero: 9002, created_at: "2026-11-01T10:00:00Z", estado: "entregado", entrega: "recogida", total_eur: 40 },
+];
+
+// envio: reparación por envío activa (simulada). pago: lo que dice GET /api/pago. cesta: artículos ya en la cesta.
+async function contexto(navegador, { conGuiaVista = true, conSesion = SESION, envio = ENVIO, pago = { ok: true, disponible: true, klarna: true, bizum: true }, cesta = null } = {}) {
   const ctx = await navegador.newContext(DISPOSITIVO);
-  await ctx.addInitScript(([marcarGuia, sesion, usuario]) => {
+  await ctx.addInitScript(([marcarGuia, sesion, usuario, articulos]) => {
     try {
       if (marcarGuia) localStorage.setItem("videojuegoszaragoza:guia_vista", "1");
+      if (articulos) localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
       localStorage.setItem("videojuegoos.analytics.consent", "declined");
       if (sesion) {
         // Sesión falsa (la clave es la de lib/supabase.ts: storageKey). Nunca llega a ningún servidor.
@@ -146,7 +171,7 @@ async function contexto(navegador, { conGuiaVista = true, conSesion = SESION } =
     } catch {
       // sin almacenamiento
     }
-  }, [conGuiaVista, conSesion, USUARIO_FALSO]);
+  }, [conGuiaVista, conSesion, USUARIO_FALSO, cesta]);
   if (REAL) {
     // Tienda real: solo lecturas. Cualquier otra petición (analítica, escrituras…) se corta.
     await ctx.route("**/*", (r) => (["GET", "HEAD", "OPTIONS"].includes(r.request().method()) ? r.continue() : r.abort()));
@@ -155,10 +180,23 @@ async function contexto(navegador, { conGuiaVista = true, conSesion = SESION } =
   if (conSesion) {
     await ctx.route("**/auth/v1/user", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(USUARIO_FALSO) }));
   }
+  // La pasarela de pago (GET /api/pago): lo que el servidor ofrece (en dist no hay servidor).
+  await ctx.route("**/api/pago", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(pago) }));
   await ctx.route("**/rest/v1/**", async (r) => {
     const peticion = r.request();
     if (!["GET", "HEAD"].includes(peticion.method())) return r.abort();
     const url = new URL(peticion.url());
+    // Reparación por envío: activa o no (la guía solo la enseña si está activa).
+    if (url.pathname.endsWith("/reparacion_envio_ajustes")) {
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: 1, activo: envio, direccion_taller: "Taller de prueba", peso_aparato_kg: 2, peso_estimado: true, plazo_horas: 72 }) });
+    }
+    // Con sesión: dos pedidos FICTICIOS (así «Mis pedidos» enseña sus filtros) y la tabla de facturas existe y está vacía.
+    if (conSesion && url.pathname.endsWith("/pedidos")) {
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(PEDIDOS_FALSOS) });
+    }
+    if (conSesion && (url.pathname.endsWith("/pedido_items") || url.pathname.endsWith("/pedido_facturas") || url.pathname.endsWith("/service_requests"))) {
+      return r.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
     if (conSesion && url.pathname.endsWith("/profiles")) {
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: USUARIO_FALSO.id, role: "customer" }) });
     }
@@ -225,23 +263,55 @@ try {
 
   const TITULOS = [
     "¡Hola! Soy Blue", "Las 5 secciones", "Inicio", "Ver categorías", "Las categorías", "Filtros y orden", "Un artículo", "Vender ahora",
-    "Vender mi artículo", "Para salir", "El buscador", "Perfil", "Mis seguimientos", "Cesta", "Cómo se compra", "Las pestañas del Foro",
-    "Reacciona y responde", "Foro", "Blue IA", "Hablar con el equipo", "Este soy yo", "Instala la tienda", "Reparación y limpieza", "Tu cuenta",
+    "Vender mi artículo", "Para salir", "El buscador", "Perfil", "Mis seguimientos", "Mis pedidos", "Tus facturas", "Me gusta", "Cesta", "Cómo se compra",
+    "Las pestañas del Foro", "Reacciona y responde", "Foro", "Blue IA", "Hablar con el equipo", "Este soy yo", "Instala la tienda",
+    "Reparación y limpieza", "Reparación por envío", "Tu cuenta",
   ]; // los que contienen otro título («Las pestañas del Foro», «Foro»…) van antes: sus botones se llaman igual
-  const GESTO_TOQUE = ["Inicio", "Ver categorías", "Vender ahora", "Para salir", "Mis seguimientos", "Cesta", "Foro", "Las pestañas del Foro", "Blue IA", "Hablar con el equipo", "Este soy yo"];
+  const GESTO_TOQUE = ["Inicio", "Ver categorías", "Vender ahora", "Para salir", "Mis seguimientos", "Mis pedidos", "Tus facturas", "Me gusta", "Cesta", "Foro", "Las pestañas del Foro", "Blue IA", "Hablar con el equipo", "Este soy yo"];
   // Los pasos que enseñan OTRA página llevan la tarjeta baja (para que se vea la página); el resto, la grande.
-  const COMPACTAS = ["Filtros y orden", "Un artículo", "Vender mi artículo", "Para salir", "Perfil", "Mis seguimientos", "Cesta", "Foro", "Blue IA", "Hablar con el equipo", "Reparación y limpieza"];
+  const COMPACTAS = ["Filtros y orden", "Un artículo", "Vender mi artículo", "Para salir", "Perfil", "Mis seguimientos", "Mis pedidos", "Tus facturas", "Me gusta", "Cesta", "Foro", "Blue IA", "Hablar con el equipo", "Reparación y limpieza", "Reparación por envío"];
   const ALTO_GRANDE = 292;
   const ALTO_COMPACTA = 212;
+  const ALTO_COMPACTA_ACCION = 256; // la compacta con botón de acción («Ver mis facturas»)
   // Qué se enmarca como título de cada página («Estás aquí»): su nombre en la barra de abajo o su h1.
   const TITULO_DE = {
     "Inicio": '[data-testid="pestana-index"]', "Ver categorías": '[data-testid="pestana-index"]', "Las categorías": '[data-testid="pestana-index"]',
     "Vender ahora": '[data-testid="pestana-index"]', "Vender mi artículo": "h1", "Para salir": "h1", "El buscador": '[data-testid="pestana-index"]',
     "Perfil": '[data-testid="pestana-perfil"]', "Mis seguimientos": '[data-testid="pestana-perfil"]', "Cesta": '[data-testid="pestana-cesta"]',
+    "Mis pedidos": '[data-testid="pestana-perfil"]', "Tus facturas": '[data-testid="pestana-perfil"]', "Me gusta": '[data-testid="pestana-perfil"]',
+    "Reparación por envío": "h1",
     "Foro": '[data-testid="pestana-foro"]', "Las pestañas del Foro": '[data-testid="pestana-foro"]', "Blue IA": '[data-testid="pestana-blue-ia"]',
     "Este soy yo": '[data-testid="pestana-index"]', "Reparación y limpieza": "h1", "Filtros y orden": "h1", "Un artículo": "h1",
     "Cómo se compra": '[data-testid="pestana-cesta"]', "Reacciona y responde": '[data-testid="pestana-foro"]', "Hablar con el equipo": '[data-testid="pestana-blue-ia"]',
   };
+  // Letra y desbordes de lo que dibuja la guía: la tarjeta, el «Estás aquí» y los nombres de secciones escritos con Siri.
+  const letraYDesborde = (pagina) =>
+    pagina.evaluate(() => {
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const tarjeta = document.getElementById("guia-tarjeta");
+      const caja = tarjeta?.getBoundingClientRect();
+      const candidatos = [...document.querySelectorAll("#guia-tarjeta *, .vz-siri-texto")];
+      for (const el of document.querySelectorAll("div, span")) if (propio(el) === "Estás aquí") candidatos.push(el);
+      const chicas = [];
+      const cortados = [];
+      const fuera = [];
+      let minimo = 99;
+      let n = 0;
+      for (const el of new Set(candidatos)) {
+        const t = propio(el);
+        const r = el.getBoundingClientRect();
+        if (!t || r.width <= 0 || r.height <= 0) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily)) continue;
+        n++;
+        const fs = parseFloat(cs.fontSize);
+        minimo = Math.min(minimo, fs);
+        if (fs < 13) chicas.push(`«${t.slice(0, 24)}» ${fs}`);
+        if (cs.textOverflow === "ellipsis" && el.scrollWidth > el.clientWidth + 1) cortados.push(`«${t.slice(0, 24)}»`);
+        if (caja && tarjeta.contains(el) && (r.left < caja.left - 1 || r.right > caja.right + 1 || r.top < caja.top - 2 || r.bottom > caja.bottom + 2)) fuera.push(`«${t.slice(0, 24)}»`);
+      }
+      return { chicas, cortados, fuera, minimo: n ? minimo : 99, n };
+    });
   let referencia = null; // dónde está «Siguiente» y cuánto mide la tarjeta (en el paso 1)
   let vistos = 0;
   let titulo = "";
@@ -253,7 +323,10 @@ try {
   // «Hablar con el equipo» queda abajo, en el sitio de la tarjeta: la tarjeta se aparta de él.
   const PUEDE_MOVER_TARJETA = ["Las pestañas del Foro", "Este soy yo", "Hablar con el equipo", ...(PANTALLA_BAJA ? ["Perfil"] : [])];
 
-  for (let i = 0; i < 28; i++) {
+  // El último paso: sin sesión, «Tu cuenta»; con sesión, el último de Servicios (con --envio, «Reparación por envío»).
+  const ULTIMO = SESION ? (ENVIO ? "Reparación por envío" : "Reparación y limpieza") : "Tu cuenta";
+
+  for (let i = 0; i < 30; i++) {
     await p.waitForTimeout(1200);
     const texto = await tarjeta.innerText().catch(() => "");
     titulo = TITULOS.find((t) => texto.split("\n").some((l) => l.trim() === t)) ?? "";
@@ -269,7 +342,7 @@ try {
 
     // --- la tarjeta y «Siguiente» -------------------------------------------------------------
     // La tarjeta compacta (pasos que enseñan otra página) es más baja, pero va pegada abajo igual: «Siguiente» no se mueve.
-    const altoEsperado = COMPACTAS.includes(titulo) ? ALTO_COMPACTA : ALTO_GRANDE;
+    const altoEsperado = COMPACTAS.includes(titulo) ? (titulo === "Tus facturas" ? ALTO_COMPACTA_ACCION : ALTO_COMPACTA) : ALTO_GRANDE;
     if (titulo !== "Tu cuenta") {
       if (!referencia) referencia = { s };
       const c = centro(s);
@@ -313,6 +386,14 @@ try {
     );
     const pequenos = botones.filter((b) => Math.min(b.w, b.h) < 43.5);
     ok(botones.length > 0 && pequenos.length === 0, `${titulo}: los ${botones.length} botones de la tarjeta miden 44 px o más${pequenos.length ? " — pequeños: " + pequenos.map((b) => `${b.nombre} ${Math.round(b.w)}×${Math.round(b.h)}`).join(", ") : ""}`);
+
+    // Letra de 13 px o más (mínimo exigido 12) en la tarjeta, en «Estás aquí» y en los nombres de secciones; nada cortado ni fuera.
+    {
+      const l = await letraYDesborde(p);
+      ok(l.chicas.length === 0, `${titulo}: ningún texto de la guía con menos de 13 px (${l.n} textos mirados${l.chicas.length ? " — pequeños: " + l.chicas.join(", ") : ""})`);
+      ok(l.minimo >= 12, `${titulo}: la letra mínima de la guía es ${l.minimo} px (exigido 12 o más)`);
+      ok(l.cortados.length === 0 && l.fuera.length === 0, `${titulo}: nada de la tarjeta queda cortado ni fuera de ella${l.cortados.length ? " — cortado: " + l.cortados.join(", ") : ""}${l.fuera.length ? " — fuera: " + l.fuera.join(", ") : ""}`);
+    }
 
     // Lo señalado cabe en la pantalla y la tarjeta no lo tapa (salvo los botones flotantes, que no se pueden mover).
     let aroPaso = await rect(p.locator("#guia-aro"));
@@ -528,7 +609,7 @@ try {
         ok(await p.evaluate(() => !!document.getElementById("perfil-pestanas")), "Perfil (con sesión): se ven las pestañas «Mi cuenta» y «Mis seguimientos»");
         ok(textoPerfil.includes("Mi cuenta"), "Perfil (con sesión): la tarjeta habla de «Mi cuenta»");
       } else {
-        ok(textoPerfil.includes("entras o creas tu cuenta"), "Perfil (sin sesión): la tarjeta habla de entrar o crear la cuenta");
+        ok(textoPerfil.includes("entras o creas tu cuenta") && /pedidos y facturas/.test(textoPerfil), "Perfil (sin sesión): la tarjeta habla de entrar o crear la cuenta y de que con ella se ven pedidos y facturas");
       }
     }
 
@@ -549,6 +630,68 @@ try {
       const mano = await rect(manos);
       ok(!!pestana && !!mano && Math.abs(centro(mano).x - centro(pestana).x) < 60 && Math.abs(centro(mano).y - centro(pestana).y) < 60,
         `Mis seguimientos: el puntero apunta a la pestaña (puntero ${mano ? Math.round(centro(mano).x) + "," + Math.round(centro(mano).y) : "—"}, pestaña ${pestana ? Math.round(centro(pestana).x) + "," + Math.round(centro(pestana).y) : "—"})`);
+    }
+
+    // El elemento visible de la página (la de Perfil existe dos veces en el documento, una oculta de 0×0).
+    const visible = (selector) =>
+      p.evaluate((s) => {
+        const r = Array.from(document.querySelectorAll(s)).map((e) => e.getBoundingClientRect()).find((b) => b.width > 4 && b.height > 4);
+        return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+      }, selector);
+    const rodea = (aro, b) => !!aro && !!b && aro.x <= b.x + 2 && aro.y <= b.y + 2 && aro.x + aro.width >= b.x + b.width - 2 && aro.y + aro.height >= b.y + b.height - 2;
+    // Espera (hasta 5 s) a que el recuadro rodee lo que debe: la lista de pedidos tarda en cargar y el recuadro la sigue.
+    const esperarRodea = async (selector) => {
+      let b = null;
+      let aro = null;
+      for (let k = 0; k < 14; k++) {
+        b = await visible(selector);
+        aro = await rect(p.locator("#guia-aro"));
+        if (rodea(aro, b)) break;
+        await p.waitForTimeout(400);
+      }
+      return { b, aro, bien: rodea(aro, b) };
+    };
+
+    if (titulo === "Mis pedidos") {
+      ok(SESION, "Mis pedidos: solo se enseña con sesión iniciada");
+      const f = await esperarRodea("#seguimiento-filtros");
+      ok(f.bien, `Mis pedidos: el recuadro rodea los filtros de «Mis pedidos» (filtros ${f.b ? Math.round(f.b.x) + "," + Math.round(f.b.y) + " " + Math.round(f.b.width) + "×" + Math.round(f.b.height) : "—"})`);
+      const textoFiltros = await p.evaluate(() => Array.from(document.querySelectorAll("#seguimiento-filtros")).map((e) => e.innerText).join(" "));
+      ok(["Todos", "En curso", "Completados", "Cancelados"].every((n) => textoFiltros.includes(n)), `Mis pedidos: se ven los filtros Todos, En curso, Completados y Cancelados (${textoFiltros.replace(/\s+/g, " ").trim()})`);
+      ok(/Filtra tus pedidos/.test(await tarjeta.innerText()), "Mis pedidos: la tarjeta lo explica en una frase");
+      await capturar(p, "12a-mis-pedidos");
+    }
+
+    if (titulo === "Tus facturas") {
+      ok(SESION, "Tus facturas: solo se enseña con sesión iniciada");
+      const f = await esperarRodea("#seguimiento-filtro-facturas");
+      ok(f.bien, `Tus facturas: el recuadro rodea el filtro «Facturas» (filtro ${f.b ? Math.round(f.b.x) + "," + Math.round(f.b.y) + " " + Math.round(f.b.width) + "×" + Math.round(f.b.height) : "—"})`);
+      const t = await tarjeta.innerText();
+      ok(/Mis pedidos → Facturas/.test(t) && /24 h/.test(t) && /24-48 h/.test(t), `Tus facturas: dice dónde están y el plazo (24 h con tarjeta, 24-48 h en efectivo)`);
+      ok((await tarjeta.getByRole("button", { name: /Ver mis facturas/ }).count()) === 1, "Tus facturas: la tarjeta tiene el botón «Ver mis facturas»");
+      await capturar(p, "12b-tus-facturas");
+    }
+
+    if (titulo === "Me gusta") {
+      ok(SESION, "Me gusta: solo se enseña con sesión iniciada");
+      const visto = await p.waitForFunction(() => Array.from(document.querySelectorAll("#perfil-me-gusta")).some((e) => e.getBoundingClientRect().width > 4), null, { timeout: 8000 }).then(() => true, () => false);
+      ok(visto, "Me gusta: la guía pulsa la pestaña y se ve su contenido");
+      const pestana = await p.evaluate(() => {
+        const r = Array.from(document.querySelectorAll("#perfil-pestanas *"))
+          .filter((n) => n.children.length === 0 && n.textContent.trim() === "Me gusta")
+          .map((n) => n.getBoundingClientRect())
+          .find((b) => b.width > 4);
+        return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+      });
+      const mano = await rect(manos);
+      ok(!!pestana && !!mano && Math.abs(centro(mano).x - centro(pestana).x) < 60 && Math.abs(centro(mano).y - centro(pestana).y) < 60, "Me gusta: el puntero apunta a la pestaña «Me gusta»");
+      await capturar(p, "12c-me-gusta");
+    }
+
+    if (titulo === "Reparación por envío") {
+      ok(ENVIO, "Reparación por envío: solo sale si la reparación por envío está activa");
+      ok(/Correos/.test(await tarjeta.innerText()) && /Mis seguimientos/.test(await tarjeta.innerText()), "Reparación por envío: la tarjeta cuenta lo de Correos, la etiqueta y Mis seguimientos");
+      await capturar(p, "18c-reparacion-envio");
     }
 
     if (titulo === "Las pestañas del Foro") {
@@ -610,8 +753,9 @@ try {
 
     if (titulo === "Cómo se compra") {
       const textoCompra = await tarjeta.innerText();
-      ok(["Añadir", "Reserva", "Entrega", "Pagas", "Hablamos"].every((n) => textoCompra.includes(n)), "Cómo se compra: la tarjeta enseña con iconos los pasos de una compra");
-      ok(/pagas online o confirmas/.test(textoCompra) && !/Sin pago online/.test(textoCompra), "Cómo se compra: dice que se paga online o se confirma sin pagar");
+      ok(["Añadir", "Reserva", "Entrega", "Pagas", "Chat"].every((n) => textoCompra.includes(n)), "Cómo se compra: la tarjeta enseña con iconos los pasos de una compra");
+      // Las formas de pago salen de /api/pago (simulado con tarjeta, Bizum y Klarna): solo se nombran las que ofrece el servidor.
+      ok(REAL || (/Pago seguro online \(tarjeta, Bizum y Klarna\)/.test(textoCompra) && /otras formas de pago/.test(textoCompra)), `Cómo se compra: dice pago seguro online (tarjeta, Bizum y Klarna) y otras formas de pago («${textoCompra.replace(/\n/g, " | ").slice(0, 150)}»)`);
       ok((await p.locator("#guia-aro").count()) === 0 && /\/cesta/.test(p.url()), "Cómo se compra: se ve la cesta entera (no se oscurece)");
     }
 
@@ -660,14 +804,13 @@ try {
     ok(anchos.pagina <= anchos.pantalla + 1, `${titulo}: la página no se ensancha (${anchos.pagina}/${anchos.pantalla})`);
 
     // Sin sesión la guía acaba en «Tu cuenta»; con sesión (no se ofrece crear cuenta) en «Reparación y limpieza».
-    if (titulo === "Tu cuenta" || (SESION && titulo === "Reparación y limpieza")) break;
+    if (titulo === "Tu cuenta" || (SESION && titulo === ULTIMO)) break;
     // «Vender ahora» pasa solo al formulario: no hay que tocar nada (si se tocara, se saltaría «Vender mi artículo»).
     if (titulo === "Vender ahora") continue;
     if (!(await siguiente.count())) break;
     await siguiente.tap();
   }
 
-  const ULTIMO = SESION ? "Reparación y limpieza" : "Tu cuenta";
   // 22 pasos (23 si se puede instalar la tienda), con o sin sesión; uno menos si la tienda no tiene ningún artículo.
   ok(vistos >= 21, `se recorren ${vistos} pasos de la guía (22 o 23 según se pueda instalar la tienda; con o sin sesión)`);
   ok(titulo === ULTIMO, `el último paso es «${ULTIMO}»`);
@@ -719,7 +862,7 @@ try {
       await sig.tap();
     }
     const etiqueta = await q.locator('[aria-label^="Paso "][aria-label*=" de "]').first().getAttribute("aria-label").catch(() => null);
-    ok(/^Paso 1[12] de 2[123]$/.test(etiqueta ?? ""), `Atrás: en «Perfil» el contador dice «${etiqueta}» (paso 12 de 22)`);
+    ok(/^Paso 1[12] de (2[1-9])$/.test(etiqueta ?? ""), `Atrás: en «Perfil» el contador dice «${etiqueta}» (paso 12; de 22 o 23 pasos sin sesión, con más con sesión o con reparación por envío)`);
     const vuelta = [];
     let seQuedaEnVender = true;
     for (let i = 0; i < 22; i++) {
@@ -847,6 +990,154 @@ try {
     ok(alLlegarAInicio && new URL(f.url()).pathname === "/", `Visitante nuevo: al llegar a Inicio se le ofrece la guía que quedó pendiente (ruta ${new URL(f.url()).pathname})`);
     await directo.close();
   }
+  // --- Guía completa al día (2026-11-13): reparación por envío, cesta con «Ir a pagar», formas de pago, facturas, ficha estable -----
+  // Avanza con «Siguiente» hasta el paso con ese título (sin pasarse de «Tu cuenta»). «Vender ahora» pasa solo al formulario.
+  const avanzarHasta = async (pagina, objetivo, tope = 30) => {
+    const sig = pagina.locator('[aria-label="Paso siguiente"]');
+    for (let i = 0; i < tope; i++) {
+      await pagina.waitForTimeout(650);
+      const t = await tituloActual(pagina);
+      if (t === objetivo) return true;
+      if (t === "Tu cuenta") return false;
+      if (t === "Vender ahora") {
+        await pagina.waitForFunction(() => location.pathname.startsWith("/vender"), null, { timeout: 12000 }).catch(() => {});
+        continue;
+      }
+      // Con sesión el último paso termina la guía («Terminar»): si ya no hay tarjeta, no hay más pasos.
+      if (!(await sig.count())) return false;
+      await sig.tap();
+    }
+    return false;
+  };
+
+  // La reparación por envío ACTIVA (simulada): sale «Reparación por envío» en Servicios; INACTIVA: la guía ni la nombra.
+  {
+    const c = await contexto(navegador, { conGuiaVista: true, envio: true });
+    const q = await abrirGuia(c);
+    const llego = await avanzarHasta(q, "Reparación por envío");
+    ok(llego, "Reparación por envío activa: la guía enseña el paso «Reparación por envío»");
+    if (llego) {
+      await q.waitForTimeout(1200);
+      const t = await q.locator("#guia-tarjeta").innerText();
+      ok(/Correos/.test(t) && /etiqueta/.test(t) && /presupuesto/.test(t) && /Mis seguimientos/.test(t), `Reparación por envío activa: la tarjeta cuenta Correos, etiqueta, presupuesto y Mis seguimientos («${t.replace(/\n/g, " | ").slice(0, 140)}»)`);
+      ok(/\/servicios/.test(q.url()), `Reparación por envío activa: se enseña en la página de servicios (${new URL(q.url()).pathname})`);
+      ok(((await tituloActual(q)) === "Reparación por envío") && (await letraYDesborde(q)).chicas.length === 0, "Reparación por envío activa: sin letra de menos de 13 px");
+      await capturar(q, "22-reparacion-envio");
+    }
+    ok(q.errores.length === 0, `Reparación por envío activa: sin errores de JavaScript (${q.errores.length})`);
+    await c.close();
+  }
+  if (ENVIO) {
+    const c = await contexto(navegador, { conGuiaVista: true, envio: false });
+    const q = await abrirGuia(c);
+    const llego = await avanzarHasta(q, "Reparación por envío");
+    ok(!llego, "Reparación por envío inactiva: la guía no la menciona (no sale el paso)");
+    await c.close();
+  }
+
+  // La cesta con artículos: se señala «Ir a pagar»; «Cómo se compra» nombra solo las formas de pago que ofrece /api/pago.
+  for (const [nombre, pago, esperado, prohibido] of [
+    ["tarjeta, Bizum y Klarna", { ok: true, disponible: true, klarna: true, bizum: true }, /Pago seguro online \(tarjeta, Bizum y Klarna\) u otras formas de pago/, null],
+    ["solo tarjeta y Bizum", { ok: true, disponible: true, klarna: false, bizum: true }, /Pago seguro online \(tarjeta y Bizum\) u otras formas de pago/, /Klarna/],
+    ["sin pago online en el servidor", { ok: true, disponible: false, klarna: false, bizum: false }, /confirmas el pedido y te hablamos/, /Bizum|Klarna|tarjeta/],
+  ]) {
+    const c = await contexto(navegador, { conGuiaVista: true, conSesion: false, cesta: CESTA_LLENA, pago });
+    const q = await abrirGuia(c);
+    const llego = await avanzarHasta(q, "Cesta");
+    ok(llego, `Cesta con artículos (${nombre}): la guía llega al paso «Cesta»`);
+    if (llego) {
+      await q.locator("#cesta-pagar").first().waitFor({ timeout: 20000 }).catch(() => {});
+      await q.waitForTimeout(1800);
+      if (nombre === "tarjeta, Bizum y Klarna") {
+        const tj = await rect(q.locator("#guia-tarjeta"));
+        const sg = await rect(q.locator('[aria-label="Paso siguiente"]'));
+        const pagar = await q.evaluate(() => {
+          // (el nativeID cesta-pagar está en el contenido del botón: el botón entero es su padre)
+          const r = Array.from(document.querySelectorAll("div:has(> #cesta-pagar)")).map((e) => e.getBoundingClientRect()).find((b) => b.width > 4 && b.height > 4);
+          return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+        });
+        const aro = await rect(q.locator("#guia-aro"));
+        ok(!!pagar && !!aro && aro.x <= pagar.x + 2 && aro.y <= pagar.y + 2 && aro.x + aro.width >= pagar.x + pagar.width - 2 && aro.y + aro.height >= pagar.y + pagar.height - 2,
+          `Cesta con artículos: el recuadro rodea «Ir a pagar» (botón ${pagar ? Math.round(pagar.x) + "," + Math.round(pagar.y) + " " + Math.round(pagar.width) + "×" + Math.round(pagar.height) : "—"}, recuadro ${aro ? Math.round(aro.x) + "," + Math.round(aro.y) + " " + Math.round(aro.width) + "×" + Math.round(aro.height) : "—"})`);
+        ok(!!aro && !!tj && !(aro.x < tj.x + tj.width && aro.x + aro.width > tj.x && aro.y < tj.y + tj.height - 4 && aro.y + aro.height > tj.y + 4), "Cesta con artículos: la tarjeta no tapa «Ir a pagar»");
+        ok(/Ir a pagar/.test(await q.locator("#guia-tarjeta").innerText()), "Cesta con artículos: la tarjeta nombra «Ir a pagar»");
+        ok((await q.locator('[data-testid="guia-toque"]').count()) >= 1, "Cesta con artículos: un icono de toque enseña «Ir a pagar»");
+        ok(!!sg && sg.y / VH > 0.3 && sg.y + sg.height <= VH, `Cesta con artículos: «Siguiente» sigue a mano (y ${Math.round(sg?.y ?? 0)} de ${VH})`);
+        const l = await letraYDesborde(q);
+        ok(l.chicas.length === 0 && l.cortados.length === 0 && l.fuera.length === 0, `Cesta con artículos: letra de 13 px o más y nada cortado (${l.chicas.concat(l.cortados, l.fuera).join(", ")})`);
+        await capturar(q, "15-cesta-ir-a-pagar");
+      }
+      await q.locator('[aria-label="Paso siguiente"]').tap();
+      await q.waitForTimeout(1500);
+      const t = await q.locator("#guia-tarjeta").innerText();
+      ok((await tituloActual(q)) === "Cómo se compra" && esperado.test(t) && !(prohibido && prohibido.test(t)), `Cómo se compra (${nombre}): «${t.replace(/\n/g, " | ").slice(0, 150)}»`);
+      if (nombre === "tarjeta, Bizum y Klarna") await capturar(q, "15b-como-se-compra");
+    }
+    ok(q.errores.length === 0, `Cesta con artículos (${nombre}): sin errores de JavaScript (${q.errores.length})`);
+    await c.close();
+  }
+
+  // «Ver mis facturas» (con sesión): cierra la guía y lleva a Mis pedidos con el filtro «Facturas» ya puesto.
+  if (SESION) {
+    const q = await abrirGuia(ctx);
+    const llego = await avanzarHasta(q, "Tus facturas");
+    ok(llego, "Ver mis facturas: la guía llega al paso «Tus facturas»");
+    if (llego) {
+      await q.getByRole("button", { name: /Ver mis facturas/ }).tap();
+      await q.locator("#guia-tarjeta").waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
+      await q.waitForFunction(() => /filtro=facturas/.test(location.search), null, { timeout: 8000 }).catch(() => {});
+      ok((await q.locator("#guia-tarjeta").count()) === 0 && /tab=seguimientos/.test(q.url()) && /filtro=facturas/.test(q.url()), `Ver mis facturas: cierra la guía y lleva a ${new URL(q.url()).pathname}${new URL(q.url()).search}`);
+      const elegido = await q.waitForFunction(
+        () => Array.from(document.querySelectorAll("#seguimiento-filtro-facturas")).some((e) => e.getBoundingClientRect().width > 4 && e.getAttribute("aria-selected") === "true"),
+        null,
+        { timeout: 8000 }
+      ).then(() => true, () => false);
+      ok(elegido, "Ver mis facturas: el filtro «Facturas» queda elegido");
+      await capturar(q, "12d-ver-mis-facturas");
+    }
+    await q.close();
+  }
+
+  // «Un artículo»: «Siguiente» queda en su sitio 3 veces seguidas, también MIENTRAS la ficha se desplaza hasta los botones.
+  {
+    let enLaFicha = 0;
+    // (sin sesión: con la sesión simulada el token es falso y la tienda real no devuelve el artículo más reciente)
+    const sinSesion = await contexto(navegador, { conGuiaVista: true, conSesion: false });
+    for (let v = 1; v <= 3; v++) {
+      const q = await abrirGuia(sinSesion);
+      const sig = q.locator('[aria-label="Paso siguiente"]');
+      const refY = (await rect(sig))?.y ?? 0;
+      let llegado = false;
+      for (let i = 0; i < 12; i++) {
+        await q.waitForTimeout(900);
+        const t = await tituloActual(q);
+        if (t === "Un artículo") {
+          llegado = true;
+          break;
+        }
+        if (t === "Vender ahora") break; // la tienda no tiene artículos que enseñar
+        await sig.tap();
+      }
+      if (!llegado) {
+        info(`Un artículo (vez ${v}): la tienda no tiene artículos que enseñar, no hay ficha que medir`);
+        await q.close();
+        continue;
+      }
+      enLaFicha++;
+      const ys = [];
+      for (let k = 0; k < 40; k++) {
+        ys.push(Math.round((await rect(sig))?.y ?? 0));
+        await q.waitForTimeout(100);
+      }
+      const peor = Math.max(...ys.map((y) => Math.abs(y - refY)));
+      ok(peor < 2, `Un artículo (vez ${v} de 3): «Siguiente» no se mueve de su sitio (y ${refY}) durante 4 s de desplazamiento y después (desvío máximo ${peor} px; y ${[...new Set(ys)].join(", ")})`);
+      if (v === 1) await capturar(q, "07c-ficha-estable");
+      await q.close();
+    }
+    info(`Un artículo: medido en ${enLaFicha} de 3 vueltas`);
+    await sinSesion.close();
+  }
+
   await ctx.close();
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

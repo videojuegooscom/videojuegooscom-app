@@ -25,6 +25,13 @@
  *   altura del pulgar derecho (lo señalado se desplaza hacia arriba para no quedar tapado).
  *   Al final ayuda a crear cuenta o a iniciar sesión (/perfil?acceso=registro|entrar).
  *   Se puede repetir desde el panel de Blue. Se prueba entera con pruebas/guia-blue.mjs.
+ *   AL DÍA (dueño, 2026-11-13, «guía completa»): con sesión, Perfil enseña también «Mis pedidos» (los filtros Todos / En curso /
+ *   Completados / Cancelados / Facturas), «Tus facturas» (acción «Ver mis facturas» → /perfil?tab=seguimientos&filtro=facturas,
+ *   plazo 24 h con tarjeta y 24-48 h en efectivo, la regla de api/blue-ia.ts) y «Me gusta»; Servicios añade «Reparación por
+ *   envío» SOLO si reparacion_envio_ajustes.activo (lib/envio.ts; si no, no se menciona); en la Cesta, con artículos, se señala
+ *   «Ir a pagar» (nativeID cesta-pagar) y «Cómo se compra» nombra solo las formas de pago que ofrece GET /api/pago (tarjeta,
+ *   Bizum, Klarna), como el checkout. La letra de la guía es de 13 px como mínimo (TAMANOS.minimo) y, en los pasos que se
+ *   desplazan (la ficha), la tarjeta no se coloca hasta que el recuadro se ha asentado (dos fotogramas sin cambio).
  *   MINI-GUÍAS: el panel de Blue (pestaña Asistente) tiene una fila «Guías rápidas» con Inicio, Catálogo,
  *   Artículo, Vender, Perfil, Cesta, Foro, Blue IA y Servicios (la de la pantalla actual, resaltada): la
  *   misma guía, pero solo con los pasos de ESA pantalla (campo `seccion` de cada paso). Si es otra pantalla
@@ -167,7 +174,8 @@ import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
 import { MejorasModal } from "./ReviewModal";
-import { CAMPO, COLORES_TEXTO } from "../constants/theme";
+import { CAMPO, COLORES_TEXTO, TAMANOS } from "../constants/theme";
+import { cargarAjustesReparacionEnvio } from "../lib/envio";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -3311,6 +3319,8 @@ type DemoGuia =
   | "salir-formulario" // se señala cómo salir del formulario
   | "perfil-cuenta" // en Perfil con sesión, se pone la pestaña «Mi cuenta»
   | "perfil-seguimientos" // en Perfil con sesión, la guía pulsa la pestaña «Mis seguimientos» y se ve su contenido
+  | "perfil-pedidos" // en Perfil con sesión, la guía deja puesta «Mis seguimientos» para enseñar los filtros de Mis pedidos
+  | "perfil-megusta" // en Perfil con sesión, la guía pulsa la pestaña «Me gusta»
   | "foro-pestanas" // la guía despliega el selector del Foro y enseña cada pestaña, una por una
   | "foro-chat" // la guía abre la pestaña «Foro» (los mensajes) y la tarjeta enseña cómo reaccionar y responder
   | "capacidades" // lo que Blue sabe hacer (iconos en la tarjeta)
@@ -3319,13 +3329,29 @@ type DemoGuia =
 // Pantallas que tienen mini-guía (botón «Guía rápida» en el panel de Blue): cada una enseña solo los pasos de ESA pantalla.
 type SeccionGuia = "inicio" | "catalogo" | "producto" | "vender" | "perfil" | "cesta" | "foro" | "blue-ia" | "servicios";
 
+// Formas de pago online que ofrece el servidor (GET /api/pago, como el checkout). null = no se sabe: no se promete ninguna.
+type PagoOnlineGuia = { disponible: boolean; klarna: boolean; bizum: boolean };
+// Lo que el texto de un paso puede necesitar saber además de la sesión.
+type ContextoTextoGuia = { pagarVisible: boolean; pago: PagoOnlineGuia | null };
+
+// «tarjeta», «tarjeta y Bizum» o «tarjeta, Bizum y Klarna»: solo lo que el servidor ofrece.
+function formasDePagoOnline(p: PagoOnlineGuia | null): string | null {
+  if (!p?.disponible) return null;
+  const f = ["tarjeta", ...(p.bizum ? ["Bizum"] : []), ...(p.klarna ? ["Klarna"] : [])];
+  return f.length === 1 ? f[0] : `${f.slice(0, -1).join(", ")} y ${f[f.length - 1]}`;
+}
+
 type PasoGuia = {
   icono: React.ComponentProps<typeof Ionicons>["name"];
   titulo: string;
   // Mini-guía a la que pertenece el paso (la pantalla donde se enseña). Sin ella, solo sale en la guía completa.
   seccion?: SeccionGuia;
-  texto: string | ((conSesion: boolean) => string);
+  texto: string | ((conSesion: boolean, ctx: ContextoTextoGuia) => string);
   objetivo?: string[];
+  // Si no se encuentra nada de lo de «objetivo» en pantalla, se señala esto (p. ej. «Ir a pagar» con la cesta vacía → la pestaña).
+  alternativa?: string[];
+  // Solo se enseña si la reparación por envío está activa (reparacion_envio_ajustes.activo); si no, ni se menciona.
+  soloConEnvio?: boolean;
   // Tarjeta baja (sin la mascota): deja ver la página que se enseña (el formulario, Perfil, Servicios…).
   compacta?: boolean;
   // No enmarca el título de la página (primer paso, instalar y cuenta no hablan de ninguna página).
@@ -3360,6 +3386,8 @@ type PasoGuia = {
 };
 
 const PESTANAS = ["index", "perfil", "cesta", "foro", "blue-ia"].map((p) => `[data-testid="pestana-${p}"]`);
+// El botón «Ir a pagar» entero: su nativeID (cesta-pagar) está en el contenido, así que se señala el botón que lo contiene.
+const BOTON_IR_A_PAGAR = "div:has(> #cesta-pagar)";
 
 const PASOS_GUIA: PasoGuia[] = [
   {
@@ -3475,7 +3503,8 @@ const PASOS_GUIA: PasoGuia[] = [
     titulo: "Perfil",
     seccion: "perfil",
     // Con sesión se enseña la pestaña «Mi cuenta» (y en el paso siguiente «Mis seguimientos»); sin sesión, el acceso.
-    texto: (conSesion) => (conSesion ? "«Mi cuenta»: tu perfil y tu sesión." : "Aquí entras o creas tu cuenta."),
+    // Sin sesión se cuenta que con cuenta se ven los pedidos, las facturas y los «Me gusta».
+    texto: (conSesion) => (conSesion ? "«Mi cuenta»: tu perfil y tu sesión." : "Aquí entras o creas tu cuenta y ves tus pedidos y facturas."),
     objetivo: ["#perfil-pestanas", "#perfil-acceso"],
     ruta: "/perfil",
     demo: "perfil-cuenta",
@@ -3494,11 +3523,56 @@ const PASOS_GUIA: PasoGuia[] = [
     compacta: true,
   },
   {
+    icono: "albums-outline",
+    titulo: "Mis pedidos",
+    seccion: "perfil",
+    // perfil.tsx (FiltrosPedidos, nativeID «seguimiento-filtros»): Todos, En curso, Completados, Cancelados y, si ya hay
+    // facturas, Facturas. Sin pedidos no hay filtros: se señalan las pestañas.
+    texto: "Filtra tus pedidos por su estado.",
+    objetivo: ["#seguimiento-filtros"],
+    alternativa: ["#perfil-pestanas"],
+    ruta: "/perfil",
+    gesto: "toque",
+    demo: "perfil-pedidos",
+    soloConSesion: true,
+    compacta: true,
+  },
+  {
+    icono: "document-text-outline",
+    titulo: "Tus facturas",
+    seccion: "perfil",
+    // Plazos: la regla del dueño del 2026-11-11 (api/blue-ia.ts, «PLAZO DE LA FACTURA»): 24 h con tarjeta, 24-48 h en
+    // efectivo u otra forma. «Descargar factura» sale en cada pedido cuando ya está.
+    texto: "Tus facturas, en Mis pedidos → Facturas. Tarjeta 24 h, efectivo 24-48 h.",
+    objetivo: ["#seguimiento-filtro-facturas"],
+    alternativa: ["#seguimiento-filtros", "#perfil-pestanas"],
+    ruta: "/perfil",
+    gesto: "toque",
+    demo: "perfil-pedidos",
+    accion: { texto: "Ver mis facturas", ruta: "/perfil?tab=seguimientos&filtro=facturas" },
+    soloConSesion: true,
+    compacta: true,
+  },
+  {
+    icono: "heart-outline",
+    titulo: "Me gusta",
+    seccion: "perfil",
+    texto: "Tus artículos y servicios favoritos.",
+    objetivo: ["#perfil-pestanas"],
+    ruta: "/perfil",
+    gesto: "toque",
+    demo: "perfil-megusta",
+    soloConSesion: true,
+    compacta: true,
+  },
+  {
     icono: "bag-handle-outline",
     titulo: "Cesta",
     seccion: "cesta",
-    texto: "Te reservamos cada artículo 15 minutos.",
-    objetivo: [PESTANAS[2]],
+    // Con artículos se señala «Ir a pagar» (nativeID cesta-pagar de app/(tabs)/cesta.tsx); con la cesta vacía, la pestaña.
+    texto: (_s, ctx) => (ctx.pagarVisible ? "Reservado 15 minutos. Toca «Ir a pagar»." : "Te reservamos cada artículo 15 minutos."),
+    objetivo: [BOTON_IR_A_PAGAR],
+    alternativa: [PESTANAS[2]],
     ruta: "/cesta",
     gesto: "toque",
     compacta: true,
@@ -3507,10 +3581,13 @@ const PASOS_GUIA: PasoGuia[] = [
     icono: "receipt-outline",
     titulo: "Cómo se compra",
     seccion: "cesta",
-    // Verificado en app/checkout.tsx: se elige envío o entrega en mano, se paga online (tarjeta y, si la página de pago
-    // los ofrece, Bizum o Klarna) o se confirma sin pagar, y se habla por el chat. El texto no nombra formas de pago a
-    // propósito: así nunca promete Bizum o Klarna cuando no están.
-    texto: "Reservas, pagas online o confirmas y te hablamos.",
+    // Verificado en app/checkout.tsx: se elige envío o entrega en mano, se paga online o se confirma sin pagar («Otras formas
+    // de pago») y se habla por el chat. Las formas de pago online las dice GET /api/pago (la misma consulta que el checkout:
+    // tarjeta, Bizum y Klarna solo si el servidor las ofrece); si no se sabe, el texto no promete ninguna.
+    texto: (_s, ctx) => {
+      const formas = formasDePagoOnline(ctx.pago);
+      return formas ? `Pago seguro online (${formas}) u otras formas de pago.` : "Reservas, confirmas el pedido y te hablamos por el chat.";
+    },
     ruta: "/cesta",
     demo: "como-se-compra",
     sinOscurecer: true,
@@ -3598,6 +3675,20 @@ const PASOS_GUIA: PasoGuia[] = [
     limiteAlto: 130, // el primer servicio es una tarjeta alta: se enmarca su parte de arriba
   },
   {
+    icono: "mail-outline",
+    titulo: "Reparación por envío",
+    seccion: "servicios",
+    // Reparación por envío (lib/envio.ts, ajustes activos): se manda el aparato por Correos con una etiqueta, llega el
+    // presupuesto y se sigue en «Mis seguimientos». Solo se enseña si la tienda la tiene activa.
+    texto: "¿Lejos? Nos lo mandas por Correos: etiqueta, presupuesto y lo sigues en Mis seguimientos.",
+    objetivo: ["#servicios-lista"],
+    ruta: "/servicios",
+    soloConEnvio: true,
+    compacta: true,
+    sinOscurecer: true,
+    limiteAlto: 130,
+  },
+  {
     icono: "person-circle-outline",
     titulo: "Tu cuenta",
     texto: "Guarda tus chats y pedidos. Con tu cuenta, Blue te avisa de bajadas de precio y artículos nuevos.",
@@ -3660,7 +3751,13 @@ function medirObjetivo(selectores?: string[]): Caja | null {
   let x2 = -Infinity;
   let y2 = -Infinity;
   for (const sel of selectores) {
-    for (const el of Array.from(document.querySelectorAll(sel))) {
+    let encontrados: Element[] = [];
+    try {
+      encontrados = Array.from(document.querySelectorAll(sel));
+    } catch {
+      // un selector que este navegador no entiende (p. ej. «:has» en uno muy antiguo): sin recuadro, no se rompe la guía
+    }
+    for (const el of encontrados) {
       const r = el.getBoundingClientRect();
       // Solo lo que se ve (las pantallas de otras pestañas también existen, ocultas).
       if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > window.innerHeight) continue;
@@ -3875,12 +3972,13 @@ function NombresSeccionesSiri({ pathname, elegida }: { pathname: string; elegida
             key={SECCIONES_GUIA[i].id}
             pointerEvents="none"
             // Un parche blanco tapa el nombre de siempre y encima se escribe el nuevo.
-            style={{ position: "absolute", left: c.x - 3, top: c.y - 1, width: c.w + 6, height: c.h + 2, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}
+            // (13 px de letra: el parche es al menos de 17 px de alto, centrado sobre el nombre de siempre)
+            style={{ position: "absolute", left: c.x - 3, top: c.y - 1 - Math.max(0, (17 - (c.h + 2)) / 2), width: c.w + 6, height: Math.max(c.h + 2, 17), backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }}
           >
             <TextoSiri
               texto={SECCIONES_GUIA[i].nombre.slice(0, escritas[i])}
               cursor={activa === i && escritas[i] < SECCIONES_GUIA[i].nombre.length}
-              style={{ fontSize: 11, lineHeight: 13, fontWeight: "800" }}
+              style={{ fontSize: TAMANOS.minimo, lineHeight: 15, fontWeight: "800" }}
             />
           </View>
         ) : null
@@ -4049,7 +4147,12 @@ function ChipsForo({ activa, onElegir }: { activa: number; onElegir: (i: number)
           accessibilityRole="button"
           accessibilityLabel={`Ver ${t.nombre}`}
           style={({ pressed }) => ({
-            flex: 1,
+            // Cada chip mide lo que su nombre (con 13 px de letra «Novedades» no cabe en un quinto del ancho) y se reparten
+            // lo que sobra; 44 px de ancho como mínimo para el dedo.
+            flexGrow: 1,
+            flexShrink: 1,
+            flexBasis: "auto",
+            minWidth: 44,
             minHeight: 44,
             borderRadius: 999,
             borderWidth: 1.5,
@@ -4061,7 +4164,7 @@ function ChipsForo({ activa, onElegir }: { activa: number; onElegir: (i: number)
             opacity: pressed ? 0.8 : 1,
           })}
         >
-          <Text numberOfLines={1} style={{ color: i === activa ? "#FFFFFF" : COLORS.text, fontWeight: "900", fontSize: 11.5 }}>
+          <Text numberOfLines={1} style={{ color: i === activa ? "#FFFFFF" : COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
             {t.corto}
           </Text>
         </Pressable>
@@ -4089,7 +4192,7 @@ const PASOS_DE_COMPRA: ItemIcono[] = [
   { icono: "time-outline", texto: "Reserva" },
   { icono: "car-outline", texto: "Entrega" },
   { icono: "card-outline", texto: "Pagas" },
-  { icono: "chatbubbles-outline", texto: "Hablamos" },
+  { icono: "chatbubbles-outline", texto: "Chat" },
 ];
 // Gestos de los mensajes del Foro (chat-global.tsx).
 const GESTOS_DEL_FORO: ItemIcono[] = [
@@ -4106,9 +4209,9 @@ function FilaIconos({ items }: { items: ItemIcono[] }) {
     return () => clearInterval(t);
   }, [items.length]);
   return (
-    <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", alignItems: "flex-start" }}>
+    <View style={{ flexDirection: "row", gap: 2, justifyContent: "center", alignItems: "flex-start" }}>
       {items.map((c, i) => (
-        <View key={c.texto} style={{ width: 56, alignItems: "center", gap: 3 }}>
+        <View key={c.texto} style={{ width: 58, alignItems: "center", gap: 3 }}>
           <View
             style={{
               width: 38,
@@ -4121,7 +4224,9 @@ function FilaIconos({ items }: { items: ItemIcono[] }) {
           >
             <Ionicons name={c.icono} size={20} color={i === activa ? "#FFFFFF" : COLORS.accent} />
           </View>
-          <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 11 }}>{c.texto}</Text>
+          <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
+            {c.texto}
+          </Text>
         </View>
       ))}
     </View>
@@ -4133,6 +4238,8 @@ function FilaIconos({ items }: { items: ItemIcono[] }) {
 // Perfil, Servicios…) es 80 px más baja para dejar ver la página. Las dos pegadas abajo: «Siguiente» no se mueve.
 const ALTO_TARJETA = 292;
 const ALTO_COMPACTA = 212;
+// La compacta con un botón de acción («Ver mis facturas», 44 px) es 44 px más alta: sigue más baja que la grande.
+const ALTO_COMPACTA_ACCION = 256;
 
 // Dónde empieza la tarjeta de la guía cuando no tiene que apartarse (la misma cuenta que hace GuiaBlue más abajo).
 const arribaTarjeta = (alto: number) => alto - (Math.round(alto * 0.15) + (Platform.OS === "ios" ? 8 : 0)) - ALTO_TARJETA;
@@ -4180,13 +4287,48 @@ function GuiaBlue({
       vivo = false;
     };
   }, []);
+  // ¿Está activa la reparación por envío? (la tienda lo lee como siempre; sin sesión, sin la migración o si falla: no, y
+  // entonces la guía ni la menciona.)
+  const [envioActivo, setEnvioActivo] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    cargarAjustesReparacionEnvio().then(
+      (a) => vivo && setEnvioActivo(!!a?.activo),
+      () => {}
+    );
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  // Formas de pago online que ofrece el servidor (la misma consulta GET /api/pago que el checkout): «Cómo se compra» solo
+  // nombra las que existen. null = aún no se sabe o no hay servidor (dist estático): texto sin formas concretas.
+  const [pagoOnline, setPagoOnline] = useState<PagoOnlineGuia | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let vivo = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        const r = await fetch("/api/pago", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        const d = (await r.json().catch(() => null)) as { ok?: boolean; disponible?: boolean; klarna?: boolean; bizum?: boolean } | null;
+        if (vivo && r.ok && d?.ok) setPagoOnline({ disponible: d.disponible === true, klarna: d.klarna === true, bizum: d.bizum === true });
+      } catch {
+        // sin servidor: sin formas de pago concretas
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
   const pasos = React.useMemo(() => {
     const aplicables = PASOS_GUIA.filter(
       (x) =>
         (!x.soloInstalable || instalable) &&
         (!x.soloConSesion || conSesion) &&
         (!x.soloSinSesion || !conSesion) &&
-        (!x.soloConProducto || productoId !== null)
+        (!x.soloConProducto || productoId !== null) &&
+        (!x.soloConEnvio || envioActivo)
     );
     if (!seccion) return aplicables;
     // Mini-guía: solo los pasos de esa pantalla.
@@ -4194,11 +4336,13 @@ function GuiaBlue({
     if (deLaSeccion.length) return deLaSeccion;
     // Si no queda ninguno (p. ej. la tienda aún no tiene artículos que enseñar) NO se cambia a la guía completa: se enseña
     // el paso de esa pantalla tal cual, sin llevar a ninguna ficha.
-    const sinArticulo = PASOS_GUIA.filter((x) => x.seccion === seccion && (!x.soloConSesion || conSesion) && (!x.soloSinSesion || !conSesion));
+    const sinArticulo = PASOS_GUIA.filter((x) => x.seccion === seccion && (!x.soloConSesion || conSesion) && (!x.soloSinSesion || !conSesion) && (!x.soloConEnvio || envioActivo));
     return sinArticulo.length ? sinArticulo : aplicables;
-  }, [instalable, conSesion, productoId, seccion]);
+  }, [instalable, conSesion, productoId, seccion, envioActivo]);
   const total = pasos.length;
   const p = pasos[Math.min(paso, pasos.length - 1)];
+  // «Ir a pagar» está en pantalla (solo con artículos en la cesta): el texto del paso «Cesta» lo nombra.
+  const [pagarVisible, setPagarVisible] = useState(false);
   // Si la lista de pasos cambia a mitad de la guía (p. ej. se quita «Un artículo» porque no hay artículos), la persona
   // sigue en el MISMO paso.
   const pasoObjRef = useRef<PasoGuia>(PASOS_GUIA[0]);
@@ -4212,7 +4356,7 @@ function GuiaBlue({
       setPaso(j);
     }
   }, [pasos]);
-  const textoPaso = typeof p.texto === "function" ? p.texto(conSesion) : p.texto;
+  const textoPaso = typeof p.texto === "function" ? p.texto(conSesion, { pagarVisible, pago: pagoOnline }) : p.texto;
   // Número del paso SIEMPRE el mismo (con o sin sesión), para que la analítica no mezcle pasos distintos.
   const numeroPaso = (s: PasoGuia) => String(PASOS_GUIA.indexOf(s) + 1).padStart(2, "0");
   // Quien ha visto el paso de «Vender ahora» y luego abre el formulario (en la hora siguiente) cuenta «desde la guía».
@@ -4259,6 +4403,8 @@ function GuiaBlue({
   // Dónde apunta el puntero en los pasos de «tocar» cuando no es el centro del recuadro (la pestaña «Mis seguimientos»).
   const [puntoToque, setPuntoToque] = useState<{ x: number; y: number } | null>(null);
   const [anchoSiguiente, setAnchoSiguiente] = useState(0);
+  // false mientras la guía desplaza la página hasta lo señalado: hasta que se asienta, la tarjeta no se aparta (paso «Un artículo»).
+  const [asentada, setAsentada] = useState(true);
   useEffect(() => {
     setSeccionElegida({ i: -1, n: 0 });
     setEjemploElegido(null);
@@ -4348,9 +4494,41 @@ function GuiaBlue({
     // (Solo se actualiza lo que de verdad ha cambiado de sitio: así medir a menudo no vuelve a pintar la guía en balde.)
     const cambio = (a: Caja | null, b: Caja | null) =>
       a === b || (!!a && !!b && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.w - b.w) < 1 && Math.abs(a.h - b.h) < 1) ? a : b;
+    const medirPaso = () => medirObjetivo(p.objetivo) ?? medirObjetivo(p.alternativa);
+    // Mientras la guía desplaza la página hasta lo señalado (la ficha), el recuadro pasa por sitios por los que luego no se
+    // queda: la tarjeta NO se coloca hasta que se ha asentado (dos fotogramas seguidos sin cambio y al menos 0,9 s, para
+    // que ya haya empezado el desplazamiento). Si no, «Siguiente» a veces quedaba en otro sitio (se medía en pleno movimiento).
+    let marco = 0;
+    if (p.desplazar && Platform.OS === "web" && typeof requestAnimationFrame !== "undefined") {
+      setAsentada(false);
+      const inicio = Date.now();
+      let anterior: Caja | null = null;
+      let quietos = 0;
+      let asentadaAhora = false;
+      const fotograma = () => {
+        const c = medirPaso();
+        quietos = c && anterior && Math.abs(c.x - anterior.x) < 1 && Math.abs(c.y - anterior.y) < 1 && Math.abs(c.w - anterior.w) < 1 && Math.abs(c.h - anterior.h) < 1 ? quietos + 1 : 0;
+        anterior = c;
+        const pasado = Date.now() - inicio;
+        // (Si lo señalado tarda en aparecer —la ficha carga el artículo— no se da por asentado hasta que aparezca y se quede
+        // quieto; el límite de 9 s es solo para no vigilar para siempre un paso sin nada que enmarcar.)
+        const lista = pasado >= 9000 || (pasado >= 900 && quietos >= 2);
+        if (lista !== asentadaAhora) {
+          asentadaAhora = lista;
+          // Al asentarse, el recuadro se pone ya donde ha quedado (sin esperar a la siguiente medida periódica).
+          if (lista) setCaja((antes) => cambio(antes, c));
+          setAsentada(lista);
+        }
+        if (pasado < 9000) marco = requestAnimationFrame(fotograma);
+      };
+      marco = requestAnimationFrame(fotograma);
+    } else {
+      setAsentada(true);
+    }
     const medir = () => {
       setPantalla(Dimensions.get("window"));
-      const c = medirObjetivo(p.objetivo);
+      if (p.objetivo?.includes(BOTON_IR_A_PAGAR)) setPagarVisible(!!medirObjetivo([BOTON_IR_A_PAGAR]));
+      const c = medirPaso();
       const nueva = c && p.limiteAlto ? { ...c, h: Math.min(c.h, p.limiteAlto) } : c;
       setCaja((antes) => cambio(antes, nueva));
       const t = selectoresTitulo ? medirObjetivo(selectoresTitulo) : null;
@@ -4367,7 +4545,7 @@ function GuiaBlue({
     const vigilar =
       p.demo === "buscador"
         ? setInterval(medir, 400)
-        : p.demo === "formulario" || p.demo === "perfil-seguimientos" || p.desplazar
+        : p.demo === "formulario" || p.demo === "perfil-seguimientos" || p.demo === "perfil-pedidos" || p.demo === "perfil-megusta" || p.desplazar
         ? setInterval(medir, 250)
         : setInterval(medir, 500);
     const sub = Dimensions.addEventListener("change", medir);
@@ -4378,6 +4556,7 @@ function GuiaBlue({
       clearTimeout(t2);
       clearTimeout(t3);
       if (vigilar) clearInterval(vigilar);
+      if (marco && typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(marco);
       // @ts-ignore — API antigua (RN<0.65) devuelve undefined
       sub?.remove?.();
     };
@@ -4481,8 +4660,9 @@ function GuiaBlue({
 
   // Perfil con sesión: se pulsa de verdad «Mi cuenta» o «Mis seguimientos» para que se vea el contenido de cada una.
   useEffect(() => {
-    if ((p.demo !== "perfil-cuenta" && p.demo !== "perfil-seguimientos") || Platform.OS !== "web" || typeof document === "undefined") return;
-    const nombre = p.demo === "perfil-seguimientos" ? "Mis seguimientos" : "Mi cuenta";
+    if ((p.demo !== "perfil-cuenta" && p.demo !== "perfil-seguimientos" && p.demo !== "perfil-pedidos" && p.demo !== "perfil-megusta") || Platform.OS !== "web" || typeof document === "undefined") return;
+    // «Mis pedidos» y «Tus facturas» enseñan los filtros, que viven dentro de «Mis seguimientos»; «Me gusta» tiene su pestaña.
+    const nombre = p.demo === "perfil-seguimientos" || p.demo === "perfil-pedidos" ? "Mis seguimientos" : p.demo === "perfil-megusta" ? "Me gusta" : "Mi cuenta";
     // Ojo: la página de Perfil existe dos veces en el documento (una oculta): se coge la pestaña que se ve.
     const pestana = () =>
       Array.from(document.querySelectorAll("#perfil-pestanas *")).find((n) => {
@@ -4494,7 +4674,7 @@ function GuiaBlue({
     // El puntero apunta justo a esa pestaña (no al centro de las dos).
     const t2 = setTimeout(() => {
       const el = pestana();
-      if (!el || p.demo !== "perfil-seguimientos") return;
+      if (!el || (p.demo !== "perfil-seguimientos" && p.demo !== "perfil-megusta")) return;
       const r = el.getBoundingClientRect();
       setPuntoToque({ x: r.left + r.width / 2 - 10, y: r.top + r.height / 2 - 6 });
     }, 800);
@@ -4503,6 +4683,21 @@ function GuiaBlue({
       clearTimeout(t2);
     };
   }, [p.demo]);
+
+  // «Mis pedidos»: el puntero apunta al filtro «En curso» desde su esquina de arriba (no tapa su nombre). Los filtros
+  // salen cuando cargan los pedidos: se reintenta.
+  // («Tus facturas»: lo mismo, desde la esquina de arriba de «Facturas».)
+  useEffect(() => {
+    if ((p.titulo !== "Mis pedidos" && p.titulo !== "Tus facturas") || Platform.OS !== "web" || typeof document === "undefined") return;
+    const poner = () => {
+      const f = primeroVisible(p.titulo === "Mis pedidos" ? "#seguimiento-filtro-curso" : "#seguimiento-filtro-facturas");
+      if (!f) return;
+      const r = f.getBoundingClientRect();
+      setPuntoToque(p.titulo === "Mis pedidos" ? { x: r.left + r.width / 2 - 10, y: r.top - 4 } : { x: r.right - 26, y: r.top - 4 });
+    };
+    const timers = [900, 1800, 3000].map((ms) => setTimeout(poner, ms));
+    return () => timers.forEach(clearTimeout);
+  }, [p.titulo]);
 
   // El Foro: la guía despliega el selector y enseña cada pestaña, una por una (hasta que la persona toma el mando).
   useEffect(() => {
@@ -4606,7 +4801,7 @@ function GuiaBlue({
   // Dónde va la tarjeta: un poco MÁS ARRIBA que antes (a la altura del pulgar de la mano derecha, no pegada al borde
   // de abajo) y siempre del mismo tamaño, así «Siguiente» no cambia de sitio. Si lo señalado cae justo en esa franja,
   // la tarjeta se pone encima (o debajo, si encima no cabe) con la flecha entre las dos cosas.
-  const altoTarjeta = p.compacta ? ALTO_COMPACTA : ALTO_TARJETA;
+  const altoTarjeta = p.compacta ? (p.accion ? ALTO_COMPACTA_ACCION : ALTO_COMPACTA) : ALTO_TARJETA;
   const fondoNormal = Math.round(height * 0.15) + (Platform.OS === "ios" ? 8 : 0);
   const franjaArriba = height - fondoNormal - altoTarjeta;
 
@@ -4631,7 +4826,8 @@ function GuiaBlue({
   const objetivo = hueco && !enorme ? hueco : null;
   const botonAbajo = !!objetivo && objetivo.y + objetivo.h / 2 > height * 0.5;
   const ESPACIO_FLECHA = 44;
-  const estorba = !!objetivo && objetivo.y + objetivo.h > franjaArriba - 6 && objetivo.y < height - fondoNormal;
+  // (Hasta que lo señalado se asienta tras el desplazamiento, la tarjeta se queda en su sitio de siempre.)
+  const estorba = asentada && !!objetivo && objetivo.y + objetivo.h > franjaArriba - 6 && objetivo.y < height - fondoNormal;
   let abajoTarjeta = fondoNormal;
   if (objetivo && estorba) {
     const encima = height - objetivo.y + ESPACIO_FLECHA; // «bottom» de la tarjeta puesta justo encima de lo señalado
@@ -4706,17 +4902,17 @@ function GuiaBlue({
               pointerEvents="none"
               style={{
                 position: "absolute",
-                left: limitar(titulo.x + titulo.w / 2 - 36, 6, width - 78),
-                top: Math.max(4, titulo.y - 21),
+                left: limitar(titulo.x + titulo.w / 2 - 44, 6, width - 94),
+                top: Math.max(4, titulo.y - 25),
                 paddingHorizontal: 8,
-                height: 17,
-                borderRadius: 9,
+                height: 21,
+                borderRadius: 11,
                 backgroundColor: COLORS.accent,
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 10.5 }}>Estás aquí</Text>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo, lineHeight: 16 }}>Estás aquí</Text>
             </View>
           </>
         ) : null}
