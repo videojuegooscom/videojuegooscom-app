@@ -18,7 +18,10 @@
  * - app/admin/index.tsx → tarjeta "Escaparate VeoAura" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("escaparate") en el Stack.
  * - components/Campanita.tsx → al admin le avisa Blue si hay ventas sin confirmar.
+ * - Productos de la tienda a VeoAura (2026-11-13): cada producto creado a mano (sin id_veoaura) y si ya se avisó
+ *   a VeoAura («producto_tienda»; pendiente o en VeoAura ✓), desde escaparate_salida_productos.
  * - supabase/migrations/20261015100000_escaparate_novedades_retorno.sql (escaparate_salida).
+ * - supabase/migrations/20261113130000_escaparate_salida_productos.sql (escaparate_salida_productos; sin ella se omite).
  * - api/escaparate-veoaura.ts (evento «factura») y app/admin/pedidos.tsx (donde se descargan las facturas).
  * - Tamaños del móvil (grupo 5, 2026-11-13; constants/theme.ts): ningún texto de menos de 13 px, grises
  *   desde COLORES_TEXTO.secundario y todo lo que se toca (volver, enviar, artículos) de 44 px.
@@ -56,6 +59,18 @@ type Salida = {
   intentos: number;
   enviado_en: string | null;
   detalle: string | null;
+};
+
+// Aviso «producto_tienda»: un producto creado a mano en la tienda que VeoAura debe dar de alta en su Stock.
+type AvisoProducto = {
+  producto_id: string;
+  estado: Salida["estado"];
+  intentos: number;
+  enviado_en: string | null;
+  detalle: string | null;
+  creado_en: string;
+  titulo?: string;
+  id_veoaura?: string | null;
 };
 
 type Articulo = {
@@ -97,6 +112,13 @@ const ESTADO_SALIDA: Record<Salida["estado"], { texto: string; color: string }> 
   error: { texto: "Error al avisar", color: COLORS.danger },
   descartado: { texto: "Cancelado antes de avisar", color: COLORS.muted },
 };
+
+// Estado de un producto de la tienda respecto a VeoAura: «en VeoAura ✓» solo cuando VeoAura ya respondió con su id.
+function textoEstadoProducto(estado: Salida["estado"]): string {
+  if (estado === "enviado") return "Enviado a VeoAura · en VeoAura ✓";
+  if (estado === "descartado") return "No hace falta: ya tiene id de VeoAura";
+  return "Enviado a VeoAura · pendiente";
+}
 
 // Precio siempre con dos decimales, coma decimal y miles con punto (155,00€ · 1.299,00€).
 function fmtEUR(value: number) {
@@ -166,6 +188,7 @@ export default function AdminEscaparate() {
   const [articulos, setArticulos] = useState<Articulo[]>([]);
   const [registro, setRegistro] = useState<Registro[]>([]);
   const [numeros, setNumeros] = useState<Record<string, number>>({});
+  const [avisosProductos, setAvisosProductos] = useState<AvisoProducto[]>([]);
 
   // Despierta el puente de vuelta: apunta y envía lo pendiente. Devuelve si está configurado.
   const despertar = useCallback(async (): Promise<boolean | null> => {
@@ -210,6 +233,24 @@ export default function AdminEscaparate() {
       if (ids.length) {
         const { data } = await supabase.from("pedidos").select("id,numero").in("id", ids);
         setNumeros(Object.fromEntries(((data ?? []) as { id: string; numero: number }[]).map((p) => [p.id, p.numero])));
+      }
+
+      // Productos creados a mano → VeoAura. Aparte: si la migración aún no está aplicada, el resto de la pantalla sigue igual.
+      const rp = await supabase
+        .from("escaparate_salida_productos")
+        .select("producto_id,estado,intentos,enviado_en,detalle,creado_en")
+        .order("creado_en", { ascending: false })
+        .limit(60);
+      if (rp.error) {
+        setAvisosProductos([]);
+      } else {
+        const avisos = (rp.data ?? []) as AvisoProducto[];
+        const idsProductos = avisos.map((a) => a.producto_id);
+        const { data: prods } = idsProductos.length
+          ? await supabase.from("products").select("id,title,id_veoaura").in("id", idsProductos)
+          : { data: [] as { id: string; title: string; id_veoaura: string | null }[] };
+        const porId = new Map(((prods ?? []) as { id: string; title: string; id_veoaura: string | null }[]).map((p) => [p.id, p]));
+        setAvisosProductos(avisos.map((a) => ({ ...a, titulo: porId.get(a.producto_id)?.title, id_veoaura: porId.get(a.producto_id)?.id_veoaura ?? null })));
       }
     } catch (e) {
       console.error("Error cargando el escaparate:", e);
@@ -310,6 +351,15 @@ export default function AdminEscaparate() {
             {facturasConError ? ` · con error: ${facturasConError}` : ""} · se descargan en Pedidos y en «Mis pedidos» del cliente
           </Text>
 
+          {/* Productos creados a mano en la tienda que VeoAura da de alta en su Stock (api/escaparate-retorno.ts, «producto_tienda»). */}
+          <Text nativeID="escaparate-productos-tienda" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
+            Productos de la tienda en VeoAura: {avisosProductos.filter((a) => a.estado === "enviado").length}
+            {avisosProductos.some((a) => ["pendiente", "error", "enviando"].includes(a.estado))
+              ? ` · pendientes: ${avisosProductos.filter((a) => ["pendiente", "error", "enviando"].includes(a.estado)).length}`
+              : ""}{" "}
+            · solo datos del producto, nunca de clientes
+          </Text>
+
           <Pressable
             onPress={enviarAhora}
             disabled={enviando}
@@ -375,6 +425,31 @@ export default function AdminEscaparate() {
                   );
                 })
               )}
+
+              {avisosProductos.length > 0 ? (
+                <>
+                  <Titulo
+                    texto="Productos de la tienda"
+                    sub="Productos creados a mano en Productos. VeoAura los da de alta en su Stock y devuelve su id, para que «vendido» y «retirar» funcionen."
+                  />
+                  {avisosProductos.map((a) => (
+                    <Fila key={a.producto_id}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", textAlign: "center" }}>{a.titulo ?? "Producto de la tienda"}</Text>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                        Producto nuevo · {fmtFechaHora(a.creado_en)}
+                      </Text>
+                      <Text style={{ color: a.estado === "enviado" ? COLORS.success : a.estado === "descartado" ? COLORS.muted : a.estado === "error" ? COLORS.danger : COLORS.warn, fontWeight: "900", fontSize: TAMANOS.minimo, textAlign: "center" }}>
+                        {textoEstadoProducto(a.estado)}
+                        {a.estado === "enviado" && a.enviado_en ? ` · ${fmtFechaHora(a.enviado_en)}` : ""}
+                        {a.estado === "error" ? ` · intento ${a.intentos}` : ""}
+                      </Text>
+                      {a.detalle && a.estado !== "enviado" ? (
+                        <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo, textAlign: "center" }}>{a.detalle}</Text>
+                      ) : null}
+                    </Fila>
+                  ))}
+                </>
+              ) : null}
 
               <Titulo texto="En el escaparate" />
               {articulos.length === 0 ? (

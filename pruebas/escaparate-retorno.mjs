@@ -25,6 +25,12 @@
  *  K) Ventas en mano que llegan DE VeoAura (pedidos.origen = 'tienda_fisica', 2026-11-11): nunca se le devuelven (ni
  *     «pedido» ni el de pagado), un aviso apuntado de una de ellas se descarta y los pedidos web siguen igual. Su
  *     control: una copia que no las distingue se las devolvería con los datos del cliente.
+ *  L–R) Productos creados a mano (sin id_veoaura; evento «producto_tienda», dueño, 2026-11-13): L se apunta en
+ *     escaparate_salida_productos y se envía firmado con SOLO datos del producto (sin clientes ni pedidos); M el id_veoaura
+ *     de la respuesta se guarda en el producto; N respuesta de error (o «ok» sin id): queda pendiente y se reintenta (1 min,
+ *     y cada 6 h tras 12 intentos); O con id_veoaura no se envía; P un cambio de título, precio o fotos avisa otra vez y se
+ *     espera a que el producto se estabilice; Q no pisa un id existente ni repite el de otro producto; R sin la migración
+ *     no se rompe nada. Controles: copias con un fallo a propósito, que estas comprobaciones detectan.
  *  CONTROLES) Una copia del puente que considera «pagado» un pedido pendiente manda los datos del cliente antes de
  *     tiempo: la comprobación A lo detecta. Otra que manda el de pagado con otro nombre de evento: C lo detecta. Otra
  *     que no vuelve a mirar el estado al enviar los manda de un pedido cancelado: la comprobación I lo detecta.
@@ -56,7 +62,12 @@ process.env.VEOAURA_RETORNO_URL = VEOAURA;
 process.env.VEOAURA_RETORNO_SECRETO = SECRETO;
 
 // --- Supabase simulado en memoria -------------------------------------------------------------------------------
-const tablas = { products: [], pedidos: [], escaparate_salida: [], escaparate_registro: [], policy_pages: [] };
+const tablas = { products: [], pedidos: [], escaparate_salida: [], escaparate_registro: [], policy_pages: [], escaparate_salida_productos: [], product_media: [], categories: [] };
+let sinMigracionProductos = false; // la tabla escaparate_salida_productos aún no existe
+// Lo que responde VeoAura a cada mensaje (por defecto, {ok:true}; a «producto_tienda», además, un id_veoaura nuevo).
+const respuestaNormal = (mensaje) => (mensaje.evento === "producto_tienda" ? { estado: 200, cuerpo: { ok: true, id_veoaura: randomUUID() } } : { estado: 200, cuerpo: { ok: true } });
+let responderVeoaura = respuestaNormal;
+process.env.VEOAURA_PRODUCTOS_ESPERA_MS = "0"; // sin espera para que el producto «se estabilice» (se prueba aparte)
 // La privacidad: sin la frase de la tarjeta (antes de la migración 20261106110000) o con ella.
 const PRIV_ANTES = "le comunicamos ese pedido y, cuando te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono";
 const PRIV_TARJETA = "le comunicamos ese pedido y, cuando lo pagas con tarjeta o te lo entregamos, también tu nombre, tu correo electrónico y tu teléfono";
@@ -70,6 +81,7 @@ function cumple(fila, campo, filtro) {
   const v = fila[campo];
   if (filtro.startsWith("eq.")) return String(v) === filtro.slice(3);
   if (filtro.startsWith("in.(")) return filtro.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(v));
+  if (filtro.startsWith("neq.")) return String(v) !== filtro.slice(4);
   if (filtro.startsWith("lt.")) return Number(v) < Number(filtro.slice(3));
   if (filtro.startsWith("gte.")) return String(v) >= filtro.slice(4);
   if (filtro === "not.is.null") return v !== null && v !== undefined;
@@ -100,12 +112,16 @@ globalThis.fetch = async (entrada, opciones = {}) => {
     const cuerpo = String(opciones.body);
     const firma = `sha256=${createHmac("sha256", SECRETO).update(`${cabeceras.get("x-tienda-fecha")}.${cabeceras.get("x-tienda-nonce")}.${cuerpo}`).digest("hex")}`;
     recibidos.push({ cuerpo, firmaOk: firma === cabeceras.get("x-tienda-firma"), mensaje: JSON.parse(cuerpo) });
-    return json({ ok: true });
+    const r = responderVeoaura(JSON.parse(cuerpo));
+    return json(r.cuerpo, r.estado);
   }
   if (url.origin !== FALSO) throw new Error(`prueba: salida de red inesperada a ${url.origin}`);
   const tabla = url.pathname.replace("/rest/v1/", "");
   const filas = tablas[tabla];
   if (!filas) throw new Error(`prueba: tabla no simulada ${tabla}`);
+  if (tabla === "escaparate_salida_productos" && sinMigracionProductos) {
+    return json({ code: "42P01", message: 'relation "public.escaparate_salida_productos" does not exist' }, 404);
+  }
   const objeto = (cabeceras.get("accept") ?? "").includes("vnd.pgrst.object");
   if (metodo === "GET" || metodo === "HEAD") {
     const r = filtrar(filas, url);
@@ -122,6 +138,8 @@ globalThis.fetch = async (entrada, opciones = {}) => {
         if (filas.some((f) => f.pedido_id === n.pedido_id && f.id_veoaura === n.id_veoaura && f.evento === n.evento)) continue;
         filas.push({ id: randomUUID(), creado_en: ahoraIso(), estado: "pendiente", intentos: 0, ultimo_intento: null, enviado_en: null, detalle: null, ...n });
       }
+    } else if (tabla === "escaparate_salida_productos") {
+      for (const n of nuevas) if (!filas.some((f) => f.producto_id === n.producto_id)) filas.push({ id_mensaje: randomUUID(), detalle: null, enviado_en: null, ...n });
     } else {
       filas.push(...nuevas);
     }
@@ -130,6 +148,10 @@ globalThis.fetch = async (entrada, opciones = {}) => {
   if (metodo === "PATCH") {
     const cambio = JSON.parse(String(opciones.body));
     const tocadas = filtrar(filas, url);
+    // Índice único de products.id_veoaura.
+    if (tabla === "products" && cambio.id_veoaura && tocadas.length && filas.some((f) => f.id_veoaura === cambio.id_veoaura)) {
+      return json({ code: "23505", message: 'duplicate key value violates unique constraint "products_id_veoaura_key"' }, 409);
+    }
     for (const f of tocadas) Object.assign(f, cambio);
     return json(tocadas.map((f) => ({ id: f.id })));
   }
@@ -172,10 +194,13 @@ function reiniciar() {
   for (const t of Object.values(tablas)) t.length = 0;
   recibidos.length = 0;
   sinMigracionPagado = false;
+  sinMigracionProductos = false;
+  responderVeoaura = respuestaNormal;
   tablas.products.push(
     { id: "p-veo-1", id_veoaura: "VEO-1", view_count: 3, like_count: 1, is_active: true },
     { id: "p-veo-2", id_veoaura: "VEO-2", view_count: 0, like_count: 0, is_active: true },
-    { id: "p-tienda", id_veoaura: null, view_count: 0, like_count: 0, is_active: true }
+    // Del catálogo anterior (creado antes del 2026-11-13): no se avisa a VeoAura.
+    { id: "p-tienda", id_veoaura: null, view_count: 0, like_count: 0, is_active: true, created_at: "2026-01-01T00:00:00.000Z" }
   );
   tablas.policy_pages.push(privacidad(PRIV_ANTES));
 }
@@ -377,6 +402,175 @@ try {
     const { manejador, carpeta } = await cargar("mutado-cancelado", ["if (!estaPagado(ahora, tarjetaCuenta)) {", "if (!ahora) {"]);
     const fuga = await casoI(manejador);
     ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) sin mirar el estado al enviar salen los datos de un pedido cancelado: la comprobación I SÍ lo detecta");
+    rmSync(carpeta, { recursive: true, force: true });
+  }
+
+  // L–S) Productos creados a mano en la tienda (sin id_veoaura) → evento «producto_tienda» (dueño, 2026-11-13). Solo datos
+  //    del producto; VeoAura responde {ok:true, id_veoaura} y la tienda lo guarda; sin respuesta válida queda pendiente.
+  const FOTO = "https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/p-mano-1/1.jpg";
+  const productoMano = (id, extra = {}) => ({
+    id, id_veoaura: null, title: "  Mando PS5 DualSense  ", description: "Como nuevo, con caja.", price_eur: "49.5", status: "PUBLISHED",
+    condition: "GOOD", category_id: "cat-1", created_at: "2026-11-13T09:00:00.000Z", is_active: true, view_count: 0, like_count: 0, ...extra,
+  });
+  const prepararProducto = (extra = {}) => {
+    reiniciar();
+    tablas.categories.push({ id: "cat-1", name: "Mandos" });
+    tablas.products.push(productoMano("p-mano-1", extra));
+    tablas.product_media.push(
+      { product_id: "p-mano-1", public_url: FOTO, sort_order: 0, mime_type: "image/jpeg" },
+      { product_id: "p-mano-1", public_url: "https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/p-mano-1/v.mp4", sort_order: 1, mime_type: "video/mp4" }
+    );
+    // Hay un pedido entregado con datos de cliente en la tienda: nada de eso debe viajar en los avisos de productos.
+    tablas.pedidos.push(pedido("ped-p", 150, "entregado", [{ product_id: "p-veo-1", precio_eur: 10 }]));
+  };
+  const deProducto = (r) => r.nuevos.filter((n) => n.mensaje.evento === "producto_tienda");
+  const fila = () => tablas.escaparate_salida_productos.find((f) => f.producto_id === "p-mano-1");
+  const mano = () => tablas.products.find((p) => p.id === "p-mano-1");
+  const vueltasProducto = async (manejador, n = 3) => {
+    const todos = [];
+    for (let i = 0; i < n; i++) todos.push(...deProducto(await vuelta(manejador)));
+    return todos;
+  };
+  {
+    // L) Se apunta y se envía firmado, con solo datos del producto.
+    prepararProducto();
+    const l = await vueltasProducto(retorno);
+    const m = l[0];
+    ok(l.length === 1 && !!m && m.firmaOk && fila()?.estado === "enviado", `L: un producto a mano se apunta y se envía firmado, una sola vez (${l.length}, ${fila()?.estado})`);
+    const p = m?.mensaje.producto;
+    ok(
+      m?.mensaje.version === 1 && !!m.mensaje.id_mensaje && p?.id_tienda === "p-mano-1" && p?.titulo === "Mando PS5 DualSense" && p?.precio === 49.5 && p?.moneda === "EUR" &&
+        p?.categoria === "Mandos" && p?.condicion === "GOOD" && p?.estado === "PUBLISHED" && p?.creado_en === "2026-11-13T09:00:00.000Z",
+      `L: lleva id de la tienda, título, precio, estado, condición, categoría y fecha (${JSON.stringify(p)?.slice(0, 160)})`
+    );
+    ok(JSON.stringify(p?.fotos) === JSON.stringify([FOTO]), `L: solo las URL de las fotos (sin el vídeo): ${JSON.stringify(p?.fotos)}`);
+    ok(!!m && !PII.test(m.cuerpo) && !("pedido" in m.mensaje) && !("cliente" in m.mensaje), "L: nada de datos de clientes ni de pedidos");
+    ok(!tablas.escaparate_salida.some((s) => s.evento === "producto_tienda"), "L: no se usa escaparate_salida (su lista de eventos no se toca)");
+    // M) Con id_veoaura en la respuesta, se guarda en el producto.
+    ok(/^[0-9a-f-]{36}$/.test(mano()?.id_veoaura ?? ""), `M: el id_veoaura devuelto por VeoAura se guarda en el producto (${mano()?.id_veoaura})`);
+  }
+  {
+    // N) Respuesta de error («evento desconocido»): queda pendiente, se reintenta como los demás y sin romper los pedidos.
+    prepararProducto();
+    responderVeoaura = (mensaje) => (mensaje.evento === "producto_tienda" ? { estado: 400, cuerpo: { ok: false, error: "evento desconocido" } } : { estado: 200, cuerpo: { ok: true } });
+    const primera = await vuelta(retorno);
+    ok(primera.res.codigo === 200 && fila()?.estado === "error" && fila()?.intentos === 1 && mano()?.id_veoaura === null, `N: VeoAura no lo acepta: queda pendiente («error», 1 intento) y sin id (${fila()?.estado}, ${fila()?.intentos})`);
+    ok(/evento desconocido/.test(fila()?.detalle ?? ""), `N: el motivo queda apuntado (${fila()?.detalle})`);
+    ok(primera.nuevos.some((n) => n.mensaje.evento === "pedido"), "N: los avisos de pedidos salen igual");
+    const seguida = await vueltasProducto(retorno, 1);
+    ok(seguida.length === 0, `N: no se reintenta antes de un minuto (${seguida.length})`);
+    fila().ultimo_intento = new Date(Date.now() - 61_000).toISOString();
+    responderVeoaura = respuestaNormal;
+    const reintento = await vueltasProducto(retorno, 1);
+    ok(reintento.length === 1 && fila()?.estado === "enviado" && fila()?.intentos === 2 && !!mano()?.id_veoaura && reintento[0].mensaje.id_mensaje === primera.nuevos.find((n) => n.mensaje.evento === "producto_tienda")?.mensaje.id_mensaje,
+      `N: pasado el minuto se reintenta con el mismo id_mensaje y, al aceptarlo, guarda el id (${fila()?.estado}, ${fila()?.intentos})`);
+    // Una respuesta ok sin id_veoaura tampoco vale: sigue pendiente.
+    prepararProducto();
+    responderVeoaura = () => ({ estado: 200, cuerpo: { ok: true } });
+    await vuelta(retorno);
+    ok(fila()?.estado === "error" && mano()?.id_veoaura === null, `N: «ok» sin id_veoaura no vale: sigue pendiente (${fila()?.estado})`);
+    // Tras 12 intentos, uno cada 6 horas (no se abandona del todo).
+    fila().intentos = 12;
+    fila().ultimo_intento = new Date(Date.now() - 3_600_000).toISOString();
+    const antes = fila().intentos;
+    await vuelta(retorno);
+    ok(fila().intentos === antes, "N: agotados los 12 intentos espera 6 horas antes del siguiente");
+    fila().ultimo_intento = new Date(Date.now() - 7 * 3_600_000).toISOString();
+    responderVeoaura = respuestaNormal;
+    await vuelta(retorno);
+    ok(fila().estado === "enviado" && !!mano().id_veoaura, "N: pasadas las 6 horas se vuelve a intentar y, aceptado, queda enviado");
+  }
+  {
+    // O) Un producto que ya tiene id_veoaura (o del catálogo anterior) no se envía.
+    prepararProducto({ id_veoaura: "11111111-1111-4111-8111-111111111111" });
+    tablas.escaparate_salida_productos.push({ producto_id: "p-mano-1", id_mensaje: randomUUID(), huella: "x", estado: "pendiente", intentos: 0, ultimo_intento: null, actualizado_en: ahoraIso() });
+    const o = await vueltasProducto(retorno);
+    ok(o.length === 0 && fila()?.estado === "descartado", `O: con id_veoaura no se envía y su aviso pendiente se descarta (${o.length}, ${fila()?.estado})`);
+    ok(!tablas.escaparate_salida_productos.some((f) => f.producto_id === "p-tienda") && mano()?.id_veoaura === "11111111-1111-4111-8111-111111111111", "O: el catálogo anterior (p-tienda) no se apunta y el id existente no cambia");
+  }
+  {
+    // P) Si cambia el título, el precio o las fotos antes de aceptarlo, se vuelve a avisar con id_mensaje nuevo; y se espera a que
+    //    el producto deje de cambiar (las fotos se suben después de crearlo).
+    prepararProducto();
+    responderVeoaura = (mensaje) => (mensaje.evento === "producto_tienda" ? { estado: 404, cuerpo: { ok: false } } : { estado: 200, cuerpo: { ok: true } });
+    await vuelta(retorno);
+    const idAntes = fila().id_mensaje;
+    const huellaAntes = fila().huella;
+    mano().title = "Mando PS5 DualSense blanco";
+    mano().price_eur = "45";
+    tablas.product_media.push({ product_id: "p-mano-1", public_url: FOTO.replace("1.jpg", "2.jpg"), sort_order: 2, mime_type: "image/jpeg" });
+    fila().ultimo_intento = new Date(Date.now() - 61_000).toISOString();
+    responderVeoaura = respuestaNormal;
+    const p = await vueltasProducto(retorno, 1);
+    ok(p.length === 1 && fila().id_mensaje !== idAntes && fila().huella !== huellaAntes, "P: tras cambiar título, precio y fotos, se avisa otra vez con id_mensaje nuevo");
+    ok(p[0]?.mensaje.producto.titulo === "Mando PS5 DualSense blanco" && p[0]?.mensaje.producto.precio === 45 && p[0]?.mensaje.producto.fotos.length === 2, "P: con los datos nuevos");
+    prepararProducto();
+    process.env.VEOAURA_PRODUCTOS_ESPERA_MS = "60000";
+    const reciente = await vueltasProducto(retorno, 1);
+    ok(reciente.length === 0 && fila()?.estado === "pendiente", `P: recién creado espera a que se suban las fotos antes de enviarse (${reciente.length}, ${fila()?.estado})`);
+    fila().actualizado_en = new Date(Date.now() - 61_000).toISOString();
+    const estable = await vueltasProducto(retorno, 1);
+    process.env.VEOAURA_PRODUCTOS_ESPERA_MS = "0";
+    ok(estable.length === 1 && fila()?.estado === "enviado", `P: pasado ese tiempo se envía (${estable.length}, ${fila()?.estado})`);
+  }
+  {
+    // Q) El id devuelto no pisa uno existente ni repite el de otro producto (índice único).
+    prepararProducto();
+    responderVeoaura = (mensaje) => {
+      if (mensaje.evento !== "producto_tienda") return { estado: 200, cuerpo: { ok: true } };
+      mano().id_veoaura = "22222222-2222-4222-8222-222222222222"; // alguien se lo puso mientras tanto
+      return { estado: 200, cuerpo: { ok: true, id_veoaura: "33333333-3333-4333-8333-333333333333" } };
+    };
+    await vuelta(retorno);
+    ok(mano().id_veoaura === "22222222-2222-4222-8222-222222222222" && fila()?.estado === "enviado", `Q: no pisa un id_veoaura que el producto ya tuviera (${mano().id_veoaura})`);
+    prepararProducto();
+    tablas.products.push(productoMano("p-mano-2", { created_at: "2026-01-01T00:00:00.000Z", id_veoaura: "44444444-4444-4444-8444-444444444444" }));
+    responderVeoaura = (mensaje) => (mensaje.evento === "producto_tienda" ? { estado: 200, cuerpo: { ok: true, id_veoaura: "44444444-4444-4444-8444-444444444444" } } : { estado: 200, cuerpo: { ok: true } });
+    await vuelta(retorno);
+    ok(mano().id_veoaura === null && fila()?.estado === "error" && /otro producto/.test(fila()?.detalle ?? ""), `Q: un id que ya tiene otro producto no se guarda y queda pendiente (${fila()?.estado}, ${fila()?.detalle})`);
+  }
+  {
+    // R) Sin la migración (la tabla aún no existe): no se rompe nada, los pedidos salen igual y los productos esperan.
+    prepararProducto();
+    sinMigracionProductos = true;
+    const r = await vuelta(retorno);
+    ok(r.res.codigo === 200 && r.nuevos.some((n) => n.mensaje.evento === "pedido") && !deProducto(r).length, "R: sin la migración, los pedidos salen igual y el producto espera");
+    sinMigracionProductos = false;
+    const tras = await vueltasProducto(retorno, 2);
+    ok(tras.length === 1 && !!mano().id_veoaura, "R: aplicada la migración, el producto sale");
+  }
+  // CONTROLES) Copias del puente con un fallo a propósito: las comprobaciones L–Q lo detectan.
+  {
+    const controles = [
+      ["mutado-con-id", "const propios = productos.filter((p) => !p.id_veoaura);", "const propios = productos;", "O", async (m) => { prepararProducto({ id_veoaura: "11111111-1111-4111-8111-111111111111" }); return (await vueltasProducto(m, 2)).length > 0; }],
+      ["mutado-sin-guardar", '.update({ id_veoaura: idDevuelto })', '.update({ view_count: 0 })', "M", async (m) => { prepararProducto(); await vuelta(m); return mano().id_veoaura === null; }],
+      [
+        "mutado-pisar", '.is("id_veoaura", null)', '.neq("id", "")', "Q",
+        async (m) => {
+          prepararProducto();
+          responderVeoaura = (mensaje) => {
+            if (mensaje.evento !== "producto_tienda") return { estado: 200, cuerpo: { ok: true } };
+            mano().id_veoaura = "22222222-2222-4222-8222-222222222222";
+            return { estado: 200, cuerpo: { ok: true, id_veoaura: "33333333-3333-4333-8333-333333333333" } };
+          };
+          await vuelta(m);
+          return mano().id_veoaura !== "22222222-2222-4222-8222-222222222222";
+        },
+      ],
+      ["mutado-sin-id", 'let estado = "error";', 'let estado = r.ok ? "enviado" : "error";', "N", async (m) => { prepararProducto(); responderVeoaura = () => ({ estado: 200, cuerpo: { ok: true } }); await vuelta(m); return fila()?.estado === "enviado" && mano().id_veoaura === null; }],
+    ];
+    for (const [etiqueta, buscar, poner, cual, falla] of controles) {
+      const { manejador, carpeta } = await cargar(etiqueta, [buscar, poner]);
+      const detectado = await falla(manejador);
+      responderVeoaura = respuestaNormal;
+      ok(detectado, `(control) copia con el fallo «${etiqueta}»: la comprobación ${cual} SÍ lo detecta`);
+      rmSync(carpeta, { recursive: true, force: true });
+    }
+    // Una copia que envía datos de pedidos junto al producto sería detectada por L (PII): se simula añadiendo el cliente.
+    const { manejador, carpeta } = await cargar("mutado-cliente", ["producto: fichas.get(p.id),", "producto: fichas.get(p.id), cliente: { nombre: 'Ana López', correo: 'ana@example.com' },"]);
+    prepararProducto();
+    const fuga = await vueltasProducto(manejador, 2);
+    ok(fuga.some((n) => PII.test(n.cuerpo)), "(control) con datos de cliente en el aviso del producto: la comprobación L SÍ lo detecta");
     rmSync(carpeta, { recursive: true, force: true });
   }
 } catch (e) {

@@ -17,6 +17,11 @@
  *    de privacidad lo explica (supabase/migrations/20261103180000_privacidad_veoaura.sql).
  *    Las ventas en mano que llegan DE VeoAura (pedidos.origen = 'tienda_fisica', evento «venta_tienda» del puente de
  *    ida, migración 20261111170000) nunca se le devuelven: ni «pedido» ni el aviso de pagado.
+ * 3. Productos creados a mano en la tienda (sin id_veoaura; dueño, 2026-11-13): evento «producto_tienda» con SOLO datos del
+ *    producto (id de la tienda, título, descripción, precio, estado, condición, categoría, fotos y fecha); VeoAura lo da de
+ *    alta en su Stock y responde {ok:true, id_veoaura}, que la tienda guarda en el producto (sin pisar uno existente) para
+ *    que «vendido» y «retirar» de VeoAura funcionen con él. Se apunta en escaparate_salida_productos (migración
+ *    20261113130000) y se reintenta como los demás. Contrato: docs/puente-tienda-productos-a-veoaura.md.
  * 2. Estadísticas (una vez al día, con el cron): visitas y «me gusta» de cada artículo de
  *    VeoAura en la tienda, para decidir allí qué rebajar.
  *
@@ -42,8 +47,12 @@
  * - EXPO_PUBLIC_SUPABASE_URL y SUPABASE_CLAVE_SERVIDOR: leer pedidos y apuntar los avisos.
  * Sin VEOAURA_RETORNO_URL o su secreto los avisos se apuntan igual y quedan pendientes.
  *
+ * Variable opcional: VEOAURA_PRODUCTOS_DESDE (fecha ISO; solo los productos creados desde entonces se avisan; por defecto
+ * 2026-11-13).
+ *
  * Conectado con: supabase/migrations/20261015100000_escaparate_novedades_retorno.sql
- * (escaparate_salida), escaparate_registro (estadísticas), pedidos / pedido_items / products.
+ * (escaparate_salida), supabase/migrations/20261113130000_escaparate_salida_productos.sql (escaparate_salida_productos),
+ * escaparate_registro (estadísticas), pedidos / pedido_items / products / product_media / categories.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -259,7 +268,7 @@ async function firmar(secreto: string, fecha: string, nonce: string, cuerpo: str
   return `sha256=${hex(firma)}`;
 }
 
-async function enviar(url: string, secreto: string, mensaje: Record<string, unknown>): Promise<{ ok: boolean; detalle?: string }> {
+async function enviar(url: string, secreto: string, mensaje: Record<string, unknown>): Promise<{ ok: boolean; detalle?: string; datos?: any }> {
   const cuerpo = JSON.stringify(mensaje);
   const fecha = String(Math.floor(Date.now() / 1000));
   const nonce = hex(crypto.getRandomValues(new Uint8Array(16)));
@@ -275,7 +284,7 @@ async function enviar(url: string, secreto: string, mensaje: Record<string, unkn
       signal: ctrl.signal,
     });
     const datos: any = await r.json().catch(() => null);
-    if (r.ok && datos?.ok === true) return { ok: true };
+    if (r.ok && datos?.ok === true) return { ok: true, datos };
     const motivo = typeof datos?.error === "string" ? `: ${datos.error.slice(0, 120)}` : "";
     return { ok: false, detalle: `VeoAura respondió ${r.status}${motivo}` };
   } catch {
@@ -478,6 +487,195 @@ async function enviarAvisos(
   return { enviados, fallidos };
 }
 
+// --- Productos creados a mano en la tienda → VeoAura («producto_tienda», dueño, 2026-11-13) ----------------------------------
+// Un producto de la tienda sin id_veoaura (Administración → Productos) se avisa a VeoAura para que lo dé de alta en su Stock;
+// VeoAura responde { ok: true, id_veoaura } y la tienda guarda ese id en el producto, para que «vendido» y «retirar» de VeoAura
+// funcionen con él. Solo datos del producto (nunca de clientes). Se apunta en public.escaparate_salida_productos (una fila por
+// producto; escaparate_salida no sirve: su pedido_id es obligatorio y su lista de eventos no admite uno nuevo sin tocar la
+// comprobación). Si el título, el precio, las fotos… cambian antes de que VeoAura lo acepte, se vuelve a avisar con id_mensaje
+// nuevo. Con id_veoaura (suyo o devuelto por VeoAura) ya no se avisa más. Solo cuentan los productos creados desde
+// VEOAURA_PRODUCTOS_DESDE (por defecto, el 2026-11-13): el catálogo anterior no se vuelca a VeoAura. Si VeoAura aún no acepta el
+// evento (400/404, «evento desconocido»…), queda pendiente y se reintenta cada minuto hasta 12 veces y después cada 6 horas.
+const PRODUCTOS_DESDE_DEFECTO = "2026-11-13T00:00:00Z";
+const ESPERA_ESTABLE_MS = 60 * 1000; // las fotos se suben después de crear el producto: se espera a que deje de cambiar
+const ESPERA_TRAS_CUPO_MS = 6 * 60 * 60 * 1000;
+const MAX_PRODUCTOS_POR_VUELTA = 3;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type ProductoFila = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  price_eur: number | string | null;
+  status: string | null;
+  condition: string | null;
+  category_id: string | null;
+  created_at: string | null;
+  id_veoaura: string | null;
+};
+type SalidaProducto = {
+  producto_id: string;
+  id_mensaje: string;
+  huella: string;
+  estado: string;
+  intentos: number;
+  ultimo_intento: string | null;
+  actualizado_en: string | null;
+};
+
+const unidades = <T,>(lista: T[], n: number): T[][] => Array.from({ length: Math.ceil(lista.length / n) }, (_, i) => lista.slice(i * n, i * n + n));
+
+async function huellaDe(valor: unknown): Promise<string> {
+  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", codificar.encode(JSON.stringify(valor)))));
+}
+
+async function sincronizarProductos(supabase: SupabaseClient, url: string, secreto: string, configurado: boolean) {
+  const resultado = { enviados: 0, fallidos: 0 };
+  const desdeMs = Date.parse(String(process.env.VEOAURA_PRODUCTOS_DESDE ?? ""));
+  const desde = new Date(Number.isFinite(desdeMs) ? desdeMs : Date.parse(PRODUCTOS_DESDE_DEFECTO)).toISOString();
+  const { data: productosData, error: errorProductos } = await supabase
+    .from("products")
+    .select("id,title,description,price_eur,status,condition,category_id,created_at,id_veoaura")
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (errorProductos || !productosData?.length) return resultado;
+  const productos = productosData as unknown as ProductoFila[];
+
+  const { data: filasData, error: errorFilas } = await supabase
+    .from("escaparate_salida_productos")
+    .select("producto_id,id_mensaje,huella,estado,intentos,ultimo_intento,actualizado_en")
+    .limit(1000);
+  if (errorFilas) {
+    // Migración 20261113130000 sin aplicar: los productos no se avisan todavía, y nada más se rompe.
+    console.warn("escaparate-retorno: aún no se pueden apuntar los avisos de productos (¿falta la migración?)");
+    return resultado;
+  }
+  const filas = new Map(((filasData ?? []) as SalidaProducto[]).map((f) => [f.producto_id, f]));
+  const tabla = () => supabase.from("escaparate_salida_productos");
+
+  // Los que ya tienen id_veoaura (de VeoAura, o el que ya devolvió): su aviso pendiente se descarta.
+  const conId = productos.filter((p) => !!p.id_veoaura);
+  for (const p of conId) {
+    const fila = filas.get(p.id);
+    if (fila && (fila.estado === "pendiente" || fila.estado === "error")) {
+      await tabla().update({ estado: "descartado", detalle: "el producto ya tiene id_veoaura" }).eq("producto_id", p.id).in("estado", ["pendiente", "error"]);
+      fila.estado = "descartado";
+    }
+  }
+  const propios = productos.filter((p) => !p.id_veoaura);
+  if (!propios.length) return resultado;
+
+  // Fotos (solo imágenes, en el orden de la tienda) y categorías.
+  const fotos = new Map<string, string[]>();
+  for (const grupo of unidades(propios.map((p) => p.id), 50)) {
+    const { data } = await supabase
+      .from("product_media")
+      .select("product_id,public_url,sort_order,mime_type")
+      .in("product_id", grupo)
+      .order("sort_order", { ascending: true })
+      .limit(1000);
+    for (const m of (data ?? []) as { product_id: string; public_url: string | null; mime_type: string | null }[]) {
+      if (!m.public_url || !/^https:\/\//.test(m.public_url) || String(m.mime_type ?? "").startsWith("video/")) continue;
+      fotos.set(m.product_id, [...(fotos.get(m.product_id) ?? []), m.public_url]);
+    }
+  }
+  const categorias = new Map<string, string>();
+  const idsCategoria = [...new Set(propios.map((p) => p.category_id).filter((c): c is string => !!c))];
+  if (idsCategoria.length) {
+    const { data } = await supabase.from("categories").select("id,name").in("id", idsCategoria);
+    for (const c of (data ?? []) as { id: string; name: string | null }[]) if (c.name) categorias.set(c.id, c.name);
+  }
+
+  // Solo datos del producto: nada de clientes.
+  const fichas = new Map<string, Record<string, unknown>>();
+  for (const p of propios) {
+    const precio = Number(p.price_eur);
+    fichas.set(p.id, {
+      id_tienda: p.id,
+      titulo: String(p.title ?? "").trim().slice(0, 200),
+      descripcion: String(p.description ?? "").trim().slice(0, 5000),
+      precio: Number.isFinite(precio) ? Math.round(precio * 100) / 100 : null,
+      moneda: "EUR",
+      estado: p.status ?? null,
+      condicion: p.condition ?? null,
+      categoria: p.category_id ? categorias.get(p.category_id) ?? null : null,
+      fotos: (fotos.get(p.id) ?? []).slice(0, 15),
+      creado_en: p.created_at ?? null,
+    });
+  }
+
+  // Apuntar lo nuevo y lo que haya cambiado desde el último aviso.
+  for (const p of propios) {
+    const huella = await huellaDe(fichas.get(p.id));
+    const fila = filas.get(p.id);
+    const ahora = new Date().toISOString();
+    if (!fila) {
+      const nueva = { producto_id: p.id, id_mensaje: crypto.randomUUID(), huella, estado: "pendiente", intentos: 0, ultimo_intento: null, actualizado_en: ahora };
+      const { error } = await tabla().upsert(nueva, { onConflict: "producto_id", ignoreDuplicates: true });
+      if (!error) filas.set(p.id, nueva);
+    } else if (fila.huella !== huella) {
+      const cambio = { huella, id_mensaje: crypto.randomUUID(), estado: "pendiente", intentos: 0, ultimo_intento: null, actualizado_en: ahora, detalle: null };
+      const { error } = await tabla().update(cambio).eq("producto_id", p.id).neq("estado", "enviando");
+      if (!error) Object.assign(fila, cambio);
+    }
+  }
+  if (!configurado) return resultado;
+
+  const espera = Number(process.env.VEOAURA_PRODUCTOS_ESPERA_MS);
+  const estable = Number.isFinite(espera) && espera >= 0 ? espera : ESPERA_ESTABLE_MS;
+  const inicio = Date.now();
+  for (const p of propios) {
+    if (resultado.enviados + resultado.fallidos >= MAX_PRODUCTOS_POR_VUELTA || Date.now() - inicio > PRESUPUESTO_MS) break;
+    const s = filas.get(p.id);
+    if (!s || !["pendiente", "error", "enviando"].includes(s.estado)) continue;
+    const ultimo = s.ultimo_intento ? Date.parse(s.ultimo_intento) : 0;
+    if (s.estado === "error" && Date.now() - ultimo < (s.intentos >= MAX_INTENTOS ? ESPERA_TRAS_CUPO_MS : ESPERA_REINTENTO_MS)) continue;
+    if (s.estado === "enviando" && Date.now() - ultimo < ENVIANDO_CADUCA_MS) continue;
+    // Se espera a que el producto deje de cambiar (las fotos se suben después): así VeoAura recibe la ficha completa.
+    if (Date.now() - (s.actualizado_en ? Date.parse(s.actualizado_en) : 0) < estable) continue;
+
+    const reserva = { estado: "enviando", intentos: s.intentos + 1, ultimo_intento: new Date().toISOString() };
+    const { data: reservado } = await tabla().update(reserva).eq("producto_id", p.id).eq("estado", s.estado).eq("intentos", s.intentos).select("producto_id");
+    if (!(reservado ?? []).length) continue;
+
+    const r = await enviar(url, secreto, {
+      version: 1,
+      evento: "producto_tienda",
+      id_mensaje: s.id_mensaje,
+      producto: fichas.get(p.id),
+      enviado_en: new Date().toISOString(),
+    });
+    const idDevuelto = typeof r.datos?.id_veoaura === "string" && UUID_RE.test(r.datos.id_veoaura) ? r.datos.id_veoaura.toLowerCase() : null;
+    let estado = "error";
+    let detalle: string | null = r.detalle ?? "error";
+    if (r.ok && !idDevuelto) {
+      detalle = "VeoAura respondió ok pero sin id_veoaura";
+    } else if (r.ok && idDevuelto) {
+      // Sin pisar un id_veoaura que el producto ya tuviera; el índice único impide repetir uno de otro producto.
+      const { data: guardado, error: errorId } = await supabase
+        .from("products")
+        .update({ id_veoaura: idDevuelto })
+        .eq("id", p.id)
+        .is("id_veoaura", null)
+        .select("id");
+      if (errorId) {
+        detalle = errorId.code === "23505" ? "ese id_veoaura ya lo tiene otro producto de la tienda" : "no se pudo guardar el id_veoaura";
+      } else {
+        estado = "enviado";
+        detalle = (guardado ?? []).length ? null : "el producto ya tenía id_veoaura: no se cambia";
+      }
+    }
+    await tabla()
+      .update(estado === "enviado" ? { estado, enviado_en: new Date().toISOString(), detalle } : { estado, detalle })
+      .eq("producto_id", p.id);
+    s.estado = estado;
+    if (estado === "enviado") resultado.enviados++;
+    else resultado.fallidos++;
+  }
+  return resultado;
+}
+
 async function enviarEstadisticas(supabase: SupabaseClient, url: string, secreto: string) {
   const { data, error } = await supabase
     .from("products")
@@ -559,7 +757,14 @@ export default async function handler(req: any, res: any) {
       resultado = await enviarAvisos(supabase, url, secreto, articulos, pedidos, tarjetaCuenta);
       if (esCron && articulos.size) await enviarEstadisticas(supabase, url, secreto);
     }
-    responder(res, 200, { ok: true, configurado, ...resultado });
+    // Productos creados a mano → VeoAura: aparte, para que un fallo aquí nunca estorbe a los avisos de pedidos.
+    let productos = { enviados: 0, fallidos: 0 };
+    try {
+      productos = await sincronizarProductos(supabase, url, secreto, configurado);
+    } catch (e: unknown) {
+      console.error("escaparate-retorno: error en los productos", e);
+    }
+    responder(res, 200, { ok: true, configurado, ...resultado, productos });
   } catch (e: unknown) {
     console.error("escaparate-retorno: error", e);
     responder(res, 500, { ok: false, error: "error interno" });

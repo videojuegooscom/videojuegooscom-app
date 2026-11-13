@@ -66,6 +66,9 @@ export type ProductRow = {
   peso_kg?: number | null;
   // Solo entrega en mano: no se envía (televisores sin su caja original; migración 20261107140000). undefined = sin la columna.
   solo_entrega_mano?: boolean;
+  // Aviso a VeoAura de un producto creado a mano («producto_tienda», 2026-11-13; migración 20261113130000):
+  // "pendiente" = aún sin respuesta de VeoAura, "enviado" = en VeoAura (ya devolvió su id). undefined = sin aviso.
+  veoaura?: "pendiente" | "enviado";
   media: ProductMediaRow[];
 };
 
