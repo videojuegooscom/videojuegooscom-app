@@ -20,7 +20,10 @@
  *      de { etiqueta ≤ 60, valor ≤ 20 } } o null) nunca rechazan el mensaje: lo que no cumple se descarta
  *      y cada «publicar» los sustituye enteros (null quita el mantenimiento). Los campos desconocidos se ignoran.
  *   8. Guarda por id_veoaura: crea o actualiza, nunca duplica (índice único).
- *   9. Responde 200 {ok:true, id_tienda} solo después de guardar; si falla, {ok:false, error}.
+ *   9. Responde 200 {ok:true, id_tienda} solo después de guardar; si falla, {ok:false, error}. «vendido» y «retirar»
+ *      (2026-11-13) dicen además si el artículo estaba en la tienda: {ok:true, encontrado:true, estado:"vendido"|"retirado",
+ *      id_tienda} o {ok:true, encontrado:false}, siempre con 200 para no romper los reintentos de VeoAura. Lo marcan con
+ *      is_active=false (lo que miran la lista, la ficha y la cesta) y vendido_en / retirado_en; no borran nada.
  *  10. Nunca redirige (la dirección buena es sin www: https://videojuegoszaragoza.com/...).
  *  11. Registra cada mensaje (fecha, evento, id_veoaura, resultado) en public.escaparate_registro,
  *      nunca la firma ni el secreto.
@@ -1290,7 +1293,14 @@ export default async function handler(req: any, res: any) {
     }
 
     await registrar(supabase, { evento, id_veoaura: idVeoaura, resultado: "ok", http: 200, detalle: idTienda ? undefined : "no existía en la tienda" });
-    responder(res, 200, idTienda ? { ok: true, id_tienda: idTienda } : { ok: true });
+    // «vendido» y «retirar» dicen si el artículo estaba en la tienda (dueño, 2026-11-13), siempre con 200 para no romper
+    // los reintentos de VeoAura: { ok, encontrado: true, estado: "vendido" | "retirado", id_tienda } o { ok, encontrado: false }.
+    if ((evento as Evento) === "publicar") {
+      responder(res, 200, idTienda ? { ok: true, id_tienda: idTienda } : { ok: true });
+    } else {
+      const estado = (evento as Evento) === "vendido" ? "vendido" : "retirado";
+      responder(res, 200, idTienda ? { ok: true, encontrado: true, estado, id_tienda: idTienda } : { ok: true, encontrado: false });
+    }
 
     if (idTienda && fotos.length) {
       const id = idTienda;
