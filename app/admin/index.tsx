@@ -41,6 +41,9 @@
  * la tienda— y título centrado); el subtítulo y la rejilla van debajo, en
  * un único ScrollView (flex 1, margen final 48 px + zona segura).
  *
+ * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): título de cada recuadro a 15 px, número rojo
+ * a 13 px (letra blanca sobre el azul de marca: se queda, son botones grandes) y «Volver a la tienda» de 44 px.
+ *
  * Conectado con:
  * - app/admin/categories.tsx, app/admin/products.tsx, app/admin/services.tsx,
  *   app/admin/inventario.tsx, app/admin/cotizaciones.tsx, app/admin/chats.tsx,
@@ -69,6 +72,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AdminHeader } from "../../lib/admin/products.components";
 import { leerPanelVistos, type SeccionConNovedades } from "../../lib/admin/products.utils";
 import { supabase } from "../../lib/supabase";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -79,8 +83,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
@@ -206,7 +210,7 @@ function InsigniaNovedades({ seccion, n, enLinea }: { seccion: string; n: number
         transform: [{ scale: escala }],
       }}
     >
-      <Text style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "900" }}>{n > 99 ? "99+" : String(n)}</Text>
+      <Text style={{ color: "#FFFFFF", fontSize: TAMANOS.minimo, fontWeight: "900" }}>{n > 99 ? "99+" : String(n)}</Text>
     </Animated.View>
   );
 }
@@ -282,7 +286,7 @@ function CardButton({
             style={{
               color: "#FFFFFF",
               fontWeight: "900",
-              fontSize: isMobile ? 14.5 : 16,
+              fontSize: isMobile ? TAMANOS.cuerpo : 16,
               lineHeight: isMobile ? 19 : 22,
               textAlign: isMobile ? "center" : "left",
             }}
@@ -548,6 +552,8 @@ export default function AdminHome() {
                 width: "100%",
                 maxWidth: 420,
                 opacity: pressed ? 0.85 : 1,
+                minHeight: TACTIL.minimo,
+                justifyContent: "center",
                 paddingVertical: 12,
                 paddingHorizontal: 12,
                 borderRadius: 999,

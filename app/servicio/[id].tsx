@@ -20,6 +20,9 @@
  * (LIKED_SERVICES_KEY) y la pestaña «Me gusta» de Perfil los enseña. Sin la
  * migración (services.like_count no existe) el corazón no sale y nada se rompe.
  *
+ * Tamaños (2026-11-12, grupo 3): compartir y «me gusta» sobre la foto tienen 44 × 44 de zona táctil (el círculo
+ * visible sigue en 32) y el contador a 13 px (constants/theme.ts; prueba TM3).
+ *
  * Reseñas (dueño, 2026-11-03): «Mis seguimientos» pide valorar el servicio al
  * entregarlo y aquí salen la media junto al precio y las opiniones debajo de
  * las pestañas (store_reviews con service_id; sin la migración
@@ -57,6 +60,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { TAMANOS } from "../../constants/theme";
 import { contarVistaServicio, fijarMeGustaServicio, guardarMeGustaLocal, LIKED_SERVICES_KEY, meGustaLocales } from "../../lib/interaccion";
 import { trackEvent } from "../../lib/analytics";
 import { leerModalidades, type ModalidadServicio } from "../../components/ContratarServicioModal";
@@ -626,22 +630,23 @@ export default function ServicioScreen() {
                     </View>
                   ) : null}
 
-                  <View style={{ position: "absolute", right: 12, bottom: 12, flexDirection: "row", gap: 8 }}>
+                  {/* Zona táctil de 44 × 44 (grupo 3, 2026-11-12); el círculo visible sigue siendo de 32. */}
+                  <View style={{ position: "absolute", right: 4, bottom: 4, flexDirection: "row", gap: 8 }}>
                     <Pressable
                       onPress={shareService}
                       accessibilityRole="button"
                       accessibilityLabel="Compartir este servicio"
                       style={({ pressed }) => ({
                         opacity: pressed ? 0.85 : 1,
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
+                        width: 44,
+                        height: 44,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: "rgba(11,33,56,0.60)",
                       })}
                     >
-                      <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
+                      <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(11,33,56,0.60)" }}>
+                        <Ionicons name="share-social-outline" size={15} color="#FFFFFF" />
+                      </View>
                     </Pressable>
 
                     {/* «Me gusta», como en producto (solo cuando la base de datos ya los tiene). */}
@@ -654,19 +659,16 @@ export default function ServicioScreen() {
                         accessibilityLabel={liked ? "Quitar me gusta" : "Dar me gusta"}
                         style={({ pressed }) => ({
                           opacity: pressed ? 0.85 : 1,
-                          minWidth: 32,
-                          height: 32,
-                          borderRadius: 16,
-                          paddingHorizontal: 10,
-                          flexDirection: "row",
+                          minWidth: 44,
+                          height: 44,
                           alignItems: "center",
                           justifyContent: "center",
-                          gap: 5,
-                          backgroundColor: "rgba(11,33,56,0.60)",
                         })}
                       >
-                        <Ionicons name={liked ? "heart" : "heart-outline"} size={15} color={liked ? "#FF5A7A" : "#FFFFFF"} />
-                        <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 11 }}>{likeCount}</Text>
+                        <View style={{ minWidth: 32, height: 32, borderRadius: 16, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: "rgba(11,33,56,0.60)" }}>
+                          <Ionicons name={liked ? "heart" : "heart-outline"} size={15} color={liked ? "#FF5A7A" : "#FFFFFF"} />
+                          <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: TAMANOS.minimo }}>{likeCount}</Text>
+                        </View>
                       </Pressable>
                     ) : null}
                   </View>

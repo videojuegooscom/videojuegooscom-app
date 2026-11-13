@@ -69,6 +69,9 @@
  *   Bizum de Stripe (dueño, 2026-11-11; migración 20261111150000): lo pagado online dice con qué de verdad
  *   («por Bizum online», «por tarjeta online», «por Klarna online»; lo dice Stripe, pago_metodo y
  *   etiqueta_pago_metodo); sin esas columnas, «por tarjeta» como antes. El recuento está en Analítica.
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px (12 solo en
+ *   la insignia «Portada/Usar» de las fotos), grises desde COLORES_TEXTO.secundario, texto azul pequeño en
+ *   azulTexto y botones, filtros y volver de 44 px como mínimo (los contadores salen de StatCard).
  * - app/admin/index.tsx → origen habitual de la navegación a esta pantalla.
  * - app/admin/_layout.tsx → registra esta ruta ("services") dentro del
  *   Stack protegido del panel admin.
@@ -97,6 +100,7 @@ import { leerModalidades, type ModalidadServicio } from "../../components/Contra
 import { cargarAjustesReparacionEnvio, cargarTarifas, hayTarifaCorreos, type AjustesReparacionEnvio } from "../../lib/envio";
 import { enlaceVideo, esEnlaceCorto } from "../servicios";
 import CargaMarca from "../../components/marca/CargaMarca";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import {
   AdminHeader,
   AdminNotice,
@@ -133,9 +137,11 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
+  // Texto azul de menos de 17 px: azul oscuro; accent queda para iconos, bordes y fondos.
+  accentText: COLORES_TEXTO.azulTexto,
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   success: "#15803D",
@@ -433,6 +439,7 @@ function ChipButton({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
+        minHeight: TACTIL.minimo,
         paddingVertical: 10,
         paddingHorizontal: 12,
         borderWidth: 1,
@@ -589,7 +596,7 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>
           Nuestros Servicios · vídeos{filas?.length ? ` (${filas.filter((f) => f.url.trim()).length})` : ""}
         </Text>
-        <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
           Salen al final de la página Servicios para que los clientes vean cómo trabajáis. Pega el enlace de un reel de
           Instagram o un vídeo de TikTok (de un minuto como máximo). Cuántos los ven: Analítica → «Nuestros Servicios».
         </Text>
@@ -638,9 +645,9 @@ function EditorVideosServicios({ isMobile }: { isMobile: boolean }) {
                   style={{ ...estiloCampo, textAlign: "center" }}
                 />
                 {corto ? (
-                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>Enlace corto de la app: al guardar se cambia por el completo.</Text>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Enlace corto de la app: al guardar se cambia por el completo.</Text>
                 ) : f.url.trim() && !enlace ? (
-                  <Text style={{ color: COLORS.danger, fontSize: 12, textAlign: "center" }}>Este enlace no es de un vídeo de Instagram o TikTok.</Text>
+                  <Text style={{ color: COLORS.danger, fontSize: TAMANOS.minimo, textAlign: "center" }}>Este enlace no es de un vídeo de Instagram o TikTok.</Text>
                 ) : null}
               </View>
             );
@@ -682,7 +689,7 @@ function RequestSeguimiento({
 
   if (!disponible) {
     return (
-      <Text style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+      <Text style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
         Falta aplicar la migración de seguimiento
       </Text>
     );
@@ -716,7 +723,7 @@ function RequestSeguimiento({
 
   return (
     <View style={{ gap: 8, alignItems: "center", paddingTop: 4 }}>
-      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
         SEGUIMIENTO PARA EL CLIENTE
         {request.seguimiento_actualizado ? ` · ${formatDate(request.seguimiento_actualizado)}` : ""}
       </Text>
@@ -766,7 +773,7 @@ function RequestSeguimiento({
         isMobile={isMobile}
       />
       {msg ? (
-        <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+        <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
           {msg.text}
         </Text>
       ) : null}
@@ -944,7 +951,7 @@ function PanelEnvioSolicitud({
 
   return (
     <View nativeID={`solicitud-envio-${request.id}`} style={{ gap: 8, alignItems: "center", paddingTop: 4 }}>
-      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+      <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
         {porEnvio ? "REPARACIÓN POR ENVÍO" : "PRESUPUESTO"}
       </Text>
       {porEnvio ? (
@@ -965,10 +972,10 @@ function PanelEnvioSolicitud({
                 : "sin pagar"}
           </Text>
           {request.condiciones_aceptadas_en ? (
-            <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>Condiciones aceptadas el {formatDate(request.condiciones_aceptadas_en)}</Text>
+            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>Condiciones aceptadas el {formatDate(request.condiciones_aceptadas_en)}</Text>
           ) : null}
           {request.etiqueta_avisada_en && !request.etiqueta_pagada_en ? (
-            <Text nativeID={`solicitud-etiqueta-avisada-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+            <Text nativeID={`solicitud-etiqueta-avisada-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
               El cliente dice que ya pagó la etiqueta ({formatDate(request.etiqueta_avisada_en)}): compruébalo y márcala pagada
             </Text>
           ) : null}
@@ -1024,7 +1031,7 @@ function PanelEnvioSolicitud({
           onPress={() => guardar({ presupuesto_eur: Math.round(precio * 100) / 100 }, "presupuesto", "Presupuesto guardado ✓ · pon la etapa «Presupuesto» para que el cliente lo acepte")}
         />
       </View>
-      <Text nativeID={`solicitud-presupuesto-estado-${request.id}`} style={{ color: request.presupuesto_aceptado_en ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+      <Text nativeID={`solicitud-presupuesto-estado-${request.id}`} style={{ color: request.presupuesto_aceptado_en ? COLORS.success : COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
         {request.presupuesto_eur == null
           ? "Sin presupuesto todavía"
           : request.presupuesto_aceptado_en
@@ -1035,7 +1042,7 @@ function PanelEnvioSolicitud({
       {parte2 ? (
         <View nativeID={`solicitud-cobro-${request.id}`} style={{ gap: 8, alignItems: "center", width: "100%" }}>
           {/* Diagnóstico: reparable o sin arreglo (con «Te lo compramos por», opcional). */}
-          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: 12, textAlign: "center" }}>DIAGNÓSTICO</Text>
+          <Text style={{ color: COLORS.muted2, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>DIAGNÓSTICO</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
             {(["reparable", "sin_arreglo"] as const).map((d) => (
               <ChipButton
@@ -1065,7 +1072,7 @@ function PanelEnvioSolicitud({
                   }}
                 />
               </View>
-              <Text nativeID={`solicitud-eleccion-${request.id}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+              <Text nativeID={`solicitud-eleccion-${request.id}`} style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 {request.sin_arreglo_eleccion === "comprar"
                   ? `El cliente eligió «Te lo compramos»${request.sin_arreglo_eleccion_en ? ` el ${formatDate(request.sin_arreglo_eleccion_en)}` : ""}: le llega su solicitud a Vender`
                   : request.sin_arreglo_eleccion === "devolver"
@@ -1078,7 +1085,7 @@ function PanelEnvioSolicitud({
           {/* Cobro de la reparación (o de la vuelta si no tiene arreglo). */}
           {porEnvio ? (
             <>
-              <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+              <Text nativeID={`solicitud-pago-${request.id}`} style={{ color: request.pago_estado === "pagado" ? COLORS.success : COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 {request.pago_estado === "pagado"
                   ? `Pagado ${fmtEUR(Number(request.pagado_eur ?? 0))}${request.pago_modo ? ` por ${formaDePago(request.pago_modo, request.pago_metodo)}` : ""}${request.pagado_en ? ` el ${formatDate(request.pagado_en)}` : ""}`
                   : request.diagnostico_resultado === "sin_arreglo"
@@ -1092,7 +1099,7 @@ function PanelEnvioSolicitud({
                       : "Sin nada que cobrar todavía"}
               </Text>
               {request.pago_avisado_en && request.pago_estado !== "pagado" ? (
-                <Text nativeID={`solicitud-pago-avisado-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                <Text nativeID={`solicitud-pago-avisado-${request.id}`} style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                   El cliente dice que ya lo pagó ({formatDate(request.pago_avisado_en)}): compruébalo y márcalo pagado
                 </Text>
               ) : null}
@@ -1130,7 +1137,7 @@ function PanelEnvioSolicitud({
                   />
                 </View>
               ) : request.vuelta_seguimiento ? (
-                <Text style={{ color: COLORS.text, fontSize: 12.5, textAlign: "center" }}>Vuelta por Correos: nº {request.vuelta_seguimiento}</Text>
+                <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo, textAlign: "center" }}>Vuelta por Correos: nº {request.vuelta_seguimiento}</Text>
               ) : null}
             </>
           ) : null}
@@ -1149,7 +1156,7 @@ function PanelEnvioSolicitud({
           onPress={() => guardar({ espera_pieza_hasta: pieza.trim() || null }, "pieza", pieza.trim() ? "Fecha de la pieza guardada ✓" : "Fecha quitada ✓")}
         />
       </View>
-      {msg ? <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>{msg.text}</Text> : null}
+      {msg ? <Text style={{ color: msg.ok ? COLORS.success : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>{msg.text}</Text> : null}
     </View>
   );
 }
@@ -1194,7 +1201,7 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
   if (aj === undefined) return null;
   if (aj === null) {
     return (
-      <Text nativeID="reparacion-envio-ajustes" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+      <Text nativeID="reparacion-envio-ajustes" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
         Reparación por envío: falta aplicar su migración (20261111100000).
       </Text>
     );
@@ -1310,13 +1317,13 @@ function AjustesEnvioPanel({ isMobile }: { isMobile: boolean }) {
             ) : null}
           </View>
           {aj.parte2 ? (
-            <Text nativeID="reparacion-envio-pagos-aviso" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+            <Text nativeID="reparacion-envio-pagos-aviso" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
               El Bizum, el IBAN y el titular se enseñan al cliente para pagar la etiqueta y la reparación (solo los que rellenes), con su
               número VZ- como concepto. El peso de cada aparato se pone en la ficha de cada servicio (Catálogo); este es el de respaldo.
             </Text>
           ) : null}
           {pesoEstimado ? (
-            <Text nativeID="reparacion-envio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+            <Text nativeID="reparacion-envio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
               Peso estimado ({form.peso} kg con embalaje): corrígelo con el real de lo que más reparas.
             </Text>
           ) : null}
@@ -2162,7 +2169,7 @@ export default function AdminServices() {
                         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14, lineHeight: 19, textAlign: "center" }}>
                           {s.title || "Sin título"}
                         </Text>
-                        <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}>
                           {s.modalidades?.length
                             ? `Desde ${fmtEUR(s.price_eur)} · ${s.modalidades.length} opciones${
                                 s.modalidades.some((m) => m.foto) ? ` (${s.modalidades.filter((m) => m.foto).length} con foto)` : ""
@@ -2300,7 +2307,7 @@ export default function AdminServices() {
             ) : null}
 
             {parte2Ok && !requestsLoading && requests.length ? (
-              <Text nativeID="servicios-cobros-resumen" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              <Text nativeID="servicios-cobros-resumen" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                 Cobros · dicen que ya pagaron: {cuentaCobro.avisado} · pendientes: {cuentaCobro.pendiente} · pagadas: {cuentaCobro.pagada} · sin arreglo:{" "}
                 {cuentaCobro.sin_arreglo} (te lo compramos {cuentaCobro.comprar}, devuélvemelo {cuentaCobro.devolver}) · garantías: {cuentaCobro.garantia} (abiertas{" "}
                 {garantiasAbiertas})
@@ -2308,7 +2315,7 @@ export default function AdminServices() {
             ) : null}
 
             {numerosOk && !requestsLoading ? (
-              <Text nativeID="servicios-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+              <Text nativeID="servicios-numeros" style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                 Números de seguimiento · de VeoAura: {resumenNumeros.veoaura} (en la cuenta del cliente: {resumenNumeros.veoauraVinculadas}) ·
                 añadidas con su número: {resumenNumeros.anadidasConNumero} · sin cuenta: {resumenNumeros.sinCuenta} · asignadas desde
                 el chat: {resumenNumeros.desdeChat}
@@ -2343,11 +2350,11 @@ export default function AdminServices() {
                           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
                             {r.nombre} {r.apellido}
                           </Text>
-                          <Text style={{ color: COLORS.muted, fontSize: 12.5, marginTop: 2, textAlign: "center" }}>
+                          <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, marginTop: 2, textAlign: "center" }}>
                             {r.service_title} · {formatDate(r.created_at)}
                           </Text>
                           {r.garantia_de ? (
-                            <Text nativeID={`solicitud-garantia-${r.id}`} style={{ color: COLORS.success, fontWeight: "900", fontSize: 12.5, marginTop: 4, textAlign: "center" }}>
+                            <Text nativeID={`solicitud-garantia-${r.id}`} style={{ color: COLORS.success, fontWeight: "900", fontSize: TAMANOS.minimo, marginTop: 4, textAlign: "center" }}>
                               Garantía · sin coste
                               {(() => {
                                 const o = requests.find((x) => x.id === r.garantia_de);
@@ -2360,7 +2367,7 @@ export default function AdminServices() {
                               <Text selectable style={{ color: COLORS.text, fontWeight: "900", fontSize: 13.5, letterSpacing: 1 }}>
                                 Nº de seguimiento {r.codigo_seguimiento}
                               </Text>
-                              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12, textAlign: "center" }}>
+                              <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                                 {[
                                   r.id_veoaura ? "Ficha de VeoAura" : null,
                                   r.customer_user_id
@@ -2387,7 +2394,7 @@ export default function AdminServices() {
                             backgroundColor: sc.bg,
                           }}
                         >
-                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11 }}>
+                          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>
                             {REQUEST_STATUS_LABEL[r.status]}
                           </Text>
                         </View>
@@ -2559,7 +2566,7 @@ export default function AdminServices() {
               />
               {/* Los emojis no salen en la tienda (sinEmojis; dueño, 2026-11-04): se avisa al escribirlos. */}
               {contarEmojis(desc) > 0 ? (
-                <Text nativeID="servicio-aviso-emojis" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center", marginTop: -6 }}>
+                <Text nativeID="servicio-aviso-emojis" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center", marginTop: -6 }}>
                   En la tienda la descripción se verá sin {contarEmojis(desc) === 1 ? "su emoji" : `sus ${contarEmojis(desc)} emojis`}.
                 </Text>
               ) : null}
@@ -2583,13 +2590,13 @@ export default function AdminServices() {
                   />
                   {pesoEstimado && !pesoTocado && pesoEnvio.trim() ? (
                     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <Text nativeID="servicio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                      <Text nativeID="servicio-peso-estimado" style={{ color: COLORS.warning, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                         Estimado: corrígelo con el real o dalo por bueno
                       </Text>
                       <ChipButton label="Es correcto" icon="checkmark" isMobile={isMobile} onPress={() => setPesoTocado(true)} />
                     </View>
                   ) : null}
-                  <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}>
                     Tramos de Correos: hasta 1, 2, 3, 4, 5, 10… kg. Con varios aparatos se suma.
                   </Text>
                 </View>
@@ -2600,7 +2607,7 @@ export default function AdminServices() {
               {opcionesOk ? (
                 <View nativeID="servicio-opciones" style={{ gap: 8, width: "100%", alignSelf: "stretch" }}>
                   <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 13, textAlign: "center" }}>Opciones del servicio</Text>
-                  <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                     Por ejemplo «Básica» y «Completa + mando». El cliente elige una en la ficha; la primera sale elegida. Sin
                     opciones, el servicio tiene un solo precio.
                   </Text>
@@ -2704,7 +2711,7 @@ export default function AdminServices() {
                         nativeID={`servicio-opcion-fotos-${i}`}
                         style={{ gap: 8, padding: 10, borderRadius: 14, backgroundColor: COLORS.cardSoft, borderWidth: 1, borderColor: COLORS.border }}
                       >
-                        <Text style={{ color: COLORS.muted, fontSize: 12.5, textAlign: "center" }}>
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                           Elige la foto de «{o.nombre.trim() || `opción ${i + 1}`}» o sube una nueva
                         </Text>
                         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
@@ -2843,6 +2850,7 @@ export default function AdminServices() {
                           <>
                             <Pressable
                               onPress={() => setCoverId(f.id)}
+                              hitSlop={8}
                               style={{
                                 position: "absolute",
                                 top: 4,
@@ -2853,13 +2861,13 @@ export default function AdminServices() {
                                 paddingVertical: 2,
                               }}
                             >
-                              <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "900" }}>{coverId === f.id ? "Portada" : "Usar"}</Text>
+                              <Text style={{ color: "#FFFFFF", fontSize: TAMANOS.legal, fontWeight: "900" }}>{coverId === f.id ? "Portada" : "Usar"}</Text>
                             </Pressable>
                             <Pressable
                               onPress={f.quitar}
                               accessibilityRole="button"
                               accessibilityLabel="Quitar esta foto"
-                              style={{ position: "absolute", top: 0, right: 0, width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
+                              style={{ position: "absolute", top: 0, right: 0, width: TACTIL.minimo, height: TACTIL.minimo, alignItems: "center", justifyContent: "center" }}
                             >
                               {/* El icono ya es redondo y oscuro (se ve sobre cualquier foto): sin burbuja alrededor. */}
                               <Ionicons name="close-circle" size={22} color="rgba(11,33,56,0.85)" />
@@ -2894,7 +2902,7 @@ export default function AdminServices() {
                 </View>
 
                 {picking && (
-                  <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                     Procesando fotos… puede tardar unos segundos si son varias o vienen en formato
                     HEIC del iPhone.
                   </Text>
@@ -2903,11 +2911,11 @@ export default function AdminServices() {
                 {/* Las quitadas se borran al guardar; hasta entonces se pueden devolver. */}
                 {removedMedia.length > 0 ? (
                   <View nativeID="servicio-fotos-quitadas" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+                    <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                       {removedMedia.length === 1 ? "1 foto quitada" : `${removedMedia.length} fotos quitadas`}: se borran al guardar los cambios.
                     </Text>
                     <Pressable onPress={deshacerQuitadas} accessibilityRole="button" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}>
-                      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 13 }}>Deshacer</Text>
+                      <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: 13 }}>Deshacer</Text>
                     </Pressable>
                   </View>
                 ) : null}

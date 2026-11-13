@@ -16,7 +16,9 @@
  *   RLS de analytics_events ya exige is_admin() para el SELECT).
  * - Rango de fechas: chips rápidos (Hoy/7 días/30 días/90 días/Todo) o un
  *   rango a medida escribiendo dos fechas (AAAA-MM-DD). Por defecto, últimos
- *   30 días. Las fechas se tratan como días completos en hora de España
+ *   30 días. Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): los dos
+ *   campos de fecha y «Aplicar» miden 48 px (CAMPO) y los chips 44 (TACTIL),
+ *   con letra de 13 como mínimo (constants/theme.ts). Las fechas se tratan como días completos en hora de España
  *   (Europe/Madrid, de 00:00 a 00:00 del día siguiente, con horario de
  *   verano). Ojo: la agrupación por día de "Crecimiento de visitantes" la
  *   hace la función SQL analytics_daily_visitors en la zona del servidor.
@@ -68,6 +70,8 @@
  * - components/Campanita.tsx → «Avisos de Blue solo con cuenta» (#analitica-blue-avisos-cuenta): cuentas con los
  *   avisos de artículos nuevos (recuento de preferencias_usuario, sin filas ni la del administrador), toques en
  *   «Crear cuenta gratis» y cuentas creadas después (lib/analytics.ts → marcarOrigenRegistro).
+ * - Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px y grises desde
+ *   COLORES_TEXTO.secundario (antes 12/12,5 px y gris 0,48), sin tocar los gráficos ni los datos.
  * - app/admin/index.tsx → tarjeta "Visitas y métricas" que lleva aquí.
  * - app/admin/_layout.tsx → registra esta ruta ("analytics") en el Stack.
  */
@@ -86,6 +90,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CAMPO, COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 import { supabase } from "../../lib/supabase";
 import { cargarAjustesReparacionEnvio } from "../../lib/envio";
 import CargaMarca from "../../components/marca/CargaMarca";
@@ -99,8 +104,8 @@ const COLORS = {
   cardSoft: "#F8FBFE",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.48)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   // Azul oscuro de la tienda (botón principal, mismo que "Comprar"/"Confirmar pedido").
   accentDark: "#1EA7E8",
@@ -294,7 +299,7 @@ function StatCard({
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%" }}>
         {icon ? <Ionicons name={icon} size={13} color={COLORS.muted2} /> : null}
-        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: 12, flexShrink: 1 }} numberOfLines={1}>
+        <Text style={{ color: COLORS.muted2, fontWeight: "700", fontSize: TAMANOS.minimo, flexShrink: 1 }} numberOfLines={1}>
           {label}
         </Text>
       </View>
@@ -319,17 +324,20 @@ function ChipButton({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => ({
+        minHeight: TACTIL.minimo,
+        justifyContent: "center",
         borderRadius: 999,
         paddingVertical: 9,
-        paddingHorizontal: 12,
+        paddingHorizontal: isMobile ? 12 : 14,
         borderWidth: 1,
         borderColor: active ? COLORS.accentBorder : COLORS.border,
         backgroundColor: active ? COLORS.accent2 : "#F6FAFD",
         opacity: pressed ? 0.88 : 1,
       })}
     >
-      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: isMobile ? 12.5 : 13 }}>{label}</Text>
+      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 13 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -355,7 +363,7 @@ function SectionCard({
       <View style={{ alignItems: "center" }}>
         <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16, textAlign: "center" }}>{title}</Text>
         {!!subtitle && (
-          <Text style={{ color: COLORS.muted, marginTop: 3, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
+          <Text style={{ color: COLORS.muted, marginTop: 3, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
             {subtitle}
           </Text>
         )}
@@ -384,10 +392,10 @@ function BarRow({
   return (
     <View style={{ gap: 4 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-        <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }} numberOfLines={1}>
+        <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }} numberOfLines={1}>
           {label}
         </Text>
-        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: 12.5 }}>
+        <Text style={{ color: COLORS.muted, fontWeight: "800", fontSize: TAMANOS.minimo }}>
           {value}
           {valueSuffix ?? ""}
         </Text>
@@ -1010,7 +1018,7 @@ export default function AdminAnalytics() {
           paddingBottom: isMobile ? 10 : 12,
         }}
       >
-        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: 40, justifyContent: "center" }}>
+        <View style={{ width: "100%", maxWidth: 1040, alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center" }}>
           <Pressable
             onPress={smartBackAdminHome}
             accessibilityRole="button"
@@ -1023,7 +1031,7 @@ export default function AdminAnalytics() {
               left: 0,
               top: 0,
               bottom: 0,
-              width: 40,
+              width: TACTIL.minimo,
               alignItems: "center",
               justifyContent: "center",
               opacity: pressed ? 0.7 : 1,
@@ -1083,6 +1091,8 @@ export default function AdminAnalytics() {
                 autoCapitalize="none"
                 style={{
                   flex: 1,
+                  // 48 px de alto (CAMPO, grupo 2 de tamaños): antes 40.
+                  minHeight: CAMPO.alto,
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   borderRadius: 12,
@@ -1092,7 +1102,7 @@ export default function AdminAnalytics() {
                   backgroundColor: "#F8FBFE",
                   // 16 px: con menos, Safari (iPhone) hace zoom al enfocar y la pantalla
                   // se queda ampliada y "descuadrada".
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
                 }}
               />
               <TextInput
@@ -1103,6 +1113,7 @@ export default function AdminAnalytics() {
                 autoCapitalize="none"
                 style={{
                   flex: 1,
+                  minHeight: CAMPO.alto,
                   borderWidth: 1,
                   borderColor: COLORS.border,
                   borderRadius: 12,
@@ -1110,7 +1121,7 @@ export default function AdminAnalytics() {
                   paddingVertical: 10,
                   color: COLORS.text,
                   backgroundColor: "#F8FBFE",
-                  fontSize: 16,
+                  fontSize: CAMPO.letra,
                 }}
               />
               <Pressable
@@ -1118,6 +1129,8 @@ export default function AdminAnalytics() {
                 accessibilityRole="button"
                 style={({ pressed }) => ({
                   opacity: pressed ? 0.9 : 1,
+                  minHeight: CAMPO.alto,
+                  justifyContent: "center",
                   borderRadius: 999,
                   paddingVertical: 11,
                   paddingHorizontal: 18,
@@ -1130,12 +1143,12 @@ export default function AdminAnalytics() {
             </View>
 
             {!!dateErr && (
-              <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>
+              <Text style={{ color: COLORS.danger, fontWeight: "700", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 {dateErr}
               </Text>
             )}
 
-            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: "700", textAlign: "center" }}>
+            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
               Rango actual: {rangeLabel}
             </Text>
           </View>
@@ -1223,7 +1236,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="swap-vertical-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Sesiones con scroll (en cualquier punto del recorrido): {coreFunnel.scroll}
                     </Text>
                   </View>
@@ -1239,7 +1252,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="hand-left-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Pantalla de bienvenida: la ven {coreFunnel.bienvenida} {coreFunnel.bienvenida === 1 ? "sesión" : "sesiones"} · la
                       tienda estaba lista en menos de 1 s: {coreFunnel.bienvenidaRapida} · entre 1 y 3 s: {coreFunnel.bienvenidaMedia} · en más
                       de 3 s: {coreFunnel.bienvenidaLenta} · la quitan antes con un toque: {coreFunnel.bienvenidaSaltada} · empiezan en Inicio
@@ -1260,7 +1273,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="speedometer-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       {topes
                         ? `Topes automáticos de la analítica: hoy ${topes.hoy.toLocaleString("es-ES")} eventos guardados de un máximo de ${topes.porDia.toLocaleString("es-ES")} · ${topes.porMinuto.toLocaleString("es-ES")} por minuto · ${topes.porSesion} por persona y minuto · cortados hoy ${topes.cortadosHoy} (30 días: ${topes.cortados30}). Se ajustan solos: 3 veces el día con más visitas del último mes.`
                         : "Topes automáticos de la analítica: aún sin activar (falta pegar en Supabase la migración 20261018150000_analitica_topes.sql)."}
@@ -1278,7 +1291,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="expand-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Fotos de la ficha ampliadas: {coreFunnel.fotoAmpliada} sesiones · con zoom: {coreFunnel.fotoZoom}
                     </Text>
                   </View>
@@ -1294,7 +1307,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="construct-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Fichas de servicio: fotos ampliadas {coreFunnel.servicioFoto} · «Contratar servicio ahora» {coreFunnel.servicioContratar} · «Preguntar por este servicio» {coreFunnel.servicioPreguntar} · «Valorar el servicio» {coreFunnel.resenaServicioPedida} · reseñas publicadas {coreFunnel.resenaServicioPublicada} (sesiones)
                     </Text>
                   </View>
@@ -1311,25 +1324,25 @@ export default function AdminAnalytics() {
                   >
                     <Ionicons name="funnel-outline" size={15} color={COLORS.accentDark} />
                     <View style={{ flex: 1, gap: 3 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                         Contratar servicio: abrió la ventana → envió (sesiones)
                       </Text>
                       {contratarServicio.servicios.length ? (
                         contratarServicio.servicios.slice(0, 8).map((s) => (
-                          <Text key={s.titulo} style={{ color: COLORS.text, fontSize: 12.5 }}>
+                          <Text key={s.titulo} style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                             {s.titulo}: {s.abiertas} → {s.enviadas} ({s.pct} %) · cerradas sin enviar {s.cerradas}
                           </Text>
                         ))
                       ) : (
-                        <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Aún nadie ha abierto la ventana en este periodo.</Text>
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún nadie ha abierto la ventana en este periodo.</Text>
                       )}
                       {contratarServicio.faltaba.length ? (
-                        <Text style={{ color: COLORS.text, fontSize: 12.5 }}>
+                        <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                           Lo que faltaba al intentar enviar: {contratarServicio.faltaba.map((f) => `${f.clave} ${f.n}`).join(" · ")}
                         </Text>
                       ) : null}
                       {contratarServicio.opciones.length ? (
-                        <Text style={{ color: COLORS.text, fontSize: 12.5 }}>
+                        <Text style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                           Opciones elegidas en la ficha: {contratarServicio.opciones.map((o) => `${o.clave} ${o.n}`).join(" · ")}
                         </Text>
                       ) : null}
@@ -1341,23 +1354,23 @@ export default function AdminAnalytics() {
                   >
                     <Ionicons name="cube-outline" size={15} color={COLORS.accentDark} />
                     <View style={{ flex: 1, gap: 3 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>Reparación por envío</Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>Reparación por envío</Text>
                       {embudoEnvio ? (
-                        <Text nativeID="analitica-reparacion-envio-bd" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                        <Text nativeID="analitica-reparacion-envio-bd" style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                           En total: solicitadas {embudoEnvio.solicitadas} → etiqueta pagada {embudoEnvio.pagadas} → recibidas {embudoEnvio.recibidas} → presupuesto aceptado {embudoEnvio.aceptadas}
                         </Text>
                       ) : (
-                        <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Aún sin datos (falta aplicar su migración o no hay ninguna).</Text>
+                        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún sin datos (falta aplicar su migración o no hay ninguna).</Text>
                       )}
-                      <Text nativeID="analitica-reparacion-envio-sesiones" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                      <Text nativeID="analitica-reparacion-envio-sesiones" style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                         En este periodo (sesiones): eligen Correos {contratarServicio.envio.correosElegido} · la solicitan {contratarServicio.envio.solicitada} · descargan la etiqueta {contratarServicio.envio.etiquetaDescargada} · aceptan el presupuesto {contratarServicio.envio.presupuestoAceptado}
                       </Text>
                       {embudoEnvio2 ? (
                         <>
-                          <Text nativeID="analitica-reparacion-envio-bd2" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                          <Text nativeID="analitica-reparacion-envio-bd2" style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                             Después: pagadas {embudoEnvio2.cobradas} → enviadas {embudoEnvio2.enviadas} · sin arreglo {embudoEnvio2.sinArreglo} (compradas {embudoEnvio2.compradas}, devueltas {embudoEnvio2.devueltas}) · garantías abiertas {embudoEnvio2.garantias}
                           </Text>
-                          <Text nativeID="analitica-reparacion-envio-sesiones2" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                          <Text nativeID="analitica-reparacion-envio-sesiones2" style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                             Cobros (sesiones): abren el pago con tarjeta {contratarServicio.envio.tarjeta} · confirmados {contratarServicio.envio.tarjetaOk} · avisan de Bizum o transferencia {contratarServicio.envio.avisos} · «Te lo compramos» {contratarServicio.envio.comprar} · «Devuélvemelo» {contratarServicio.envio.devolver} · garantías pedidas {contratarServicio.envio.garantia}
                           </Text>
                         </>
@@ -1369,7 +1382,7 @@ export default function AdminAnalytics() {
                     style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}
                   >
                     <Ionicons name="play-circle-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Nuestros Servicios (vídeos vistos, sesiones):{" "}
                       {contratarServicio.videos.length
                         ? contratarServicio.videos.map((v) => `${v.clave} ${v.n}`).join(" · ")
@@ -1388,7 +1401,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="sparkles-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Botones de Blue IA: mostrados {coreFunnel.blueBotonesMostrados} · tocados {coreFunnel.blueBotonesTocados}
                       {coreFunnel.blueBotonesTop.length ? ` · más tocados: ${coreFunnel.blueBotonesTop.join(", ")}` : ""} (sesiones)
                     </Text>
@@ -1405,7 +1418,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="options-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Filtros del catálogo: abiertos {coreFunnel.filtrosAbiertos} · aplicados dentro de una categoría {coreFunnel.filtrosCategoria} · en el catálogo {coreFunnel.filtrosCatalogo} (sesiones)
                     </Text>
                   </View>
@@ -1421,7 +1434,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="heart-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       «Me gusta»: abren su pestaña de Perfil {coreFunnel.meGustaPestana} sesiones · dan «me gusta» a un servicio {coreFunnel.meGustaServicio}
                     </Text>
                   </View>
@@ -1439,7 +1452,7 @@ export default function AdminAnalytics() {
                       }}
                     >
                       <Ionicons name="card-outline" size={15} color={COLORS.accentDark} />
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                         Pagos online por forma de pago (desde que se guarda, todos los tiempos): tarjeta {pagosPorMetodo.pedidos.card + pagosPorMetodo.reparaciones.card} · Bizum{" "}
                         {pagosPorMetodo.pedidos.bizum + pagosPorMetodo.reparaciones.bizum} · Klarna {pagosPorMetodo.pedidos.klarna + pagosPorMetodo.reparaciones.klarna} (pedidos:{" "}
                         {pagosPorMetodo.pedidos.card}/{pagosPorMetodo.pedidos.bizum}/{pagosPorMetodo.pedidos.klarna} · reparaciones y etiquetas: {pagosPorMetodo.reparaciones.card}/
@@ -1461,7 +1474,7 @@ export default function AdminAnalytics() {
                       }}
                     >
                       <Ionicons name="storefront-outline" size={15} color={COLORS.accentDark} />
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                         Ventas en tienda (de VeoAura) frente a online, sin cancelados: en tienda {ventasCanal.tienda.n} ({fmtEurCanal(ventasCanal.tienda.eur)}) · online{" "}
                         {ventasCanal.online.n} ({fmtEurCanal(ventasCanal.online.eur)})
                       </Text>
@@ -1481,7 +1494,7 @@ export default function AdminAnalytics() {
                       }}
                     >
                       <Ionicons name="phone-portrait-outline" size={15} color={COLORS.accentDark} />
-                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                         Clientes conectados en los últimos 7 días: {conectados7.clientes} · con la app instalada: {conectados7.app}
                       </Text>
                     </View>
@@ -1499,7 +1512,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="document-text-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Facturas descargadas desde «Mis pedidos»: {coreFunnel.facturaDescargada} {coreFunnel.facturaDescargada === 1 ? "sesión" : "sesiones"} ·
                       desde Blue IA: «Ver mis facturas» {coreFunnel.blueVerFacturas} · «Descargar factura» {coreFunnel.blueFacturaDescargada} (sesiones) ·
                       «¿Te hemos dado un número de seguimiento?»: lo abren {coreFunnel.numeroAbierto} → lo añaden {coreFunnel.numeroAnadido} ·
@@ -1518,7 +1531,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="sparkles-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Cesta → «Blue, ayúdame a elegir un artículo»: {coreFunnel.blueElegir}{" "}
                       {coreFunnel.blueElegir === 1 ? "sesión" : "sesiones"}
                     </Text>
@@ -1535,7 +1548,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="happy-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Blue flotante (fijo arriba a la derecha), lo abren: en Inicio {coreFunnel.blueInicio} · en la ficha de producto{" "}
                       {coreFunnel.blueFichaProducto} · en la ficha de servicio {coreFunnel.blueFichaServicio} · activan desde su panel los
                       avisos de noticias {coreFunnel.blueAvisosNoticias} · abren una noticia nueva desde su aviso{" "}
@@ -1555,7 +1568,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="notifications-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Avisos de Blue solo con cuenta (bajadas de precio y artículos nuevos) → cuentas con los avisos de artículos
                       nuevos activados: {cuentasAvisosNovedades ?? "sin datos"} · tocan «Crear cuenta gratis»: {coreFunnel.blueCuentaAvisos}{" "}
                       {coreFunnel.blueCuentaAvisos === 1 ? "sesión" : "sesiones"} · crean la cuenta después: {coreFunnel.blueCuentaAvisosCreada}
@@ -1573,7 +1586,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="chatbubbles-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Blue IA → siguen su última conversación: {coreFunnel.blueRetomada}{" "}
                       {coreFunnel.blueRetomada === 1 ? "sesión" : "sesiones"} · empiezan una nueva: {coreFunnel.blueNueva}
                     </Text>
@@ -1590,7 +1603,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="people-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Quiénes somos → la ven {coreFunnel.quienesVista} {coreFunnel.quienesVista === 1 ? "sesión" : "sesiones"} · llegan
                       desde Inicio: {coreFunnel.quienesInicio} · desde entrar o crear cuenta: {coreFunnel.quienesAcceso}
                     </Text>
@@ -1607,7 +1620,7 @@ export default function AdminAnalytics() {
                     }}
                   >
                     <Ionicons name="time-outline" size={15} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       Blue IA → «Hablar con el equipo» fuera de horario: {coreFunnel.fueraHorarioAviso}{" "}
                       {coreFunnel.fueraHorarioAviso === 1 ? "sesión" : "sesiones"} · siguen con Blue: {coreFunnel.fueraHorarioBlue} ·
                       escriben igualmente: {coreFunnel.fueraHorarioEscribe}
@@ -1629,18 +1642,18 @@ export default function AdminAnalytics() {
                     style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}
                   >
                     <Ionicons name={f.red === "instagram" ? "logo-instagram" : "logo-tiktok"} size={18} color={COLORS.accentDark} />
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                       {f.nombre}: {f.llegadas} {f.llegadas === 1 ? "visita" : "visitas"} · {f.registros}{" "}
                       {f.registros === 1 ? "cuenta creada" : "cuentas creadas"}
                       {f.llegadas > 0 ? ` (${f.pct} % de sus visitas)` : ""}
                     </Text>
                   </View>
                 ))}
-                <Text nativeID="analitica-redes-resumen" style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, textAlign: "center" }}>
+                <Text nativeID="analitica-redes-resumen" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, textAlign: "center" }}>
                   {redes.mejor ? `Funciona mejor: ${redes.mejor}` : "Todavía no hay visitas desde las redes en estas fechas"} · cuentas
                   creadas en total: {redes.cuentas}
                 </Text>
-                <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
+                <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 17, textAlign: "center" }}>
                   Para que no se escape ninguna visita, pon en la biografía de Instagram videojuegoszaragoza.com/?utm_source=instagram y
                   en la de TikTok videojuegoszaragoza.com/?utm_source=tiktok.
                 </Text>
@@ -1654,7 +1667,7 @@ export default function AdminAnalytics() {
               <View nativeID="analitica-noticias-organicas" style={{ gap: 10 }}>
                 <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
                   <Ionicons name="logo-google" size={16} color={COLORS.accentDark} />
-                  <Text nativeID="analitica-noticias-buscadores" style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5, flex: 1 }}>
+                  <Text nativeID="analitica-noticias-buscadores" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo, flex: 1 }}>
                     Entran por una noticia desde Google: {noticiasOrganicas.google}{" "}
                     {noticiasOrganicas.google === 1 ? "sesión" : "sesiones"} · desde cualquier buscador: {noticiasOrganicas.desdeBuscadores}
                     {noticiasOrganicas.buscadores.length > 1
@@ -1665,16 +1678,16 @@ export default function AdminAnalytics() {
                 <View style={{ borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
                   <Ionicons name="newspaper-outline" size={16} color={COLORS.accentDark} />
                   <View style={{ flex: 1, gap: 3 }}>
-                    <Text nativeID="analitica-noticias-vistas" style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                    <Text nativeID="analitica-noticias-vistas" style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                       Páginas de noticias vistas: {noticiasOrganicas.vistas} · índice de noticias: {noticiasOrganicas.indice} · «Comentar en el
                       Foro»: {noticiasOrganicas.comentar}
                     </Text>
                     {noticiasOrganicas.categorias.length ? (
-                      <Text nativeID="analitica-noticias-categorias" style={{ color: COLORS.text, fontSize: 12.5 }}>
+                      <Text nativeID="analitica-noticias-categorias" style={{ color: COLORS.text, fontSize: TAMANOS.minimo }}>
                         Por categoría: {noticiasOrganicas.categorias.map((c) => `${c.clave} ${c.n}`).join(" · ")}
                       </Text>
                     ) : (
-                      <Text style={{ color: COLORS.muted, fontSize: 12.5 }}>Aún nadie ha abierto la página de una noticia en estas fechas.</Text>
+                      <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>Aún nadie ha abierto la página de una noticia en estas fechas.</Text>
                     )}
                   </View>
                 </View>
@@ -1704,7 +1717,7 @@ export default function AdminAnalytics() {
                   <BarRow label="Guía saltada" value={guiaVender.saltada} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
                   {guiaVender.saltadaEn.length > 0 ? (
                     <View style={{ gap: 8, marginTop: 2 }}>
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5 }}>Dónde se salta la guía (los pasos que más gente pierden)</Text>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Dónde se salta la guía (los pasos que más gente pierden)</Text>
                       {guiaVender.saltadaEn.map((s) => (
                         <BarRow
                           key={s.step_label}
@@ -1719,10 +1732,10 @@ export default function AdminAnalytics() {
                   <BarRow label="Formulario abierto tras ver la guía (hasta 1 h después)" value={guiaVender.abiertoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
                   <BarRow label="Formulario enviado tras ver la guía" value={guiaVender.enviadoGuia} maxValue={guiaVender.empiezan} color={COLORS.accentDark} />
                   <View style={{ marginTop: 4, borderRadius: 14, backgroundColor: COLORS.accent2, padding: 10, gap: 4 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                       Formulario de Vender (todas las vías): abierto {guiaVender.abierto} · enviado {guiaVender.enviado}
                     </Text>
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                       De cada 100 que empiezan la guía, {Math.round((guiaVender.abiertoGuia / guiaVender.empiezan) * 100)} abren el formulario y{" "}
                       {Math.round((guiaVender.enviadoGuia / guiaVender.empiezan) * 100)} lo envían.
                     </Text>
@@ -1746,7 +1759,7 @@ export default function AdminAnalytics() {
                       paddingHorizontal: 10,
                     }}
                   >
-                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 12.5 }}>
+                    <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: TAMANOS.minimo }}>
                       {c.label}: {conversionTotals[c.key]}
                     </Text>
                   </View>
@@ -1772,11 +1785,11 @@ export default function AdminAnalytics() {
                         borderTopColor: COLORS.border,
                       }}
                     >
-                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12.5, minWidth: 48 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo, minWidth: 48 }}>
                         {fmtDayLabel(d.day)}
                       </Text>
                       {CONVERSION_EVENTS.map((c) => (
-                        <Text key={c.key} style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12.5 }}>
+                        <Text key={c.key} style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo }}>
                           {c.label}: {d[c.key]}
                         </Text>
                       ))}
@@ -1831,7 +1844,7 @@ export default function AdminAnalytics() {
             {/* Nota final como texto suelto centrado, sin recuadro decorativo. */}
             <View style={{ alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.muted2} />
-              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: 12.5, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted, lineHeight: 18, fontSize: TAMANOS.minimo, textAlign: "center" }}>
                 Estos datos son de analítica propia (tabla analytics_events en Supabase), no de
                 Vercel: Vercel Web Analytics no está activado en este proyecto y, aunque lo
                 estuviera, solo vería la URL de cada página (por ejemplo /catalogo), no el

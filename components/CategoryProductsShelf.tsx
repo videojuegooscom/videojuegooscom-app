@@ -50,6 +50,9 @@
  * otro dentro de esos 5 minutos, ya no vuelve a preguntar. Pasado ese tiempo
  * (o si recarga la página), se refresca solo.
  *
+ * Tamaños (2026-11-12, grupo 3): nombres a 13 px como mínimo, precios pequeños (menos de 17 px) en el azul de texto
+ * #0A78B4 (constants/theme.ts) y flechas con 44 px de zona táctil.
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase (tablas categories, products,
  *   product_media).
@@ -68,10 +71,11 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import SmartImage from "./SmartImage";
 import { useRecarga } from "./TirarParaActualizar";
 import { supabase } from "../lib/supabase";
+import { colorTextoAzul, COLORES_TEXTO, TAMANOS } from "../constants/theme";
 
 const COLORS = {
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   tile: "#F6FAFD",
 };
@@ -189,7 +193,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
         ) : (
           <View style={{ width: "100%", height: "100%", justifyContent: "center", alignItems: "center", paddingHorizontal: 18 }}>
             <Text style={{ color: "rgba(11,33,56,0.15)", fontWeight: "900", fontSize: 40 }}>VG</Text>
-            <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 6, textAlign: "center" }}>Foto no disponible</Text>
+            <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, marginTop: 6, textAlign: "center" }}>Foto no disponible</Text>
           </View>
         )}
       </View>
@@ -199,7 +203,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
         style={{
           color: COLORS.text,
           fontWeight: "800",
-          fontSize: compact ? 13 : 14.5,
+          fontSize: compact ? TAMANOS.minimo : 14.5,
           lineHeight: compact ? 17 : 19,
           marginTop: 8,
           textAlign: "center",
@@ -208,7 +212,7 @@ export const TarjetaProducto = React.memo(function TarjetaProducto({
         {titulo}
       </Text>
 
-      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: compact ? 16 : 18, marginTop: 4, textAlign: "center" }}>
+      <Text style={{ color: colorTextoAzul(compact ? 16 : 18), fontWeight: "900", fontSize: compact ? 16 : 18, marginTop: 4, textAlign: "center" }}>
         {fmtEUR(precioEUR)}
       </Text>
 
@@ -607,7 +611,7 @@ export default function CategoryProductsShelf({
                 style={{
                   color: COLORS.text,
                   fontWeight: "800",
-                  fontSize: 12.5,
+                  fontSize: TAMANOS.minimo,
                   marginTop: 8,
                   lineHeight: 16,
                   textAlign: "center",
@@ -618,7 +622,7 @@ export default function CategoryProductsShelf({
 
               <Text
                 style={{
-                  color: COLORS.accent,
+                  color: colorTextoAzul(14),
                   fontWeight: "900",
                   fontSize: 14,
                   marginTop: 4,
@@ -651,20 +655,24 @@ function CarouselArrow({ direction, onPress }: { direction: "left" | "right"; on
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={10}
-      style={({ pressed }) => ({
+      accessibilityRole="button"
+      accessibilityLabel={direction === "left" ? "Anteriores" : "Siguientes"}
+      // Zona táctil de 44 px; el círculo visible sigue siendo de 30.
+      style={{
         position: "absolute",
         [direction]: -6,
-        top: 44,
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        backgroundColor: pressed ? "rgba(11,33,56,0.72)" : "rgba(11,33,56,0.52)",
+        top: 37,
+        width: 44,
+        height: 44,
         alignItems: "center",
         justifyContent: "center",
-      })}
+      }}
     >
-      <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={16} color="#FFFFFF" />
+      {({ pressed }) => (
+        <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: pressed ? "rgba(11,33,56,0.72)" : "rgba(11,33,56,0.52)", alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={16} color="#FFFFFF" />
+        </View>
+      )}
     </Pressable>
   );
 }

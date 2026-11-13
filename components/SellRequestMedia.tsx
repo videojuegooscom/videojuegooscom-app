@@ -30,8 +30,12 @@
  *   navegador (<input type="file">): la app se despliega solo como web
  *   (expo export --platform web), así que no hace falta expo-image-picker
  *   nativo aquí.
+ * - Tamaños (grupo 2 de la auditoría móvil, 2026-11-12): «Añadir fotos» y
+ *   «Añadir vídeo» miden 44 px de alto y la X de quitar tiene 44 px de zona
+ *   táctil (TACTIL); letra mínima 13 (TAMANOS) y gris COLORES_TEXTO.
  *
  * Conectado con:
+ * - constants/theme.ts → TAMANOS, TACTIL y COLORES_TEXTO.
  * - components/VenderAhoraModal.tsx → usa <SellMediaPicker> en el
  *   formulario y llama a uploadSellRequestMedia() al enviar.
  * - app/admin/cotizaciones.tsx → llama a downloadSellRequestMedia() por
@@ -42,6 +46,7 @@
 import React, { useState } from "react";
 import { Image, Linking, Platform, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { supabase } from "../lib/supabase";
 
 export const SELL_MEDIA_BUCKET = "sell-request-media";
@@ -58,8 +63,8 @@ const SUPPORTED_IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/webp", "
 const SUPPORTED_VIDEO_MIME = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
 const COLORS = {
-  text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
+  text: COLORES_TEXTO.texto,
+  muted: COLORES_TEXTO.secundario,
   border: "#E3EAF2",
   cardSoft: "#F8FBFE",
   danger: "#B91C1C",
@@ -436,10 +441,17 @@ function ThumbChip({
           onPress={onRemove}
           disabled={disabled}
           hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Quitar"
+          // Zona táctil de 44 px centrada en la misma esquina de siempre.
           style={({ pressed }) => ({
             position: "absolute",
-            top: -6,
-            right: -6,
+            top: -18,
+            right: -18,
+            width: TACTIL.minimo,
+            height: TACTIL.minimo,
+            alignItems: "center",
+            justifyContent: "center",
             opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
           })}
         >
@@ -448,7 +460,7 @@ function ThumbChip({
       </View>
 
       {item.kind === "video" && item.durationSeconds !== null && (
-        <Text style={{ color: COLORS.muted, fontSize: 10, fontWeight: "700" }}>
+        <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700" }}>
           {Math.round(item.durationSeconds)}s
         </Text>
       )}
@@ -572,6 +584,7 @@ export function SellMediaPicker({
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
+            minHeight: TACTIL.minimo,
             paddingVertical: 10,
             paddingHorizontal: 14,
             borderRadius: 14,
@@ -594,6 +607,7 @@ export function SellMediaPicker({
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
+            minHeight: TACTIL.minimo,
             paddingVertical: 10,
             paddingHorizontal: 14,
             borderRadius: 14,
@@ -611,7 +625,7 @@ export function SellMediaPicker({
       </View>
 
       {!!error && (
-        <Text style={{ color: COLORS.danger, textAlign: "center", fontWeight: "800", fontSize: 12 }}>
+        <Text style={{ color: COLORS.danger, textAlign: "center", fontWeight: "800", fontSize: TAMANOS.minimo }}>
           {error}
         </Text>
       )}

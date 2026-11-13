@@ -255,6 +255,21 @@
  *    menos de 17 px; pestañas Mi cuenta / Mis seguimientos / Me gusta y «Preguntar por esto» de 44 px; y los 3 campos que
  *    hacían zoom en el iPhone a 16 px (buscador de Servicios, campos de «Mi perfil» y, en el código, el de la respuesta
  *    de Blue en components/Campanita.tsx).
+ *  - TM2) Tamaños comunes, grupo 2 (2026-11-12), a 360, 390 y 1280 px: el Foro (Noticias y Foro con un mensaje abierto)
+ *    sin textos < 13 px y con todo lo que se toca de 44 × 44 px o más; en «Contratar servicio» y «Vender», los campos a
+ *    16 px y 44 px de alto o más, los desplegables «Elegir» de 44 px, la nota de privacidad tocable en 44 px y la casilla
+ *    «mayor de 18» con 44 px de zona táctil; en las filas de dos columnas de «Vender», etiquetas a la misma altura y
+ *    recuadros alineados abajo; el botón «Volver» de Contratar no tapa ningún campo en ningún punto del desplazamiento;
+ *    nada se sale por los lados; y los campos de fecha de Administración → Analítica a 16 px y 48 de alto.
+ *  - TM3) Tamaños comunes, grupo 3 (2026-11-12), a 360, 390 y 1280 px: la cesta con 2 artículos en filas (miniatura a la
+ *    izquierda), con el total y «Ir a pagar» sin bajar a 390 × 844, sin textos < 13 px y con todo táctil de 44 px; Inicio con
+ *    los 4 avisos de confianza de 44 px, sin textos < 13 px (el © legal, 12), estrellas de reseñas con contraste 3:1, precios
+ *    pequeños fuera del azul de marca y la oferta asomando a 360 × 740; el botón «Volver» sin tapar nada al final de
+ *    Políticas, Noticias y Contratar; y en las fichas de producto y servicio, compartir y «me gusta» de 44 × 44; nada se
+ *    sale por los lados.
+ *  - TM4) Tamaños comunes, grupo 4 (2026-11-12), a 360, 390 y 1280 px: en Administración → Pedidos, Productos, Servicios,
+ *    Analítica y el inicio del panel, ningún texto de menos de 13 px, todo lo que se toca de 44 × 44 px o más, los 6 botones
+ *    de estado de cada pedido a 8 px o más unos de otros (y de 44 de alto), y nada se sale por los lados.
  *  - UP) Administración → «Usuarios y participación» rediseñada (2026-11-12), a 360, 390 y 1280 px: buscador (16 px) que
  *    lleva a «Clientes», 5 cifras clave (registrados, activos 7 días sin el administrador, perfil completo, con la app,
  *    valoración) en una fila en el ordenador y que filtran al tocarlas, 4 pestañas con su número recordadas en ?tab=
@@ -264,7 +279,7 @@
  *    primero, «Marcar leída» de 44 px); Seguridad con el aviso rojo, la moderación en cifras y «Quitar silencio»; letra
  *    ≥ 12 px, táctiles de 44 px separados 8 px, nada se sale y en el ordenador centrada y de 960 px como mucho. Las
  *    secciones E, F, M, ME, CO, DI, SE, C8, P, RE y DV abren la pestaña que les toca (?tab=participacion|ideas|seguridad).
- * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP]
+ * Uso: node pruebas/perfil-datos.mjs [carpeta_dist] [carpeta_capturas] [N|P|Q|…|BI|QS|HO|AD|SV|VA|FS|MG|RS|VP|RD|TE|C8|AT|NW|FA|FB|VT|RE2|RE3|AC|DV|FC|TM|UP|TM2|TM3|TM4]
  * (RE2: reparación por envío — contratar con Correos, «Mis seguimientos», Administración y Analítica; simula
  * /api/factura?solicitud=… (la misma función que las facturas) y el almacén privado «reparaciones».)
  * Con «N», «P», «Q», «R», «S», «T», «V», «W», «X», «Y», «Z», «RE», «EN», «NO», «BU», «ME», «CO», «DI», «SE», «BI», «QS»,
@@ -7566,7 +7581,8 @@ async function seccionTE() {
     const f1 = await miniatura(p, `cesta-foto-${A1}`);
     const f2 = await miniatura(p, `cesta-foto-${A2}`);
     // (la foto pequeña del optimizador de Vercel solo se pide con https: aquí, en http, llega la original falsa)
-    ok(f1.ancho === 104 && f1.alto === 104 && f1.cargada && f2.cargada, `TE: la cesta enseña la miniatura de cada artículo (104 × 104) (${JSON.stringify(f1)})`);
+    // 88 × 88 desde el grupo 3 de tamaños (2026-11-12): filas compactas con la miniatura a la izquierda (antes 104 × 104 centrada).
+    ok(f1.ancho === 88 && f1.alto === 88 && f1.cargada && f2.cargada, `TE: la cesta enseña la miniatura de cada artículo (88 × 88) (${JSON.stringify(f1)})`);
     const colores = await p.evaluate((ids) => ids.map((i) => getComputedStyle(document.getElementById(i)).color), [`cesta-precio-${A1}`, `cesta-precio-${A2}`]);
     ok(colores.every((c) => c === AZUL), `TE: los precios van en el azul de la marca (${colores.join(", ")})`);
     const envio = await texto(p, "#cesta-envio");
@@ -7927,7 +7943,7 @@ async function seccionTE() {
     ok(JSON.stringify(estado.cambiosEnvio?.[1]?.cuerpo) === '{"envio_manual":false}' && /Envío 6,90€ .*· automático/.test(await linea()) && /Pedido VZ-ABCD-EFGH · 106,90€/.test(await todo()), `TE: «Volver al automático» lo devuelve a la tarifa (${await linea()})`);
     ok((await p.locator("#pedido-envio-automatico-101").count()) === 0, "TE: y ya no ofrece volver (ya es automático)");
     const precios = await p.evaluate(() => [...document.querySelectorAll("*")].filter((e) => e.children.length === 0 && /^60,00€$/.test((e.textContent ?? "").trim())).map((e) => getComputedStyle(e).color));
-    ok(precios.length >= 1 && precios.every((c) => c === "rgb(30, 167, 232)"), `TE: los precios de los artículos van en azul (${precios.join(", ")})`);
+    ok(precios.length >= 1 && precios.every((c) => c === "rgb(10, 120, 180)"), `TE: los precios de los artículos (menos de 17 px) van en el azul oscuro de texto, no en el de marca (${precios.join(", ")})`);
     ok(await sinDesbordar(p), "TE: Pedidos no se ensancha");
     await capturar(p, "TE7-pedidos-envio");
     ok(p.errores.length === 0, `TE: Pedidos sin errores de JavaScript (${p.errores.length}${p.errores[0] ? ": " + p.errores[0] : ""})`);
@@ -11254,6 +11270,219 @@ async function seccionTM() {
   }
 }
 
+// ===== TM2) Tamaños comunes, grupo 2: Foro, «Contratar servicio», «Vender» y los campos de fecha de Analítica ==========
+async function seccionTM2() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } } },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana Gómez", usuario: "ana_g", pais: "España", provincia: "Zaragoza", localidad: "Zaragoza", fecha_nacimiento: "1990-05-02" }];
+  // Letra < 13 px y zonas táctiles < 44 × 44 de lo que se ve (dentro de `zona`, o en toda la página). Se cuentan solo los
+  // táctiles más externos (un Pressable dentro de otro cuenta como uno), como en la auditoría móvil del 2026-11-12.
+  const medirToque = (p, zona = "body") =>
+    p.evaluate((sel) => {
+      const W = window.innerWidth;
+      const raiz = document.querySelector(sel) ?? document.body;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of raiz.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily) || /^[-]+$/.test(t)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < 13) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[role="menuitem"],[tabindex="0"]';
+      const todos = [...raiz.querySelectorAll(SEL)].filter((el) => visible(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      const campos = [...raiz.querySelectorAll("input, textarea, select")]
+        .filter((e) => visible(e) && !["hidden", "checkbox", "radio", "file"].includes(e.type))
+        .map((e) => ({ t: (e.placeholder || e.getAttribute("aria-label") || e.id || e.tagName).slice(0, 30), fs: parseFloat(getComputedStyle(e).fontSize), h: Math.round(e.getBoundingClientRect().height) }));
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, campos, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    }, zona);
+
+  // TM2a) Foro: Noticias (con los comentarios abiertos) y la pestaña Foro con un mensaje tocado (reacciones a la vista).
+  {
+    const NOTICIA = "abcd1111-0000-4000-8000-0000000000f2";
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      mensajes: [
+        { id: "m1000000-0000-4000-8000-0000000000f2", created_at: "2026-11-12T10:01:00Z", user_id: "22222222-2222-4222-8222-222222222222", username: "x", display_name: "Luis Romero", role: "member", body: "¿Alguien sabe si llegan mandos nuevos?", reply_to_id: null },
+        { id: "m2000000-0000-4000-8000-0000000000f2", created_at: "2026-11-12T10:02:00Z", user_id: CLIENTE.id, username: "ana_g", display_name: "Ana Gómez", role: "member", body: "Mañana, creo", reply_to_id: null },
+      ],
+      noticias: [
+        {
+          id: NOTICIA, fuente: "Vandal", titulo: "Nueva consola portátil anunciada para marzo", imagen_url: null, categoria: "Consolas",
+          resumen: "La marca ha presentado una consola portátil nueva con pantalla más grande y más batería.", puntos_clave: ["Sale en marzo"], datos: [],
+          por_que_importa: null, afecta_a: null, publicada_en: "2026-11-09T07:30:00Z", created_at: "2026-11-09T07:30:00Z", imagenes: [], imagenes_verificadas: false, imagenes_meta: [], me_gusta: 2,
+        },
+      ],
+      comentarios: [{ id: "c1000000-0000-4000-8000-0000000000f2", noticia_id: NOTICIA, user_id: "22222222-2222-4222-8222-222222222222", created_at: "2026-11-10T18:05:00Z", autor: "Luis Romero", texto: "Muy buena noticia" }],
+    };
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      const n = await pagina(ctx, "/chat-global?tab=news");
+      await n.getByText("Nueva consola portátil anunciada para marzo").waitFor({ timeout: 40000 }).catch(() => {});
+      await n.getByRole("button", { name: "Comentarios", exact: true }).first().click({ timeout: 5000 }).catch(() => {});
+      await n.getByText("Muy buena noticia").waitFor({ timeout: 10000 }).catch(() => {});
+      await n.waitForTimeout(600);
+      const mn = await medirToque(n);
+      ok(mn.n >= 8 && !mn.pequenos.length, `TM2 (${nombre}): en Noticias del Foro ningún texto de menos de 13 px (${mn.pequenos.join(" | ") || "ninguno"})`);
+      ok(!mn.chicos.length, `TM2 (${nombre}): en Noticias del Foro todo lo que se toca mide 44 × 44 o más (${mn.n} táctiles; ${mn.chicos.join(" | ") || "ninguno pequeño"})`);
+      ok(mn.campos.every((c) => c.fs >= 16 && c.h >= 44), `TM2 (${nombre}): el campo de comentar a 16 px y 44 px de alto o más (${JSON.stringify(mn.campos)})`);
+      ok(mn.ancho <= mn.v + 1, `TM2 (${nombre}): Noticias no se sale por los lados (${mn.ancho}/${mn.v})`);
+      await capturar(n, `TM2-${nombre}-foro-noticias`);
+      const f = await pagina(ctx, "/chat-global?tab=chat");
+      await f.getByText("¿Alguien sabe si llegan mandos nuevos?").waitFor({ timeout: 40000 }).catch(() => {});
+      await f.getByText("¿Alguien sabe si llegan mandos nuevos?", { exact: true }).click({ timeout: 5000 }).catch(() => {});
+      await f.waitForTimeout(700);
+      const mf = await medirToque(f);
+      ok((await f.getByText("👍").count()) >= 1 && !mf.pequenos.length, `TM2 (${nombre}): en el Foro (con las reacciones abiertas) ningún texto de menos de 13 px (${mf.pequenos.join(" | ") || "ninguno"})`);
+      ok(!mf.chicos.length, `TM2 (${nombre}): en el Foro todo lo que se toca mide 44 × 44 o más, también las reacciones (${mf.n} táctiles; ${mf.chicos.join(" | ") || "ninguno pequeño"})`);
+      ok(mf.campos.every((c) => c.fs >= 16 && c.h >= 44), `TM2 (${nombre}): el campo de escribir del Foro a 16 px y 44 px de alto o más (${JSON.stringify(mf.campos)})`);
+      ok(mf.ancho <= mf.v + 1, `TM2 (${nombre}): el Foro no se sale por los lados (${mf.ancho}/${mf.v})`);
+      await capturar(f, `TM2-${nombre}-foro-mensajes`);
+      ok(n.errores.length === 0 && f.errores.length === 0, `TM2 (${nombre}): el Foro sin errores de JavaScript (${n.errores[0] ?? f.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM2b) «Contratar servicio»: campos, desplegables, la nota de privacidad y el botón flotante «Volver».
+  {
+    const ID = "5e000000-0000-4000-8000-0000000000f2";
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      servicio: { id: ID, title: "Mantenimiento Consola PlayStation 5", description: "Limpieza y cambio de pasta térmica.", price_eur: 45, like_count: 0, modalidades: [{ nombre: "Básica", precio_eur: 45 }, { nombre: "Completa", precio_eur: 70 }] },
+      fotosServicio: [],
+      solicitudesServicio: [],
+    };
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      const p = await pagina(ctx, `/contratar/${ID}`);
+      await p.locator("#contratar-enviar").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const m = await medirToque(p, "#contratar-pagina");
+      ok(
+        m.campos.length >= 5 && m.campos.every((c) => c.fs >= 16 && c.h >= 44),
+        `TM2 (${nombre}): en «Contratar servicio» los campos a 16 px y 44 px de alto o más (${m.campos.map((c) => `${c.t} ${c.fs}px h${c.h}`).join(" · ")})`
+      );
+      ok(!m.chicos.length, `TM2 (${nombre}): en «Contratar servicio» todo lo que se toca mide 44 × 44 o más («Elegir», enviar, privacidad, volver…) (${m.n}; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      const privacidad = await p.evaluate(() => {
+        const z = document.querySelector("#contratar-privacidad")?.closest('[tabindex="0"]');
+        const r = z?.getBoundingClientRect();
+        return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null;
+      });
+      ok(!!privacidad && privacidad.h >= 44 && privacidad.w >= 44, `TM2 (${nombre}): la nota de privacidad se toca en 44 px o más (${JSON.stringify(privacidad)})`);
+      // «Volver» (fijo abajo a la derecha) no tapa ningún campo ni botón en ningún punto del desplazamiento: se recorre la
+      // página de arriba abajo y se mira lo que se ve de cada campo (recortado por la caja que se desplaza).
+      const tapados = await p.evaluate(async () => {
+        const pagina = document.querySelector("#contratar-pagina");
+        const boton = document.querySelector("#contratar-pagina #boton-atras-flotante");
+        if (!pagina || !boton) return ["sin página o sin botón"];
+        const caja = [...pagina.querySelectorAll("*")].find((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY));
+        const max = caja ? caja.scrollHeight - caja.clientHeight : 0;
+        const encontrados = new Set();
+        for (let top = 0; top <= max + 59; top += 60) {
+          if (caja) caja.scrollTop = Math.min(top, max);
+          await new Promise((h) => requestAnimationFrame(() => requestAnimationFrame(h)));
+          const b = boton.getBoundingClientRect();
+          const c = caja ? caja.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+          const cosas = [...pagina.querySelectorAll('input, textarea, select, [tabindex="0"]')].filter((el) => el !== boton && !el.contains(boton) && !boton.contains(el) && !el.contains(caja));
+          for (const el of cosas) {
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            const arriba = Math.max(r.top, c.top), abajo = Math.min(r.bottom, c.bottom);
+            if (abajo - arriba < 2) continue; // no se ve
+            const sx = Math.min(r.right, b.right) - Math.max(r.left, b.left);
+            const sy = Math.min(abajo, b.bottom) - Math.max(arriba, b.top);
+            if (sx > 1 && sy > 1) encontrados.add((el.placeholder || el.innerText || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 30));
+          }
+        }
+        if (caja) caja.scrollTop = 0;
+        return [...encontrados];
+      });
+      ok(!tapados.length, `TM2 (${nombre}): el botón «Volver» no tapa ningún campo ni botón en todo el desplazamiento (${tapados.join(" | ") || "ninguno"})`);
+      ok(m.ancho <= m.v + 1, `TM2 (${nombre}): «Contratar servicio» no se sale por los lados (${m.ancho}/${m.v})`);
+      await p.waitForTimeout(300);
+      await capturar(p, `TM2-${nombre}-contratar`);
+      ok(p.errores.length === 0, `TM2 (${nombre}): «Contratar servicio» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM2c) «Vender»: campos, desplegables «Elegir», la casilla «mayor de 18» y las filas de dos (o tres) columnas alineadas.
+  {
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", { filas: PERFIL, guardados: [] }, vista);
+      const p = await pagina(ctx, "/vender");
+      await p.getByPlaceholder("Tu nombre").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(800);
+      const m = await medirToque(p);
+      ok(
+        m.campos.length >= 5 && m.campos.every((c) => c.fs >= 16 && c.h >= 44),
+        `TM2 (${nombre}): en «Vender» los campos a 16 px y 44 px de alto o más (${m.campos.map((c) => `${c.t} ${c.fs}px h${c.h}`).join(" · ")})`
+      );
+      const datos = await p.evaluate((ancho) => {
+        const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+        const elegir = [...document.querySelectorAll('[tabindex="0"]')].filter((b) => /^Elegir/.test(b.innerText.trim())).map((b) => Math.round(b.getBoundingClientRect().height));
+        const texto = [...document.querySelectorAll("div")].find((d) => propio(d) === "Confirmo que soy mayor de 18 años");
+        const zona = texto?.closest('[tabindex="0"]')?.getBoundingClientRect();
+        // Filas de columnas: la etiqueta (texto propio exacto), su arriba, y el abajo del recuadro (último hijo del campo).
+        const fila = (etiquetas) =>
+          etiquetas.map((e) => {
+            const l = [...document.querySelectorAll("div")].find((d) => propio(d) === e);
+            const campo = l?.parentElement;
+            const caja = campo?.lastElementChild?.getBoundingClientRect();
+            return { e: e.slice(0, 12), arriba: Math.round(l?.getBoundingClientRect().top ?? -1), abajo: Math.round(caja?.bottom ?? -1) };
+          });
+        const filas = ancho >= 700
+          ? [fila(["Nombre", "Apellido", "Género"]), fila(["¿Todo funciona perfectamente?", "¿En qué ciudad te encuentras?", "¿Cuánto estimas recibir por tu artículo?"])]
+          : [fila(["Nombre", "Apellido"]), fila(["Género", "¿En qué ciudad te encuentras?"]), fila(["¿Todo funciona perfectamente?", "¿Cuánto estimas recibir por tu artículo?"])];
+        return { elegir, casilla: zona ? { w: Math.round(zona.width), h: Math.round(zona.height) } : null, filas };
+      }, vista.viewport.width);
+      ok(datos.elegir.length >= 4 && datos.elegir.every((h) => h >= 44), `TM2 (${nombre}): los desplegables «Elegir» de «Vender» miden 44 px o más (${datos.elegir.join(", ")})`);
+      ok(!!datos.casilla && datos.casilla.h >= 44 && datos.casilla.w >= 44, `TM2 (${nombre}): la casilla «mayor de 18» tiene 44 px de zona táctil o más (${JSON.stringify(datos.casilla)})`);
+      const alineadas = datos.filas.every((f) => f.every((c) => c.arriba >= 0 && c.abajo >= 0) && Math.max(...f.map((c) => c.arriba)) - Math.min(...f.map((c) => c.arriba)) <= 2 && Math.max(...f.map((c) => c.abajo)) - Math.min(...f.map((c) => c.abajo)) <= 2);
+      ok(alineadas, `TM2 (${nombre}): en las filas de «Vender» las etiquetas empiezan a la misma altura y los recuadros acaban igual (${JSON.stringify(datos.filas)})`);
+      ok(m.ancho <= m.v + 1, `TM2 (${nombre}): «Vender» no se sale por los lados (${m.ancho}/${m.v})`);
+      await capturar(p, `TM2-${nombre}-vender`);
+      await p.getByText("Confirmo que soy mayor de 18 años").scrollIntoViewIfNeeded().catch(() => {});
+      await capturar(p, `TM2-${nombre}-vender-casilla`);
+      ok(p.errores.length === 0, `TM2 (${nombre}): «Vender» sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM2d) Administración → Analítica: los dos campos de fecha a 16 px y 48 de alto (antes 40).
+  {
+    const ctx = await contexto(navegador, ADMIN, "admin", { filas: [], guardados: [] }, { viewport: { width: 390, height: 844 } });
+    const p = await pagina(ctx, "/admin/analytics");
+    await p.getByPlaceholder("Desde (AAAA-MM-DD)").waitFor({ timeout: 40000 }).catch(() => {});
+    const fechas = await p.evaluate(() =>
+      ["Desde (AAAA-MM-DD)", "Hasta (AAAA-MM-DD)"].map((ph) => {
+        const e = document.querySelector(`input[placeholder="${ph}"]`);
+        return e ? { fs: parseFloat(getComputedStyle(e).fontSize), h: Math.round(e.getBoundingClientRect().height) } : null;
+      })
+    );
+    ok(fechas.every((f) => !!f && f.fs >= 16 && f.h >= 48), `TM2: en Analítica los campos de fecha a 16 px y 48 px de alto (${JSON.stringify(fechas)})`);
+    await capturar(p, "TM2-390-analitica-fechas");
+    await ctx.close();
+  }
+}
+
 // ===== UP) Administración → «Usuarios y participación» con el diseño nuevo (dueño, 2026-11-12): buscador y cifras
 // clave arriba, pestañas con ?tab= (Clientes · Participación · Ideas de mejora · Seguridad), filas con la última
 // conexión, filtros que se despliegan y repliegan, orden, marcar leída una idea, «Quitar silencio», el aviso rojo solo
@@ -11560,10 +11789,409 @@ async function seccionUP() {
   }
 }
 
+// ===== TM3) Tamaños comunes, grupo 3: Cesta, Inicio, botón «Volver», fichas y tarjetas de producto ===================
+async function seccionTM3() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } } },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const FOTO = (n) => `https://rgvyvaineyodyxzwootl.supabase.co/storage/v1/object/public/product-media/prueba/${n}.jpg`;
+  const PERFIL = [{ user_id: CLIENTE.id, nombre: "Ana", usuario: "ana_g", pais: "España", provincia: "Madrid", fecha_nacimiento: "1990-05-02", foto_url: null }];
+  const ancho = (p) => p.evaluate(() => ({ ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: window.innerWidth }));
+  // Letra < 13 px (el © legal puede tener 12) y zonas táctiles < 44 × 44 de lo que se ve por encima de `hastaY` (la página
+  // entera si no se indica), contando solo los táctiles más externos.
+  const medir = (p, hastaY = 1e9) =>
+    p.evaluate((limite) => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const abs = (el) => el.getBoundingClientRect().top + window.scrollY;
+      const pequenos = [];
+      const azulPequeno = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el) || abs(el) > limite) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily) || /^[-]+$/.test(t)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < 13 && !/^©/.test(t)) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+        if (fs < 17 && cs.color === "rgb(30, 167, 232)" && cs.webkitTextFillColor !== "rgba(0, 0, 0, 0)" && /^\d[\d.]*,\d\d€$/.test(t)) azulPequeno.push(`${t} ${fs}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[tabindex="0"]';
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && abs(el) <= limite);
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .filter((el) => !el.closest('[data-testid^="pestana-"]') && el.id !== "buscador-flotante" && !el.closest("#buscador-flotante"))
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), azulPequeno: azulPequeno.slice(0, 6), n: objetivos.length };
+    }, hastaY);
+
+  // TM3a) Cesta con 2 artículos: filas horizontales compactas y, sin bajar a 390 × 844, el total y «Ir a pagar».
+  {
+    const A1 = "00000000-0000-4000-8000-0000000000e1";
+    const A2 = "00000000-0000-4000-8000-0000000000e2";
+    const CESTA = [
+      { id: A1, title: "PlayStation 5 Slim 1 TB con mando DualSense y caja original", subtitle: "PlayStation 5 · Nuevo", priceEUR: 449.99, qty: 1, imageUrl: FOTO(1) },
+      { id: A2, title: "Mando DualSense Midnight Black", subtitle: "Accesorios", priceEUR: 49.9, qty: 1, imageUrl: FOTO(2) },
+    ];
+    const tarifas = [{ zona: "peninsula", nombre: "Resto de la España peninsular", codigos: "*", precio_eur: 0, gratis_desde_eur: null, activa: true, orden: 30, updated_at: "2026-11-04T10:00:00Z", updated_by: null }];
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", { filas: PERFIL, guardados: [], productosVacios: true, tarifas }, vista);
+      await ctx.addInitScript((articulos) => {
+        try {
+          if (!localStorage.getItem("videojuegoos_cart_v1")) localStorage.setItem("videojuegoos_cart_v1", JSON.stringify(articulos.map((a) => ({ ...a, reservedUntil: Date.now() + 14 * 60000 }))));
+        } catch {
+          // sin almacenamiento
+        }
+      }, CESTA);
+      const p = await pagina(ctx, "/cesta");
+      await p.locator("#cesta-pagar").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(900);
+      const g = await p.evaluate(({ a1, a2 }) => {
+        const r = (el) => (el ? el.getBoundingClientRect() : null);
+        const fila = (id) => {
+          const f = document.getElementById(`cesta-fila-${id}`);
+          const foto = r(document.getElementById(`cesta-foto-${id}`));
+          const precio = r(document.getElementById(`cesta-precio-${id}`));
+          const q = r(document.getElementById(`cesta-quitar-${id}`));
+          return { alto: Math.round(r(f)?.height ?? 0), fotoDer: foto?.right ?? 0, precioIzq: precio?.left ?? 0, foto: Math.round(foto?.width ?? 0), quitarDer: q?.right ?? 0, quitarAlto: Math.round(q?.height ?? 0), top: r(f)?.top ?? 0 };
+        };
+        const total = [...document.querySelectorAll("div")].find((e) => e.childElementCount === 0 && e.innerText.trim() === "Total:");
+        const barra = r(document.querySelector('[data-testid^="pestana-"]'));
+        const pagar = r(document.getElementById("cesta-pagar"));
+        const blue = r(document.getElementById("cesta-blue-elegir"));
+        return { f1: fila(a1), f2: fila(a2), totalAbajo: Math.round(r(total)?.bottom ?? 9999), pagarAbajo: Math.round(pagar?.bottom ?? 9999), barraArriba: Math.round(barra?.top ?? 9999), alto: window.innerHeight, blueAbajo: Math.round((blue?.bottom ?? 0) + window.scrollY) };
+      }, { a1: A1, a2: A2 });
+      ok(g.f1.fotoDer <= g.f1.precioIzq && g.f2.fotoDer <= g.f2.precioIzq && g.f1.foto >= 80 && g.f1.quitarAlto >= 44, `TM3 (${nombre}): cada artículo de la cesta es una fila: miniatura (${g.f1.foto} px) a la izquierda y título/precio a su derecha`);
+      if (nombre === "390") {
+        ok(g.totalAbajo <= g.barraArriba && g.pagarAbajo <= g.barraArriba, `TM3 (${nombre}): con 2 artículos el total (hasta ${g.totalAbajo}) y «Ir a pagar» (hasta ${g.pagarAbajo}) se ven sin bajar, por encima de la barra (${g.barraArriba}) a ${g.alto} px de alto`);
+      } else if (nombre === "360") {
+        console.log(`   (360 × 740: total hasta ${g.totalAbajo}, «Ir a pagar» hasta ${g.pagarAbajo}, barra desde ${g.barraArriba})`);
+      }
+      const m = await medir(p, g.blueAbajo);
+      ok(!m.pequenos.length, `TM3 (${nombre}): en la cesta (artículos, «Unidad única», resumen) ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+      ok(!m.chicos.length, `TM3 (${nombre}): en la cesta todo lo que se toca mide 44 × 44 o más (${m.n}; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      const a = await ancho(p);
+      ok(a.ancho <= a.v + 1, `TM3 (${nombre}): la cesta no se sale por los lados (${a.ancho}/${a.v})`);
+      await capturar(p, `TM3-${nombre}-cesta`);
+      ok(p.errores.length === 0, `TM3 (${nombre}): la cesta sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM3b) Inicio: avisos de confianza de 44 px, nada por debajo de 13 px (12 el ©), estrellas con contraste, precios pequeños
+  // en el azul de texto y, a 360 × 740, la oferta asoma en la primera pantalla.
+  {
+    const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000b1";
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      categorias: [],
+      producto: {
+        id: PRODUCTO, title: "Nintendo Switch OLED", description: "Consola revisada, con garantía de 12 meses.", price_eur: 249.99, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], updated_at: "2026-10-30T10:00:00Z", created_at: "2026-10-30T10:00:00Z", condition: "USED",
+        like_count: 3, reference: null, caracteristicas: null, mantenimiento: null, category: null,
+      },
+      fotosProducto: [{ id: "m1", product_id: PRODUCTO, kind: "image", public_url: FOTO(1), file_name: "1.jpg", sort_order: 0, is_cover: true, duration_seconds: null }, { id: "m2", product_id: PRODUCTO, kind: "image", public_url: FOTO(2), file_name: "2.jpg", sort_order: 1, is_cover: false, duration_seconds: null }],
+      resenas: [
+        { id: "r1", user_id: null, display_name: "Ana", rating: 5, comment: "Muy rápidos y amables. La consola llegó perfecta.", created_at: "2026-11-01T10:00:00Z" },
+        { id: "r2", user_id: null, display_name: "Pablo", rating: 4, comment: "Buen precio.", created_at: "2026-10-20T10:00:00Z" },
+      ],
+    };
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+      const p = await pagina(ctx, "/");
+      await p.getByText("Compra con confianza").waitFor({ timeout: 40000 }).catch(() => {});
+      await p.getByText("Nintendo Switch OLED").first().waitFor({ timeout: 20000 }).catch(() => {});
+      await p.waitForTimeout(1200);
+      const g = await p.evaluate(() => {
+        const r = (el) => (el ? el.getBoundingClientRect() : null);
+        const avisos = ["Garantía", "Envíos en España", "Productos revisados", "Pago rápido"].map((t) => {
+          const el = [...document.querySelectorAll("div")].find((d) => d.childElementCount === 0 && d.innerText.trim() === t);
+          const z = el?.closest('[role="button"], [tabindex="0"]');
+          return z ? `${t} ${Math.round(z.getBoundingClientRect().height)}` : `${t} no está`;
+        });
+        const barra = r(document.querySelector('[data-testid^="pestana-"]'));
+        // La oferta (su foto o su título) o, sin ella, la primera tarjeta de «Recién llegado».
+        const producto = [...document.querySelectorAll("img")].find((i) => /Nintendo Switch OLED/.test(i.alt) && i.getBoundingClientRect().width > 0);
+        const estrellas = [...document.querySelectorAll("div, span")]
+          .filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && /^★+$/.test(n.textContent.trim())))
+          .map((e) => {
+            const rgb = (s) => { const m = s.match(/rgba?\(([^)]+)\)/); const q = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: q[0], g: q[1], b: q[2], a: q[3] ?? 1 }; };
+            const lum = ({ r: R, g: G, b: B }) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(R) + 0.7152 * f(G) + 0.0722 * f(B); };
+            let fondo = { r: 255, g: 255, b: 255 };
+            const capas = [];
+            for (let x = e; x; x = x.parentElement) { const c = rgb(getComputedStyle(x).backgroundColor); if (c.a > 0) { capas.push(c); if (c.a >= 0.99) break; } }
+            for (const c of capas.reverse()) fondo = { r: c.r * c.a + fondo.r * (1 - c.a), g: c.g * c.a + fondo.g * (1 - c.a), b: c.b * c.a + fondo.b * (1 - c.a) };
+            const tramos = [e, ...e.querySelectorAll("span, div")].filter((x) => [...x.childNodes].some((n) => n.nodeType === 3 && /^★+$/.test(n.textContent.trim())));
+            return tramos.map((x) => {
+              const c = rgb(getComputedStyle(x).color);
+              const col = { r: c.r * c.a + fondo.r * (1 - c.a), g: c.g * c.a + fondo.g * (1 - c.a), b: c.b * c.a + fondo.b * (1 - c.a) };
+              return Math.round(((Math.max(lum(col), lum(fondo)) + 0.05) / (Math.min(lum(col), lum(fondo)) + 0.05)) * 100) / 100;
+            });
+          })
+          .flat();
+        return { avisos, productoArriba: producto ? Math.round(producto.getBoundingClientRect().top) : null, barraArriba: Math.round(barra?.top ?? 9999), estrellas };
+      });
+      ok(g.avisos.length === 4 && g.avisos.every((a) => Number(a.split(" ").pop()) >= 44), `TM3 (${nombre}): los 4 avisos de «Compra con confianza» miden 44 px de alto o más (${g.avisos.join(", ")})`);
+      const m = await medir(
+        p
+      );
+      ok(!m.pequenos.length, `TM3 (${nombre}): en Inicio ningún texto de menos de 13 px (salvo el © legal) (${m.pequenos.join(" | ") || "ninguno"})`);
+      ok(!m.chicos.length, `TM3 (${nombre}): en Inicio todo lo que se toca mide 44 × 44 o más (${m.n}; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      ok(!m.azulPequeno.length, `TM3 (${nombre}): los precios de menos de 17 px no van en el azul de marca (${m.azulPequeno.join(" | ") || "ninguno"})`);
+      ok(g.estrellas.length >= 4 && g.estrellas.every((c) => c >= 3), `TM3 (${nombre}): las estrellas de las reseñas con contraste de 3:1 o más (${g.estrellas.join(", ")})`);
+      if (nombre === "360") ok(g.productoArriba !== null && g.productoArriba <= g.barraArriba - 40, `TM3 (${nombre}): a 360 × 740 la oferta asoma en la primera pantalla (la foto empieza en ${g.productoArriba}, la barra en ${g.barraArriba})`);
+      const a = await ancho(p);
+      ok(a.ancho <= a.v + 1, `TM3 (${nombre}): Inicio no se sale por los lados (${a.ancho}/${a.v})`);
+      await capturar(p, `TM3-${nombre}-inicio`);
+      await p.evaluate(() => window.scrollTo(0, 0));
+      ok(p.errores.length === 0, `TM3 (${nombre}): Inicio sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+
+  // TM3c) El botón «Volver» (fijo abajo a la derecha) no tapa nada al llegar al final de Políticas, Noticias y Contratar.
+  {
+    const SERV = "5e000000-0000-4000-8000-0000000000f3";
+    const larga = "Texto largo de la política para que la página se pueda desplazar bastante. ".repeat(8);
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      productosVacios: true,
+      politicas: [{ id: "pp1", slug: "envios", title: "Envíos", intro: "Cómo enviamos.", sections: ["Zonas", "Plazos", "Coste", "Entregas", "Embalaje", "Incidencias"].map((h) => ({ heading: h, body: larga })), is_active: true, sort_order: 0, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" }],
+      noticias: [0, 1, 2, 3, 4].map((i) => ({
+        id: `abcd1111-0000-4000-8000-00000000003${i}`, fuente: "Vandal", titulo: `Noticia de prueba número ${i + 1} sobre consolas`, imagen_url: null, categoria: "Consolas",
+        resumen: "La marca ha presentado una consola portátil nueva con pantalla más grande y más batería.", puntos_clave: ["Sale en marzo"], datos: [], por_que_importa: null, afecta_a: null,
+        publicada_en: "2026-11-09T07:30:00Z", created_at: "2026-11-09T07:30:00Z", imagenes: [], imagenes_verificadas: false, imagenes_meta: [], me_gusta: 2,
+      })),
+      servicio: { id: SERV, title: "Mantenimiento Consola PlayStation 5", description: "Limpieza y cambio de pasta térmica.", price_eur: 45, like_count: 0, modalidades: [{ nombre: "Básica", precio_eur: 45 }, { nombre: "Completa", precio_eur: 70 }] },
+      fotosServicio: [],
+      solicitudesServicio: [],
+    };
+    // Se baja hasta el final de lo que se desplaza y se mira qué texto o botón visible queda bajo el botón.
+    const tapaAlFinal = (p) =>
+      p.evaluate(async () => {
+        const boton = document.getElementById("boton-atras-flotante");
+        if (!boton) return ["sin botón"];
+        const cajas = [document.scrollingElement, ...[...document.querySelectorAll("*")].filter((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY))];
+        for (const c of cajas) c.scrollTop = c.scrollHeight;
+        await new Promise((h) => requestAnimationFrame(() => requestAnimationFrame(h)));
+        const b = boton.getBoundingClientRect();
+        const tapados = [];
+        for (const el of document.body.querySelectorAll("*")) {
+          if (el === boton || boton.contains(el) || el.contains(boton)) continue;
+          const propio = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+          const toque = el.matches('a[href],button,input,textarea,select,[role="button"],[role="link"],[tabindex="0"]');
+          if (!propio && !toque) continue;
+          if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height) continue;
+          // Lo que se ve de verdad: recortado por las cajas que se desplazan.
+          let top = r.top, bottom = r.bottom;
+          for (let x = el.parentElement; x && x !== document.body; x = x.parentElement) {
+            if (/auto|scroll|hidden/.test(getComputedStyle(x).overflowY)) { const c = x.getBoundingClientRect(); top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
+          }
+          const sx = Math.min(r.right, b.right) - Math.max(r.left, b.left);
+          const sy = Math.min(bottom, b.bottom) - Math.max(top, b.top);
+          if (sx > 1 && sy > 1) tapados.push((el.innerText || el.getAttribute("aria-label") || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30));
+        }
+        for (const c of cajas) c.scrollTop = 0;
+        return tapados;
+      });
+    for (const { nombre, vista } of VISTAS.slice(0, 2)) {
+      for (const [etiqueta, ruta, espera] of [
+        ["Políticas", "/politicas/envios", "Zonas"],
+        ["Noticias", "/noticias", "Noticia de prueba número 1 sobre consolas"],
+        ["Contratar", `/contratar/${SERV}`, null],
+      ]) {
+        const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+        const p = await pagina(ctx, ruta);
+        if (espera) await p.getByText(espera).first().waitFor({ timeout: 40000 }).catch(() => {});
+        else await p.locator("#contratar-enviar").waitFor({ timeout: 40000 }).catch(() => {});
+        await p.waitForTimeout(1500);
+        const tapados = await tapaAlFinal(p);
+        ok(!tapados.length, `TM3 (${nombre}): en ${etiqueta} el botón «Volver» no tapa nada al llegar al final (${tapados.join(" | ") || "ninguno"})`);
+        const a = await ancho(p);
+        ok(a.ancho <= a.v + 1, `TM3 (${nombre}): ${etiqueta} no se sale por los lados (${a.ancho}/${a.v})`);
+        await p.evaluate(() => { for (const el of [document.scrollingElement, ...document.querySelectorAll("*")]) if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) el.scrollTop = el.scrollHeight; });
+        await p.waitForTimeout(300);
+        await capturar(p, `TM3-${nombre}-volver-${etiqueta}`);
+        await ctx.close();
+      }
+    }
+  }
+
+  // TM3d) Fichas de producto y de servicio: compartir y «me gusta» de 44 × 44 y el contador a 13 px.
+  {
+    const PRODUCTO = "b7c1d2e3-0000-4000-8000-0000000000b2";
+    const SERV = "5e000000-0000-4000-8000-0000000000f4";
+    const estado = {
+      filas: PERFIL,
+      guardados: [],
+      productosVacios: false,
+      producto: {
+        id: PRODUCTO, title: "Nintendo Switch OLED", description: "Consola revisada.", price_eur: 249.99, status: "PUBLISHED", is_active: true,
+        category_id: null, images: [], updated_at: "2026-10-30T10:00:00Z", created_at: "2026-10-30T10:00:00Z", condition: "USED",
+        like_count: 3, reference: null, caracteristicas: null, mantenimiento: null, category: null,
+      },
+      fotosProducto: [{ id: "m1", product_id: PRODUCTO, kind: "image", public_url: FOTO(1), file_name: "1.jpg", sort_order: 0, is_cover: true, duration_seconds: null }],
+      servicio: { id: SERV, title: "Mantenimiento Consola PlayStation 5", description: "Limpieza y cambio de pasta térmica.", price_eur: 45, like_count: 2 },
+      fotosServicio: [{ id: "s1", service_id: SERV, kind: "image", public_url: FOTO(3), file_name: "s.jpg", sort_order: 0, is_cover: true }],
+    };
+    for (const { nombre, vista } of VISTAS) {
+      for (const [etiqueta, ruta, compartir, espera] of [
+        ["producto", `/producto/${PRODUCTO}`, "Compartir este producto", "Nintendo Switch OLED"],
+        ["servicio", `/servicio/${SERV}`, "Compartir este servicio", "Mantenimiento Consola PlayStation 5"],
+      ]) {
+        const ctx = await contexto(navegador, CLIENTE, "user", estado, vista);
+        const p = await pagina(ctx, ruta);
+        await p.getByText(espera).first().waitFor({ timeout: 40000 }).catch(() => {});
+        await p.getByRole("button", { name: /Dar me gusta|Quitar me gusta/ }).first().waitFor({ timeout: 20000 }).catch(() => {});
+        await p.waitForTimeout(800);
+        const g = await p.evaluate((nom) => {
+          const medida = (el) => { const r = el?.getBoundingClientRect(); return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null; };
+          const like = document.querySelector('[aria-label="Dar me gusta"], [aria-label="Quitar me gusta"]');
+          const cuenta = like ? [...like.querySelectorAll("*")].find((e) => [...e.childNodes].some((n) => n.nodeType === 3 && /^\d+$/.test(n.textContent.trim()))) : null;
+          return { compartir: medida(document.querySelector(`[aria-label="${nom}"]`)), like: medida(like), fs: cuenta ? parseFloat(getComputedStyle(cuenta).fontSize) : 0 };
+        }, compartir);
+        ok(!!g.compartir && g.compartir.w >= 44 && g.compartir.h >= 44, `TM3 (${nombre}): en la ficha de ${etiqueta}, «Compartir» de 44 × 44 o más (${JSON.stringify(g.compartir)})`);
+        ok(!!g.like && g.like.w >= 44 && g.like.h >= 44 && g.fs >= 13, `TM3 (${nombre}): en la ficha de ${etiqueta}, «Me gusta» de 44 × 44 o más y su contador a 13 px (${JSON.stringify(g.like)}, ${g.fs} px)`);
+        const a = await ancho(p);
+        ok(a.ancho <= a.v + 1, `TM3 (${nombre}): la ficha de ${etiqueta} no se sale por los lados (${a.ancho}/${a.v})`);
+        await capturar(p, `TM3-${nombre}-ficha-${etiqueta}`);
+        await ctx.close();
+      }
+    }
+  }
+}
+
+// ===== TM4) Tamaños comunes, grupo 4: Administración (Pedidos, Productos, Servicios, Analítica e inicio del panel) ==========
+async function seccionTM4() {
+  const VISTAS = [
+    { nombre: "360", vista: { viewport: { width: 360, height: 740 } } },
+    { nombre: "390", vista: { viewport: { width: 390, height: 844 } } },
+    { nombre: "1280", vista: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } },
+  ];
+  const ahora = new Date().toISOString();
+  const PS5 = "c0000000-0000-4000-8000-0000000000a1";
+  const PROD = "p0000000-0000-4000-8000-0000000000d4";
+  const SERV = "5e000000-0000-4000-8000-0000000000d4";
+  const pedido = (numero, extra) => ({
+    id: `d4000000-0000-4000-8000-0000000000${numero}`, numero, created_at: ahora, estado: "pendiente", entrega: "envio", nombre: "Ana Gómez", email: "ana@example.com",
+    telefono: "600111222", direccion: "Calle Mayor 1", codigo_postal: "50001", ciudad: "Zaragoza", notas: null, total_eur: 129.9, productos_eur: 124.9, envio_eur: 5, zona_envio: "peninsula",
+    envio_manual: false, user_id: CLIENTE.id, codigo_seguimiento: `VZ-TM${numero}-AAAA`, id_veoaura: null, vinculado_en: ahora, nota_admin: null,
+    pedido_items: [{ id: `i${numero}`, product_id: PROD, titulo: "Mando DualSense Midnight Black", precio_eur: 124.9 }],
+    pago_estado: "pagado", pago_modo: "real", pago_metodo: "card", pago_referencia: "pi_tm4", pagado_eur: 129.9, pagado_en: ahora, origen: "web", ...extra,
+  });
+  const PANTALLAS = [
+    {
+      etiqueta: "Pedidos", ruta: "/admin/pedidos", espera: "#pedido-titulo-91",
+      estado: () => ({ guardados: [], tarifas: [], pedidosAdmin: [pedido(91, {}), pedido(92, { estado: "enviado", pago_estado: null, pago_modo: null, pago_metodo: null })] }),
+    },
+    {
+      etiqueta: "Productos", ruta: "/admin/products", espera: "#productos-rejilla",
+      estado: () => ({
+        guardados: [], filas: [], categorias: [{ id: PS5, slug: "playstation-5", name: "PlayStation 5", sort_order: 1, is_active: true }],
+        productosAdmin: [1, 2].map((n) => ({
+          id: `${PROD.slice(0, -1)}${n}`, title: `Mando DualSense ${n}`, description: "Revisado.", price_eur: 49.9 + n, status: n === 2 ? "DRAFT" : "PUBLISHED", is_active: true, category_id: PS5,
+          images: [], condition: "USED", reference: null, is_featured_home: false, solo_entrega_mano: n === 2, peso_kg: n === 1 ? 0.5 : null, created_at: "2026-10-30T10:00:00Z", updated_at: "2026-10-30T10:00:00Z",
+        })),
+      }),
+    },
+    {
+      etiqueta: "Servicios", ruta: "/admin/services", espera: "text=Servicios",
+      estado: () => ({
+        guardados: [], filas: [], categorias: [],
+        serviciosAdmin: [{ id: SERV, title: "Mantenimiento Playstation 5", description: "Limpieza completa.", price_eur: 45, status: "PUBLISHED", is_active: true, view_count: 3, like_count: 2, created_at: "2026-10-01T10:00:00Z", updated_at: "2026-10-01T10:00:00Z" }],
+        serviciosMedia: [],
+      }),
+    },
+    { etiqueta: "Analítica", ruta: "/admin/analytics", espera: 'input[placeholder="Desde (AAAA-MM-DD)"]', estado: () => ({ guardados: [], embudo: [{ step_label: "Inicio", sessions: 10 }, { step_label: "Producto Nintendo Switch OLED", sessions: 6 }, { step_label: "Ficha: foto ampliada", sessions: 4 }] }) },
+    { etiqueta: "el inicio del panel", ruta: "/admin", espera: 'text=Panel de control', estado: () => ({ filas: [], guardados: [] }) },
+  ];
+  // Letra < 13 px, zonas táctiles < 44 × 44 (solo las más externas), la separación entre los 6 botones de estado de cada pedido
+  // y el ancho de la página.
+  const medir = (p) =>
+    p.evaluate(() => {
+      const W = window.innerWidth;
+      const visible = (el) => {
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > 0 && r.left < W;
+      };
+      const propio = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+      const pequenos = [];
+      for (const el of document.body.querySelectorAll("*")) {
+        const t = propio(el);
+        if (!t || !visible(el)) continue;
+        const cs = getComputedStyle(el);
+        if (/ionicons/i.test(cs.fontFamily) || /^[-]+$/.test(t)) continue;
+        const fs = parseFloat(cs.fontSize);
+        if (fs < 13) pequenos.push(`${t.slice(0, 30)} ${fs}`);
+      }
+      const SEL = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="switch"],[role="checkbox"],[role="radio"],[tabindex="0"]';
+      const todos = [...document.body.querySelectorAll(SEL)].filter((el) => visible(el) && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const objetivos = todos.filter((el) => !todos.some((o) => o !== el && o.contains(el)));
+      const chicos = objetivos
+        .map((el) => ({ r: el.getBoundingClientRect(), t: (el.innerText || el.getAttribute("aria-label") || el.id || el.tagName).trim().replace(/\s+/g, " ").slice(0, 30) }))
+        .filter((o) => o.r.width < 43.5 || o.r.height < 43.5)
+        .map((o) => `${o.t} ${Math.round(o.r.width)}x${Math.round(o.r.height)}`);
+      // Botones de estado de un pedido: 6 hermanos con estos nombres; separación mínima entre cada par.
+      const NOMBRES = ["Pendiente", "Confirmado", "Preparado", "Enviado", "Entregado", "Cancelado"];
+      const filas = new Map();
+      for (const el of objetivos) {
+        if (NOMBRES.includes((el.innerText || "").trim()) && el.parentElement) filas.set(el.parentElement, [...(filas.get(el.parentElement) ?? []), el]);
+      }
+      const estados = [...filas.values()].filter((l) => l.length === 6).map((l) => {
+        let gap = 1e9;
+        for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) {
+          const a = l[i].getBoundingClientRect(), b = l[j].getBoundingClientRect();
+          const v = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          const h = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          if (v > 2) gap = Math.min(gap, Math.max(b.left - a.right, a.left - b.right));
+          else if (h > 2) gap = Math.min(gap, Math.max(b.top - a.bottom, a.top - b.bottom));
+        }
+        return { gap: Math.round(gap * 10) / 10, alto: Math.round(Math.min(...l.map((e) => e.getBoundingClientRect().height))) };
+      });
+      return { pequenos: pequenos.slice(0, 8), chicos: chicos.slice(0, 8), n: objetivos.length, estados, ancho: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), v: W };
+    });
+
+  for (const pant of PANTALLAS) {
+    for (const { nombre, vista } of VISTAS) {
+      const ctx = await contexto(navegador, ADMIN, "admin", pant.estado(), vista);
+      const p = await pagina(ctx, pant.ruta);
+      await p.locator(pant.espera).first().waitFor({ timeout: 40000 }).catch(() => {});
+      await p.waitForTimeout(900);
+      const m = await medir(p);
+      ok(m.n >= 3 && !m.pequenos.length, `TM4 (${nombre}): en ${pant.etiqueta} ningún texto de menos de 13 px (${m.pequenos.join(" | ") || "ninguno"})`);
+      ok(!m.chicos.length, `TM4 (${nombre}): en ${pant.etiqueta} todo lo que se toca mide 44 × 44 o más (${m.n} táctiles; ${m.chicos.join(" | ") || "ninguno pequeño"})`);
+      if (pant.etiqueta === "Pedidos") {
+        // Dos pedidos con sus 6 botones de estado, más la fila de filtros de arriba (mismos nombres): 3 filas.
+        ok(m.estados.length === 3 && m.estados.every((e) => e.gap >= 8 && e.alto >= 44), `TM4 (${nombre}): en Pedidos los 6 botones de estado de cada pedido miden 44 px de alto y están a 8 px o más unos de otros (${JSON.stringify(m.estados)})`);
+      }
+      ok(m.ancho <= m.v + 1, `TM4 (${nombre}): ${pant.etiqueta} no se sale por los lados (${m.ancho}/${m.v})`);
+      await capturar(p, `TM4-${nombre}-${pant.ruta.replace(/\W+/g, "-").replace(/^-|-$/g, "") || "admin"}`);
+      ok(p.errores.length === 0, `TM4 (${nombre}): ${pant.etiqueta} sin errores de JavaScript (${p.errores[0] ?? "ninguno"})`);
+      await ctx.close();
+    }
+  }
+}
+
 const navegador = await lanzarNavegador(ok);
 try {
+  if (SOLO === "TM4") await seccionTM4();
+  if (SOLO === "TM3") await seccionTM3();
   if (SOLO === "UP") await seccionUP();
   if (SOLO === "TM") await seccionTM();
+  if (SOLO === "TM2") await seccionTM2();
   if (SOLO === "FC") await seccionFC();
   if (SOLO === "AC") await seccionAC();
   if (SOLO === "N") await seccionN();
@@ -12634,6 +13262,9 @@ try {
   await seccionFC();
   await seccionTM();
   await seccionUP();
+  await seccionTM2();
+  await seccionTM3();
+  await seccionTM4();
   }
 } catch (e) {
   fallos.push(`la prueba se cortó: ${String(e.stack ?? e).slice(0, 900)}`);

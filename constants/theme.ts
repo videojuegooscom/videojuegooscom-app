@@ -39,8 +39,13 @@
  * - app/(tabs)/_layout.tsx, app/(tabs)/perfil.tsx, app/servicios.tsx,
  *   components/PerfilPublico.tsx, components/Campanita.tsx → usan TAMANOS,
  *   TACTIL, CAMPO y COLORES_TEXTO.
+ * - Grupo 2 (2026-11-12): app/(tabs)/chat-global.tsx (Foro),
+ *   components/VenderAhoraModal.tsx, components/ContratarServicioModal.tsx,
+ *   components/SellRequestMedia.tsx y app/admin/analytics.tsx (campos de
+ *   fecha y chips) → también los usan.
  * - pruebas/perfil-datos.mjs → comprueba la barra inferior, la línea de
- *   estados, las pestañas del perfil y los campos a 16 px.
+ *   estados, las pestañas del perfil y los campos a 16 px (sección TM) y el
+ *   Foro y los formularios de Contratar y Vender (sección TM2).
  */
 
 /**

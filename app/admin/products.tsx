@@ -62,6 +62,9 @@
  * completas solo de estadísticas antes de llegar al buscador y a "+ Nuevo
  * producto"). Ver StatCard en products.components.tsx.
  *
+ * Tamaños del móvil (grupo 4, 2026-11-12; constants/theme.ts): ningún texto de menos de 13 px, grises desde
+ * COLORS.muted (= COLORES_TEXTO.secundario) y filtros, chips y volver de 44 px (lib/admin/products.components.tsx).
+ *
  * Scroll: cabecera fija y compacta (AdminHeader) y, debajo, un único
  * ScrollView (flex 1) con margen final de 48 px + zona segura. El modal de
  * alta/edición se desplaza entero (también con el teclado abierto en iOS).
@@ -86,6 +89,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { fmtKg, PESO_SIN_DATO_KG } from "../../lib/envio";
+import { TAMANOS } from "../../constants/theme";
 import { esCategoriaServicios } from "../../components/PortadasCategoria";
 import {
   AdminHeader,
@@ -471,7 +475,7 @@ const ProductListItem = React.memo(function ProductListItem({
           ) : primaryKind === "video" ? (
             <View style={{ alignItems: "center", justifyContent: "center", gap: 8 }}>
               <Ionicons name="videocam-outline" size={30} color={COLORS.text} />
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Vídeo</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Vídeo</Text>
             </View>
           ) : (
             <Ionicons name="game-controller-outline" size={28} color={COLORS.muted2} />
@@ -484,12 +488,12 @@ const ProductListItem = React.memo(function ProductListItem({
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 16 }}>{fmtEUR(Number(p.price_eur ?? 0))}</Text>
           {/* Peso para el envío con Correos (por kilos). Sin peso, cuenta PESO_SIN_DATO_KG. */}
           {p.peso_kg !== undefined ? (
-            <Text nativeID={`producto-peso-${p.id}`} style={{ color: p.peso_kg ? COLORS.muted : COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+            <Text nativeID={`producto-peso-${p.id}`} style={{ color: p.peso_kg ? COLORS.muted : COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
               {p.peso_kg ? `Peso con embalaje: ${fmtKg(p.peso_kg)}` : `Sin peso: el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}`}
             </Text>
           ) : null}
           {p.solo_entrega_mano ? (
-            <Text nativeID={`producto-solo-mano-${p.id}`} style={{ color: COLORS.danger, fontWeight: "800", fontSize: 12.5 }}>
+            <Text nativeID={`producto-solo-mano-${p.id}`} style={{ color: COLORS.danger, fontWeight: "800", fontSize: TAMANOS.minimo }}>
               Solo entrega en mano (no se envía)
             </Text>
           ) : null}
@@ -506,9 +510,9 @@ const ProductListItem = React.memo(function ProductListItem({
                 backgroundColor: statusUi.backgroundColor,
               }}
             >
-              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11.5 }}>{statusUi.text}</Text>
+              <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>{statusUi.text}</Text>
             </View>
-            <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: 12, lineHeight: 16, flexShrink: 1 }}>
+            <Text style={{ color: COLORS.muted, fontWeight: "700", fontSize: TAMANOS.minimo, lineHeight: 16, flexShrink: 1 }}>
               {p.is_active ? "Visible" : "Oculto"} · {labelCond(p.condition)} · {p.catName} · {imageCount} foto{imageCount === 1 ? "" : "s"}
               {hasVideo ? " + vídeo" : ""}
             </Text>
@@ -1824,7 +1828,7 @@ export default function AdminProducts() {
                 )}
                 {/* Los emojis no salen en la tienda (sinEmojis; dueño, 2026-11-04): se avisa al escribirlos. */}
                 {contarEmojis(desc) > 0 ? (
-                  <Text nativeID="producto-aviso-emojis" style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  <Text nativeID="producto-aviso-emojis" style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                     En la tienda la descripción se verá sin {contarEmojis(desc) === 1 ? "su emoji" : `sus ${contarEmojis(desc)} emojis`}.
                   </Text>
                 ) : null}
@@ -1878,7 +1882,7 @@ export default function AdminProducts() {
                       fontSize: 16, // 16px: evita el zoom automático de Safari en iPhone al escribir.
                     }}
                   />
-                  <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                     {peso.trim()
                       ? "Correos cobra por kilos: con este peso se calcula el envío."
                       : `Sin peso, el envío cuenta ${fmtKg(PESO_SIN_DATO_KG)}.`}
@@ -1895,7 +1899,7 @@ export default function AdminProducts() {
                     </Text>
                     <Switch nativeID="producto-solo-mano" value={soloMano} onValueChange={setSoloMano} accessibilityLabel="Solo entrega en mano" />
                   </View>
-                  <Text style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 18, textAlign: "center" }}>
+                  <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 18, textAlign: "center" }}>
                     Para televisores sin su caja original: la tienda no deja pedirlo con envío y la ficha lo avisa.
                   </Text>
                 </View>
@@ -1923,7 +1927,7 @@ export default function AdminProducts() {
                   }}
                 />
               ) : (
-                <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: 12 }}>
+                <Text style={{ color: COLORS.muted, lineHeight: 19, fontSize: TAMANOS.minimo }}>
                   El número de referencia todavía no está activado: ejecuta
                   sql/product_reference.sql en Supabase para poder rellenarlo.
                 </Text>
@@ -2010,11 +2014,11 @@ export default function AdminProducts() {
                 {/* Lo quitado se borra al guardar; hasta entonces se puede devolver. */}
                 {removedMedia.length > 0 ? (
                   <View nativeID="producto-fotos-quitadas" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                    <Text style={{ color: COLORS.muted, fontSize: 12.5, fontWeight: "700", textAlign: "center" }}>
+                    <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, fontWeight: "700", textAlign: "center" }}>
                       {removedMedia.length === 1 ? "1 quitada" : `${removedMedia.length} quitadas`}: se borran al guardar los cambios.
                     </Text>
                     <Pressable onPress={deshacerQuitadas} accessibilityRole="button" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}>
-                      <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 13 }}>Deshacer</Text>
+                      <Text style={{ color: COLORS.accentText, fontWeight: "900", fontSize: 13 }}>Deshacer</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -2107,7 +2111,7 @@ export default function AdminProducts() {
                 ) : null}
               </View>
 
-              <Text style={{ color: COLORS.muted, fontSize: 12, lineHeight: 16, textAlign: "center" }}>
+              <Text style={{ color: COLORS.muted, fontSize: TAMANOS.minimo, lineHeight: 16, textAlign: "center" }}>
                 «Estado» es la fase del producto en el catálogo (borrador, por
                 revisar o publicado). «Producto activo» es otra cosa: decide
                 si, aun estando publicado, se ve o no en la tienda — apagarlo
@@ -2389,7 +2393,7 @@ function MarkSoldModal({
                           <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: "700", fontSize: 13 }}>
                             {u.full_name || u.username || "Sin nombre"}
                           </Text>
-                          <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 12 }}>
+                          <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: TAMANOS.minimo }}>
                             {u.email}
                           </Text>
                         </View>

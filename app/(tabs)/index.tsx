@@ -49,6 +49,10 @@
  *   cookies/analítica: si el visitante rechaza el seguimiento, estas
  *   llamadas no hacen nada (lo decide trackEvent internamente).
  *
+ * - Tamaños (2026-11-12, grupo 3): los avisos de «Compra con confianza» miden 44 px de alto, nada baja de 13 px (salvo el
+ *   © legal, 12), el texto azul pequeño usa #0A78B4, las flechas de la oferta tienen 44 px de zona táctil y la cabecera
+ *   (logo, lema, separaciones) es más compacta en el móvil para que asome la oferta en la primera pantalla.
+ *
  * Conectado con:
  * - lib/supabase.ts → cliente de Supabase para los productos destacados.
  * - lib/analytics.ts → registro del recorrido del visitante para el panel
@@ -113,6 +117,7 @@ import { supabase } from "../../lib/supabase";
 import { sinEmojis } from "../../lib/admin/products.utils";
 import { trackEvent, trackEventThrottled } from "../../lib/analytics";
 import { useTabBarBottomInset } from "../../lib/tabBar";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../../constants/theme";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -125,7 +130,7 @@ const COLORS = {
   tile: "#F6FAFD",
   tileBorder: "rgba(11,33,56,0.10)",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
   muted2: "rgba(11,33,56,0.62)",
   accent: "#1EA7E8",
   accentDark: "#1EA7E8",
@@ -572,7 +577,7 @@ function Separador({ isMobile }: { isMobile?: boolean }) {
         maxWidth: 720,
         alignSelf: "center",
         backgroundColor: COLORS.border,
-        marginVertical: isMobile ? 18 : 24,
+        marginVertical: isMobile ? 14 : 24,
       }}
     />
   );
@@ -790,7 +795,7 @@ function Pill({
         style={{
           color: "rgba(11,33,56,0.78)",
           fontWeight: "800",
-          fontSize: isMobile ? 12 : 13,
+          fontSize: TAMANOS.minimo,
         }}
       >
         {text}
@@ -843,17 +848,22 @@ function TrustInfoRow({
         flexDirection: "row",
         flexWrap: "wrap",
         justifyContent: "center",
-        gap: isMobile ? 16 : 28,
+        columnGap: isMobile ? 12 : 28,
+        rowGap: TACTIL.separacion,
       }}
     >
       {TRUST_INFO.map((item) => (
         <Pressable
           key={item.title}
           onPress={() => onPressItem(item)}
+          accessibilityRole="button"
           style={({ pressed }) => ({
             opacity: pressed ? 0.65 : 1,
             flexDirection: "row",
             alignItems: "center",
+            // 44 px de alto para el dedo (antes 21) y 8 px de separación entre avisos.
+            minHeight: TACTIL.minimo,
+            paddingHorizontal: 4,
             gap: 8,
           })}
         >
@@ -862,7 +872,7 @@ function TrustInfoRow({
             style={{
               color: COLORS.muted,
               fontWeight: "700",
-              fontSize: isMobile ? 14 : 14.5,
+              fontSize: TAMANOS.cuerpo,
             }}
           >
             {item.title}
@@ -1025,7 +1035,7 @@ function PrimaryButton({
             style={{
               color: "#FFFFFF",
               fontWeight: "900",
-              fontSize: 12,
+              fontSize: TAMANOS.minimo,
               marginTop: 6,
               textAlign: "center",
             }}
@@ -1279,40 +1289,47 @@ function FeaturedMediaCarousel({
       {hasMultiple && activeIndex > 0 ? (
         <Pressable
           onPress={() => goToIndex(activeIndex - 1)}
-          hitSlop={10}
-          style={({ pressed }) => ({
+          accessibilityRole="button"
+          accessibilityLabel="Foto anterior"
+          // Zona táctil de 44 px; el círculo visible sigue siendo de 32.
+          style={{
             position: "absolute",
-            left: 8,
-            top: mediaHeight / 2 - 16,
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            backgroundColor: pressed ? "rgba(11,33,56,0.65)" : "rgba(11,33,56,0.45)",
+            left: 2,
+            top: mediaHeight / 2 - TACTIL.minimo / 2,
+            width: TACTIL.minimo,
+            height: TACTIL.minimo,
             alignItems: "center",
             justifyContent: "center",
-          })}
+          }}
         >
-          <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+          {({ pressed }) => (
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: pressed ? "rgba(11,33,56,0.65)" : "rgba(11,33,56,0.45)", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+            </View>
+          )}
         </Pressable>
       ) : null}
 
       {hasMultiple && activeIndex < images.length - 1 ? (
         <Pressable
           onPress={() => goToIndex(activeIndex + 1)}
-          hitSlop={10}
-          style={({ pressed }) => ({
+          accessibilityRole="button"
+          accessibilityLabel="Foto siguiente"
+          style={{
             position: "absolute",
-            right: 8,
-            top: mediaHeight / 2 - 16,
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            backgroundColor: pressed ? "rgba(11,33,56,0.65)" : "rgba(11,33,56,0.45)",
+            right: 2,
+            top: mediaHeight / 2 - TACTIL.minimo / 2,
+            width: TACTIL.minimo,
+            height: TACTIL.minimo,
             alignItems: "center",
             justifyContent: "center",
-          })}
+          }}
         >
-          <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+          {({ pressed }) => (
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: pressed ? "rgba(11,33,56,0.65)" : "rgba(11,33,56,0.45)", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+            </View>
+          )}
         </Pressable>
       ) : null}
 
@@ -1346,7 +1363,7 @@ function FeaturedMediaCarousel({
         <View style={{ position: "absolute", right: 12, bottom: hasMultiple ? 26 : 12 }}>
           <Text
             // Azul marino: las fotos van enteras sobre fondo claro y en blanco no se leía.
-            style={{ color: "#0B2138", fontWeight: "900", fontSize: 12.5 }}
+            style={{ color: "#0B2138", fontWeight: "900", fontSize: TAMANOS.minimo }}
           >
             +{remaining} fotos
           </Text>
@@ -1369,7 +1386,7 @@ function FeaturedMediaCarousel({
           }}
         >
           <Ionicons name="videocam" size={12} color="#FFFFFF" />
-          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11 }}>Vídeo</Text>
+          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: TAMANOS.minimo }}>Vídeo</Text>
         </View>
       ) : null}
     </View>
@@ -1509,7 +1526,7 @@ function FeaturedOfferCard({
                 style={{
                   color: "rgba(11,33,56,0.78)",
                   fontWeight: "800",
-                  fontSize: isMobile ? 12 : 13,
+                  fontSize: TAMANOS.minimo,
                 }}
               >
                 Revisado
@@ -1936,14 +1953,15 @@ export default function HomeScreen() {
               alignSelf: "center",
               width: "100%",
               maxWidth: 560,
-              marginTop: isMobile ? -4 : 0,
-              marginBottom: 8,
+              marginTop: isMobile ? -6 : 0,
+              marginBottom: isMobile ? 4 : 8,
             }}
           >
             <View style={{ flex: 1, alignItems: "center" }}>
               {redesLogo.tiktok ? <RedJuntoAlLogo fila={redesLogo.tiktok} estrecho={logoEstrecho} /> : null}
             </View>
-            <MarcaAnimada cual="logo" ancho={logoEstrecho ? 128 : isMobile ? 150 : isWide ? 190 : 170} />
+            {/* Logo más pequeño en el móvil (grupo 3, 2026-11-12) para que la primera pantalla enseñe más. */}
+            <MarcaAnimada cual="logo" ancho={logoEstrecho ? 104 : isMobile ? 116 : isWide ? 190 : 170} />
             <View style={{ flex: 1, alignItems: "center" }}>
               {redesLogo.instagram ? <RedJuntoAlLogo fila={redesLogo.instagram} estrecho={logoEstrecho} /> : null}
             </View>
@@ -1955,17 +1973,17 @@ export default function HomeScreen() {
           ) : null}
 
           {/* Cabecera sin envoltorio de tarjeta: texto y botones centrados. */}
-          <View style={{ gap: 12, alignItems: "center", paddingVertical: 4 }}>
+          <View style={{ gap: isMobile ? 10 : 12, alignItems: "center", paddingVertical: 2 }}>
             {/* Único título de primer nivel (h1) de la portada. */}
             <Text
               accessibilityRole="header"
               {...({ "aria-level": 1 } as object)}
               style={{
                 color: COLORS.text,
-                fontSize: isMobile ? 21 : 22,
+                fontSize: isMobile ? TAMANOS.titulo3 : 22,
                 fontWeight: "700",
                 letterSpacing: 0.2,
-                lineHeight: 30,
+                lineHeight: isMobile ? 26 : 30,
                 textAlign: "center",
               }}
             >
@@ -2097,7 +2115,7 @@ export default function HomeScreen() {
               accessibilityRole="link"
               style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingHorizontal: 8, opacity: pressed ? 0.8 : 1 })}
             >
-              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+              <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>
                 Conoce nuestra historia →
               </Text>
             </Pressable>
@@ -2129,9 +2147,9 @@ export default function HomeScreen() {
             <Pressable
               onPress={() => pushRoute("/blue-ia" as Href)}
               accessibilityRole="button"
-              style={({ pressed }) => ({ alignSelf: "center", paddingVertical: 10, opacity: pressed ? 0.8 : 1 })}
+              style={({ pressed }) => ({ alignSelf: "center", minHeight: TACTIL.minimo, justifyContent: "center", paddingHorizontal: 8, opacity: pressed ? 0.8 : 1 })}
             >
-              <Text style={{ color: COLORS.accent, fontWeight: "900", fontSize: 15, textAlign: "center" }}>
+              <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900", fontSize: TAMANOS.cuerpo, textAlign: "center" }}>
                 ¿Otra duda? Pregúntale a Blue IA →
               </Text>
             </Pressable>

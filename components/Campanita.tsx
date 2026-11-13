@@ -134,7 +134,8 @@
  * - app/vender.tsx → página "Vender" (botones de Blue, de su panel y de la guía).
  * - lib/interaccion.ts → «me gusta» de la cuenta (bajadas de precio); app/(tabs)/perfil.tsx → registro y vuelta
  *   (VOLVER_TRAS_ACCESO_KEY); app/admin/analytics.tsx → #analitica-blue-avisos-cuenta.
- * - constants/theme.ts → CAMPO.letra (16 px) en los campos de texto, para que el iPhone no haga zoom.
+ * - constants/theme.ts → CAMPO.letra (16 px) en los campos de texto, para que el iPhone no haga zoom, y
+ *   COLORES_TEXTO.azulTexto en el «Blue · … Entendido ›» de la pista del Foro (texto azul de 13 px).
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
@@ -166,7 +167,7 @@ import { alRecargar } from "./TirarParaActualizar";
 import { useMiPerfilAbierto, usePerfilObligatorioVisible } from "./PerfilPublico";
 import { suscribirVisorFotos, visorFotosAbierto } from "./ImageLightbox";
 import { MejorasModal } from "./ReviewModal";
-import { CAMPO } from "../constants/theme";
+import { CAMPO, COLORES_TEXTO } from "../constants/theme";
 
 const COLORS = {
   bg: "#FFFFFF",
@@ -3282,9 +3283,10 @@ function AvisoSelector({ onCerrar }: { onCerrar: () => void }) {
       >
         <MarcaAnimada cual="carga" ancho={44} tocable={false} />
         <Text style={[TEXTO_CRISTAL, { flex: 1, fontWeight: "800", fontSize: 13, lineHeight: 18 }]}>
-          <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>Blue · </Text>
+          {/* Texto azul de 13 px: azul oscuro legible (COLORES_TEXTO.azulTexto, regla del azul). */}
+          <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900" }}>Blue · </Text>
           Toca el botón azul para cambiar de pestaña. Para ordenarlas, mantén pulsada una y arrástrala.
-          <Text style={{ color: COLORS.accentDark, fontWeight: "900" }}>  Entendido ›</Text>
+          <Text style={{ color: COLORES_TEXTO.azulTexto, fontWeight: "900" }}>  Entendido ›</Text>
         </Text>
       </Pressable>
     </View>

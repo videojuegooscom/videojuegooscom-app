@@ -25,6 +25,9 @@
  * Quién la escribió: como en el Foro, el usuario y la foto de «Mi perfil» de esa persona (perfilesPublicos de
  * components/PerfilPublico.tsx: solo esos dos datos); si aún no tiene usuario, su nombre y la inicial.
  *
+ * Tamaños (2026-11-12, grupo 3): letra mínima 13 (antes 9-12), gris a 0,72, estrellas con más contraste y «Dejar una
+ * reseña» con 44 px de alto y texto en el azul de texto #0A78B4 (constants/theme.ts; prueba TM3).
+ *
  * Conectado con:
  * - lib/supabase.ts → lee "store_reviews" y "product_sales".
  * - components/ReviewModal.tsx → el "pop" donde se publica una reseña
@@ -34,6 +37,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
+import { COLORES_TEXTO, TACTIL, TAMANOS } from "../constants/theme";
 import { perfilesPublicos, type PerfilForo } from "./PerfilPublico";
 import ReviewModal, { type PublishedReview } from "./ReviewModal";
 import SmartImage from "./SmartImage";
@@ -59,15 +63,17 @@ const COLORS = {
   card: "#FFFFFF",
   border: "#E3EAF2",
   text: "#0B2138",
-  muted: "rgba(11,33,56,0.62)",
-  muted2: "rgba(11,33,56,0.62)",
+  muted: COLORES_TEXTO.secundario,
+  muted2: COLORES_TEXTO.secundario,
   accent: "#1EA7E8",
   accent2: "#EAF6FD",
   accentBorder: "#BEE6FA",
   successBg: "#E7F8EE",
   successBorder: "#BCEBCB",
-  gold: "#F0B429",
-  goldSoft: "rgba(11,33,56,0.18)",
+  // Estrellas más visibles (grupo 3, 2026-11-12): dorado más profundo y las vacías en gris azulado; las dos sobre 3:1 de
+  // contraste (antes 1,8:1 y 1,4:1).
+  gold: "#C07C00",
+  goldSoft: "rgba(11,33,56,0.50)",
 };
 
 // Cuántas reseñas se piden como máximo para calcular la media/el total (una
@@ -103,9 +109,9 @@ function AutorResena({ nombre, perfil, fecha }: { nombre: string; perfil?: Perfi
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <View
         style={{
-          width: 24,
-          height: 24,
-          borderRadius: 12,
+          width: 26,
+          height: 26,
+          borderRadius: 13,
           overflow: "hidden",
           backgroundColor: "#EAF1F7",
           alignItems: "center",
@@ -115,10 +121,10 @@ function AutorResena({ nombre, perfil, fecha }: { nombre: string; perfil?: Perfi
         {perfil?.foto ? (
           <SmartImage uri={perfil.foto} alt={`Foto de ${visible}`} contentFit="cover" style={{ width: "100%", height: "100%" }} />
         ) : (
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 11 }}>{visible.slice(0, 1).toUpperCase()}</Text>
+          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>{visible.slice(0, 1).toUpperCase()}</Text>
         )}
       </View>
-      <Text numberOfLines={1} style={{ flexShrink: 1, color: COLORS.muted2, fontSize: 12 }}>
+      <Text numberOfLines={1} style={{ flexShrink: 1, color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
         <Text style={{ color: COLORS.text, fontWeight: "800" }}>{visible}</Text> · {fecha}
       </Text>
     </View>
@@ -172,11 +178,11 @@ function ReviewCard({
               }}
             />
           )}
-          <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 10, fontWeight: "700", lineHeight: 12 }}>
+          <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: TAMANOS.minimo, fontWeight: "700", lineHeight: 16 }}>
             {soldProduct.title}
           </Text>
           {soldProduct.condition ? (
-            <Text style={{ color: COLORS.muted2, fontSize: 9 }}>
+            <Text style={{ color: COLORS.muted2, fontSize: TAMANOS.minimo }}>
               {CONDITION_LABEL[soldProduct.condition] ?? soldProduct.condition}
             </Text>
           ) : null}
@@ -308,7 +314,7 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
       }}
     >
       <View style={{ gap: 8, alignItems: isMobile ? "center" : "flex-start" }}>
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 12 }}>Reseñas</Text>
+        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: TAMANOS.minimo }}>Reseñas</Text>
 
         <Text
           style={{
@@ -391,6 +397,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
             style={({ pressed }) => ({
               opacity: pressed ? 0.88 : 1,
               borderRadius: 999,
+              minHeight: TACTIL.minimo,
+              justifyContent: "center",
               paddingVertical: 12,
               paddingHorizontal: 14,
               borderWidth: 1,
@@ -401,7 +409,8 @@ export default function Resenas({ isMobile = false }: { isMobile?: boolean }) {
           >
             <Text
               style={{
-                color: COLORS.accent,
+                color: COLORES_TEXTO.azulTexto,
+                fontSize: TAMANOS.cuerpo,
                 fontWeight: "900",
                 textAlign: "center",
               }}
